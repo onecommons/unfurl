@@ -1,0 +1,5 @@
+# just a list of paths, gitterop will introspect
+local-repos:
+  - "path1"
+
+  
