@@ -79,7 +79,7 @@ def run(manifestPath, opts=None):
   cluster = Cluster(manifest)
   connections = cluster.connectToCluster(opts)
   #XXX before run commit manifest if it has changed, else verify git access to this manifest
-  for phase, i in enumerate(PHASES):
+  for i, phase in enumerate(PHASES):
     if cluster.needPhase[phase] or (opts and opts.get('force-' + phase)):
       changes = cluster.syncComponents(phase)
       if changes:

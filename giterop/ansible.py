@@ -20,7 +20,11 @@ def _runPlaybook(playbook, params, inventory=None):
     json.dump(params or {}, fp)
     return subprocess.check_output([ANSIBLE_PLAYBOOK_CMD, '-e', '@' + fp.name] + inventoryarg)
 
-class AnsiblePlaybookComponent(object):
+class ComponentType(object):
+  def __init__(self, component, cluster, connections):
+    pass #cluster has connection, 
+
+class AnsiblePlaybookComponent(ComponentType):
   @classmethod
   def isComponentType(component):
     if component.type == 'ansible':

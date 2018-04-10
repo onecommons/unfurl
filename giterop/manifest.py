@@ -23,7 +23,7 @@ class Manifest(object):
     self._clusters = dict([(k, ClusterSpec(self, k)) for k in (self.manifest.get('clusters') or {}).keys()])
     self.componentSpecs = dict([(k, ComponentSpec(self, k)) for k in (self.manifest.get('componentSpecs') or {}).keys()])
     if validate:
-      map(lambda x: x.components, self._clusters.values())
+      map(lambda x: [c.getParams() for c in x.components], self._clusters.values())
 
   def getValidateErrors(self):
     version = self.manifest.get('version')
@@ -39,7 +39,7 @@ class Manifest(object):
 
   def getCluster(self, clusterid):
     return self._clusters.get(clusterid)
-  
+
   # @property
   # def installed(self):
   #   '''Return list of components'''
@@ -55,6 +55,8 @@ class ClusterDescription(object):
       raise GitErOpError('%s key and name do not match: %s %s' % (self.key, name, manifestName) )
     self.name = name or manifestName
     self._allComponents = None
+    #make sure Component objects are created early
+    self.localComponentsDict = self._getLocalComponentsDict()
 
   def _findManifest(self, name=None):
     """
@@ -84,7 +86,7 @@ class ClusterDescription(object):
     return seen
 
   # components explicitly defined on this object
-  def getLocalComponentsDict(self):
+  def _getLocalComponentsDict(self):
     components = self._findManifest().get('components')
     if not components:
       return {}
@@ -97,22 +99,20 @@ class ClusterDescription(object):
       raise GitErOpError("Duplicate names in component list for %s" % self.name)
     return componentDict
 
-  def mergeComponent(self, baseComponent, localmatchComponent):
-    mergedDef = baseComponent.localDef # XXX
-    return Component(mergedDef, self)
-
   @property
   def components(self):
     if self._allComponents is not None:
       return self._allComponents
     # first add the templates' components
     components = []
-    localComponents = self.getLocalComponentsDict()
+    localComponents = self.localComponentsDict
     for t in self.templates:
       for c in t.components:
         match = localComponents.pop(c.fqName, None)
         if match:
-          components.append(self.mergeComponent(c, match))
+          #replace the ancestor with the decendent
+          match.ancestors.append(c)
+          components.append(match)
         else:
           components.append(c)
     components.extend(localComponents.values())
