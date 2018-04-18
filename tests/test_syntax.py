@@ -5,76 +5,80 @@ class ManifestSyntaxTest(unittest.TestCase):
   def test_hasversion(self):
     hasVersion = """
     version: '0.1'
-    clusterSpecs:
-    clusters:
+    resources:
     """
     assert Manifest(hasVersion)
+
     badVersion = """
     version: 2
-    clusterSpecs:
-    clusters:
+    resources:
     """
-    with self.assertRaises(GitErOpError):
+    with self.assertRaises(GitErOpError) as err:
       Manifest(badVersion)
+    self.assertEquals(str(err.exception), "unknown version: 2")
 
     missingVersion = """
-    clusterSpecs:
-    clusters:
+    resources:
     """
-    with self.assertRaises(GitErOpError):
+    with self.assertRaises(GitErOpError) as err:
       Manifest(missingVersion)
+    self.assertEquals(str(err.exception), "missing version")
 
-  def test_clusterids(self):
-    #clusterids can only contain [a-z0-9_]+
+  def test_resourcenames(self):
+    #clusterids can only contain [a-z0-9]([a-z0-9\-]*[a-z0-9])?
     pass
 
-  def test_cluster_inheritance(self):
+  def test_template_inheritance(self):
     manifest = '''
 version: '0.1'
-clusterTemplates:
+templates:
   base:
-    components:
+    configurations:
       - step1
-clusters:
-  cloud3: #key is cluster-id
-      clusterTemplates:
+resources:
+  cloud3: #key is resource name
+    spec:
+      templates:
         - base
         - production
 '''
-    # error: production clusterTemplate isn't defined
-    with self.assertRaises(GitErOpError):
+    with self.assertRaises(GitErOpError) as err:
       Manifest(manifest)
+    self.assertEquals(str(err.exception), "template reference is not defined: production")
 
     manifest = '''
 version: '0.1'
-clusterTemplates:
+templates:
   base:
-    components:
+    configurations:
       - step1
       - step2
-clusters:
-  cloud3: #key is cluster-id
-      clusterTemplates:
+resources:
+  cloud3:
+    spec:
+      templates:
         - base
-      # overrides and additions from clusterSpec
-      components:
+      # overrides and additions from templates
+      configurations:
         - name: base.step1
 '''
     #overrides base.step1 defination, doesn't add a component
-    assert len(Manifest(manifest, validate=False).clusters[0].components) == 2
+    manifestObj = Manifest(manifest, validate=False)
+    assert len(manifestObj.resources[0].configuration.configurations) == 2, manifestObj.resources[0].configuration.configurations
 
   def test_override(self):
     #component names have to be qualified to override
     #duplicate names both run with distinct values
     manifest = '''
 version: '0.1'
-componentSpecs:
+configurators:
   step2:
     actions:
       install: foo
-clusterTemplates:
+templates:
   base:
-    components:
+    templates:
+    configurations:
       - name: step1
         spec:
           parameters:
@@ -82,24 +86,25 @@ clusterTemplates:
               default: default
         parameters:
           test: base
-clusters:
-  cloud3: #key is cluster-id
-      clusterTemplates:
+resources:
+  cloud3:
+    spec:
+      templates:
         - base
-      # overrides and additions from clusterSpec
-      components:
+      # overrides and additions from template
+      configurations:
         - name: base.step1
           parameters:
             test: derived
 '''
-    assert Manifest(manifest).clusters[0].components[0].getParams() == {'test': 'derived'}
+    assert Manifest(manifest).resources[0].configuration.configurations[0].getParams() == {'test': 'derived'}
 
   def test_uninstall_override(self):
     #override with action uninstall will just remove base component being applied
     pass
 
   def test_abbreviations(self):
-    # components:
+    # configurations:
     #   - etcd #equivalent to name: etcd
     #   - name: default-registry #if spec is omitted find componentSpec that matches the name
     pass
@@ -107,34 +112,34 @@ clusters:
   def test_missingSpec(self):
     manifest = '''
 version: '0.1'
-clusterTemplates:
+templates:
   base:
-    components:
+    configurations:
       - step1
       - step2
-clusters:
-  cloud3: #key is cluster-id
-      clusterTemplates:
+resources:
+  cloud3:
+    spec:
+      templates:
         - base
-      # overrides and additions from clusterSpec
-      components:
+      configurations:
         - name: base.step1
 '''
     with self.assertRaises(GitErOpError) as err:
       Manifest(manifest)
-    self.assertEquals(str(err.exception), "component step2 must reference or define a spec")
+    self.assertEquals(str(err.exception), "configuration step1 must reference or define a spec")
 
   def test_badparams(self):
     # don't match spec definition
     manifest = '''
 version: '0.1'
-componentSpecs:
+configurators:
   step2:
     actions:
       install: foo
-clusterTemplates:
+templates:
   base:
-    components:
+    configurations:
       - name: step1
         spec:
           parameters:
@@ -142,12 +147,13 @@ clusterTemplates:
               default: default
         parameters:
           test: base
-clusters:
-  cloud3: #key is cluster-id
-      clusterTemplates:
+resources:
+  cloud3:
+    spec:
+      templates:
         - base
-      # overrides and additions from clusterSpec
-      components:
+      # overrides and additions
+      configurations:
         - name: base.step1
           parameters:
             # error: should be a string
@@ -160,13 +166,13 @@ clusters:
     #parameter missing from spec
     manifest = '''
 version: '0.1'
-componentSpecs:
+configurators:
   step2:
     actions:
       install: foo
-clusterTemplates:
+templates:
   base:
-    components:
+    configurations:
       - name: step1
         spec:
           parameters:
@@ -174,12 +180,13 @@ clusterTemplates:
               default: default
         parameters:
           test: base
-clusters:
-  cloud3: #key is cluster-id
-      clusterTemplates:
+resources:
+  cloud3:
+    spec:
+      templates:
         - base
-      # overrides and additions from clusterSpec
-      components:
+      # overrides and additions
+      configurations:
         - name: base.step1
           parameters:
             doesntexist: True
@@ -191,24 +198,25 @@ clusters:
     #missing required parameter
     manifest = '''
 version: '0.1'
-componentSpecs:
+configurators:
   step2:
     actions:
       install: foo
-clusterTemplates:
+templates:
   base:
-    components:
+    configurations:
       - name: step1
         spec:
           parameters:
             - name: test
               required: True
-clusters:
-  cloud3: #key is cluster-id
-      clusterTemplates:
+resources:
+  cloud3:
+    spec:
+      templates:
         - base
-      # overrides and additions from clusterSpec
-      components:
+      # overrides and additions
+      configurations:
         - name: base.step1
 '''
     with self.assertRaises(GitErOpError) as err:

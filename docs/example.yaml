@@ -1,0 +1,103 @@
+version: 0.1
+#kind: giteropmanifest
+configurators:
+  custom:
+    type: python
+    path: custom.py
+    src: "#552617f6bc08e37b066c3392e6de12c92cc0c547"
+  deploy-kms-dns:
+    type: ansible
+    src: "git@github.com:onecommons/openshift-ansible.git#552617f6bc08e37b066c3392e6de12c92cc0c547"
+    version:
+    playbooks:
+      discover: deploy-kms-dns-certs.yaml
+      instantiate: deploy-kms-dns-certs.yaml
+      revert: uninstall-kms-dns-certs.yaml
+    #onfailure:? update, re-create, retry, skip, ignore
+    #timeout ?
+    connection: cloud #implied if missing
+    parameters:
+      - name: my_param
+        type: enum
+        enum: ['X', 'Y', 'Z']
+        required: True
+        default:
+          clusterkms: name
+#XXX resource types
+templates:
+  "templateName1":
+    templates:
+    configurators:
+  cluster1:
+resources:
+  baseos-ami:
+    kind: AmiImage
+    metadata:
+      amis:
+        us-east-1: amiid
+    spec:
+      create-ami: #creates and destroy instance
+        ec2instance
+        configure-host
+      copyToRegions:
+        regions
+          - us-east1
+          - us-east2
+    status:
+      resources:
+        ec2instance:
+          status:
+            deleted
+        ami:
+          region
+      history:
+        deleted
+
+  awsCluster:
+    kind: CloudProvisioner
+    metadata:
+      awsAccount:
+        profile: production
+    spec:
+      hostConnections:
+        external:
+          type: ssh
+          config: ""
+          keyfile: ""
+          #or kms: default-ssh
+      secrets: #here?
+      templates:
+        - base
+      configurations:
+        - buildCluster #creates nodes
+            ami: resource: baseAmi-useast1
+        - deployControlPane # operates on child node resources
+            template: cluster1 #creates cluster resource
+    status:
+      resources:
+        #only spec and metadata of resources can be edited
+        #or new ones manually added
+        - master01:
+            metadata:
+              role: master
+            spec:
+              hostname: master...
+              templates:
+                master#commitid
+            status:
+              ec2instanceId:
+              created-by: actionid
+        - openshiftCluster1:
+            metadata:
+              serverURL:
+              kubeManifest:
+                kms: kubeManifest
+      history: #read-only
+        - configurator: production.default-registry
+          actionId: 3333
+          previously: commitid
+          applied: commitid
+          action: install / uninstall / update / configchange
+          status: success | failure | pending | started | timeout
+          date: date
+          metadata-update: ...
