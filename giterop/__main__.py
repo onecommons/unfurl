@@ -14,10 +14,7 @@ if os.getenv('AWS_ACCESS_KEY_ID') is None or os.getenv('AWS_SECRET_ACCESS_KEY') 
 
 @click.command()
 @click.argument('manifest_file', default='cluster-manifest.yaml', nargs=1, type=click.Path(exists=True))
-@click.option('--cluster-id', help="cluster name")
-@click.option('--create', is_flag=True, help="create a new cluster and add to manifest")
-@click.option('--build-cloud', is_flag=True, help="build cloud infrastructure if it doesn't exist")
-@click.option('--build-control-plane', is_flag=True, help="build control pane if it doesn't exist")
+@click.option('--resource', help="name of resource to start with")
 @click.help_option('--help', '-h')
 @click.option('-v', '--verbose', count=True)
 def main(manifest, **options):

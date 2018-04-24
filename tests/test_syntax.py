@@ -4,13 +4,15 @@ from giterop.manifest import *
 class ManifestSyntaxTest(unittest.TestCase):
   def test_hasversion(self):
     hasVersion = """
-    version: '0.1'
+    apiVersion: giterops/v1alpha1
+    kind: Manifest
     resources:
     """
     assert Manifest(hasVersion)
 
     badVersion = """
-    version: 2
+    apiVersion: 2
+    kind: Manifest
     resources:
     """
     with self.assertRaises(GitErOpError) as err:
@@ -30,7 +32,9 @@ class ManifestSyntaxTest(unittest.TestCase):
 
   def test_template_inheritance(self):
     manifest = '''
-version: '0.1'
+apiVersion: giterops/v1alpha1
+kind: Manifest
+
 templates:
   base:
     configurations:
@@ -47,7 +51,16 @@ resources:
     self.assertEquals(str(err.exception), "template reference is not defined: production")
 
     manifest = '''
-version: '0.1'
+apiVersion: giterops/v1alpha1
+kind: Manifest
+
+configurators:
+  step1:
+    actions:
+      install: foo
+  step2:
+    actions:
+      install: foo
 templates:
   base:
     configurations:
@@ -64,13 +77,15 @@ resources:
 '''
     #overrides base.step1 defination, doesn't add a component
     manifestObj = Manifest(manifest, validate=False)
-    assert len(manifestObj.resources[0].configuration.configurations) == 2, manifestObj.resources[0].configuration.configurations
+    assert len(manifestObj.resources[0].spec.configurations) == 2, manifestObj.resources[0].configuration.configurations
 
   def test_override(self):
     #component names have to be qualified to override
     #duplicate names both run with distinct values
     manifest = '''
-version: '0.1'
+apiVersion: giterops/v1alpha1
+kind: Manifest
+
 configurators:
   step2:
     actions:
@@ -80,7 +95,7 @@ templates:
     templates:
     configurations:
       - name: step1
-        spec:
+        configurator:
           parameters:
             - name: test
               default: default
@@ -97,7 +112,7 @@ resources:
           parameters:
             test: derived
 '''
-    assert Manifest(manifest).resources[0].configuration.configurations[0].getParams() == {'test': 'derived'}
+    assert Manifest(manifest).resources[0].spec.configurations[0].getParams() == {'test': 'derived'}
 
   def test_uninstall_override(self):
     #override with action uninstall will just remove base component being applied
@@ -109,9 +124,15 @@ resources:
     #   - name: default-registry #if spec is omitted find componentSpec that matches the name
     pass
 
-  def test_missingSpec(self):
+  def test_missingConfigurator(self):
     manifest = '''
-version: '0.1'
+apiVersion: giterops/v1alpha1
+kind: Manifest
+
+configurators:
+  step2:
+    actions:
+      install: foo
 templates:
   base:
     configurations:
@@ -127,12 +148,14 @@ resources:
 '''
     with self.assertRaises(GitErOpError) as err:
       Manifest(manifest)
-    self.assertEquals(str(err.exception), "configuration step1 must reference or define a spec")
+    self.assertEquals(str(err.exception), "configurator not found: step1")
 
   def test_badparams(self):
     # don't match spec definition
     manifest = '''
-version: '0.1'
+apiVersion: giterops/v1alpha1
+kind: Manifest
+
 configurators:
   step2:
     actions:
@@ -141,7 +164,7 @@ templates:
   base:
     configurations:
       - name: step1
-        spec:
+        configurator:
           parameters:
             - name: test
               default: default
@@ -159,13 +182,16 @@ resources:
             # error: should be a string
             test: 0
 '''
-    with self.assertRaises(GitErOpError) as err:
+    with self.assertRaises(GitErOpValidationError) as err:
       Manifest(manifest)
-    self.assertEquals(str(err.exception), "invalid value: test")
+    self.assertEquals(str(err.exception.errors[0][0]), "invalid value")
 
+  def test_unexpectedParam(self):
     #parameter missing from spec
     manifest = '''
-version: '0.1'
+apiVersion: giterops/v1alpha1
+kind: Manifest
+
 configurators:
   step2:
     actions:
@@ -174,7 +200,7 @@ templates:
   base:
     configurations:
       - name: step1
-        spec:
+        configurator:
           parameters:
             - name: test
               default: default
@@ -191,13 +217,16 @@ resources:
           parameters:
             doesntexist: True
 '''
-    with self.assertRaises(GitErOpError) as err:
+    with self.assertRaises(GitErOpValidationError) as err:
       Manifest(manifest)
-    self.assertEquals(str(err.exception), "unexpected parameter(s): ['doesntexist']")
+    self.assertEquals(str(err.exception.errors[0][0]), "unexpected parameters")
 
+  def test_missingParam(self):
     #missing required parameter
     manifest = '''
-version: '0.1'
+apiVersion: giterops/v1alpha1
+kind: Manifest
+
 configurators:
   step2:
     actions:
@@ -206,7 +235,7 @@ templates:
   base:
     configurations:
       - name: step1
-        spec:
+        configurator:
           parameters:
             - name: test
               required: True
@@ -219,6 +248,6 @@ resources:
       configurations:
         - name: base.step1
 '''
-    with self.assertRaises(GitErOpError) as err:
+    with self.assertRaises(GitErOpValidationError) as err:
       Manifest(manifest)
-    self.assertEquals(str(err.exception), "missing required parameter: test")
+    self.assertEquals(str(err.exception.errors[0][0]), "missing required parameter")

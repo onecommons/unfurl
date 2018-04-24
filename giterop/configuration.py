@@ -2,13 +2,14 @@ import six
 from .util import *
 from .configurator import *
 
-class ConfigurationSpec(object):
+class TemplateDefinition(object):
   """
   A list of configurations and base templates
 
-  Assumes a dictionary with two keys:
-    configuration
-    template
+  Assumes a dictionary with these keys:
+    attributes
+    configurations
+    templates
 
   Only templates have a name
   """
@@ -20,11 +21,23 @@ class ConfigurationSpec(object):
     self.name = name
     self._allComponents = None
     #make sure Component objects are created early
-    self.localComponentsDict = self._getLocalConfigurationDict()
+    self.localConfigurationDict = self._getLocalConfigurationDict()
+    self._attributes = None
 
   @property
   def templates(self):
     return self._getTemplates({}).values()
+
+  @property
+  def attributes(self):
+    if self._attributes:
+      return self._attributes
+    start = {}
+    for t in self.templates:
+      start.update(t.attributes.attributes)
+    ag = AttributeGroup(self.src.get('attributes', {}), self.manifest, True, start)
+    self._attributes = ag
+    return ag
 
   def _getTemplates(self, seen):
     names = self.src.get(TEMPLATESKEY)
@@ -49,8 +62,13 @@ class ConfigurationSpec(object):
       return {}
     def makeComponents(component):
       if isinstance(component, six.string_types):
-        component = {'name': component}
-      return (component['name'], Configuration(component, self))
+        component = {'configurator': component}
+      name = component.get('name')
+      if not name:
+        name = component.get('configurator')
+        if isinstance(name, dict):
+          name = name.get('name')
+      return (name, component)
     componentDict = dict(map(makeComponents, components))
     if len(componentDict) != len(components):
       raise GitErOpError("Duplicate names in component list for %s" % self.name)
@@ -62,115 +80,92 @@ class ConfigurationSpec(object):
       return self._allComponents
     # first add the templates' components
     components = []
-    localComponents = self.localComponentsDict
+    localComponents = self.localConfigurationDict
     for t in self.templates:
       for c in t.configurations:
         match = localComponents.pop(c.fqName, None)
         if match:
+          # override base configuration with derived
           #replace the ancestor with the decendent
-          match.ancestors.append(c)
-          components.append(match)
+          components.append(Configuration(self.manifest, match, self.name, c))
         else:
           components.append(c)
-    components.extend(localComponents.values())
+    components.extend(
+      [Configuration(self.manifest, l, self.name) for l in localComponents.values()])
     self._allComponents = components
     return components
 
 class Configuration(object):
   """
   name
-  spec: ref or inline (use name as ref if omitted)
+  intent: discover instantiate revert
+  configurator: ref or inline (use name as ref if omitted)
   parameters
-  action
-  onfailure
+  target
+  onfailure #XXX
   """
-  def __init__(self, localDef, parent):
-    self.name = localDef['name']
-    # parent is ConfigurationSpec
-    self.parent = parent
-    self.localDef = localDef
-    self.ancestors = []
-    self._spec = None
+  def __init__(self, manifest, src, templateName='', base=None):
+    self.templateName = templateName
+    self.src = src
+    self.configurator = self._getConfigurator(manifest)
+    if not self.configurator:
+      if base:
+        self.configurator = base.configurator
+      else:
+        raise GitErOpError('configuration %s must reference or define a configurator' % self.name)
+    if base and base.parameters:
+      parameters = base.parameters.copy()
+    else:
+      parameters = {}
+    parameters.update(self.src.get('parameters', {}))
+    self.parameters = parameters
+    for prop in ['intent', 'target']:
+      self._setInheritableProp(prop, base)
 
-  # merge components before getting spec because spec can change with merge
+  def _setInheritableProp(self, name, base):
+    if name in self.src:
+      value = self.src[name]
+    elif base:
+      value = getattr(base, name, None)
+    else:
+      value = None
+    setattr(self, name, value)
+
   @property
-  def spec(self):
+  def name(self):
+    return self.src.get('name') or self.configurator.name
+
+  def _getConfigurator(self, manifest):
     # merge spec with local
-    if self._spec:
-      return self._spec
-    specName = self.localDef.get('spec')
+    specName = self.src.get('configurator')
     if specName:
       if isinstance(specName, six.string_types):
-        spec = self.parent.manifest.configurators.get(specName)
+        spec = manifest.configurators.get(specName)
         if not spec:
-          raise GitErOpError('configurator not found: %s', specName)
+          raise GitErOpError('configurator not found: %s' % specName)
         return spec
       else:
         #inline spec
         if not isinstance(specName, dict):
-          raise GitErOpError('malformed spec in %s' % self.name)
-        self._spec = ConfiguratorSpec(self, specName)
-        return self._spec
+          raise GitErOpError('malformed configurator in %s' % self.name)
+        return ConfiguratorDefinition(specName, manifest, self.name)
     else:
-      self.parent.configurations #call this to make sure ancestors has been calculated
-      if not self.ancestors:
-        raise GitErOpError('configuration %s must reference or define a spec' % self.name)
-      self._spec = self.ancestors[-1].spec
-      return self._spec
-    raise GitErOpError('configuration %s must reference or define a spec' % self.name)
-
-  @property
-  def connectionType(self):
-    return (self.manifest.get('connection')
-      or self.componentType.getConnectionType(self)
-      or defaultConnectionType(self.phase))
+      return None
 
   @property
   def fqName(self):
-    return self.parent.name + '.' + self.name
-
-  def _getInheritedProp(self, name):
-    return self.localDef.get(name) or self.ancestors and getattr(self.ancestors[-1], name)
-
-  @property
-  def action(self):
-    return self._getInheritedProp('action')
-
-  @property
-  def onfailure(self):
-    return self._getInheritedProp('onfailure')
-
-  def diff(self, other):
-    '''
-    Compare name, params and action value and commit id
-    '''
-    return False #XXX
-
-  def __eq__(self, other):
-    if self is other:
-      return True
-    return not not self.diff(other)
-
-  def apply(self, action='install', params=None):
-    # XXX action
-    findComponentType(self).run(action, params)
-
-  @property
-  def params(self):
-    #XXX resolve references in values etc.
-    return self.localDef.get('parameters', {})
+    # what if configuratio in derived templates has a fqname?
+    return self.templateName + '.' + self.name
 
   # hierarchy: componentSpec defaults, componentType defaults and params
   # fully qualify to reference above componentSpec otherwise shadows name
   # error if component references undeclared param
   #we get defaults from componentSpec, update with parent components depth-first
   def getParams(self, merge=None, validate=True):
-    defaults = self.spec.getDefaults()
-    #depth first list so closed ancestor is updated last
-    [defaults.update(ancestor.params) for ancestor in self.ancestors]
-    defaults.update(self.params)
+    defaults = self.configurator.getDefaults()
+    defaults.update(self.parameters)
     if merge:
       defaults.update(merge)
     if validate:
-      self.spec.validateParams(defaults)
+      self.configurator.parameters.validateParameters(defaults)
     return defaults

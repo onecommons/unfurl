@@ -14,8 +14,9 @@ class Manifest(object):
     configurators
     templates:
       "name":
-        template
-        configuration
+        attributes
+        templates
+        configurations
     resources:
       "name":
         resouceSpec
@@ -33,18 +34,20 @@ class Manifest(object):
     else:
       self.valid = not not messages
 
-    self.configurators = dict([(k, ConfiguratorSpec(self, k))
-                      for k in (self.manifest.get(CONFIGURATORSKEY) or {})])
+    self.attributeGroups = dict([(key, ParameterDefinition(value, validate))
+            for (key, value) in self.manifest.get('attributeGroups', {}).items()])
+    self.configurators = dict([(k, ConfiguratorDefinition(v, self, k))
+                      for (k, v) in (self.manifest.get(CONFIGURATORSKEY) or {}).items()])
     templates = self.manifest.get('templates') or {}
-    self.templates = dict([(k, self._createConfigurationSpec(templates[k], k))
+    self.templates = dict([(k, self._createTemplateDefinition(templates[k], k))
                                                             for k in templates])
     rootResouces = self.manifest.get('resources') or {}
     self._resources = dict([(k, Resource(self, rootResouces[k], k)) for k in rootResouces])
     if validate:
-      map(lambda r: [c.getParams() for c in r.configuration.configurations], self.resources)
+      map(lambda r: [c.getParams() for c in r.spec.configurations], self.resources)
 
   def getValidateErrors(self):
-    version = self.manifest.get('version')
+    version = self.manifest.get('apiVersion')
     if version is None:
       return "missing version"
     elif version != VERSION:
@@ -58,8 +61,8 @@ class Manifest(object):
   def getRootResource(self, resourceid):
     return self._resources.get(resourceid)
 
-  def _createConfigurationSpec(self, src, name):
+  def _createTemplateDefinition(self, src, name):
     manifestName = src.get('name')
     if manifestName and name and (name != manifestName):
       raise GitErOpError('template key and name do not match: %s %s' % (name, manifestName) )
-    return ConfigurationSpec(self, src, name or manifestName)
+    return TemplateDefinition(self, src, name or manifestName)

@@ -6,12 +6,13 @@ The initial application for building and maintaining fully-reproducible Kubernet
 
 # Basic functionality and concepts
 
+GitErOp relies on other tools and services to actually do the work, they are encapulated in a "Configurator" interface, which tries to impose the minimum requirements and semantics.
+
+The manifest defines arbitrary and abstract representations of resources using locally defined identifiers. The goal is to make it easy to build humane specification.
+
 Git repository that contains YAML files that specifies how resources should be configured.
 
 Running GitErOp attempts to apply that specification and commits the results of that run. The exact versions of all external assets and tools utilized are recorded so playback can be fully reproducible.
-
-A task or process is encapulated in a Configurator.
-
 
 # Installation
 

@@ -3,52 +3,92 @@ from .configuration import *
 
 class Resource(object):
   """
-  name
-  metadata
+  apiVersion: giterop/v1alpha1
+  kind: KeyStore
+  metadata:
+    name: name
+    foo: "bar"
+    labels:
+      blah: blah
+    annotations:
+      buz: 2
   spec:
+    attributes
     templates:
       - "base"
     configurations:
       - "component"
   status:
+    resources
+    changes
   """
-  def __init__(self, manifest, src, name=None):
+  def __init__(self, manifest, src, name=None, validate=True):
     self.manifest = manifest
+    if not isinstance(src, dict):
+      raise GitErOpError('Malformed resource definition: %s' % src)
     self.src = src
+
     manifestName = src.get('metadata',{}).get("name")
     if manifestName and name and (name != manifestName):
       raise GitErOpError('Resource key and name do not match: %s %s' % (name, manifestName) )
     self.name = name or manifestName
-    self.configuration = ConfigurationSpec(manifest, src.get("spec", {}))
+    if not self.name:
+      raise GitErOpError('Resource is missing name: %s' % src)
 
-  #kind
-  #metadata attribute values
-  #configuration returns list of ConfigurationSpecs
-  #resources return list of Resources
-  #status, #history
+    self.spec = TemplateDefinition(manifest, src.get("spec", {}))
 
-def findChanges(new, old):
-  '''
-  Given old and new version of XXX
-  '''
-  changed = []
-  if not old:
-    return [('add', installed) for installed in new]
-  else:
-    for installed in old:
-      manifestComponent = new.get(installed)
-      if not manifestComponent:
-        changed.append(('remove', installed))
-      elif manifestComponent != installed:
-        changed.append(('update', manifestComponent, installed))
+    defaults = self.spec.attributes.getDefaults()
+    defaults.update(src.get("metadata", {}))
+    self.metadata = defaults
+    if validate:
+      self.spec.attributes.validateParameters(self.metadata, False)
+    # XXX status, changes, resources
+    klass = lookupClass(src.get('apiVersion'), src.get('kind'), AttributeMarshaller)
+    self.attributes = klass(self)
 
-    for manifestComponent in new:
-      if manifestComponent not in old:
-        changed.append(('add', manifestComponent))
-  return changed
+class AttributeMarshaller(object):
+  """
+  Default implementation
+  Automatically stores attributes marked as secret in kms
+  """
+  def __init__(self, resource):
+    self.__dict__['resource'] = resource
+
+  def __getattr__(self, name):
+    resource = object.__getattribute__(self, 'resource')
+    paramdef = resource.spec.attributes.get(name)
+    if paramdef:
+      if paramdef.secret:
+        # if this is a secret we don't store the value in the metadata
+        value = resource.kms.get(name, resource.metadata.get(name))
+      else:
+        value = resource.metadata.get(name)
+      if value is None and paramdef.hasDefault:
+        return paramdef.default
+      else:
+        return value
+    else:
+      value = resource.metadata.get(name)
+      if isKeyReference(value): #XXX
+        return resource.kms.get(name, value)
+      else:
+        return value
+
+  def __setattr__(self, name, value):
+    paramdef = self.resource.spec.attributes.get(name)
+    if paramdef:
+      paramdef.validateValue(value)
+      if paramdef.secret:
+        # store key reference as value
+        value = resource.kms.update(name, value)
+    self.resource.metadata[name] = value
+
+  def __delattr__(self, name):
+    del self.resource.metadata[name]
 
 class ResourceUpdater(object):
   """
+  Keeps track of provence of change to the resource
   Updates a resource and tracks
   """
 

@@ -1,12 +1,54 @@
-version: 0.1
-#kind: giteropmanifest
+apiVersion: giterops/v1alpha1
+kind: Manifest
+
+configurator:
+  name: kms
+  configurator: kms
+  description: kms bucket
+  actions:
+    discover
+    instantiate
+    revert
+  requires:
+    - name: kind
+      always: "ec2instance"
+    - template: sshconfig
+  provides:
+    zone:
+      type:
+      required
+    kmsarn: string
+    masters:
+      - resource: host
+
+configuration
+  name: kms
+  configurator: kms
+  state: observed
+  parameters
+
+configuration:
+  configurator: applySpec
+  description: configure masters
+  requires:
+     masters #must have these
+  parameters:
+    spec:
+      templates:
+      configurations:
+
 configurators:
-  custom:
-    type: python
-    path: custom.py
-    src: "#552617f6bc08e37b066c3392e6de12c92cc0c547"
+  custom: #local path in repo if not built in
+    apiVersion: giterops/v1alpha1
+    kind: Custom
+  helmfile:
+    apiVersion: giterops/v1alpha1
+    kind: Helm
+    # refers to chart source:
+    src:
   deploy-kms-dns:
-    type: ansible
+    class: ansible
+    # refers to playbooks:
     src: "git@github.com:onecommons/openshift-ansible.git#552617f6bc08e37b066c3392e6de12c92cc0c547"
     version:
     playbooks:
@@ -15,34 +57,60 @@ configurators:
       revert: uninstall-kms-dns-certs.yaml
     #onfailure:? update, re-create, retry, skip, ignore
     #timeout ?
-    connection: cloud #implied if missing
     parameters:
+      - template: sshconfig
       - name: my_param
         type: enum
+        #list: [0] #== required
+        #max: any
         enum: ['X', 'Y', 'Z']
         required: True
         default:
           clusterkms: name
 #XXX resource types
 templates:
+  AmiImage:
+    attributes:
+      amis:
+        type: dict
+      foo:
+        always: fixedvalue
+      awsAccount:
+        type: awsAccount
+        required: true
   "templateName1":
+    attributes:
     templates:
-    configurators:
-  cluster1:
+    configurations:
+  sshconfig:
+    attributes:
+      hostname
+      config
+      keyfile
+      - name: my_param
+        type: enum
+        enum: ['X', 'Y', 'Z']
+        required: True
+        default:
+          clusterkms: name
 resources:
   baseos-ami:
-    kind: AmiImage
     metadata:
       amis:
         us-east-1: amiid
+      awsAccount:
+        profile: admin
     spec:
-      create-ami: #creates and destroy instance
-        ec2instance
-        configure-host
-      copyToRegions:
-        regions
-          - us-east1
-          - us-east2
+      templates:
+        amiImage
+      configurations:
+        create-ami: #creates and destroy instance
+          ec2instance
+          configure-host
+        copyToRegions:
+          regions
+            - us-east1
+            - us-east2
     status:
       resources:
         ec2instance:
@@ -53,9 +121,15 @@ resources:
       history:
         deleted
 
+  awsKMS:
+    metadata:
+      awsAccount:
+        profile: admin
+
   awsCluster:
     kind: CloudProvisioner
     metadata:
+      kmsContext: resource: awsKMS
       awsAccount:
         profile: production
     spec:
@@ -65,16 +139,25 @@ resources:
           config: ""
           keyfile: ""
           #or kms: default-ssh
-      secrets: #here?
       templates:
         - base
       configurations:
-        - buildCluster #creates nodes
-            ami: resource: baseAmi-useast1
-        - deployControlPane # operates on child node resources
+        - configurator: buildCluster #creates nodes
+          parameters:
+            ami: valueref: baseAmi-useast1
+        - name: deployControlPane # operates on child node resources
+          parameters:
             template: cluster1 #creates cluster resource
+        - deployService:
+            target: openshiftCluster1
+        - name: deployControlPane
+          version: 2.0
+        - name: deployControlPane
+          force-action: revert
     status:
       resources:
+        # we want order to preserved across resources
+        # so only allow root to configure?
         #only spec and metadata of resources can be edited
         #or new ones manually added
         - master01:
@@ -92,7 +175,7 @@ resources:
               serverURL:
               kubeManifest:
                 kms: kubeManifest
-      history: #read-only
+      changes: #read-only most recent first
         - configurator: production.default-registry
           actionId: 3333
           previously: commitid

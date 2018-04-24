@@ -14,45 +14,46 @@ class Configurator(object):
     #  if no, did it succeed before?
     return False
 
+  def shouldRunInstantiate(self, resource, parameters):
+    configuratorRunStatus = resource.getLastStatus()
+    if not runBefore:
+      return True
+    return not hasntChanged
+
+  def shouldRunRevert(self, resource, parameters):
+    configuratorRunStatus = resource.getLastStatus()
+    if not runBefore:
+      return False
+    return True
+
+  def shouldRunDiscover(self, resource, parameters):
+    configuratorRunStatus = resource.getLastStatus()
+    if runBefore:
+      #if the version or config has changed since last applied re-run discover
+      return hasntChanged
+    return True
+
+  # revert needs a data loss flag configurations might know whether or not dataloss may happen if reverted
+  def canRun(self, action, resource, parameters):
+    configuratorRunStatus = resource.getLastStatus()
+    # can we run this action given the previous state?
+    # e.g. can we upgrade
+    return self.canHandleAction(action, runBefore, self.getState(resource, parameters))
+
   def run(self, action, resource, parameters):
     configuratorRunStatus = resource.getLastStatus()
+    status = self._run()
     resource.update(metadata, spec)
     resource.updateResource(changedResource)
     resource.addResource(newresource)
     return status
 
-class ParameterDefinition(object):
-  def __init__(self, obj, validate=True):
-    if validate:
-      for k in "name enum".split():
-        if not obj.get(k):
-          if k != "enum" or obj.get('type') == "enum":
-            raise GitErOpError('parameter definition missing "%s"' % k)
-    for key in "name type required enum".split():
-      setattr(self, key, obj.get(key))
-    if 'default' in obj:
-      self.default = obj['default']
-
-  @property
-  def hasDefault(self):
-    return hasattr(self, 'default')
-
-  def isValueCompatible(self, value):
-    if isinstance(value, (int, long, float)):
-      if self.type == 'int':
-        return round(value) == value
-      return self.type == 'number'
-    if isinstance(value, six.string_types):
-      if self.type == 'enum':
-        return value in self.enum
-      return not self.type or self.type == 'string'
-    return isinstance(value, bool) and self.type == 'boolean'
-
-class ConfiguratorSpec(object):
+class ConfiguratorDefinition(object):
   """
   Configurator:
     name
     version
+    class
     parameters
       - name: my_param # secret_
         ref: type or connection or cluster or app
@@ -62,38 +63,39 @@ class ConfiguratorSpec(object):
         default:
           clusterkms: name
     src
+    requires
+    provides
   """
-  def __init__(self, parent, defs, validate=True):
-    self.parent = parent
-    if isinstance(defs, dict):
-      self.localDef = defs
-    else: #its a name
-      self.localDef = parent.manifest['configurators'][defs]
-      if not isinstance(self.localDef, dict):
-        raise GitErOpError('malformed spec %s' % defs)
-    self.parameters = [ParameterDefinition(obj, validate)
-                          for obj in self.localDef.get('parameters', [])]
+  def __init__(self, defs, manifest, name=None, validate=True):
+    if not isinstance(defs, dict):
+      raise GitErOpError('malformed configurator %s' % defs)
+    localName = defs.get('name')
+    self.name = name or localName
+    if not self.name:
+      raise GitErOpError('configurator missing name: %s' % defs)
+    if localName and name and name != localName:
+      raise GitErOpError('configurator names do not match %s and %s' % (name, localName))
+    #if validate: #XXX
+    #  lookupClass(defs.get('apiVersion'), defs.get('kind'), Configurator)
+    self.parameters = AttributeGroup(defs.get('parameters',[]), manifest, validate)
+    self.requires = AttributeGroup(defs.get('requires',[]), manifest, validate)
+    self.provides = AttributeGroup(defs.get('provides',[]), manifest, validate)
 
   def getDefaults(self):
-    return dict([(paramdef.name, paramdef.default)
-      for paramdef in self.parameters if paramdef.hasDefault])
+    return self.parameters.getDefaults()
 
   def validateParams(self, params):
-    params = params.copy()
-    for paramdef in self.parameters:
-      value = params.pop(paramdef.name, None)
-      if value is None:
-        if paramdef.required:
-          raise GitErOpError("missing required parameter: %s" % paramdef.name)
-      elif not paramdef.isValueCompatible(value):
-        raise GitErOpError("invalid value: %s" % paramdef.name)
-    if params:
-        raise GitErOpError("unexpected parameter(s): %s" % params.keys())
-    return True
+    self.parameters.validateParams(params, True)
+
+  def acceptableResource(self, resource):
+    self.requires.validateParams(resource.getAttributes())
+
+  def expectedResource(self, resource):
+    self.provides.validateParams(resource.getAttributes())
 
 def findComponentType(component):
-  for klass in ComponentTypes:
-    if klass.isComponentType(component):
+  for klass in ConfiguratorTypes:
+    if klass.isConfiguratorType(component):
       return klass(component)
   raise GitterOpError('Unsupported component type')
 
