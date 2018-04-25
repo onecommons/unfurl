@@ -19,8 +19,12 @@ class Resource(object):
     configurations:
       - "component"
   status:
-    resources
-    changes
+    state: discovered
+          created
+          deleted
+    by:
+    resources:
+    changes:
   """
   def __init__(self, manifest, src, name=None, validate=True):
     self.manifest = manifest
@@ -43,8 +47,11 @@ class Resource(object):
     if validate:
       self.spec.attributes.validateParameters(self.metadata, False)
     # XXX status, changes, resources
-    klass = lookupClass(src.get('apiVersion'), src.get('kind'), AttributeMarshaller)
+    klass = lookupClass(src.get('kind', 'Resource'), src.get('apiVersion'))
     self.attributes = klass(self)
+
+def isKeyReference(value): #XXX
+  return False
 
 class AttributeMarshaller(object):
   """
@@ -56,7 +63,7 @@ class AttributeMarshaller(object):
 
   def __getattr__(self, name):
     resource = object.__getattribute__(self, 'resource')
-    paramdef = resource.spec.attributes.get(name)
+    paramdef = resource.spec.attributes.attributes.get(name)
     if paramdef:
       if paramdef.secret:
         # if this is a secret we don't store the value in the metadata
@@ -75,7 +82,7 @@ class AttributeMarshaller(object):
         return value
 
   def __setattr__(self, name, value):
-    paramdef = self.resource.spec.attributes.get(name)
+    paramdef = self.resource.spec.attributes.attributes.get(name)
     if paramdef:
       paramdef.validateValue(value)
       if paramdef.secret:
@@ -85,6 +92,8 @@ class AttributeMarshaller(object):
 
   def __delattr__(self, name):
     del self.resource.metadata[name]
+
+registerClass(VERSION, "Resource", AttributeMarshaller)
 
 class ResourceUpdater(object):
   """

@@ -35,7 +35,7 @@ class TemplateDefinition(object):
     start = {}
     for t in self.templates:
       start.update(t.attributes.attributes)
-    ag = AttributeGroup(self.src.get('attributes', {}), self.manifest, True, start)
+    ag = AttributeDefinitionGroup(self.src.get('attributes', {}), self.manifest, True, start)
     self._attributes = ag
     return ag
 
@@ -130,6 +130,13 @@ class Configuration(object):
     else:
       value = None
     setattr(self, name, value)
+
+  def getResource(self, resource):
+    # XXX
+    return resource
+
+  def getAction(self, action=None):
+    return 'discover' #XXX
 
   @property
   def name(self):

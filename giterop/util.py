@@ -12,12 +12,26 @@ class GitErOpError(Exception):
 class GitErOpValidationError(GitErOpError):
   pass
 
-ClassRegistry = {}
-def lookupClass(apiVersion, kind, default=None):
-  api = ClassRegistry.get(apiVersion)
+class GitErOpTaskError(GitErOpError):
+  def __init__(self, task, message):
+    super(GitErOpTaskError, self).__init__(message, [task])
+
+_ClassRegistry = {}
+def registerClass(apiVersion, kind, factory):
+  api = _ClassRegistry.setdefault(apiVersion, {})
+  api[kind] = factory
+
+def lookupClass(kind, apiVersion, default=None):
+  version = apiVersion or VERSION
+  api = _ClassRegistry.get(version)
   if api:
-    return api.get(kind, default)
-  return default
+    klass = api.get(kind, default)
+  else:
+    klass = default
+  if not klass:
+    print _ClassRegistry
+    raise GitErOpError('Can not find class %s.%s' % (version, kind))
+  return klass
 
 #XXX ansible potential other types: manifests, templates, helmfiles, service broker bundles
 ConfiguratorTypes = []
@@ -43,10 +57,18 @@ class AttributeDefinition(object):
         self.type = 'template'
         template = manifest.templates.get(templateName)
         self.template = template.attributes
+    if not self.type:
+      self.type = 'string'
 
   @property
   def hasDefault(self):
     return hasattr(self, 'default')
+
+  def __str__(self):
+    return "<AttrDef %s: type: %s>" % (self.name, self.type)
+
+  def __repr__(self):
+    return "<AttrDef %s: type: %s>" % (self.name, self.type)
 
   def isValueCompatible(self, value, item=False):
     if self.secret and not item:
@@ -79,15 +101,18 @@ class AttributeDefinition(object):
       if self.type == 'int':
         return round(value) == value
       return self.type == 'number'
+
     if isinstance(value, six.string_types):
       if self.type == 'enum':
         return value in self.enum
-      return not self.type or self.type == 'string'
+      return self.type == 'string'
+
     if isinstance(value, bool):
+      print "found value", value
       return self.type == 'boolean'
     return False
 
-class AttributeGroup(object):
+class AttributeDefinitionGroup(object):
   """
   """
 
@@ -95,6 +120,9 @@ class AttributeGroup(object):
     self.attributes = dict(base or {})
     for obj in localDef:
       self.attributes.update(self._getAttributes(obj, manifest, validate))
+
+  def __str__(self):
+    return "<AttrGroup: %s>" % (self.attributes.values())
 
   def _getAttributes(self, obj, manifest, validate):
     templateName = obj.get('template')
