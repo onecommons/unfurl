@@ -1,6 +1,6 @@
 import six
 from .util import *
-from .configuration import *
+from .templatedefinition import *
 from .configurator import *
 from .resource import *
 from ruamel.yaml import YAML
@@ -42,7 +42,7 @@ class Manifest(object):
     self.templates = dict([(k, self._createTemplateDefinition(templates[k], k))
                                                             for k in templates])
     rootResouces = self.manifest.get('resources') or {}
-    self._resources = dict([(k, Resource(self, rootResouces[k], k)) for k in rootResouces])
+    self._resources = dict([(k, ResourceDefinition(self, rootResouces[k], k)) for k in rootResouces])
     if validate:
       map(lambda r: [c.getParams() for c in r.spec.configurations], self.resources)
 

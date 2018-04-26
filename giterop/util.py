@@ -29,7 +29,6 @@ def lookupClass(kind, apiVersion, default=None):
   else:
     klass = default
   if not klass:
-    print _ClassRegistry
     raise GitErOpError('Can not find class %s.%s' % (version, kind))
   return klass
 
@@ -60,6 +59,11 @@ class AttributeDefinition(object):
     if not self.type:
       self.type = 'string'
 
+  def merge(self, defs):
+    for key in ['default', 'required', 'secret']:
+      if key in defs:
+        setattr(self, key, defs[key])
+
   @property
   def hasDefault(self):
     return hasattr(self, 'default')
@@ -71,9 +75,6 @@ class AttributeDefinition(object):
     return "<AttrDef %s: type: %s>" % (self.name, self.type)
 
   def isValueCompatible(self, value, item=False):
-    if self.secret and not item:
-      return 'secret' in value and len(value) == 1
-
     quantity = 0 if item else getattr(self, 'list', 0)
     isList = isinstance(value, list)
     if quantity > 1 and not isList:
@@ -87,10 +88,6 @@ class AttributeDefinition(object):
     if isinstance(value, dict):
       if 'valueref' in value and len(value) == 1:
         return self.isValueCompatible(resolveValueRef(value))
-      if 'secret' in value and len(value) == 1:
-        return self.isValueCompatible(resolveSecret(value), True)
-      if self.type == 'resource':
-        return 'resource' in value and len(value) == 1
       if self.type == 'template':
         return not self.template.validateParams(value)
 
@@ -108,14 +105,12 @@ class AttributeDefinition(object):
       return self.type == 'string'
 
     if isinstance(value, bool):
-      print "found value", value
       return self.type == 'boolean'
     return False
 
 class AttributeDefinitionGroup(object):
   """
   """
-
   def __init__(self, localDef, manifest, validate=True, base=None):
     self.attributes = dict(base or {})
     for obj in localDef:
@@ -137,6 +132,15 @@ class AttributeDefinitionGroup(object):
   def getDefaults(self):
     return dict([(paramdef.name, paramdef.default)
       for paramdef in self.attributes.values() if paramdef.hasDefault])
+
+  def merge(self, overrides, manifest):
+    for defs in overrides:
+      name = defs.get('name')
+      attrDef = self.attributes.get(name)
+      if attrDef:
+        attrDef.merge(defs)
+      else:
+        self.attributes[name] = AttributeDefinition(defs, manifest)
 
   def validateParameters(self, params, includeUnexpected=True):
     status = self.checkParameters(params, includeUnexpected)
@@ -164,7 +168,7 @@ class ValueRef(object):
   def __init__(self, path):
     #use : as delimiters because attribute names can look like: kops.k8s.io/cluster
     # XXX just one attribute for now
-    parts = path.split(':', 1)
+    parts = path if isinstance(path, (list,tuple)) else path.split(':', 1)
     self.resourcename = parts[0]
     self.attributeName = parts[1:] and parts[1] or None
 
@@ -176,3 +180,9 @@ class ValueRef(object):
       return getattr(resource.attributes, self.attributeName)
     else:
       return resource
+
+  def getProvence(self):
+    """
+    Return the who and when about the referenced value
+    """
+    #look through the resource changes, if not found hasn't changed since the resource's creation

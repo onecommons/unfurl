@@ -4,15 +4,15 @@ from giterop.configurator import *
 import traceback
 
 class TestConfigurator(Configurator):
-  def shouldRun(self, action, resource, parameters):
+  def shouldRun(self, task):
     return True
 
-  def canRun(self, action, resource, parameters):
+  def canRun(self, task):
     return True
 
-  def run(self, action, resource, parameters):
-    assert self.canRun(action, resource, parameters)
-    resource.attributes.copyOfMeetsTheRequirement = resource.attributes.meetsTheRequirement
+  def run(self, task):
+    assert self.canRun(task)
+    task.resource.metadata['copyOfMeetsTheRequirement'] = task.resource.metadata["meetsTheRequirement"]
     return True
 
 registerClass("giterops/v1alpha1", "TestConfigurator", TestConfigurator)
@@ -58,7 +58,7 @@ class ConfiguratorTest(unittest.TestCase):
     assert len(resources) == 1, resources
     test1 = resources[0]
 
-    missing = test1.spec.configurations[0].configurator.missingRequirements(test1)
+    missing = test1.spec.configurations[0].configurator.findMissingRequirements(test1)
     assert not missing, missing
 
     #print resources[0].spec.configurations
@@ -71,25 +71,23 @@ class ConfiguratorTest(unittest.TestCase):
     test1 = runner.manifest.getRootResource('test1')
     assert test1
 
-    self.assertEquals(test1.attributes.meetsTheRequirement, "copy")
+    self.assertEquals(test1.metadata["meetsTheRequirement"], "copy")
     configurator = runner.manifest.configurators['test']
-    notYetProvided = configurator.missingExpected(test1)
+    notYetProvided = configurator.findMissingProvided(test1)
     self.assertEquals(notYetProvided, [('missing required parameter', 'copyOfMeetsTheRequirement')])
 
     assert runner.run(resource='test1'), runner.aborted
-    self.assertEquals(test1.attributes.copyOfMeetsTheRequirement, "copy")
+    self.assertEquals(test1.metadata['copyOfMeetsTheRequirement'], "copy")
 
-    provided = configurator.missingExpected(test1)
+    provided = configurator.findMissingProvided(test1)
     assert not provided, provided
 
     test2 = runner.manifest.getRootResource('test2')
     assert test2
-    requiredAttribute = test2.attributes.meetsTheRequirement
-    assert requiredAttribute is False, requiredAttribute
     requiredAttribute = test2.metadata['meetsTheRequirement']
     assert requiredAttribute is False, requiredAttribute
 
-    missing = test2.spec.configurations[0].configurator.missingRequirements(test2)
+    missing = test2.spec.configurations[0].configurator.findMissingRequirements(test2)
     assert missing, missing
 
     assert not runner.run(resource='test2')

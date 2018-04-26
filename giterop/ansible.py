@@ -87,6 +87,13 @@ def _runPlaybooks(playbooks, _inventory, params):
   results = pbex.run()
   return results
 
+import json
+import os
+import os.path
+import sys
+import tempfile
+import subprocess
+
 ANSIBLE_PLAYBOOK_CMD = "ansible-playbook"
 
 def _runPlaybook(playbook, params, inventory=None):

@@ -96,7 +96,7 @@ templates:
     configurations:
       - name: step1
         configurator:
-          parameters:
+          parameterSchema:
             - name: test
               default: default
         parameters:
@@ -165,7 +165,7 @@ templates:
     configurations:
       - name: step1
         configurator:
-          parameters:
+          parameterSchema:
             - name: test
               default: default
         parameters:
@@ -201,7 +201,7 @@ templates:
     configurations:
       - name: step1
         configurator:
-          parameters:
+          parameterSchema:
             - name: test
               default: default
         parameters:
@@ -236,7 +236,7 @@ templates:
     configurations:
       - name: step1
         configurator:
-          parameters:
+          parameterSchema:
             - name: test
               required: True
 resources:

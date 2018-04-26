@@ -57,7 +57,7 @@ configurators:
       revert: uninstall-kms-dns-certs.yaml
     #onfailure:? update, re-create, retry, skip, ignore
     #timeout ?
-    parameters:
+    parameterSchema:
       - template: sshconfig
       - name: my_param
         type: enum
