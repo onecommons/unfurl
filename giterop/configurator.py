@@ -4,21 +4,21 @@ from .util import *
 def buildEnum(klass, names):
   [setattr(klass, name, name) for name in names]
 
-class status(object): pass
-buildEnum(status, "success failed pending running timeout".split())
-
-class actions(object): pass
-buildEnum(actions, "discover instantiate revert".split())
-
 class Configurator(object):
+  class status(object): pass
+  buildEnum(status, "success failed pending running timeout".split())
+
+  class actions(object): pass
+  buildEnum(actions, "discover instantiate revert".split())
+
   def __init__(self, configuratorDef):
     pass
 
   def run(self, job):
     if not self.canRun(job):
-      return status.failed
+      return self.status.failed
     # no-op
-    return status.success
+    return self.status.success
 
   def isCompatibleWithCurrentState(self, job):
     """
@@ -79,9 +79,10 @@ registerClass(VERSION, "Configurator", Configurator)
 class ConfiguratorDefinition(object):
   """
   Configurator:
+    apiVersion
+    kind
     name
     version
-    class
     parameterSchema:
       - name: my_param # secret_
         ref: type or connection or cluster or app
@@ -97,7 +98,7 @@ class ConfiguratorDefinition(object):
   def __init__(self, defs, manifest, name=None, validate=True):
     if not isinstance(defs, dict):
       raise GitErOpError('malformed configurator %s' % defs)
-    self.src = defs
+    self.definition = defs
     localName = defs.get('name')
     self.name = name or localName
     if not self.name:
@@ -116,7 +117,7 @@ class ConfiguratorDefinition(object):
       lookupClass(self.kind, self.apiVersion)
 
   def copy(self, manifest):
-    return ConfiguratorDefinition(self.src, manifest, self.name)
+    return ConfiguratorDefinition(self.definition, manifest, self.name)
 
   def getDefaults(self):
     return self.parameterSchema.getDefaults()

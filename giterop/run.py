@@ -3,27 +3,82 @@ import six
 from .util import *
 from .manifest import *
 from . import ansible
-
-#from dictdiffer import diff, patch, swap, revert
+from .resource import *
 
 class Change(object):
-  def __init__(self, *args):
-    pass
+  def __init__(self, job, resource, rootChange=None, **kw):
+    self.job = job
+    self.resource = resource
+    self.rootChange = rootChange
+    self.childMetadataChanges = []
+    leftOver = self.mergeCommon(kw)
+    if rootChange:
+      #this is a child Change
+      self.rootResource = rootChange.resource.name
+      self.date = rootChange.date
+      self.changeId = rootChange.changeId
+    else:
+      self.rootResource = None
+      leftOver = self.mergeRoot(leftOver)
+      self.date = job.date
+      self.changeId = job.changeId
+      self.configuration = job.configuration.name
+      self.action = job.action
+      self.parameters = job.parameters
+      # XXX
+      #revision
+      #previously: commitid+
+      #applied: commitid
 
-  def getNewResources(self):
-    return []
+  def mergeCommon(self, kw):
+    for (k, v) in ChangeRecord.CommonAttributes.items():
+      setattr(self, k, kw.pop(k, v))
+    return kw
+
+  def mergeRoot(self, kw):
+    for (k, v) in ChangeRecord.RootAttributes.items():
+      setattr(self, k, kw.pop(k, v))
+    return kw
+
+  def toSource(self):
+    """convert dictionary suitable for serializing as yaml
+    or creating a ChangeRecord.
+    """
+
+    src = dict([(k, getattr(self, k)) for k in ChangeRecord.CommonAttributes
+                      if getattr(self, k)]) #skip empty values
+    if self.rootResource:
+      src['rootResource'] = self.rootResource
+    else:
+      src.update(
+        dict([(k, getattr(self, k)) for k in ChangeRecord.RootAttributes
+                            if getattr(self, k)]) #skip empty values
+      )
+    return src
+
+  def record(self):
+    changeRecord = ChangeRecord(self.resource.definition, self.toSource() )
+    self.resource.definition.changes.append( changeRecord )
+    return changeRecord
 
 class Task(object):
   def __init__(self, runner, configuration, resource, action):
     self.runner = runner
-    self.changes = None
+    self.change = None
     self.configuration = configuration
     self.action = configuration.getAction(action)
-    self.resource = resource #configuration.getResource(resource)# XXX .copy()
+    self.resource = resource #configuration.getResource(resource) XXX?
     self.parameters = configuration.getParams()
     self.configurator = configuration.configurator.getConfigurator()
     self.previousRun = self.getLastChange()
     self.messages = []
+    self.addedResources = []
+    self.removedResources = []
+    self.changeId = None
+    self.date = 0 #XXX isotimedate
+
+  def getAddedResources(self):
+    return [a[1] for a in self.addedResources]
 
   def shouldRun(self):
     return self.configurator.shouldRun(self)
@@ -33,37 +88,96 @@ class Task(object):
       return False
     return self.configurator.canRun(self)
 
-  def _createChangeRecord(self, status, providedStatus):
-    #compare resource
-    diff = None #diffdict(self.resource.metadata, self.__resource.metadata)
-    #for op in diff:
+  def findMetadataChanges(self, resource, changes):
+    diffs = resource.diffMetadata()
+    #for op in diffs:
     #  self.checkForConflict(ValueRef([resource, op[1]]).getProvence())
-    resourceChanges = None #self.resourceChanges
-    return Change(status, providedStatus, diff, resourceChanges)
+    if diffs:
+      changes.append( (resource,diffs) )
+    for child in resource.resources:
+      self.findMetadataChanges(child, changes)
+
+  def _createChangeRecord(self, resource, diff, rootChange):
+    return Change(self, resource, metadata=diff, rootChange=rootChange)
+
+  def _createRootChangeRecord(self, status, providedStatus):
+    self.changeId = self.runner.incrementChangeId()
+    change = Change(self, self.resource, status=status, messages=self.messages)
+    if providedStatus:
+      change.failedToProvide = providedStatus
+
+    metadataChanges = []
+    self.findMetadataChanges(self.resource, metadataChanges)
+    if metadataChanges and metadataChanges[0][0] is self.resource:
+      change.metadata = metadataChanges.pop(0)[1]
+
+    for (action, resource) in (self.removedResources + self.addedResources):
+      change.resources.setdefault(action,[]).append(resource.name)
+
+    change.childMetadataChanges = metadataChanges
+    return change
+
+  def commitChanges(self, rootChange):
+    self.resource.commitMetadata()
+    rootChange.record()
+
+    for (resource, diff) in rootChange.childMetadataChanges:
+      resource.commitMetadata()
+      change = self._createChangeRecord(resource, diff, rootChange)
+      change.record()
+
+    for (action, resource) in self.removedResources:
+      parent = resource.parent
+      if parent:
+        parent = parent.definition
+      else:
+        if resource.name in self.resource.definition._resources:
+          parent = self.resource.definition
+        else:
+          rootResource = self.runner.manifest.getRootResources(resource.name)
+          if rootResource:
+            parent = self.runner.manifest
+      if parent:
+        del parent._resources[resource.name]
+      #else:
+      # warn("cant find removed resource %s" % resource.name)
+
+    for (action, resource) in self.addedResources:
+      parent = resource.parent or self.resource
+      parent.definitions._resources[resource.name] = resource.definition
 
   def run(self):
-    status = self.configurator.run(self)
-    notProvided = self.configuration.configurator.findMissingProvided(self.resource)
-    #XXX revert changes if status.failure or have configurator do that?
-    self.changes = self._createChangeRecord(status, notProvided)
-    #XXX self.changes.applyToResource(self.__resource)
-    return self.changes
+    try:
+      status = self.configurator.run(self)
+    except Exception as err:
+      raise GitErOpTaskError(self, err)
 
-  def addMessage(self, message): pass
-  def createResource(self, resource): pass
-  def deleteResource(self, resource): pass
-  def discoverResource(self, resource): pass
-  def forgetResource(self, resource): pass
+    missingProvided = self.configuration.configurator.findMissingProvided(self.resource)
+    #XXX revert changes if status.failure or have configurator do that?
+    self.change = self._createRootChangeRecord(status, missingProvided)
+    return self.change
+
+  def addMessage(self, message):
+    self.messages.append(message)
+
+  def createResource(self, resourceDef):
+    self.addedResources.append(('created', resourceDef))
+
+  def discoverResource(self, resourceDef):
+    self.addedResources.append(('discovered', resourceDef))
+
+  def deleteResource(self, resource):
+    self.removedResources.append(('deleted', resource))
+
+  def forgetResource(self, resourceName):
+    self.removedResources.append(('forgot', resource))
 
   def getLastChange(self):
-    # for change in reversed(self.resource.history):
-    #   if change.configurator == self.configurator: #XXX
-    #     return change
+    for change in reversed(self.resource.changes):
+      # just use the name of the configuration for now
+      if change.configuration == self.configuration.name:
+        return change
     return None
-
-# XXX need this??
-#  def commit(self):
-#    return resource.applyUpdates(self.updates)
 
 class Runner(object):
   def __init__(self, manifest):
@@ -71,12 +185,19 @@ class Runner(object):
       self.manifest = Manifest(manifest)
     else:
       self.manifest = manifest
+    self.currentChangeId = self.manifest.findMaxChangeId() + 1
     self.reset()
 
   def reset(self):
     self.aborted = None
     self.currentTask = None
     self.changes = []
+
+  def incrementChangeId(self):
+    #changeids are shared across dependent changes on multiple resources
+    #should be unique across manifest and should monotonically increased
+    self.currentChangeId += 1
+    return self.currentChangeId
 
   def getRootResources(self, resourceName=None):
     manifest = self.manifest
@@ -90,14 +211,17 @@ class Runner(object):
       return [resource.resource]
     return [r.resource for r in manifest.resources]
 
-  def save(self, task, changes):
+  def save(self, task, change):
+    task.commitChanges(change)
     #update cluster with last success
     #commit manifest
     self.currentTask = None
-    self.changes.append(changes)
+    self.changes.append(change)
 
   def saveError(self, err, msg=''):
     self.aborted = err
+    # rollback metadata changes??
+    #XXX
 
   def getNeededTasksForResource(self, resource, action=None):
     tasks = []
@@ -138,18 +262,17 @@ class Runner(object):
       while tasks:
         task = tasks.pop(0)
         self.currentTask = task
-        changes = task.run()
-        self.save(task, changes)
-        if changes:
-          # examine new (XXX what about changed?) resources for configurations
-          updatedResources = changes.getNewResources()
-          if updatedResources:
-            moreTasks = self.getNeededTasks(updatedResources, action)
-            if self.aborted:
-              return False
-            if moreTasks:
-              #run them before the next configuration
-              tasks[0:0] = moreTasks
+        change = task.run()
+        self.save(task, change)
+        # examine new (XXX what about changed?) resources for configurations
+        updatedResources = task.getAddedResources()
+        if updatedResources:
+          moreTasks = self.getNeededTasks(updatedResources, action)
+          if self.aborted:
+            return False
+          if moreTasks:
+            #run them before the next configuration
+            tasks[0:0] = moreTasks
     except Exception as e:
       self.saveError(e)
       return False

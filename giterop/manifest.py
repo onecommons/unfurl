@@ -66,3 +66,6 @@ class Manifest(object):
     if manifestName and name and (name != manifestName):
       raise GitErOpError('template key and name do not match: %s %s' % (name, manifestName) )
     return TemplateDefinition(self, src, name or manifestName)
+
+  def findMaxChangeId(self):
+    return self.resources and max(r.findMaxChangeId() for r in self.resources) or 0

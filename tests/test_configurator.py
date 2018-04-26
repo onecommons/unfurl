@@ -13,7 +13,7 @@ class TestConfigurator(Configurator):
   def run(self, task):
     assert self.canRun(task)
     task.resource.metadata['copyOfMeetsTheRequirement'] = task.resource.metadata["meetsTheRequirement"]
-    return True
+    return self.status.success
 
 registerClass("giterops/v1alpha1", "TestConfigurator", TestConfigurator)
 
@@ -93,6 +93,12 @@ class ConfiguratorTest(unittest.TestCase):
     #XXX bad error reporting
     self.assertEquals(str(runner.aborted), "cannot run")
     #self.assertEquals(str(runner.aborted), "can't run required configuration: resource test2 doesn't meet requirement")
+
+  def test_changes(self):
+    runner = Runner(manifest)
+    assert runner.run(resource='test1'), runner.aborted
+    self.assertEquals(runner.changes[0].toSource(),
+      {'status': 'success', 'changeId': 2, 'action': 'discover', 'configuration': 'test'})
 
   def test_shouldRun(self):
     pass

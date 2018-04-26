@@ -16,6 +16,11 @@ class GitErOpTaskError(GitErOpError):
   def __init__(self, task, message):
     super(GitErOpTaskError, self).__init__(message, [task])
 
+def assertForm(src, types=dict):
+  if not isinstance(src, types):
+    raise GitErOpError('Malformed definition: %s' % src)
+  return src
+
 _ClassRegistry = {}
 def registerClass(apiVersion, kind, factory):
   api = _ClassRegistry.setdefault(apiVersion, {})
@@ -161,23 +166,35 @@ class AttributeDefinitionGroup(object):
       status.append( ("unexpected parameters", params.keys()) )
     return status
 
+def lookupPath(source, keys):
+  value = source
+  for key in keys:
+    if isinstance(value, list):
+      key = int(key)
+    value = value[key]
+  return value
+
 class ValueRef(object):
   """
-  valueref: "resourcename:attribute:path"
+  valueref: "resourcename:attribute:child:0"
+
+  Use ":" as delimiters, list index or dictionary keys
+
+  Resolves to resource or a value
   """
   def __init__(self, path):
     #use : as delimiters because attribute names can look like: kops.k8s.io/cluster
-    # XXX just one attribute for now
-    parts = path if isinstance(path, (list,tuple)) else path.split(':', 1)
+    parts = path if isinstance(path, (list,tuple)) else path.split(':')
     self.resourcename = parts[0]
-    self.attributeName = parts[1:] and parts[1] or None
+    self.attributePath = parts[1:]
 
   def resolve(self, findResource):
     resource = findResource(self.resourcename)
     if not resource:
       raise GitErOpError("valueref to unknown resource %s" % self.resourcename)
-    if self.attributeName:
-      return getattr(resource.attributes, self.attributeName)
+
+    if self.attributePath:
+      return lookupPath(resource.metadata, self.attributePath)
     else:
       return resource
 

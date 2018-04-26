@@ -121,12 +121,13 @@ setup(
     "ruamel.yaml>=0.15.37",
     "click",
     "gitpython",
+    "dictdiffer",
 #required by openshift-ansible:
     "pyOpenSSL",
     "netaddr",
     "httplib2",
     "passlib",
-    "credstash" #??
+    #"credstash" #??
     ],
 
     # List additional groups of dependencies here (e.g. development
