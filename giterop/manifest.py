@@ -5,6 +5,7 @@ from .configurator import *
 from .resource import *
 from ruamel.yaml import YAML
 from codecs import open
+import sys
 yaml = YAML()
 
 class Manifest(object):
@@ -34,8 +35,6 @@ class Manifest(object):
     else:
       self.valid = not not messages
 
-    self.attributeGroups = dict([(key, ParameterDefinition(value, validate))
-            for (key, value) in self.manifest.get('attributeGroups', {}).items()])
     self.configurators = dict([(k, ConfiguratorDefinition(v, self, k))
                       for (k, v) in (self.manifest.get(CONFIGURATORSKEY) or {}).items()])
     templates = self.manifest.get('templates') or {}
@@ -45,6 +44,12 @@ class Manifest(object):
     self._resources = dict([(k, ResourceDefinition(self, rootResouces[k], k)) for k in rootResouces])
     if validate:
       map(lambda r: [c.getParams() for c in r.spec.configurations], self.resources)
+
+  def save(self):
+    [rr.save() for rr in self.resources]
+
+  def dump(self, out=sys.stdout):
+    yaml.dump(self.manifest, out)
 
   def getValidateErrors(self):
     version = self.manifest.get('apiVersion')

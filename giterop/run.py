@@ -1,4 +1,6 @@
 import six
+import sys
+from ruamel.yaml.comments import CommentedMap
 
 from .util import *
 from .manifest import *
@@ -41,20 +43,21 @@ class Change(object):
     return kw
 
   def toSource(self):
-    """convert dictionary suitable for serializing as yaml
+    """
+    convert dictionary suitable for serializing as yaml
     or creating a ChangeRecord.
     """
-
-    src = dict([(k, getattr(self, k)) for k in ChangeRecord.CommonAttributes
-                      if getattr(self, k)]) #skip empty values
+    items = [(k, getattr(self, k)) for k in ChangeRecord.HeaderAttributes]
     if self.rootResource:
-      src['rootResource'] = self.rootResource
+      items.append( ('rootResource', self.rootResource) )
     else:
-      src.update(
-        dict([(k, getattr(self, k)) for k in ChangeRecord.RootAttributes
-                            if getattr(self, k)]) #skip empty values
-      )
-    return src
+      items.extend([(k, getattr(self, k)) for k in ChangeRecord.RootAttributes
+                            if getattr(self, k)] #skip empty values
+                  )
+    items.extend([(k, getattr(self, k)) for k in ChangeRecord.CommonAttributes
+                      if getattr(self, k)]) #skip empty values
+    #CommentedMap so order is preserved in yaml output
+    return CommentedMap(items)
 
   def record(self):
     changeRecord = ChangeRecord(self.resource.definition, self.toSource() )
@@ -150,7 +153,7 @@ class Task(object):
     try:
       status = self.configurator.run(self)
     except Exception as err:
-      raise GitErOpTaskError(self, err)
+      raise GitErOpTaskError(self, sys.exc_info())
 
     missingProvided = self.configuration.configurator.findMissingProvided(self.resource)
     #XXX revert changes if status.failure or have configurator do that?
@@ -161,9 +164,11 @@ class Task(object):
     self.messages.append(message)
 
   def createResource(self, resourceDef):
+    # XXX add created annotation
     self.addedResources.append(('created', resourceDef))
 
   def discoverResource(self, resourceDef):
+    # XXX add created annotation
     self.addedResources.append(('discovered', resourceDef))
 
   def deleteResource(self, resource):
@@ -217,6 +222,7 @@ class Runner(object):
     #commit manifest
     self.currentTask = None
     self.changes.append(change)
+    self.manifest.save()
 
   def saveError(self, err, msg=''):
     self.aborted = err
@@ -274,7 +280,7 @@ class Runner(object):
             #run them before the next configuration
             tasks[0:0] = moreTasks
     except Exception as e:
-      self.saveError(e)
+      self.saveError(sys.exc_info())
       return False
     else:
       return True

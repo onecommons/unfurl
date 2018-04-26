@@ -2,6 +2,7 @@ import unittest
 from giterop import *
 from giterop.configurator import *
 import traceback
+import six
 
 class TestConfigurator(Configurator):
   def shouldRun(self, task):
@@ -37,6 +38,7 @@ templates:
         - configurator: test
 resources:
   test1:
+    ziipi: 1
     metadata:
       meetsTheRequirement: "copy"
     spec:
@@ -96,9 +98,17 @@ class ConfiguratorTest(unittest.TestCase):
 
   def test_changes(self):
     runner = Runner(manifest)
-    assert runner.run(resource='test1'), runner.aborted
+    runner.run(resource='test1')
+    if runner.aborted:
+      traceback.print_exception(*runner.aborted)
+    assert not runner.aborted
     self.assertEquals(runner.changes[0].toSource(),
-      {'status': 'success', 'changeId': 2, 'action': 'discover', 'configuration': 'test'})
+      {'status': 'success', 'changeId': 2, 'date': 0, 'action': 'discover', 'configuration': 'test'})
+
+    output = six.StringIO()
+    runner.manifest.dump(output)
+    #round trip testing
+    #print output.getvalue()
 
   def test_shouldRun(self):
     pass

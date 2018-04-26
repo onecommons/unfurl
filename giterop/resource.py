@@ -1,3 +1,5 @@
+from ruamel.yaml.comments import CommentedMap
+
 from .util import *
 from .templatedefinition import *
 
@@ -32,7 +34,6 @@ class Resource(object):
 
   def commitMetadata(self):
     self.definition.metadata.update(self.metadata)
-
 
 registerClass(VERSION, "Resource", Resource)
 
@@ -73,29 +74,40 @@ class ResourceDefinition(object):
       self.manifest = manifest
 
     self.src = assertForm(src)
+    # we need to modify src so changes to it get saved
+    for key in "metadata spec status".split():
+      if key not in src:
+        src[key] = CommentedMap()
 
-    manifestName = src.get('metadata',{}).get("name")
+    manifestName = src['metadata'].get("name")
     if manifestName and name and (name != manifestName):
       raise GitErOpError('Resource key and name do not match: %s %s' % (name, manifestName) )
     self.name = name or manifestName
     if not self.name:
       raise GitErOpError('Resource is missing name: %s' % src)
 
-    self.spec = TemplateDefinition(manifest, src.get("spec", {}))
+    self.spec = TemplateDefinition(manifest, src["spec"])
 
     defaults = self.spec.attributes.getDefaults()
-    defaults.update(src.get("metadata", {}))
+    defaults.update(src["metadata"])
     self.metadata = defaults
     if validate:
       self.spec.attributes.validateParameters(self.metadata, False)
 
     #Note: kms needs a context associated with this particular resource
     self.kms = DummyKMS()
-    self.status = assertForm(src.get('status',{}))
-    changes = assertForm(self.status.get('changes', []), list)
+
+    self.status = src['status']
+    if 'changes' in self.status:
+      changes = assertForm(self.status['changes'], list)
+    else:
+      changes = self.status['changes'] = []
     self.changes = [ChangeRecord(self, c) for c in changes]
 
-    _resources = assertForm(self.status.get('resources',{}))
+    if 'resources' in self.status:
+      _resources = assertForm(self.status['resources'])
+    else:
+      _resources = self.status['resources'] = {}
     self._resources = dict([(k, ResourceDefinition(self, v, k, validate))
                                       for (k,v) in _resources.items()])
 
@@ -106,6 +118,32 @@ class ResourceDefinition(object):
     childR = self._resources.values()
     return max(self.changes and max(c.changeId for c in self.changes) or 0,
               childR and max(r.findMaxChangeId() for r in childR) or 0)
+
+  def save(self):
+    # below are the only fields that should have changed
+    # and need to be save back into the yaml manifest
+
+    # needs to updated with self.metadata but don't include defaults
+    defaults = self.spec.attributes.getDefaults()
+    srcMetadata = self.src["metadata"]
+    metadata = self.metadata.copy()
+    for key in srcMetadata.keys():
+      if key not in metadata:
+        del srcMetadata[key]
+      else:
+        srcMetadata[key] = metadata.pop(key)
+    for (key, value) in metadata.items():
+      if defaults.get(key) is not value:
+        srcMetadata[key] = value
+
+    # needs to add new items in changes
+    newChanges = self.changes[len(self.status['changes']):]
+    self.status['changes'].extend([c.src for c in newChanges])
+
+    # need to reconstruct resources
+    for (k, rd) in self._resources:
+      rd.save()
+      self.status['resources'][k] = rd.src
 
 class ChangeRecord(object):
   """
@@ -118,35 +156,39 @@ class ChangeRecord(object):
       observed:
       forgot:
   """
-  CommonAttributes = {
-   'changeId': 0,
-   'date': '',
-   'resources': {},
-   'metadata': [],
-   'messages': [],
-  }
-  RootAttributes = {
-    'configuration': '',
-    'failedToProvide': [],
-    'status': '',
-    'action': '',
-    'parameters': [],
+  HeaderAttributes = CommentedMap([
+   ('changeId', 0),
+   ('date', ''),
+  ])
+  CommonAttributes = CommentedMap([
+    ('messages', []),
+    ('metadata', []),
+    ('resources', {}),
+  ])
+  RootAttributes = CommentedMap([
+    ('configuration', ''),
+    ('action', ''),
     # XXX
     # 'revision':'',
     # 'previously': '',
     # 'applied': ''
-  }
+    ('parameters', []),
+    ('status', ''),
+    ('failedToProvide', []),
+  ])
   ChildAttributes = {'rootResource':''}
 
   def __init__(self, resourceDefinition, src):
     self.resource = resourceDefinition
     self.src = src
-    for (k,v) in self.CommonAttributes.items():
+    for (k,v) in self.HeaderAttributes.items():
       setattr(self, k, src.get(k, v))
     self.rootResource = src.get('rootResource')
     if not self.rootResource:
       for (k,v) in self.RootAttributes.items():
         setattr(self, k, src.get(k, v))
+    for (k,v) in self.CommonAttributes.items():
+      setattr(self, k, src.get(k, v))
 
 class MetadataDict(dict):
   """
