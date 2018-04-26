@@ -57,8 +57,7 @@ class ConfiguratorTest(unittest.TestCase):
     assert resources, "couldn't find root resource test1"
     assert len(resources) == 1, resources
     test1 = resources[0]
-
-    missing = test1.spec.configurations[0].configurator.findMissingRequirements(test1)
+    missing = test1.definition.spec.configurations[0].configurator.findMissingRequirements(test1)
     assert not missing, missing
 
     #print resources[0].spec.configurations

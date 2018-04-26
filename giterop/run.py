@@ -19,7 +19,7 @@ class Task(object):
     self.changes = None
     self.configuration = configuration
     self.action = configuration.getAction(action)
-    self.resource = configuration.getResource(resource)# XXX .copy()
+    self.resource = resource #configuration.getResource(resource)# XXX .copy()
     self.parameters = configuration.getParams()
     self.configurator = configuration.configurator.getConfigurator()
     self.previousRun = self.getLastChange()
@@ -87,8 +87,8 @@ class Runner(object):
       resource = manifest.getRootResource(resourceName)
       if not resource:
         raise GitErOpError("couldn't find root resouce %s in manifest" % resourceName)
-      return [resource]
-    return manifest.resources[:]
+      return [resource.resource]
+    return [r.resource for r in manifest.resources]
 
   def save(self, task, changes):
     #update cluster with last success
@@ -101,7 +101,7 @@ class Runner(object):
 
   def getNeededTasksForResource(self, resource, action=None):
     tasks = []
-    for configuration in resource.spec.configurations:
+    for configuration in resource.definition.spec.configurations:
       # check status, discover or instantiate
       task = Task(self, configuration, resource, action)
       if task.shouldRun():

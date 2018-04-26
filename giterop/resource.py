@@ -69,10 +69,13 @@ class MetadataDict(dict):
   Validates values based on the attribute definition
   """
   def __init__(self, definition):
+    #copy metadata dict and then assign this as the metadata dict
+    super(MetadataDict, self).__init__(definition.metadata)
+    definition.metadata = self
     self.definition = definition
 
   def __getitem__(self, name):
-    value = super(self, AttributeDict).__getitem__(name)
+    value = super(MetadataDict, self).__getitem__(name)
     resource = self.definition
     paramdef = resource.spec.attributes.attributes.get(name)
     if paramdef:
@@ -92,14 +95,14 @@ class MetadataDict(dict):
       else:
         return value
 
-  def __setitem__(self, key, value):
+  def __setitem__(self, name, value):
     paramdef = self.definition.spec.attributes.attributes.get(name)
     if paramdef:
       paramdef.validateValue(value)
       if paramdef.secret:
         # store key reference as value
         value = resource.kms.update(name, value)
-    self.definition.metadata[name] = value
+    super(MetadataDict, self).__setitem__(name, value)
 
 class DummyKMS(dict):
   def isKMSValueReference(self, value):

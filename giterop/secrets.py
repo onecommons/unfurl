@@ -35,7 +35,7 @@ registerClass(VERSION, "KMSResource", KMSResource)
 
 class KMSMetadataDict(MetadataDict):
   def __init__(self, resourceDef, kms):
-    super(MetadataDict, self).__init__(resourceDef)
+    super(KMSMetadataDict, self).__init__(resourceDef)
     self.kms = kms
 
   def __getitem__(self, name):
