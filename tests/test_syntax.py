@@ -167,6 +167,7 @@ templates:
         configurator:
           parameterSchema:
             - name: test
+              type: string
               default: default
         parameters:
           test: base

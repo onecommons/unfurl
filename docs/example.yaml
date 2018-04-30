@@ -1,6 +1,8 @@
 apiVersion: giterops/v1alpha1
 kind: Manifest
-
+src: repo-path #XXX
+commit:
+last-modified:
 configurator:
   name: kms
   configurator: kms
@@ -63,10 +65,12 @@ configurators:
         type: enum
         #list: [0] #== required
         #max: any
+        inherit: true
+        always:
         enum: ['X', 'Y', 'Z']
         required: True
         default:
-          clusterkms: name
+          valueFrom: "clusterkms:name"
 #XXX resource types
 templates:
   AmiImage:

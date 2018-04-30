@@ -55,14 +55,13 @@ class AttributeDefinition(object):
     elif 'always' in obj:
       self.type == 'always'
       self.default = obj['always']
+    self.inherited = 'inherited' in obj
     if isinstance(self.type, dict):
       templateName = self.type.get('template')
       if templateName:
         self.type = 'template'
         template = manifest.templates.get(templateName)
         self.template = template.attributes
-    if not self.type:
-      self.type = 'string'
 
   def merge(self, defs):
     for key in ['default', 'required', 'secret']:
@@ -79,25 +78,27 @@ class AttributeDefinition(object):
   def __repr__(self):
     return "<AttrDef %s: type: %s>" % (self.name, self.type)
 
-  def isValueCompatible(self, value, item=False):
+  def isValueCompatible(self, value, resolver=None, item=False):
     quantity = 0 if item else getattr(self, 'list', 0)
     isList = isinstance(value, list)
     if quantity > 1 and not isList:
       return False
     elif isList:
       if quantity:
-        return all([self.isValueCompatible(v, True) for v in value])
+        return all([self.isValueCompatible(v, resolver, True) for v in value])
       else:
         return False
+    #else: fallthrough
 
-    if isinstance(value, dict):
-      if 'valueref' in value and len(value) == 1:
-        return self.isValueCompatible(resolveValueRef(value))
-      if self.type == 'template':
-        return not self.template.validateParams(value)
+    if not self.type:
+      return True
 
     if self.type == 'always':
       return self.default == value
+
+    if self.type == 'resource':
+      from .resource import Resource
+      return isinstance(value, Resource)
 
     if isinstance(value, (int, long, float)):
       if self.type == 'int':
@@ -111,6 +112,18 @@ class AttributeDefinition(object):
 
     if isinstance(value, bool):
       return self.type == 'boolean'
+
+    if ValueFrom.isRef(value):
+      if resolver:
+        return self.isValueCompatible(ValueFrom.resolve(value, resolver), resolver)
+      else:
+        return True
+
+    if isinstance(value, dict):
+      if self.type == 'template':
+        return not self.template.checkParameters(value, resolver)
+      return False
+
     return False
 
 class AttributeDefinitionGroup(object):
@@ -138,6 +151,10 @@ class AttributeDefinitionGroup(object):
     return dict([(paramdef.name, paramdef.default)
       for paramdef in self.attributes.values() if paramdef.hasDefault])
 
+  def getInherited(self):
+    return dict([(paramdef.name, True)
+      for paramdef in self.attributes.values() if paramdef.inherited])
+
   def merge(self, overrides, manifest):
     for defs in overrides:
       name = defs.get('name')
@@ -147,20 +164,20 @@ class AttributeDefinitionGroup(object):
       else:
         self.attributes[name] = AttributeDefinition(defs, manifest)
 
-  def validateParameters(self, params, includeUnexpected=True):
-    status = self.checkParameters(params, includeUnexpected)
+  def validateParameters(self, params, resolver=None, includeUnexpected=True):
+    status = self.checkParameters(params, resolver, includeUnexpected)
     if status:
       raise GitErOpValidationError("bad parameters: %s" % status, status)
 
-  def checkParameters(self, params, includeUnexpected=True):
-    params = params.copy()
+  def checkParameters(self, pparams, resolver=None, includeUnexpected=True):
+    params = dict(pparams)
     status = []
     for paramdef in self.attributes.values():
       value = params.pop(paramdef.name, None)
       if value is None:
         if paramdef.required:
           status.append(("missing required parameter", paramdef.name))
-      elif not paramdef.isValueCompatible(value):
+      elif not paramdef.isValueCompatible(value, resolver):
         status.append(("invalid value", (paramdef.name, value)))
     if includeUnexpected and params:
       status.append( ("unexpected parameters", params.keys()) )
@@ -174,32 +191,82 @@ def lookupPath(source, keys):
     value = value[key]
   return value
 
-class ValueRef(object):
+#cf. valueFrom: {"fieldRef": {"fieldPath": "metadata.namespace"}}
+#resourceFieldRef, secretRef, configmapRef
+# use case: default parameter: :clusterkms:aSecret
+# but default doesn't know the actual resource name, clusterkms is a well-known variable
+# valueFrom: .:resourceref:path which resolves to another valuefrom
+class ValueFrom(object):
   """
-  valueref: "resourcename:attribute:child:0"
+  valueFrom: "resourcename:attribute:child:0"
 
   Use ":" as delimiters, list index or dictionary keys
 
+  '.' '..' '', relative resources, empty search for nearest match
   Resolves to resource or a value
   """
   def __init__(self, path):
+    if isinstance(path, dict):
+      path = path.get('valueFrom','')
     #use : as delimiters because attribute names can look like: kops.k8s.io/cluster
     parts = path if isinstance(path, (list,tuple)) else path.split(':')
-    self.resourcename = parts[0]
+    self.resourceName = parts[0]
     self.attributePath = parts[1:]
 
-  def resolve(self, findResource):
-    resource = findResource(self.resourcename)
+  def __repr__(self):
+    return "ValueFrom('%s:%s')" % (self.resourceName, ':'.join(self.attributePath))
+
+  def findResource(self, currentResource):
+    resourceName = self.resourceName
+    if not resourceName:
+      search = self.attributePath[0]
+      resource = currentResource
+      while resource:
+        if search in resource:
+          return resource
+        resource = resource.parent
+      return None
+    elif resourceName == '.':
+      return currentResource
+    elif resourceName == '..':
+      return currentResource.parent
+    else:
+      return currentResource.definition.findResource(self.resourceName)
+
+  def resolve(self, currentResource):
+    resource = self.findResource(currentResource)
     if not resource:
-      raise GitErOpError("valueref to unknown resource %s" % self.resourcename)
+      if self.resourceName:
+        raise GitErOpError("valueFrom to unknown resource %s" % self.resourceName)
+      else:
+        raise GitErOpError("valueFrom can't find %s"
+                              % (self.attributePath and self.attributePath[0]))
 
     if self.attributePath:
-      return lookupPath(resource.metadata, self.attributePath)
+      try:
+        return lookupPath(resource, self.attributePath)
+      except Exception as e:
+        raise GitErOpError("bad path in %r" % self)
     else:
       return resource
 
-  def getProvence(self):
-    """
-    Return the who and when about the referenced value
-    """
-    #look through the resource changes, if not found hasn't changed since the resource's creation
+  @staticmethod
+  def resolveIfRef(value, resolver):
+    if isinstance(value, ValueFrom):
+      return value.resolve(resolver)
+    elif ValueFrom.isRef(value):
+       return ValueFrom(value).resolve(resolver)
+    else:
+      return value
+
+  @staticmethod
+  def isRef(value):
+    if isinstance(value, dict):
+      return 'valueFrom' in value and len(value) == 1
+    return isinstance(value, ValueFrom)
+
+  # def getProvenence(self):
+  #   """
+  #   Return the who and when about the referenced value
+  #   """
+  #   #look through the resource changes, if not found hasn't changed since the resource's creation

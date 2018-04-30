@@ -21,9 +21,9 @@ class KMSResource(Resource):
   It's attributes are stored in the kms, not the manifest
   Secrets can be stored and retrieved using valuerefs to this resource.
   """
-  def makeMetadata(self):
-    self.kms = self.bind(self.definition)
-    return KMSMetadataDict(self.defintion, self.kms)
+  def __init__(self, resourceDef):
+    super(KMSMetadata, self).__init__(resourceDef)
+    self.kms = self.bind(resourceDef)
 
   def bind(self): #XXX
     """
@@ -31,17 +31,21 @@ class KMSResource(Resource):
     """
     return None
 
-registerClass(VERSION, "KMSResource", KMSResource)
-
-class KMSMetadataDict(MetadataDict):
-  def __init__(self, resourceDef, kms):
-    super(KMSMetadataDict, self).__init__(resourceDef)
-    self.kms = kms
-
   def __getitem__(self, name):
     #XXX needs to call super somehow?
     return self.kms.get(name)
 
-  def __setattr__(self, name, value):
+  def __setitem__(self, name, value):
     #XXX needs to call super somehow?
     return self.kms.set(name, value)
+
+  def __delitem__(self, name):
+    #XXX needs to call super somehow?
+    return self.kms.remove(name)
+
+registerClass(VERSION, "KMSResource", KMSResource)
+
+class KMSMetadataDict(ResourceMetadataDict):
+  def __init__(self, resourceDef, kms):
+    super(KMSMetadataDict, self).__init__(resourceDef)
+    self.kms = kms

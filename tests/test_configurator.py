@@ -38,7 +38,6 @@ templates:
         - configurator: test
 resources:
   test1:
-    ziipi: 1
     metadata:
       meetsTheRequirement: "copy"
     spec:
@@ -103,7 +102,12 @@ class ConfiguratorTest(unittest.TestCase):
       traceback.print_exception(*runner.aborted)
     assert not runner.aborted
     self.assertEquals(runner.changes[0].toSource(),
-      {'status': 'success', 'changeId': 2, 'date': 0, 'action': 'discover', 'configuration': 'test'})
+      {'status': 'success', 'changeId': 2, 'commitId': '',
+      'date': 0, 'action': 'discover', 'metadata': {
+        'deleted': [], 
+        'added': ['copyOfMeetsTheRequirement'],
+        'replaced': {}
+      }, 'configuration': 'test'})
 
     output = six.StringIO()
     runner.manifest.dump(output)

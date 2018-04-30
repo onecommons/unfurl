@@ -13,32 +13,33 @@ class Change(object):
     self.resource = resource
     self.rootChange = rootChange
     self.childMetadataChanges = []
-    leftOver = self.mergeCommon(kw)
+    leftOver = self.mergeAttr(ChangeRecord.HeaderAttributes, kw)
+    leftOver = self.mergeAttr(ChangeRecord.CommonAttributes, leftOver)
     if rootChange:
       #this is a child Change
-      self.rootResource = rootChange.resource.name
+      self.masterResource = rootChange.resource.name
       self.date = rootChange.date
       self.changeId = rootChange.changeId
     else:
-      self.rootResource = None
-      leftOver = self.mergeRoot(leftOver)
+      self.masterResource = None
+      leftOver = self.mergeAttr(ChangeRecord.RootAttributes, leftOver)
       self.date = job.date
       self.changeId = job.changeId
       self.configuration = job.configuration.name
-      self.action = job.action
       self.parameters = job.parameters
-      # XXX
-      #revision
+      # self.configuration = {
+      #   "name": job.configuration.name,
+      #   "parameters" job.parameters,
+      #   #XXX what if configurator changed?
+      #   #XXX version, revision
+      #   # record changes when revision changes?
+      # }
+      self.action = job.action
       #previously: commitid+
       #applied: commitid
 
-  def mergeCommon(self, kw):
-    for (k, v) in ChangeRecord.CommonAttributes.items():
-      setattr(self, k, kw.pop(k, v))
-    return kw
-
-  def mergeRoot(self, kw):
-    for (k, v) in ChangeRecord.RootAttributes.items():
+  def mergeAttr(self, attrs, kw):
+    for (k, v) in attrs.items():
       setattr(self, k, kw.pop(k, v))
     return kw
 
@@ -48,8 +49,8 @@ class Change(object):
     or creating a ChangeRecord.
     """
     items = [(k, getattr(self, k)) for k in ChangeRecord.HeaderAttributes]
-    if self.rootResource:
-      items.append( ('rootResource', self.rootResource) )
+    if self.masterResource:
+      items.append( ('masterResource', self.masterResource) )
     else:
       items.extend([(k, getattr(self, k)) for k in ChangeRecord.RootAttributes
                             if getattr(self, k)] #skip empty values
@@ -71,7 +72,7 @@ class Task(object):
     self.configuration = configuration
     self.action = configuration.getAction(action)
     self.resource = resource #configuration.getResource(resource) XXX?
-    self.parameters = configuration.getParams()
+    self.parameters = configuration.getParams(resource)
     self.configurator = configuration.configurator.getConfigurator()
     self.previousRun = self.getLastChange()
     self.messages = []
@@ -94,14 +95,14 @@ class Task(object):
   def findMetadataChanges(self, resource, changes):
     diffs = resource.diffMetadata()
     #for op in diffs:
-    #  self.checkForConflict(ValueRef([resource, op[1]]).getProvence())
+    #  self.checkForConflict(ValueFrom([resource, op[1]]).getProvence())
     if diffs:
-      changes.append( (resource,diffs) )
+      changes.append( (resource, diffs) )
     for child in resource.resources:
       self.findMetadataChanges(child, changes)
 
-  def _createChangeRecord(self, resource, diff, rootChange):
-    return Change(self, resource, metadata=diff, rootChange=rootChange)
+  def _createChangeRecord(self, resource, diff, rootChange, action):
+    return Change(self, resource, metadata=diff, rootChange=rootChange, action=action)
 
   def _createRootChangeRecord(self, status, providedStatus):
     self.changeId = self.runner.incrementChangeId()
@@ -118,6 +119,9 @@ class Task(object):
       change.resources.setdefault(action,[]).append(resource.name)
 
     change.childMetadataChanges = metadataChanges
+    for (resource, diffs) in metadataChanges:
+      change.resources.setdefault("modified",[]).append(resource.name)
+
     return change
 
   def commitChanges(self, rootChange):
@@ -126,7 +130,7 @@ class Task(object):
 
     for (resource, diff) in rootChange.childMetadataChanges:
       resource.commitMetadata()
-      change = self._createChangeRecord(resource, diff, rootChange)
+      change = self._createChangeRecord(resource, diff, rootChange, "modified")
       change.record()
 
     for (action, resource) in self.removedResources:
@@ -137,8 +141,8 @@ class Task(object):
         if resource.name in self.resource.definition._resources:
           parent = self.resource.definition
         else:
-          rootResource = self.runner.manifest.getRootResources(resource.name)
-          if rootResource:
+          isRootResource = self.runner.manifest.getRootResources(resource.name)
+          if isRootResource:
             parent = self.runner.manifest
       if parent:
         del parent._resources[resource.name]
@@ -148,6 +152,10 @@ class Task(object):
     for (action, resource) in self.addedResources:
       parent = resource.parent or self.resource
       parent.definitions._resources[resource.name] = resource.definition
+      #add an initial change record
+      resource.commitMetadata()
+      change = self._createChangeRecord(resource, diff, rootChange)
+      change.record()
 
   def run(self):
     try:
@@ -163,13 +171,15 @@ class Task(object):
   def addMessage(self, message):
     self.messages.append(message)
 
-  def createResource(self, resourceDef):
-    # XXX add created annotation
-    self.addedResources.append(('created', resourceDef))
+  def createResource(self, resourceSpec):
+    resource = ResourceDefinition(self.resource.definition, resourceSpec)
+    self.addedResources.append(('created', resource.resource))
+    return resource.resource
 
   def discoverResource(self, resourceDef):
-    # XXX add created annotation
-    self.addedResources.append(('discovered', resourceDef))
+    resource = ResourceDefinition(self.resource.definition, resourceSpec)
+    self.addedResources.append(('discovered', resource.resource))
+    return resource.resource
 
   def deleteResource(self, resource):
     self.removedResources.append(('deleted', resource))
@@ -179,8 +189,7 @@ class Task(object):
 
   def getLastChange(self):
     for change in reversed(self.resource.changes):
-      # just use the name of the configuration for now
-      if change.configuration == self.configuration.name:
+      if change.configuration and change.configuration.name == self.configuration.name:
         return change
     return None
 
@@ -236,6 +245,8 @@ class Runner(object):
       task = Task(self, configuration, resource, action)
       if task.shouldRun():
         tasks.append(task)
+    for childResource in resource.resources:
+      tasks.extend(self.getNeededTasksForResource(childResource, action))
     return tasks
 
   def abortIfCantRun(self, tasks):

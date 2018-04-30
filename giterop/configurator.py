@@ -4,6 +4,12 @@ from .util import *
 def buildEnum(klass, names):
   [setattr(klass, name, name) for name in names]
 
+"""
+3 ways to track
+version controlled by configurator
+revision automatically incremented GitErOp on changes
+commitid automatically pulled from manifests git repo
+"""
 class Configurator(object):
   class status(object): pass
   buildEnum(status, "success failed pending running timeout".split())
@@ -52,6 +58,8 @@ class Configurator(object):
   def shouldRunInstantiate(self, job):
     if not job.previousRun:
       return True
+    if previousRun.action == 'revert':
+      return True
     return self.hasChanged(job)
 
   def shouldRunRevert(self, job):
@@ -70,7 +78,11 @@ class Configurator(object):
   def hasChanged(self, job):
     if not job.previousRun:
       return True
+    #previousRun is a ChangeRecord
+
+    #if configurator
     #compare configuration and parameters
+    #job.configuration.getParams()
     # XXX
     return job.previousRun.configuration == job.configuration
 
@@ -125,14 +137,14 @@ class ConfiguratorDefinition(object):
   def getConfigurator(self):
     return lookupClass(self.kind, self.apiVersion)(self)
 
-  def validateParams(self, params):
-    self.parameterSchema.validateParameters(params, True)
+  def validateParams(self, params, resolver=None):
+    self.parameterSchema.validateParameters(params, resolver, True)
 
-  def hasBadParameters(self, params):
-    return self.parameterSchema.checkParameters(params, True)
+  def hasBadParameters(self, params, resolver=None):
+    return self.parameterSchema.checkParameters(params, resolver, True)
 
-  def findMissingRequirements(self, resource):
-    return self.requires.checkParameters(resource.metadata, False)
+  def findMissingRequirements(self, resource, resolver=None):
+    return self.requires.checkParameters(resource.metadata, resolver, False)
 
-  def findMissingProvided(self, resource):
-    return self.provides.checkParameters(resource.metadata, False)
+  def findMissingProvided(self, resource, resolver=None):
+    return self.provides.checkParameters(resource.metadata, resolver, False)

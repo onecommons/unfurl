@@ -4,6 +4,7 @@ from .templatedefinition import *
 from .configurator import *
 from .resource import *
 from ruamel.yaml import YAML
+from ruamel.yaml.comments import CommentedMap
 from codecs import open
 import sys
 yaml = YAML()
@@ -35,13 +36,17 @@ class Manifest(object):
     else:
       self.valid = not not messages
 
+    for key in "templates resources".split():
+      if not self.manifest.get(key):
+        self.manifest[key] = CommentedMap()
+
     self.configurators = dict([(k, ConfiguratorDefinition(v, self, k))
                       for (k, v) in (self.manifest.get(CONFIGURATORSKEY) or {}).items()])
-    templates = self.manifest.get('templates') or {}
+    templates = self.manifest['templates']
     self.templates = dict([(k, self._createTemplateDefinition(templates[k], k))
                                                             for k in templates])
-    rootResouces = self.manifest.get('resources') or {}
-    self._resources = dict([(k, ResourceDefinition(self, rootResouces[k], k)) for k in rootResouces])
+    rootResources = self.manifest['resources']
+    self._resources = dict([(k, ResourceDefinition(self, rootResources[k], k)) for k in rootResources])
     if validate:
       map(lambda r: [c.getParams() for c in r.spec.configurations], self.resources)
 
@@ -66,6 +71,13 @@ class Manifest(object):
   def getRootResource(self, resourceid):
     return self._resources.get(resourceid)
 
+  def findResource(self, resourceid):
+    for r in self.resources:
+      match = r.findLocalResource(resourceid)
+      if match:
+        return match
+    return None
+
   def _createTemplateDefinition(self, src, name):
     manifestName = src.get('name')
     if manifestName and name and (name != manifestName):
@@ -73,4 +85,5 @@ class Manifest(object):
     return TemplateDefinition(self, src, name or manifestName)
 
   def findMaxChangeId(self):
-    return self.resources and max(r.findMaxChangeId() for r in self.resources) or 0
+    return (self.resources and
+      max(r.findMaxChangeId() for r in self.resources) or 0)

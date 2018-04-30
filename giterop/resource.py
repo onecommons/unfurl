@@ -3,16 +3,15 @@ from ruamel.yaml.comments import CommentedMap
 from .util import *
 from .templatedefinition import *
 
-#from dictdiffer import diff, patch, swap, revert
-#XXX
-def diff(a, b):
-  return []
-
 class Resource(object):
   def __init__(self, resourceDef):
     self.definition = resourceDef
-    self.metadata = self.makeMetadata()
+    self.metadata = dict(self.definition.metadata)
+    self.defaults = self.definition.spec.attributes.getDefaults()
+    self.inherited = self.definition.spec.attributes.getInherited()
     self.changes = self.definition.changes
+    #Note: kms needs a context associated with this particular resource
+    self.kms = DummyKMS()
 
   @property
   def name(self):
@@ -26,14 +25,76 @@ class Resource(object):
   def resources(self):
     return [r.resource for r in self.definition._resources.values()]
 
-  def makeMetadata(self):
-    return MetadataDict(self.definition)
+  def __getitem__(self, name):
+    if name == '.':
+      return self
+    elif name == '..':
+      return self.parent
+
+    try:
+      value = self.metadata[name]
+    except KeyError:
+      if self.parent and name in self.inherited:
+        try:
+          value = self.parent[name]
+        except:
+          value = self.defaults[name]
+      else:
+        value = self.defaults[name]
+
+    if self.kms.isKMSValueReference(value):
+      value = kms.dereference(value)
+    return ValueFrom.resolveIfRef(value, self)
+
+  def __setitem__(self, name, value):
+    if isinstance(value, Resource):
+      value = {'valueFrom': value.name}
+    paramdef = self.definition.spec.attributes.attributes.get(name)
+    if paramdef:
+      #if self.kms.isKMSValueReference(value):
+      #  value = self.kms.dereference(value)
+      paramdef.isValueCompatible(value, self)
+      if paramdef.secret:
+        value = self.kms.set(name, value)
+    self.metadata[name] = value
+
+  def __delitem__(self, key):
+    value = self.metadata.pop(key)
+    if self.kms.isKMSValueReference(value):
+      self.kms.remove(key, value)
+
+  def __contains__(self, key):
+    if key == '.':
+      return True
+    elif key == '..':
+      return not not self.parent
+
+    exists = key in self.metadata or key in self.defaults
+    if not exists and self.parent and key in self.inherited:
+      return key in self.parent
+    else:
+      return exists
 
   def diffMetadata(self):
-    return diff(self.metadata, self.definition.metadata)
+    old = self.definition.metadata.viewkeys()
+    current = self.metadata.viewkeys()
+
+    deleted = old - current
+    added = current - old
+    replaced = {}
+    for key in (old & current):
+      oldValue = self.definition.metadata[key]
+      if self.metadata[key] != oldValue:
+        replaced[key] = self.metadata[key]
+    return dict(added=list(added), deleted=list(deleted), replaced=replaced)
 
   def commitMetadata(self):
-    self.definition.metadata.update(self.metadata)
+    old = self.definition.metadata
+    deleted = old.viewkeys() - self.metadata.viewkeys()
+    for key in list(deleted):
+      del old[key]
+    # do an update to preserve order
+    old.update(self.metadata)
 
 registerClass(VERSION, "Resource", Resource)
 
@@ -55,28 +116,24 @@ class ResourceDefinition(object):
     configurations:
       - "component"
   status:
-    state:discovered
-          created
-          deleted
-    by:
     resources:
       name:
         <resource>
     changes:
       - <change record>
   """
-  def __init__(self, manifest, src, name=None, validate=True):
-    if isinstance(manifest, ResourceDefinition):
-      self.parent = manifest
+  def __init__(self, manifestOrParent, src, name=None, validate=True):
+    if isinstance(manifestOrParent, ResourceDefinition):
+      self.parent = manifestOrParent
       self.manifest = manifest = parent.manifest
     else:
       self.parent = None
-      self.manifest = manifest
+      self.manifest = manifest = manifestOrParent
 
-    self.src = assertForm(src)
+    self.src = CommentedMap(assertForm(src).items())
     # we need to modify src so changes to it get saved
     for key in "metadata spec status".split():
-      if key not in src:
+      if not src.get(key):
         src[key] = CommentedMap()
 
     manifestName = src['metadata'].get("name")
@@ -88,14 +145,9 @@ class ResourceDefinition(object):
 
     self.spec = TemplateDefinition(manifest, src["spec"])
 
-    defaults = self.spec.attributes.getDefaults()
-    defaults.update(src["metadata"])
-    self.metadata = defaults
+    self.metadata = src["metadata"]
     if validate:
-      self.spec.attributes.validateParameters(self.metadata, False)
-
-    #Note: kms needs a context associated with this particular resource
-    self.kms = DummyKMS()
+      self.spec.attributes.validateParameters(self.metadata, None, False)
 
     self.status = src['status']
     if 'changes' in self.status:
@@ -114,6 +166,30 @@ class ResourceDefinition(object):
     klass = lookupClass(src.get('kind', 'Resource'), src.get('apiVersion'))
     self.resource = klass(self)
 
+  def findResource(self, resourceid):
+    if self.name == resourceid:
+      return self
+
+    for r in self.resources:
+      match = r.name == resourceid
+      if match:
+        return match
+
+    if self.parent:
+      return self.parent.findResource(resourceid)
+    else:
+      return self.manifest.getRootResource(resourceid)
+
+  def findLocalResource(self, resourceid):
+    if self.name == resourceid:
+      return self
+
+    for r in self.resources:
+      match = r.findLocalResource(resourceid)
+      if match:
+        return match
+    return None
+
   def findMaxChangeId(self):
     childR = self._resources.values()
     return max(self.changes and max(c.changeId for c in self.changes) or 0,
@@ -122,111 +198,88 @@ class ResourceDefinition(object):
   def save(self):
     # below are the only fields that should have changed
     # and need to be save back into the yaml manifest
-
-    # needs to updated with self.metadata but don't include defaults
-    defaults = self.spec.attributes.getDefaults()
-    srcMetadata = self.src["metadata"]
-    metadata = self.metadata.copy()
-    for key in srcMetadata.keys():
-      if key not in metadata:
-        del srcMetadata[key]
-      else:
-        srcMetadata[key] = metadata.pop(key)
-    for (key, value) in metadata.items():
-      if defaults.get(key) is not value:
-        srcMetadata[key] = value
+    # note: metadata is already in sync
 
     # needs to add new items in changes
     newChanges = self.changes[len(self.status['changes']):]
     self.status['changes'].extend([c.src for c in newChanges])
 
-    # need to reconstruct resources
+    # need to reconstruct child resources
     for (k, rd) in self._resources:
       rd.save()
       self.status['resources'][k] = rd.src
 
 class ChangeRecord(object):
   """
+    changeid
+    date
+    commit
+    action
+    configuration:
+      name
+      revision
+      parameters
+    status
     metadata:
-      attribute: value
-      deleted: [attribute]
+      added:
+      updated:
+        attribute: value
+      deleted: [attributes]
     resources:
       deleted:
       created:
-      observed:
+      discovered:
       forgot:
+      modified: XXX
+
+    changeid
+    date
+    commit
+    masterResource: resource
+    action: created | discovered | modified
+    metadata:
+      added:
+        attribute: value
+      updated:
+        'attribute.path': value
+      deleted: [attributes]
   """
   HeaderAttributes = CommentedMap([
    ('changeId', 0),
+   ('commitId', ''),
    ('date', ''),
+   ('action', ''),
   ])
   CommonAttributes = CommentedMap([
-    ('messages', []),
-    ('metadata', []),
+    ('metadata', {}),
     ('resources', {}),
   ])
   RootAttributes = CommentedMap([
+    #('configuration', {}),
     ('configuration', ''),
-    ('action', ''),
+     ('parameters', []),
+    ('messages', []),
     # XXX
     # 'revision':'',
     # 'previously': '',
     # 'applied': ''
-    ('parameters', []),
     ('status', ''),
     ('failedToProvide', []),
   ])
-  ChildAttributes = {'rootResource':''}
+  #XXX created-by: actionid 'created', 'discovered'
+  ChildAttributes = {'masterResource':''}
 
   def __init__(self, resourceDefinition, src):
     self.resource = resourceDefinition
     self.src = src
     for (k,v) in self.HeaderAttributes.items():
       setattr(self, k, src.get(k, v))
-    self.rootResource = src.get('rootResource')
-    if not self.rootResource:
+    self.masterResource = src.get('masterResource')
+    if not self.masterResource:
       for (k,v) in self.RootAttributes.items():
         setattr(self, k, src.get(k, v))
     for (k,v) in self.CommonAttributes.items():
       setattr(self, k, src.get(k, v))
-
-class MetadataDict(dict):
-  """
-  Updates the metadata in the underlying resource definition or in the kms if it marked secret
-  Validates values based on the attribute definition
-  """
-  def __init__(self, definition):
-    #copy metadata dict and then assign this as the metadata dict
-    super(MetadataDict, self).__init__(definition.metadata)
-    self.definition = definition
-
-  def __getitem__(self, name):
-    value = super(MetadataDict, self).__getitem__(name)
-    kms = self.definition.kms
-    paramdef = self.definition.spec.attributes.attributes.get(name)
-    if paramdef:
-      if paramdef.secret:
-        # if this is a secret we don't store the value in the metadata
-        value = kms.get(name, value)
-      if value is None and paramdef.hasDefault:
-        return paramdef.default
-
-    if kms.isKMSValueReference(value):
-      return kms.dereference(value)
-    else:
-      return value
-
-  def __setitem__(self, name, value):
-    resource = self.definition
-    paramdef = resource.spec.attributes.attributes.get(name)
-    if paramdef:
-      if resource.kms.isKMSValueReference(value):
-        value = resource.kms.dereference(value)
-      paramdef.validateValue(value)
-      if paramdef.secret:
-        value = resource.kms.set(name, value)
-        #store the returned key value reference as the clear text value
-    super(MetadataDict, self).__setitem__(name, value)
 
 class DummyKMS(dict):
   def isKMSValueReference(self, value):

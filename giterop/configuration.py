@@ -8,7 +8,7 @@ class Configuration(object):
   intent: discover instantiate revert
   configurator: ref or inline (use name as ref if omitted)
   parameters
-  target
+  target    #XXX
   onfailure #XXX
   """
   def __init__(self, manifest, src, templateName='', base=None):
@@ -21,12 +21,12 @@ class Configuration(object):
       else:
         raise GitErOpError('configuration %s must reference or define a configurator' % self.name)
     if base and base.parameters:
-      parameters = base.parameters.copy()
+      parameters = dict(base.parameters)
     else:
       parameters = {}
     parameters.update(self.src.get('parameters', {}))
     self.parameters = parameters
-    for prop in ['intent', 'target']:
+    for prop in ['intent']: #, 'target']:
       self._setInheritableProp(prop, base)
 
   def _setInheritableProp(self, name, base):
@@ -74,18 +74,21 @@ class Configuration(object):
 
   @property
   def fqName(self):
-    # what if configuratio in derived templates has a fqname?
+    # XXX what if configuration in a derived templates already has a fqname?
     return self.templateName + '.' + self.name
 
   # hierarchy: componentSpec defaults, componentType defaults and params
   # fully qualify to reference above componentSpec otherwise shadows name
   # error if component references undeclared param
   #we get defaults from componentSpec, update with parent components depth-first
-  def getParams(self, merge=None, validate=True):
+  def getParams(self, currentResource = None, merge=None, validate=True):
     defaults = self.configurator.getDefaults()
     defaults.update(self.parameters)
     if merge:
       defaults.update(merge)
     if validate:
-      self.configurator.parameterSchema.validateParameters(defaults)
-    return defaults
+      self.configurator.parameterSchema.validateParameters(defaults, currentResource)
+    if currentResource:
+      dict((k, ValueFrom.resolveIfRef(value, currentResource)) for (k, v) in defaults.iteritems())
+    else:
+      return defaults
