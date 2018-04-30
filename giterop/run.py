@@ -1,5 +1,7 @@
 import six
 import sys
+import datetime
+import json
 from ruamel.yaml.comments import CommentedMap
 
 from .util import *
@@ -18,23 +20,20 @@ class Change(object):
     if rootChange:
       #this is a child Change
       self.masterResource = rootChange.resource.name
-      self.date = rootChange.date
+      self.startTime = rootChange.startTime
       self.changeId = rootChange.changeId
     else:
       self.masterResource = None
       leftOver = self.mergeAttr(ChangeRecord.RootAttributes, leftOver)
-      self.date = job.date
+      self.startTime = job.startTime.isoformat()
       self.changeId = job.changeId
-      self.configuration = job.configuration.name
-      self.parameters = job.parameters
-      # self.configuration = {
-      #   "name": job.configuration.name,
-      #   "parameters" job.parameters,
-      #   #XXX what if configurator changed?
-      #   #XXX version, revision
-      #   # record changes when revision changes?
-      # }
       self.action = job.action
+      self.configuration = CommentedMap(
+        [('name', job.configuration.name),
+          ('digest', job.configuration.digest())])
+      # self.parameters = job.parameters
+      #  update revision when digest changes?
+      # }
       #previously: commitid+
       #applied: commitid
 
@@ -60,13 +59,16 @@ class Change(object):
     #CommentedMap so order is preserved in yaml output
     return CommentedMap(items)
 
+  def __repr__(self):
+    return "<Change for %s: %s)>" % (self.resource.name, json.dumps(self.toSource()))
+
   def record(self):
     changeRecord = ChangeRecord(self.resource.definition, self.toSource() )
     self.resource.definition.changes.append( changeRecord )
     return changeRecord
 
 class Task(object):
-  def __init__(self, runner, configuration, resource, action):
+  def __init__(self, runner, configuration, resource, action, startTime=None):
     self.runner = runner
     self.change = None
     self.configuration = configuration
@@ -79,7 +81,7 @@ class Task(object):
     self.addedResources = []
     self.removedResources = []
     self.changeId = None
-    self.date = 0 #XXX isotimedate
+    self.startTime = startTime or datetime.datetime.now()
 
   def getAddedResources(self):
     return [a[1] for a in self.addedResources]
@@ -189,7 +191,7 @@ class Task(object):
 
   def getLastChange(self):
     for change in reversed(self.resource.changes):
-      if change.configuration and change.configuration.name == self.configuration.name:
+      if change.configuration and change.configuration['name'] == self.configuration.name:
         return change
     return None
 
@@ -206,6 +208,7 @@ class Runner(object):
     self.aborted = None
     self.currentTask = None
     self.changes = []
+    self.startTime = None
 
   def incrementChangeId(self):
     #changeids are shared across dependent changes on multiple resources
@@ -242,7 +245,7 @@ class Runner(object):
     tasks = []
     for configuration in resource.definition.spec.configurations:
       # check status, discover or instantiate
-      task = Task(self, configuration, resource, action)
+      task = Task(self, configuration, resource, action, self.startTime)
       if task.shouldRun():
         tasks.append(task)
     for childResource in resource.resources:
@@ -267,6 +270,7 @@ class Runner(object):
 
   def run(self, **opts):
     self.reset()
+    self.startTime = opts.get('startTime')
     try:
       manifest = self.manifest
       action = 'discover' if opts.get('readonly') else None

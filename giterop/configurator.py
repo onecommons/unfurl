@@ -1,4 +1,6 @@
 import six
+import hashlib
+import json
 from .util import *
 
 def buildEnum(klass, names):
@@ -20,28 +22,24 @@ class Configurator(object):
   def __init__(self, configuratorDef):
     pass
 
+  def getVersion(self):
+    return 0
+
+  def getCustomProperties(self):
+    return {}
+
   def run(self, job):
     if not self.canRun(job):
       return self.status.failed
     # no-op
     return self.status.success
 
-  def isCompatibleWithCurrentState(self, job):
-    """
-    can we run this action given the previous state?
-    e.g. can we upgrade from the previous configuration
-    """
-    return False
-
-  def canHandleJob(job):
-    """Does this configurator support the requested action and parameters?"""
-    return True
-
   def canRun(self, job):
-    if not self.canHandleJob(job):
-      return False
-    if job.previousRun:
-      return self.isCompatibleWithCurrentState(job)
+    """
+    Does this configurator support the requested action and parameters
+    given the current state of the resource
+    (e.g. can we upgrade from the previous configuration)
+    """
     return True
 
   # does this configurator need to be run?
@@ -71,20 +69,17 @@ class Configurator(object):
   def shouldRunDiscover(self, job):
     if job.previousRun:
       #if the version or config has changed since last applied re-run discover
-      return not self.hasChanged(job)
+      return self.hasChanged(job)
     return True
 
   # if the configuration is different from the last time it was run
   def hasChanged(self, job):
     if not job.previousRun:
       return True
-    #previousRun is a ChangeRecord
 
-    #if configurator
-    #compare configuration and parameters
-    #job.configuration.getParams()
-    # XXX
-    return job.previousRun.configuration == job.configuration
+    # previousRun is a ChangeRecord
+    if job.previousRun.configuration.get('digest') != job.configuration.digest():
+      return True
 
 registerClass(VERSION, "Configurator", Configurator)
 
@@ -118,8 +113,9 @@ class ConfiguratorDefinition(object):
     if localName and name and name != localName:
       raise GitErOpError('configurator names do not match %s and %s' % (name, localName))
 
-    self.apiVersion = defs.get('apiVersion')
+    self.apiVersion = defs.get('apiVersion', VERSION)
     self.kind = defs.get('kind', "Configurator")
+    self.version = defs.get('version', 0)
     self.parameterSchema = AttributeDefinitionGroup(defs.get('parameterSchema',[]), manifest, validate)
     self.requires = AttributeDefinitionGroup(defs.get('requires',[]), manifest, validate)
     # avoid footgun by having attributes all declared required
@@ -148,3 +144,19 @@ class ConfiguratorDefinition(object):
 
   def findMissingProvided(self, resource, resolver=None):
     return self.provides.checkParameters(resource.metadata, resolver, False)
+
+  def digest(self):
+    m = hashlib.sha256()
+    m.update(json.dumps(self.configurator.getCanonicalConfig()))
+    return m.hexdigest()
+
+  def getCanonicalConfig(self):
+    # excludes name, parameterSchema, provides, requires
+    configurator = self.getConfigurator()
+    return [self.apiVersion, self.kind, self.version, configurator.getVersion(),
+      [(key, self.definition.get(key))
+        for key in sorted(configurator.getCustomProperties().keys())]
+    ]
+
+  def compare(self, other):
+    return self.getCanonicalConfig() == other.getCanonicalConfig()

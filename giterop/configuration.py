@@ -1,4 +1,6 @@
 import six
+import hashlib
+import json
 from .util import *
 from .configurator import *
 
@@ -82,8 +84,7 @@ class Configuration(object):
   # error if component references undeclared param
   #we get defaults from componentSpec, update with parent components depth-first
   def getParams(self, currentResource = None, merge=None, validate=True):
-    defaults = self.configurator.getDefaults()
-    defaults.update(self.parameters)
+    defaults = self.mergeDefaults(self.configurator, self.parameters)
     if merge:
       defaults.update(merge)
     if validate:
@@ -92,3 +93,21 @@ class Configuration(object):
       dict((k, ValueFrom.resolveIfRef(value, currentResource)) for (k, v) in defaults.iteritems())
     else:
       return defaults
+
+  @staticmethod
+  def mergeDefaults(configurator, parameters):
+    defaults = configurator.getDefaults()
+    defaults.update(parameters)
+    return defaults
+
+  def digest(self):
+    m = hashlib.sha256()
+    m.update(json.dumps(self.getCanonicalConfig()))
+    return m.hexdigest()
+
+  def getCanonicalConfig(self):
+    #excludes action and name
+    config = self.configurator.getCanonicalConfig()
+    params = self.mergeDefaults(self.configurator, self.parameters)
+    config.append( sorted(params.items(), key=lambda t: t[0]) )
+    return config

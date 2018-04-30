@@ -3,14 +3,9 @@ from giterop import *
 from giterop.configurator import *
 import traceback
 import six
+import datetime
 
 class TestConfigurator(Configurator):
-  def shouldRun(self, task):
-    return True
-
-  def canRun(self, task):
-    return True
-
   def run(self, task):
     assert self.canRun(task)
     task.resource.metadata['copyOfMeetsTheRequirement'] = task.resource.metadata["meetsTheRequirement"]
@@ -97,22 +92,41 @@ class ConfiguratorTest(unittest.TestCase):
 
   def test_changes(self):
     runner = Runner(manifest)
-    runner.run(resource='test1')
+    runner.run(resource='test1', startTime = datetime.datetime.fromordinal(1))
     if runner.aborted:
       traceback.print_exception(*runner.aborted)
     assert not runner.aborted
+    assert len(runner.changes) == 1
     self.assertEquals(runner.changes[0].toSource(),
       {'status': 'success', 'changeId': 2, 'commitId': '',
-      'date': 0, 'action': 'discover', 'metadata': {
-        'deleted': [], 
+        'startTime': '0001-01-01T00:00:00',
+        'action': 'discover', 'metadata': {
+        'deleted': [],
         'added': ['copyOfMeetsTheRequirement'],
         'replaced': {}
-      }, 'configuration': 'test'})
+      }, 'configuration':
+        {'name': 'test',
+        'digest': 'b43b71275d4c63c259900d4c7083fd8466a0b0bfae102d1f8af9996c0f1979a2'
+      }})
 
     output = six.StringIO()
     runner.manifest.dump(output)
+    updatedManifest = output.getvalue()
+
+    runner2 = Runner(updatedManifest)
+    #there shouldn't be any tasks to run this time
+    runner2.run(resource='test1', startTime = datetime.datetime.fromordinal(2))
+    if runner2.aborted:
+       traceback.print_exception(*runner2.aborted)
+    assert not runner2.aborted
+    self.assertEquals(len(runner2.changes), 0)
+
+    # manifest shouldn't have changed
+    output2 = six.StringIO()
+    runner2.manifest.dump(output2)
     #round trip testing
-    #print output.getvalue()
+    updatedManifest2 = output.getvalue()
+    self.assertEquals(updatedManifest, updatedManifest2)
 
   def test_shouldRun(self):
     pass

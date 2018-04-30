@@ -217,7 +217,7 @@ class ChangeRecord(object):
     action
     configuration:
       name
-      revision
+      digest
       parameters
     status
     metadata:
@@ -247,7 +247,7 @@ class ChangeRecord(object):
   HeaderAttributes = CommentedMap([
    ('changeId', 0),
    ('commitId', ''),
-   ('date', ''),
+   ('startTime', ''),
    ('action', ''),
   ])
   CommonAttributes = CommentedMap([
@@ -255,9 +255,7 @@ class ChangeRecord(object):
     ('resources', {}),
   ])
   RootAttributes = CommentedMap([
-    #('configuration', {}),
-    ('configuration', ''),
-     ('parameters', []),
+    ('configuration', {}),
     ('messages', []),
     # XXX
     # 'revision':'',
@@ -266,7 +264,6 @@ class ChangeRecord(object):
     ('status', ''),
     ('failedToProvide', []),
   ])
-  #XXX created-by: actionid 'created', 'discovered'
   ChildAttributes = {'masterResource':''}
 
   def __init__(self, resourceDefinition, src):
