@@ -66,13 +66,13 @@ class ConfiguratorTest(unittest.TestCase):
     test1 = runner.manifest.getRootResource('test1')
     assert test1
 
-    self.assertEquals(test1.metadata["meetsTheRequirement"], "copy")
+    self.assertEqual(test1.metadata["meetsTheRequirement"], "copy")
     configurator = runner.manifest.configurators['test']
     notYetProvided = configurator.findMissingProvided(test1)
-    self.assertEquals(notYetProvided, [('missing required parameter', 'copyOfMeetsTheRequirement')])
+    self.assertEqual(notYetProvided, [('missing required parameter', 'copyOfMeetsTheRequirement')])
 
     assert runner.run(resource='test1'), runner.aborted
-    self.assertEquals(test1.metadata['copyOfMeetsTheRequirement'], "copy")
+    self.assertEqual(test1.metadata['copyOfMeetsTheRequirement'], "copy")
 
     provided = configurator.findMissingProvided(test1)
     assert not provided, provided
@@ -87,8 +87,8 @@ class ConfiguratorTest(unittest.TestCase):
 
     assert not runner.run(resource='test2')
     #XXX bad error reporting
-    self.assertEquals(str(runner.aborted), "cannot run")
-    #self.assertEquals(str(runner.aborted), "can't run required configuration: resource test2 doesn't meet requirement")
+    self.assertEqual(str(runner.aborted), "cannot run")
+    #self.assertEqual(str(runner.aborted), "can't run required configuration: resource test2 doesn't meet requirement")
 
   def test_changes(self):
     runner = Runner(manifest)
@@ -97,7 +97,7 @@ class ConfiguratorTest(unittest.TestCase):
       traceback.print_exception(*runner.aborted)
     assert not runner.aborted
     assert len(runner.changes) == 1
-    self.assertEquals(runner.changes[0].toSource(),
+    self.assertEqual(runner.changes[0].toSource(),
       {'status': 'success', 'changeId': 2, 'commitId': '',
         'startTime': '0001-01-01T00:00:00',
         'action': 'discover', 'metadata': {
@@ -119,14 +119,14 @@ class ConfiguratorTest(unittest.TestCase):
     if runner2.aborted:
        traceback.print_exception(*runner2.aborted)
     assert not runner2.aborted
-    self.assertEquals(len(runner2.changes), 0)
+    self.assertEqual(len(runner2.changes), 0)
 
     # manifest shouldn't have changed
     output2 = six.StringIO()
     runner2.manifest.dump(output2)
     #round trip testing
     updatedManifest2 = output.getvalue()
-    self.assertEquals(updatedManifest, updatedManifest2)
+    self.assertEqual(updatedManifest, updatedManifest2)
 
   def test_shouldRun(self):
     pass

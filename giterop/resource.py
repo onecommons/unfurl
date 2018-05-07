@@ -1,4 +1,5 @@
 from ruamel.yaml.comments import CommentedMap
+import six
 
 from .util import *
 from .templatedefinition import *
@@ -76,8 +77,8 @@ class Resource(object):
       return exists
 
   def diffMetadata(self):
-    old = self.definition.metadata.viewkeys()
-    current = self.metadata.viewkeys()
+    old = six.viewkeys(self.definition.metadata)
+    current = six.viewkeys(self.metadata)
 
     deleted = old - current
     added = current - old
@@ -90,7 +91,7 @@ class Resource(object):
 
   def commitMetadata(self):
     old = self.definition.metadata
-    deleted = old.viewkeys() - self.metadata.viewkeys()
+    deleted = six.viewkeys(old) - six.viewkeys(self.metadata)
     for key in list(deleted):
       del old[key]
     # do an update to preserve order

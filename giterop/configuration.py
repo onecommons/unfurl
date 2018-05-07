@@ -90,7 +90,7 @@ class Configuration(object):
     if validate:
       self.configurator.parameterSchema.validateParameters(defaults, currentResource)
     if currentResource:
-      dict((k, ValueFrom.resolveIfRef(value, currentResource)) for (k, v) in defaults.iteritems())
+      dict((k, ValueFrom.resolveIfRef(value, currentResource)) for (k, v) in defaults.items())
     else:
       return defaults
 
@@ -102,7 +102,7 @@ class Configuration(object):
 
   def digest(self):
     m = hashlib.sha256()
-    m.update(json.dumps(self.getCanonicalConfig()))
+    m.update(json.dumps(self.getCanonicalConfig()).encode("utf-8"))
     return m.hexdigest()
 
   def getCanonicalConfig(self):

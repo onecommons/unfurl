@@ -22,11 +22,12 @@ class TemplateDefinition(object):
     self._allComponents = None
     #make sure Component objects are created early
     self.localConfigurationDict = self._getLocalConfigurationDict()
+    self.configurations
     self._attributes = None
 
   @property
   def templates(self):
-    return self._getTemplates({}).values()
+    return list(self._getTemplates({}).values())
 
   @property
   def attributes(self):

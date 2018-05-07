@@ -11,7 +11,7 @@ class AttributeTest(unittest.TestCase):
   def test_CommentedMap(self):
     cm = CommentedMap()
     # bug in ruamel.yaml: raises TypeError: source has undefined order
-    assertEquals(cm, cm.copy())
+    assertEqual(cm, cm.copy())
 
   def test_metadata(self):
     resourceDef = { "metadata": {
@@ -21,6 +21,6 @@ class AttributeTest(unittest.TestCase):
     }
     manifest = Manifest({"apiVersion": VERSION})
     resource = ResourceDefinition(manifest, resourceDef).resource
-    self.assertEquals(resource['a'], 'test')
+    self.assertEqual(resource['a'], 'test')
     resource['newkey'] = {'valueFrom': '.'}
     assert resource['newkey'] is resource

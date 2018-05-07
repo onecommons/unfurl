@@ -17,14 +17,14 @@ class ManifestSyntaxTest(unittest.TestCase):
     """
     with self.assertRaises(GitErOpError) as err:
       Manifest(badVersion)
-    self.assertEquals(str(err.exception), "unknown version: 2")
+    self.assertEqual(str(err.exception), "unknown version: 2")
 
     missingVersion = """
     resources:
     """
     with self.assertRaises(GitErOpError) as err:
       Manifest(missingVersion)
-    self.assertEquals(str(err.exception), "missing version")
+    self.assertEqual(str(err.exception), "missing version")
 
   def test_resourcenames(self):
     #clusterids can only contain [a-z0-9]([a-z0-9\-]*[a-z0-9])?
@@ -34,7 +34,10 @@ class ManifestSyntaxTest(unittest.TestCase):
     manifest = '''
 apiVersion: giterops/v1alpha1
 kind: Manifest
-
+configurators:
+  step1:
+    actions:
+      install: foo
 templates:
   base:
     configurations:
@@ -48,7 +51,7 @@ resources:
 '''
     with self.assertRaises(GitErOpError) as err:
       Manifest(manifest)
-    self.assertEquals(str(err.exception), "template reference is not defined: production")
+    self.assertEqual(str(err.exception), "template reference is not defined: production")
 
     manifest = '''
 apiVersion: giterops/v1alpha1
@@ -147,8 +150,8 @@ resources:
         - name: base.step1
 '''
     with self.assertRaises(GitErOpError) as err:
-      Manifest(manifest)
-    self.assertEquals(str(err.exception), "configurator not found: step1")
+      m = Manifest(manifest)
+    self.assertEqual(str(err.exception), "configurator not found: step1")
 
   def test_badparams(self):
     # don't match spec definition
@@ -184,8 +187,8 @@ resources:
             test: 0
 '''
     with self.assertRaises(GitErOpValidationError) as err:
-      Manifest(manifest)
-    self.assertEquals(str(err.exception.errors[0][0]), "invalid value")
+      m = Manifest(manifest)
+    self.assertEqual(err and str(err.exception.errors[0][0]), "invalid value")
 
   def test_unexpectedParam(self):
     #parameter missing from spec
@@ -220,7 +223,7 @@ resources:
 '''
     with self.assertRaises(GitErOpValidationError) as err:
       Manifest(manifest)
-    self.assertEquals(str(err.exception.errors[0][0]), "unexpected parameters")
+    self.assertEqual(str(err.exception.errors[0][0]), "unexpected parameters")
 
   def test_missingParam(self):
     #missing required parameter
@@ -251,4 +254,4 @@ resources:
 '''
     with self.assertRaises(GitErOpValidationError) as err:
       Manifest(manifest)
-    self.assertEquals(str(err.exception.errors[0][0]), "missing required parameter")
+    self.assertEqual(str(err.exception.errors[0][0]), "missing required parameter")

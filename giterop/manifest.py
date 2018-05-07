@@ -48,7 +48,7 @@ class Manifest(object):
     rootResources = self.manifest['resources']
     self._resources = dict([(k, ResourceDefinition(self, rootResources[k], k)) for k in rootResources])
     if validate:
-      map(lambda r: [c.getParams() for c in r.spec.configurations], self.resources)
+      list(map(lambda r: [c.getParams() for c in r.spec.configurations], self.resources))
 
   def save(self):
     [rr.save() for rr in self.resources]
@@ -66,7 +66,7 @@ class Manifest(object):
 
   @property
   def resources(self):
-    return self._resources.values()
+    return list(self._resources.values())
 
   def getRootResource(self, resourceid):
     return self._resources.get(resourceid)

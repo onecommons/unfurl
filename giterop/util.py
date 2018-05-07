@@ -81,7 +81,7 @@ class AttributeDefinition(object):
   def isValueCompatible(self, value, resolver=None, item=False):
     quantity = 0 if item else getattr(self, 'list', 0)
     isList = isinstance(value, list)
-    if quantity > 1 and not isList:
+    if quantity and quantity > 1 and not isList:
       return False
     elif isList:
       if quantity:
@@ -100,7 +100,10 @@ class AttributeDefinition(object):
       from .resource import Resource
       return isinstance(value, Resource)
 
-    if isinstance(value, (int, long, float)):
+    if isinstance(value, six.integer_types):
+      return self.type == 'number'
+
+    if isinstance(value, (float)):
       if self.type == 'int':
         return round(value) == value
       return self.type == 'number'
