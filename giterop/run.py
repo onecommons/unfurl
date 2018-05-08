@@ -6,7 +6,6 @@ from ruamel.yaml.comments import CommentedMap
 
 from .util import *
 from .manifest import *
-from . import ansible
 from .resource import *
 
 class Change(object):

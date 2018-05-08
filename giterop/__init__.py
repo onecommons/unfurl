@@ -1,6 +1,8 @@
+from .util import *
 from .run import *
 from .manifest import *
 
+import sys
 
 """
 Basic operation of GitErOp is to apply the specified configuration to a resource

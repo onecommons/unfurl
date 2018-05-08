@@ -121,7 +121,7 @@ setup(
     "ruamel.yaml>=0.15.37",
     "click",
     "gitpython",
-    "dictdiffer",
+    "ansible>=2.4.3.0",
 #required by openshift-ansible:
     "pyOpenSSL",
     "netaddr",

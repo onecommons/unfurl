@@ -1,0 +1,20 @@
+- hosts: localhost
+  gather_facts: no
+  tasks:
+    - name: set_one_fact
+      set_fact:
+        one_fact: test
+
+    - name: save command results
+      command: echo "hello"
+      register: echoresults
+
+    - name: test-extra
+      debug:
+        var: extra
+        verbosity: 0
+
+    - name: test-verbosity
+      debug:
+        var: echoresults
+        verbosity: 1

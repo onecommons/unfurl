@@ -1,4 +1,20 @@
+import sys
 import six
+import optparse
+
+class AnsibleDummyCli(object):
+  def __init__(self):
+    self.options = optparse.Values()
+ansibleDummyCli = AnsibleDummyCli()
+from ansible.utils.display import Display
+ansibleDisplay = Display()
+
+def initializeAnsible():
+  main = sys.modules.get('__main__')
+  # XXX make sure ansible.executor.playbook_executor hasn't been loaded already
+  main.display = ansibleDisplay
+  main.cli = ansibleDummyCli
+initializeAnsible()
 
 VERSION = 'giterops/v1alpha1'
 TEMPLATESKEY = 'templates'
@@ -36,9 +52,6 @@ def lookupClass(kind, apiVersion, default=None):
   if not klass:
     raise GitErOpError('Can not find class %s.%s' % (version, kind))
   return klass
-
-#XXX ansible potential other types: manifests, templates, helmfiles, service broker bundles
-ConfiguratorTypes = []
 
 class AttributeDefinition(object):
   def __init__(self, obj, manifest, validate=True):
