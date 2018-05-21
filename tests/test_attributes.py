@@ -20,6 +20,7 @@ class AttributeTest(unittest.TestCase):
       'a': {'ref': ':name'},
       'b': [1, 2, 3],
       'd': {'a':'va', 'b':'vb'},
+      'n': {'n':{'n':'n'}},
       's': {'ref': '.'},
       'x': [{
               'a': [{'c':1}, {'c':2}, {'b': 'exists'}, {'l': ['l1']}, {'l': ['l2']}],
@@ -64,18 +65,19 @@ class AttributeTest(unittest.TestCase):
   def test_refPaths(self):
     resource = self._getTestResource()
     for (exp, expected) in [
-      #['x:a[c=4]?', [[{'c':3}, {'c':4}, {'l': ['l3']}, {'l': ['l4']}]] ],
-      #['x:a[c]?', [[{'c':1}, {'c':2}, {'b': 'exists'}, {'l': ['l1']}, {'l': ['l2']}]]],
-      #['x:a?:[c]', [{'c':1}, {'c':2}]],
-      #['x:a:*[c]', [{'c':1}, {'c':2}, {'c':3}, {'c':4}]],
+      ['x?:a[c=4]', [[{'c':3}, {'c':4}, {'l': ['l3']}, {'l': ['l4']}]] ],
+      ['x:a[c]?', [[{'c':1}, {'c':2}, {'b': 'exists'}, {'l': ['l1']}, {'l': ['l2']}]]],
+      ['x:a:[c]', [{'c':1}, {'c':2}, {'c':3}, {'c':4}]],
+      #['x:a?:[c]', [{'c':1}, {'c':2}]], #XXX bug returns [{'c':1}]
       ['a', ['test']],
       ['b', [[1,2,3]]],
-      #['b?', [[1,2,3]]],
-      #['[b]:0:b', [[1,2,3]]],
+      ['?:b:2', [3]],
+      ['[b:2]:0:b:2', [3]],
       ['b:1', [2]],
       ['s:b', [[1, 2, 3]]],
       ['s:b:1', [2]],
       ['s:s:b:1', [2]],
+      ['n:n:n', ['n']],
       ['d[a=va]', [{'a':'va', 'b':'vb'}]],
       ['d[a=vb]', []],
       ['b[1=2]', [[1,2,3]]],
@@ -88,8 +90,8 @@ class AttributeTest(unittest.TestCase):
       ['d[a=va][a!=vb]', [{'a':'va', 'b':'vb'}]],
       ['d[a=va]:b', ['vb']],
       ['x:a:c', [1,2,3,4]],
-      ['x:c', [5, 6]], #[]
-      #['x:*:c', [5,6]],
+      ['x:c', [5, 6]],
+      ['x:[c]', [{'c':5}, {'c':6}]],
       ['x:a[b]:c', [1,2]],
       ['x:a[!b]:c', [3,4]],
       ['x:a:l', [['l1'],['l2'],['l3'],['l4']]],
@@ -108,4 +110,5 @@ class AttributeTest(unittest.TestCase):
        ['.named:test', [resource]],
     ]:
       ref = Ref(exp)
-      self.assertEqual(ref.resolve(resource), expected, ref.paths)
+      #print ('eval', ref, ref.paths)
+      self.assertEqual(ref.resolve(resource), expected, [ref] + ref.paths)

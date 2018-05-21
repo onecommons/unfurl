@@ -1,6 +1,7 @@
 import six
 import re
 import operator
+import collections
 from .util import *
 
 class AttributeDefinition(object):
@@ -311,9 +312,9 @@ class Ref(object):
   it will be treated like a zero-based index into the list.
   Otherwise the segment is evaluated again all values in the list and resulting value is a list.
 
-  If segment ends in "?", it will only find the first match if segment resolves to a list.
-  In other words, "foo?:path" is a shorthand for "foo[path]:0:path".
-  This is useful to guarantee the result of evaluating expression is always a single value.
+  If segment ends in "?", it will only include the first match.
+  In other words, "a?:b:c" is a shorthand for "a[b:c]:0:b:c".
+  This is useful to guarantee the result of evaluating expression is always a single result.
 
   The first segment is evaluated against the "current resource" unless the first segment is a variable,
   which case it evaluates against the value of the variable.
@@ -376,30 +377,25 @@ class Ref(object):
       self.vars = defaultvars
     self.source = exp
     paths = list(parseExp(exp))
-    if not paths or not paths[0]:
-      paths[0:1] = ['.parents','?']
+    if not paths[0].key:
+      paths[:0] = [Segment('.ancestors', [], '?', [])]
     self.paths = paths
-
-  def _resolve(self, currentResource):
-    context = _RefContext(dict((k, self.resolveIfRef(v, currentResource)) for (k, v) in self.vars.items()))
-    if self.paths[0][0] == '$':
-      #if starts with a var, use that as the start
-      paths = self.paths[1:]
-      varName = self.paths[0][1:]
-      currentResource = self.resolveIfRef(context.vars[varName], currentResource)
-    else:
-      paths = self.paths
-    return recursiveLookupPath(currentResource, paths, context)
-
-  def __repr__(self):
-    return "Ref('%s')" % self.source
 
   def resolve(self, currentResource):
     #always return a list of matches
     #values in results list can be a list or None
-    results = self._resolve(currentResource)
-    #results is always a list or None
-    return [] if results is None else results
+    context = _RefContext(dict((k, self.resolveIfRef(v, currentResource)) for (k, v) in self.vars.items()))
+    if self.paths[0][0] == '$':
+      #if starts with a var, use that as the start
+      varName = self.paths[0][1:]
+      currentResource = self.resolveIfRef(context.vars[varName], currentResource)
+      paths = [self.paths[0]._replace(key='')] + self.paths[1:]
+    else:
+      paths = self.paths
+    return evalExp([currentResource], paths, context)
+
+  def __repr__(self):
+    return "Ref('%s')" % self.source
 
   def resolveOne(self, currentResource):
     #if no match return None
@@ -408,7 +404,7 @@ class Ref(object):
     #if you want to distinguish between None values and no match
     #or between single match that is a list and a list of matches
     #use resolve() which always returns a (possible empty) of matches
-    results = self._resolve(currentResource)
+    results = self.resolve(currentResource)
     if results is None:
       return None
     if len(results) == 1:
@@ -442,46 +438,168 @@ class Ref(object):
       return False
     return isinstance(value, Ref)
 
-def parsePathKey(segment):
-  if not segment:
+#return a segment
+Segment = collections.namedtuple('Segment', ['key', 'test', 'modifier', 'filters'])
+defaultSegment = Segment('', [], '', [])
+
+def evalTest(value, test, context):
+  comparor = test[0]
+  key = test[1]
+  try:
+    if context and isinstance(key, six.string_types) and key.startswith('$'):
+      compare = context.vars[key[1:]]
+    else:
+      # try to coerce string to value type
+      compare = type(value)(key)
+    if comparor(value, compare):
+      return True
+  except:
+    if comparor is operator.ne:
+      return True
+  return False
+
+def lookup(value, key, context):
+  try:
+    # if key == '.':
+    #   key = context.currentKey
+    if context and isinstance(key, six.string_types) and key.startswith('$'):
+      key = context.vars[key[1:]]
+
+    value = value[key]
+
+    # if Ref.isRef(value):
+    #   value = Ref.resolveIfRef(value, self)
+    #   if not value:
+    #     return []
+
+    return [value]
+  except (KeyError, IndexError, TypeError, ValueError):
     return []
+
+def evalItem(v, seg, context):
+  """
+    apply current item to current segment, return [] or [value]
+  """
+  if seg.key:
+    v = lookup(v, seg.key, context)
+    if not v:
+      return
+    v = v[0]
+
+  for filter in seg.filters:
+    results = evalExp([v] if _treatAsSingular(v, filter[0]) else v, filter, context)
+    negate = filter[0].modifier == '!'
+    if negate and results:
+      return
+    elif not negate and not results:
+      return
+
+  if seg.test and not evalTest(v, seg.test, context):
+    return
+  yield v
+
+def _treatAsSingular(item, seg):
+  return not isinstance(item, list) or isinstance(seg.key, six.integer_types)
+
+def recursiveEval(v, exp, context):
+  """
+  given a list of (previous) results,
+  yield a list of results
+  """
+  matchFirst = exp[0].modifier == '?'
+  for item in v:
+    if _treatAsSingular(item, exp[0]):
+      iv = evalItem(item, exp[0], context)
+      rest = exp[1:]
+    else:
+      iv = item
+      rest = exp
+
+    #if iv is empty, it won't yield
+    results = recursiveEval(iv, rest, context) if rest else iv
+    for r in results:
+      yield r
+      if matchFirst:
+        #print(r, rest, item, 'all results', list(results))
+        return
+
+def evalExp(start, paths, context):
+  assert isinstance(start, list), start
+  return list(recursiveEval(start, paths, context))
+
+def _makeKey(key):
+  try:
+    return int(key)
+  except ValueError:
+    return key
+
+def parsePathKey(segment):
+  #key, negation, test, matchFirst
+  if not segment:
+    return defaultSegment
+
+  modifier = ''
+  if segment[0] == '!':
+    segment = segment[1:]
+    modifier = '!'
+  elif segment[-1] == '?':
+    segment = segment[:-1]
+    modifier = '?'
+
   parts = re.split(r'(=|!=)', segment, 1)
   if len(parts) == 3:
     key = parts[0]
     op = operator.eq if parts[1] == '=' else operator.ne
-    return ([key] if key else []) + [op, parts[2]]
-  elif segment[-1] == '?':
-    key = segment[:-1]
-    return ([key] if key else []) + ['?']
-  elif segment[0] == '!':
-    key = segment[1:]
-    return ['!', key]
-  return [segment]
+    return Segment(_makeKey(key), [op, parts[2]], modifier, [])
+  else:
+    return Segment(_makeKey(segment), [], modifier, [])
 
-def parsePath(path):
-  paths = []
-  for k in path.split(':'):
-    paths.extend(parsePathKey(k.strip()))
-  return paths
+def parsePath(path, start):
+  paths = path.split(':')
+  segments = [parsePathKey(k.strip()) for k in paths]
+  if start:
+    if paths and paths[0]:
+      # if the path didn't start with ':' merge with the last segment
+      # e.g. foo[]? d=test[d]?
+      segments[0] = start._replace(test=segments[0].test or start.test,
+                    modifier=segments[0].modifier or start.modifier)
+    else:
+      return [start] + segments
+  return segments
 
 def parseExp(exp):
+  #return list of steps
   rest = exp
-  while rest:
-    steps, rest = parseStep(rest)
-    for step in steps:
-      yield step
+  last = None
 
-def parseStep(exp):
+  while rest:
+    steps, rest = parseStep(rest, last)
+    last = None
+    if steps:
+      #we might need merge the next step into the last
+      last = steps.pop()
+      for step in steps:
+        yield step
+
+  if last:
+    yield last
+
+def parseStep(exp, start=None):
   split = re.split(r'(\[|\])', exp, 1)
   if len(split) == 1: #not found
-    return parsePath(split[0]), ''
+    return parsePath(split[0], start), ''
   else:
     path, sep, rest = split
+
+  paths = parsePath(path, start)
 
   filterExps = []
   while sep == '[':
     filterExp, rest = parseStep(rest)
     filterExps.append(filterExp)
-    #rest will anything after ]
+    #rest will be anything after ]
     sep = rest and rest[0]
-  return parsePath(path) + filterExps, rest
+
+  #add filterExps to last Segment
+  paths[-1] = paths[-1]._replace(filters = filterExps)
+  return paths, rest
