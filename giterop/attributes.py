@@ -519,9 +519,8 @@ def recursiveEval(v, exp, context):
     results = recursiveEval(iv, rest, context) if rest else iv
     for r in results:
       yield r
-      if matchFirst:
-        #print(r, rest, item, 'all results', list(results))
-        return
+    if matchFirst:
+      break
 
 def evalExp(start, paths, context):
   assert isinstance(start, list), start
