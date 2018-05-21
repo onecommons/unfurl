@@ -7,11 +7,11 @@ from .configurator import *
 class Configuration(object):
   """
   name
-  intent: discover instantiate revert
+  intent: discover instantiate revert skip
   configurator: ref or inline (use name as ref if omitted)
   parameters
   target    #XXX
-  onfailure #XXX
+  onfailure: continue, abort
   """
   def __init__(self, manifest, src, templateName='', base=None):
     self.templateName = templateName

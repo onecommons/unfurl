@@ -4,7 +4,16 @@ import six
 from .util import *
 from .templatedefinition import *
 
+class _ChildResources(dict):
+  def __init__(self, resource):
+    self.resource = resource
+
+  def __getitem__(self, key):
+    res = self.resource.findLocalResource(key)
+    return res and res.resource or None
+
 class Resource(object):
+
   def __init__(self, resourceDef):
     self.definition = resourceDef
     self.metadata = dict(self.definition.metadata)
@@ -13,6 +22,7 @@ class Resource(object):
     self.changes = self.definition.changes
     #Note: kms needs a context associated with this particular resource
     self.kms = DummyKMS()
+    self.named = _ChildResources(self.definition)
 
   @property
   def name(self):
@@ -26,11 +36,44 @@ class Resource(object):
   def resources(self):
     return [r.resource for r in self.definition._resources.values()]
 
+  def yieldDescendents(self):
+    """Recursive descendent including self"""
+    yield self
+    for r in self.resources:
+      for descendent in r.yieldDescendents():
+        yield descendent
+
+  @property
+  def descendents(self):
+    return list(self.yieldDescendents())
+
+  @property
+  def children(self):
+    return self.resources
+
+  def yieldParents(self):
+    resource = self
+    while resource:
+      yield resource
+      resource = resource.parent
+
+  @property
+  def ancestors(self):
+    return list(self.yieldParents())
+
+  @property
+  def parents(self):
+    return self.ancestors[1:]
+
+  @property
+  def root(self):
+    return self.ancestors[0]
+
   def __getitem__(self, name):
-    if name == '.':
-      return self
-    elif name == '..':
-      return self.parent
+    if not name:
+      raise KeyError(name)
+    if name[0] == '.':
+      return self.getProp(name)
 
     try:
       value = self.metadata[name]
@@ -45,15 +88,17 @@ class Resource(object):
 
     if self.kms.isKMSValueReference(value):
       value = kms.dereference(value)
-    return ValueFrom.resolveIfRef(value, self)
+    return Ref.resolveOneIfRef(value, self)
 
   def __setitem__(self, name, value):
+    # XXX:
     if isinstance(value, Resource):
-      value = {'valueFrom': value.name}
+      value = {'ref': value.name}
     paramdef = self.definition.spec.attributes.attributes.get(name)
     if paramdef:
       #if self.kms.isKMSValueReference(value):
       #  value = self.kms.dereference(value)
+      # XXX
       paramdef.isValueCompatible(value, self)
       if paramdef.secret:
         value = self.kms.set(name, value)
@@ -75,6 +120,24 @@ class Resource(object):
       return key in self.parent
     else:
       return exists
+
+  def getProp(self, name):
+    if name == '.':
+      return self
+    elif name == '..':
+      return self.parent
+    name = name[1:]
+    # XXX propmap
+    return getattr(self, name)
+    # .configured
+    # .kms
+    # .configurations
+    # .descendents
+    # .byTemplate
+    # XXX
+    # need to treat as task a resource
+    # .configuring returns task as a resource
+    # .parameters
 
   def diffMetadata(self):
     old = six.viewkeys(self.definition.metadata)
@@ -143,7 +206,8 @@ class ResourceDefinition(object):
     self.name = name or manifestName
     if not self.name:
       raise GitErOpError('Resource is missing name: %s' % src)
-
+    elif not manifestName:
+      src['metadata']['name'] = name
     self.spec = TemplateDefinition(manifest, src["spec"])
 
     self.metadata = src["metadata"]

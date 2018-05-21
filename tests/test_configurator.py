@@ -57,7 +57,7 @@ class ConfiguratorTest(unittest.TestCase):
     assert not missing, missing
 
     #print resources[0].spec.configurations
-    tasks = runner.getNeededTasks(resources)
+    tasks = list(runner.getTasks(resources))
     assert tasks and len(tasks) == 1, tasks
 
   def test_requires(self):
@@ -85,7 +85,9 @@ class ConfiguratorTest(unittest.TestCase):
     missing = test2.spec.configurations[0].configurator.findMissingRequirements(test2)
     assert missing, missing
 
-    assert not runner.run(resource='test2')
+    # XXX should resport that test configuration failed because test2 didn't meet the requirements
+    result = runner.run(resource='test2')
+    assert not result, result
     #XXX bad error reporting
     self.assertEqual(str(runner.aborted), "cannot run")
     #self.assertEqual(str(runner.aborted), "can't run required configuration: resource test2 doesn't meet requirement")
@@ -97,8 +99,9 @@ class ConfiguratorTest(unittest.TestCase):
       traceback.print_exception(*runner.aborted)
     assert not runner.aborted
     assert len(runner.changes) == 1
+    # XXX changeId is 3 because we save after every task?
     self.assertEqual(runner.changes[0].toSource(),
-      {'status': 'success', 'changeId': 2, 'commitId': '',
+      {'status': 'success', 'changeId': 3, 'commitId': '',
         'startTime': '0001-01-01T00:00:00',
         'action': 'discover', 'metadata': {
         'deleted': [],

@@ -1,16 +1,13 @@
 #!/usr/bin/env python
 """
 Applies a GitErOp manifest
+
+For each configuration checks if it should be run, records the result
 """
 import sys
 import os
 from . import run
 import click
-
-# check for AWS access info
-# if os.getenv('AWS_ACCESS_KEY_ID') is None or os.getenv('AWS_SECRET_ACCESS_KEY') is None:
-#   print('AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY **MUST** be exported as environment variables.')
-#   sys.exit(1)
 
 @click.command()
 @click.argument('manifest_file', default='cluster-manifest.yaml', nargs=1, type=click.Path(exists=True))
@@ -19,12 +16,6 @@ import click
 @click.option('-v', '--verbose', count=True)
 def main(manifest, **options):
   run(manifest, options)
-
-# from giterop.ansibleconfigurator import *
-# def testAnsibleDisplay():
-#   runPlaybooks([os.path.abspath(sys.argv[1])], 'path/to/inventory', {
-#   'extra': 1
-#   })
 
 if __name__ == '__main__':
   main()

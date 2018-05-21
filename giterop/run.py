@@ -195,6 +195,11 @@ class Task(object):
     return None
 
 class Runner(object):
+  """
+  Definition of system changed.
+  System has not reached desired state.
+  System state has changed.
+  """
   def __init__(self, manifest):
     if isinstance(manifest, six.string_types):
       self.manifest = Manifest(manifest)
@@ -240,61 +245,53 @@ class Runner(object):
     # rollback metadata changes??
     #XXX
 
-  def getNeededTasksForResource(self, resource, action=None):
-    tasks = []
+  def saveDone(self):
+    pass #xxx
+
+  def getTasksForResource(self, resource, action=None):
     for configuration in resource.definition.spec.configurations:
       # check status, discover or instantiate
       task = Task(self, configuration, resource, action, self.startTime)
       if task.shouldRun():
-        tasks.append(task)
-    for childResource in resource.resources:
-      tasks.extend(self.getNeededTasksForResource(childResource, action))
-    return tasks
+        yield task
+    for task in self.getTasks(resource.resources, action):
+      yield task
 
-  def abortIfCantRun(self, tasks):
-    for task in tasks:
-      if not task.canRun():
-        self.saveError(GitErOpTaskError(task, "cannot run"))
-        return True
+  def getTasks(self, resources, action=None):
+    for resource in resources:
+      for task in self.getTasksForResource(resource, action):
+        yield task
+
+  def abortRun(self, task):
     return False
 
-  def getNeededTasks(self, resources, action=None):
-    allTasks = []
-    for resource in resources:
-      tasks = self.getNeededTasksForResource(resource, action)
-      if self.abortIfCantRun(tasks):
-        return []
-      allTasks.extend(tasks)
-    return allTasks
+  def runTasks(self, resources):
+    for task in self.getTasks(resources):
+      self.currentTask = task
+      if task.canRun():
+        task.run()
+        change = task.run()
+        self.save(task, change)
+
+      if self.abortRun(task):
+        return False
+      #run tasks from newly generated resources before the next task
+      if task.addedResources and not self.runTasks(task.addedResources):
+        return False
+    return True
 
   def run(self, **opts):
     self.reset()
     self.startTime = opts.get('startTime')
+    action = 'discover' if opts.get('readonly') else None
+    #XXX before running commit manifest if it has changed, else verify git access to this manifest
     try:
-      manifest = self.manifest
-      action = 'discover' if opts.get('readonly') else None
-      #XXX before running commit manifest if it has changed, else verify git access to this manifest
       #XXX resource option shouldn't have to be root
       resources = self.getRootResources(opts.get('resource'))
-      tasks = self.getNeededTasks(resources, action)
-      if self.aborted:
-        return False
-      while tasks:
-        task = tasks.pop(0)
-        self.currentTask = task
-        change = task.run()
-        self.save(task, change)
-        # examine new (XXX what about changed?) resources for configurations
-        updatedResources = task.getAddedResources()
-        if updatedResources:
-          moreTasks = self.getNeededTasks(updatedResources, action)
-          if self.aborted:
-            return False
-          if moreTasks:
-            #run them before the next configuration
-            tasks[0:0] = moreTasks
+      self.success = self.runTasks(resources)
     except Exception as e:
       self.saveError(sys.exc_info())
       return False
     else:
-      return True
+      self.saveDone()
+      return self.success

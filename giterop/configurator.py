@@ -1,16 +1,16 @@
 import six
 import hashlib
 import json
-from .util import *
+from .attributes import *
 
 def buildEnum(klass, names):
   [setattr(klass, name, name) for name in names]
 
 """
-3 ways to track
+3 ways to track changes to a configurator:
 version controlled by configurator
 revision automatically incremented GitErOp on changes
-commitid automatically pulled from manifests git repo
+current git commit recorded when configurator changes
 """
 class Configurator(object):
   class status(object): pass
@@ -38,7 +38,7 @@ class Configurator(object):
     """
     Does this configurator support the requested action and parameters
     given the current state of the resource
-    (e.g. can we upgrade from the previous configuration)
+    (e.g. can we upgrade from the previous configuration?)
     """
     return True
 

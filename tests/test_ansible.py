@@ -6,6 +6,66 @@ import warnings
 from giterop import *
 from giterop.ansibleconfigurator import *
 
+"""
+ansible_connection=ssh
+ansible_ssh_user=ubuntu
+ansible_ssh_private_key_file=~/.ssh/fairblocker.pem
+
+testansible:
+  #sshconfig: defaultconfig
+  inventory:
+    all:
+      hosts:
+        mail.example.com:
+      children:
+        webservers:
+          hosts:
+            foo.example.com:
+            bar.example.com:
+        dbservers:
+          hosts:
+            one.example.com:
+            two.example.com:
+            three.example.com:
+             ansible_port: 5555
+             ansible_host: 192.0.2.50
+          vars:
+            ntp_server: ntp.atlanta.example.com
+            proxy: proxy.atlanta.example.com
+all:
+  children
+    ref: ".root[template:awsAccount]"
+    foreach:
+      key:   ref: ".:name"
+             vars:
+      value:
+        hosts:
+          ref: ".descendents"
+          foreach:
+            key: ref: hostname
+            value:
+              template: ansible_hostvars
+    - webserver: ref: ".descendents[shape:webserver]"
+    - name:
+      members:
+      vars:
+  hostvars:
+   foo: ref: .foo
+  provides:
+   - target: ref: '$host:.descendents[hostname=$host]:hostname'
+             vars:
+              hostname: ref: '$host:hostname'
+     metadata:
+      foo: ref: '$host:$key'
+      bar: ref: '$host:$key'
+
+
+template:
+ ansible_template:
+  ansible_port?: ref: port
+  ansible_host: ref: host
+"""
+
 class AnsibleTest(unittest.TestCase):
   def setUp(self):
     # need to call this again on python 2.7:
@@ -30,7 +90,7 @@ class AnsibleTest(unittest.TestCase):
     self.assertEqual('test',
       results.variableManager._nonpersistent_fact_cache['localhost'].get('one_fact'))
 
-    hostfacts = results.variableManager._nonpersistent_fact_cache['localhost'];
+    hostfacts = results.variableManager._nonpersistent_fact_cache['localhost']
     self.assertEqual(hostfacts['one_fact'], 'test')
     self.assertEqual(hostfacts['echoresults']['stdout'], "hello")
 

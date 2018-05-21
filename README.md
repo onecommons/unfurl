@@ -26,6 +26,8 @@ Python, ansible, git, openshift client tools (`oc`)
 
 # Usage
 
+add / remove resource
+
 ## Existing cluster
 
 1. create a manifest file defining your clusters

@@ -1,5 +1,5 @@
 import six
-from .util import *
+from .attributes import *
 from .configuration import *
 
 class TemplateDefinition(object):

@@ -11,6 +11,17 @@ from ansible.cli.playbook import PlaybookCLI
 from ansible.plugins.callback import CallbackBase
 
 class AnsibleConfigurator(Configurator):
+  """
+  The current resource is the inventory.
+  #could have parameter for mapping resource attributes to groups
+  #also need to map attributes to host vars
+  sshconfig
+  ansible variables can not be set to a value of type resource
+
+  external inventory discovers resources
+  need away to map hosts to existing resources
+  and to map vars to types of different resource
+  """
 
   def __init__(self, configuratorDef):
     super(AnsibleConfigurator, self).__init__(configuratorDef)
@@ -38,9 +49,43 @@ class AnsibleConfigurator(Configurator):
         pass
     self._cleanupRoutines = []
 
+  def _makeResource(self, var):
+    """
+     # find a resource that matches the ansible host
+     # or create / discover new resources from the ansible host
+     - host:
+        match:
+          '.:hostname': vf:':hostname'
+
+#declare a ansible var and map it to resource metadata
+     - hostvar: var1
+       var1: vf:'.'
+
+#map a hostvar to metadata on a particular resource
+     - hostvar: var1
+       target: vf:':host?' # target resource that matches host?
+       metadata:
+        var1: vf:'.'
+
+    # create/discover new resource from hostvar
+     - hostvar: ec2_service
+       resource:
+         template: ec2serviceResourceTemplate
+         name: vf: ':gename:'
+         metadata:
+          # . is current var?
+          # .. is hosts' hostvars?
+          foo: vf: '..:ddd'
+    """
+
   #use requires to map attributes to vars,
   #have a parameter for the mapping or just set_facts in playbook
   def getVars(self, job):
+    """
+    just add a lookup() plugin?
+    add attribute to parameters to map to vars?
+    # ansible yaml file but we evaluate the valuesFrom first?
+    """
     pass
 
   def run(self, job):
@@ -51,16 +96,17 @@ class AnsibleConfigurator(Configurator):
     try:
       inventory = self.getInventory(job)
       results = runPlaybooks([playbook], inventory, self.getVars(job))
+      hostname = 'localhost'
       host = results.inventoryManager.get_host(hostname)
       host_vars = results.variableManager.get_vars(host=host)
       #extract provides from results
       job.resource.update()
       job.createResource()
       job.discoverResource()
+      return self.status.failed if results.exit_code  else self.status.success
     finally:
       self.cleanup()
 
-    return status
 
 registerClass(VERSION, "Ansible", AnsibleConfigurator)
 
