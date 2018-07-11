@@ -104,3 +104,15 @@ class AnsibleTest(unittest.TestCase):
     # task test-verbosity was ok this time
     assert results.resultsByStatus.ok.get('test-verbosity')
     assert not results.resultsByStatus.skipped.get('test-verbosity')
+
+  def test_incremental(self):
+    """
+    """
+    # run()
+    # run again()
+    # playbook tasks start off from where it left off per host, but rerun always tasks
+
+  def test_changes(self):
+    """
+    If configuration changes, make sure playbooks fun from the start
+    """

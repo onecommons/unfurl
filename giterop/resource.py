@@ -285,6 +285,8 @@ class ChangeRecord(object):
       digest
       parameters
     status
+    results:
+    messages:
     metadata:
       added:
       updated:
@@ -327,6 +329,7 @@ class ChangeRecord(object):
     # 'previously': '',
     # 'applied': ''
     ('status', ''),
+    ('results', {}),
     ('failedToProvide', []),
   ])
   ChildAttributes = {'masterResource':''}

@@ -10,6 +10,7 @@ import ansible.constants as C
 from ansible.cli.playbook import PlaybookCLI
 from ansible.plugins.callback import CallbackBase
 
+# ansible fails by host
 class AnsibleConfigurator(Configurator):
   """
   The current resource is the inventory.
@@ -88,6 +89,9 @@ class AnsibleConfigurator(Configurator):
     """
     pass
 
+  def getArgs(self):
+    return []
+
   def run(self, job):
     #build host inventory from resource
     #build vars from parameters
@@ -95,8 +99,10 @@ class AnsibleConfigurator(Configurator):
     #https://github.com/ansible/ansible/blob/devel/lib/ansible/plugins/callback/log_plays.py
     try:
       inventory = self.getInventory(job)
-      results = runPlaybooks([playbook], inventory, self.getVars(job))
-      hostname = 'localhost'
+      playbook = self.getPlayBook(job)
+      extraVars = self.getVars(job)
+      results = runPlaybooks([playbook], inventory, extraVars, self.getArgs())
+      hostname = job.getResource().get('hostname')
       host = results.inventoryManager.get_host(hostname)
       host_vars = results.variableManager.get_vars(host=host)
       #extract provides from results
@@ -128,7 +134,8 @@ class ResultCallback(CallbackBase):
 
   def _addResult(self, status, result):
     self.results.append(result)
-    getattr(self.resultsByStatus, status)[result.task_name] = result
+    # XXX should save by host too
+    getattr(self.resultsByStatus, status).setdefault(result.task_name, []).append(result)
 
   def v2_runner_on_ok(self, result, **kwargs):
     self._addResult('ok', result)
@@ -157,6 +164,7 @@ def runPlaybooks(playbooks, _inventory, params=None, args=None):
   # as assigns its options to self._options
   ansibleDummyCli.options.__dict__.update(cli.options.__dict__)
 
+  #see also https://github.com/projectatomic/atomic-host-tests/blob/master/callback_plugins/default.py
   #C.DEFAULT_STDOUT_CALLBACK == 'default' (ansible/plugins/callback/default.py)
   resultsCB = ResultCallback()
   C.DEFAULT_STDOUT_CALLBACK = resultsCB
@@ -173,3 +181,80 @@ def runPlaybooks(playbooks, _inventory, params=None, args=None):
 
   resultsCB.exit_code = cli.run()
   return resultsCB
+
+class IncrementalRunner(object):
+  """
+  Before the play is run, we assign each task a position based on the order it is statically queued.
+  After a task is run the position of the task is recorded. It should always be greater than the last position.
+
+  Re-running a playbook with an identical configuration, we can skip queuing tasks whose position is less
+  than the last completed for all currently targeted hosts.
+
+  We can save check points with a task names and digests to verify that the save positions correspond to the same task.
+
+  For dynamic includes (invoked by a strategy plugin) we can't rely on the task's invocation order being deterministic.
+  """
+  def __init__(self):
+    self.foo = 1
+
+# monkey patch Task/Taggable.evaluate_tags ?
+# which is only called by Block.filter_tagged_tasks
+# which in turn is called by Playbook iterator and strategy plugins
+# but won't be called per host -- update "self.when" on task?
+
+# TaskQueueManager.run() / PlayIterator() is called for each playbook and for each possible batches of hosts
+# (see playbook_executor.py#L151)
+# so _Gindex should by playbook at least
+# doesn't this assume a task is only executed once? bad assumption!
+
+def shouldRunAnsibleTask(self, task, only_tags, skip_tags, all_vars):
+  # playbooks haven't changed, inventory and host_vars haven't changed,
+  #configuration haven't changed, etc.
+  if not self.lastCompatibleRun:
+    return True
+  #hmmm how to uniquely identity tasks and their order????
+  pos = task._Gindex
+  if pos < 0:
+    return True
+  #we ran before successfully don't need to do it again
+  return self.lastCompatibleRun.completedTaskIndex < pos
+
+def getAnsibleTaskDigest(task):
+  d = task.serialize()
+  del d['uuid']
+  return hasher(d)
+
+def setTaskPos(self, task):
+  #task._parent.__class__.__name__
+  #if not isReproducible(task):
+  #  return -1
+
+  digest = getAnsibleTaskDigest(task)
+  if digest not in self.tasks:
+    self.tasks[task._uuid] = task
+    task._Gindex = len(self.tasks)
+  else:
+    assert task._Gindex > -1
+
+def evaluate_tags(task, tags, all_vars):
+  if not hasattr(task, '_Gindex'):
+    setattr(task, '_Gindex', -1)
+
+  res = super(Task, task).evaluate_tags(self, only_tags, skip_tags, all_vars)
+  if not res:
+    return res
+
+  if 'always' in self.tags:
+    return True
+
+  #all_vars is either all_vars or task_vars when called by strategy
+  state = all_vars.get('__giterop')
+  if state:
+    if state.currentJob:
+      state.currentJob.setTaskPos(self)
+      return state.currentJob.shouldRunAnsibleTask(self, only_tags, skip_tags, all_vars)
+  else:
+    task._Gindex = -1
+    #isn't being called from a static position
+    #don't update task.position and if the task has already set, remove it so we don't confused when it is run
+  return res

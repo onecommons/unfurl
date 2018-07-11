@@ -11,7 +11,12 @@ class Configuration(object):
   configurator: ref or inline (use name as ref if omitted)
   parameters
   target    #XXX
-  onfailure: continue, abort
+  # applies to current resource, but causes cascade
+  # continue, abort, rollback
+  # default: abort if failed but no changes made
+  # rollback if failed and dirty
+  abortOnFailure: none, run, resource
+  onfailure: continue, abortAll, abortResource
   """
   def __init__(self, manifest, src, templateName='', base=None):
     self.templateName = templateName
