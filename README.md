@@ -18,11 +18,22 @@ Running GitErOp attempts to apply that specification and commits the results of 
 
 ## Requirements
 
-Python, ansible, git, openshift client tools (`oc`)
+Either python 2.7 or 3.6, ansible, git, openshift client tools (`oc`)
 
 ## From source
 
 ## Container Image
+
+# Developing 
+
+Clone github.com/onecommons/giterop. 
+
+## Running unit tests
+
+You can use `tox` to run the unit tests inside the supported python environments with the latest source installed.
+Install tox `pip install tox` and then run `tox` in source root. To install the dependencies you may need header files installed by the following OS packages: `python-dev`, `libcrypt-dev`, `openssl-dev`. (Note: if installation of a dependency fails, reinvoke `tox` with `-r` to recreate the test environment.)
+
+You can arguments after `--` are passed to the test runner, e.g. to run an individual test: `tox -- -p test_attributes.py`.
 
 # Usage
 
