@@ -15,7 +15,7 @@ import click
 @click.help_option('--help', '-h')
 @click.option('-v', '--verbose', count=True)
 def main(manifest, **options):
-  run(manifest, options)
+  print(run(manifest, options).summary())
 
 if __name__ == '__main__':
   main()

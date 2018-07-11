@@ -48,6 +48,9 @@ resources:
 
 class ConfiguratorTest(unittest.TestCase):
   def test_neededTasks(self):
+    """
+    test that runner figures out the proper tasks to run
+    """
     runner = Runner(manifest)
     resources = runner.getRootResources('test1')
     assert resources, "couldn't find root resource test1"
@@ -57,11 +60,12 @@ class ConfiguratorTest(unittest.TestCase):
     assert not missing, missing
 
     #print resources[0].spec.configurations
-    tasks = list(runner.getTasks(resources))
+    job = Job(runner, resources)
+    tasks = job.allTasks
     assert tasks and len(tasks) == 1, tasks
 
   def test_requires(self):
-    #test that it the configurator only runs if the resource meets the requirements
+    """test that the configuration only runs if the resource meets the requirements"""
     runner = Runner(manifest)
     test1 = runner.manifest.getRootResource('test1')
     assert test1
@@ -71,7 +75,8 @@ class ConfiguratorTest(unittest.TestCase):
     notYetProvided = configurator.findMissingProvided(test1)
     self.assertEqual(notYetProvided, [('missing required parameter', 'copyOfMeetsTheRequirement')])
 
-    assert runner.run(resource='test1'), runner.aborted
+    run1 = runner.run(resource='test1')
+    assert not run1.aborted, run1
     self.assertEqual(test1.metadata['copyOfMeetsTheRequirement'], "copy")
 
     provided = configurator.findMissingProvided(test1)
@@ -86,21 +91,24 @@ class ConfiguratorTest(unittest.TestCase):
     assert missing, missing
 
     # XXX should resport that test configuration failed because test2 didn't meet the requirements
-    result = runner.run(resource='test2')
-    assert not result, result
+    run2 = runner.run(resource='test2')
+    assert run2.failed, run2
     #XXX bad error reporting
     self.assertEqual(str(runner.aborted), "cannot run")
     #self.assertEqual(str(runner.aborted), "can't run required configuration: resource test2 doesn't meet requirement")
 
   def test_changes(self):
+    """
+    Test that resource status is updated after the configuration is run and that it doesn't run again
+    """
     runner = Runner(manifest)
-    runner.run(resource='test1', startTime = datetime.datetime.fromordinal(1))
-    if runner.aborted:
-      traceback.print_exception(*runner.aborted)
-    assert not runner.aborted
-    assert len(runner.changes) == 1
+    run1 = runner.run(resource='test1', startTime = datetime.datetime.fromordinal(1))
+    if run1.aborted:
+      traceback.print_exception(*run1.aborted) #XXX
+    assert not run1.aborted
+    assert len(run1.changes) == 1
     # XXX changeId is 3 because we save after every task?
-    self.assertEqual(runner.changes[0].toSource(),
+    self.assertEqual(run1.changes[0].toSource(),
       {'status': 'success', 'changeId': 3, 'commitId': '',
         'startTime': '0001-01-01T00:00:00',
         'action': 'discover', 'metadata': {
@@ -118,11 +126,11 @@ class ConfiguratorTest(unittest.TestCase):
 
     runner2 = Runner(updatedManifest)
     #there shouldn't be any tasks to run this time
-    runner2.run(resource='test1', startTime = datetime.datetime.fromordinal(2))
-    if runner2.aborted:
-       traceback.print_exception(*runner2.aborted)
-    assert not runner2.aborted
-    self.assertEqual(len(runner2.changes), 0)
+    run2 = runner2.run(resource='test1', startTime = datetime.datetime.fromordinal(2))
+    if run2.aborted:
+       traceback.print_exception(*run2.aborted) #XXX
+    assert not run2.aborted
+    self.assertEqual(len(run2.changes), 0)
 
     # manifest shouldn't have changed
     output2 = six.StringIO()

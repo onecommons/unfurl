@@ -22,4 +22,4 @@ def run(manifestPath, opts=None):
   manifest = Manifest(path=manifestPath)
   runner = Runner(manifest)
   kw = opts or {}
-  runner.run(**kw)
+  return runner.run(**kw)

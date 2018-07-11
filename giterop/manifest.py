@@ -22,6 +22,15 @@ class Manifest(object):
     resources:
       "name":
         resouceSpec
+    status:
+      changes:
+        - changeid
+          date
+          commit
+          action
+          status
+          messages:
+
   """
   def __init__(self, manifest=None, path=None, validate=True):
     if path:

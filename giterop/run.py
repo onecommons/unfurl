@@ -67,11 +67,11 @@ class Change(object):
     return changeRecord
 
 class Task(object):
-  def __init__(self, runner, configuration, resource, action, startTime=None):
-    self.runner = runner
+  def __init__(self, job, configuration, resource):
+    self.job = job
     self.change = None
     self.configuration = configuration
-    self.action = configuration.getAction(action)
+    self.action = configuration.getAction(job.action)
     self.resource = resource #configuration.getResource(resource) XXX?
     self.parameters = configuration.getParams(resource)
     self.configurator = configuration.configurator.getConfigurator()
@@ -80,7 +80,7 @@ class Task(object):
     self.addedResources = []
     self.removedResources = []
     self.changeId = None
-    self.startTime = startTime or datetime.datetime.now()
+    self.startTime = job.startTime or datetime.datetime.now()
 
   def getAddedResources(self):
     return [a[1] for a in self.addedResources]
@@ -106,7 +106,7 @@ class Task(object):
     return Change(self, resource, metadata=diff, rootChange=rootChange, action=action)
 
   def _createRootChangeRecord(self, status, providedStatus):
-    self.changeId = self.runner.incrementChangeId()
+    self.changeId = self.job.incrementChangeId()
     change = Change(self, self.resource, status=status, messages=self.messages)
     if providedStatus:
       change.failedToProvide = providedStatus
@@ -165,7 +165,6 @@ class Task(object):
       raise GitErOpTaskError(self, sys.exc_info())
 
     missingProvided = self.configuration.configurator.findMissingProvided(self.resource)
-    #XXX revert changes if status.failure or have configurator do that?
     self.change = self._createRootChangeRecord(status, missingProvided)
     return self.change
 
@@ -185,7 +184,7 @@ class Task(object):
   def deleteResource(self, resource):
     self.removedResources.append(('deleted', resource))
 
-  def forgetResource(self, resourceName):
+  def forgetResource(self, resource):
     self.removedResources.append(('forgot', resource))
 
   def getLastChange(self):
@@ -194,31 +193,65 @@ class Task(object):
         return change
     return None
 
-class Runner(object):
+class Job(object):
   """
   Definition of system changed.
   System has not reached desired state.
   System state has changed.
-  """
-  def __init__(self, manifest):
-    if isinstance(manifest, six.string_types):
-      self.manifest = Manifest(manifest)
-    else:
-      self.manifest = manifest
-    self.currentChangeId = self.manifest.findMaxChangeId() + 1
-    self.reset()
 
-  def reset(self):
+  runStatus: init started done
+  # Configuration, change, Task, Resource, and Run should present the same status interface
+  resource state: ok, incomplete, notready, deleted
+  currentStatus and finalStatus: status of root resources (ok if all ok, else notready if any is notready, else incomplete)
+  vs. task/change: cantrun failed error success didntprovide
+  stats on tasks (total, ok, failed, skipped, reverted
+  tasks:
+    - configuration
+      resource
+      changeid
+      result:
+        status: cantrun failed error success didntprovide
+        errorCode
+        details
+  """
+  def __init__(self, runner, resources, action=None, startTime=None):
+    self.runner = runner
+    self.resources = resources or []
     self.aborted = None
-    self.currentTask = None
-    self.changes = []
-    self.startTime = None
+    self.action = action
+    self.startTime = startTime
+    self.currentChangeId = runner.manifest.findMaxChangeId() + 1
+    self.allTasks = list(self.getTasks(self.resources))
 
   def incrementChangeId(self):
     #changeids are shared across dependent changes on multiple resources
     #should be unique across manifest and should monotonically increased
     self.currentChangeId += 1
     return self.currentChangeId
+
+  def getTasksForResource(self, resource):
+    for configuration in resource.definition.spec.configurations:
+      # check status, discover or instantiate
+      task = Task(self, configuration, resource)
+      yield task
+    for task in self.getTasks(resource.resources):
+      yield task
+
+  def getTasks(self, resources):
+    for resource in resources:
+      for task in self.getTasksForResource(resource):
+        yield task
+
+class Runner(object):
+  """
+  Given action, resource(s), (and options like skip, force-manual?)
+  run required tasks, logging and saving status along the way
+  """
+  def __init__(self, manifest):
+    if isinstance(manifest, six.string_types):
+      self.manifest = Manifest(manifest)
+    else:
+      self.manifest = manifest
 
   def getRootResources(self, resourceName=None):
     manifest = self.manifest
@@ -236,62 +269,53 @@ class Runner(object):
     task.commitChanges(change)
     #update cluster with last success
     #commit manifest
-    self.currentTask = None
-    self.changes.append(change)
     self.manifest.save()
 
-  def saveError(self, err, msg=''):
-    self.aborted = err
+  def saveError(self, job, err, msg=''):
+    job.aborted = err
     # rollback metadata changes??
     #XXX
 
-  def saveDone(self):
+  def saveDone(self, job):
     pass #xxx
 
-  def getTasksForResource(self, resource, action=None):
-    for configuration in resource.definition.spec.configurations:
-      # check status, discover or instantiate
-      task = Task(self, configuration, resource, action, self.startTime)
-      if task.shouldRun():
-        yield task
-    for task in self.getTasks(resource.resources, action):
-      yield task
-
-  def getTasks(self, resources, action=None):
-    for resource in resources:
-      for task in self.getTasksForResource(resource, action):
-        yield task
-
-  def abortRun(self, task):
-    return False
-
-  def runTasks(self, resources):
-    for task in self.getTasks(resources):
-      self.currentTask = task
+  def runTasks(self, job, resources):
+    assert job.runner is self
+    abortedResource = None
+    for task in job.getTasks(resources):
+      if task.resource == abortedResource:
+        continue
+      if not task.shouldRun():
+        continue
       if task.canRun():
-        task.run()
         change = task.run()
         self.save(task, change)
+        # task failed, unexpected error, didn't provide
+      # else: # XXX should have run but can't run
 
-      if self.abortRun(task):
+      # configuration returns failure, can't run, unexpected exception, failed to provide
+      if task.change.status == 'error':
         return False
+        # if task.abort == 'run':
+        #   return False
+        # elif task.abort == 'resource':
+        #   abortedResource = resource
       #run tasks from newly generated resources before the next task
-      if task.addedResources and not self.runTasks(task.addedResources):
+      elif task.addedResources and not self.runTasks(run, task.addedResources):
         return False
     return True
 
   def run(self, **opts):
-    self.reset()
-    self.startTime = opts.get('startTime')
+    startTime = opts.get('startTime')
     action = 'discover' if opts.get('readonly') else None
+    #XXX resource option shouldn't have to be root
+    resources = self.getRootResources(opts.get('resource'))
+    job = Job(self, resources, action, startTime)
     #XXX before running commit manifest if it has changed, else verify git access to this manifest
     try:
-      #XXX resource option shouldn't have to be root
-      resources = self.getRootResources(opts.get('resource'))
-      self.success = self.runTasks(resources)
+      self.runTasks(job, resources)
     except Exception as e:
-      self.saveError(sys.exc_info())
-      return False
+      self.saveError(job, sys.exc_info())
     else:
-      self.saveDone()
-      return self.success
+      self.saveDone(job)
+    return job

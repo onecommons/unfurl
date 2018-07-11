@@ -7,16 +7,17 @@ from .configurator import *
 class Configuration(object):
   """
   name
-  intent: discover instantiate revert skip
+  intent: discover instantiate revert
   configurator: ref or inline (use name as ref if omitted)
   parameters
   target    #XXX
+  when: evaluates to true, (default: true)
   # applies to current resource, but causes cascade
   # continue, abort, rollback
   # default: abort if failed but no changes made
   # rollback if failed and dirty
-  abortOnFailure: none, run, resource
-  onfailure: continue, abortAll, abortResource
+  # abortOnFailure: none, run, resource
+  onfailure: abort, continue, revert #note: when action=revert always abort
   """
   def __init__(self, manifest, src, templateName='', base=None):
     self.templateName = templateName

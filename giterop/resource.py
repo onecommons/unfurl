@@ -180,6 +180,10 @@ class ResourceDefinition(object):
     configurations:
       - "component"
   status:
+    #incomplete means some uncritical configurations failed or never ran
+    #notready means required configuration hasn't run or in critical error state
+    state: ok, incomplete, notready, deleted
+    upToDate: yes or no
     resources:
       name:
         <resource>
