@@ -28,13 +28,13 @@ class Configurator(object):
   def getCustomProperties(self):
     return {}
 
-  def run(self, job):
-    if not self.canRun(job):
+  def run(self, task):
+    if not self.canRun(task):
       return self.status.failed
     # no-op
     return self.status.success
 
-  def canRun(self, job):
+  def canRun(self, task):
     """
     Does this configurator support the requested action and parameters
     given the current state of the resource
@@ -43,42 +43,42 @@ class Configurator(object):
     return True
 
   # does this configurator need to be run?
-  def shouldRun(self, job):
-    if job.action == 'discover':
-      return self.shouldRunDiscover(job)
-    elif job.action == 'instantiate':
-      return self.shouldRunInstantiate(job)
-    elif job.action == 'revert':
-      return self.shouldRunRevert(job)
+  def shouldRun(self, task):
+    if task.action == 'discover':
+      return self.shouldRunDiscover(task)
+    elif task.action == 'instantiate':
+      return self.shouldRunInstantiate(task)
+    elif task.action == 'revert':
+      return self.shouldRunRevert(task)
     else:
-      assert "unexpected action " + job.action
+      assert "unexpected action " + task.action
 
-  def shouldRunInstantiate(self, job):
-    if not job.previousRun:
+  def shouldRunInstantiate(self, task):
+    if not task.previousRun:
       return True
     if previousRun.action == 'revert':
       return True
-    return self.hasChanged(job)
+    return self.hasChanged(task)
 
-  def shouldRunRevert(self, job):
+  def shouldRunRevert(self, task):
     # XXX revert needs a data loss flag configurations might know whether or not dataloss may happen if reverted
-    if not job.previousRun:
+    if not task.previousRun:
       return False
     return True
 
-  def shouldRunDiscover(self, job):
-    if job.previousRun:
+  def shouldRunDiscover(self, task):
+    if task.previousRun:
       #if the version or config has changed since last applied re-run discover
-      return self.hasChanged(job)
+      return self.hasChanged(task)
     return True
 
   # if the configuration is different from the last time it was run
-  def hasChanged(self, job):
-    if not job.previousRun:
+  def hasChanged(self, task):
+    if not task.previousRun:
       return True
 
     # previousRun is a ChangeRecord
-    if job.previousRun.configuration.get('digest') != job.configuration.digest():
+    if task.previousRun.configuration.get('digest') != task.configuration.digest():
       return True
 
 registerClass(VERSION, "Configurator", Configurator)

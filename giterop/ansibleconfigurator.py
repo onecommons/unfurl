@@ -33,7 +33,7 @@ class AnsibleConfigurator(Configurator):
 
   #could have parameter for mapping resource attributes to groups
   #also need to map attributes to host vars
-  def getInventory(self, job):
+  def getInventory(self, task):
     # find hosts and how to connect to them
     return 'localhost,'
     # tp = tempfile.NamedTemporaryFile(suffix='.json')
@@ -81,7 +81,7 @@ class AnsibleConfigurator(Configurator):
 
   #use requires to map attributes to vars,
   #have a parameter for the mapping or just set_facts in playbook
-  def getVars(self, job):
+  def getVars(self, task):
     """
     just add a lookup() plugin?
     add attribute to parameters to map to vars?
@@ -92,23 +92,23 @@ class AnsibleConfigurator(Configurator):
   def getArgs(self):
     return []
 
-  def run(self, job):
+  def run(self, task):
     #build host inventory from resource
     #build vars from parameters
     #map output to resource updates
     #https://github.com/ansible/ansible/blob/devel/lib/ansible/plugins/callback/log_plays.py
     try:
-      inventory = self.getInventory(job)
-      playbook = self.getPlayBook(job)
-      extraVars = self.getVars(job)
+      inventory = self.getInventory(task)
+      playbook = self.getPlayBook(task)
+      extraVars = self.getVars(task)
       results = runPlaybooks([playbook], inventory, extraVars, self.getArgs())
-      hostname = job.getResource().get('hostname')
+      hostname = task.getResource().get('hostname')
       host = results.inventoryManager.get_host(hostname)
       host_vars = results.variableManager.get_vars(host=host)
       #extract provides from results
-      job.resource.update()
-      job.createResource()
-      job.discoverResource()
+      task.resource.update()
+      task.createResource()
+      task.discoverResource()
       return self.status.failed if results.exit_code  else self.status.success
     finally:
       self.cleanup()
@@ -250,9 +250,9 @@ def evaluate_tags(task, tags, all_vars):
   #all_vars is either all_vars or task_vars when called by strategy
   state = all_vars.get('__giterop')
   if state:
-    if state.currentJob:
-      state.currentJob.setTaskPos(self)
-      return state.currentJob.shouldRunAnsibleTask(self, only_tags, skip_tags, all_vars)
+    if state.currentTask:
+      state.currentTask.setTaskPos(self)
+      return state.currentTask.shouldRunAnsibleTask(self, only_tags, skip_tags, all_vars)
   else:
     task._Gindex = -1
     #isn't being called from a static position
