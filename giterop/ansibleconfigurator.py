@@ -119,6 +119,7 @@ registerClass(VERSION, "Ansible", AnsibleConfigurator)
 #https://github.com/ansible/ansible/blob/d72587084b4c43746cdb13abb262acf920079865/examples/scripts/uptime.py
 _ResultsByStatus = collections.namedtuple('_ResultsByStatus', "ok failed skipped unreachable")
 class ResultCallback(CallbackBase):
+  # NOTE: callbacks will run in seperate process
   #see ansible.executor.task_result.TaskResult and ansible.playbook.task.Task
 
   def __init__(self):
@@ -206,6 +207,10 @@ class IncrementalRunner(object):
 # (see playbook_executor.py#L151)
 # so _Gindex should by playbook at least
 # doesn't this assume a task is only executed once? bad assumption!
+
+  #key is iterator.get_next_task_for_host
+  # see StrategyBase._queue_task and _process_pending_results
+# workers run executor.task_executor
 
 def shouldRunAnsibleTask(self, task, only_tags, skip_tags, all_vars):
   # playbooks haven't changed, inventory and host_vars haven't changed,

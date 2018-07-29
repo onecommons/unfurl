@@ -108,6 +108,7 @@ class AttributeTest(unittest.TestCase):
        ['.[!=blah]', [resource]],
        ['[!a]', []],
        ['.named:test', [resource]],
+       #XXX test nested ['.[k[d=3]=4]']
     ]:
       ref = Ref(exp)
       #print ('eval', ref, ref.paths)

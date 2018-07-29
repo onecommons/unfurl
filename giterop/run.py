@@ -8,6 +8,80 @@ from .util import *
 from .manifest import *
 from .resource import *
 
+
+
+# for configuration: same as last task run, but also responsible for its adopted child resources?
+
+# job (persisted as root change): same rules as resource for the tasks specified for that run
+
+from enum import IntEnum
+
+# from string: State[name]; to string: state.name
+State = IntEnum("State", "ok degraded error notpresent", module=__name__)
+
+class Status(object):
+  """
+  Jobs, Resources, Tasks, and Configurations all have a Status associated with them
+  and all use the same algorithm to compute their status from their dependent resouces, tasks, and configurations
+
+  # operational: boolean: ok or degraded
+  # state: ok, degraded, error, notpresent
+  # outofdate: boolean
+  # degraded: non-fatal errors or didn't provide required attributes or if couldnt upgrade
+  """
+
+  def __init__(self, state=None, outdated=None, manualOveride=None, required=None):
+    self.computedState = state
+    self.manualOveride = manualOveride
+    self.outdated = outdated
+    self.required = required
+
+  @property
+  def operational(self):
+    return self.state == State.ok or self.state == State.degraded
+
+  @property
+  def state(self):
+    return self.manualOveride or self.computedState
+
+  @staticmethod
+  def aggregateStatus(statuses):
+    # error if a configuration is required and not operational
+    # error if a not configuration managed child resource is required and not operational
+    # notpresent if not present
+    # degraded non-required configurations and resources are not operational
+    #          or required configurations and resources are degraded
+    # ok otherwise
+    state = State.ok
+    outdated = False
+    for status in statuses:
+      if status.outdated:
+        outdated = True
+      if state == State.error:
+        continue
+      if status.required:
+        if not status.operational:
+          state = State.error
+        elif status.state == State.degraded:
+          state = State.degraded
+      elif not status.operational:
+          state = State.degraded
+    return Status(state, outdated)
+
+  def mergeStatus(self, children):
+    merged = self.aggregateStatus(children)
+    if not self.outdated:
+      self.outdated = merged.outdated
+    # if parent state is less critical than merged state, use merge state
+    if self.state < merged.state:
+      if self.manualOveride:
+        if self.computedState < merged.state:
+          #if things have gotten worse then the current computed state clear the manual override
+          #XXX this really should do this if new child statuses are in a worse state
+          # right now we won't clear the override if aggregate state didn't worsen
+          self.manualOveride = None
+      self.computedState = merged.state
+
 class Change(object):
   def __init__(self, job, resource, rootChange=None, **kw):
     self.job = job

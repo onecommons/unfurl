@@ -10,7 +10,7 @@ from . import run
 import click
 
 @click.command()
-@click.argument('manifest_file', default='cluster-manifest.yaml', nargs=1, type=click.Path(exists=True))
+@click.argument('manifest_file', default='manifest.yaml', nargs=1, type=click.Path(exists=True))
 @click.option('--resource', help="name of resource to start with")
 @click.help_option('--help', '-h')
 @click.option('-v', '--verbose', count=True)

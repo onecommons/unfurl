@@ -90,7 +90,7 @@ class AttributeDefinition(object):
       return self.type == 'number'
 
     if isinstance(value, (float)):
-      if self.type == 'int':
+      if self.type == 'integer':
         return round(value) == value
       return self.type == 'number'
 

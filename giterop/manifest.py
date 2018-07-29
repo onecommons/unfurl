@@ -21,7 +21,7 @@ class Manifest(object):
         configurations
     resources:
       "name":
-        resouceSpec
+        resourceSpec
     status:
       changes:
         - changeid
