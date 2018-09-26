@@ -96,7 +96,7 @@ class Configuration(object):
     if validate:
       self.configurator.parameterSchema.validateParameters(defaults, currentResource)
     if currentResource:
-      dict((k, ValueFrom.resolveIfRef(value, currentResource)) for (k, v) in defaults.items())
+      dict((k, Ref.resolveIfRef(value, currentResource)) for (k, v) in defaults.items())
     else:
       return defaults
 

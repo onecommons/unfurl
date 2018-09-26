@@ -67,7 +67,7 @@ class Resource(object):
 
   @property
   def root(self):
-    return self.ancestors[0]
+    return self.ancestors[-1]
 
   def __getitem__(self, name):
     if not name:

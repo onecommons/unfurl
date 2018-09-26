@@ -10,6 +10,7 @@ import ansible.constants as C
 from ansible.cli.playbook import PlaybookCLI
 from ansible.plugins.callback import CallbackBase
 
+# https://github.com/ansible/ansible-runner
 # ansible fails by host
 class AnsibleConfigurator(Configurator):
   """

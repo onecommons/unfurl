@@ -37,8 +37,11 @@ def assertForm(src, types=dict):
   return src
 
 _ClassRegistry = {}
-def registerClass(apiVersion, kind, factory):
+# only one class can be associated with an api interface
+def registerClass(apiVersion, kind, factory, replace=False):
   api = _ClassRegistry.setdefault(apiVersion, {})
+  if not replace and kind in api:
+    raise GitErOpError('class already registered for %s.%s' % (apiVersion, kind))
   api[kind] = factory
 
 def lookupClass(kind, apiVersion, default=None):

@@ -182,7 +182,7 @@ class Ref(object):
 
   The syntax for a Ref path expression is:
 
-  expr:  segment? (':' segment)*
+  expr:  segment? ('::' segment)*
 
   segment: key? ('[' filter ']')* '?'?
 
@@ -197,32 +197,32 @@ class Ref(object):
   Semantics
 
   Each segment specifies a key in a resource or JSON/YAML object.
-  ":" is used as the segment deliminated to allow for keys that contain "." and "/"
+  "::" is used as the segment deliminated to allow for keys that contain "." and "/"
 
   Path expressions evaluations always start with a list of one or more Resources.
-  and each segment selects the value associated that key. If segment has one or more filters
-  each filter is applied to that value -- each first is treated as a predicate
+  and each segment selects the value associated with that key. If segment has one or more filters
+  each filter is applied to that value -- each is treated as a predicate
   that decides whether value is included or not in the results.
   If the filter doesn't include a test the filter tests the existence or non-existence of the expression,
   depending on whether the expression is prefixed with a "!".
   If the filter includes a test the left side of the test needs to match the right side.
-  If the right side is not a variable, tries to coerce the string to left side's type before comparing it.
-  If the left-side expression is omitted the value of the segment's key is used and if that is missing, the current value is used.
+  If the right side is not a variable, that string will be coerced to left side's type before comparing it.
+  If the left-side expression is omitted, the value of the segment's key is used and if that is missing, the current value is used.
 
   If the current value is a list and the key looks like an integer
   it will be treated like a zero-based index into the list.
   Otherwise the segment is evaluated again all values in the list and resulting value is a list.
 
-  If segment ends in "?", it will only include the first match.
-  In other words, "a?:b:c" is a shorthand for "a[b:c]:0:b:c".
+  If a segment ends in "?", it will only include the first match.
+  In other words, "a?::b::c" is a shorthand for "a[b::c]::0::b::c".
   This is useful to guarantee the result of evaluating expression is always a single result.
 
   The first segment is evaluated against the "current resource" unless the first segment is a variable,
   which case it evaluates against the value of the variable.
-  If the first segment is empty (i.e. the expression starts with ':') the first segment will be set to ".ancestors?",
-  in otherwords the expression will be the result of valuating if against first ancestor of the current resource that it matches.
+  If the first segment is empty (i.e. the expression starts with '::') the first segment will be set to ".ancestors?",
+  in otherwords the expression will be the result of evaluating it against the first ancestor of the current resource that it matches.
 
-  If key or test needs to be be non-string type or contains a unallowed character use a var reference instead.
+  If key or test needs to be a non-string type or contains a unallowed character use a var reference instead.
 
   When multiple steps resolve to lists the resultant lists are flattened.
   However if the final set of matches contain values that are lists those values are not flattened.
@@ -256,7 +256,7 @@ class Ref(object):
   .root        root ancestor
   .children    child resources
   .descendents (including self)
-  .named       dictionary child resources with name as key
+  .named       dictionary of child resources with their names as keys
   .kms
 
     # XXX
@@ -266,16 +266,21 @@ class Ref(object):
   """
 
   def __init__(self, exp, vars = None):
-    defaultvars = {
+    self.vars = {
      'true': True, 'false': False, 'null': None
     }
+
     if isinstance(exp, dict):
-      self.vars = exp.get('vars', defaultvars)
-      if vars:
-        self.vars.update(vars)
+      self.vars.update(exp.get('vars', {}))
       exp = exp.get('ref', '')
+      if isinstance(exp, dict):
+        self.conditional = exp
+        exp = exp.get('if', exp.get('ifnot', ''))
     else:
-      self.vars = defaultvars
+      self.conditional = None
+
+    if vars:
+      self.vars.update(vars)
     self.source = exp
     paths = list(parseExp(exp))
     if not paths[0].key:
@@ -295,10 +300,21 @@ class Ref(object):
       paths = self.paths
     return evalExp([currentResource], paths, context)
 
+  def resolveOne(self, currentResource):
+    result = self._resolveOne(currentResource)
+    if not self.conditional:
+      return result
+    negate = self.conditional.get('ifnot')
+    if result or (negate and not result):
+      return self.resolveOneIfRef(self.conditional.get('then', True))
+    else:
+      return self.resolveOneIfRef(self.conditional.get('else', None))
+
   def __repr__(self):
+    # XXX vars, conditional
     return "Ref('%s')" % self.source
 
-  def resolveOne(self, currentResource):
+  def _resolveOne(self, currentResource):
     #if no match return None
     #if more than one match return a list of matches
     #otherwise return match
@@ -366,7 +382,8 @@ def lookup(value, key, context):
     if context and isinstance(key, six.string_types) and key.startswith('$'):
       key = context.vars[key[1:]]
 
-    value = value[key]
+    getter = getattr(value, '__reflookup__', None)
+    value = getter(key) if getter else value[key]
 
     # if Ref.isRef(value):
     #   value = Ref.resolveIfRef(value, self)

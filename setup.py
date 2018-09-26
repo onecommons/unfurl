@@ -123,6 +123,7 @@ setup(
     "click",
     "gitpython",
     "ansible>=2.5",
+    "jsonschema",
 #required by openshift-ansible:
     "pyOpenSSL",
     "netaddr",
