@@ -27,6 +27,9 @@ Runner
 """
 
 import six
+import copy
+import collections
+from itertools import chain
 from enum import IntEnum
 from .util import *
 
@@ -37,11 +40,22 @@ def toEnum(enum, value):
   else:
     return value
 
-# XXX2 notapplied
+# question: if a configuration failed to apply should that affect the status of the configuration?
+# OTOH the previous version of the configuration status is still in effect
+# But if the configuration did fail could mean error at global level
+# treat failed as a separate dependent configuration that can contribute to aggregate status
+# and participate in resource graph
+# XXX2 add upgrade required field?
+# XXX2 for dependencies checking add a revision field that increments everytime configuration changes?
+
+# XXX2 doc: notpresent is a positive assertion of non-existence while notapplied just indicates non-liveness
+# notapplied is therefore the default initial state
 S = Status = IntEnum("Status", "ok degraded error notapplied notpresent", module=__name__)
 
-Priority = ShouldRun = IntEnum("Priority", "skip optional required", module=__name__)
+# ignore may must
+Priority = IntEnum("Priority", "ignore optional required", module=__name__)
 
+# omit discover exist
 A = Action = IntEnum("Action", "discover instantiate revert", module=__name__)
 
 class Defaults(object):
@@ -49,6 +63,10 @@ class Defaults(object):
   canRun = True
 
 # for configuration: same as last task run, but also responsible for its adopted child resources?
+# status refers to current state of system not what happened when object was last applied
+# semantics of priority / shouldRun / skip
+# semantics of notapplied
+
 class Operational(object):
   """
   This is an abstract base class for Jobs, Resources, and Configurations all have a Status associated with them
@@ -59,25 +77,40 @@ class Operational(object):
   # degraded: non-fatal errors or didn't provide required attributes or if couldnt upgrade
   """
 
-  # XXX0 all derived classes need to define instance members or get properties for the following:
-  # computedStatus, manualOverideStatus, priority
-  # mergeStatus requires setters too
-  # XXX2 and repairable, messages?
+  # XXX2 add repairable, messages?
 
+  # core properties to override
+  @property
+  def priority(self):
+    return Priority.optional
+
+  @property
+  def computedStatus(self):
+    return Status.notapplied
+
+  def getOperationalDependencies(self):
+    return ()
+
+  @property
+  def manualOverideStatus(self):
+    return None
+
+  # derived properties:
   @property
   def operational(self):
     return self.status == Status.ok or self.status == Status.degraded
 
   @property
   def status(self):
-    return self.manualOverideStatus or self.computedStatus
+    if self.manualOverideStatus is not None:
+      status = self.manualOverideStatus
+    else:
+      status = self.computedStatus
+    return self.aggregateStatus(self.getOperationalDependencies(), status)
 
   @property
   def required(self):
     return self.priority == Priority.required
-
-  def getStatusDependencies(self):
-    return ()
 
   @staticmethod
   def aggregateStatus(statuses, defaultStatus = Status.ok):
@@ -88,31 +121,24 @@ class Operational(object):
     #          or required configurations and resources are degraded
     # ok otherwise
     state = defaultStatus
-    for status in statuses:
+    # basically return the worst state we find
+    for operational in statuses:
       if state >= Status.error:
         continue
+      status = operational if isinstance(operational, Status) else operational.status
       if status.required:
         if not status.operational:
+          # XXX2 but if intent is omit then not an error! (these should not be included)
           state = Status.error
         elif status.state == Status.degraded:
           state = Status.degraded
       elif not status.operational:
+          # XXX2 but if intent is omit then it's ok  (these should not be included)
           state = Status.degraded
     return state
 
-  def mergeStatus(self):
-    merged = self.aggregateStatus(self.getStatusDependencies())
-    # if merged state is worse, use merged state
-    if self.status < merged.status:
-      if self.manualOverideStatus:
-        if self.computedStatus < merged.status:
-          #if things have gotten worse then the current computed state clear the manual override
-          #XXX2 this really should only do this if new child statuses are in a worse state
-          # right now we won't clear the override if aggregate state didn't worsen
-          self.manualOverideStatus = None
-      self.computedStatus = merged.status
-
-class OperationalValue(Operational):
+class OperationalInstance(Operational):
+  # XXX2 start with unit tests of this
   def __init__(self, status=None, priority=None, manualOveride=None):
     self.computedStatus = toEnum(Status, status)
     self.manualOverideStatus = toEnum(Status, manualOveride)
@@ -122,17 +148,26 @@ class OperationalValue(Operational):
 
 class Resource(Operational):
   def __init__(self, name='', attributes=None, configurations=None, parent=None, children=None):
-    self.name = name
+    self.name = name # XXX2 guarantee name uniqueness
     self.attributes = attributes or []
     self.configurations = dict((c.name, c) for c in (configurations or []))
+    # affirmatively absent configurations -- i.e. failed to apply or explicitly not present
+    # XXX3 test case: failed configuration with intent: omit
+    self.excludedConfigurations = {}
     self.container = parent
+    if parent:
+      self.parts.append(self)
     self.parts = children or []
 
-  def getStatusDependencies(self):
+  def getOperationalDependencies(self):
+    # XXX2 should also include configs in excludedConfigurations
+    # except ones where intent==omit and status==notpresent
+    # we want this because failed to apply should contribute to degraded or error state
+    # but the required flag needs to distinguish if that upgrade is required over the current version if it is live
     return self.configurations.values()
 
   def getSelfAndDescendents(self):
-    """Recursive descendent including self"""
+    "Recursive descendent including self"
     yield self
     for r in self.parts:
       for descendent in r.yieldDescendents():
@@ -143,7 +178,11 @@ class Resource(Operational):
     return list(self.getSelfAndDescendents())
 
   def findConfiguration(self, name):
-    return self.configurations.get(name):
+    config = self.configurations.get(name)
+    if config:
+      return config
+    # also check notpresent configurations:
+    return self.excludedConfigurations.get(name)
 
   def findResource(self, resourceid):
     if self.name == resourceid:
@@ -154,7 +193,7 @@ class Resource(Operational):
     return None
 
   def yieldParents(self):
-    """yield self and ancestors"""
+    "yield self and ancestors"
     resource = self
     while resource:
       yield resource
@@ -176,6 +215,8 @@ class Resource(Operational):
     return resource
 
   def setConfiguration(self, configuration):
+    # XXX2 test: hide configurations that are both notpresent and revert / skip
+    # XXX2 configurations should be dynamic because status can change
     self.configurations[configuration.name] = configuration
 
 class Configurator(object):
@@ -202,19 +243,20 @@ class Configurator(object):
 
   def checkConfigurationStatus(self, task):
     """Is this configuration still valid?"""
-    # called during when checking dependencies
+    # XXX2
+    # should be called during when checking dependencies
     return Status.ok
 
 # XXX2 add one parameter variant of registerClass(klass) that extracts name and version from class
 registerClass(VERSION, "Configurator", Configurator)
 
 class ConfiguratorSpec(object):
-  def __init__(self, name, className, majorVersion, minorVersion='', actions=None, schema=None):
+  def __init__(self, name, className, majorVersion, minorVersion='', actions=None, validateParameters=None):
     self.name = name
     self.className = className
     self.majorVersion = majorVersion
     self.minorVersion = minorVersion
-    self.parameterSchema = schema or {} # XXX1 change to validate predictate?
+    self.validateParameters = validateParameters or lambda: True
     # XXX1 supportedActions should be checked by canRun()
     self.supportedActions = actions
 
@@ -227,7 +269,7 @@ class ConfiguratorSpec(object):
     # XXX1 update equality with func classes so parameterSchema compare properly
     return (self.name == other.name and self.className == other.className
       and self.majorVersion == other.majorVersion and self.minorVersion == other.minorVersion
-      and self.parameterSchema == other.parameterSchema and self.actions == other.actions)
+      and self.validateParameters == other.validateParameters and self.actions == other.actions)
 
 # XXX2 document versions:
 # configurator api version (encoded in api namespace): semantics of the interface giterop uses
@@ -249,7 +291,8 @@ def evaluate(currentConfig, value, default=None):
 class Predicate(object):
   # XXX2 save() and restore()
 
-  def evaluate(self, configuration): return self.default
+  def evaluate(self, configuration):
+    return self.default
 
   def __eq__(self, other):
     if not isinstance(other, Predicate):
@@ -257,8 +300,9 @@ class Predicate(object):
     return True
 
 class ConfigurationSpec(object):
-  def __init__(self, name, target, configuratorSpec, majorVersion, minorVersion='', params=None,
-      intent=A.instantiate, postConditions=None
+  def __init__(self, name, target, configuratorSpec, majorVersion, minorVersion='',
+      intent=A.instantiate, postConditions=None,
+      getParameters=lambda configuration: {},
       canRun=lambda configuration: Defaults.canRun,
       shouldRun=lambda configuration: Defaults.shouldRun):
     self.name = name
@@ -266,11 +310,11 @@ class ConfigurationSpec(object):
     self.configuratorSpec = configuratorSpec
     self.majorVersion = majorVersion
     self.minorVersion = minorVersion
-    self.params = params or {}
+    self.intent = intent
+    self.getParameters = getParameters
     # map<name: configuration => Operational>
     self.postConditions = postConditions or {}
     # XXX2 add ensures
-    self.intent = intent
     self.canRun = canRun
     self.shouldRun = shouldRun
 
@@ -282,11 +326,12 @@ class ConfigurationSpec(object):
   def __eq__(self, other):
     if not isinstance(other, ConfigurationSpec):
       return False
-    # update equality with func classes so conditions, canRun and shouldRun compare properly
+    # XXX1 update equality with func classes so conditions, canRun and shouldRun compare properly
     return (self.name == other.name and self.targt == other.target and self.configuratorSpec == other.configuratorSpec
       and self.majorVersion == other.majorVersion and self.minorVersion == other.minorVersion
-      and self.intent == other.intent and self.require == other.required
-      and self.params == other.params and self.conditions == other.conditions)
+      and self.intent == other.intent and self.getParameters == other.getParameters
+      and self.shouldRun == other.shouldRun and self.canRun == other.canRun
+      and self.postConditions == other.postConditions)
 
 class Configuration(Operational):
   """
@@ -294,43 +339,60 @@ class Configuration(Operational):
   status
   resource
   """
-  #XXX0
-  def __init__(self, spec, resource, status=Status.notapplied):
-    # super(Operational, self).__init__(status)
+  def __init__(self, spec, resource, status=Status.notapplied, dependencies=None):
     self.configurationSpec = spec
     assert resource and spec and resource.name == spec.target
     self.resource = resource
+    self.dependencies = dependencies or {}
+    self.parameters = None
     self.computedStatus = Status.notapplied
+    self._priority = None
 
-    # XXX0
-    # dependencies are basically equivalent to requires
-    # derived from metadata updates?
-    # self._outdated = outdated
-
-  #@property()
-  #def computedStatus(self):
-  # return _computedStatus or self.statusFromConditions()
+  def getOperationalDependencies(self):
+    conditions = chain(self.dependencies.values(), self.configurationSpec.postConditions.values())
+    for conditionPredicate in conditions:
+      yield conditionPredicate(self)
 
   def statusFromConditions(self):
-      return self.aggregateStatus(conditionPredicate(self))
-        for conditionPredicate in self.configurationSpec.postConditions.values())
+    return self.aggregateStatus(self.getOperationalDependencies())
 
   @property
   def name(self):
     return self.configurationSpec.name
 
-  @property
-  def priority(self):
-    return self.configurationSpec.canRun(self)
+  def priority():
+    doc = "The priority property."
+    def fget(self):
+      if self._priority is None:
+        self.configurationSpec.canRun(self)
+      else:
+        return self._priority
+    def fset(self, value):
+      self._priority = value
+    def fdel(self):
+      del self._priority
+    return locals()
+  priority = property(**priority())
 
-  @property
-  def outdated(self):
-    if self._outdated:
-      return True
-    for config in self.dependencies:
-      if config.outdated:
-        return True
-    return False
+  def setParameters(self):
+    self.parameters = self.configurationSpec.getParameters(self)
+    return self.parameters
+
+  def getParameters(self):
+    return self.configurationSpec.getParameters(self)
+
+  def hasParametersChanged(self):
+    return self.parameters and self.getParameters() != self.parameters
+
+  # XXX2
+  # @property
+  # def outdated(self):
+  #   if self._outdated:
+  #     return True
+  #   for config in self.dependencies:
+  #     if config.outdated:
+  #       return True
+  #   return False
 
   #XXX2 like outdated
   #@property
@@ -357,12 +419,14 @@ class Task(object):
       self.newConfiguration = Configuration(spec, currentConfiguration.resource, currentConfiguration.status)
     else:
       resource = self.findResource(spec.target)
-      self.newConfiguration = Configuration(spec, currentConfiguration.resource, Status.notapplied)
+      self.newConfiguration = Configuration(spec, resource, Status.notapplied)
       self.currentConfiguration = self.newConfiguration
     self.configurator = spec.configuratorSpec.create()
+    self.updateResources = {}
 
-  def validateParams(self):
-    return True # XXX2
+  def validateParameters(self):
+    config = self.newConfiguration
+    return config.configuratorSpec.validateParameters(config.getParameters())
 
   def start(self):
     if self.job.dryRun:
@@ -370,59 +434,78 @@ class Task(object):
     else:
       generator = self.configurator.run(self)
     # set currentConfiguration (on the target resource too)
-    self.currentConfiguration = self.newConfiguration
-    self.currentConfiguration.resource.setConfiguration(self.newConfiguration)
+    config = self.newConfiguration
+    self.currentConfiguration = config
+    config.resource.setConfiguration(config)
+    config.setParameters()
     return generator
 
   def finished(self, result):
+    #XXX2 Check that configuration provided the metadata that it declared it would provide
+
     # if the status is notapplied when finished set currentConfiguration back to the previous one
-    if result == Status.notapplied and self.oldConfiguration:
-      self.currentConfiguration = self.oldConfiguration
-      self.currentConfiguration.resource.setConfiguration(self.oldConfiguration)
+    if result == Status.notapplied:
+      if self.oldConfiguration:
+        self.currentConfiguration = self.oldConfiguration
+        self.currentConfiguration.resource.setConfiguration(self.oldConfiguration)
+      self.revertChanges()
+    return result
 
-  # def findResource(self, query):
-  #   raise 'XXX2'
+  def revertChanges(self):
+    for (resource, attributes) in self.updateResources.values():
+      resource.attributes = attributes
+    self.updateResources = {}
 
-  def addResource(self, metadata, persistOptions):
-    # XXX0 instantiate new resource and a task that will run it
-    resource = self.job.createResource(metadata)
-    # configurator can yield the returned task if it wants it to be run right away
+  def addResource(self, name, metadata):
+    # instantiate new resource and a job that will run it
+    resource = self.currentConfiguration.resource.createResource(name, metadata)
+    # configurator can yield the returned job if it wants it to be run right away
     # otherwise it will be run later
-    return self.job.addChildTask(self, Task(resource))
+    # XXX1 add creation metadata
+    return self.job.addChildJob(self, resource)
 
-  #create, update or delete a resource, persistOptions include 'create discover delete forget'?
-  def updateResource(self, changes, persistOptions):
-    # does this queue tasks?
-    pass
+  def removeResource(self, resource):
+    # configurator can yield the returned job if it wants it to be run right away
+    # otherwise it will be run later
+    resource.container.parts.remove(resource)
+    # XXX1 add deletion metadata
 
-  # XXX0
+  def updateResource(self, resource, updated={}, deleted=()):
+    # save original
+    if resource.name not in self.updateResources:
+      self.updateResources[resource.name] = (resource, copy.copy(resource.attributes))
+    # update the resource
+    for key in deleted:
+      resource.attributes.pop(key, None)
+    resource.attributes.update(updated)
+
   def updateDependency(self, name, CallbackConfigurationToHasStatus):
     """
     Dynamically update the conditions this configuration depends on.
     """
-    pass
+    # XXX2 need a factory function to create CallbackConfigurationToHasStatus, can't just be a function
+    self.currentConfiguration.dependencies.update(name, CallbackConfigurationToHasStatus)
 
-  # XXX0
-  # def notifyResourceChange(self, resource, change='create discover delete forget'):
-  #   pass
-  #
-  # def updateAttributes(self, attrs):
-  #   pass
-  #
+  # XXX2
   # def addMessage(self, message):
   #   pass
 
-  # XXX1 need a way to associate resource templates with constructor / controller configs
+  # XXX2
+  # def findResource(self, query):
+  #   raise 'XXX2'
+
+  # XXX2 need a way to associate resource templates with constructor / controller configs
+  # for now need to create task that creates it
   #def createResource(self, resource):
   #  return Task(self, resource)
 
-  def createConfigurationSpec(self, params):
-    pass #XXX2
+  def createConfigurationSpec(self, kw):
+    return self.runner.createConfigurationSpec(**kw) # XXX2
 
   # configurations created by subtasks are transient insofar as the are not part of the spec,
   # but they are persistent in that they recorded as part of the resource's state and status
   def createSubTask(self, configSpec):
-    return Task(self.job, configuration)
+    return Task(self.job, configSpec)
 
   def __str__(self):
     return "Task: " + str(self.configuration)
@@ -436,6 +519,8 @@ class JobOptions(object):
   is it in a ok state?
   """
   defaults = dict(
+    parentJob=None,
+
     resource=None,
     configuration=None,
 
@@ -464,14 +549,25 @@ class Job(Operational):
     self.__dict__.update(jobOptions)
     self.wantedSpecs = specs
     self.rootResource = rootResource
-    self.tasks = []
+    self.workDone = collections.OrderedDict()
+    self.jobQueue = []
 
-  def status(self):
-    'same rules as resource for the tasks specified for that run'
-    # XXX0
+  def addWork(self, task):
+    config = task.currentConfiguration
+    self.workDone[(config.target, config.name)] = task
 
-  def addTask(self, task):
-    self.tasks.append(task)
+  def isConfigAlreadyHandled(self, config):
+    return (config.target, config.name) in self.workDone
+
+  def addChildJob(self, resource, specs=None):
+    jobOptions = JobOptions(parentJob=self, repair=None)
+    childJob = Job(resource, specs or [], jobOptions)
+    self.jobQueue.append(childJob)
+    return job
+
+  def removeFromParentQueue(self):
+    if self.parentJob:
+      self.parentJob.workQueue.remove(self)
 
   def includeTask(self, config, lastChange):
     """
@@ -482,8 +578,8 @@ spec (config):
 
 status (lastChange):
   state: ok degraded error notpresent
-  XXX1 current runtime state compared to requirements for last applied spec:
-    no longer needed, misconfigured, error/degraded, missing/should be applied
+  Current runtime state compared to requirements for last applied spec:
+    no longer needed, misconfigured / parameters changed, error/degraded, missing/should be applied
     (only discovered at runtime as state is updated but persisted for next run)
   action: discover instantiate revert
 
@@ -497,6 +593,7 @@ status compared to current spec is different: compare difference for each:
       return config
     if config and not lastChange:
       if self.add:
+        # XXX2 what if config.intent == A.revert? return None
         return config
       else:
         return None
@@ -523,6 +620,8 @@ status compared to current spec is different: compare difference for each:
 
   def checkForRepair(self, lastChange):
     assert lastChange
+    if lastChange.hasParametersChanged() and self.update:
+      return lastChange.spec
     if lastChange.status == S.ok or not self.repair:
         return None
     if self.repair == "degraded":
@@ -533,13 +632,6 @@ status compared to current spec is different: compare difference for each:
     else:
       assert self.repair == 'error'
       return lastChange.spec
-
-  # NOPE:
-
-  # predictability, clarity, static analysis
-  # correctness: state changes are live
-  # simplicity / understandable, easy to use and implement
-  # state changes may place prior configurations in a obsolete, error/degraded, or outdated/misconfigured state
 
   def findMatchingConfiguration(self, config):
     resource = self.rootResource.findResource(config.target)
@@ -552,7 +644,22 @@ status compared to current spec is different: compare difference for each:
       for config in resource.configurations:
         yield config
 
-  def getCandidateTasksOld(self):
+  def findConfigurations(self, resource):
+    for config in self.wantedSpecs:
+      if config.target == resource.name:
+        yield config
+      # XXX3 to support rule-based configurations:
+      # if config.matches(resource):
+      #   if config.isTemplate:
+      #     yield config.copy(target=resource.name)
+      #   else:
+      #     yield config
+
+  # predictability, clarity, static analysis
+  # correctness: state changes are live
+  # simplicity / understandable, easy to use and implement
+  # state changes may place prior configurations in a obsolete, error/degraded, or outdated/misconfigured state
+  def getCandidateTasks(self):
     """
     Find candidate tasks
 
@@ -566,51 +673,17 @@ status compared to current spec is different: compare difference for each:
     are the resources it modifies in need of repair?
     manual override (include / skip)
 
-
     # intent: discover instantiate revert
     # version
     # configuration
     """
-    matched = []
-    for config in self.wantedSpecs:
-      lastChange = self.findMatchingConfiguration(config) # dynamic, depends on resources
-      if lastChange:
-        matched.append(lastChange)
-      config = self.includeTask(config, lastChange)
-      if config and not self.filterConfig(config):
-        yield Task(config, lastChange)
-
-    if self.all or self.revertObsolete:
-      for change in self.getCurrentConfigurations(): # dynamic, depends on resources
-        if lastChange in matched:
-          continue
-        # it's an orphaned config
-        config = self.includeTask(None, change)
-        if config and not self.filterConfig(config):
-          yield Task(config, change)
-
-  def isConfigAlreadyHandled(self, config):
-    return False #XXX1
-
-  def findConfigurations(self, resource):
-    for config in self.wantedSpecs:
-      if config.target == resource.name:
-        yield config
-      # XXX3 to support rule-based configurations:
-      # if config.matches(resource):
-      #   if config.isTemplate:
-      #     yield config.copy(target=resource.name)
-      #   else:
-      #     yield config
-
-  def getCandidateTasks(self):
     # list of resources yielded here may dynamically change if tasks are run during iteration
     # we do this so as to reflect the state of the system as accurately as possible when tasks are run
     # but this means added resources whose parent has already been iterated over would be skipped
     # and updates to a resource already iterated over may render it inconsistent with the last run
     # XXX2 the runtime will have to keep track of these and generate tasks for them
     for resource in self.rootResource.getSelfAndDescendents():
-      existing = dict((config.name, config) for config in resource.configurations)
+      existing = resource.configurations.copy() #XXX1 what about excludedConfigurations?
       for config in self.findConfigurations(resource)
         if self.isConfigAlreadyHandled(config):
           # configuration may have premptively run while executing another task
@@ -649,21 +722,110 @@ status compared to current spec is different: compare difference for each:
     * Notification of creation or deletion of a resource
     * Requests a resource with requested metadata, if it doesn't exist, a task is run to make it so
     (e.g. add a dns entry, install a package).
-    XXX1 need a way for configurator to declare that is the manager of a particular resource or type of resource or metadata so we know to handle that request
+    XXX2 need a way for configurator to declare that is the manager of a particular resource or type of resource or metadata so we know to handle that request
     """
     # XXX2 recursion or loop detection
+    if not self.canRunTask(task):
+      return Status.notapplied
+
     generator = task.start()
     change = None
     while True:
       result = generator.send(change)
       if isinstance(result, Status):
         generator.close()
-        task.finished(result)
-        return result
+        return task.finished(result)
       elif isinstance(result, Task):
         change = self.runTask(result)
+      elif isinstance(result, Job):
+        change = result.run()
       else:
         raise GitErOpError('unexpected result from configurator')
+
+  def run(self):
+    """
+    """
+    self.removeFromParentQueue()
+    for task in self.getCandidateTasks():
+      self.addWork(task)
+      if not self.shouldRunTask(task):
+        continue
+      status = self.runTask(task)
+      # XXX1 status == notapplied should go in excludedConfigurations
+
+      # if XXX1 error
+      # on failure just abort run or skip
+      if not self.parentJob:
+        # only run after top level tasks
+        status = self.checkStatusAfterRun()
+
+      if self.shouldAbort(task, status):
+        return self.status
+
+    # the only tasks and jobs left will be those added to parent resources already iterated over
+    # and also not yielded to runTask
+    if not self.parentJob:
+      # this will rerun jobs whose parameters have changed (XXX3 but only once!)
+      self.addChildJob(self.rootResource)
+      while self.jobQueue:
+        job = self.jobQueue.pop(0)
+        job.run()
+        #XXX2 if shouldAbort()
+
+    return self.status
+
+  def shouldRunTask(self, task):
+    """
+    Checked at runtime right before each task is run
+
+    * check "when" conditions to see if it should be run
+    * check task if it should be run
+    """
+    priority = task.configurator.shouldRun(task)
+    task.newConfiguration.priority = priority
+    return priority > Priority.ignore
+
+  def canRunTask(self, task):
+    """
+    Checked at runtime right before each task is run
+
+    * validate parameters
+    * check "required"/pre-conditions to see if it can be run
+    * check task if it can be run
+    """
+    return (task.validateParameters()
+            and task.configurationSpec.canRun(task.newConfiguration)
+            and task.configurator.canRun(task))
+
+  def shouldAbort(self, task, status):
+    return False #XXX1
+
+  def checkStatusAfterRun(self):
+    """
+    After each task has run:
+    * Check dependencies:
+    ** check that runtime-(post-)conditions still hold for configurations that might have been affected by changes
+    ** check for configurations whose parameters might have been affected by changes, mark them as "configuration changed"
+    (simple implementation for both: check all configurations (requires saving previous inputs))
+    ** XXX3 check for orphaned resources and mark them as orphaned
+      (a resource is orphaned if it was added as a dependency and no longer has dependencies)
+      (orphaned resources can be deleted by the configuration/configurator that created them or manages that type)
+    """
+    return self.checkPostConditions()
+
+  def getOperationalDependencies(self):
+    # XXX1 what about child jobs?
+    return self.getCurrentConfigurations()
+
+  def checkPostConditions(self):
+    """
+    Has the status of any of configurations gotten worse?
+    """
+    # XXX1 just use self.status instead??
+    # XXX2 test that if notapplied use post-conditions from last applied configuration
+    return Operational.aggregateStatus(
+      configuration.statusFromConditions() for configuration in self.getCurrentConfigurations()
+    )
 
 class Runner(object):
   def __init__(self, rootResource, specs):
@@ -676,83 +838,17 @@ class Runner(object):
     """
     return Job(self.rootResource, self.specs, joboptions)
 
-  def shouldRunTask(self, task):
-    """
-    Checked at runtime right before each task is run
-
-    * check "when" conditions to see if it should be run
-    * check task if it should be run
-    """
-    priority = task.configurator.shouldRun(task)
-    task.newConfiguration.priority = priority
-    return priority > Priority.skip
-
-  def canRunTask(self, task):
-    """
-    Checked at runtime right before each task is run
-
-    * validate parameters
-    * check "required"/pre-conditions to see if it can be run
-    * check task if it can be run
-    """
-    return (task.validateParams()
-            and task.configurationSpec.canRun(task.newConfiguration)
-            and task.configurator.canRun(task))
-
-  def shouldAbort(self, task, status):
-    return False #XXX1
-
-  def checkStatusAfterRun(self, task, status):
-    """
-    After each task has run:
-    * Check that it provided the metadata it declared it would provide
-    * Check dependencies:
-    ** check that runtime-(post-)conditions still hold for configurations that might have been affected by changes
-    ** check for configurations whose parameters might have been affected by changes, mark them as "configuration changed"
-    (simple implementation for both: check all configurations (requires saving previous inputs))
-    ** check for orphaned resources and mark them as orphaned
-      (a resource is orphaned if it was added as a dependency and no longer has dependencies)
-      (orphaned resources can be deleted by the configuration/configurator that created them or manages that type)
-    """
-    #XXX0
-    # XXX2 check ensures
-    self.checkPostConditions()
-    # configurations changed
-    # orphaned resources
-    return status
-
-  def checkPostConditions(self):
-    """
-    Has the status of any of configurations gotten worse?
-    """
-    # XXX1 getConfigurations()
-    # XXX2 test that if notapplied use post-conditions from last applied configuration
-    return Operational.aggregateStatus(
-      configuration.statusFromConditions() for configuration in self.getConfigurations()
-    )
-
   def run(self, joboptions):
     """
     """
     job = self.createJob(joboptions)
-    for task in job.getCandidateTasks():
-      job.addTask(task)
-      if not self.shouldRunTask(task):
-        continue
-      if not self.canRunTask(task):
-        continue
-
-      status = job.runTask(task)
-      # if XXX1 error
-      # on failure just abort run or skip
-      self.checkStatusAfterRun(task, status)
-      self.save(task, status)
-
-      if self.shouldAbort(task, status):
-        break
-
+    job.run()
     if job.modifiedState: #XXX1
       self.saveJob(job)
+    return job
+
+  def saveJob(self, joboptions):
+    pass # XXX1
 
 ##### XXX1 move to test
 def testGenerator(task):
