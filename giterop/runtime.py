@@ -201,13 +201,6 @@ class Resource(Operational):
   def root(self):
     return self.ancestors[-1]
 
-  def createResource(self, name, attributes=None, parent=None, configurationSpecs=None):
-    resource = Resource(name, attributes, parent=parent or self.root)
-    if configurationSpecs:
-      for spec in configurationSpecs:
-        resource.setConfiguration(Configuration(spec, self))
-    return resource
-
   def setConfiguration(self, configuration):
     # XXX3 test: hide configurations that are both notpresent and revert / skip
     if configuration.status = Status.notpresent and configuration.intent == Action.revert:
@@ -247,12 +240,15 @@ class Configurator(object):
 registerClass(VERSION, "Configurator", Configurator)
 
 class ConfiguratorSpec(object):
-  def __init__(self, name, className, majorVersion, minorVersion='', validateParameters=None):
+  def __init__(self, name=None, className=None, majorVersion=None, minorVersion=''):
+    assert name and className and majorVersion is not None, "missing required arguments"
     self.name = name
     self.className = className
     self.majorVersion = majorVersion
     self.minorVersion = minorVersion
-    self.validateParameters = validateParameters or lambda: True
+
+  def validateParameters(self, parameters):
+    return True
 
   def create(self):
     return lookupClass(self.className)(self)
@@ -260,57 +256,38 @@ class ConfiguratorSpec(object):
   def __eq__(self, other):
     if not isinstance(other, ConfiguratorSpec):
       return False
-    # XXX1 update equality with func classes so parameterSchema compare properly
     return (self.name == other.name and self.className == other.className
       and self.majorVersion == other.majorVersion and self.minorVersion == other.minorVersion
       and self.validateParameters == other.validateParameters)
 
-# XXX2 document versions:
+# XXX3 document versions:
 # configurator api version (encoded in api namespace): semantics of the interface giterop uses
 # configurator version: breaking change if meaning of configuration parameters change
 # configuration spec version: encompasses installed version -- what is installed
 
-#XXX2 __reflookup__ on Resource and Configuration, think about ref syntax again!
-def evaluate(currentConfig, value, default=None):
-  if Ref.isRef(value):
-    result = Ref(value).resolveOne(currentConfig)
-  else:
-    result = value
-  return default if result is None else result
-
-# XXX2 this could be part of the configurationSpec subclass:
-# return evaluate(self.previousRun, self.configurationSpec.canRun, Defaults.canRun)
-# return evaluate(configuration, self.configurationSpec.shouldRun, Defaults.shouldRun)
-
-class Predicate(object):
-  # XXX2 save() and restore()
-
-  def evaluate(self, configuration):
-    return self.default
-
-  def __eq__(self, other):
-    if not isinstance(other, Predicate):
-      return False
-    return True
-
 class ConfigurationSpec(object):
-  def __init__(self, name, target, configuratorSpec, majorVersion, minorVersion='',
-      intent=A.instantiate, postConditions=None,
-      getParameters=lambda configuration: {},
-      canRun=lambda configuration: Defaults.canRun,
-      shouldRun=lambda configuration: Defaults.shouldRun):
+  def __init__(self, name=None, target=None, configuratorSpec=None, majorVersion=None, minorVersion='',
+      intent=A.instantiate):
+    assert name and target and configuratorSpec and majorVersion is not None, "missing required arguments"
     self.name = name
     self.target = target # name of owner resource
     self.configuratorSpec = configuratorSpec
     self.majorVersion = majorVersion
     self.minorVersion = minorVersion
     self.intent = intent
-    self.getParameters = getParameters
-    # map<name: configuration => Operational>
-    self.postConditions = postConditions or {}
     # XXX2 add ensures
-    self.canRun = canRun
-    self.shouldRun = shouldRun
+
+  def canRun(self, configuration):
+    return Defaults.canRun
+
+  def shouldRun(self, configuration):
+    return Defaults.shouldRun
+
+  def resolveParameters(self, configuration):
+    return {}
+
+  def getPostConditions(self):
+    return {}
 
   def copy(self, **mods):
     args = self.__dict__.copy()
@@ -320,12 +297,9 @@ class ConfigurationSpec(object):
   def __eq__(self, other):
     if not isinstance(other, ConfigurationSpec):
       return False
-    # XXX1 update equality with func classes so conditions, canRun and shouldRun compare properly
     return (self.name == other.name and self.targt == other.target and self.configuratorSpec == other.configuratorSpec
       and self.majorVersion == other.majorVersion and self.minorVersion == other.minorVersion
-      and self.intent == other.intent and self.getParameters == other.getParameters
-      and self.shouldRun == other.shouldRun and self.canRun == other.canRun
-      and self.postConditions == other.postConditions)
+      and self.intent == other.intent)
 
 class Configuration(Operational):
   """
@@ -343,7 +317,7 @@ class Configuration(Operational):
     self._priority = None
 
   def getOperationalDependencies(self):
-    conditions = chain(self.dependencies.values(), self.configurationSpec.postConditions.values())
+    conditions = chain(self.dependencies.values(), self.configurationSpec.getPostConditions().values())
     for conditionPredicate in conditions:
       yield conditionPredicate(self)
 
@@ -369,15 +343,12 @@ class Configuration(Operational):
     return locals()
   priority = property(**priority())
 
-  def setParameters(self):
-    self.parameters = self.configurationSpec.getParameters(self)
+  def resetParameters(self):
+    self.parameters = self.configurationSpec.resolveParameters(self)
     return self.parameters
 
-  def getParameters(self):
-    return self.configurationSpec.getParameters(self)
-
   def hasParametersChanged(self):
-    return self.parameters and self.getParameters() != self.parameters
+    return self.parameters is not None and self.configurationSpec.resolveParameters(self) != self.parameters
 
   # XXX2
   # @property
@@ -416,12 +387,16 @@ class Task(object):
       resource = self.findResource(spec.target)
       self.newConfiguration = Configuration(spec, resource, Status.notapplied)
       self.currentConfiguration = self.newConfiguration
-    self.configurator = spec.configuratorSpec.create()
+    self.configurator = spec.create()
     self.updateResources = {}
+    self.messages = []
+    self.addedResources = []
+    self.removedResources = []
+    self.startTime = job.startTime or datetime.datetime.now()
 
   def validateParameters(self):
-    config = self.newConfiguration
-    return config.configuratorSpec.validateParameters(config.getParameters())
+    spec = self.newConfiguration.configurationSpec
+    return spec.validateParameters(spec.resolveParameters(self.newConfiguration))
 
   def start(self):
     if self.job.dryRun:
@@ -432,7 +407,7 @@ class Task(object):
     config = self.newConfiguration
     self.currentConfiguration = config
     config.resource.setConfiguration(config)
-    config.setParameters()
+    config.resetParameters()
     return generator
 
   def finished(self, result):
@@ -457,19 +432,21 @@ class Task(object):
       resource.attributes = attributes
     self.updateResources = {}
 
-  def addResource(self, name, metadata):
+  def addResource(self, templateName, name, metadata):
     # instantiate new resource and a job that will run it
-    resource = self.currentConfiguration.resource.createResource(name, metadata)
+    resource = self.job.runner.manifest.createResource(templateName, name, metadata)
     # configurator can yield the returned job if it wants it to be run right away
     # otherwise it will be run later
-    # XXX1 add creation metadata
+    self.addedResources.append(resource)
     return self.job.addChildJob(self, resource)
 
   def removeResource(self, resource):
-    # configurator can yield the returned job if it wants it to be run right away
-    # otherwise it will be run later
+    self.removedResources.append(resource)
+    # XXX2 only do this if its orphaned:
     resource.container.parts.remove(resource)
-    # XXX1 add deletion metadata
+
+  def addMessage(self, message):
+    self.messages.append(message)
 
   def updateResource(self, resource, updated={}, deleted=()):
     # save original
@@ -480,16 +457,15 @@ class Task(object):
       resource.attributes.pop(key, None)
     resource.attributes.update(updated)
 
-  def updateDependency(self, name, CallbackConfigurationToOperational):
+  def updateDependency(self, name, dependencyTemplateName, args=None):
     """
     Dynamically update the conditions this configuration depends on.
     """
-    # XXX2 need a task should provide factory function to create CallbackConfigurationToHasStatus, can't just be a function
-    self.currentConfiguration.dependencies.update(name, CallbackConfigurationToOperational)
-
-  # XXX2
-  # def addMessage(self, message):
-  #   pass
+    if dependencyTemplateName:
+      dependency = self.runner.manifest.createDependency(self, self.currentConfiguration.configurationSpec, dependencyTemplateName, args)
+      self.currentConfiguration.dependencies.update(name, dependency)
+    else:
+      self.currentConfiguration.dependencies.pop(name, None)
 
   # XXX2
   # def findResource(self, query):
@@ -500,8 +476,10 @@ class Task(object):
   #def createResource(self, resource):
   #  return Task(self, resource)
 
-  def createConfigurationSpec(self, kw):
-    return self.runner.createConfigurationSpec(**kw) # XXX2
+  def createConfigurationSpec(self, configurationTemplateName, configurationkws=None,
+                                configuratorTemplateName=None, configuratorkws=None):
+    return self.runner.manifest.createConfigurationSpec(configurationTemplateName,
+                              configurationkws, configuratorTemplateName, configuratorkws)
 
   # configurations created by subtasks are transient insofar as the are not part of the spec,
   # but they are persistent in that they recorded as part of the resource's state and status
@@ -521,6 +499,7 @@ class JobOptions(object):
   """
   defaults = dict(
     parentJob=None,
+    startTime=None,
 
     resource=None,
     configuration=None,
@@ -808,10 +787,37 @@ status compared to current spec is different: compare difference for each:
   def getOperationalDependencies(self):
     return [task.currentConfiguration for task in self.runner.workDone]
 
-class Runner(object):
+class Manifest(object):
   def __init__(self, rootResource, specs):
     self.rootResource = rootResource
     self.specs = specs
+
+  def getRootResource(self):
+    return self.rootResource
+
+  def getConfigurationSpecs(self):
+    return self.specs
+
+  def createConfigurationSpec(self, configurationTemplateName, configurationkws, configuratorTemplateName, configuratorkws):
+    return ConfigurationSpec(configuratorSpec=ConfiguratorSpec(**configuratorkws), **configurationkws)
+
+  def createResource(self, templateName=None, name=None, attributes=None, parent=None, configurationSpecs=None):
+    assert name, "must specify a name"
+    resource = Resource(name, attributes, parent=parent or self.getRootResource())
+    if configurationSpecs:
+      for spec in configurationSpecs:
+        resource.setConfiguration(Configuration(spec, resource))
+    return resource
+
+  def createDependency(self, configurationSpec, dependencyTemplateName, args=None):
+    return None
+
+  def saveJob(self, job, workDone):
+    pass
+
+class Runner(object):
+  def __init__(self, manifest):
+    self.manifest = manifest
     self.workDone = collections.OrderedDict()
 
   def addWork(self, task):
@@ -825,19 +831,15 @@ class Runner(object):
     """
     Selects task to run based on job options and starting state of manifest
     """
-    return Job(self, self.rootResource, self.specs, joboptions)
+    return Job(self, self.manifest.getRootResource(), self.manifest.getConfigurationSpecs(), joboptions)
 
   def run(self, joboptions):
     """
     """
     job = self.createJob(joboptions)
     job.run()
-    if job.modifiedState: #XXX1
-      self.saveJob(job)
+    self.manifest.saveJob(job, self.workDone)
     return job
-
-  def saveJob(self, joboptions):
-    pass # XXX1
 
 ##### XXX2 move to test
 def testGenerator(task):
