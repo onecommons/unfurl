@@ -29,6 +29,7 @@ Runner
 import six
 import copy
 import collections
+import datetime
 from itertools import chain
 from enum import IntEnum
 from .util import *
@@ -124,7 +125,7 @@ class Operational(object):
     # ok otherwise
     state = defaultStatus
     for status in statuses:
-      assert isinstance(status, Operational)
+      assert isinstance(status, Operational), status
       if status.priority == Priority.ignore:
         continue
       if status.required:
@@ -139,21 +140,56 @@ class Operational(object):
     return state
 
 class OperationalInstance(Operational):
-  # XXX2 start with unit tests of this
   def __init__(self, status=None, priority=None, manualOveride=None):
-    self.computedStatus = toEnum(Status, status)
-    self.manualOverideStatus = toEnum(Status, manualOveride)
-    self.priority = toEnum(Priority, priority)
+    self._computedStatus = toEnum(Status, status)
+    self._manualOverideStatus = toEnum(Status, manualOveride)
+    self._priority = toEnum(Priority, priority)
+    self.dependencies = []
     #self.repairable = False # XXX2
     #self.messages = [] # XXX2
+
+  def getOperationalDependencies(self):
+    return self.dependencies
+
+  def computedStatus():
+    doc = "The computedStatus property."
+    def fget(self):
+      return self._computedStatus
+    def fset(self, value):
+      self._computedStatus = value
+    def fdel(self):
+      del self._computedStatus
+    return locals()
+  computedStatus = property(**computedStatus())
+
+  def manualOverideStatus():
+    doc = "The manualOverideStatus property."
+    def fget(self):
+      return self._manualOverideStatus
+    def fset(self, value):
+      self._manualOverideStatus = value
+    def fdel(self):
+      del self._manualOverideStatus
+    return locals()
+  manualOverideStatus = property(**manualOverideStatus())
+
+  def priority():
+    doc = "The priority property."
+    def fget(self):
+      return self._priority
+    def fset(self, value):
+      self._priority = value
+    def fdel(self):
+      del self._priority
+    return locals()
+  priority = property(**priority())
 
 class Resource(Operational):
   def __init__(self, name='', attributes=None, configurations=None, parent=None, children=None):
     self.name = name # XXX2 guarantee name uniqueness
-    self.attributes = attributes or []
-    self.configurations = dict((c.name, c) for c in (configurations or []))
+    self.attributes = attributes or {}
+    self.configurations = dict( (c.name, c) for c in (configurations or []) )
     # affirmatively absent configurations -- i.e. failed to apply or explicitly not present
-    # XXX3 test case: failed configuration with intent: omit
     # we don't want any notapplied or notpresent in configurations
 
     # excludedConfigurations are configurations intended as notpresent
@@ -202,13 +238,15 @@ class Resource(Operational):
     return self.ancestors[-1]
 
   def setConfiguration(self, configuration):
-    # XXX3 test: hide configurations that are both notpresent and revert / skip
-    if configuration.status = Status.notpresent and configuration.intent == Action.revert:
+    if configuration.status == Status.notpresent and configuration.intent == Action.revert:
+      self.configurations.pop(configuration.name, None)
       self.excludedConfigurations[configuration.name] = configuration
     else:
       self.configurations[configuration.name] = configuration
 
+@six.add_metaclass(AutoRegisterClass)
 class Configurator(object):
+
   def __init__(self, configuratorSpec):
     self.configuratorSpec = configuratorSpec
 
@@ -228,16 +266,13 @@ class Configurator(object):
 
   def shouldRun(self, task):
     """Does this configuration need to be run?"""
-    return task.configurationSpec.shouldRun(task.newConfiguration)
+    return task.newConfiguration.configurationSpec.shouldRun(task.newConfiguration)
 
   def checkConfigurationStatus(self, task):
     """Is this configuration still valid?"""
     # XXX2
     # should be called during when checking dependencies
     return Status.ok
-
-# XXX2 add one parameter variant of registerClass(klass) that extracts name and version from class
-registerClass(VERSION, "Configurator", Configurator)
 
 class ConfiguratorSpec(object):
   def __init__(self, name=None, className=None, majorVersion=None, minorVersion=''):
@@ -262,7 +297,7 @@ class ConfiguratorSpec(object):
 
 # XXX3 document versions:
 # configurator api version (encoded in api namespace): semantics of the interface giterop uses
-# configurator version: breaking change if meaning of configuration parameters change
+# configurator version: breaking change if interpretation of configuration parameters change
 # configuration spec version: encompasses installed version -- what is installed
 
 class ConfigurationSpec(object):
@@ -301,33 +336,19 @@ class ConfigurationSpec(object):
       and self.majorVersion == other.majorVersion and self.minorVersion == other.minorVersion
       and self.intent == other.intent)
 
-class Configuration(Operational):
+class Configuration(OperationalInstance):
   """
   configurationSpec
   status
   resource
   """
   def __init__(self, spec, resource, status=Status.notapplied, dependencies=None):
+    super(Configuration, self).__init__(status)
     self.configurationSpec = spec
     assert resource and spec and resource.name == spec.target
     self.resource = resource
     self.dependencies = dependencies or {}
     self.parameters = None
-    self.computedStatus = Status.notapplied
-    self._priority = None
-
-  def getOperationalDependencies(self):
-    conditions = chain(self.dependencies.values(), self.configurationSpec.getPostConditions().values())
-    for conditionPredicate in conditions:
-      yield conditionPredicate(self)
-
-  @property
-  def name(self):
-    return self.configurationSpec.name
-
-  @property
-  def intent(self):
-    return self.configurationSpec.intent
 
   def priority():
     doc = "The priority property."
@@ -343,7 +364,20 @@ class Configuration(Operational):
     return locals()
   priority = property(**priority())
 
-  def resetParameters(self):
+  def getOperationalDependencies(self):
+    conditions = chain(self.dependencies.values(), self.configurationSpec.getPostConditions().values())
+    for conditionPredicate in conditions:
+      yield conditionPredicate(self)
+
+  @property
+  def name(self):
+    return self.configurationSpec.name
+
+  @property
+  def intent(self):
+    return self.configurationSpec.intent
+
+  def refreshParameters(self):
     self.parameters = self.configurationSpec.resolveParameters(self)
     return self.parameters
 
@@ -387,16 +421,18 @@ class Task(object):
       resource = self.findResource(spec.target)
       self.newConfiguration = Configuration(spec, resource, Status.notapplied)
       self.currentConfiguration = self.newConfiguration
-    self.configurator = spec.create()
+    self.configurator = spec.configuratorSpec.create()
     self.updateResources = {}
     self.messages = []
     self.addedResources = []
     self.removedResources = []
+    self.errors = []
     self.startTime = job.startTime or datetime.datetime.now()
 
   def validateParameters(self):
     spec = self.newConfiguration.configurationSpec
-    return spec.validateParameters(spec.resolveParameters(self.newConfiguration))
+    return spec.configuratorSpec.validateParameters(
+                  spec.resolveParameters(self.newConfiguration))
 
   def start(self):
     if self.job.dryRun:
@@ -407,25 +443,26 @@ class Task(object):
     config = self.newConfiguration
     self.currentConfiguration = config
     config.resource.setConfiguration(config)
-    config.resetParameters()
+    config.refreshParameters()
     return generator
 
   def finished(self, result):
     #XXX2 Check that configuration provided the metadata that it declared it would provide
-
-    # if the status is notapplied when finished set currentConfiguration back to the previous one
     self.currentConfiguration.computedStatus = result
+    resource = self.currentConfiguration.resource
     if result == Status.notapplied:
+      # if the status is notapplied when finished set currentConfiguration back to the previous one
       if self.oldConfiguration:
         assert self.oldConfiguration.name == self.newConfiguration.name
         self.currentConfiguration = self.oldConfiguration
-        resource = self.currentConfiguration.resource
         resource.setConfiguration(self.oldConfiguration)
         resource.excludedConfigurations[self.newConfiguration.name] = self.newConfiguration
       self.revertChanges()
+    elif result == Status.notpresent and self.currentConfiguration.intent == Action.revert:
+      # set again, it might not have been in excludedConfigurations
+      resource.setConfiguration(self.newConfiguration)
 
-    #XXX2 if result == Status.notpresent:
-    return result
+    return self.newConfiguration
 
   def revertChanges(self):
     for (resource, attributes) in self.updateResources.values():
@@ -462,14 +499,13 @@ class Task(object):
     Dynamically update the conditions this configuration depends on.
     """
     if dependencyTemplateName:
-      dependency = self.runner.manifest.createDependency(self, self.currentConfiguration.configurationSpec, dependencyTemplateName, args)
+      dependency = self.job.runner.manifest.createDependency(self, self.currentConfiguration.configurationSpec, dependencyTemplateName, args)
       self.currentConfiguration.dependencies.update(name, dependency)
     else:
       self.currentConfiguration.dependencies.pop(name, None)
 
-  # XXX2
-  # def findResource(self, query):
-  #   raise 'XXX2'
+  def findResource(self, name):
+     return self.job.runner.manifest.getRootResource().findResource(name)
 
   # XXX2 need a way to associate resource templates with constructor / controller configs
   # for now need to create task that creates it
@@ -478,13 +514,13 @@ class Task(object):
 
   def createConfigurationSpec(self, configurationTemplateName, configurationkws=None,
                                 configuratorTemplateName=None, configuratorkws=None):
-    return self.runner.manifest.createConfigurationSpec(configurationTemplateName,
+    return self.job.runner.manifest.createConfigurationSpec(configurationTemplateName,
                               configurationkws, configuratorTemplateName, configuratorkws)
 
   # configurations created by subtasks are transient insofar as the are not part of the spec,
   # but they are persistent in that they recorded as part of the resource's state and status
   def createSubTask(self, configSpec):
-    return Task(self.job, configSpec)
+    return Task(self.job, configSpec, None)
 
   def __str__(self):
     return "Task: " + str(self.configuration)
@@ -507,7 +543,7 @@ class JobOptions(object):
     # default options:
     add=True, # run newly added configurations
     update=True, # run configurations that whose spec has changed but don't require a major version change
-    repair=S.error # or 'degraded', run configurations that are not operational and/or degraded
+    repair=S.error, # or 'degraded', run configurations that are not operational and/or degraded
 
     upgrade=False, # run configurations with major version changes or whose spec has changed
     all=False, # (re)run all configurations
@@ -519,25 +555,32 @@ class JobOptions(object):
     )
 
   def __init__(self, **kw):
-    self.__dict__.update(kw.update(self.defaults))
+    options = self.defaults.copy()
+    options.update(kw)
+    self.__dict__.update(options)
 
-class Job(Operational):
+class Job(OperationalInstance):
   def __init__(self, runner, rootResource, specs, jobOptions):
-    self.__dict__.update(jobOptions)
+    super(Job, self).__init__(Status.ok)
+    assert isinstance(jobOptions, JobOptions)
+    self.__dict__.update(jobOptions.__dict__)
     self.runner = runner
     self.wantedSpecs = specs
     self.rootResource = rootResource
     self.jobQueue = []
-    self.computedStatus = Status.ok
+    self.unexpectedAbort = None
 
   def addChildJob(self, resource, specs=None):
     jobOptions = JobOptions(parentJob=self, repair=None)
     childJob = Job(self.runner, resource, specs or [], jobOptions)
+    assert childJob.parentJob is self
+    # print('adding', childJob, 'to', self)
     self.jobQueue.append(childJob)
-    return job
+    return childJob
 
   def removeFromParentQueue(self):
     if self.parentJob:
+      # print('removing', self, 'from', self.parentJob)
       self.parentJob.jobQueue.remove(self)
 
   def includeTask(self, config, lastChange):
@@ -606,7 +649,7 @@ status compared to current spec is different: compare difference for each:
 
   def getCurrentConfigurations(self):
     for resource in self.rootResource.getSelfAndDescendents():
-      for config in resource.configurations:
+      for config in resource.configurations.values():
         yield config
 
   def findConfigurations(self, resource):
@@ -648,7 +691,7 @@ status compared to current spec is different: compare difference for each:
     # and updates to a resource already iterated over may render it inconsistent with the last run
     for resource in self.rootResource.getSelfAndDescendents():
       existing = resource.configurations.copy()
-      for config in self.findConfigurations(resource)
+      for config in self.findConfigurations(resource):
         if self.runner.isConfigAlreadyHandled(config):
           # configuration may have premptively run while executing another task
           continue
@@ -667,7 +710,7 @@ status compared to current spec is different: compare difference for each:
           if config and not self.filterConfig(config):
             yield Task(self, config, change)
 
-  def filterConfig(self, config)
+  def filterConfig(self, config):
     if self.readOnly and config.intent != 'discover':
       return None
     if self.requiredOnly and not config.required:
@@ -695,16 +738,23 @@ status compared to current spec is different: compare difference for each:
     generator = task.start()
     change = None
     while True:
-      result = generator.send(change)
-      if isinstance(result, Status):
+      try:
+        result = generator.send(change)
+      except Exception as err:
         generator.close()
-        return task.finished(result)
-      elif isinstance(result, Task):
+        err = GitErOpTaskError(task, "configurator.run failed")
+        return task.finished(Status.error)
+      if isinstance(result, Task):
         change = self.runTask(result)
       elif isinstance(result, Job):
         change = result.run()
+      elif isinstance(result, Status):
+        generator.close()
+        return task.finished(result)
       else:
-        raise GitErOpError('unexpected result from configurator')
+        generator.close()
+        GitErOpTaskError(task, 'unexpected result from configurator')
+        return task.finished(Status.error)
 
   def run(self):
     self.removeFromParentQueue()
@@ -712,29 +762,28 @@ status compared to current spec is different: compare difference for each:
       self.runner.addWork(task)
       if not self.shouldRunTask(task):
         continue
-      status = self.runTask(task)
 
-      # XXX2 exception handling
-      # on failure just abort run or skip
+      self.runTask(task)
       if not self.parentJob:
         # only check when running top level tasks
         self.computedStatus = self.checkStatusAfterRun()
 
       if self.shouldAbort(task):
-        return self.status
+        return self.rootResource
 
     # the only tasks and jobs left will be those added to parent resources already iterated over
     # and also not yielded to runTask
     if not self.parentJob:
       # default child job will only rerun configurations whose parameters have changed
-      # (XXX3 but only once!)
+      # (XXX3 but we only do this once, should we keep checking?)
       self.addChildJob(self.rootResource)
       while self.jobQueue:
-        job = self.jobQueue.pop(0)
+        job = self.jobQueue[0]
         job.run()
-        #XXX2 if shouldAbort()
+        if self.shouldAbort(job):
+          return self.rootResource
 
-    return self.status
+    return self.rootResource
 
   def shouldRunTask(self, task):
     """
@@ -743,7 +792,13 @@ status compared to current spec is different: compare difference for each:
     * check "when" conditions to see if it should be run
     * check task if it should be run
     """
-    priority = task.configurator.shouldRun(task)
+    try:
+      priority = task.configurator.shouldRun(task)
+    except Exception as err:
+      #unexpected error don't run this
+      GitErOpTaskError(task, "shouldRun failed")
+      return False
+
     task.newConfiguration.priority = priority
     return priority > Priority.ignore
 
@@ -755,9 +810,15 @@ status compared to current spec is different: compare difference for each:
     * check "required"/pre-conditions to see if it can be run
     * check task if it can be run
     """
-    if (task.validateParameters()
-            and task.configurationSpec.canRun(task.newConfiguration)
-            and task.configurator.canRun(task)):
+    try:
+      canRun = (task.validateParameters()
+              and task.newConfiguration.configurationSpec.canRun(task.newConfiguration)
+              and task.configurator.canRun(task))
+    except Exception as err:
+      GitErOpTaskError(task, "shouldRun failed")
+      canRun = False
+
+    if canRun:
       return True
     else:
       config = task.newConfiguration
@@ -766,7 +827,7 @@ status compared to current spec is different: compare difference for each:
         config.resource.excludedConfigurations[config.name] = config
       return False
 
-  def shouldAbort(self, task, status):
+  def shouldAbort(self, task):
     return False #XXX2
 
   def checkStatusAfterRun(self):
@@ -780,17 +841,22 @@ status compared to current spec is different: compare difference for each:
       (a resource is orphaned if it was added as a dependency and no longer has dependencies)
       (orphaned resources can be deleted by the configuration/configurator that created them or manages that type)
     """
-    return Operational.aggregateStatus(
-      configuration.getOperationalDependencies() for configuration in self.getCurrentConfigurations()
-    )
+    def yieldAllDependencies():
+      for configuration in self.getCurrentConfigurations():
+        for dependency in configuration.getOperationalDependencies():
+          yield dependency
+
+    return Operational.aggregateStatus(yieldAllDependencies())
 
   def getOperationalDependencies(self):
-    return [task.currentConfiguration for task in self.runner.workDone]
+    for task in self.runner.workDone.values():
+      yield task.currentConfiguration
 
 class Manifest(object):
   def __init__(self, rootResource, specs):
     self.rootResource = rootResource
     self.specs = specs
+    self.templates = {}
 
   def getRootResource(self):
     return self.rootResource
@@ -798,7 +864,11 @@ class Manifest(object):
   def getConfigurationSpecs(self):
     return self.specs
 
-  def createConfigurationSpec(self, configurationTemplateName, configurationkws, configuratorTemplateName, configuratorkws):
+  def createConfigurationSpec(self, configurationTemplateName, configurationKws, configuratorTemplateName, configuratorKws):
+    configurationkws = self.templates.get(configurationTemplateName, {})
+    configurationkws.update(configurationKws or {})
+    configuratorkws = self.templates.get(configuratorTemplateName, {})
+    configuratorkws.update(configuratorKws or {})
     return ConfigurationSpec(configuratorSpec=ConfiguratorSpec(**configuratorkws), **configurationkws)
 
   def createResource(self, templateName=None, name=None, attributes=None, parent=None, configurationSpecs=None):
@@ -822,10 +892,10 @@ class Runner(object):
 
   def addWork(self, task):
     config = task.currentConfiguration
-    self.workDone[(config.target, config.name)] = task
+    self.workDone[(config.resource.name, config.name)] = task
 
-  def isConfigAlreadyHandled(self, config):
-    return (config.target, config.name) in self.workDone
+  def isConfigAlreadyHandled(self, configSpec):
+    return (configSpec.target, configSpec.name) in self.workDone
 
   def createJob(self, joboptions):
     """
@@ -837,29 +907,11 @@ class Runner(object):
     """
     """
     job = self.createJob(joboptions)
-    job.run()
+    try:
+      job.run()
+    except Exception:
+      job.computedStatus = Status.error
+      job.unexpectedAbort = GitErOpError("unexpected exception while running job", True)
+
     self.manifest.saveJob(job, self.workDone)
     return job
-
-##### XXX2 move to test
-def testGenerator(task):
-  """
-  Run is a generator, yields the result of running the task or a subtask
-  """
-  status = yield task.createSubTask(TestConfig("subtask"))
-  print('got status ' + str(status))
-  #if (status.failed)
-  #yield 'huh'
-  yield status
-
-class TestConfig(Configuration):
-  def generator(self, task):
-    yield status
-
-  def __init__(self, name):
-    super(TestConfig, self,).__init__(self.generator, name)
-
-def test():
-  return Job().runTask(Task(Configuration(testGenerator, 'start')))
-
-print('runtask ' + str(test()))

@@ -81,7 +81,7 @@ class Configurator(object):
     if task.previousRun.configuration.get('digest') != task.configuration.digest():
       return True
 
-registerClass(VERSION, "Configurator", Configurator)
+#registerClass(VERSION, "Configurator", Configurator)
 
 class ConfiguratorDefinition(object):
   """

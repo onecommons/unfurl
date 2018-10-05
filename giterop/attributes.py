@@ -270,14 +270,13 @@ class Ref(object):
      'true': True, 'false': False, 'null': None
     }
 
+    self.conditional = None
     if isinstance(exp, dict):
       self.vars.update(exp.get('vars', {}))
       exp = exp.get('ref', '')
       if isinstance(exp, dict):
         self.conditional = exp
         exp = exp.get('if', exp.get('ifnot', ''))
-    else:
-      self.conditional = None
 
     if vars:
       self.vars.update(vars)
