@@ -16,7 +16,6 @@ Each task is responsible for running one configuration and records its modificat
 
 Resource
 Configurator
-ConfiguratorSpec
 Configuration
 ConfigurationSpec
 
@@ -247,8 +246,8 @@ class Resource(Operational):
 @six.add_metaclass(AutoRegisterClass)
 class Configurator(object):
 
-  def __init__(self, configuratorSpec):
-    self.configuratorSpec = configuratorSpec
+  def __init__(self, configurationSpec):
+    self.configurationSpec = configurationSpec
 
   def run(self, task):
     yield None
@@ -274,43 +273,28 @@ class Configurator(object):
     # should be called during when checking dependencies
     return Status.ok
 
-class ConfiguratorSpec(object):
-  def __init__(self, name=None, className=None, majorVersion=None, minorVersion=''):
-    assert name and className and majorVersion is not None, "missing required arguments"
-    self.name = name
-    self.className = className
-    self.majorVersion = majorVersion
-    self.minorVersion = minorVersion
-
-  def validateParameters(self, parameters):
-    return True
-
-  def create(self):
-    return lookupClass(self.className)(self)
-
-  def __eq__(self, other):
-    if not isinstance(other, ConfiguratorSpec):
-      return False
-    return (self.name == other.name and self.className == other.className
-      and self.majorVersion == other.majorVersion and self.minorVersion == other.minorVersion
-      and self.validateParameters == other.validateParameters)
-
 # XXX3 document versions:
 # configurator api version (encoded in api namespace): semantics of the interface giterop uses
 # configurator version: breaking change if interpretation of configuration parameters change
 # configuration spec version: encompasses installed version -- what is installed
 
 class ConfigurationSpec(object):
-  def __init__(self, name=None, target=None, configuratorSpec=None, majorVersion=None, minorVersion='',
+  def __init__(self, name=None, target=None, className=None, majorVersion=None, minorVersion='',
       intent=A.instantiate):
-    assert name and target and configuratorSpec and majorVersion is not None, "missing required arguments"
+    assert name and target and className and majorVersion is not None, "missing required arguments"
     self.name = name
     self.target = target # name of owner resource
-    self.configuratorSpec = configuratorSpec
+    self.className = className
     self.majorVersion = majorVersion
     self.minorVersion = minorVersion
     self.intent = intent
     # XXX2 add ensures
+
+  def validateParameters(self, parameters):
+    return True
+
+  def create(self):
+    return lookupClass(self.className)(self)
 
   def canRun(self, configuration):
     return Defaults.canRun
@@ -332,16 +316,11 @@ class ConfigurationSpec(object):
   def __eq__(self, other):
     if not isinstance(other, ConfigurationSpec):
       return False
-    return (self.name == other.name and self.targt == other.target and self.configuratorSpec == other.configuratorSpec
+    return (self.name == other.name and self.targt == other.target and self.className == other.className
       and self.majorVersion == other.majorVersion and self.minorVersion == other.minorVersion
       and self.intent == other.intent)
 
 class Configuration(OperationalInstance):
-  """
-  configurationSpec
-  status
-  resource
-  """
   def __init__(self, spec, resource, status=Status.notapplied, dependencies=None):
     super(Configuration, self).__init__(status)
     self.configurationSpec = spec
@@ -421,7 +400,7 @@ class Task(object):
       resource = self.findResource(spec.target)
       self.newConfiguration = Configuration(spec, resource, Status.notapplied)
       self.currentConfiguration = self.newConfiguration
-    self.configurator = spec.configuratorSpec.create()
+    self.configurator = spec.create()
     self.updateResources = {}
     self.messages = []
     self.addedResources = []
@@ -431,7 +410,7 @@ class Task(object):
 
   def validateParameters(self):
     spec = self.newConfiguration.configurationSpec
-    return spec.configuratorSpec.validateParameters(
+    return spec.validateParameters(
                   spec.resolveParameters(self.newConfiguration))
 
   def start(self):
@@ -465,6 +444,8 @@ class Task(object):
     return self.newConfiguration
 
   def revertChanges(self):
+    # N.B. this will revert any changes made by other tasks run at the same time
+    # which should only be subtasks and jobs
     for (resource, attributes) in self.updateResources.values():
       resource.attributes = attributes
     self.updateResources = {}
@@ -499,7 +480,7 @@ class Task(object):
     Dynamically update the conditions this configuration depends on.
     """
     if dependencyTemplateName:
-      dependency = self.job.runner.manifest.createDependency(self, self.currentConfiguration.configurationSpec, dependencyTemplateName, args)
+      dependency = self.job.runner.manifest.createDependency(self.currentConfiguration.configurationSpec, dependencyTemplateName, args)
       self.currentConfiguration.dependencies.update(name, dependency)
     else:
       self.currentConfiguration.dependencies.pop(name, None)
@@ -512,10 +493,9 @@ class Task(object):
   #def createResource(self, resource):
   #  return Task(self, resource)
 
-  def createConfigurationSpec(self, configurationTemplateName, configurationkws=None,
-                                configuratorTemplateName=None, configuratorkws=None):
-    return self.job.runner.manifest.createConfigurationSpec(configurationTemplateName,
-                              configurationkws, configuratorTemplateName, configuratorkws)
+  def createConfigurationSpec(self, configurationTemplateName, configurationkws=None):
+    return self.job.runner.manifest.createConfigurationSpec(
+        configurationTemplateName, configurationkws)
 
   # configurations created by subtasks are transient insofar as the are not part of the spec,
   # but they are persistent in that they recorded as part of the resource's state and status
@@ -830,6 +810,9 @@ status compared to current spec is different: compare difference for each:
   def shouldAbort(self, task):
     return False #XXX2
 
+  def summary(self):
+    return "XXX2"
+
   def checkStatusAfterRun(self):
     """
     After each task has run:
@@ -853,10 +836,10 @@ status compared to current spec is different: compare difference for each:
       yield task.currentConfiguration
 
 class Manifest(object):
-  def __init__(self, rootResource, specs):
+  def __init__(self, rootResource, specs, templates=None):
     self.rootResource = rootResource
     self.specs = specs
-    self.templates = {}
+    self.templates = templates or {}
 
   def getRootResource(self):
     return self.rootResource
@@ -864,15 +847,14 @@ class Manifest(object):
   def getConfigurationSpecs(self):
     return self.specs
 
-  def createConfigurationSpec(self, configurationTemplateName, configurationKws, configuratorTemplateName, configuratorKws):
+  def createConfigurationSpec(self, configurationTemplateName, configurationKws):
     configurationkws = self.templates.get(configurationTemplateName, {})
     configurationkws.update(configurationKws or {})
-    configuratorkws = self.templates.get(configuratorTemplateName, {})
-    configuratorkws.update(configuratorKws or {})
-    return ConfigurationSpec(configuratorSpec=ConfiguratorSpec(**configuratorkws), **configurationkws)
+    return ConfigurationSpec(**configurationkws)
 
   def createResource(self, templateName=None, name=None, attributes=None, parent=None, configurationSpecs=None):
     assert name, "must specify a name"
+    assert not self.rootResource.findResource(name), "name %s isn't unique" % name
     resource = Resource(name, attributes, parent=parent or self.getRootResource())
     if configurationSpecs:
       for spec in configurationSpecs:

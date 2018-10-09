@@ -9,7 +9,7 @@ class SimpleConfigurator(Configurator):
     assert self.canRun(task)
     yield Status.ok
 
-simpleConfigSpec = ConfigurationSpec('subtask', 'root',  ConfiguratorSpec('test', 'SimpleConfigurator', 0), 0)
+simpleConfigSpec = ConfigurationSpec('subtask', 'root', 'SimpleConfigurator', 0)
 
 class TestSubtaskConfigurator(Configurator):
 
@@ -26,8 +26,7 @@ class JobTest(unittest.TestCase):
 
   def test_runner(self):
     rootResource = Resource('root')
-    configuratorSpec = ConfiguratorSpec('test', 'TestSubtaskConfigurator', 0)
-    configurationSpec = ConfigurationSpec('test', 'root', configuratorSpec, 0)
+    configurationSpec = ConfigurationSpec('test', 'root', 'TestSubtaskConfigurator', 0)
     specs = [configurationSpec]
     runner = Runner(Manifest(rootResource, specs))
     job = runner.run(JobOptions(add=True))
