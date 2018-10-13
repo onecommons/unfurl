@@ -19,6 +19,57 @@ class TestSubtaskConfigurator(Configurator):
     assert configuration.status == Status.ok
     yield Status.ok
 
+class ExpandDocTest(unittest.TestCase):
+  doc =  {
+    't1': {"b": 2},
+
+    "t2": {
+      'a': { 'b': 1},
+      'c': 'c'
+    },
+
+    't3': 'val',
+
+    't4': ['a', 'b'],
+
+    'test1': {
+     '+t2': None,
+     'a': {'+t1': None },
+     'd': {'+t3': None },
+     'e': 'e'
+    },
+
+    'test2':
+      [1, "+t1", '+t4', {'+t4': None}]
+  }
+
+  expected = {
+    'test1': {
+      'a': { 'b': 2},
+      'c': 'c',
+      'd': 'val',
+      'e': 'e'
+    },
+    'test2':
+      [1, {"b": 2}, 'a', 'b', 'a', 'b']
+  }
+
+  def test_expandDoc(self):
+    expanded = expandDoc(self.doc)
+    self.assertEqual(expanded['test1'], self.expected['test1'])
+    self.assertEqual(expanded['test2'], self.expected['test2'])
+
+  def test_updateDoc(self):
+    # compare and patch: delete keys and items that are in template
+    original = {
+      'a': 1
+    }
+    changed = {
+      'b': 2
+    }
+    updated = updateDoc(original, changed)
+    self.assertEqual(changed, updated)
+
 class JobTest(unittest.TestCase):
 
   def test_lookupClass(self):

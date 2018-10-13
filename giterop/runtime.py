@@ -61,6 +61,7 @@ A = Action = IntEnum("Action", "discover instantiate revert", module=__name__)
 class Defaults(object):
   shouldRun = Priority.optional
   canRun = True
+  intent = Action.instantiate
 
 # for configuration: same as last task run, but also responsible for its adopted child resources?
 # status refers to current state of system not what happened when object was last applied
@@ -196,8 +197,8 @@ class Resource(Operational):
     self.excludedConfigurations = {}
     self.container = parent
     if parent:
-      self.parts.append(self)
-    self.parts = children or []
+      self.resources.append(self)
+    self.resources = children or []
 
   def getOperationalDependencies(self):
     return self.configurations.values()
@@ -205,7 +206,7 @@ class Resource(Operational):
   def getSelfAndDescendents(self):
     "Recursive descendent including self"
     yield self
-    for r in self.parts:
+    for r in self.resources:
       for descendent in r.yieldDescendents():
         yield descendent
 
@@ -216,10 +217,14 @@ class Resource(Operational):
   def findResource(self, resourceid):
     if self.name == resourceid:
       return self
-    for r in self.parts:
+    for r in self.resources:
       if r.name == resourceid:
         return match
     return None
+
+  def addResource(self, resource):
+    assert resource.container == self
+    self.resources.append(resource)
 
   def yieldParents(self):
     "yield self and ancestors"
@@ -242,6 +247,15 @@ class Resource(Operational):
       self.excludedConfigurations[configuration.name] = configuration
     else:
       self.configurations[configuration.name] = configuration
+
+  def getAllConfigurationsDeep(self):
+    for resource in self.getSelfAndDescendents():
+      for config in resource.allConfigurations:
+        yield config
+
+  @property
+  def allConfigurations(self):
+    return chain(self.configurations.values(), self.excludedConfigurations.values())
 
 @six.add_metaclass(AutoRegisterClass)
 class Configurator(object):
@@ -280,7 +294,7 @@ class Configurator(object):
 
 class ConfigurationSpec(object):
   def __init__(self, name=None, target=None, className=None, majorVersion=None, minorVersion='',
-      intent=A.instantiate):
+      intent=Defaults.intent):
     assert name and target and className and majorVersion is not None, "missing required arguments"
     self.name = name
     self.target = target # name of owner resource
@@ -333,7 +347,7 @@ class Configuration(OperationalInstance):
     doc = "The priority property."
     def fget(self):
       if self._priority is None:
-        self.configurationSpec.canRun(self)
+        return self.configurationSpec.shouldRun(self)
       else:
         return self._priority
     def fset(self, value):
@@ -444,6 +458,9 @@ class Task(object):
     return self.newConfiguration
 
   def revertChanges(self):
+    # XXX2 attributes set by configurations should be per configuration
+    # mark which ones are exposed as public resource attribues and subject to merge conflicts
+
     # N.B. this will revert any changes made by other tasks run at the same time
     # which should only be subtasks and jobs
     for (resource, attributes) in self.updateResources.values():
@@ -451,6 +468,7 @@ class Task(object):
     self.updateResources = {}
 
   def addResource(self, templateName, name, metadata):
+    # XXX2 should indicate what kind of dependency
     # instantiate new resource and a job that will run it
     resource = self.job.runner.manifest.createResource(templateName, name, metadata)
     # configurator can yield the returned job if it wants it to be run right away
@@ -459,14 +477,16 @@ class Task(object):
     return self.job.addChildJob(self, resource)
 
   def removeResource(self, resource):
+    # XXX2 should indicate what kind of dependency
     self.removedResources.append(resource)
     # XXX2 only do this if its orphaned:
-    resource.container.parts.remove(resource)
+    resource.container.resources.remove(resource)
 
   def addMessage(self, message):
     self.messages.append(message)
 
   def updateResource(self, resource, updated={}, deleted=()):
+    # XXX2 should indicate what kind of dependency, including if the attributes changes are important
     # save original
     if resource.name not in self.updateResources:
       self.updateResources[resource.name] = (resource, copy.copy(resource.attributes))
@@ -628,9 +648,7 @@ status compared to current spec is different: compare difference for each:
       return lastChange.spec
 
   def getCurrentConfigurations(self):
-    for resource in self.rootResource.getSelfAndDescendents():
-      for config in resource.configurations.values():
-        yield config
+    return self.rootResource.getAllConfigurationsDeep()
 
   def findConfigurations(self, resource):
     for config in self.wantedSpecs:

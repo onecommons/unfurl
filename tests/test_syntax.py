@@ -1,5 +1,5 @@
 import unittest
-from giterop.manifest import *
+from giterop.run import *
 
 class ManifestSyntaxTest(unittest.TestCase):
   def test_hasversion(self):

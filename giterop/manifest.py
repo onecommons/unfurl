@@ -1,37 +1,54 @@
 import six
 from .util import *
-from .templatedefinition import *
-from .configurator import *
-from .resource import *
+from .runtime import *
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap
 from codecs import open
 import sys
 yaml = YAML()
 
-class Manifest(object):
-  """
-  represents a GitErOp manifest with
-    version
-    configurators
-    templates:
-      "name":
-        attributes
-        templates
-        configurations
-    resources:
-      "name":
-        resourceSpec
-    status:
-      changes:
-        - changeid
-          date
-          commit
-          action
-          status
-          messages:
+schema = """
+"""
 
+class YamlManifest(Manifest):
   """
+Loads and saves a GitErOp manifest with the following format:
+
+version: VERSION
+root: #root resource is always named 'root'
+ attributes:
+ resources:
+   child1:
+     <resource>
+ configurations:
+    name1:
+      spec:
+        className
+        version
+        intent
+        priority: XXX
+        version
+        parameters:
+      status:
+        jobid
+        operational
+        action
+        priority
+        parameters:
+          param1: value
+ status:
+  operational
+  action
+  priority
+jobs:
+  changes:
+    - changeid
+      date
+      commit
+      action
+      status
+      messages:
+"""
   def __init__(self, manifest=None, path=None, validate=True):
     if path:
       self.manifest = yaml.load(open(manifestPath).read())
@@ -39,33 +56,78 @@ class Manifest(object):
       self.manifest = yaml.load(manifest)
     else:
       self.manifest = manifest
+
+    #schema should include defaults but can't validate because it doesn't understand includes
+    #but should work most of time
+    # XXX2 schema.validate
+    manifest = expandDoc(manifest, cls=CommentedMap)
+
     messages = self.getValidateErrors()
     if messages and validate:
       raise GitErOpError(messages)
     else:
       self.valid = not not messages
 
-    for key in "templates resources".split():
-      if not self.manifest.get(key):
-        self.manifest[key] = CommentedMap()
+    rootResource = self.loadResource('root', manifest['root'], None)
+    specs = list(rootResource.getAllConfigurationsDeep())
+    templates = None
+    super(Manifest, self).__init__(rootResource, specs, templates)
 
-    self.configurators = dict([(k, ConfiguratorDefinition(v, self, k))
-                      for (k, v) in (self.manifest.get(CONFIGURATORSKEY) or {}).items()])
-    templates = self.manifest['templates']
-    self.templates = dict([(k, self._createTemplateDefinition(templates[k], k))
-                                                            for k in templates])
-    rootResources = self.manifest['resources']
-    self._resources = dict([(k, ResourceDefinition(self, rootResources[k], k)) for k in rootResources])
-    if validate:
-      list(map(lambda r: [c.getParams() for c in r.spec.configurations], self.resources))
+  def createDependency(self, configurationSpec, dependencyTemplateName, args=None):
+    return None
 
-  def save(self):
-    [rr.save() for rr in self.resources]
+  def loadResource(self, name, spec, parent):
+    resource = Resource(name, spec.get('attributes'), parent)
+
+    for key, val in spec['configurations']:
+      configSpec = ConfigurationSpec(key, name, val['className'], val['majorVersion'], val.get('minorVersion',''),
+                      intent=val.get('intent', Defaults.intent)):
+      config = Configuration(configSpec, resource, val['status']['operational'])
+      resource.setConfiguration(config)
+
+    for key, val in spec['resources']:
+      resource.addResources( self.loadResource(key, val, resource) )
+    return resource
+
+  def saveStatus(self, operational):
+    return dict(
+      status=operational.status.name,
+      priority=operational.priority.name
+    )
+
+  def saveResource(self, resource):
+    return (resource.name, dict(
+      status = self.saveStatus(resource),
+      attributes=resource.attributes,
+      resources=dict(map(resource.resources, self.saveResource)),
+      configurations=dict(map(resource.allConfigurations, self.saveConfiguration))
+    ))
+
+  def saveConfiguration(self, config):
+    spec = config.spec
+    status = self.saveStatus(config)
+    if config.parameters is not None:
+      status['parameters'] = config.parameters
+    # dependencies.values(), self.configurationSpec.getPostConditions()
+    return (config.name, dict(
+      status=status,
+      className=spec.className,
+      majorVersion=spec.majorVersion,
+      minorVersion=spec.minorVersion,
+      intent=spec.intent.name
+      ))
+
+  def saveJob(self, job, workDone):
+    # XXX job, workDone??
+    changed = dict(self.saveResource(self.rootResource))
+    self.manifest = updateDoc(self.manifest, changed, cls=CommentedMap)
+    self.dump()
 
   def dump(self, out=sys.stdout):
     yaml.dump(self.manifest, out)
 
   def getValidateErrors(self):
+    # XXX2 replace with schema.validate
     version = self.manifest.get('apiVersion')
     if version is None:
       return "missing version"
@@ -73,26 +135,8 @@ class Manifest(object):
       return "unknown version: %s" % version
     return ''
 
-  @property
-  def resources(self):
-    return list(self._resources.values())
-
-  def getRootResource(self, resourceid):
-    return self._resources.get(resourceid)
-
-  def findResource(self, resourceid):
-    for r in self.resources:
-      match = r.findLocalResource(resourceid)
-      if match:
-        return match
-    return None
-
-  def _createTemplateDefinition(self, src, name):
-    manifestName = src.get('name')
-    if manifestName and name and (name != manifestName):
-      raise GitErOpError('template key and name do not match: %s %s' % (name, manifestName) )
-    return TemplateDefinition(self, src, name or manifestName)
-
-  def findMaxChangeId(self):
-    return (self.resources and
-      max(r.findMaxChangeId() for r in self.resources) or 0)
+def run(manifestPath, opts=None):
+  manifest = YamlManifest(path=manifestPath)
+  runner = Runner(manifest)
+  kw = opts or {}
+  return runner.run(**kw)

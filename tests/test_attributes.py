@@ -2,7 +2,7 @@ import unittest
 from giterop import *
 from giterop.util import *
 from giterop.resource import *
-from giterop.manifest import *
+from giterop.run import *
 from ruamel.yaml.comments import CommentedMap
 
 class AttributeTest(unittest.TestCase):

@@ -1,6 +1,5 @@
 from .util import *
 from .run import *
-from .manifest import *
 
 import sys
 
