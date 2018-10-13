@@ -1,5 +1,6 @@
 import unittest
 from giterop.runtime import *
+from giterop.manifest import *
 import traceback
 import six
 import datetime
@@ -117,6 +118,32 @@ class RunTest(unittest.TestCase):
   test locking
   test required metadata on resources
   """
-
   # XXX3 test case: a failed configuration with intent=revert should stay in configurations as error
   # XXX3 test: hide configurations that are both notpresent and revert / skip
+
+  def test_manifest(self):
+    simple = {
+    'apiVersion': VERSION,
+    'root': {
+      'resources': {},
+      "configurations":{
+        "test":{
+          "className": "TestSubtaskConfigurator",
+          "majorVersion": 0
+        }
+      }
+    }}
+    manifest = YamlManifest(simple)
+    runner = Runner(manifest)
+    output = six.StringIO()
+    job = runner.run(JobOptions(add=True, out=output))
+    # print('1', output.getvalue())
+    assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
+
+    # manifest shouldn't have changed
+    manifest2 = YamlManifest(output.getvalue())
+    output2 = six.StringIO()
+    job2 = Runner(manifest2).run(JobOptions(add=True, out=output2))
+    # print('2', output2.getvalue())
+    assert not job2.unexpectedAbort, job2.unexpectedAbort.getStackTrace()
+    self.assertEqual(output.getvalue(), output2.getvalue())

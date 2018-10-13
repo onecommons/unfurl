@@ -14,7 +14,7 @@ class YamlManifest(Manifest):
   """
 Loads and saves a GitErOp manifest with the following format:
 
-version: VERSION
+apiVersion: VERSION
 root: #root resource is always named 'root'
  attributes:
  resources:
@@ -51,7 +51,7 @@ jobs:
 """
   def __init__(self, manifest=None, path=None, validate=True):
     if path:
-      self.manifest = yaml.load(open(manifestPath).read())
+      self.manifest = yaml.load(open(path).read())
     elif isinstance(manifest, six.string_types):
       self.manifest = yaml.load(manifest)
     else:
@@ -60,7 +60,7 @@ jobs:
     #schema should include defaults but can't validate because it doesn't understand includes
     #but should work most of time
     # XXX2 schema.validate
-    manifest = expandDoc(manifest, cls=CommentedMap)
+    manifest = expandDoc(self.manifest, cls=CommentedMap)
 
     messages = self.getValidateErrors()
     if messages and validate:
@@ -69,9 +69,9 @@ jobs:
       self.valid = not not messages
 
     rootResource = self.loadResource('root', manifest['root'], None)
-    specs = list(rootResource.getAllConfigurationsDeep())
+    specs = list(config.configurationSpec for config in rootResource.getAllConfigurationsDeep())
     templates = None
-    super(Manifest, self).__init__(rootResource, specs, templates)
+    super(YamlManifest, self).__init__(rootResource, specs, templates)
 
   def createDependency(self, configurationSpec, dependencyTemplateName, args=None):
     return None
@@ -79,13 +79,14 @@ jobs:
   def loadResource(self, name, spec, parent):
     resource = Resource(name, spec.get('attributes'), parent)
 
-    for key, val in spec['configurations']:
+    for key, val in spec['configurations'].items():
       configSpec = ConfigurationSpec(key, name, val['className'], val['majorVersion'], val.get('minorVersion',''),
-                      intent=val.get('intent', Defaults.intent)):
-      config = Configuration(configSpec, resource, val['status']['operational'])
+                      intent=toEnum(Action, val.get('intent', Defaults.intent)))
+      config = Configuration(configSpec, resource,
+          toEnum(Status, val.get('status',{}).get('operational', Status.notapplied)))
       resource.setConfiguration(config)
 
-    for key, val in spec['resources']:
+    for key, val in spec['resources'].items():
       resource.addResources( self.loadResource(key, val, resource) )
     return resource
 
@@ -99,12 +100,12 @@ jobs:
     return (resource.name, dict(
       status = self.saveStatus(resource),
       attributes=resource.attributes,
-      resources=dict(map(resource.resources, self.saveResource)),
-      configurations=dict(map(resource.allConfigurations, self.saveConfiguration))
+      resources=dict(map(self.saveResource, resource.resources)),
+      configurations=dict(map(self.saveConfiguration, resource.allConfigurations))
     ))
 
   def saveConfiguration(self, config):
-    spec = config.spec
+    spec = config.configurationSpec
     status = self.saveStatus(config)
     if config.parameters is not None:
       status['parameters'] = config.parameters
@@ -119,9 +120,10 @@ jobs:
 
   def saveJob(self, job, workDone):
     # XXX job, workDone??
-    changed = dict(self.saveResource(self.rootResource))
+    changed = {'apiVersion': VERSION}
+    changed.update([self.saveResource(self.rootResource)])
     self.manifest = updateDoc(self.manifest, changed, cls=CommentedMap)
-    self.dump()
+    self.dump(job.out)
 
   def dump(self, out=sys.stdout):
     yaml.dump(self.manifest, out)
@@ -139,4 +141,4 @@ def run(manifestPath, opts=None):
   manifest = YamlManifest(path=manifestPath)
   runner = Runner(manifest)
   kw = opts or {}
-  return runner.run(**kw)
+  return runner.run(JobOptions(**kw))

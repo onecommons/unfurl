@@ -29,16 +29,10 @@ import six
 import copy
 import collections
 import datetime
+import sys
 from itertools import chain
 from enum import IntEnum
 from .util import *
-
-def toEnum(enum, value):
-  #from string: Status[name]; to string: status.name
-  if isinstance(value, six.string_types):
-    return enum[value]
-  else:
-    return value
 
 # question: if a configuration failed to apply should that affect the status of the configuration?
 # OTOH the previous version of the configuration status is still in effect
@@ -330,7 +324,7 @@ class ConfigurationSpec(object):
   def __eq__(self, other):
     if not isinstance(other, ConfigurationSpec):
       return False
-    return (self.name == other.name and self.targt == other.target and self.className == other.className
+    return (self.name == other.name and self.target == other.target and self.className == other.className
       and self.majorVersion == other.majorVersion and self.minorVersion == other.minorVersion
       and self.intent == other.intent)
 
@@ -536,6 +530,7 @@ class JobOptions(object):
   defaults = dict(
     parentJob=None,
     startTime=None,
+    out=sys.stdout,
 
     resource=None,
     configuration=None,
@@ -543,7 +538,7 @@ class JobOptions(object):
     # default options:
     add=True, # run newly added configurations
     update=True, # run configurations that whose spec has changed but don't require a major version change
-    repair=S.error, # or 'degraded', run configurations that are not operational and/or degraded
+    repair="error", # or 'degraded', run configurations that are not operational and/or degraded
 
     upgrade=False, # run configurations with major version changes or whose spec has changed
     all=False, # (re)run all configurations
@@ -611,41 +606,46 @@ status compared to current spec is different: compare difference for each:
         return config
       else:
         return None
-    elif lastChange and not config:
+    spec = lastChange.configurationSpec
+    if lastChange and not config:
       if self.revertObsolete:
-        return lastChange.spec.copy(intent=A.revert)
+        return spec.copy(intent=A.revert)
       if self.all:
-        return lastChange.spec
-    elif lastChange.spec != config:
+        return spec
+    elif spec != config:
       # the user changed the configuration:
       if config.intent == A.revert and lastChange.status == S.notpresent:
         return None # nothing to revert
       if self.upgrade:
         return config
-      if lastChange.status == S.notpresent and lastChange.spec.intent != config.intent and self.add:
+      if lastChange.status == S.notpresent and spec.intent != config.intent and self.add:
         # this case is essentially a re-added config, so re-run it
         return config
       if self.update:
         # apply the new configuration unless it will trigger a major version change
-        if config.intent != A.revert and lastChange.spec.majorVersion != config.majorVersion:
+        if config.intent != A.revert and spec.majorVersion != config.majorVersion:
           return config
     # there isn't a new config to run, see if the last applied config needs to be re-run
     return self.checkForRepair(lastChange)
 
   def checkForRepair(self, lastChange):
     assert lastChange
+    spec = lastChange.configurationSpec
     if lastChange.hasParametersChanged() and self.update:
-      return lastChange.spec
+      return spec
     if lastChange.status == S.ok or not self.repair:
+        # XXX2 what if status is notapplied or notpresent ??
         return None
     if self.repair == "degraded":
-      return lastChange.spec
-    elif lastChange.state == S.degraded:
-      assert self.repair == 'error'
-      return None
+      assert lastChange.status > S.ok, lastChange.status
+      return spec # repair this
+    elif lastChange.status == S.degraded:
+      assert self.repair == 'error', self.repair
+      return None # skip repairing this
     else:
-      assert self.repair == 'error'
-      return lastChange.spec
+      assert self.repair == 'error', "repair: %s status: %s" % (self.repair, lastChange.status)
+      # XXX2 what if status is notapplied or notpresent ??
+      return spec # repair this
 
   def getCurrentConfigurations(self):
     return self.rootResource.getAllConfigurationsDeep()

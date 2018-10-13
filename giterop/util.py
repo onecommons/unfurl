@@ -1,6 +1,7 @@
 import sys
 import optparse
 import six
+import traceback
 from six.moves import reduce
 from jsonschema import Draft4Validator, validators
 
@@ -26,6 +27,11 @@ class GitErOpError(Exception):
   def __init__(self, message, saveStack=False):
     super(GitErOpError, self).__init__(message)
     self.stackInfo = sys.exc_info() if saveStack else None
+
+  def getStackTrace(self):
+    if not self.stackInfo:
+      return ''
+    return ''.join(traceback.format_exception(*self.stackInfo))
 
 class GitErOpValidationError(GitErOpError):
   def __init__(self, message, errors=None):
@@ -68,6 +74,13 @@ def lookupClass(kind, apiVersion=None, default=None):
   if not klass:
     raise GitErOpError('Can not find class %s.%s' % (version, kind))
   return klass
+
+def toEnum(enum, value):
+  #from string: Status[name]; to string: status.name
+  if isinstance(value, six.string_types):
+    return enum[value]
+  else:
+    return value
 
 mergeStrategy = 'mergeStrategy'
 # b is base, a overrides
@@ -115,6 +128,7 @@ def expandDoc(doc, current=None, cls=dict):
   cp = cls()
   # first merge any includes includes into cp
   includes = []
+  assert isinstance(current, (dict, cls)), current
   for (key, value) in current.items():
     if key.startswith('+'):
       template = getTemplate(doc, key[1:], value, cls)
