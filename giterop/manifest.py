@@ -1,14 +1,65 @@
 import six
-from .util import *
-from .runtime import *
+from .util import GitErOpError, expandDoc, updateDoc, toEnum, VERSION, DefaultValidatingLatestDraftValidator
+from .runtime import JobOptions, Configuration, ConfigurationSpec, Status, Action, Defaults, Resource, Runner, Manifest
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap
 from codecs import open
 import sys
 yaml = YAML()
 
-schema = """
-"""
+schema = {
+  "$schema": "http://json-schema.org/draft-04/schema#",
+  "$id": "https://www.onecommons.org/schemas/giterop/v1alpha1.json",
+  "definitions": {
+    "namedObjects": {
+      "type": "object",
+      "propertyNames": {
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+        },
+      'default': {}
+    },
+    "resource": {
+      "type": "object",
+      "properties": {
+        "attributes":     { "$ref": "#/definitions/namedObjects" },
+        "configurations": { "allOf":[
+          { "$ref": "#/definitions/namedObjects" },
+          {"additionalProperties": { "$ref": "#/definitions/configuration" }}
+        ]},
+        "resources": { "allOf": [
+          { "$ref": "#/definitions/namedObjects" },
+          {"additionalProperties": { "$ref": "#/definitions/resource" }}
+        ]},
+        "status": { "$ref": "#/definitions/status" }
+      },
+    },
+    "configuration": {
+      "type": "object",
+      "properties": {
+        "className": {"type":"string"},
+        "majorVersion": {"anyOf": [{"type":"string"}, {"type":"number"}]},
+        "minorVersion": {"type":"string"},
+        "intent": { "enum": list(Action.__members__) },
+        "status": { "$ref": "#/definitions/status" }
+      },
+    },
+    "status": {
+      "type": "object",
+      "properties": {
+        "operational": { "enum": list(Status.__members__) }
+      },
+      "additionalProperties": True,
+    }
+  },
+
+  "type": "object",
+  "properties": {
+    "apiVersion": { "enum": [ VERSION ] },
+    "root": { "$ref": "#/definitions/resource" },
+    "jobs": { "type": "object"}
+  },
+  "required": ["apiVersion", "root"]
+}
 
 class YamlManifest(Manifest):
   """
@@ -129,15 +180,10 @@ jobs:
     yaml.dump(self.manifest, out)
 
   def getValidateErrors(self):
-    # XXX2 replace with schema.validate
-    version = self.manifest.get('apiVersion')
-    if version is None:
-      return "missing version"
-    elif version != VERSION:
-      return "unknown version: %s" % version
-    return ''
+    validator = DefaultValidatingLatestDraftValidator(schema)
+    return list(validator.iter_errors(self.manifest))
 
-def run(manifestPath, opts=None):
+def runJob(manifestPath, opts=None):
   manifest = YamlManifest(path=manifestPath)
   runner = Runner(manifest)
   kw = opts or {}

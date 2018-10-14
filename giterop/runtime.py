@@ -32,7 +32,7 @@ import datetime
 import sys
 from itertools import chain
 from enum import IntEnum
-from .util import *
+from .util import GitErOpError, GitErOpTaskError, toEnum, lookupClass, AutoRegisterClass
 
 # question: if a configuration failed to apply should that affect the status of the configuration?
 # OTOH the previous version of the configuration status is still in effect
@@ -213,7 +213,7 @@ class Resource(Operational):
       return self
     for r in self.resources:
       if r.name == resourceid:
-        return match
+        return r
     return None
 
   def addResource(self, resource):
@@ -738,9 +738,9 @@ status compared to current spec is different: compare difference for each:
     while True:
       try:
         result = generator.send(change)
-      except Exception as err:
+      except Exception:
         generator.close()
-        err = GitErOpTaskError(task, "configurator.run failed")
+        GitErOpTaskError(task, "configurator.run failed")
         return task.finished(Status.error)
       if isinstance(result, Task):
         change = self.runTask(result)
@@ -792,7 +792,7 @@ status compared to current spec is different: compare difference for each:
     """
     try:
       priority = task.configurator.shouldRun(task)
-    except Exception as err:
+    except Exception:
       #unexpected error don't run this
       GitErOpTaskError(task, "shouldRun failed")
       return False
@@ -812,7 +812,7 @@ status compared to current spec is different: compare difference for each:
       canRun = (task.validateParameters()
               and task.newConfiguration.configurationSpec.canRun(task.newConfiguration)
               and task.configurator.canRun(task))
-    except Exception as err:
+    except Exception:
       GitErOpTaskError(task, "shouldRun failed")
       canRun = False
 
