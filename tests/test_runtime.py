@@ -1,6 +1,7 @@
 import unittest
-from giterop.runtime import *
-from giterop.manifest import *
+from giterop.runtime import JobOptions, Configurator, ConfigurationSpec, Status, Priority, Resource, Runner, Manifest, OperationalInstance
+from giterop.manifest import YamlManifest
+from giterop.util import GitErOpError, expandDoc, updateDoc, lookupClass, VERSION
 import traceback
 import six
 import datetime
@@ -18,6 +19,7 @@ class TestSubtaskConfigurator(Configurator):
     assert self.canRun(task)
     configuration = yield task.createSubTask(simpleConfigSpec)
     assert configuration.status == Status.ok
+    # print ("running TestSubtaskConfigurator")
     yield Status.ok
 
 class ExpandDocTest(unittest.TestCase):
@@ -105,7 +107,19 @@ class OperationalInstanceTest(unittest.TestCase):
 
     aggregateError = OperationalInstance(Status.ok)
     aggregateError.dependencies = [ignoredError, requiredError]
-    assert aggregateError.status == Status.error
+    self.assertEqual(aggregateError.status, Status.error)
+
+    aggregateError = OperationalInstance(Status.notapplied)
+    aggregateError.dependencies = [ignoredError, requiredError]
+    self.assertEqual(aggregateError.status, Status.error)
+
+    aggregateError = OperationalInstance(Status.notapplied)
+    aggregateError.dependencies = [OperationalInstance("ok", "optional")]
+    self.assertEqual(aggregateError.status, Status.ok)
+
+    aggregateError = OperationalInstance(Status.notapplied)
+    aggregateError.dependencies = []
+    self.assertEqual(aggregateError.status, Status.notapplied)
 
 class RunTest(unittest.TestCase):
   """
@@ -124,12 +138,15 @@ class RunTest(unittest.TestCase):
   def test_manifest(self):
     simple = {
     'apiVersion': VERSION,
+    "kind": "Manifest",
     'root': {
       'resources': {},
       "configurations":{
-        "test":{
-          "className": "TestSubtaskConfigurator",
-          "majorVersion": 0
+        "test": {
+          "spec": {
+            "className": "TestSubtaskConfigurator",
+            "majorVersion": 0
+          }
         }
       }
     }}
@@ -141,9 +158,35 @@ class RunTest(unittest.TestCase):
     assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
 
     # manifest shouldn't have changed
+    # print('output', output.getvalue())
     manifest2 = YamlManifest(output.getvalue())
     output2 = six.StringIO()
     job2 = Runner(manifest2).run(JobOptions(add=True, out=output2))
     # print('2', output2.getvalue())
     assert not job2.unexpectedAbort, job2.unexpectedAbort.getStackTrace()
     self.assertEqual(output.getvalue(), output2.getvalue())
+
+  def test_template_inheritance(self):
+    manifest = '''
+apiVersion: giterops/v1alpha1
+kind: Manifest
+configurators:
+  step1:
+    spec:
+      className: "TestSubtaskConfigurator"
+      majorVersion: 0
+templates:
+  base:
+    configurations:
+      step1:
+        +configurators.step1:
+root:
+  resources:
+    cloud3: #key is resource name
+      +templates.base:
+      +templates.production:
+'''
+    with self.assertRaises(GitErOpError) as err:
+      YamlManifest(manifest)
+    # XXX2 missing template should raise error instead of returning None
+    #self.assertEqual(str(err.exception), "template reference is not defined: production")

@@ -96,13 +96,20 @@ class Operational(object):
     return self.status == Status.ok or self.status == Status.degraded
 
   @property
+  def active(self):
+    return self.status <= Status.error
+
+  @property
   def status(self):
     if self.manualOverideStatus is not None:
       status = self.manualOverideStatus
+      if status >= Status.error:
+        return status
     else:
       status = self.computedStatus
-    if status >= Status.error:
-      return status
+      if status == Status.error or status == Status.notpresent:
+        return status
+
     return self.aggregateStatus(self.getOperationalDependencies(), status)
 
   @property
@@ -112,26 +119,26 @@ class Operational(object):
   @staticmethod
   def aggregateStatus(statuses, defaultStatus = Status.ok):
     # error if a configuration is required and not operational
-    # error if a not configuration managed child resource is required and not operational
-    # notpresent if not present
-    # degraded non-required configurations and resources are not operational
+    # error if a non-configuration managed child resource is required and not operational
+    # degraded if non-required configurations and resources are not operational
     #          or required configurations and resources are degraded
     # ok otherwise
-    state = defaultStatus
+    aggregate = defaultStatus
     for status in statuses:
       assert isinstance(status, Operational), status
       if status.priority == Priority.ignore:
         continue
       if status.required:
         if not status.operational:
-          state = Status.error
+          aggregate = Status.error
           break
         elif status.status == Status.degraded:
-          state = Status.degraded
+          aggregate = Status.degraded
       elif not status.operational:
-          state = Status.degraded
-
-    return state
+          aggregate = Status.degraded
+      elif aggregate == Status.notapplied:
+          aggregate = Status.ok
+    return aggregate
 
 class OperationalInstance(Operational):
   def __init__(self, status=None, priority=None, manualOveride=None):
@@ -179,10 +186,11 @@ class OperationalInstance(Operational):
   priority = property(**priority())
 
 class Resource(Operational):
-  def __init__(self, name='', attributes=None, configurations=None, parent=None, children=None):
+  def __init__(self, name='', attributes=None, parent=None, configurations=None, children=None):
     self.name = name # XXX2 guarantee name uniqueness
     self.attributes = attributes or {}
     self.configurations = dict( (c.name, c) for c in (configurations or []) )
+    # XXX2 replace with activeConfigurations vs. inactiveConfigurations
     # affirmatively absent configurations -- i.e. failed to apply or explicitly not present
     # we don't want any notapplied or notpresent in configurations
 
@@ -191,7 +199,7 @@ class Resource(Operational):
     self.excludedConfigurations = {}
     self.container = parent
     if parent:
-      self.resources.append(self)
+      parent.resources.append(self)
     self.resources = children or []
 
   def getOperationalDependencies(self):
@@ -201,7 +209,7 @@ class Resource(Operational):
     "Recursive descendent including self"
     yield self
     for r in self.resources:
-      for descendent in r.yieldDescendents():
+      for descendent in r.getSelfAndDescendents():
         yield descendent
 
   @property
@@ -281,7 +289,7 @@ class Configurator(object):
     # should be called during when checking dependencies
     return Status.ok
 
-# XXX3 document versions:
+# XXX3 versioning:
 # configurator api version (encoded in api namespace): semantics of the interface giterop uses
 # configurator version: breaking change if interpretation of configuration parameters change
 # configuration spec version: encompasses installed version -- what is installed
@@ -513,6 +521,7 @@ class Task(object):
 
   # configurations created by subtasks are transient insofar as the are not part of the spec,
   # but they are persistent in that they recorded as part of the resource's state and status
+  # XXX2 need a way to mark this as a child of current task, should not appear in specs
   def createSubTask(self, configSpec):
     return Task(self.job, configSpec, None)
 
@@ -559,6 +568,7 @@ class Job(OperationalInstance):
     super(Job, self).__init__(Status.ok)
     assert isinstance(jobOptions, JobOptions)
     self.__dict__.update(jobOptions.__dict__)
+    self.jobOptions = jobOptions
     self.runner = runner
     self.wantedSpecs = specs
     self.rootResource = rootResource
@@ -566,7 +576,7 @@ class Job(OperationalInstance):
     self.unexpectedAbort = None
 
   def addChildJob(self, resource, specs=None):
-    jobOptions = JobOptions(parentJob=self, repair=None)
+    jobOptions = JobOptions(parentJob=self, repair="none")
     childJob = Job(self.runner, resource, specs or [], jobOptions)
     assert childJob.parentJob is self
     # print('adding', childJob, 'to', self)
@@ -626,16 +636,18 @@ status compared to current spec is different: compare difference for each:
         if config.intent != A.revert and spec.majorVersion != config.majorVersion:
           return config
     # there isn't a new config to run, see if the last applied config needs to be re-run
+    if lastChange.hasParametersChanged() and (self.update or self.all):
+      return spec
+    if lastChange.status == S.notapplied and (self.add or self.all):
+      return spec
     return self.checkForRepair(lastChange)
 
   def checkForRepair(self, lastChange):
     assert lastChange
-    spec = lastChange.configurationSpec
-    if lastChange.hasParametersChanged() and self.update:
-      return spec
-    if lastChange.status == S.ok or not self.repair:
-        # XXX2 what if status is notapplied or notpresent ??
+    # repair should only apply to configurations that are active and in need of repair
+    if lastChange.status not in [S.degraded, S.error] or self.repair=="none":
         return None
+    spec = lastChange.configurationSpec
     if self.repair == "degraded":
       assert lastChange.status > S.ok, lastChange.status
       return spec # repair this
@@ -644,7 +656,6 @@ status compared to current spec is different: compare difference for each:
       return None # skip repairing this
     else:
       assert self.repair == 'error', "repair: %s status: %s" % (self.repair, lastChange.status)
-      # XXX2 what if status is notapplied or notpresent ??
       return spec # repair this
 
   def getCurrentConfigurations(self):
@@ -729,7 +740,7 @@ status compared to current spec is different: compare difference for each:
     (e.g. add a dns entry, install a package).
     XXX2 need a way for configurator to declare that is the manager of a particular resource or type of resource or metadata so we know to handle that request
     """
-    # XXX2 recursion or loop detection
+    # XXX3 recursion or loop detection
     if not self.canRunTask(task):
       return Status.notapplied
 
@@ -873,7 +884,7 @@ class Manifest(object):
   def createResource(self, templateName=None, name=None, attributes=None, parent=None, configurationSpecs=None):
     assert name, "must specify a name"
     assert not self.rootResource.findResource(name), "name %s isn't unique" % name
-    resource = Resource(name, attributes, parent=parent or self.getRootResource())
+    resource = Resource(name, attributes, parent or self.getRootResource())
     if configurationSpecs:
       for spec in configurationSpecs:
         resource.setConfiguration(Configuration(spec, resource))

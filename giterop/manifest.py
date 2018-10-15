@@ -14,33 +14,50 @@ schema = {
     "namedObjects": {
       "type": "object",
       "propertyNames": {
-          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+          "pattern": r"^[A-Za-z_][A-Za-z0-9_\-]*$"
         },
-      'default': {}
     },
     "resource": {
       "type": "object",
       "properties": {
-        "attributes":     { "$ref": "#/definitions/namedObjects" },
+        "attributes": {
+          "$ref": "#/definitions/namedObjects",
+          'default': {}
+         },
         "configurations": { "allOf":[
-          { "$ref": "#/definitions/namedObjects" },
-          {"additionalProperties": { "$ref": "#/definitions/configuration" }}
-        ]},
+            { "$ref": "#/definitions/namedObjects" },
+            {"additionalProperties": { "$ref": "#/definitions/configuration" }}
+          ],
+          'default': {}
+        },
         "resources": { "allOf": [
-          { "$ref": "#/definitions/namedObjects" },
-          {"additionalProperties": { "$ref": "#/definitions/resource" }}
-        ]},
+            { "$ref": "#/definitions/namedObjects" },
+            {"additionalProperties": { "$ref": "#/definitions/resource" }}
+          ],
+          'default': {}
+        },
         "status": { "$ref": "#/definitions/status" }
       },
     },
     "configuration": {
       "type": "object",
       "properties": {
-        "className": {"type":"string"},
-        "majorVersion": {"anyOf": [{"type":"string"}, {"type":"number"}]},
-        "minorVersion": {"type":"string"},
-        "intent": { "enum": list(Action.__members__) },
-        "status": { "$ref": "#/definitions/status" }
+        "spec": {
+          "type": "object",
+          "properties": {
+            "className": {"type":"string"},
+            "majorVersion": {"anyOf": [{"type":"string"}, {"type":"number"}]},
+            "minorVersion": {"type":"string"},
+            "intent": { "enum": list(Action.__members__) },
+            "parameters": { "$ref": "#/definitions/namedObjects",
+              'default': {}
+             },
+          },
+          "required": ["className", "majorVersion"]
+        },
+        "status": {
+          "$ref": "#/definitions/status"
+        }
       },
     },
     "status": {
@@ -55,10 +72,11 @@ schema = {
   "type": "object",
   "properties": {
     "apiVersion": { "enum": [ VERSION ] },
+    "kind": { "enum": [ "Manifest" ] },
     "root": { "$ref": "#/definitions/resource" },
     "jobs": { "type": "object"}
   },
-  "required": ["apiVersion", "root"]
+  "required": ["apiVersion", "kind", "root"]
 }
 
 class YamlManifest(Manifest):
@@ -66,6 +84,7 @@ class YamlManifest(Manifest):
 Loads and saves a GitErOp manifest with the following format:
 
 apiVersion: VERSION
+kind: Manifest
 root: #root resource is always named 'root'
  attributes:
  resources:
@@ -110,10 +129,9 @@ jobs:
 
     #schema should include defaults but can't validate because it doesn't understand includes
     #but should work most of time
-    # XXX2 schema.validate
     manifest = expandDoc(self.manifest, cls=CommentedMap)
 
-    messages = self.getValidateErrors()
+    messages = self.validate(manifest)
     if messages and validate:
       raise GitErOpError(messages)
     else:
@@ -127,18 +145,19 @@ jobs:
   def createDependency(self, configurationSpec, dependencyTemplateName, args=None):
     return None
 
-  def loadResource(self, name, spec, parent):
-    resource = Resource(name, spec.get('attributes'), parent)
+  def loadResource(self, name, specs, parent):
+    resource = Resource(name, specs.get('attributes'), parent)
 
-    for key, val in spec['configurations'].items():
-      configSpec = ConfigurationSpec(key, name, val['className'], val['majorVersion'], val.get('minorVersion',''),
-                      intent=toEnum(Action, val.get('intent', Defaults.intent)))
+    for key, val in specs['configurations'].items():
+      spec = val['spec']
+      configSpec = ConfigurationSpec(key, name, spec['className'], spec['majorVersion'], spec.get('minorVersion',''),
+                      intent=toEnum(Action, spec.get('intent', Defaults.intent)))
       config = Configuration(configSpec, resource,
           toEnum(Status, val.get('status',{}).get('operational', Status.notapplied)))
       resource.setConfiguration(config)
 
-    for key, val in spec['resources'].items():
-      resource.addResources( self.loadResource(key, val, resource) )
+    for key, val in specs['resources'].items():
+      resource.addResource( self.loadResource(key, val, resource) )
     return resource
 
   def saveStatus(self, operational):
@@ -149,10 +168,10 @@ jobs:
 
   def saveResource(self, resource):
     return (resource.name, dict(
-      status = self.saveStatus(resource),
       attributes=resource.attributes,
+      configurations=dict(map(self.saveConfiguration, resource.allConfigurations)),
       resources=dict(map(self.saveResource, resource.resources)),
-      configurations=dict(map(self.saveConfiguration, resource.allConfigurations))
+      status = self.saveStatus(resource),
     ))
 
   def saveConfiguration(self, config):
@@ -162,16 +181,17 @@ jobs:
       status['parameters'] = config.parameters
     # dependencies.values(), self.configurationSpec.getPostConditions()
     return (config.name, dict(
-      status=status,
-      className=spec.className,
-      majorVersion=spec.majorVersion,
-      minorVersion=spec.minorVersion,
-      intent=spec.intent.name
-      ))
+      spec=dict(
+        className=spec.className,
+        majorVersion=spec.majorVersion,
+        minorVersion=spec.minorVersion,
+        intent=spec.intent.name
+      ),
+      status=status))
 
   def saveJob(self, job, workDone):
     # XXX job, workDone??
-    changed = {'apiVersion': VERSION}
+    changed = {'apiVersion': VERSION, 'kind': 'Manifest'}
     changed.update([self.saveResource(self.rootResource)])
     self.manifest = updateDoc(self.manifest, changed, cls=CommentedMap)
     self.dump(job.out)
@@ -179,9 +199,9 @@ jobs:
   def dump(self, out=sys.stdout):
     yaml.dump(self.manifest, out)
 
-  def getValidateErrors(self):
+  def validate(self, manifest):
     validator = DefaultValidatingLatestDraftValidator(schema)
-    return list(validator.iter_errors(self.manifest))
+    return list(validator.iter_errors(manifest))
 
 def runJob(manifestPath, opts=None):
   manifest = YamlManifest(path=manifestPath)

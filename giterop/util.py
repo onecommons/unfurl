@@ -136,7 +136,7 @@ def expandDoc(doc, current=None, cls=dict):
         includes.append( template )
       else:
         if len(current) > 1:
-          raise 'can not merge non-map value %s' % template #XXX2
+          raise GitErOpError('can not merge non-map value %s' % template)
         else:
           return template # replaces current
     elif key.startswith('q+'):
@@ -216,7 +216,7 @@ def updateDoc(originalDoc, changedDoc, original=None, changed=None, cls=dict):
         if isinstance(val, (dict, cls)) and isinstance(oldval, (dict, cls)):
           changed[key] = updateDoc(originalDoc, changedDoc, oldval, val, cls)
         elif isinstance(val, list) and isinstance(expanded[key], list):
-          changed[key] = updateList(doc, oldval, val, cls)
+          changed[key] = updateList(originalDoc, changedDoc, oldval, val, cls)
 
   # if original map has includes, diff the keys in the includes and update map with diff plus includes
   includes, mergedIncludes = findincludes(originalDoc, changedDoc, original) #XXX2
@@ -231,7 +231,7 @@ def findincludes(originalDoc, changedDoc, original):
   # if include exists but doesn't match original, error
   return {}, {} #XXX2
 
-def updateList(doc, original, changed, cls=dict):
+def updateList(originalDoc, changedDoc, original, changed, cls=dict):
   #if original list has includes, find values in changed list, replace them with include
   return changed
 
