@@ -1,7 +1,8 @@
 import unittest
 from giterop.runtime import JobOptions, Configurator, ConfigurationSpec, Status, Priority, Resource, Runner, Manifest, OperationalInstance
 from giterop.manifest import YamlManifest
-from giterop.util import GitErOpError, expandDoc, updateDoc, lookupClass, VERSION
+from giterop.util import GitErOpError, expandDoc, restoreIncludes, lookupClass, VERSION, diffDicts, mergeDicts
+from ruamel.yaml.comments import CommentedMap
 import traceback
 import six
 import datetime
@@ -35,12 +36,12 @@ class ExpandDocTest(unittest.TestCase):
 
     't4': ['a', 'b'],
 
-    'test1': {
-     '+t2': None,
-     'a': {'+t1': None },
-     'd': {'+t3': None },
-     'e': 'e'
-    },
+    'test1': CommentedMap([
+     ('+t2', None),
+     ('a', {'+t1': None }),
+     ('d', {'+t3': None }),
+     ('e', 'e')
+    ]),
 
     'test2':
       [1, "+t1", '+t4', {'+t4': None}]
@@ -58,20 +59,27 @@ class ExpandDocTest(unittest.TestCase):
   }
 
   def test_expandDoc(self):
-    expanded = expandDoc(self.doc)
+    includes, expanded = expandDoc(self.doc, cls=CommentedMap)
+    self.assertEqual(includes, {
+      ('test1',): [('+t2', None)],
+      ('test1', 'a'): [('+t1', None)],
+      ('test1', 'd'): [('+t3', None)],
+      ('test2', 1): [('+t1', None)],
+      ('test2', 2): [('+t4', None)],
+      ('test2', 3): [('+t4', None)],
+    })
     self.assertEqual(expanded['test1'], self.expected['test1'])
     self.assertEqual(expanded['test2'], self.expected['test2'])
+    restoreIncludes(includes, self.doc, expanded, CommentedMap)
+    self.assertEqual(expanded['test1'], self.doc['test1'])
 
-  def test_updateDoc(self):
-    # compare and patch: delete keys and items that are in template
-    original = {
-      'a': 1
-    }
-    changed = {
-      'b': 2
-    }
-    updated = updateDoc(original, changed)
-    self.assertEqual(changed, updated)
+  def test_diff(self):
+    old = {'a': 1}
+    new = {'a': 1, 'b': 2}
+    diff = diffDicts(old, new)
+    self.assertEqual(diff, {'b': 2})
+    newNew = mergeDicts(old, diff)
+    self.assertEqual(newNew, new)
 
 class JobTest(unittest.TestCase):
 
@@ -188,5 +196,4 @@ root:
 '''
     with self.assertRaises(GitErOpError) as err:
       YamlManifest(manifest)
-    # XXX2 missing template should raise error instead of returning None
-    #self.assertEqual(str(err.exception), "template reference is not defined: production")
+    self.assertEqual(str(err.exception), 'can not find "templates.production" in document')

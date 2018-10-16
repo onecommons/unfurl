@@ -1,5 +1,5 @@
 import six
-from .util import GitErOpError, expandDoc, updateDoc, toEnum, VERSION, DefaultValidatingLatestDraftValidator
+from .util import GitErOpError, expandDoc, restoreIncludes, toEnum, VERSION, DefaultValidatingLatestDraftValidator
 from .runtime import JobOptions, Configuration, ConfigurationSpec, Status, Action, Defaults, Resource, Runner, Manifest
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap
@@ -129,7 +129,7 @@ jobs:
 
     #schema should include defaults but can't validate because it doesn't understand includes
     #but should work most of time
-    manifest = expandDoc(self.manifest, cls=CommentedMap)
+    self.includes, manifest = expandDoc(self.manifest, cls=CommentedMap)
 
     messages = self.validate(manifest)
     if messages and validate:
@@ -193,7 +193,8 @@ jobs:
     # XXX job, workDone??
     changed = {'apiVersion': VERSION, 'kind': 'Manifest'}
     changed.update([self.saveResource(self.rootResource)])
-    self.manifest = updateDoc(self.manifest, changed, cls=CommentedMap)
+    restoreIncludes(self.includes, self.manifest, changed, cls=CommentedMap)
+    self.manifest = changed
     self.dump(job.out)
 
   def dump(self, out=sys.stdout):
