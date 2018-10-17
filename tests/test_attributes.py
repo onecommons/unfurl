@@ -113,3 +113,34 @@ class AttributeTest(unittest.TestCase):
       ref = Ref(exp)
       #print ('eval', ref, ref.paths)
       self.assertEqual(ref.resolve(resource), expected, [ref] + ref.paths)
+
+  def test_funcs(self):
+    resource = self._getTestResource()
+    test1 = {
+      'eval': '.name',
+      'vars': {
+        'a': None
+      }
+    }
+    test2 = {
+      'eval': '$b',
+      'vars': {
+        'b': 1
+      }
+    }
+    test3 = {
+      'eval': {
+        'if': {'not': '$a'},
+        'then': {'q': 'expected'},
+        'else': {'q': 'unexpected'},
+      },
+      'vars': {
+        'a': None
+      }
+    }
+    result1 = evalDict(test1, resource)
+    self.assertEqual('test', result1)
+    result2 = evalDict(test2, resource)
+    self.assertEqual(1, result2)
+    result3 = evalDict(test3, resource)
+    self.assertEqual('expected', result3)

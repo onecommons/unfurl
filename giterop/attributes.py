@@ -270,13 +270,9 @@ class Ref(object):
      'true': True, 'false': False, 'null': None
     }
 
-    self.conditional = None
     if isinstance(exp, dict):
       self.vars.update(exp.get('vars', {}))
       exp = exp.get('ref', '')
-      if isinstance(exp, dict):
-        self.conditional = exp
-        exp = exp.get('if', exp.get('ifnot', ''))
 
     if vars:
       self.vars.update(vars)
@@ -290,27 +286,23 @@ class Ref(object):
     #always return a list of matches
     #values in results list can be a list or None
     context = _RefContext(dict((k, self.resolveIfRef(v, currentResource)) for (k, v) in self.vars.items()))
-    if self.paths[0][0] == '$':
+    if self.paths[0].key[0] == '$':
       #if starts with a var, use that as the start
-      varName = self.paths[0][1:]
+      varName = self.paths[0].key[1:]
       currentResource = self.resolveIfRef(context.vars[varName], currentResource)
+      if len(self.paths) == 1:
+        # bare reference to a var, just return it's value
+        return [currentResource]
       paths = [self.paths[0]._replace(key='')] + self.paths[1:]
     else:
       paths = self.paths
     return evalExp([currentResource], paths, context)
 
   def resolveOne(self, currentResource):
-    result = self._resolveOne(currentResource)
-    if not self.conditional:
-      return result
-    negate = self.conditional.get('ifnot')
-    if result or (negate and not result):
-      return self.resolveOneIfRef(self.conditional.get('then', True))
-    else:
-      return self.resolveOneIfRef(self.conditional.get('else', None))
+    return self._resolveOne(currentResource)
 
   def __repr__(self):
-    # XXX vars, conditional
+    # XXX vars
     return "Ref('%s')" % self.source
 
   def _resolveOne(self, currentResource):
@@ -353,6 +345,67 @@ class Ref(object):
         return len([x for x in ['vars', 'foreach'] if x in value]) + 1 == len(value)
       return False
     return isinstance(value, Ref)
+
+def ifFunc(arg, ctx):
+  kw = ctx.kw
+  result = eval(arg, ctx)
+  if result:
+    return eval(kw.get('then'), ctx)
+  else:
+    return eval(kw.get('else'), ctx)
+
+def orFunc(arg, ctx):
+  args = eval(arg, ctx)
+  assert isinstance(args, list)
+  for arg in args:
+    val = eval(arg, ctx)
+    if val:
+      return val
+
+def notFunc(arg, ctx):
+  result = eval(arg, ctx)
+  return not result
+
+def andFunc(arg, ctx):
+  args = eval(arg, ctx)
+  assert isinstance(args, list)
+  for arg in args:
+    val = eval(arg, ctx)
+    if not val:
+      return val
+  return val
+
+def quoteFunc(arg, ctx):
+  return arg
+
+funcs = {
+  'if': ifFunc,
+  'and': andFunc,
+  'or': orFunc,
+  'not': notFunc,
+  'q': quoteFunc
+}
+
+def eval(val, ctx):
+  if isinstance(val, dict):
+    for key in val:
+      func = funcs.get(key)
+      if func:
+        break
+    else:
+      return val
+    args = val[key]
+    ctx.kw = val
+    return func(args, ctx)
+  elif isinstance(val, six.string_types):
+    return Ref(val, ctx.vars).resolveOne(ctx.currentResource)
+  else:
+    return val
+
+def evalDict(exp, currentResource):
+    ctx = _RefContext(exp.get('vars', {}))
+    ctx.currentResource = currentResource
+    return eval(exp['eval'], ctx)
 
 #return a segment
 Segment = collections.namedtuple('Segment', ['key', 'test', 'modifier', 'filters'])
