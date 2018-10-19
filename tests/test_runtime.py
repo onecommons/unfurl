@@ -1,11 +1,12 @@
 import unittest
 from giterop.runtime import JobOptions, Configurator, ConfigurationSpec, Status, Priority, Resource, Runner, Manifest, OperationalInstance
 from giterop.manifest import YamlManifest
-from giterop.util import GitErOpError, expandDoc, restoreIncludes, lookupClass, VERSION, diffDicts, mergeDicts
+from giterop.util import GitErOpError, expandDoc, restoreIncludes, lookupClass, VERSION, diffDicts, mergeDicts, patchDict
 from ruamel.yaml.comments import CommentedMap
 import traceback
 import six
 import datetime
+import copy
 
 class SimpleConfigurator(Configurator):
   def run(self, task):
@@ -74,12 +75,16 @@ class ExpandDocTest(unittest.TestCase):
     self.assertEqual(expanded['test1'], self.doc['test1'])
 
   def test_diff(self):
-    old = {'a': 1}
-    new = {'a': 1, 'b': 2}
+    expectedOld = {'a': 1, 'b': {'b1': 1, 'b2': 1}, 'd':1}
+    old = copy.copy(expectedOld)
+    new = {'a': 1, 'b': {'b1': 2, 'b2': 1}, 'c': 2}
     diff = diffDicts(old, new)
-    self.assertEqual(diff, {'b': 2})
+    self.assertEqual(diff, {'b': {'b1': 2}, 'c': 2, 'd': {'+%': 'delete'}})
     newNew = mergeDicts(old, diff)
     self.assertEqual(newNew, new)
+    self.assertEqual(old, expectedOld)
+    patchDict(old, new)
+    self.assertEqual(old, new)
 
 class JobTest(unittest.TestCase):
 

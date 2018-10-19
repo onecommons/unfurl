@@ -8,11 +8,15 @@ from ruamel.yaml.comments import CommentedMap
 class AttributeTest(unittest.TestCase):
   longMessage = True
 
-  @unittest.expectedFailure
   def test_CommentedMap(self):
     cm = CommentedMap()
-    # bug in ruamel.yaml: raises TypeError: source has undefined order
-    assertEqual(cm, cm.copy())
+    # check bug in ruamel.yaml is fixed: raises TypeError: source has undefined order
+    self.assertEqual(cm, cm.copy())
+
+  def test_CommentedMapEquality(self):
+    cm = CommentedMap((('b', 2),))
+    cm.insert(1, 'a', 1, comment="a comment")
+    self.assertEqual(cm, {'a':1, 'b': 2})
 
   def _getTestResource(self):
     resourceDef = { "metadata": {

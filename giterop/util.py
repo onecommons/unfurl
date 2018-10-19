@@ -83,25 +83,39 @@ def toEnum(enum, value):
   else:
     return value
 
-mergeStrategy = 'mergeStrategy'
+# values: merge, replace, delete
+mergeStrategyKey = '+%'
 # b is base, a overrides
 def mergeDicts(b, a, cls=dict):
+  """
+  base
+  derived
+  """
   cp = cls()
+  skip = []
   for key, val in a.items():
-    if key == mergeStrategy:
+    if key == mergeStrategyKey:
       continue
-    if key in b and isinstance(val, (dict, cls)) and isinstance(b[key], (dict, cls)):
-      strategy = a.get(mergeStrategy, b.get(mergeStrategy, 'merge'))
-      if strategy == 'merge':
-        cp[key] = mergeDicts(b[key], val, cls)
-      # otherwise a replaces b
-    else:
-      cp[key] = val
+    if isinstance(val, (dict, cls)):
+      strategy = val.get(mergeStrategyKey)
+      if key in b:
+        bval = b[key]
+        if isinstance(bval, (dict, cls)):
+          if not strategy:
+            strategy = bval.get(mergeStrategyKey, 'merge')
+          if strategy == 'merge':
+            cp[key] = mergeDicts(bval, val, cls)
+            continue
+      if strategy == 'delete':
+        skip.append(key)
+        continue
+    # otherwise a replaces b
+    cp[key] = val
 
   for key, val in b.items():
-    if key == mergeStrategy:
+    if key == mergeStrategyKey:
       continue
-    if key not in cp:
+    if key not in cp and key not in skip:
       cp[key] = val
   return cp
 
@@ -140,6 +154,8 @@ def expandDict(doc, path, includes, current, cls=dict):
   assert isinstance(current, (dict, cls)), current
   for (key, value) in current.items():
     if key.startswith('+'):
+      if key == mergeStrategyKey:
+        continue
       includes.setdefault(path, []).append( (key, value) )
       template = getTemplate(doc, key[1:], value, cls)
       if isinstance(template, (cls, dict)):
@@ -173,6 +189,8 @@ def expandDoc(doc, current=None, cls=dict):
   includes = CommentedMap()
   if current is None:
     current = doc
+  if not isinstance(doc, (dict, cls)) or not isinstance(current, (dict, cls)):
+    raise GitErOpError('malformed YAML or JSON document')
   return includes, expandDict(doc, (), includes, current, cls)
 
 def expandList(doc, path, includes, value, cls=dict):
@@ -207,13 +225,15 @@ def diffDicts(old, new, cls=dict):
   diff = cls()
   # start with old to preserve original order
   for key, val in old.items():
-    newval = new.get(key)
-    # keys not found will be set to None
-    if val != newval:
-      if isinstance(val, (dict, cls)) and isinstance(newval, (dict, cls)):
-        diff[key] = diffDicts(val, newval, cls)
-      else:
-        diff[key] = newval
+    if key in new:
+      newval = new[key]
+      if val != newval:
+        if isinstance(val, (dict, cls)) and isinstance(newval, (dict, cls)):
+          diff[key] = diffDicts(val, newval, cls)
+        else:
+          diff[key] = newval
+    else:
+      diff[key]= {'+%': 'delete'}
 
   for key in new:
     if key not in old:
@@ -244,6 +264,9 @@ def addTemplate(changedDoc, path, template):
   current[last] = template
 
 def restoreIncludes(includes, originalDoc, changedDoc, cls=dict):
+  """
+  Modifies changedDoc with includes found in originalDoc
+  """
   # if the path to the include still exists
   # resolve the include
   # if the include doesn't exist in the current doc, re-add it
@@ -251,6 +274,7 @@ def restoreIncludes(includes, originalDoc, changedDoc, cls=dict):
   for key, value in includes.items():
     ref = lookupPath(changedDoc, key, cls)
     if ref is None:
+      # inclusion point no longer exists
       continue
 
     mergedIncludes = {}
@@ -285,6 +309,33 @@ def restoreIncludes(includes, originalDoc, changedDoc, cls=dict):
       diff = diffDicts(mergedIncludes, ref, cls)
       replacePath(changedDoc, key, diff, cls)
 
+def patchDict(old, new, cls=dict):
+  """
+  transform old into new
+  """
+  # start with old to preserve original order
+  for key, val in list(old.items()):
+    if key in new:
+      newval = new[key]
+      # keys not found will be set to None
+      if val != newval:
+        if isinstance(val, (dict, cls)) and isinstance(newval, (dict, cls)):
+          old[key] = patchDict(val, newval, cls)
+        elif isinstance(val, list) and isinstance(newval, list):
+          # preserve old item in list if they are equal to the new item
+          old[key] = [(val[val.index(item)] if item in val else item)
+                                          for item in enumerate(newval)]
+        else:
+          old[key] = newval
+    else:
+      del old[key]
+
+  for key in new:
+    if key not in old:
+      old[key] = new[key]
+
+  return old
+
 # https://python-jsonschema.readthedocs.io/en/latest/faq/#why-doesn-t-my-schema-s-default-property-set-the-default-on-my-instance
 def extend_with_default(validator_class):
   """
@@ -299,6 +350,9 @@ def extend_with_default(validator_class):
   validate_properties = validator_class.VALIDATORS["properties"]
 
   def set_defaults(validator, properties, instance, schema):
+    if not validator.is_type(instance, "object"):
+      return
+
     for key, subschema in properties.items():
       if "default" in subschema:
         instance.setdefault(key, subschema["default"])

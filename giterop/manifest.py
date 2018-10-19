@@ -1,5 +1,6 @@
 import six
-from .util import GitErOpError, expandDoc, restoreIncludes, toEnum, VERSION, DefaultValidatingLatestDraftValidator
+from .util import (GitErOpError, toEnum, VERSION,
+  DefaultValidatingLatestDraftValidator, expandDoc, restoreIncludes, patchDict)
 from .runtime import JobOptions, Configuration, ConfigurationSpec, Status, Action, Defaults, Resource, Runner, Manifest
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap
@@ -7,6 +8,8 @@ from codecs import open
 import sys
 yaml = YAML()
 
+# XXX3 add as file to package data
+#schema=open(os.path.join(os.path.dirname(__file__), 'manifest-v1alpha1.json')).read()
 schema = {
   "$schema": "http://json-schema.org/draft-04/schema#",
   "$id": "https://www.onecommons.org/schemas/giterop/v1alpha1.json",
@@ -121,8 +124,9 @@ jobs:
 """
   def __init__(self, manifest=None, path=None, validate=True):
     if path:
-      self.manifest = yaml.load(open(path).read())
-    elif isinstance(manifest, six.string_types):
+      with open(path, 'r') as f:
+        manifest = f.read()
+    if isinstance(manifest, six.string_types):
       self.manifest = yaml.load(manifest)
     else:
       self.manifest = manifest
@@ -194,7 +198,8 @@ jobs:
     changed = {'apiVersion': VERSION, 'kind': 'Manifest'}
     changed.update([self.saveResource(self.rootResource)])
     restoreIncludes(self.includes, self.manifest, changed, cls=CommentedMap)
-    self.manifest = changed
+    # modify original to preserve comments
+    patchDict(self.manifest, changed, CommentedMap)
     self.dump(job.out)
 
   def dump(self, out=sys.stdout):
