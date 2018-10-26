@@ -44,7 +44,7 @@ from .util import GitErOpError, GitErOpTaskError, toEnum, lookupClass, AutoRegis
 
 # XXX2 doc: notpresent is a positive assertion of non-existence while notapplied just indicates non-liveness
 # notapplied is therefore the default initial state
-S = Status = IntEnum("Status", "ok degraded error notapplied notpresent", module=__name__)
+S = Status = IntEnum("Status", "ok degraded error pending notapplied notpresent", module=__name__)
 
 # ignore may must
 Priority = IntEnum("Priority", "ignore optional required", module=__name__)
@@ -123,17 +123,22 @@ class Operational(object):
     # degraded if non-required configurations and resources are not operational
     #          or required configurations and resources are degraded
     # ok otherwise
+
+    #any required is pending then aggregate is pending
+    #any other are pending only set pending if aggregate is ok
     aggregate = defaultStatus
     for status in statuses:
       assert isinstance(status, Operational), status
       if status.priority == Priority.ignore:
         continue
-      if status.required:
+      elif status.required:
         if not status.operational:
           aggregate = Status.error
           break
         elif status.status == Status.degraded:
           aggregate = Status.degraded
+      elif status.status == Status.pending and aggregate <= Status.pending:
+         aggregate = Status.pending
       elif not status.operational:
           aggregate = Status.degraded
       elif aggregate == Status.notapplied:
@@ -393,7 +398,80 @@ class Configuration(OperationalInstance):
   #@property
   #def obsolete(self):
 
-class Task(object):
+class TaskRequest(object):
+  def __init__(self, configSpec):
+    self.configSpec = configSpec
+
+class JobRequest(object):
+  def __init__(self, resource):
+    self.resource = resource
+
+class TaskView(object):
+  def __init__(self, manifest, currentConfiguration):
+    self.manifest = manifest
+    self.currentConfiguration = currentConfiguration
+    self.updateResources = {}
+    self.messages = []
+    self.addedResources = []
+    self.removedResources = []
+
+  def addResource(self, templateName, name, metadata):
+    # XXX2 should indicate what kind of dependency
+    # instantiate new resource and a job that will run it
+    resource = self.manifest.createResource(templateName, name, metadata)
+    # configurator can yield the returned job if it wants it to be run right away
+    # otherwise it will be run later
+    self.addedResources.append(resource)
+    return JobRequest(resource)
+
+  def removeResource(self, resource):
+    # XXX2 should indicate what kind of dependency
+    self.removedResources.append(resource)
+    # XXX2 only do this if its orphaned:
+    resource.container.resources.remove(resource)
+
+  def addMessage(self, message):
+    self.messages.append(message)
+
+  def updateResource(self, resource, updated={}, deleted=()):
+    # XXX2 should indicate what kind of dependency, including if the attributes changes are important
+    # save original
+    if resource.name not in self.updateResources:
+      self.updateResources[resource.name] = (resource, copy.copy(resource.attributes))
+    # update the resource
+    for key in deleted:
+      resource.attributes.pop(key, None)
+    resource.attributes.update(updated)
+
+  def updateDependency(self, name, dependencyTemplateName, args=None):
+    """
+    Dynamically update the conditions this configuration depends on.
+    """
+    if dependencyTemplateName:
+      dependency = self.manifest.createDependency(self.currentConfiguration.configurationSpec, dependencyTemplateName, args)
+      self.currentConfiguration.dependencies.update(name, dependency)
+    else:
+      self.currentConfiguration.dependencies.pop(name, None)
+
+  def findResource(self, name):
+     return self.manifest.getRootResource().findResource(name)
+
+  # XXX2 need a way to associate resource templates with constructor / controller configs
+  # for now need to create task that creates it
+  #def createResource(self, resource):
+  #  return Task(self, resource)
+
+  def createConfigurationSpec(self, configurationTemplateName, configurationkws=None):
+    return self.manifest.createConfigurationSpec(
+        configurationTemplateName, configurationkws)
+
+  # configurations created by subtasks are transient insofar as the are not part of the spec,
+  # but they are persistent in that they recorded as part of the resource's state and status
+  # XXX2 need a way to mark this as a child of current task, should not appear in specs
+  def createSubTask(self, configSpec):
+    return TaskRequest(configSpec)
+
+class Task(TaskView):
   """
   Configurator records the changes to the system's state via the Task interface
 
@@ -406,7 +484,7 @@ class Task(object):
   Configurator's only other interface to modifying the system is through createSubTask()
   """
   def __init__(self, job, spec, currentConfiguration):
-    self.job = job
+    super(Task, self).__init__(job.runner.manifest, currentConfiguration)
     self.oldConfiguration = currentConfiguration
     if currentConfiguration:
       self.currentConfiguration = currentConfiguration
@@ -417,12 +495,10 @@ class Task(object):
       self.newConfiguration = Configuration(spec, resource, Status.notapplied)
       self.currentConfiguration = self.newConfiguration
     self.configurator = spec.create()
-    self.updateResources = {}
-    self.messages = []
-    self.addedResources = []
-    self.removedResources = []
     self.errors = []
     self.startTime = job.startTime or datetime.datetime.now()
+    self.dryRun = job.dryRun
+    self.generator = None
 
   def validateParameters(self):
     spec = self.newConfiguration.configurationSpec
@@ -430,18 +506,27 @@ class Task(object):
                   spec.resolveParameters(self.newConfiguration))
 
   def start(self):
-    if self.job.dryRun:
-      generator = self.configurator.dryRun(self)
-    else:
-      generator = self.configurator.run(self)
+    self.startRun()
     # set currentConfiguration (on the target resource too)
     config = self.newConfiguration
     self.currentConfiguration = config
     config.resource.setConfiguration(config)
     config.refreshParameters()
-    return generator
+
+  def startRun(self):
+    if self.dryRun:
+      self.generator = self.configurator.dryRun(self)
+    else:
+      self.generator = self.configurator.run(self)
+
+  def send(self, change):
+    return self.generator.send(change)
 
   def finished(self, result):
+    if self.generator:
+      self.generator.close()
+      self.generator = None
+
     #XXX2 Check that configuration provided the metadata that it declared it would provide
     self.currentConfiguration.computedStatus = result
     resource = self.currentConfiguration.resource
@@ -468,62 +553,6 @@ class Task(object):
     for (resource, attributes) in self.updateResources.values():
       resource.attributes = attributes
     self.updateResources = {}
-
-  def addResource(self, templateName, name, metadata):
-    # XXX2 should indicate what kind of dependency
-    # instantiate new resource and a job that will run it
-    resource = self.job.runner.manifest.createResource(templateName, name, metadata)
-    # configurator can yield the returned job if it wants it to be run right away
-    # otherwise it will be run later
-    self.addedResources.append(resource)
-    return self.job.addChildJob(self, resource)
-
-  def removeResource(self, resource):
-    # XXX2 should indicate what kind of dependency
-    self.removedResources.append(resource)
-    # XXX2 only do this if its orphaned:
-    resource.container.resources.remove(resource)
-
-  def addMessage(self, message):
-    self.messages.append(message)
-
-  def updateResource(self, resource, updated={}, deleted=()):
-    # XXX2 should indicate what kind of dependency, including if the attributes changes are important
-    # save original
-    if resource.name not in self.updateResources:
-      self.updateResources[resource.name] = (resource, copy.copy(resource.attributes))
-    # update the resource
-    for key in deleted:
-      resource.attributes.pop(key, None)
-    resource.attributes.update(updated)
-
-  def updateDependency(self, name, dependencyTemplateName, args=None):
-    """
-    Dynamically update the conditions this configuration depends on.
-    """
-    if dependencyTemplateName:
-      dependency = self.job.runner.manifest.createDependency(self.currentConfiguration.configurationSpec, dependencyTemplateName, args)
-      self.currentConfiguration.dependencies.update(name, dependency)
-    else:
-      self.currentConfiguration.dependencies.pop(name, None)
-
-  def findResource(self, name):
-     return self.job.runner.manifest.getRootResource().findResource(name)
-
-  # XXX2 need a way to associate resource templates with constructor / controller configs
-  # for now need to create task that creates it
-  #def createResource(self, resource):
-  #  return Task(self, resource)
-
-  def createConfigurationSpec(self, configurationTemplateName, configurationkws=None):
-    return self.job.runner.manifest.createConfigurationSpec(
-        configurationTemplateName, configurationkws)
-
-  # configurations created by subtasks are transient insofar as the are not part of the spec,
-  # but they are persistent in that they recorded as part of the resource's state and status
-  # XXX2 need a way to mark this as a child of current task, should not appear in specs
-  def createSubTask(self, configSpec):
-    return Task(self.job, configSpec, None)
 
   def __str__(self):
     return "Task: " + str(self.configuration)
@@ -744,24 +773,23 @@ status compared to current spec is different: compare difference for each:
     if not self.canRunTask(task):
       return Status.notapplied
 
-    generator = task.start()
+    task.start()
     change = None
     while True:
       try:
-        result = generator.send(change)
+        result = task.send(change)
       except Exception:
-        generator.close()
         GitErOpTaskError(task, "configurator.run failed")
         return task.finished(Status.error)
-      if isinstance(result, Task):
-        change = self.runTask(result)
-      elif isinstance(result, Job):
+      if isinstance(result, TaskRequest):
+        subtask = Task(self, result.configSpec, None)
+        change = self.runTask(subtask)
+      elif isinstance(result, JobRequest):
+        self.addChildJob(resource)
         change = result.run()
       elif isinstance(result, Status):
-        generator.close()
         return task.finished(result)
       else:
-        generator.close()
         GitErOpTaskError(task, 'unexpected result from configurator')
         return task.finished(Status.error)
 
