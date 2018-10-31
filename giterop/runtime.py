@@ -33,6 +33,7 @@ import sys
 from itertools import chain
 from enum import IntEnum
 from .util import GitErOpError, GitErOpTaskError, toEnum, lookupClass, AutoRegisterClass
+from .eval import Ref
 
 # question: if a configuration failed to apply should that affect the status of the configuration?
 # OTOH the previous version of the configuration status is still in effect
@@ -206,6 +207,28 @@ class Resource(Operational):
     if parent:
       parent.resources.append(self)
     self.resources = children or []
+
+  @property
+  def named(self):
+    return dict((r.name, r) for r in chain([self],self.resources))
+
+  def _getProp(self, name):
+    if name == '.':
+      return self
+    elif name == '..':
+      return self.container
+    name = name[1:]
+    # XXX propmap
+    return getattr(self, name)
+
+  def __reflookup__(self, key):
+    if not key:
+      raise KeyError(key)
+    if key[0] == '.':
+      return self._getProp(key)
+
+    value = self.attributes[key]
+    return Ref.resolveOneIfRef(value, self)
 
   def getOperationalDependencies(self):
     return self.configurations.values()
@@ -736,7 +759,7 @@ status compared to current spec is different: compare difference for each:
         lastChange = existing.pop(config.name, None)
         config = self.includeTask(config, lastChange)
         if config and self.filterConfig(config):
-            yield Task(self, config, lastChange)
+            yield self.createTask(config, lastChange)
 
       if self.all or self.revertObsolete:
         for change in existing.values():
@@ -746,7 +769,7 @@ status compared to current spec is different: compare difference for each:
             # configuration may have premptively run while executing another task
             continue
           if config and not self.filterConfig(config):
-            yield Task(self, config, change)
+            yield self.createTask(config, change)
 
   def filterConfig(self, config):
     if self.readOnly and config.intent != 'discover':
@@ -758,6 +781,9 @@ status compared to current spec is different: compare difference for each:
     if self.configuration and config.name != self.configuration:
       return None
     return config
+
+  def createTask(self, configSpec, config):
+    return Task(self, configSpec, config);
 
   def runTask(self, task):
     """
@@ -782,11 +808,11 @@ status compared to current spec is different: compare difference for each:
         GitErOpTaskError(task, "configurator.run failed")
         return task.finished(Status.error)
       if isinstance(result, TaskRequest):
-        subtask = Task(self, result.configSpec, None)
-        change = self.runTask(subtask)
+        subtask = self.createTask(result.configSpec, None)
+        change = self.runTask(subtask) # returns a configuration
       elif isinstance(result, JobRequest):
-        self.addChildJob(resource)
-        change = result.run()
+        job = self.addChildJob(result.resource)
+        change = job.run() #returns a resource
       elif isinstance(result, Status):
         return task.finished(result)
       else:
