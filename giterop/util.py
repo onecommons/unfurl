@@ -3,8 +3,11 @@ import optparse
 import six
 import traceback
 from six.moves import reduce
-from jsonschema import Draft4Validator, validators
+from jsonschema import Draft4Validator, validators, RefResolver
 from ruamel.yaml.comments import CommentedMap
+
+ #import pickle
+pickleVersion = 2 #pickle.DEFAULT_PROTOCOL
 
 class AnsibleDummyCli(object):
   def __init__(self):
@@ -106,6 +109,8 @@ def mergeDicts(b, a, cls=dict):
           if strategy == 'merge':
             cp[key] = mergeDicts(bval, val, cls)
             continue
+          if strategy == 'error':
+            raise GitErOpError('merging %s is not allowed, +%: error was set' % key)
       if strategy == 'delete':
         skip.append(key)
         continue
@@ -119,9 +124,12 @@ def mergeDicts(b, a, cls=dict):
       cp[key] = val
   return cp
 
-def getTemplate(doc, key, value, cls):
+def getTemplate(doc, key, value, path, cls):
   template = doc
-  for segment in key.split('.'):
+  for segment in key.split('/'):
+    if segment == '..':
+      path = path[:-1]
+      template = lookupPath(doc, path, cls)
     if not isinstance(template, (cls, dict)) or segment not in template:
       raise GitErOpError('can not find "%s" in document' % key)
     template = template[segment]
@@ -129,9 +137,12 @@ def getTemplate(doc, key, value, cls):
     includes, template = expandDoc(doc, template, cls)
   return template
 
-def hasTemplate(doc, key, value, cls):
+def hasTemplate(doc, key, path, cls):
   template = doc
-  for segment in key.split('.'):
+  for segment in key.split('/'):
+    if segment == '..':
+      path = path[:-1]
+      template = lookupPath(doc, path, cls)
     if not isinstance(template, (cls, dict)):
       raise GitErOpError('included templates changed')
     if segment not in template:
@@ -155,9 +166,11 @@ def expandDict(doc, path, includes, current, cls=dict):
   for (key, value) in current.items():
     if key.startswith('+'):
       if key == mergeStrategyKey:
+        # cleaner want to skip copying key if not inside a template
+        cp[key] = value
         continue
       includes.setdefault(path, []).append( (key, value) )
-      template = getTemplate(doc, key[1:], value, cls)
+      template = getTemplate(doc, key[1:], value, path, cls)
       if isinstance(template, (cls, dict)):
         templates.append( template )
       else:
@@ -198,7 +211,7 @@ def expandList(doc, path, includes, value, cls=dict):
     if isinstance(item, six.string_types):
       if item.startswith('+'):
         includes.setdefault(path+(i,), []).append( (item, None) )
-        template = getTemplate(doc, item[1:], None, cls)
+        template = getTemplate(doc, item[1:], None, path, cls)
         if isinstance(template, list):
           for i in template:
             yield i
@@ -256,7 +269,7 @@ def replacePath(doc, key, value, cls=dict):
 
 def addTemplate(changedDoc, path, template):
   current = changedDoc
-  key = path.split('.')
+  key = path.split('/')
   path = key[:-1]
   last = key[-1]
   for segment in path:
@@ -279,11 +292,11 @@ def restoreIncludes(includes, originalDoc, changedDoc, cls=dict):
 
     mergedIncludes = {}
     for (includeKey, includeValue) in value:
-      stillHasTemplate = hasTemplate(changedDoc, includeKey[1:], includeValue, cls)
+      stillHasTemplate = hasTemplate(changedDoc, includeKey[1:], key, cls)
       if stillHasTemplate:
-        template = getTemplate(changedDoc, includeKey[1:], includeValue, cls)
+        template = getTemplate(changedDoc, includeKey[1:], includeValue, key, cls)
       else:
-        template = getTemplate(originalDoc, includeKey[1:], includeValue, cls)
+        template = getTemplate(originalDoc, includeKey[1:], includeValue, key, cls)
 
       if not isinstance(ref, (dict, cls)):
         #XXX3 if isinstance(ref, list) lists not yet implemented
@@ -302,7 +315,7 @@ def restoreIncludes(includes, originalDoc, changedDoc, cls=dict):
 
       if not stillHasTemplate:
         if includeValue != 'raw':
-          template = getTemplate(originalDoc, includeKey[1:], 'raw', cls)
+          template = getTemplate(originalDoc, includeKey[1:], 'raw', key, cls)
         addTemplate(changedDoc, includeKey[1:], template)
 
     if isinstance(ref, (dict, cls)):
@@ -371,3 +384,5 @@ DefaultValidatingLatestDraftValidator = extend_with_default(Draft4Validator)
 
 def validateSchema(obj, schema):
   return DefaultValidatingLatestDraftValidator(schema).validate(obj)
+
+#RefResolver.from_schema(schema)
