@@ -99,15 +99,6 @@ setup(
     # Note that this is a string of words separated by whitespace, not a list.
     # XXX keywords='sample setuptools development',  # Optional
 
-    # You can just specify package directories manually here if your project is
-    # simple. Or you can use find_packages().
-    #
-    # Alternatively, if you just want to distribute a single Python file, use
-    # the `py_modules` argument instead as follows, which will expect a file
-    # called `my_module.py` to exist:
-    #
-    #   py_modules=["my_module"],
-    #
     packages=find_packages(exclude=['docs', 'tests']),  # Required
 
     # This field lists other packages that your project depends on to run.

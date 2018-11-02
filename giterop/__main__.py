@@ -5,6 +5,7 @@ Applies a GitErOp manifest
 For each configuration checks if it should be run, records the result
 """
 from .manifest import runJob
+from . import __version__
 import click
 import sys
 import traceback
@@ -41,7 +42,7 @@ def run(ctx, manifest, **options):
 
 @cli.command()
 def version():
-  click.echo("0.0.1alpha")
+  click.echo("giterop version %s" % __version__)
 
 @cli.command()
 def list():

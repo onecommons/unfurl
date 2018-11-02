@@ -2,6 +2,7 @@ import unittest
 import click
 from click.testing import CliRunner
 from giterop.__main__ import cli
+from giterop import __version__
 
 class CliTest(unittest.TestCase):
 
@@ -15,7 +16,7 @@ class CliTest(unittest.TestCase):
     runner = CliRunner()
     result = runner.invoke(cli, ['version'])
     self.assertEqual(result.exit_code, 0)
-    self.assertEqual(result.output.strip(), "0.0.1alpha") #XXX use real version
+    self.assertEqual(result.output.strip(), "giterop version %s" % __version__)
 
   def test_run(self):
     runner = CliRunner()

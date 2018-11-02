@@ -1,5 +1,3 @@
-# just a list of paths, gitterop will introspect
+# just a list of paths, GitErOp will introspect
 local-repos:
   - "path1"
-
-  

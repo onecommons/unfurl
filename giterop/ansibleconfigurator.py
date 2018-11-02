@@ -4,7 +4,7 @@ import json
 import collections
 
 from .util import *
-from .configurator import *
+from .runtime import *
 
 import ansible.constants as C
 from ansible.cli.playbook import PlaybookCLI
@@ -113,9 +113,6 @@ class AnsibleConfigurator(Configurator):
       return self.status.failed if results.exit_code  else self.status.success
     finally:
       self.cleanup()
-
-
-registerClass(VERSION, "Ansible", AnsibleConfigurator)
 
 #https://github.com/ansible/ansible/blob/d72587084b4c43746cdb13abb262acf920079865/examples/scripts/uptime.py
 _ResultsByStatus = collections.namedtuple('_ResultsByStatus', "ok failed skipped unreachable")

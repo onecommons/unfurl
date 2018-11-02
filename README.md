@@ -8,7 +8,7 @@ The initial application for building and maintaining fully-reproducible Kubernet
 
 GitErOp relies on other tools and services to actually do the work, they are encapulated in a "Configurator" interface, which tries to impose the minimum requirements and semantics.
 
-The manifest defines arbitrary and abstract representations of resources using locally defined identifiers. The goal is to make it easy to build humane specification.
+The manifest defines arbitrary and abstract representations of resources using locally defined identifiers. The goal is to make it easy to build humane specifications.
 
 Git repository that contains YAML files that specifies how resources should be configured.
 
@@ -34,6 +34,15 @@ You can use `tox` to run the unit tests inside the supported python environments
 Install tox `pip install tox` and then run `tox` in source root. To install the dependencies you may need header files installed by the following OS packages: `python-dev`, `libcrypt-dev`, `openssl-dev`. (Note: if installation of a dependency fails, reinvoke `tox` with `-r` to recreate the test environment.)
 
 Arguments after `--` are passed to the test runner, e.g. to run an individual test: `tox -- -p test_attributes.py`.
+
+# Getting Started
+
+ 1. create a repo
+ 2. configure giterop
+     1. kms setup: add credentials
+     2. create manifest with root resource: configure using kms
+     3. (optional) run bootstrap to create a secure root resource
+ 3. start creating your manifest
 
 # Usage
 
