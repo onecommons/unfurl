@@ -149,34 +149,31 @@ class RunTest(unittest.TestCase):
   # XXX3 test: hide configurations that are both notpresent and revert / skip
 
   def test_manifest(self):
-    simple = {
-    'apiVersion': VERSION,
-    "kind": "Manifest",
-    'root': {
-      'resources': {},
-      "configurations":{
-        "test": {
-          "spec": {
-            "className": "TestSubtaskConfigurator",
-            "majorVersion": 0
-          }
-        }
-      }
-    }}
+    simple = """
+    apiVersion: %s
+    kind: Manifest
+    root:
+      resources: {}
+      spec:
+        configurations:
+          test:
+            className:    TestSubtaskConfigurator
+            majorVersion: 0
+    """ % VERSION
     manifest = YamlManifest(simple)
     runner = Runner(manifest)
     output = six.StringIO()
-    job = runner.run(JobOptions(add=True, out=output))
+    job = runner.run(JobOptions(add=True, out=output, startTime="test"))
     # print('1', output.getvalue())
     assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
 
     # manifest shouldn't have changed
-    # print('output', output.getvalue())
     manifest2 = YamlManifest(output.getvalue())
     output2 = six.StringIO()
-    job2 = Runner(manifest2).run(JobOptions(add=True, out=output2))
+    job2 = Runner(manifest2).run(JobOptions(add=True, out=output2, startTime="test"))
     # print('2', output2.getvalue())
     assert not job2.unexpectedAbort, job2.unexpectedAbort.getStackTrace()
+    self.maxDiff = None
     self.assertEqual(output.getvalue(), output2.getvalue())
 
   def test_template_inheritance(self):
@@ -192,13 +189,13 @@ templates:
   base:
     configurations:
       step1:
-        +configurators.step1:
+        +configurators/step1:
 root:
   resources:
     cloud3: #key is resource name
-      +templates.base:
-      +templates.production:
+      +templates/base:
+      +templates/production:
 '''
     with self.assertRaises(GitErOpError) as err:
       YamlManifest(manifest)
-    self.assertEqual(str(err.exception), 'can not find "templates.production" in document')
+    self.assertEqual(str(err.exception), 'can not find "templates/production" in document')

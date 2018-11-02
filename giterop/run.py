@@ -39,7 +39,7 @@ class Manifest(object):
   """
   def __init__(self, manifest=None, path=None, validate=True):
     if path:
-      self.manifest = yaml.load(open(manifestPath).read())
+      self.manifest = yaml.load(open(path).read())
     elif isinstance(manifest, six.string_types):
       self.manifest = yaml.load(manifest)
     else:

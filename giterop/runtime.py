@@ -31,6 +31,7 @@ import collections
 import datetime
 import sys
 from itertools import chain
+from ruamel.yaml.comments import CommentedMap
 from enum import IntEnum
 from .util import GitErOpError, GitErOpTaskError, toEnum, lookupClass, AutoRegisterClass
 from .eval import Ref
@@ -192,10 +193,10 @@ class OperationalInstance(Operational):
   priority = property(**priority())
 
 class Resource(Operational):
-  def __init__(self, name='', attributes=None, parent=None, configurations=None, children=None):
+  def __init__(self, name='', attributes=None, parent=None, configurations=None, children=None, spec=None):
     self.name = name # XXX2 guarantee name uniqueness
     self.attributes = attributes or {}
-    self.configurations = dict( (c.name, c) for c in (configurations or []) )
+    self.configurations = CommentedMap( (c.name, c) for c in (configurations or []) )
     # XXX2 replace with activeConfigurations vs. inactiveConfigurations
     # affirmatively absent configurations -- i.e. failed to apply or explicitly not present
     # we don't want any notapplied or notpresent in configurations
@@ -207,6 +208,7 @@ class Resource(Operational):
     if parent:
       parent.resources.append(self)
     self.resources = children or []
+    self.spec = spec or {}
 
   @property
   def named(self):
@@ -324,7 +326,7 @@ class Configurator(object):
 
 class ConfigurationSpec(object):
   def __init__(self, name=None, target=None, className=None, majorVersion=None, minorVersion='',
-      intent=Defaults.intent):
+      intent=Defaults.intent, lastAttempt=None):
     assert name and target and className and majorVersion is not None, "missing required arguments"
     self.name = name
     self.target = target # name of owner resource
@@ -332,6 +334,7 @@ class ConfigurationSpec(object):
     self.majorVersion = majorVersion
     self.minorVersion = minorVersion
     self.intent = intent
+    self.lastAttempt = lastAttempt
     # XXX2 add ensures
 
   def validateParameters(self, parameters):
@@ -372,6 +375,7 @@ class Configuration(OperationalInstance):
     self.resource = resource
     self.dependencies = dependencies or {}
     self.parameters = None
+    self.changes = {}
 
   def priority():
     doc = "The priority property."
@@ -444,6 +448,7 @@ class TaskView(object):
     resource = self.manifest.createResource(templateName, name, metadata)
     # configurator can yield the returned job if it wants it to be run right away
     # otherwise it will be run later
+    # XXX2 need to addJob if it was yielded
     self.addedResources.append(resource)
     return JobRequest(resource)
 
@@ -479,10 +484,6 @@ class TaskView(object):
   def findResource(self, name):
      return self.manifest.getRootResource().findResource(name)
 
-  # XXX2 need a way to associate resource templates with constructor / controller configs
-  # for now need to create task that creates it
-  #def createResource(self, resource):
-  #  return Task(self, resource)
 
   def createConfigurationSpec(self, configurationTemplateName, configurationkws=None):
     return self.manifest.createConfigurationSpec(
@@ -506,8 +507,11 @@ class Task(TaskView):
 
   Configurator's only other interface to modifying the system is through createSubTask()
   """
-  def __init__(self, job, spec, currentConfiguration):
+  def __init__(self, job, spec, currentConfiguration, parentId=None):
     super(Task, self).__init__(job.runner.manifest, currentConfiguration)
+    self.changeId = job.runner.incrementChangeId()
+    self.parentId = parentId or job.changeId
+    spec.lastAttempt = self.changeId
     self.oldConfiguration = currentConfiguration
     if currentConfiguration:
       self.currentConfiguration = currentConfiguration
@@ -522,6 +526,7 @@ class Task(TaskView):
     self.startTime = job.startTime or datetime.datetime.now()
     self.dryRun = job.dryRun
     self.generator = None
+    self.job = job
 
   def validateParameters(self):
     spec = self.newConfiguration.configurationSpec
@@ -626,6 +631,8 @@ class Job(OperationalInstance):
     self.rootResource = rootResource
     self.jobQueue = []
     self.unexpectedAbort = None
+    self.changeId = runner.incrementChangeId()
+    self.parentId = self.parentJob.changeId if self.parentJob else None
 
   def addChildJob(self, resource, specs=None):
     jobOptions = JobOptions(parentJob=self, repair="none")
@@ -752,11 +759,14 @@ status compared to current spec is different: compare difference for each:
     # and updates to a resource already iterated over may render it inconsistent with the last run
     for resource in self.rootResource.getSelfAndDescendents():
       existing = resource.configurations.copy()
+      excluded = resource.excludedConfigurations.copy()
       for config in self.findConfigurations(resource):
         if self.runner.isConfigAlreadyHandled(config):
           # configuration may have premptively run while executing another task
           continue
         lastChange = existing.pop(config.name, None)
+        if not lastChange:
+          lastChange = excluded.pop(config.name, None)
         config = self.includeTask(config, lastChange)
         if config and self.filterConfig(config):
             yield self.createTask(config, lastChange)
@@ -782,8 +792,8 @@ status compared to current spec is different: compare difference for each:
       return None
     return config
 
-  def createTask(self, configSpec, config):
-    return Task(self, configSpec, config);
+  def createTask(self, configSpec, config, parentId=None):
+    return Task(self, configSpec, config, parentId);
 
   def runTask(self, task):
     """
@@ -808,7 +818,8 @@ status compared to current spec is different: compare difference for each:
         GitErOpTaskError(task, "configurator.run failed")
         return task.finished(Status.error)
       if isinstance(result, TaskRequest):
-        subtask = self.createTask(result.configSpec, None)
+        subtask = self.createTask(result.configSpec, None, task.changeId)
+        self.runner.addWork(subtask)
         change = self.runTask(subtask) # returns a configuration
       elif isinstance(result, JobRequest):
         job = self.addChildJob(result.resource)
@@ -951,9 +962,10 @@ class Manifest(object):
     pass
 
 class Runner(object):
-  def __init__(self, manifest):
+  def __init__(self, manifest, lastChangeId=0):
     self.manifest = manifest
     self.workDone = collections.OrderedDict()
+    self.lastChangeId = lastChangeId
 
   def addWork(self, task):
     config = task.currentConfiguration
@@ -967,6 +979,10 @@ class Runner(object):
     Selects task to run based on job options and starting state of manifest
     """
     return Job(self, self.manifest.getRootResource(), self.manifest.getConfigurationSpecs(), joboptions)
+
+  def incrementChangeId(self):
+    self.lastChangeId +=1
+    return self.lastChangeId
 
   def run(self, joboptions):
     """
