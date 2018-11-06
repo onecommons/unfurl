@@ -86,13 +86,13 @@ def toEnum(enum, value):
   else:
     return value
 
+# XXX?? because json keys are strings allow number keys to merge with lists
 # values: merge, replace, delete
 mergeStrategyKey = '+%'
-# b is base, a overrides
+#
 def mergeDicts(b, a, cls=dict):
   """
-  base
-  derived
+  b is base, a overrides
   """
   cp = cls()
   skip = []
@@ -114,6 +114,23 @@ def mergeDicts(b, a, cls=dict):
       if strategy == 'delete':
         skip.append(key)
         continue
+    # XXX merge lists
+    # elif isinstance(val, list) and key in b:
+    #   bval = b[key]
+    #   if isinstance(bval, list):
+    #     if appendlists == 'all' or key in appendlists:
+    #       cp[key] = bval + val
+    #       continue
+    #     elif mergelists == 'all' or key in mergelists:
+    #       newlist = []
+    #       for ai, bi in zip(val, bval):
+    #         if isinstance(ai, (dict, cls)) and isinstance(bi, (dict, cls)):
+    #           newlist.append(mergeDicts(bi, ai, cls))
+    #         elif a1 != deletemarker:
+    #           newlist.append(a1)
+    #       cp[key] == newlist
+    #       continue
+
     # otherwise a replaces b
     cp[key] = val
 
@@ -253,6 +270,48 @@ def diffDicts(old, new, cls=dict):
       diff[key] = new[key]
   return diff
 
+def patchDict(old, new, cls=dict):
+  """
+  transform old into new
+  """
+  # start with old to preserve original order
+  for key, val in list(old.items()):
+    if key in new:
+      newval = new[key]
+      if val != newval:
+        if isinstance(val, (dict, cls)) and isinstance(newval, (dict, cls)):
+          old[key] = patchDict(val, newval, cls)
+        elif isinstance(val, list) and isinstance(newval, list):
+          # preserve old item in list if they are equal to the new item
+          old[key] = [(val[val.index(item)] if item in val else item)
+                                                    for item in newval]
+        else:
+          old[key] = newval
+    else:
+      del old[key]
+
+  for key in new:
+    if key not in old:
+      old[key] = new[key]
+
+  return old
+
+def intersectDict(old, new, cls=dict):
+  """
+  remove keys from old that are not present in new
+  """
+  # start with old to preserve original order
+  for key, val in list(old.items()):
+    if key in new:
+      newval = new[key]
+      if val != newval:
+        if isinstance(val, (dict, cls)) and isinstance(newval, (dict, cls)):
+          old[key] = intersectDict(val, newval, cls)
+    else:
+      del old[key]
+
+  return old
+
 def lookupPath(doc, path, cls=dict):
   template = doc
   for segment in path:
@@ -322,33 +381,6 @@ def restoreIncludes(includes, originalDoc, changedDoc, cls=dict):
       diff = diffDicts(mergedIncludes, ref, cls)
       replacePath(changedDoc, key, diff, cls)
 
-def patchDict(old, new, cls=dict):
-  """
-  transform old into new
-  """
-  # start with old to preserve original order
-  for key, val in list(old.items()):
-    if key in new:
-      newval = new[key]
-      # keys not found will be set to None
-      if val != newval:
-        if isinstance(val, (dict, cls)) and isinstance(newval, (dict, cls)):
-          old[key] = patchDict(val, newval, cls)
-        elif isinstance(val, list) and isinstance(newval, list):
-          # preserve old item in list if they are equal to the new item
-          old[key] = [(val[val.index(item)] if item in val else item)
-                                          for item in enumerate(newval)]
-        else:
-          old[key] = newval
-    else:
-      del old[key]
-
-  for key in new:
-    if key not in old:
-      old[key] = new[key]
-
-  return old
-
 # https://python-jsonschema.readthedocs.io/en/latest/faq/#why-doesn-t-my-schema-s-default-property-set-the-default-on-my-instance
 def extend_with_default(validator_class):
   """
@@ -383,6 +415,7 @@ def extend_with_default(validator_class):
 DefaultValidatingLatestDraftValidator = extend_with_default(Draft4Validator)
 
 def validateSchema(obj, schema):
-  return DefaultValidatingLatestDraftValidator(schema).validate(obj)
+  validator = DefaultValidatingLatestDraftValidator(schema)
+  return list(validator.iter_errors(obj))
 
 #RefResolver.from_schema(schema)

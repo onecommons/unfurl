@@ -119,7 +119,10 @@ root:
             test: derived
 '''
     configurations = YamlManifest(manifest).rootResource.named['cloud3'].spec['configurations']
-    assert list(configurations.values())[0]['parameters'] == {'test': 'derived', '+%': 'replaceProps'}, list(configurations.values())[0]['parameters']
+    self.assertEqual(list(configurations.values())[0]['parameters'], {
+      'test': 'derived',
+      # '+%': 'replaceProps'
+    })
 
   def test_uninstall_override(self):
     #override with action uninstall will just remove base component being applied

@@ -1,6 +1,7 @@
 import six
+import copy
 from .util import (GitErOpError, toEnum, VERSION,
-  DefaultValidatingLatestDraftValidator, expandDoc, restoreIncludes, patchDict)
+  expandDoc, restoreIncludes, patchDict, validateSchema)
 from .runtime import JobOptions, Configuration, ConfigurationSpec, Status, Action, Defaults, Resource, Runner, Manifest
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap
@@ -17,9 +18,10 @@ schema = {
     "atomic": {
       "type": "object",
       "properties": {
-        "+%": {
-          "default": "replaceProps"
-        }
+        # XXX
+        # "+%": {
+        #   "default": "replaceProps"
+        # }
       },
     },
     "namedObjects": {
@@ -94,6 +96,18 @@ schema = {
           "$ref": "#/definitions/attributes",
           "default": {}
          },
+        "parameterSchema": {
+          "$ref": "#/definitions/schema",
+          "default": {}
+         },
+        "requires": {
+          "$ref": "#/definitions/schema",
+          "default": {}
+         },
+        "provides": {
+          "$ref": "#/definitions/schema",
+          "default": {}
+         },
          "lastAttempt": {"$ref": "#/definitions/changeId"}
       },
       "required": ["className", "majorVersion"]
@@ -133,7 +147,8 @@ schema = {
       },
       "additionalProperties": True,
     },
-    "changeId": {"type":"number"}
+    "changeId": {"type":"number"},
+    "schema":   {"type": "object"}
   }, # end definitions
 
   "type": "object",
@@ -169,6 +184,10 @@ def saveConfigSpec(spec):
     ("className", spec.className),
     ("majorVersion", spec.majorVersion),
     ("minorVersion", spec.minorVersion),
+    ("parameters", spec.parameters),
+    ("parameterSchema", spec.parameterSchema),
+    ("requires", spec.requires),
+    ("provides", spec.provides),
   ])
 
 class ChangeRecord(object):
@@ -184,6 +203,7 @@ class ChangeRecord(object):
     ('resourceName', ''),
     ('configName', ''),
   ])
+
   RootAttributes = CommentedMap([
     # ('action', ''), # XXX
     ('spec', {}),
@@ -208,15 +228,17 @@ class ChangeRecord(object):
         self.spec = saveConfigSpec(task.newConfiguration.configurationSpec)
       elif k == 'messages':
         self.messages = task.messages
+      elif k == 'changes':
+        self.changes = task.changes
       else:
         setattr(self, k, getattr(task.newConfiguration, k, v))
 
   def load(self, src):
     for (k,v) in self.HeaderAttributes.items():
       setattr(self, k, src.get(k, v))
-    for (k,v) in self.RootAttributes.items():
-      setattr(self, k, src.get(k, v))
     for (k,v) in self.CommonAttributes.items():
+      setattr(self, k, src.get(k, v))
+    for (k,v) in self.RootAttributes.items():
       setattr(self, k, src.get(k, v))
 
   def dump(self):
@@ -225,11 +247,11 @@ class ChangeRecord(object):
     or creating a ChangeRecord.
     """
     items = [(k, getattr(self, k)) for k in ChangeRecord.HeaderAttributes]
+    items.extend([(k, getattr(self, k)) for k in ChangeRecord.CommonAttributes
+                      if getattr(self, k)]) #skip empty values
     items.extend([(k, getattr(self, k)) for k in ChangeRecord.RootAttributes
                           if getattr(self, k)] #skip empty values
                   )
-    items.extend([(k, getattr(self, k)) for k in ChangeRecord.CommonAttributes
-                      if getattr(self, k)]) #skip empty values
     #CommentedMap so order is preserved in yaml output
     return CommentedMap(items)
 
@@ -245,39 +267,38 @@ include:
   +url:foo:
 
 root: #root resource is always named 'root'
- attributes:
- resources:
-   child1:
-     +/resourceSpecs/node
   spec:
-   attributes:
-   configurations:
+    attributes:
+    configurations:
       name1:
         className
         version
         intent
         priority: XXX
         parameters: #declared
-        lastAttempt #changeid #XXX
- status:
-  attributes: #merged from config changes and spec/attributes
-  operational
-  configurations:
-    name:
-      changeid:
-      operational:
-      parameters: #actual
-        param1: value
-      dependencies:
-        resource1:
-          configuration:foo:
-            ok
-      changes: #optional
-        resource1:
-          foo: bar
-        resource2:
-          status: notpresent
-        resource3/child1: +%delete
+        lastAttempt #changeid
+  status:
+    attributes: #merged from config changes and spec/attributes
+    operational
+    configurations:
+      name:
+        changeid:
+        operational:
+        parameters: #actual
+          param1: value
+        dependencies:
+          resource1:
+            configuration:foo:
+              ok
+        changes:
+          resource1:
+            foo: bar
+          resource2:
+            status: notpresent
+          resource3/child1: +%delete
+  resources:
+    child1:
+      +/resourceSpecs/node
 
 changes:
   - changeId
@@ -297,8 +318,11 @@ changes:
 """
   def __init__(self, manifest=None, path=None, validate=True):
     if path:
+      self.path = path
       with open(path, 'r') as f:
         manifest = f.read()
+    else:
+      self.path = None
     if isinstance(manifest, six.string_types):
       self.manifest = yaml.load(manifest)
     else:
@@ -307,7 +331,6 @@ changes:
     #schema should include defaults but can't validate because it doesn't understand includes
     #but should work most of time
     self.includes, manifest = expandDoc(self.manifest, cls=CommentedMap)
-
     messages = self.validate(manifest)
     if messages and validate:
       raise GitErOpError(messages)
@@ -316,18 +339,21 @@ changes:
 
     self.specs = []
     self.changes = manifest.get('changes', [])
-    self.lastChangeId = self.changes and max(c['changeId'] for c in self.changes) or 0
+    lastChangeId = self.changes and max(c['changeId'] for c in self.changes) or 0
     rootResource = self.loadResource('root', manifest['root'], None)
-    templates = None
-    super(YamlManifest, self).__init__(rootResource, self.specs, templates)
+    templates = None #XXX3
+    super(YamlManifest, self).__init__(rootResource, self.specs, templates, lastChangeId)
 
   def createDependency(self, configurationSpec, dependencyTemplateName, args=None):
     return None
 
   def _makeConfigSpec(self, configName, resourceName, spec):
-    return ConfigurationSpec(configName, resourceName, spec['className'], spec['majorVersion'], spec.get('minorVersion',''),
+    return ConfigurationSpec(configName, resourceName, spec['className'],
+          spec['majorVersion'], spec.get('minorVersion',''),
           intent=toEnum(Action, spec.get('intent', Defaults.intent)),
-          lastAttempt=spec.get('lastAttempt'))
+          lastAttempt=spec.get('lastAttempt'),
+          parameters=spec.get('parameters'), parameterSchema=spec.get('parameterSchema'),
+          requires=spec.get('requires'), provides=spec.get('provides'))
 
   def loadResource(self, name, decl, parent):
     status = decl['status']
@@ -346,6 +372,7 @@ changes:
       config = Configuration(configSpec, resource,
           toEnum(Status, val.get('operational', Status.notapplied)))
       resource.setConfiguration(config)
+      config.changes = val.get('changes', {})
 
     for key, val in decl['resources'].items():
       resource.addResource( self.loadResource(key, val, resource) )
@@ -354,10 +381,10 @@ changes:
     return resource
 
   def saveStatus(self, operational):
-    return CommentedMap([
-      ("status", operational.status.name),
-      ("priority", operational.priority.name)
-    ])
+    status = CommentedMap([("operational", operational.status.name)])
+    if operational.priority != Defaults.shouldRun:
+      status["priority"] = operational.priority.name
+    return status
 
   def saveResource(self, resource, workDone):
     configSpecMap = resource.spec['configurations']
@@ -365,25 +392,26 @@ changes:
       task = workDone.get( (resource.name, name ) )
       if task:
         configSpec['lastAttempt'] = task.changeId
+      # XXX:
+      # elif 'lastAttempt' in configSpec and configSpec had changed
+      # del configSpec['lastAttempt']
 
     status = self.saveStatus(resource)
+    status['attributes'] = resource._attributes
     status['configurations'] = CommentedMap(map(self.saveConfiguration, resource.allConfigurations))
-    status['attributes'] = resource.attributes
-    return (resource.name, CommentedMap([("spec", resource.spec),
+    return (resource.name, copy.deepcopy(CommentedMap([("spec", resource.spec),
       ("resources", CommentedMap(map(lambda r: self.saveResource(r, workDone), resource.resources))),
       ("status", status),
-    ]))
+    ])))
 
   def saveConfiguration(self, config):
     spec = config.configurationSpec
     status = self.saveStatus(config)
-    if config.parameters is not None:
-      status['parameters'] = config.parameters
-    # dependencies.values(), self.configurationSpec.getPostConditions()
-    return (config.name, CommentedMap([
-            ("spec", saveConfigSpec(spec)),
-            ("status", status)
-          ]))
+    status['parameters'] = config.parameters or {}
+    status["spec"] = saveConfigSpec(spec)
+    status['changes'] = config.changes
+    # XXX dependencies.values(), self.configurationSpec.getPostConditions()
+    return (config.name, status)
 
   def saveTask(self, task):
     """
@@ -391,25 +419,32 @@ changes:
     """
     return ChangeRecord(task).dump()
 
-  def saveJob(self, job, workDone):
-    changes = map(self.saveTask, workDone.values())
-    changed = CommentedMap([('apiVersion', VERSION), ('kind', 'Manifest')])
-    changed.update(CommentedMap([self.saveResource(self.rootResource, workDone)]))
+  def saveJob(self, job):
+    changes = map(self.saveTask, job.workDone.values())
+    changed = CommentedMap([self.saveResource(self.rootResource, job.workDone)])
+    # update changed with includes, this may change objects with references to these objects
     restoreIncludes(self.includes, self.manifest, changed, cls=CommentedMap)
     # modify original to preserve structure and comments
-    patchDict(self.manifest, changed, CommentedMap)
+    patchDict(self.manifest['root'], changed['root'], cls=CommentedMap)
     self.manifest.setdefault('changes', []).extend(changes)
-    self.dump(job.out)
+    if job.out:
+      self.dump(job.out)
+    elif self.path:
+      with open(self.path, 'w') as f:
+        self.dump(f)
+    else:
+      output = six.StringIO()
+      self.dump(output)
+      job.out = output
 
   def dump(self, out=sys.stdout):
     yaml.dump(self.manifest, out)
 
   def validate(self, manifest):
-    validator = DefaultValidatingLatestDraftValidator(schema)
-    return list(validator.iter_errors(manifest))
+    return validateSchema(manifest, schema)
 
 def runJob(manifestPath, opts=None):
   manifest = YamlManifest(path=manifestPath)
-  runner = Runner(manifest, manifest.lastChangeId)
+  runner = Runner(manifest)
   kw = opts or {}
   return runner.run(JobOptions(**kw))

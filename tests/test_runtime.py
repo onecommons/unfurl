@@ -159,16 +159,18 @@ class RunTest(unittest.TestCase):
           test:
             className:    TestSubtaskConfigurator
             majorVersion: 0
+            parameters: {}
     """ % VERSION
     manifest = YamlManifest(simple)
     runner = Runner(manifest)
+    self.assertEqual(runner.lastChangeId, 0)
     output = six.StringIO()
     job = runner.run(JobOptions(add=True, out=output, startTime="test"))
-    # print('1', output.getvalue())
     assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
-
+    # print('1', output.getvalue())
     # manifest shouldn't have changed
     manifest2 = YamlManifest(output.getvalue())
+    self.assertEqual(manifest2.lastChangeId, 3)
     output2 = six.StringIO()
     job2 = Runner(manifest2).run(JobOptions(add=True, out=output2, startTime="test"))
     # print('2', output2.getvalue())

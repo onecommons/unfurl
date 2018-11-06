@@ -2,7 +2,30 @@ import six
 import re
 import operator
 import collections
-# from .util import *
+
+def mapValue(value, resource):
+  #if self.kms.isKMSValueReference(value):
+  #  value = kms.dereference(value)
+  value = Ref.resolveOneIfRef(value, resource)
+  if isinstance(value, dict):
+    return dict((key, mapValue(v, resource)) for key, v in value.items())
+  elif isinstance(value, (list, tuple)):
+    return [mapValue(item, resource) for item in value]
+  else:
+    return value
+
+def serializeValue(value):
+  #if self.kms.isKMSValueReference(value):
+  #  value = kms.dereference(value)
+  if isinstance(value, dict):
+    return dict((key, serializeValue(v)) for key, v in value.items())
+  elif isinstance(value, (list, tuple)):
+    return [serializeValue(item) for item in value]
+  else:
+    getter = getattr(value, 'asRef', None)
+    if getter:
+      return getter()
+    return value
 
 class _RefContext(object):
   def __init__(self, vars):
