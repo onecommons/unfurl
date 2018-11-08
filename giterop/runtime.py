@@ -193,8 +193,10 @@ class OperationalInstance(Operational):
     return locals()
   priority = property(**priority())
 
-class Resource(Operational):
-  def __init__(self, name='', attributes=None, parent=None, configurations=None, children=None, spec=None):
+class Resource(OperationalInstance):
+  def __init__(self, name='', attributes=None, parent=None, configurations=None,
+        children=None, spec=None, status=None, priority=None, manualOveride=None):
+    OperationalInstance.__init__(self, status, priority, manualOveride)
     self.name = name # XXX2 guarantee name uniqueness
     self._attributes = attributes or {}
     self.configurations = CommentedMap( (c.name, c) for c in (configurations or []) )
@@ -211,6 +213,20 @@ class Resource(Operational):
     self.resources = children or []
     self.spec = spec or {}
     self.attributeManager = None
+    self._computedStatus = Status.notapplied
+
+  def computedStatus():
+    doc = "The computedStatus property."
+    def fget(self):
+      return self._computedStatus
+    def fset(self, value):
+      if self.root.attributeManager:
+        self.root.attributeManager.setStatus(self, value)
+      self._computedStatus = value
+    def fdel(self):
+      del self._computedStatus
+    return locals()
+  computedStatus = property(**computedStatus())
 
   @property
   def named(self):
@@ -376,6 +392,7 @@ class ConfigurationSpec(object):
     results = self.findMissingRequirements(configuration.resource)
     return not results
 
+  # XXX2 evaluate priority (resource too??)
   def shouldRun(self, configuration):
     return Defaults.shouldRun
 
@@ -397,6 +414,63 @@ class ConfigurationSpec(object):
       and self.majorVersion == other.majorVersion and self.minorVersion == other.minorVersion
       and self.intent == other.intent)
 
+class ResourceChanges(collections.OrderedDict):
+  statusIndex = 0
+  specIndex = 1
+  attributesIndex = 2
+
+  def __init__(self, changes=None):
+    super(ResourceChanges, self).__init__()
+    if not changes:
+      return
+    for k, change in changes.items():
+      self[k] = [
+        change.pop('.status', None),
+        change.pop('.spec', None),
+        change
+      ]
+
+  def sync(self, resource):
+    """ Update self to only include changes that are still live"""
+    root = resource.root
+    for k, v in list(self.items()):
+      current = root.findResource(k)
+      if current:
+        attributes = v[self.attributesIndex]
+        if attributes:
+          v[self.attributesIndex] = intersectDict(attributes, current._attributes)
+        if v[self.statusIndex] != current._computedStatus:
+          v[self.statusIndex] = None
+      else:
+        del self[k]
+
+  def addChanges(self, changes):
+    for name, change in changes.items():
+      old = self.get(name)
+      if old:
+        old[self.attributesIndex] = mergeDicts(old[self.attributesIndex], change)
+      else:
+        self[name] = [None, None, change]
+
+  def addStatuses(self, changes):
+    for name, change in changes.items():
+      old = self.get(name)
+      if old:
+        old[self.statusIndex] = change
+      else:
+        self[name] = [change, None, {}]
+
+  def addResources(self, resources):
+    for resource in resources:
+      self[resource.name] = [resource._computedStatus, resource.spec, resource._attributes]
+
+  def update(self, changes, statuses, newResources, resource):
+    self.addResources(newResources)
+    self.addChanges(changes)
+    self.addStatuses(statuses)
+    if resource:
+      self.sync(resource)
+
 class Configuration(OperationalInstance):
   def __init__(self, spec, resource, status=Status.notapplied, dependencies=None):
     super(Configuration, self).__init__(status)
@@ -405,7 +479,7 @@ class Configuration(OperationalInstance):
     self.resource = resource
     self.dependencies = dependencies or {}
     self.parameters = None
-    self.changes = {}
+    self.resourceChanges = ResourceChanges()
 
   def priority():
     doc = "The priority property."
@@ -480,7 +554,6 @@ class TaskView(object):
     self.currentConfiguration = currentConfiguration
     self.messages = []
     self.addedResources = []
-    self.removedResources = []
 
   def addMessage(self, message):
     self.messages.append(message)
@@ -502,7 +575,7 @@ class TaskView(object):
   #  operational state indicates if exists or not
   #  updates metadata created or discovered
   #  new resources can trigger jobs
-  def addResource(self, templateName, name, metadata):
+  def addResource(self, templateName, name, parent, attributes, spec, status):
     # XXX2 should indicate what kind of dependency
     # instantiate new resource and a job that will run it
     resource = self.manifest.createResource(templateName, name, metadata)
@@ -511,12 +584,6 @@ class TaskView(object):
     # XXX2 need to addJob if it was yielded
     self.addedResources.append(resource)
     return JobRequest(resource)
-
-  def removeResource(self, resource):
-    # XXX2 should indicate what kind of dependency
-    self.removedResources.append(resource)
-    # XXX2 only do this if its orphaned:
-    resource.container.resources.remove(resource)
 
   # dependency = [dependent, required]
   # updates can be marked as dependencies (changes to dependencies changed) or required (error if changed)
@@ -543,6 +610,13 @@ class TaskView(object):
 class AttributeManager(object):
   def __init__(self):
     self.attributes = {}
+    self.statuses = {}
+
+  def setStatus(self, resource, newvalue):
+    if resource.name not in self.statuses:
+      self.statuses[resource.name] = [resource._computedStatus, newvalue]
+    else:
+      self.statuses[resource.name][1] =  newvalue
 
   def getAttributes(self, resource):
     if resource.name not in self.attributes:
@@ -556,6 +630,8 @@ class AttributeManager(object):
 
   def revertChanges(self):
     self.attributes = {}
+    # for resource, old, new in self.statuses.values():
+    #   resource._computedStatus = old
 
   def commitChanges(self):
     changes = {}
@@ -571,6 +647,7 @@ class AttributeManager(object):
       # 4. update resource
       resource._attributes = serialized
     self.attributes = {}
+    # self.statuses = {}
     return changes
 
 class Task(TaskView, AttributeManager):
@@ -606,7 +683,9 @@ class Task(TaskView, AttributeManager):
     self.dryRun = job.dryRun
     self.generator = None
     self.job = job
-    self.changes = []
+    self.changeList = []
+    self.changeSet = None
+    self.resourceChanges = ResourceChanges()
 
   def validateParameters(self):
     spec = self.newConfiguration.configurationSpec
@@ -660,34 +739,32 @@ class Task(TaskView, AttributeManager):
       # set again, it might not have been in excludedConfigurations
       resource.setConfiguration(self.newConfiguration)
 
-    if result != Status.notapplied and self.changes:
+    if result != Status.notapplied and self.changeList:
       # merge changes together (will be saved with changeset)
-      changes = self.changes
+      changes = self.changeList
       accum = changes.pop(0)
       while changes:
         accum = mergeDicts(accum, changes.pop(0))
-      # changes may have been interlaced with changes by other configurations
-      # so only include changes that are still live
-      currentAttributes = dict((k, resource.root.findResource(k)._attributes) for k in accum.keys())
-      self.changes = intersectDict(accum, currentAttributes)
-      # so we have a complete set of changes made by the configuration
-      # first strip out old config changes that are no longer live
-      configChanges = self.newConfiguration.changes
-      currentConfigAttributes = dict((k, resource.root.findResource(k)._attributes) for k in configChanges.keys())
-      configChanges = intersectDict(configChanges, currentConfigAttributes)
-      # next merge in the new changes
-      self.newConfiguration.changes = mergeDicts(configChanges, self.changes)
+
+      self.resourceChanges.update(accum, self.statuses, self.addedResources, resource)
+      self.newConfiguration.resourceChanges.update(accum, self.statuses, self.addedResources, resource)
+
     return self.newConfiguration
 
   def commitChanges(self):
     # XXX2 attributes set by configurations should be per configuration
     # mark which ones are exposed as public resource attribuets and subject to merge conflicts
+    statuses = self.statuses
     changes = AttributeManager.commitChanges(self)
-    self.changes.append(changes)
+    self.changeList.append(changes)
     return changes
 
-  def __str__(self):
-    return "Task: " + str(self.configuration)
+  def __repr__(self):
+    return "Task(%s:%s %s)" % (
+      self.newConfiguration.resource.name,
+      self.newConfiguration.name,
+      getattr(self, 'reason', 'unknown')
+    )
 
 class JobOptions(object):
   """
@@ -708,7 +785,7 @@ class JobOptions(object):
     # default options:
     add=True, # run newly added configurations
     update=True, # run configurations that whose spec has changed but don't require a major version change
-    repair="error", # or 'degraded', run configurations that are not operational and/or degraded
+    repair="error", # or 'degraded' or "notapplied" or "none", run configurations that are not operational and/or degraded
 
     upgrade=False, # run configurations with major version changes or whose spec has changed
     all=False, # (re)run all configurations
@@ -799,24 +876,41 @@ status compared to current spec is different: compare difference for each:
         # apply the new configuration unless it will trigger a major version change
         if config.intent != A.revert and spec.majorVersion != config.majorVersion:
           return 'update', config
-    # there isn't a new config to run, see if the last applied config needs to be re-run
-    # XXX1 what about dependencies / required changed pretty much the same as hasParametersChanged()
-    if lastChange.hasParametersChanged() and (self.update or self.all):
-      return 'configchanged', spec
-    if lastChange.status == S.notapplied and (self.add or self.all):
-      return 'notapplied', spec
+    else:
+      # XXX1 what about dependencies / required changed pretty much the same as hasParametersChanged()
+      configChanged = lastChange.hasParametersChanged()
+      if configChanged and (self.update or self.all):
+        return 'configchanged', spec
+
+      # there isn't a new config to run, see if the last applied config needs to be re-run
+      # XXX we need to distinguish between a change that was never applied and one that failed to apply
+      #if lastChange.status == S.neverapplied and self.add:
+      #  return 'neverapplied', spec
     return self.checkForRepair(lastChange)
 
   def checkForRepair(self, lastChange):
     assert lastChange
+    if self.repair=="none":
+      return None
+    status = lastChange.status
+    if status == S.notapplied and lastChange.required:
+      status = S.error # treat as error
+
     # repair should only apply to configurations that are active and in need of repair
-    if lastChange.status not in [S.degraded, S.error] or self.repair=="none":
-        return None
+    # XXX what about pending??
+    if status not in [S.degraded, S.error, S.notapplied]:
+      return None
+
     spec = lastChange.configurationSpec
+    if status == S.notapplied:
+      if self.repair == 'notapplied':
+        return 'notapplied', spec
+      else:
+        return None
     if self.repair == "degraded":
-      assert lastChange.status > S.ok, lastChange.status
+      assert status > S.ok, status
       return 'degraded', spec # repair this
-    elif lastChange.status == S.degraded:
+    elif status == S.degraded:
       assert self.repair == 'error', self.repair
       return None # skip repairing this
     else:
@@ -904,7 +998,9 @@ status compared to current spec is different: compare difference for each:
     return config
 
   def createTask(self, configSpec, config, parentId=None, reason=None):
-    return Task(self, configSpec, config, parentId);
+    task = Task(self, configSpec, config, parentId)
+    task.reason = reason
+    return task
 
   def runTask(self, task):
     """

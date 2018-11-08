@@ -298,7 +298,7 @@ def patchDict(old, new, cls=dict):
 
 def intersectDict(old, new, cls=dict):
   """
-  remove keys from old that are not present in new
+  remove keys from old that don't match new
   """
   # start with old to preserve original order
   for key, val in list(old.items()):
@@ -307,6 +307,8 @@ def intersectDict(old, new, cls=dict):
       if val != newval:
         if isinstance(val, (dict, cls)) and isinstance(newval, (dict, cls)):
           old[key] = intersectDict(val, newval, cls)
+        else:
+          del old[key]
     else:
       del old[key]
 

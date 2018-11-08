@@ -167,14 +167,18 @@ class RunTest(unittest.TestCase):
     output = six.StringIO()
     job = runner.run(JobOptions(add=True, out=output, startTime="test"))
     assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
-    # print('1', output.getvalue())
+    # workDone includes subtasks
+    assert len(job.workDone) == 2, job.workDone
+
     # manifest shouldn't have changed
     manifest2 = YamlManifest(output.getvalue())
     self.assertEqual(manifest2.lastChangeId, 3)
     output2 = six.StringIO()
     job2 = Runner(manifest2).run(JobOptions(add=True, out=output2, startTime="test"))
-    # print('2', output2.getvalue())
+    #  print('2', output2.getvalue())
     assert not job2.unexpectedAbort, job2.unexpectedAbort.getStackTrace()
+    # should not find any tasks to run
+    assert len(job2.workDone) == 0, job2.workDone
     self.maxDiff = None
     self.assertEqual(output.getvalue(), output2.getvalue())
 
