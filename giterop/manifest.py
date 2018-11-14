@@ -1,9 +1,9 @@
 import six
 import copy
-from .util import (GitErOpError, toEnum, VERSION,
+from .util import (GitErOpError, VERSION,
   expandDoc, restoreIncludes, patchDict, validateSchema)
-from .runtime import (JobOptions, Configuration, ConfigurationSpec, Status, Priority,
-  Action, Defaults, Resource, Runner, Manifest, ResourceChanges, OperationalInstance)
+from .runtime import (JobOptions, Status, Priority, serializeValue,
+  Action, Defaults, Runner, Manifest, ResourceChanges)
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap
 from codecs import open
@@ -46,6 +46,10 @@ schema = {
           "properties": {
             "attributes": {
               "$ref": "#/definitions/attributes",
+              "default": {}
+             },
+            "attributesSchema": {
+              "$ref": "#/definitions/schema",
               "default": {}
              },
             "configurations": {
@@ -106,9 +110,22 @@ schema = {
           "default": {}
          },
         "provides": {
-          "$ref": "#/definitions/schema",
-          "default": {}
-         },
+          "type": "object",
+          "properties": {
+            ".self": {
+              "$ref": "#/definitions/resource/properties/spec" #excepting "configurations"
+             },
+            ".configurations": {
+              "allOf": [
+                { "$ref": "#/definitions/namedObjects" },
+                # {"additionalProperties": { "$ref": "#/definitions/configurationSpec" }}
+              ],
+              'default': {}
+            },
+          },
+          # "additionalProperties": { "$ref": "#/definitions/resource/properties/spec" },
+          'default': {}
+        },
          "lastAttempt": {"$ref": "#/definitions/changeId"}
       },
       "required": ["className", "majorVersion"]
@@ -143,8 +160,15 @@ schema = {
     "status": {
       "type": "object",
       "properties": {
-        "operational": { "enum": list(Status.__members__) },
-        "changeId":    {"$ref": "#/definitions/changeId"},
+        "readyState": {
+          "type": "object",
+          "properties": {
+            "computed": { "enum": list(Status.__members__) },
+            "local":    { "enum": list(Status.__members__) }
+          }
+        },
+        "priority": { "enum": list(Priority.__members__) },
+        "changeId": {"$ref": "#/definitions/changeId"},
       },
       "additionalProperties": True,
     },
@@ -179,7 +203,7 @@ schema = {
 }
 
 def saveConfigSpec(spec):
-  return CommentedMap([
+  saved = CommentedMap([
     ("intent", spec.intent.name),
     ("className", spec.className),
     ("majorVersion", spec.majorVersion),
@@ -187,35 +211,47 @@ def saveConfigSpec(spec):
     ("parameters", spec.parameters),
     ("parameterSchema", spec.parameterSchema),
     ("requires", spec.requires),
-    ("provides", spec.provides),
   ])
+  if spec.provides:
+    dotSelf = spec.provides.get('.self')
+    if dotSelf:
+      # removed defaults put in by schema
+      dotSelf.pop('configurations', None)
+      if not dotSelf.get('attributes'):
+        dotSelf.pop('attributes', None)
+    saved["provides"] = spec.provides
+
+  if spec.lastAttempt:
+    saved["lastAttempt"] = spec.lastAttempt
+  return saved
+
+def saveResourceSpec(rspec):
+    spec = CommentedMap()
+    if 'attributes' in rspec:
+      spec['attributes'] = rspec['attributes']
+    spec['configurations'] = CommentedMap([(cspec.name, saveConfigSpec(cspec))
+          for cspec in rspec['configurations'].values()])
+    return spec
 
 def saveResourceChanges(changes):
   d = CommentedMap()
   for k, v in changes.items():
-    d[k] = v[ResourceChanges.attributesIndex]
+    d[k] = v[ResourceChanges.attributesIndex] or {}
     if v[ResourceChanges.statusIndex] is not None:
       d[k]['.status'] = v[ResourceChanges.statusIndex].name
-    if v[ResourceChanges.specIndex]:
-      d[k]['.spec'] = v[ResourceChanges.specIndex]
+    if v[ResourceChanges.addedIndex]:
+      d[k]['.added'] = v[ResourceChanges.addedIndex]
   return d
 
 def saveStatus(operational):
   readyState = CommentedMap([
     ("computed", operational.status.name),
-    ('local', operational.computedStatus.name)
+    ('local', operational.localStatus.name)
   ])
   status = CommentedMap([("readyState", readyState)])
   if operational.priority and operational.priority != Defaults.shouldRun:
     status["priority"] = operational.priority.name
   return status
-
-def loadStatus(status):
-  readyState = status.get('readyState', {})
-  local = toEnum(Status, readyState.get('local', Status.notapplied))
-  priority = toEnum(Priority, status.get('priority'))
-  return OperationalInstance(local,
-          priority=priority)
 
 class ChangeRecord(object):
   HeaderAttributes = CommentedMap([
@@ -255,13 +291,15 @@ class ChangeRecord(object):
         self.changes = saveResourceChanges(task.resourceChanges)
       elif k == 'messages':
         self.messages = task.messages
+      elif k == 'parameters':
+        self.parameters = serializeValue(task.newConfiguration.parameters)
       else:
         setattr(self, k, getattr(task.newConfiguration, k, v))
 
   def load(self, src):
     for (k,v) in self.HeaderAttributes.items():
       setattr(self, k, src.get(k, v))
-    self.status = loadStatus(src)
+    self.status = Manifest.createStatus(src)
     for (k,v) in self.CommonAttributes.items():
       setattr(self, k, src.get(k, v))
     for (k,v) in self.RootAttributes.items():
@@ -302,9 +340,21 @@ root: #root resource is always named 'root'
         version
         intent
         priority:
+        provides:
+          .self: #.self describes the attributes that will
+            attributes
+            attributesSchema
+          .configurations: #configurations that maybe used by this configurator
+            configTemplate1:
+          resourceTemplate1:
+            attributes:
+              foo: bar
+            configurations:
+              config1:
         parameters: #declared
         lastAttempt #changeid
   status:
+    lastChange: changeId
     readyState:
       computed:
       local:
@@ -333,6 +383,9 @@ root: #root resource is always named 'root'
   resources:
     child1:
       +/resourceSpecs/node
+      status:
+       createdBy: changeid
+       createdFrom: templateName
 
 changes:
   - changeId
@@ -366,7 +419,12 @@ changes:
     #schema should include defaults but can't validate because it doesn't understand includes
     #but should work most of time
     self.includes, manifest = expandDoc(self.manifest, cls=CommentedMap)
+    #print('expanded')
+    #yaml.dump(manifest, sys.stdout)
     messages = self.validate(manifest)
+    # XXX dont print, log validation errors
+    #for error in messages:
+    #  print(error)
     if messages and validate:
       raise GitErOpError(messages)
     else:
@@ -375,71 +433,30 @@ changes:
     self.specs = []
     self.changeSets = dict((c['changeId'], c) for c in  manifest.get('changes', []))
     lastChangeId = self.changeSets and max(self.changeSets.keys()) or 0
-    rootResource = self.loadResource('root', manifest['root'], None)
+    rootResource = self.createResource('root', manifest['root'], None)
     templates = None #XXX3
     super(YamlManifest, self).__init__(rootResource, self.specs, templates, lastChangeId)
-
-  def createDependency(self, configurationSpec, dependencyTemplateName, args=None):
-    return None
-
-  def _makeConfigSpec(self, configName, resourceName, spec):
-    return ConfigurationSpec(configName, resourceName, spec['className'],
-          spec['majorVersion'], spec.get('minorVersion',''),
-          intent=toEnum(Action, spec.get('intent', Defaults.intent)),
-          lastAttempt=spec.get('lastAttempt'),
-          parameters=spec.get('parameters'), parameterSchema=spec.get('parameterSchema'),
-          requires=spec.get('requires'), provides=spec.get('provides'))
-
-  def loadResource(self, name, decl, parent):
-    status = decl['status']
-    specs = decl['spec']
-    configSpecs = [self._makeConfigSpec(key, name, val) for key, val in specs['configurations'].items()]
-    self.specs.extend(configSpecs)
-    operational = loadStatus(status)
-    resource = Resource(name, status.get('attributes'), parent,
-          spec=CommentedMap([
-            ("attributes", specs.get('attributes')),
-            ("configurations", specs['configurations'])
-          ]),
-          status=operational.computedStatus)
-    for configSpec in configSpecs:
-      changeSet = self.changeSets.get(configSpec.lastAttempt)
-      if changeSet:
-        changeSetStatus = loadStatus(changeSet)
-        if (changeSetStatus.status == Status.notapplied or
-          (changeSetStatus.status == Status.notpresent and configSpec.intent == Action.revert)):
-          # added to excluded configurations
-          excluded = Configuration(configSpec, resource, changeSetStatus.computedStatus)
-          resource.excludedConfigurations[configSpec.name] = excluded
-
-    for key, val in status['configurations'].items():
-      # change = self.changeSets.get(val['changeid']); change['spec']
-      configSpec = self._makeConfigSpec(key, name, val['spec'])
-      config = Configuration(configSpec, resource,
-                                loadStatus(val).computedStatus)
-      # XXX load dependencies
-      resource.setConfiguration(config)
-      config.resourceChanges = ResourceChanges(val.get('modifications', {}))
-
-    for key, val in decl['resources'].items():
-      resource.addResource( self.loadResource(key, val, resource) )
-
-    return resource
 
   def saveResource(self, resource, workDone):
     configSpecMap = resource.spec['configurations']
     for name, configSpec in configSpecMap.items():
       task = workDone.get( (resource.name, name ) )
       if task:
-        configSpec['lastAttempt'] = task.changeId
+        configSpec.lastAttempt = task.changeId
       # XXX:
       # elif 'lastAttempt' in configSpec and configSpec had changed
       # del configSpec['lastAttempt']
 
     status = saveStatus(resource)
     status['attributes'] = resource._attributes
+    if resource.createdOn:
+      status['createdOn'] = resource.createdOn
+    if resource.createdFrom:
+      status['createdFrom'] = resource.createdFrom
+
     status['configurations'] = CommentedMap(map(self.saveConfiguration, resource.configurations.values()))
-    return (resource.name, copy.deepcopy(CommentedMap([("spec", resource.spec),
+    spec = saveResourceSpec(resource.spec)
+    return (resource.name, copy.deepcopy(CommentedMap([("spec", spec),
       ("resources", CommentedMap(map(lambda r: self.saveResource(r, workDone), resource.resources))),
       ("status", status),
     ])))
@@ -447,7 +464,7 @@ changes:
   def saveConfiguration(self, config):
     spec = config.configurationSpec
     status = saveStatus(config)
-    status['parameters'] = config.parameters or {}
+    #status['parameters'] = config.parameters
     status["spec"] = saveConfigSpec(spec)
     status['modifications'] = saveResourceChanges(config.resourceChanges)
     # XXX dependencies.values(), self.configurationSpec.getPostConditions()

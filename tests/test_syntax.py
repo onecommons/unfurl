@@ -119,7 +119,7 @@ root:
             test: derived
 '''
     configurations = YamlManifest(manifest).rootResource.named['cloud3'].spec['configurations']
-    self.assertEqual(list(configurations.values())[0]['parameters'], {
+    self.assertEqual(list(configurations.values())[0].parameters, {
       'test': 'derived',
       # '+%': 'replaceProps'
     })

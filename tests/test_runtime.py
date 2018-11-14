@@ -45,7 +45,7 @@ class ExpandDocTest(unittest.TestCase):
     ]),
 
     'test2':
-      [1, "+t1", '+t4', {'+t4': None}]
+      [1, "+t1", '+t4', {'+t4': None}],
   }
 
   expected = {
@@ -85,6 +85,28 @@ class ExpandDocTest(unittest.TestCase):
     self.assertEqual(old, expectedOld)
     patchDict(old, new)
     self.assertEqual(old, new)
+
+  def test_recursion(self):
+    doc = {
+      "test3": {
+        "a": {
+          "recurse": {"+test3": None}
+        }
+      },
+    }
+    with self.assertRaises(GitErOpError) as err:
+      includes, expanded = expandDoc(doc)
+    self.assertEqual(str(err.exception),
+      '''recursive include "['test3']" in "('test3', 'a', 'recurse')"''')
+
+    # XXX fix ../
+    # doc2 = {
+    #   "test4": {
+    #     "+../test4": None,
+    #     "child": {}
+    #   }
+    # }
+    # includes, expanded = expandDoc(doc2)
 
 class JobTest(unittest.TestCase):
 

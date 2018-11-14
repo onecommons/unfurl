@@ -2,9 +2,12 @@ import sys
 import optparse
 import six
 import traceback
+import itertools
 from six.moves import reduce
 from jsonschema import Draft4Validator, validators, RefResolver
 from ruamel.yaml.comments import CommentedMap
+import logging
+logger = logging.getLogger('gitup')
 
  #import pickle
 pickleVersion = 2 #pickle.DEFAULT_PROTOCOL
@@ -31,6 +34,7 @@ class GitErOpError(Exception):
   def __init__(self, message, saveStack=False):
     super(GitErOpError, self).__init__(message)
     self.stackInfo = sys.exc_info() if saveStack else None
+    logging.error(message, exc_info=saveStack)
 
   def getStackTrace(self):
     if not self.stackInfo:
@@ -79,10 +83,12 @@ def lookupClass(kind, apiVersion=None, default=None):
     raise GitErOpError('Can not find class %s.%s' % (version, kind))
   return klass
 
-def toEnum(enum, value):
+def toEnum(enum, value, default=None):
   #from string: Status[name]; to string: status.name
   if isinstance(value, six.string_types):
     return enum[value]
+  elif default is not None and not isinstance(value, enum):
+    return default
   else:
     return value
 
@@ -92,6 +98,7 @@ mergeStrategyKey = '+%'
 #
 def mergeDicts(b, a, cls=dict):
   """
+  Returns a new dict (or cls) that recursively merges b into a.
   b is base, a overrides
   """
   cp = cls()
@@ -143,15 +150,32 @@ def mergeDicts(b, a, cls=dict):
 
 def getTemplate(doc, key, value, path, cls):
   template = doc
+  templatePath = None
   for segment in key.split('/'):
+    # XXX raise error if .. not at start of key
     if segment == '..':
-      path = path[:-1]
-      template = lookupPath(doc, path, cls)
+      if templatePath is None:
+        templatePath = path[:-1]
+      else:
+        templatePath = templatePath[:-1]
+      template = lookupPath(doc, templatePath, cls)
+    # XXX this check should allow array look up:
     if not isinstance(template, (cls, dict)) or segment not in template:
       raise GitErOpError('can not find "%s" in document' % key)
+    if templatePath is not None:
+      templatePath.append(segment)
     template = template[segment]
+  if templatePath is None:
+    templatePath = key.split('/')
+
   if value != 'raw' and isinstance(template, (cls, dict)): # raw means no further processing
-    includes, template = expandDoc(doc, template, cls)
+    # if the include path starts with the path to the template
+    # throw recursion error
+    prefix = list(itertools.takewhile(lambda x: x[0] == x[1], zip(path, templatePath)))
+    if len(prefix) == len(templatePath):
+      raise GitErOpError('recursive include "%s" in "%s"' % (templatePath, path))
+    includes = CommentedMap()
+    template = expandDict(doc, path, includes, template, cls=dict)
   return template
 
 def hasTemplate(doc, key, path, cls):
@@ -239,12 +263,12 @@ def expandList(doc, path, includes, value, cls=dict):
       else:
         yield item
     elif isinstance(item, (dict, cls)):
-      doc = expandDict(doc, path+(i,), includes, item, cls)
-      if isinstance(doc, list):
-        for i in doc:
+      newitem = expandDict(doc, path+(i,), includes, item, cls)
+      if isinstance(newitem, list):
+        for i in newitem:
           yield i
       else:
-        yield doc
+        yield newitem
     else:
       yield item
 

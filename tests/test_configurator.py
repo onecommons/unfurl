@@ -1,15 +1,26 @@
 import unittest
 from giterop.manifest import YamlManifest
 from giterop.runtime import Runner, Configurator, JobOptions, Status
-import traceback
-import six
+from giterop.util import lookupPath
 import datetime
+import logging
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger('gitup')
+logger.setLevel(logging.DEBUG)
 
 class TestConfigurator(Configurator):
   def run(self, task):
     assert self.canRun(task)
     attributes = task.currentConfiguration.resource.attributes
     attributes['copyOfMeetsTheRequirement'] = attributes["meetsTheRequirement"]
+    params = task.currentConfiguration.parameters
+    if params.get('addresources'):
+      jobrequest = task.addResources([{
+        'name':'added1',
+        'template': 'resourceTemplate1'
+      }])
+      if params.get('yieldresources'):
+        yield jobrequest
     yield Status.ok
 
 manifest = '''
@@ -26,10 +37,24 @@ configurations:
           type: string
       required: ['meetsTheRequirement']
     provides:
-      properties:
-        copyOfMeetsTheRequirement:
-          enum: ["copy"]
-      required: ['copyOfMeetsTheRequirement']
+      .self: #.self describes the attributes that will apply to the target resource
+        attributesSchema:
+          properties:
+            copyOfMeetsTheRequirement:
+              enum: ["copy"]
+          required: ['copyOfMeetsTheRequirement']
+      .configurations:
+        configurationTemplate1:
+          +configurations/test:
+            raw
+          parameters:
+            addresources: false
+      resourceTemplate1:
+        attributes:
+          meetsTheRequirement: "yes"
+        configurations:
+          config1:
+            template: configurationTemplate1
     parameters: {}
     parameterSchema: {}
 root:
@@ -46,6 +71,20 @@ root:
           meetsTheRequirement: false
         configurations:
           +configurations:
+    test3:
+      spec:
+        +root/resources/test1/spec:
+        configurations:
+          test:
+            parameters:
+              addresources: true
+    test4:
+      spec:
+        +root/resources/test3/spec:
+        configurations:
+          test:
+            parameters:
+              yieldresources: true
 '''
 
 class ConfiguratorTest(unittest.TestCase):
@@ -90,6 +129,11 @@ class ConfiguratorTest(unittest.TestCase):
     provided = runner.manifest.specs[0].findMissingProvided(test1)
     assert not provided, provided
 
+    # check that the modifications were recorded
+    self.assertEqual(runner.manifest.manifest['root']['resources']['test1']
+          ['status']['configurations']['test']['modifications'],
+          {'test1':{'copyOfMeetsTheRequirement': 'copy'}})
+
     test2 = runner.manifest.getRootResource().findResource('test2')
     assert test2
     requiredAttribute = test2.attributes['meetsTheRequirement']
@@ -109,6 +153,32 @@ class ConfiguratorTest(unittest.TestCase):
     # don't re-run the failed configurations so nothing will have changed
     jobOptions2.repair="none"
     self.verifyRoundtrip(run2.out.getvalue(), jobOptions2)
+
+  def test_addingResources(self):
+    runner = Runner(YamlManifest(manifest))
+    jobOptions = JobOptions(resource='test3', startTime=datetime.datetime.fromordinal(1))
+    run = runner.run(jobOptions)
+    assert not run.unexpectedAbort, run.unexpectedAbort.getStackTrace()
+    self.assertEqual(list(run.workDone.keys()), [('test3', 'test'), ('added1', 'config1')])
+
+    added = {'.added': {
+      'name': 'added1',
+      'template': 'resourceTemplate1'
+      }
+    }
+    modifications = lookupPath(runner.manifest.manifest,
+    'root.resources.test3.status.configurations.test.modifications.added1'.split('.'))
+    self.assertEqual(modifications, added)
+    self.assertEqual(runner.manifest.manifest['changes'][0]['changes']['added1'], added)
+
+    jobOptions.repair="none"
+    self.verifyRoundtrip(run.out.getvalue(), jobOptions)
+
+    jobOptions = JobOptions(resource='test4', startTime=datetime.datetime.fromordinal(1))
+    run = runner.run(jobOptions)
+    assert not run.unexpectedAbort, run.unexpectedAbort.getStackTrace()
+    # XXX1 bad added the same resource with same name twice!
+    self.assertEqual(list(run.workDone.keys()), [('test4', 'test'), ('added1', 'config1')])
 
   def test_shouldRun(self):
     pass
