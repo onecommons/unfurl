@@ -87,7 +87,7 @@ def toEnum(enum, value, default=None):
   #from string: Status[name]; to string: status.name
   if isinstance(value, six.string_types):
     return enum[value]
-  elif default is not None and not isinstance(value, enum):
+  elif default is not None and not value:
     return default
   else:
     return value

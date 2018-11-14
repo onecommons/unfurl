@@ -124,7 +124,7 @@ class Operational(object):
     return self.priority == Priority.required
 
   @staticmethod
-  def aggregateStatus(statuses, defaultStatus = Status.ok):
+  def aggregateStatus(statuses, defaultStatus = Status.notapplied):
     # error if a configuration is required and not operational
     # error if a non-configuration managed child resource is required and not operational
     # degraded if non-required configurations and resources are not operational
@@ -133,7 +133,7 @@ class Operational(object):
 
     #any required is pending then aggregate is pending
     #any other are pending only set pending if aggregate is ok
-    aggregate = defaultStatus
+    aggregate = defaultStatus if defaultStatus else Status.notapplied
     for status in statuses:
       assert isinstance(status, Operational), status
       if status.priority == Priority.ignore:
@@ -145,11 +145,11 @@ class Operational(object):
         elif status.status == Status.degraded:
           aggregate = Status.degraded
       elif status.status == Status.pending and aggregate <= Status.pending:
-         aggregate = Status.pending
+        aggregate = Status.pending
       elif not status.operational:
-          aggregate = Status.degraded
+        aggregate = Status.degraded
       elif aggregate == Status.notapplied:
-          aggregate = Status.ok
+        aggregate = Status.ok
     return aggregate
 
 class OperationalInstance(Operational):
@@ -199,7 +199,7 @@ class OperationalInstance(Operational):
 
 class Resource(OperationalInstance):
   def __init__(self, name='', attributes=None, parent=None, configurations=None,
-        children=None, spec=None, status=Status.notapplied, priority=None, manualOveride=None):
+        children=None, spec=None, status=None, priority=None, manualOveride=None):
     OperationalInstance.__init__(self, status, priority, manualOveride)
     self.name = name # XXX2 guarantee name uniqueness
     self._attributes = attributes or {}
@@ -1333,13 +1333,13 @@ class Manifest(AttributeManager):
   @staticmethod
   def createStatus(status):
     if not status or 'readyState' not in status:
-      return OperationalInstance(Status.notapplied)
+      return OperationalInstance()
 
     readyState = status['readyState']
     if not isinstance(readyState, dict):
       return OperationalInstance(toEnum(Status, readyState, Status.notapplied))
 
-    local = toEnum(Status, readyState.get('local', Status.notapplied))
+    local = toEnum(Status, readyState.get('local'))
     priority = toEnum(Priority, status.get('priority'))
     return OperationalInstance(local, priority=priority)
 

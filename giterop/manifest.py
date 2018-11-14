@@ -246,8 +246,10 @@ def saveResourceChanges(changes):
 def saveStatus(operational):
   readyState = CommentedMap([
     ("computed", operational.status.name),
-    ('local', operational.localStatus.name)
   ])
+  if operational.localStatus is not None:
+    readyState['local'] =  operational.localStatus.name
+
   status = CommentedMap([("readyState", readyState)])
   if operational.priority and operational.priority != Defaults.shouldRun:
     status["priority"] = operational.priority.name
@@ -373,7 +375,7 @@ root: #root resource is always named 'root'
               ok
         modifications:
           resource1:
-            .spec: # set if added resource
+            .added: # set if added resource
             .status: # set when adding or removing
             foo: bar
           resource2:
