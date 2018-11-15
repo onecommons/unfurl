@@ -35,7 +35,7 @@ from ruamel.yaml.comments import CommentedMap
 yaml = YAML()
 
 from enum import IntEnum
-from .util import (GitErOpError, GitErOpTaskError, lookupClass, AutoRegisterClass,
+from .util import (GitErOpError, GitErOpTaskError, GitErOpAddingResourceError, lookupClass, AutoRegisterClass,
                         toEnum, diffDicts, validateSchema, mergeDicts, intersectDict)
 from .eval import Ref, mapValue, serializeValue
 import logging
@@ -197,9 +197,16 @@ class OperationalInstance(Operational):
     return locals()
   priority = property(**priority())
 
+class _ChildResources(dict):
+  def __init__(self, resource):
+    self.resource = resource
+
+  def __getitem__(self, key):
+    return self.resource.findResource(key)
+
 class Resource(OperationalInstance):
   def __init__(self, name='', attributes=None, parent=None, configurations=None,
-        children=None, spec=None, status=None, priority=None, manualOveride=None):
+        spec=None, status=None, priority=None, manualOveride=None):
     OperationalInstance.__init__(self, status, priority, manualOveride)
     self.name = name # XXX2 guarantee name uniqueness
     self._attributes = attributes or {}
@@ -212,14 +219,16 @@ class Resource(OperationalInstance):
     # or an update to a configuration that failed to apply
     self.excludedConfigurations = {}
     self.container = parent
-    assert parent is not self
     if parent:
+      if parent.root.findResource(name):
+        raise GitErOpError('can not create resource name "%s" is already in use' % name)
       parent.resources.append(self)
-    self.resources = children or []
+    self.resources = []
     self.spec = spec or {}
     self.attributeManager = None
     self.createdOn = None
     self.createdFrom = None
+    self.named = _ChildResources(self) if self.root is self else self.root.named
 
   def localStatus():
     doc = "The localStatus property."
@@ -233,10 +242,6 @@ class Resource(OperationalInstance):
       del self._localStatus
     return locals()
   localStatus = property(**localStatus())
-
-  @property
-  def named(self):
-    return dict((r.name, r) for r in chain([self],self.resources))
 
   @property
   def attributes(self):
@@ -296,8 +301,9 @@ class Resource(OperationalInstance):
     if self.name == resourceid:
       return self
     for r in self.resources:
-      if r.name == resourceid:
-        return r
+      child = r.findResource(resourceid)
+      if child:
+        return child
     return None
 
   def yieldParents(self):
@@ -598,8 +604,9 @@ class TaskRequest(object):
     self.persist = persist
 
 class JobRequest(object):
-  def __init__(self, resources):
+  def __init__(self, resources, errors):
     self.resources = resources
+    self.errors = errors
 
 class TaskView(object):
   """
@@ -672,45 +679,50 @@ class TaskView(object):
     if isinstance(resources, six.string_types):
       resources = yaml.load(resources)
 
+    errors = []
     newResources = []
     for resourceSpec in resources:
-      templateName = resourceSpec.get('template')
-      if templateName:
-        template = self.currentConfiguration.configurationSpec.provides.get(templateName)
-        if template is None:
-          raise GitErOpError('missing resource template from provides' % templateName)
-        logger.debug('template %s: %s', templateName, template)
-        #logger.debug('resourceSpec %s', resourceSpec)
-        resourceSpec = mergeDicts(template, resourceSpec)
-        #logger.debug('merged resourceSpec %s', resourceSpec)
+      try:
+        templateName = resourceSpec.get('template')
+        if templateName:
+          template = self.currentConfiguration.configurationSpec.provides.get(templateName)
+          if template is None:
+            raise GitErOpError('missing resource template from provides' % templateName)
+          logger.debug('template %s: %s', templateName, template)
+          #logger.debug('resourceSpec %s', resourceSpec)
+          resourceSpec = mergeDicts(template, resourceSpec)
+          #logger.debug('merged resourceSpec %s', resourceSpec)
 
-      configSpecs = resourceSpec.get('configurations', {}).items()
-      configurations = dict((name, self._createConfigurationSpecDict(configSpec))
-                                            for name, configSpec in configSpecs)
-      # logger.debug("configurations %s", configurations)
-      rname = resourceSpec['name']
-      # XXX2 or use fully qualified name to indicate parent?
-      pname = resourceSpec.get('parent')
-      parent = self.findResource(pname) if pname else self.currentConfiguration.resource.root
-      if parent is None:
-        raise GitErOpError('can not find parent resource %s' % pname)
+        configSpecs = resourceSpec.get('configurations', {}).items()
+        configurations = dict((name, self._createConfigurationSpecDict(configSpec))
+                                              for name, configSpec in configSpecs)
+        # logger.debug("configurations %s", configurations)
+        rname = resourceSpec['name']
+        # XXX2 or use fully qualified name to indicate parent?
+        pname = resourceSpec.get('parent')
+        parent = self.findResource(pname) if pname else self.currentConfiguration.resource.root
+        if parent is None:
+          raise GitErOpError('can not find parent resource %s' % pname)
 
-      # attributes are part of spec but status can also contain attributes if needed
-      resource = self.manifest.createResource(rname, dict(
-        status=resourceSpec.get('status', {}),
-        spec=dict(configurations=configurations,
-              attributes=resourceSpec.get('attributes')
-            )
-        ), parent)
-      resource.createdOn = self.changeId
-      resource.createdFrom = templateName
-      newResources.append(resource)
+        # attributes are part of spec but status can also contain attributes if needed
+        resource = self.manifest.createResource(rname, dict(
+          status=resourceSpec.get('status', {}),
+          spec=dict(configurations=configurations,
+                attributes=resourceSpec.get('attributes')
+              )
+          ), parent)
+        resource.createdOn = self.changeId
+        resource.createdFrom = templateName
+      except:
+        errors.append(GitErOpAddingResourceError(self, resourceSpec))
+      else:
+        newResources.append(resource)
 
     self.resourceChanges.addResources(resources)
     self.newConfiguration.resourceChanges.addResources(resources)
     self.addedResources.extend(newResources)
     logger.info("add resources %s", newResources)
-    jobRequest = JobRequest(newResources)
+    jobRequest = JobRequest(newResources, errors)
     if self.job:
       self.job.jobRequestQueue.append(jobRequest)
     return jobRequest

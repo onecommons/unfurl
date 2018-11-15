@@ -16,7 +16,7 @@ class TestConfigurator(Configurator):
     params = task.currentConfiguration.parameters
     if params.get('addresources'):
       jobrequest = task.addResources([{
-        'name':'added1',
+        'name': params['resourceName'],
         'template': 'resourceTemplate1'
       }])
       if params.get('yieldresources'):
@@ -77,6 +77,7 @@ root:
         configurations:
           test:
             parameters:
+              resourceName: added1
               addresources: true
     test4:
       spec:
@@ -84,6 +85,7 @@ root:
         configurations:
           test:
             parameters:
+              resourceName: added2
               yieldresources: true
 '''
 
@@ -177,8 +179,7 @@ class ConfiguratorTest(unittest.TestCase):
     jobOptions = JobOptions(resource='test4', startTime=datetime.datetime.fromordinal(1))
     run = runner.run(jobOptions)
     assert not run.unexpectedAbort, run.unexpectedAbort.getStackTrace()
-    # XXX1 bad added the same resource with same name twice!
-    self.assertEqual(list(run.workDone.keys()), [('test4', 'test'), ('added1', 'config1')])
+    self.assertEqual(list(run.workDone.keys()), [('test4', 'test'), ('added2', 'config1')])
 
   def test_shouldRun(self):
     pass

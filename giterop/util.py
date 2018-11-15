@@ -34,7 +34,7 @@ class GitErOpError(Exception):
   def __init__(self, message, saveStack=False):
     super(GitErOpError, self).__init__(message)
     self.stackInfo = sys.exc_info() if saveStack else None
-    logging.error(message, exc_info=saveStack)
+    logger.error(message, exc_info=saveStack)
 
   def getStackTrace(self):
     if not self.stackInfo:
@@ -51,6 +51,13 @@ class GitErOpTaskError(GitErOpError):
     super(GitErOpTaskError, self).__init__(message, True)
     self.task = task
     task.errors.append(self)
+
+class GitErOpAddingResourceError(GitErOpTaskError):
+  def __init__(self, task, resourceSpec):
+    resourcename = isinstance(resourceSpec, dict) and resourceSpec.get('name', '')
+    message = "error creating resource %s" % resourcename
+    super(GitErOpTaskError, self).__init__(task, message)
+    self.resourceSpec = resourceSpec
 
 def assertForm(src, types=dict):
   if not isinstance(src, types):
@@ -93,7 +100,7 @@ def toEnum(enum, value, default=None):
     return value
 
 # XXX?? because json keys are strings allow number keys to merge with lists
-# values: merge, replace, delete
+# values: merge, replace, delete, renamekey
 mergeStrategyKey = '+%'
 #
 def mergeDicts(b, a, cls=dict):
