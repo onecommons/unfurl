@@ -11,7 +11,7 @@ import copy
 class SimpleConfigurator(Configurator):
   def run(self, task):
     assert self.canRun(task)
-    yield Status.ok
+    yield task.createResult(True, True, Status.ok)
 
 simpleConfigSpec = ConfigurationSpec('subtask', 'root', 'SimpleConfigurator', 0)
 
@@ -22,7 +22,7 @@ class TestSubtaskConfigurator(Configurator):
     configuration = yield task.createSubTask(simpleConfigSpec)
     assert configuration.status == Status.ok
     # print ("running TestSubtaskConfigurator")
-    yield Status.ok
+    yield task.createResult(True, True, Status.ok)
 
 class ExpandDocTest(unittest.TestCase):
   doc =  {

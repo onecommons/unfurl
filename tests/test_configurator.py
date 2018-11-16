@@ -11,9 +11,9 @@ logger.setLevel(logging.DEBUG)
 class TestConfigurator(Configurator):
   def run(self, task):
     assert self.canRun(task)
-    attributes = task.currentConfiguration.resource.attributes
+    attributes = task.currentConfig.resource.attributes
     attributes['copyOfMeetsTheRequirement'] = attributes["meetsTheRequirement"]
-    params = task.currentConfiguration.parameters
+    params = task.currentConfig.parameters
     if params.get('addresources'):
       jobrequest = task.addResources([{
         'name': params['resourceName'],
@@ -21,7 +21,7 @@ class TestConfigurator(Configurator):
       }])
       if params.get('yieldresources'):
         yield jobrequest
-    yield Status.ok
+    yield task.createResult(True, True, Status.ok)
 
 manifest = '''
 apiVersion: giterops/v1alpha1
@@ -180,6 +180,9 @@ class ConfiguratorTest(unittest.TestCase):
     run = runner.run(jobOptions)
     assert not run.unexpectedAbort, run.unexpectedAbort.getStackTrace()
     self.assertEqual(list(run.workDone.keys()), [('test4', 'test'), ('added2', 'config1')])
+
+    jobOptions.repair="none"
+    self.verifyRoundtrip(run.out.getvalue(), jobOptions)
 
   def test_shouldRun(self):
     pass

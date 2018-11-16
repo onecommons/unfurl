@@ -79,6 +79,7 @@ class Operational(object):
   # degraded: non-fatal errors or didn't provide required attributes or if couldnt upgrade
   """
 
+  # XXX rename Status to ReadyState, setter on status instead of localStatus?
   # XXX2 add repairable, messages?
 
   # core properties to override
@@ -123,6 +124,14 @@ class Operational(object):
   def required(self):
     return self.priority == Priority.required
 
+  @property
+  def lastStateChange(self):
+    return None
+
+  @property
+  def lastConfigChange(self):
+    return None
+
   @staticmethod
   def aggregateStatus(statuses, defaultStatus = Status.notapplied):
     # error if a configuration is required and not operational
@@ -153,11 +162,13 @@ class Operational(object):
     return aggregate
 
 class OperationalInstance(Operational):
-  def __init__(self, status=None, priority=None, manualOveride=None):
+  def __init__(self, status=None, priority=None, manualOveride=None, lastStateChange=None, lastConfigChange=None):
     self._localStatus = toEnum(Status, status)
     self._manualOverideStatus = toEnum(Status, manualOveride)
     self._priority = toEnum(Priority, priority)
     self.dependencies = []
+    self._lastStateChange = lastStateChange
+    self._lastConfigChange = lastConfigChange
     #self.repairable = False # XXX2
     #self.messages = [] # XXX2
 
@@ -197,6 +208,14 @@ class OperationalInstance(Operational):
     return locals()
   priority = property(**priority())
 
+  @property
+  def lastStateChange(self):
+    return self._lastStateChange
+
+  @property
+  def lastConfigChange(self):
+    return self._lastConfigChange
+
 class _ChildResources(dict):
   def __init__(self, resource):
     self.resource = resource
@@ -205,19 +224,19 @@ class _ChildResources(dict):
     return self.resource.findResource(key)
 
 class Resource(OperationalInstance):
-  def __init__(self, name='', attributes=None, parent=None, configurations=None,
+  def __init__(self, name='', attributes=None, parent=None,
         spec=None, status=None, priority=None, manualOveride=None):
     OperationalInstance.__init__(self, status, priority, manualOveride)
-    self.name = name # XXX2 guarantee name uniqueness
+    self.name = name
     self._attributes = attributes or {}
-    self.configurations = CommentedMap( (c.name, c) for c in (configurations or []) )
-    # XXX2 replace with activeConfigurations vs. inactiveConfigurations
-    # affirmatively absent configurations -- i.e. failed to apply or explicitly not present
-    # we don't want any notapplied or notpresent in configurations
 
+    # configurations that are affecting the state of the resource
+    self.effectiveConfigurations = CommentedMap()
+
+    # affirmatively absent configurations -- i.e. failed to apply or explicitly not present
     # excludedConfigurations are configurations intended as notpresent
-    # or an update to a configuration that failed to apply
-    self.excludedConfigurations = {}
+    # or an updated configuration that failed to apply
+    self.excludedConfigurations = CommentedMap()
     self.container = parent
     if parent:
       if parent.root.findResource(name):
@@ -284,7 +303,7 @@ class Resource(OperationalInstance):
     return Ref.resolveOneIfRef(value, self)
 
   def getOperationalDependencies(self):
-    return self.configurations.values()
+    return self.effectiveConfigurations.values()
 
   def getSelfAndDescendents(self):
     "Recursive descendent including self"
@@ -325,11 +344,37 @@ class Resource(OperationalInstance):
     return {"ref": "[name=%s]"% self.name}
 
   def setConfiguration(self, configuration):
+    name = configuration.name
+    added = 'excluded'
+    removedEffective = None
+    removedExcluded = None
+
     if configuration.status == Status.notpresent and configuration.intent == Action.revert:
-      self.configurations.pop(configuration.name, None)
-      self.excludedConfigurations[configuration.name] = configuration
+      removedEffective = self.effectiveConfigurations.pop(name, None)
+      self.excludedConfigurations[name] = configuration
+    elif configuration.status == Status.notapplied:
+      # if there's an previous configuration or this configuration didn't change anything
+      # put it in excluded configurations
+      if not configuration.lastStateChange:
+        self.excludedConfigurations[name] = configuration
+      elif name in self.effectiveConfigurations and self.effectiveConfigurations[name].status != Status.notapplied:
+        self.excludedConfigurations[name] = configuration
+      else:
+        self.effectiveConfigurations[name] = configuration
+        added = 'effective'
+        if self.excludedConfigurations.get(name) is configuration:
+          removedExcluded = self.excludedConfigurations.pop(name)
     else:
-      self.configurations[configuration.name] = configuration
+      self.effectiveConfigurations[name] = configuration
+      added = 'effective'
+      if self.excludedConfigurations.get(name) is configuration:
+        removedExcluded = self.excludedConfigurations.pop(name)
+
+    logger.debug("on resource %s set config %s to %s", self.name, name, added)
+    if removedExcluded:
+        logger.debug("on resource %s remove config %s from excluded", self.name, name)
+    if removedEffective:
+        logger.debug("on resource %s remove config %s from effective", self.name, name)
 
   def getAllConfigurationsDeep(self):
     for resource in self.getSelfAndDescendents():
@@ -338,31 +383,30 @@ class Resource(OperationalInstance):
 
   @property
   def allConfigurations(self):
-    return chain(self.configurations.values(), self.excludedConfigurations.values())
+    return chain(self.effectiveConfigurations.values(), self.excludedConfigurations.values())
+
+class ConfiguratorResult(object):
+  """
+  If applied is True,
+  the current pending configuration is set to the effective, active one
+  and the previous configuration is no longer in effect.
+
+  Modified indicates whether the underlying state of configuration,
+  was changed i.e. the physically altered the system this configuration represents.
+
+  Readystate reports the Status of the current configuration.
+  """
+  def __init__(self, applied, modified, readyState=None, results=None):
+    self.applied = applied
+    self.modified = modified
+    self.readyState = readyState
 
 @six.add_metaclass(AutoRegisterClass)
 class Configurator(object):
-  class Result(object):
-    """
-    applied is True, status is set to this configuration (assert status and status != notapplied)
-    else
-     set lastAttempt to this change
-     if modified is True
-      if status set on lastChange (assert status != notapplied)
-      if not lastChange:
-        this configuration is added to live configurations, status set to notapplied
-    """
-    def __init__(self, applied, modified, readyState=None, results=None):
-      """
-      """
-      self.applied = applied
-      self.modified = modified
-      self.readyState = readyState
-
   def __init__(self, configurationSpec):
     self.configurationSpec = configurationSpec
 
-  # yields a JobRequest, TaskRequest or a Result
+  # yields a JobRequest, TaskRequest or a ConfiguratorResult
   def run(self, task):
     yield None
 
@@ -379,7 +423,7 @@ class Configurator(object):
 
   def shouldRun(self, task):
     """Does this configuration need to be run?"""
-    return task.newConfiguration.configurationSpec.shouldRun(task.newConfiguration)
+    return task.pendingConfig.configurationSpec.shouldRun(task.pendingConfig)
 
   def checkConfigurationStatus(self, task):
     """Is this configuration still valid?"""
@@ -600,7 +644,7 @@ class Configuration(OperationalInstance):
 class TaskRequest(object):
   def __init__(self, configSpec, persist):
     self.configSpec = configSpec
-    # XXX2 persist
+    # XXX2 persist creates a dependency
     self.persist = persist
 
 class JobRequest(object):
@@ -612,9 +656,9 @@ class TaskView(object):
   """
   The interface presented to configurators.
   """
-  def __init__(self, manifest, currentConfiguration):
+  def __init__(self, manifest, currentConfig):
     self.manifest = manifest
-    self.currentConfiguration = currentConfiguration
+    self.currentConfig = currentConfig
     self.messages = []
     self.addedResources = []
     self.resourceChanges = ResourceChanges()
@@ -625,7 +669,7 @@ class TaskView(object):
   def _createConfigurationSpecDict(self, configSpec):
     templateName = configSpec.get('template')
     if templateName:
-      template = self.currentConfiguration.configurationSpec.provides.get(
+      template = self.currentConfig.configurationSpec.provides.get(
                                         '.configurations', {}).get(templateName)
       if template is None:
         raise GitErOpError('missing config template from provides' % templateName)
@@ -637,7 +681,7 @@ class TaskView(object):
       configSpec = yaml.load(configSpec)
 
     if not resource:
-      rname = self.currentConfiguration.resource.name
+      rname = self.currentConfig.resource.name
     elif isinstance(resource, Resource):
       rname = resource.name
     else:
@@ -685,7 +729,7 @@ class TaskView(object):
       try:
         templateName = resourceSpec.get('template')
         if templateName:
-          template = self.currentConfiguration.configurationSpec.provides.get(templateName)
+          template = self.currentConfig.configurationSpec.provides.get(templateName)
           if template is None:
             raise GitErOpError('missing resource template from provides' % templateName)
           logger.debug('template %s: %s', templateName, template)
@@ -698,9 +742,8 @@ class TaskView(object):
                                               for name, configSpec in configSpecs)
         # logger.debug("configurations %s", configurations)
         rname = resourceSpec['name']
-        # XXX2 or use fully qualified name to indicate parent?
         pname = resourceSpec.get('parent')
-        parent = self.findResource(pname) if pname else self.currentConfiguration.resource.root
+        parent = self.findResource(pname) if pname else self.currentConfig.resource.root
         if parent is None:
           raise GitErOpError('can not find parent resource %s' % pname)
 
@@ -719,7 +762,7 @@ class TaskView(object):
         newResources.append(resource)
 
     self.resourceChanges.addResources(resources)
-    self.newConfiguration.resourceChanges.addResources(resources)
+    self.pendingConfig.resourceChanges.addResources(resources)
     self.addedResources.extend(newResources)
     logger.info("add resources %s", newResources)
     jobRequest = JobRequest(newResources, errors)
@@ -755,13 +798,16 @@ class TaskView(object):
     Dynamically update the conditions this configuration depends on.
     """
     if dependencyTemplateName:
-      dependency = self.manifest.createDependency(self.currentConfiguration.configurationSpec, dependencyTemplateName, args)
-      self.currentConfiguration.dependencies.update(name, dependency)
+      dependency = self.manifest.createDependency(self.currentConfig.configurationSpec, dependencyTemplateName, args)
+      self.currentConfig.dependencies.update(name, dependency)
     else:
-      self.currentConfiguration.dependencies.pop(name, None)
+      self.currentConfig.dependencies.pop(name, None)
 
   def findResource(self, name):
      return self.manifest.getRootResource().findResource(name)
+
+  def createResult(self, applied, modified, readyState=None, results=None):
+    return ConfiguratorResult(applied, modified, readyState, results)
 
 class AttributeManager(object):
   def __init__(self):
@@ -823,22 +869,24 @@ class Task(TaskView, AttributeManager):
 
   Configurator's only other interface to modifying the system is through createSubTask()
   """
-  def __init__(self, job, spec, currentConfiguration, parentId=None):
-    TaskView.__init__(self, job.runner.manifest, currentConfiguration)
+  def __init__(self, job, spec, currentConfig, parentId=None):
+    TaskView.__init__(self, job.runner.manifest, currentConfig)
     AttributeManager.__init__(self)
     self.changeId = job.runner.incrementChangeId()
     self.parentId = parentId or job.changeId
     spec.lastAttempt = self.changeId
-    # XXX rename to old and new to existingConfiguration, pendingConfiguration?
-    self.oldConfiguration = currentConfiguration
-    if currentConfiguration:
-      self.currentConfiguration = currentConfiguration
-      # new configuration's status starts out as the previous one
-      self.newConfiguration = Configuration(spec, currentConfiguration.resource, currentConfiguration.status)
+
+    self.previousConfig = currentConfig
+    if currentConfig:
+      self.currentConfig = currentConfig
+      self.pendingConfig = Configuration(spec, currentConfig.resource, Status.notapplied)
     else:
       resource = self.findResource(spec.target)
-      self.newConfiguration = Configuration(spec, resource, Status.notapplied)
-      self.currentConfiguration = self.newConfiguration
+      if not resource:
+        raise GitErOpTaskError(self, "could not find configuration resource %s" % spec.target)
+      self.pendingConfig = Configuration(spec, resource, Status.notapplied)
+      self.currentConfig = self.pendingConfig
+
     self.configurator = spec.create()
     self.errors = []
     self.startTime = job.startTime or datetime.datetime.now()
@@ -849,16 +897,19 @@ class Task(TaskView, AttributeManager):
     self.changeSet = None
 
   def validateParameters(self):
-    spec = self.newConfiguration.configurationSpec
+    spec = self.pendingConfig.configurationSpec
     return not spec.validateParameters(
-                  spec.resolveParameters(self.newConfiguration))
+                  spec.resolveParameters(self.pendingConfig))
 
   def start(self):
     self.startRun()
-    self.currentConfiguration.resource.root.attributeManager = self
-    # set currentConfiguration (on the target resource too)
-    config = self.newConfiguration
-    self.currentConfiguration = config
+    # set the attribute manager on the root resource
+    self.currentConfig.resource.root.attributeManager = self
+
+    # set currentConfig (on the target resource too)
+    # XXX set status to pending?
+    config = self.pendingConfig
+    self.currentConfig = config
     config.resource.setConfiguration(config)
     config.refreshParameters()
 
@@ -881,26 +932,39 @@ class Task(TaskView, AttributeManager):
         self.commitChanges()
     return result
 
+  def processResult(self, result):
+    # applied indicates this configuration is active
+    # modified indicates if a "physical" change to this system was made
+    # (all combinations of these two are permissible)
+    if result.modified:
+      self.pendingConfig._lastStateChange = self.changeId
+
+    if result.applied:
+      self.pendingConfig._lastConfigChange = self.changeId
+      assert result.readyState and result.readyState != Status.notapplied
+      self.pendingConfig.localStatus = result.readyState
+    else:
+      self.pendingConfig.localStatus = Status.notapplied
+      if self.previousConfig:
+        if result.modified:
+          self.previousConfig._lastStateChange = self.changeId
+        if result.readyState and result.readyState != self.previousConfig.localStatus:
+          assert result.readyState != Status.notapplied
+          self.previousConfig.status = result.readyState
+          self.previousConfig._lastConfigChange = self.changeId
+
+    self.pendingConfig.resource.setConfiguration(self.pendingConfig)
+
   def finished(self, result):
     if self.generator:
       self.generator.close()
       self.generator = None
 
+    self.processResult(result)
     #XXX2 Check that configuration provided the metadata that it declared it would provide
-    self.currentConfiguration.localStatus = result
-    resource = self.currentConfiguration.resource
-    if result == Status.notapplied:
-      # if the status is notapplied when finished set currentConfiguration back to the previous one
-      if self.oldConfiguration:
-        assert self.oldConfiguration.name == self.newConfiguration.name
-        self.currentConfiguration = self.oldConfiguration
-        resource.setConfiguration(self.oldConfiguration)
-        resource.excludedConfigurations[self.newConfiguration.name] = self.newConfiguration
-    elif result == Status.notpresent and self.currentConfiguration.intent == Action.revert:
-      # set again, it might not have been in excludedConfigurations
-      resource.setConfiguration(self.newConfiguration)
+    resource = self.currentConfig.resource
 
-    if result != Status.notapplied and self.changeList:
+    if (result.applied or result.modified) and self.changeList:
       # merge changes together (will be saved with changeset)
       changes = self.changeList
       accum = changes.pop(0)
@@ -908,21 +972,19 @@ class Task(TaskView, AttributeManager):
         accum = mergeDicts(accum, changes.pop(0))
 
       self.resourceChanges.updateChanges(accum, self.statuses, resource)
-      self.newConfiguration.resourceChanges.updateChanges(accum, self.statuses, resource)
+      self.pendingConfig.resourceChanges.updateChanges(accum, self.statuses, resource)
 
-    return self.newConfiguration
+    return self.pendingConfig
 
   def commitChanges(self):
-    # XXX2 attributes set by configurations should be per configuration
-    # mark which ones are exposed as public resource attribuets and subject to merge conflicts
     changes = AttributeManager.commitChanges(self)
     self.changeList.append(changes)
     return changes
 
   def __repr__(self):
     return "Task(%s:%s %s)" % (
-      self.newConfiguration.resource.name,
-      self.newConfiguration.name,
+      self.pendingConfig.resource.name,
+      self.pendingConfig.name,
       getattr(self, 'reason', 'unknown')
     )
 
@@ -1126,7 +1188,7 @@ status compared to current spec is different: compare difference for each:
     # but this means added resources whose parent has already been iterated over would be skipped
     # and updates to a resource already iterated over may render it inconsistent with the last run
     for resource in self.rootResource.getSelfAndDescendents():
-      existing = resource.configurations.copy()
+      existing = resource.effectiveConfigurations.copy()
       excluded = resource.excludedConfigurations.copy()
       for config in self.findConfigurations(resource):
         if self.runner.isConfigAlreadyHandled(config):
@@ -1186,7 +1248,7 @@ status compared to current spec is different: compare difference for each:
     """
     # XXX3 recursion or loop detection
     if not self.canRunTask(task):
-      return Status.notapplied
+      return task.finished(ConfiguratorResult(False, False))
 
     task.start()
     change = None
@@ -1194,9 +1256,9 @@ status compared to current spec is different: compare difference for each:
       try:
         result = task.send(change)
       except Exception:
-        logger.exception("configurator.run failed")
         GitErOpTaskError(task, "configurator.run failed")
-        return task.finished(Status.error)
+        # assume the worst
+        return task.finished(ConfiguratorResult(True, True, Status.error))
       if isinstance(result, TaskRequest):
         subtask = self.createTask(result.configSpec, None, task.changeId)
         self.runner.addWork(subtask)
@@ -1204,12 +1266,11 @@ status compared to current spec is different: compare difference for each:
       elif isinstance(result, JobRequest):
         job = self.runJobRequest(result)
         change = job
-      elif isinstance(result, Status):
+      elif isinstance(result, ConfiguratorResult):
         return task.finished(result)
       else:
-        logger.error('unexpected result from configurator')
         GitErOpTaskError(task, 'unexpected result from configurator')
-        return task.finished(Status.error)
+        return task.finished(ConfiguratorResult(True, True, Status.error))
 
   def run(self):
     for task in self.getCandidateTasks():
@@ -1226,8 +1287,8 @@ status compared to current spec is different: compare difference for each:
       if self.shouldAbort(task):
         return self.rootResource
 
-    # the only tasks and jobs left will be those added to parent resources already iterated over
-    # and also not yielded to runTask
+    # the only jobs left will be those that were added to resources already iterated over
+    # and were not yielding inside runTask
     while self.jobRequestQueue:
       jobRequest = self.jobRequestQueue[0]
       job = self.runJobRequest(jobRequest)
@@ -1235,7 +1296,7 @@ status compared to current spec is different: compare difference for each:
         return self.rootResource
 
     if not self.parentJob:
-      # the default child job will only rerun configurations whose parameters have changed
+      # create a job will re-run configurations whose parameters or dependencies have changed
       maxloops = 10 # XXX better loop detection
       for count in range(maxloops):
         job = Job(self.runner, self.rootResource, [],
@@ -1263,7 +1324,7 @@ status compared to current spec is different: compare difference for each:
       GitErOpTaskError(task, "shouldRun failed")
       return False
 
-    task.newConfiguration.priority = priority
+    task.pendingConfig.priority = priority
     return priority > Priority.ignore
 
   def canRunTask(self, task):
@@ -1276,7 +1337,7 @@ status compared to current spec is different: compare difference for each:
     """
     try:
       canRun = (task.validateParameters()
-              and task.newConfiguration.configurationSpec.canRun(task.newConfiguration)
+              and task.pendingConfig.configurationSpec.canRun(task.pendingConfig)
               and task.configurator.canRun(task))
     except Exception:
       GitErOpTaskError(task, "canRun failed")
@@ -1285,10 +1346,6 @@ status compared to current spec is different: compare difference for each:
     if canRun:
       return True
     else:
-      config = task.newConfiguration
-      config.localStatus = Status.notapplied
-      if task.oldConfiguration:
-        config.resource.excludedConfigurations[config.name] = config
       return False
 
   def shouldAbort(self, task):
@@ -1319,7 +1376,7 @@ status compared to current spec is different: compare difference for each:
     # XXX this isn't right, root job might have too many and child job might not have enough
     # plus dynamic configurations probably shouldn't be included if yielded by a configurator
     for task in self.workDone.values():
-      yield task.currentConfiguration
+      yield task.currentConfig
 
 class Manifest(AttributeManager):
   def __init__(self, rootResource, specs, templates=None, lastChangeId=0):
@@ -1343,17 +1400,23 @@ class Manifest(AttributeManager):
     pass
 
   @staticmethod
-  def createStatus(status):
-    if not status or 'readyState' not in status:
-      return OperationalInstance()
+  def createStatus(status, instance=None):
+    if not instance:
+      instance = OperationalInstance()
+    if not status:
+      return instance
 
-    readyState = status['readyState']
+    instance._priority = toEnum(Priority, status.get('priority'))
+    instance._lastStateChange = status.get('lastStateChange')
+    instance._lastConfigChange = status.get('lastConfigChange')
+
+    readyState = status.get('readyState')
     if not isinstance(readyState, dict):
-      return OperationalInstance(toEnum(Status, readyState, Status.notapplied))
+      instance._localStatus = toEnum(Status, readyState)
+    else:
+      instance._localStatus = toEnum(Status, readyState.get('local'))
 
-    local = toEnum(Status, readyState.get('local'))
-    priority = toEnum(Priority, status.get('priority'))
-    return OperationalInstance(local, priority=priority)
+    return instance
 
   @staticmethod
   def createConfigSpec(configName, resourceName, spec):
@@ -1385,17 +1448,17 @@ class Manifest(AttributeManager):
       changeSet = self.changeSets.get(configSpec.lastAttempt)
       if changeSet:
         changeSetStatus = self.createStatus(changeSet)
-        if (changeSetStatus.status == Status.notapplied or
-          (changeSetStatus.status == Status.notpresent and configSpec.intent == Action.revert)):
-          # added to excluded configurations
+        if changeSetStatus.status in [Status.notapplied, Status.notpresent]:
+          # these will not be in the status' configurations so set them now
           excluded = Configuration(configSpec, resource, changeSetStatus.localStatus)
-          resource.excludedConfigurations[configSpec.name] = excluded
+          self.createStatus(changeSet, excluded)
+          resource.setConfiguration(excluded)
 
     for key, val in status.get('configurations', {}).items():
       # change = self.changeSets.get(val['changeid']); change['spec']
       configSpec = self.createConfigSpec(key, name, val['spec'])
-      config = Configuration(configSpec, resource,
-                                self.createStatus(val).localStatus)
+      config = Configuration(configSpec, resource)
+      self.createStatus(val, config)
       # XXX load dependencies
       resource.setConfiguration(config)
       config.resourceChanges = ResourceChanges(val.get('modifications', {}))
@@ -1412,7 +1475,7 @@ class Runner(object):
     self.currentJob = None
 
   def addWork(self, task):
-    config = task.currentConfiguration
+    config = task.currentConfig
     key = (config.resource.name, config.name)
     self.currentJob.workDone[key] = task
     task.job.workDone[key] = task

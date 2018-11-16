@@ -1,3 +1,85 @@
+"""Loads and saves a GitErOp manifest with the following format:
+
+apiVersion: VERSION
+kind: Manifest
+root: #root resource is always named 'root'
+  spec:
+    attributes:
+    configurations:
+      name1:
+        className
+        version
+        intent
+        priority:
+        provides:
+          .self: #.self describes the attributes that will
+            attributes
+            attributesSchema
+          .configurations: #configurations that maybe used by this configurator
+            configTemplate1:
+          resourceTemplate1:
+            attributes:
+              foo: bar
+            configurations:
+              config1:
+        parameters: #declared
+        lastAttempt: changeid
+  status:
+    readyState:
+      effective:
+      local:
+      lastChange: changeId
+    priority
+    lastConfigChange: changeId
+    attributes: #merged from config changes and spec/attributes
+    configurations:
+      name:
+        readyState:
+          effective:
+          local:
+        lastConfigChange: changeId
+        lastStateChange: changeId
+        priority
+        parameters: #actual
+          param1: value
+        dependencies:
+          resource1:
+            configuration:foo:
+              ok
+        modifications:
+          resource1:
+            .added: # set if added resource
+            .status: # set when adding or removing
+            foo: bar
+          resource2:
+            .spec:
+            .status: notpresent
+          resource3/child1: +%delete
+  resources:
+    child1:
+      +/resourceSpecs/node
+      status:
+       createdBy: changeid
+       createdFrom: templateName
+
+changes:
+  - changeId
+    startTime
+    commitId
+    parentChange
+    previousChange #XXX
+    readyState
+    priority
+    resource
+    config
+    action
+    spec
+    parameters
+    dependencies
+    changes
+    messages:
+"""
+
 import six
 import copy
 from .util import (GitErOpError, VERSION,
@@ -163,12 +245,13 @@ schema = {
         "readyState": {
           "type": "object",
           "properties": {
-            "computed": { "enum": list(Status.__members__) },
+            "effective": { "enum": list(Status.__members__) },
             "local":    { "enum": list(Status.__members__) }
           }
         },
         "priority": { "enum": list(Priority.__members__) },
-        "changeId": {"$ref": "#/definitions/changeId"},
+        "lastStateChange": {"$ref": "#/definitions/changeId"},
+        "lastConfigChange": {"$ref": "#/definitions/changeId"},
       },
       "additionalProperties": True,
     },
@@ -245,7 +328,7 @@ def saveResourceChanges(changes):
 
 def saveStatus(operational):
   readyState = CommentedMap([
-    ("computed", operational.status.name),
+    ("effective", operational.status.name),
   ])
   if operational.localStatus is not None:
     readyState['local'] =  operational.localStatus.name
@@ -253,6 +336,11 @@ def saveStatus(operational):
   status = CommentedMap([("readyState", readyState)])
   if operational.priority and operational.priority != Defaults.shouldRun:
     status["priority"] = operational.priority.name
+  if operational.lastStateChange:
+    status["lastStateChange"] = operational.lastStateChange
+  if operational.lastConfigChange:
+    status["lastConfigChange"] = operational.lastConfigChange
+
   return status
 
 class ChangeRecord(object):
@@ -282,21 +370,21 @@ class ChangeRecord(object):
     for (k,v) in self.HeaderAttributes.items():
       setattr(self, k, getattr(task, k, v))
 
-    self.status = task.newConfiguration
-    self.resourceName = task.newConfiguration.resource.name
-    self.configName = task.newConfiguration.name
+    self.status = task.pendingConfig
+    self.resourceName = task.pendingConfig.resource.name
+    self.configName = task.pendingConfig.name
 
     for (k,v) in self.RootAttributes.items():
       if k == 'spec':
-        self.spec = saveConfigSpec(task.newConfiguration.configurationSpec)
+        self.spec = saveConfigSpec(task.pendingConfig.configurationSpec)
       elif k == 'changes':
         self.changes = saveResourceChanges(task.resourceChanges)
       elif k == 'messages':
         self.messages = task.messages
       elif k == 'parameters':
-        self.parameters = serializeValue(task.newConfiguration.parameters)
+        self.parameters = serializeValue(task.pendingConfig.parameters)
       else:
-        setattr(self, k, getattr(task.newConfiguration, k, v))
+        setattr(self, k, getattr(task.pendingConfig, k, v))
 
   def load(self, src):
     for (k,v) in self.HeaderAttributes.items():
@@ -325,87 +413,6 @@ class ChangeRecord(object):
 # +./ +../ +/
 # +%: +url:ffff#fff:
 class YamlManifest(Manifest):
-  """
-Loads and saves a GitErOp manifest with the following format:
-
-apiVersion: VERSION
-kind: Manifest
-include:
-  +url:foo:
-
-root: #root resource is always named 'root'
-  spec:
-    attributes:
-    configurations:
-      name1:
-        className
-        version
-        intent
-        priority:
-        provides:
-          .self: #.self describes the attributes that will
-            attributes
-            attributesSchema
-          .configurations: #configurations that maybe used by this configurator
-            configTemplate1:
-          resourceTemplate1:
-            attributes:
-              foo: bar
-            configurations:
-              config1:
-        parameters: #declared
-        lastAttempt #changeid
-  status:
-    lastChange: changeId
-    readyState:
-      computed:
-      local:
-    priority
-    attributes: #merged from config changes and spec/attributes
-    configurations:
-      name:
-        changeId:
-        readyState:
-
-        parameters: #actual
-          param1: value
-        dependencies:
-          resource1:
-            configuration:foo:
-              ok
-        modifications:
-          resource1:
-            .added: # set if added resource
-            .status: # set when adding or removing
-            foo: bar
-          resource2:
-            .spec:
-            .status: notpresent
-          resource3/child1: +%delete
-  resources:
-    child1:
-      +/resourceSpecs/node
-      status:
-       createdBy: changeid
-       createdFrom: templateName
-
-changes:
-  - changeId
-    startTime
-    commitId
-    parentChange
-    previousChange #XXX
-    readyState
-    priority
-    resource
-    config
-    action
-    spec
-    parameters
-    dependencies
-    changes
-    messages:
-"""
   def __init__(self, manifest=None, path=None, validate=True):
     if path:
       self.path = path
@@ -456,7 +463,7 @@ changes:
     if resource.createdFrom:
       status['createdFrom'] = resource.createdFrom
 
-    status['configurations'] = CommentedMap(map(self.saveConfiguration, resource.configurations.values()))
+    status['configurations'] = CommentedMap(map(self.saveConfiguration, resource.effectiveConfigurations.values()))
     spec = saveResourceSpec(resource.spec)
     return (resource.name, copy.deepcopy(CommentedMap([("spec", spec),
       ("resources", CommentedMap(map(lambda r: self.saveResource(r, workDone), resource.resources))),
