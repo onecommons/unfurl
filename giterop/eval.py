@@ -2,6 +2,7 @@ import six
 import re
 import operator
 import collections
+from .util import validateSchema
 
 def mapValue(value, resource):
   #if self.kms.isKMSValueReference(value):
@@ -41,7 +42,7 @@ class Ref(object):
 
   segment: key? ('[' filter ']')* '?'?
 
-  key: name | integer | var
+  key: name | integer | var | '*'
 
   filter: '!'? expr? (('!=' | '=') test)?
 
@@ -55,7 +56,8 @@ class Ref(object):
   "::" is used as the segment deliminated to allow for keys that contain "." and "/"
 
   Path expressions evaluations always start with a list of one or more Resources.
-  and each segment selects the value associated with that key. If segment has one or more filters
+  and each segment selects the value associated with that key.
+  If segment has one or more filters
   each filter is applied to that value -- each is treated as a predicate
   that decides whether value is included or not in the results.
   If the filter doesn't include a test the filter tests the existence or non-existence of the expression,
@@ -67,15 +69,18 @@ class Ref(object):
   If the current value is a list and the key looks like an integer
   it will be treated like a zero-based index into the list.
   Otherwise the segment is evaluated again all values in the list and resulting value is a list.
+  If the current value is a dictionary and the key is "*", all values will be selected.
 
   If a segment ends in "?", it will only include the first match.
   In other words, "a?::b::c" is a shorthand for "a[b::c]::0::b::c".
   This is useful to guarantee the result of evaluating expression is always a single result.
 
-  The first segment is evaluated against the "current resource" unless the first segment is a variable,
-  which case it evaluates against the value of the variable.
-  If the first segment is empty (i.e. the expression starts with '::') the first segment will be set to ".ancestors?",
-  in otherwords the expression will be the result of evaluating it against the first ancestor of the current resource that it matches.
+  The first segment:
+  If the first segment is a variable reference the current value is set to that variable's value.
+  If the key in the first segment is empty (e.g. the expression starts with '::') the current value will be set to the evaluation of '.all'.
+  If the key in the first segment starts with '.' it is evaluated against the initial "current resource".
+  Otherwise, the current value is set to the evaluation of ".ancestors?". In other words,
+  the expression will be the result of evaluating it against the first ancestor of the current resource that it matches.
 
   If key or test needs to be a non-string type or contains a unallowed character use a var reference instead.
 
@@ -133,7 +138,8 @@ class Ref(object):
       self.vars.update(vars)
     self.source = exp
     paths = list(parseExp(exp))
-    if not paths[0].key:
+    if (not paths[0].key or paths[0].key[0] not in '.$') and (paths[0].key or paths[0].filters):
+      # unspecified relative path: prepend segment to select ancestors
       paths[:0] = [Segment('.ancestors', [], '?', [])]
     self.paths = paths
 
@@ -141,10 +147,13 @@ class Ref(object):
     #always return a list of matches
     #values in results list can be a list or None
     context = _RefContext(dict((k, self.resolveIfRef(v, currentResource)) for (k, v) in self.vars.items()))
-    if self.paths[0].key[0] == '$':
+    if not self.paths[0].key and not self.paths[0].filters: # starts with "::"
+      currentResource = currentResource.all
+      paths = self.paths[1:]
+    elif self.paths[0].key and self.paths[0].key[0] == '$':
       #if starts with a var, use that as the start
       varName = self.paths[0].key[1:]
-      currentResource = self.resolveIfRef(context.vars[varName], currentResource)
+      currentResource = context.vars[varName]
       if len(self.paths) == 1:
         # bare reference to a var, just return it's value
         return [currentResource]
@@ -233,12 +242,24 @@ def andFunc(arg, ctx):
 def quoteFunc(arg, ctx):
   return arg
 
+def eqFunc(arg, ctx):
+  args = eval(arg, ctx)
+  assert isinstance(args, list) and len(args) == 2
+  return eval(args[0], ctx) == eval(args[1], ctx)
+
+def validateSchemaFunc(arg, ctx):
+  args = eval(arg, ctx)
+  assert isinstance(args, list) and len(args) == 2
+  return not not validateSchema(eval(args[0], ctx), eval(args[1], ctx))
+
 funcs = {
   'if': ifFunc,
   'and': andFunc,
   'or': orFunc,
   'not': notFunc,
-  'q': quoteFunc
+  'q': quoteFunc,
+  'eq': eqFunc,
+  'validate': validateSchemaFunc,
 }
 
 def eval(val, ctx):
@@ -286,6 +307,7 @@ def lookup(value, key, context):
   try:
     # if key == '.':
     #   key = context.currentKey
+
     if context and isinstance(key, six.string_types) and key.startswith('$'):
       key = context.vars[key[1:]]
 
@@ -324,6 +346,8 @@ def evalItem(v, seg, context):
   yield v
 
 def _treatAsSingular(item, seg):
+  if seg.key == '*':
+    return False
   return not isinstance(item, list) or isinstance(seg.key, six.integer_types)
 
 def recursiveEval(v, exp, context):
@@ -332,13 +356,22 @@ def recursiveEval(v, exp, context):
   yield a list of results
   """
   matchFirst = exp[0].modifier == '?'
+  useValue = exp[0].key == '*'
+
   for item in v:
     if _treatAsSingular(item, exp[0]):
       iv = evalItem(item, exp[0], context)
       rest = exp[1:]
     else:
-      iv = item
-      rest = exp
+      if useValue:
+        if not isinstance(item, collections.Mapping):
+          continue
+        iv = item.values()
+        rest = exp[1:]
+      else:
+        # flattens
+        iv = item
+        rest = exp
 
     #if iv is empty, it won't yield
     results = recursiveEval(iv, rest, context) if rest else iv

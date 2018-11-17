@@ -49,7 +49,7 @@ logger = logging.getLogger('gitup')
 # XXX2 add upgrade required field?
 # XXX2 for dependencies checking add a revision field that increments everytime configuration changes?
 
-# XXX2 doc: notpresent is a positive assertion of non-existence while notapplied just indicates non-liveness
+# XXX3 doc: notpresent is a positive assertion of non-existence while notapplied just indicates non-liveness
 # notapplied is therefore the default initial state
 S = Status = IntEnum("Status", "ok degraded error pending notapplied notpresent", module=__name__)
 
@@ -79,8 +79,8 @@ class Operational(object):
   # degraded: non-fatal errors or didn't provide required attributes or if couldnt upgrade
   """
 
-  # XXX rename Status to ReadyState, setter on status instead of localStatus?
-  # XXX2 add repairable, messages?
+  # XXX3 rename Status to ReadyState, add setter on status instead of setting localStatus?
+  # XXX3 add repairable, messages?
 
   # core properties to override
   @property
@@ -216,12 +216,18 @@ class OperationalInstance(Operational):
   def lastConfigChange(self):
     return self._lastConfigChange
 
-class _ChildResources(dict):
+class _ChildResources(collections.Mapping):
   def __init__(self, resource):
     self.resource = resource
 
   def __getitem__(self, key):
     return self.resource.findResource(key)
+
+  def __iter__(self):
+    return self.resource.getSelfAndDescendents()
+
+  def __len__(self):
+    return len(tuple(self))
 
 class Resource(OperationalInstance):
   def __init__(self, name='', attributes=None, parent=None,
@@ -247,7 +253,7 @@ class Resource(OperationalInstance):
     self.attributeManager = None
     self.createdOn = None
     self.createdFrom = None
-    self.named = _ChildResources(self) if self.root is self else self.root.named
+    self.all = _ChildResources(self) if self.root is self else self.root.all
 
   def localStatus():
     doc = "The localStatus property."
@@ -290,7 +296,7 @@ class Resource(OperationalInstance):
     elif name == '..':
       return self.container
     name = name[1:]
-    # XXX propmap
+    # XXX3 use propmap
     return getattr(self, name)
 
   def __reflookup__(self, key):

@@ -78,7 +78,7 @@ root:
 '''
     #overrides base.step1 defination, doesn't add a component
     manifestObj = YamlManifest(manifest)
-    assert len(manifestObj.rootResource.named['cloud3'].spec['configurations']) == 1, manifestObj.rootResource.named['cloud3'].spec['configurations']
+    assert len(manifestObj.rootResource.all['cloud3'].spec['configurations']) == 1, manifestObj.rootResource.all['cloud3'].spec['configurations']
 
   def test_override(self):
     #component names have to be qualified to override
@@ -118,7 +118,7 @@ root:
           parameters:
             test: derived
 '''
-    configurations = YamlManifest(manifest).rootResource.named['cloud3'].spec['configurations']
+    configurations = YamlManifest(manifest).rootResource.all['cloud3'].spec['configurations']
     self.assertEqual(list(configurations.values())[0].parameters, {
       'test': 'derived',
       # '+%': 'replaceProps'

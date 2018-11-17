@@ -1,5 +1,5 @@
 import unittest
-from giterop.eval import evalDict, Ref
+from giterop.eval import evalDict, Ref, mapValue, serializeValue
 from giterop.runtime import Resource
 from ruamel.yaml.comments import CommentedMap
 
@@ -19,7 +19,7 @@ class EvalTest(unittest.TestCase):
   def _getTestResource(self):
     resourceDef = {
       "name": "test",
-      'a': {'ref': '::name'},
+      'a': {'ref': 'name'},
       'b': [1, 2, 3],
       'd': {'a':'va', 'b':'vb'},
       'n': {'n':{'n':'n'}},
@@ -33,6 +33,8 @@ class EvalTest(unittest.TestCase):
             },
             [{'c':6}],
           ],
+      'e': {'a1':{'b1': 'v1'},
+            'a2':{'b2': 'v2'}},
       }
     resource = Resource("test", attributes=resourceDef)
     return resource
@@ -56,7 +58,7 @@ class EvalTest(unittest.TestCase):
       ['x::a?::[c]', [{'c':1}, {'c':2}]],
       ['a', ['test']],
       ['b', [[1,2,3]]],
-      ['?::b::2', [3]],
+      ['b?::2', [3]],
       ['[b::2]::0::b::2', [3]],
       ['b::1', [2]],
       ['s::b', [[1, 2, 3]]],
@@ -92,12 +94,19 @@ class EvalTest(unittest.TestCase):
        ['[!blah]', [resource]],
        ['.[!=blah]', [resource]],
        ['[!a]', []],
-       ['.named::test', [resource]],
+       ['::test', [resource]],
+       ['d::*', set(['va', 'vb'])],
+       ['e::*::b2', ['v2']],
+       ["*", []]
        #XXX test nested ['.[k[d=3]=4]']
     ]:
       ref = Ref(exp)
       # print ('eval', ref, ref.paths)
-      self.assertEqual(ref.resolve(resource), expected, [ref] + ref.paths)
+      if isinstance(expected, set):
+        # for results where order isn't guaranteed in python2.7
+        self.assertEqual(set(ref.resolve(resource)), expected, [ref] + ref.paths)
+      else:
+        self.assertEqual(ref.resolve(resource), expected, [ref] + ref.paths)
 
   def test_funcs(self):
     resource = self._getTestResource()
@@ -129,3 +138,10 @@ class EvalTest(unittest.TestCase):
     self.assertEqual(1, result2)
     result3 = evalDict(test3, resource)
     self.assertEqual('expected', result3)
+
+  def test_serializeValues(self):
+    resource = self._getTestResource()
+    src = {'a': ['b', resource]}
+    serialized = serializeValue(src)
+    self.assertEqual(serialized, {'a': ['b', {'ref': '::test'}]})
+    self.assertEqual(src, mapValue(serialized, resource))
