@@ -3,6 +3,7 @@ import optparse
 import six
 import traceback
 import itertools
+import collections
 from six.moves import reduce
 from jsonschema import Draft4Validator, validators, RefResolver
 from ruamel.yaml.comments import CommentedMap
@@ -452,3 +453,24 @@ def validateSchema(obj, schema):
   return list(validator.iter_errors(obj))
 
 #RefResolver.from_schema(schema)
+
+class ChainMap(collections.Mapping):
+  """
+  Combine multiple mappings for sequential lookup.
+  """
+  def __init__(self, *maps):
+    self._maps = maps
+
+  def __getitem__(self, key):
+    for mapping in self._maps:
+        try:
+          return mapping[key]
+        except KeyError:
+          pass
+    raise KeyError(key)
+
+  def __iter__(self):
+    return itertools.chain(*self._maps)
+
+  def __len__(self):
+    return len(frozenset(self))

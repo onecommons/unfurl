@@ -43,9 +43,12 @@ root: #root resource is always named 'root'
         parameters: #actual
           param1: value
         dependencies:
-          resource1:
-            configuration:foo:
-              ok
+          - ref: ::resource1::key[~$val]
+            vars:
+              val: 'expected'
+            name: name1
+          - ref: .configurations::foo[.operational]
+            required: true
         modifications:
           resource1:
             .added: # set if added resource

@@ -113,16 +113,15 @@ class Ref(object):
   ..           parent
   .parents     list of parents
   .ancestors   self and parents
-  .root        root ancestor
   .children    child resources
   .descendents (including self)
-  .named       dictionary of child resources with their names as keys
-  .kms
+  .all       dictionary of child resources with their names as keys
+  .configurations
 
-    # XXX
-    # .configured
-    # .configurations
-    # .byShape
+  Special resource names:
+
+  root
+  kms
   """
 
   def __init__(self, exp, vars = None):
