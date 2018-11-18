@@ -15,12 +15,18 @@ class TestConfigurator(Configurator):
     attributes['copyOfMeetsTheRequirement'] = attributes["meetsTheRequirement"]
     params = task.currentConfig.parameters
     if params.get('addresources'):
-      jobrequest = task.addResources([{
+      shouldYield = params.get('yieldresources')
+      resourceSpec = {
         'name': params['resourceName'],
         'template': 'resourceTemplate1'
-      }])
-      if params.get('yieldresources'):
-        yield jobrequest
+      }
+      if shouldYield:
+        resourceSpec['dependent'] = True
+      jobrequest = task.addResources([resourceSpec])
+      if shouldYield:
+        job = yield jobrequest
+        assert job, jobrequest
+
     yield task.createResult(True, True, Status.ok)
 
 manifest = '''

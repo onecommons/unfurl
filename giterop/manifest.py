@@ -43,14 +43,14 @@ root: #root resource is always named 'root'
         parameters: #actual
           param1: value
         dependencies:
-          - ref: ::resource1::key[~$val]
-            schema
-            expected
-            vars:
-              val: 'expected'
-            name: name1
-          - ref: .configurations::foo[.operational]
+          name1:
+            ref: ::resource1::key[~$val]
+            expected: "value"
+          name2:
+            ref: .configurations::foo[.operational]
             required: true
+            schema:
+              type: array
         modifications:
           resource1:
             .added: # set if added resource
@@ -313,6 +313,17 @@ def saveConfigSpec(spec):
     saved["lastAttempt"] = spec.lastAttempt
   return saved
 
+def saveDependency(dep):
+  saved = CommentedMap()
+  saved['ref'] = dep.expr
+  if dep.expected is not None:
+    saved['expected'] = serializeValue(dep.expected)
+  if dep.schema is not None:
+    saved['schema'] = dep.schema
+  if dep.required:
+    saved['required'] = dep.required
+  return saved
+
 def saveResourceSpec(rspec):
     spec = CommentedMap()
     if 'attributes' in rspec:
@@ -366,7 +377,7 @@ class ChangeRecord(object):
     ('spec', {}),
     ('parameters', {}),
     ('results', {}),
-    ('dependencies', {}),
+    # ('dependencies', {}), # XXX
     ('changes', {}),
     ('messages', []),
   ])
@@ -472,7 +483,8 @@ class YamlManifest(Manifest):
     status['parameters'] = serializeValue(config.parameters)
     status["spec"] = saveConfigSpec(spec)
     status['modifications'] = saveResourceChanges(config.resourceChanges)
-    # XXX dependencies.values(), self.configurationSpec.getPostConditions()
+    status['dependencies'] = CommentedMap((key, saveDependency(val))
+                        for key, val in config.dependencies.items())
     return (config.name, status)
 
   def saveTask(self, task):

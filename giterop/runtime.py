@@ -46,8 +46,7 @@ logger = logging.getLogger('gitup')
 # But if the configuration did fail could mean error at global level
 # treat failed as a separate dependent configuration that can contribute to aggregate status
 # and participate in resource graph
-# XXX2 add upgrade required field?
-# XXX2 for dependencies checking add a revision field that increments everytime configuration changes?
+# XXX3 add upgrade required field?
 
 # XXX3 doc: notpresent is a positive assertion of non-existence while notapplied just indicates non-liveness
 # notapplied is therefore the default initial state
@@ -134,7 +133,12 @@ class Operational(object):
 
   @property
   def lastChange(self):
-    return max(self.lastStateChange, self.lastConfigChange)
+    if not self.lastStateChange:
+      return self.lastConfigChange
+    elif not self.lastConfigChange:
+      return self.lastStateChange
+    else:
+      return max(self.lastStateChange, self.lastConfigChange)
 
   @staticmethod
   def aggregateStatus(statuses, defaultStatus = Status.notapplied):
@@ -173,8 +177,8 @@ class OperationalInstance(Operational):
     self.dependencies = []
     self._lastStateChange = lastStateChange
     self._lastConfigChange = lastConfigChange
-    #self.repairable = False # XXX2
-    #self.messages = [] # XXX2
+    #self.repairable = False # XXX3
+    #self.messages = [] # XXX3
 
   def getOperationalDependencies(self):
     return self.dependencies
@@ -459,11 +463,10 @@ class Configurator(object):
     """Does this configuration need to be run?"""
     return task.pendingConfig.configurationSpec.shouldRun(task.pendingConfig)
 
-  def checkConfigurationStatus(self, task):
-    """Is this configuration still valid?"""
-    # XXX2
-    # should be called during when checking dependencies
-    return Status.ok
+  # XXX3 should be called during when checking dependencies
+  # def checkConfigurationStatus(self, task):
+  #   """Is this configuration still valid?"""
+  #   return Status.ok
 
 # XXX3 versioning:
 # configurator api version (encoded in api namespace): semantics of the interface giterop uses
@@ -526,9 +529,11 @@ class ConfigurationSpec(object):
   def resolveParameters(self, configuration):
     return mapValue(self.parameters, configuration)
 
-  # xXX2
   def getPostConditions(self):
-    return {}
+    """
+    Returns a list of Dependencies
+    """
+    return [] #XXX3
 
   def copy(self, **mods):
     args = self.__dict__.copy()
@@ -614,15 +619,15 @@ class ResourceChanges(collections.OrderedDict):
       self.sync(resource)
 
 class Dependency(object):
+  """
+  Represents a runtime dependencies for a configuration
+  """
   def __init__(self, expr, expected=None, schema=None, name=None, required=False):
     """
     if schema is not None, set validate the result using schema
     if expected is not None, test that result equals expected
     otherwise test that result isn't empty has not changed since the last attempt
-
-    required: 'pre', 'post' or False
     """
-    # XXX add status keyword ??
     assert not (expected and schema)
     self.expr = expr
 
@@ -631,23 +636,34 @@ class Dependency(object):
     self.required = required
     self.name = name
 
+  def refresh(self, config):
+    expr = dict(eval=self.expr,
+        vars=dict(val=self.expected, changeId=config.lastAttempt))
+    result = evalDict(expr, config)
+    if self.expected is not None:
+      self.expected = result
+
   def changed(self, config):
     expr = dict(eval=self.expr,
         vars=dict(val=self.expected, changeId=config.lastAttempt))
     result = evalDict(expr, config)
+
     if self.schema:
       return not validateSchema(result, self.schema)
-    elif self.expected is not None:
-      expected = Ref.resolveOneIfRef(self.expected, config)
-      #print(config.resource.name, ':', config.name, config.parameters)
-      #print(result == expected, self.expr, 'result', result, 'exp', expected)
-      return result != expected
-    elif isinstance(result, Operational):
-      # if result is a resource or config see if changed since the last time we checked
-      return result.lastChanged <= config.lastAttempt
     else:
-      # if expression evaluated to false then treat dependency as changed
-      return not result
+      if self.expected is not None:
+        expected = Ref.resolveOneIfRef(self.expected, config)
+        if result != expected:
+          return True
+      elif not result:
+        # if expression evaluated to false then treat dependency as changed
+        return True
+      elif isinstance(result, Operational):
+        # if result is a resource or config see if changed since the last time we checked
+        if not result.lastChange:
+          return False
+        return result.lastChange > config.lastAttempt
+    return False
 
 class Configuration(OperationalInstance, ResourceRef):
   def __init__(self, spec, resource, status=Status.notapplied, dependencies=None):
@@ -673,12 +689,6 @@ class Configuration(OperationalInstance, ResourceRef):
     return locals()
   priority = property(**priority())
 
-  def getOperationalDependencies(self):
-    # XXX1 requires should be part of dependencies
-    conditions = chain(self.dependencies.values(), self.configurationSpec.getPostConditions().values())
-    for conditionPredicate in conditions:
-      yield conditionPredicate(self)
-
   @property
   def name(self):
     return self.configurationSpec.name
@@ -703,25 +713,41 @@ class Configuration(OperationalInstance, ResourceRef):
   def _map(self):
     return self._parameters
 
-  def refreshParameters(self):
-    # re-evaluate parameters from the spec
-    self._parameters = self.configurationSpec.parameters
-    return self._parameters
-
   def hasParametersChanged(self):
-    log = self.resource.name == 'test3'
     specParams = self.configurationSpec.parameters
     if self._parameters is None:
-      #True if parameters have been declared
+      #return True if parameters have been declared
       return not not specParams
 
     if set(specParams) != set(self._parameters):
       return True #params were added or removed
 
+    # XXX3 not all parameters need to be live
+    # add an optional liveParameters attribute to config spec to specify which ones to check
+
     # treat each parameter as a dependency
     # the expression is the name of parameter
     return any(Dependency(".::" + name, val, name=name).changed(self)
                                   for name, val in self._parameters.items())
+
+  def refreshParameters(self):
+    # re-evaluate parameters from the spec
+    self._parameters = self.configurationSpec.parameters
+    return self._parameters
+
+  def hasDependenciesChanged(self):
+    return any(d.changed(self) for d in self.dependencies.values())
+
+  def refreshDependencies(self):
+    for d in self.dependencies.values():
+      d.refresh(self)
+
+  def getOperationalDependencies(self):
+    conditions = chain(self.dependencies.values(), self.configurationSpec.getPostConditions())
+    for condition in conditions:
+      if isinstance(condition.expected, Operational):
+        yield condition.expected
+      # XXX3 else: if changed and required, should set error status
 
   def findMissingRequirements(self):
     return self.configurationSpec.findMissingRequirements(self.resource)
@@ -730,7 +756,7 @@ class Configuration(OperationalInstance, ResourceRef):
     return self.configurationSpec.findMissingProvided(self.resource)
 
   def asRef(self):
-    return {"ref": "::%s::.configurations::%s" % (self.target, self.name)}
+    return {"ref": "::%s::.configurations::%s" % (self.configurationSpec.target, self.name)}
 
   def __eq__(self, other):
     if self is other:
@@ -758,10 +784,10 @@ class Configuration(OperationalInstance, ResourceRef):
   #def obsolete(self):
 
 class TaskRequest(object):
-  def __init__(self, configSpec, persist):
+  def __init__(self, configSpec, persist, required):
     self.configSpec = configSpec
-    # XXX2 persist creates a dependency
     self.persist = persist
+    self.required = required
 
 class JobRequest(object):
   def __init__(self, resources, errors):
@@ -777,6 +803,7 @@ class TaskView(object):
     self.currentConfig = currentConfig
     self.messages = []
     self.addedResources = []
+    self.dependenciesChanged = False
     self.resourceChanges = ResourceChanges()
 
   def addMessage(self, message):
@@ -804,15 +831,16 @@ class TaskView(object):
       rname = resource
     return self.manifest.createConfigSpec(name, rname, self._createConfigurationSpecDict(configSpec))
 
-  # configurations created by subtasks are transient insofar as the are not part of the spec,
-  # unless marked as persistent. But they are persistent in that they recorded as part of the resource's state and status
+  # Configurations created by subtasks are transient insofar as the are not part of the spec,
+  # but they are recorded as part of the resource's configuration state.
+  # Marking as persistent or required will create a dependency on the new configuration.
   # XXX3 have a way to update spec attributes to trigger config updates e.g. add dns entries via attributes on a dns
-  # (for now just rely on away mark a subtask as permanent)
+  def createSubTask(self, configSpec, persist=False, required=False):
+    if persist or required:
+      expr = "::%s::.configurations::%s" % (configSpec.target, configSpec.name)
+      self.addDependency(expr, required=required)
+    return TaskRequest(configSpec, persist, required)
 
-  def createSubTask(self, configSpec, persist=False):
-    return TaskRequest(configSpec, persist)
-
-  # XXX2 have indicate what kind of dependency and ownership (e.g. discovered, created)
   def addResources(self, resources):
     """
     Either a list or string that is parsed as YAML
@@ -821,7 +849,8 @@ class TaskView(object):
 
     - name:
       template: # merge with template
-      dependency: required | boolean
+      priority: required
+      dependent: boolean
       parent:
       attributes:
         override1:
@@ -870,8 +899,10 @@ class TaskView(object):
                 attributes=resourceSpec.get('attributes')
               )
           ), parent)
-        resource.createdOn = self.changeId
+        resource.createdOn = self.parentId
         resource.createdFrom = templateName
+        if resource.required or resourceSpec.get('dependent'):
+          self.addDependency(resource, name=resource.name, required=resource.required)
       except:
         errors.append(GitErOpAddingResourceError(self, resourceSpec))
       else:
@@ -886,44 +917,44 @@ class TaskView(object):
       self.job.jobRequestQueue.append(jobRequest)
     return jobRequest
 
-  # XXX2 need an api to get dependencies
-  # XXX2 have a way to get changes and mark as dependencies?
-  def query(self, query, resource=None, name=None, dependency=None):
-    """
-    required
-    replace=name
-    set: value or status
-    match:
-     result (default) #if result is resource or configuration, any change triggers dependency
-     value
-     status
-     query
-     schema
-    """
-  # dependency = [dependent, required]
+  def findResource(self, name):
+     return self.manifest.getRootResource().findResource(name)
+
+  # XXX3 have a way to get changes and mark as dependencies?
   # updates can be marked as dependencies (changes to dependencies changed) or required (error if changed)
   # configuration has cumulative set of changes made it to resources
   # updates update those changes
   # other configurations maybe modify those changes, triggering a configuration change
-  # what about previous changes?
-  # XXX2
-  # setting dependencies and required replace old ones
-  # dependencies can be declared separately and with queries
-  def updateDependency(self, name, dependencyTemplateName, args=None):
-    """
-    Dynamically update the conditions this configuration depends on.
-    """
-    if dependencyTemplateName:
-      dependency = self.manifest.createDependency(self.currentConfig.configurationSpec, dependencyTemplateName, args)
-      self.currentConfig.dependencies.update(name, dependency)
-    else:
-      self.currentConfig.dependencies.pop(name, None)
+  def query(self, query, dependency=False, name=None, required=False):
+    result = evalDict(dict(eval=query), self.currentConfig)
+    if dependency:
+      dependency = Dependency(query, result, name=name, required=required)
+      self.currentConfig.dependencies[name] = dependency
+    return result
 
-  def findResource(self, name):
-     return self.manifest.getRootResource().findResource(name)
+  def addDependency(self, expr, expected=None, schema=None, name=None, required=False):
+    getter = getattr(expr, 'asRef', None)
+    if getter:
+      # expr is a configuration or resource
+      if expected is None and schema is None:
+        expected = expr
+      expr = getter()['ref']
 
-  def createResult(self, applied, modified, readyState=None, results=None):
-    return ConfiguratorResult(applied, modified, readyState, results)
+    dependency = Dependency(expr, expected, schema, name, required)
+    if not name:
+      name = expr
+    self.currentConfig.dependencies[name] = dependency
+    self.dependenciesChanged = True
+    return dependency
+
+  def removeDependency(self, name):
+    old = self.currentConfig.dependencies.pop(name, None)
+    if old:
+      self.dependenciesChanged = True
+    return old
+
+  def createResult(self, applied, modified, readyState=None, configChanged=None, results=None):
+    return ConfiguratorResult(applied, modified, readyState, configChanged, results)
 
 class AttributeManager(object):
   def __init__(self):
@@ -988,8 +1019,8 @@ class Task(TaskView, AttributeManager):
   def __init__(self, job, spec, currentConfig, parentId=None, reason = None):
     TaskView.__init__(self, job.runner.manifest, currentConfig)
     AttributeManager.__init__(self)
-    self.changeId = job.runner.incrementChangeId()
     self.parentId = parentId or job.changeId
+    self.changeId = self.parentId
     self.reason = reason
     spec.lastAttempt = self.changeId
 
@@ -1029,6 +1060,7 @@ class Task(TaskView, AttributeManager):
     self.currentConfig = config
     config.resource.setConfiguration(config)
     config.refreshParameters()
+    config.refreshDependencies()
 
   def startRun(self):
     if self.dryRun:
@@ -1042,17 +1074,21 @@ class Task(TaskView, AttributeManager):
     try:
       result = self.generator.send(change)
     finally:
-      # we serialize configurations
-      if result == Status.notapplied:
-        self.revertChanges()
-      else:
-        self.commitChanges()
+      # serialize configuration changes
+      self.commitChanges()
     return result
 
   def _setConfigStatus(self, config, result):
     statusChanged = config.localStatus != result.readyState
-    changeDetected = statusChanged or self.changeList # XXX1 or dependency changed
-    configChanged = changeDetected if result.configChanged is None else result.configChanged
+    if result.configChanged is None:
+      if self.reason in ['config changed', 'all']:
+        configChanged = statusChanged or self.changeList or self.dependenciesChanged
+      else:
+        configChanged = True
+    else:
+      # setting result.configChanged will override change detection
+      configChanged = result.configChanged
+
     if configChanged:
       config._lastConfigChange = self.changeId
     if statusChanged:
@@ -1086,6 +1122,9 @@ class Task(TaskView, AttributeManager):
       self.generator.close()
       self.generator = None
 
+    # don't set the changeId until we're finish so that we have a higher changeid
+    # than nested tasks and jobs that ran (avoids spurious config changed tasks)
+    self.changeId = self.job.runner.incrementChangeId()
     self.processResult(result)
     #XXX2 Check that configuration provided the metadata that it declared it would provide
     resource = self.currentConfig.resource
@@ -1161,6 +1200,7 @@ class Job(OperationalInstance):
     self.rootResource = rootResource
     self.jobRequestQueue = []
     self.unexpectedAbort = None
+    # note: tasks that never run will all share this changeid
     self.changeId = runner.incrementChangeId()
     self.parentId = self.parentJob.changeId if self.parentJob else None
     self.workDone = collections.OrderedDict()
@@ -1234,9 +1274,8 @@ status compared to current spec is different: compare difference for each:
           return 'update', config
 
     # there isn't a new config to run, see if the last applied config needs to be re-run
-    # XXX1 what about dependencies / required changed pretty much the same as hasParametersChanged()
     assert lastChange
-    if lastChange.hasParametersChanged() and (self.update or self.all):
+    if (lastChange.hasParametersChanged() or lastChange.hasDependenciesChanged()) and (self.update or self.all):
       return 'config changed', lastChange.configurationSpec
 
     return self.checkForRepair(lastChange)
@@ -1383,7 +1422,7 @@ status compared to current spec is different: compare difference for each:
         # assume the worst
         return task.finished(ConfiguratorResult(True, True, Status.error))
       if isinstance(result, TaskRequest):
-        subtask = self.createTask(result.configSpec, None, task.changeId)
+        subtask = self.createTask(result.configSpec, None, self.changeId)
         self.runner.addWork(subtask)
         change = self.runTask(subtask) # returns a configuration
       elif isinstance(result, JobRequest):
@@ -1403,9 +1442,6 @@ status compared to current spec is different: compare difference for each:
 
       logger.info("running task %s", task)
       self.runTask(task)
-      if not self.parentJob:
-        # only check when running top level tasks
-        self.localStatus = self.checkStatusAfterRun()
 
       if self.shouldAbort(task):
         return self.rootResource
@@ -1419,7 +1455,11 @@ status compared to current spec is different: compare difference for each:
         return self.rootResource
 
     if not self.parentJob:
-      # create a job will re-run configurations whose parameters or dependencies have changed
+      # create a job that will re-run configurations whose parameters or runtime dependencies have changed
+      # ("config changed" tasks)
+      # XXX3 check for orphaned resources and mark them as orphaned
+      #  (a resource is orphaned if it was added as a dependency and no longer has dependencies)
+      #  (orphaned resources can be deleted by the configuration that created them or manages that type)
       maxloops = 10 # XXX3 better loop detection
       for count in range(maxloops):
         job = Job(self.runner, self.rootResource, [],
@@ -1472,31 +1512,13 @@ status compared to current spec is different: compare difference for each:
       return False
 
   def shouldAbort(self, task):
-    return False #XXX2
+    return False #XXX3
 
   def summary(self):
     return "XXX2"
 
-  def checkStatusAfterRun(self):
-    """
-    After each task has run:
-    * Check dependencies:
-    ** check that runtime-(post-)conditions still hold for configurations that might have been affected by changes
-    ** check for configurations whose parameters might have been affected by changes, mark them as "configuration changed"
-    (simple implementation for both: check all configurations (requires saving previous inputs))
-    """
-    #* XXX3 check for orphaned resources and mark them as orphaned
-    #  (a resource is orphaned if it was added as a dependency and no longer has dependencies)
-    #  (orphaned resources can be deleted by the configuration/configurator that created them or manages that type)
-    def yieldAllDependencies():
-      for configuration in self.getCurrentConfigurations():
-        for dependency in configuration.getOperationalDependencies():
-          yield dependency
-
-    return Operational.aggregateStatus(yieldAllDependencies())
-
   def getOperationalDependencies(self):
-    # XXX2 this isn't right, root job might have too many and child job might not have enough
+    # XXX3 this isn't right, root job might have too many and child job might not have enough
     # plus dynamic configurations probably shouldn't be included if yielded by a configurator
     for task in self.workDone.values():
       yield task.currentConfig
@@ -1515,9 +1537,6 @@ class Manifest(AttributeManager):
 
   def getConfigurationSpecs(self):
     return self.specs
-
-  def createDependency(self, configurationSpec, dependencyTemplateName, args=None):
-    return None
 
   def saveJob(self, job):
     pass
@@ -1553,8 +1572,13 @@ class Manifest(AttributeManager):
   def createConfiguration(self, configSpec, resource, changeSet, localStatus=None):
     config = Configuration(configSpec, resource, localStatus)
     self.createStatus(changeSet, config)
-    # XXX1 load dependencies
     config._parameters = changeSet.get('parameters')
+
+    config.dependencies = {}
+    for key, val in changeSet.get('dependencies', {}).items():
+      config.dependencies[key] = Dependency(val['ref'], val.get('expected'),
+                                val.get('schema'), key, val.get('required'))
+
     if 'modifications' in changeSet:
       config.resourceChanges = ResourceChanges(changeSet['modifications'])
     resource.setConfiguration(config)
