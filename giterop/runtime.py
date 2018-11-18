@@ -234,7 +234,7 @@ class _ChildResources(collections.Mapping):
     return len(tuple(self))
 
 class ResourceRef(object):
-  # ABC requires 'parent' and '_keys'
+  # ABC requires 'parent', 'root', and '_map'
 
   def _getProp(self, name):
     if name == '.':
@@ -251,7 +251,7 @@ class ResourceRef(object):
     if key[0] == '.':
       return self._getProp(key)
 
-    value = self._keys[key] #_attributes parameters
+    value = self._map[key]
     return Ref.resolveOneIfRef(value, self)
 
   def yieldParents(self):
@@ -335,7 +335,7 @@ class Resource(OperationalInstance, ResourceRef):
     return self.root.attributeManager.getSerializedAttributes(self)
 
   @property
-  def _keys(self):
+  def _map(self):
     return self._attributes
 
   def asRef(self):
@@ -429,10 +429,11 @@ class ConfiguratorResult(object):
 
   Readystate reports the Status of the current configuration.
   """
-  def __init__(self, applied, modified, readyState=None, results=None):
+  def __init__(self, applied, modified, readyState=None, configChanged=None, results=None):
     self.applied = applied
     self.modified = modified
     self.readyState = readyState
+    self.configChanged = configChanged
 
 @six.add_metaclass(AutoRegisterClass)
 class Configurator(object):
@@ -612,6 +613,42 @@ class ResourceChanges(collections.OrderedDict):
     if resource:
       self.sync(resource)
 
+class Dependency(object):
+  def __init__(self, expr, expected=None, schema=None, name=None, required=False):
+    """
+    if schema is not None, set validate the result using schema
+    if expected is not None, test that result equals expected
+    otherwise test that result isn't empty has not changed since the last attempt
+
+    required: 'pre', 'post' or False
+    """
+    # XXX add status keyword ??
+    assert not (expected and schema)
+    self.expr = expr
+
+    self.expected = expected
+    self.schema = schema
+    self.required = required
+    self.name = name
+
+  def changed(self, config):
+    expr = dict(eval=self.expr,
+        vars=dict(val=self.expected, changeId=config.lastAttempt))
+    result = evalDict(expr, config)
+    if self.schema:
+      return not validateSchema(result, self.schema)
+    elif self.expected is not None:
+      expected = Ref.resolveOneIfRef(self.expected, config)
+      #print(config.resource.name, ':', config.name, config.parameters)
+      #print(result == expected, self.expr, 'result', result, 'exp', expected)
+      return result != expected
+    elif isinstance(result, Operational):
+      # if result is a resource or config see if changed since the last time we checked
+      return result.lastChanged <= config.lastAttempt
+    else:
+      # if expression evaluated to false then treat dependency as changed
+      return not result
+
 class Configuration(OperationalInstance, ResourceRef):
   def __init__(self, spec, resource, status=Status.notapplied, dependencies=None):
     super(Configuration, self).__init__(status)
@@ -651,21 +688,40 @@ class Configuration(OperationalInstance, ResourceRef):
     return self.configurationSpec.intent
 
   @property
-  def parameters(self):
-    if self._parameters is None:
-      self.refreshParameters()
-    return self._parameters
+  def lastAttempt(self):
+    return self.configurationSpec.lastAttempt
 
   @property
-  def _keys(self):
-    return self.parameters
+  def parameters(self):
+    # self._parameters is serialized but parameters is live
+    if self._parameters is None:
+      self.refreshParameters()
+    # XXX2 cache this
+    return mapValue(self._parameters, self)
+
+  @property
+  def _map(self):
+    return self._parameters
 
   def refreshParameters(self):
-    self._parameters = self.configurationSpec.resolveParameters(self)
+    # re-evaluate parameters from the spec
+    self._parameters = self.configurationSpec.parameters
     return self._parameters
 
   def hasParametersChanged(self):
-    return self._parameters is not None and self.configurationSpec.resolveParameters(self) != self._parameters
+    log = self.resource.name == 'test3'
+    specParams = self.configurationSpec.parameters
+    if self._parameters is None:
+      #True if parameters have been declared
+      return not not specParams
+
+    if set(specParams) != set(self._parameters):
+      return True #params were added or removed
+
+    # treat each parameter as a dependency
+    # the expression is the name of parameter
+    return any(Dependency(".::" + name, val, name=name).changed(self)
+                                  for name, val in self._parameters.items())
 
   def findMissingRequirements(self):
     return self.configurationSpec.findMissingRequirements(self.resource)
@@ -993,6 +1049,16 @@ class Task(TaskView, AttributeManager):
         self.commitChanges()
     return result
 
+  def _setConfigStatus(self, config, result):
+    statusChanged = config.localStatus != result.readyState
+    changeDetected = statusChanged or self.changeList # XXX1 or dependency changed
+    configChanged = changeDetected if result.configChanged is None else result.configChanged
+    if configChanged:
+      config._lastConfigChange = self.changeId
+    if statusChanged:
+      config.localStatus = result.readyState
+    config.configurationSpec.lastAttempt = self.changeId
+
   def processResult(self, result):
     # applied indicates this configuration is active
     # modified indicates if a "physical" change to this system was made
@@ -1001,18 +1067,17 @@ class Task(TaskView, AttributeManager):
       self.pendingConfig._lastStateChange = self.changeId
 
     if result.applied:
-      self.pendingConfig._lastConfigChange = self.changeId
       assert result.readyState and result.readyState != Status.notapplied
-      self.pendingConfig.localStatus = result.readyState
+      self._setConfigStatus(self.pendingConfig, result)
     else:
       self.pendingConfig.localStatus = Status.notapplied
+      self.pendingConfig.configurationSpec.lastAttempt = self.changeId
       if self.previousConfig:
         if result.modified:
           self.previousConfig._lastStateChange = self.changeId
-        if result.readyState and result.readyState != self.previousConfig.localStatus:
+        if result.readyState:
           assert result.readyState != Status.notapplied
-          self.previousConfig.status = result.readyState
-          self.previousConfig._lastConfigChange = self.changeId
+          self._setConfigStatus(self.previousConfig, result)
 
     self.pendingConfig.resource.setConfiguration(self.pendingConfig)
 
@@ -1485,6 +1550,16 @@ class Manifest(AttributeManager):
           parameters=spec.get('parameters'), parameterSchema=spec.get('parameterSchema'),
           requires=spec.get('requires'), provides=spec.get('provides'))
 
+  def createConfiguration(self, configSpec, resource, changeSet, localStatus=None):
+    config = Configuration(configSpec, resource, localStatus)
+    self.createStatus(changeSet, config)
+    # XXX1 load dependencies
+    config._parameters = changeSet.get('parameters')
+    if 'modifications' in changeSet:
+      config.resourceChanges = ResourceChanges(changeSet['modifications'])
+    resource.setConfiguration(config)
+    return config
+
   def createResource(self, name, decl, parent):
     status = decl.get('status', {})
     specs = decl['spec']
@@ -1508,18 +1583,12 @@ class Manifest(AttributeManager):
         changeSetStatus = self.createStatus(changeSet)
         if changeSetStatus.status in [Status.notapplied, Status.notpresent]:
           # these will not be in the status' configurations so set them now
-          excluded = Configuration(configSpec, resource, changeSetStatus.localStatus)
-          self.createStatus(changeSet, excluded)
-          resource.setConfiguration(excluded)
+          self.createConfiguration(configSpec, resource, changeSet, changeSetStatus.localStatus)
 
     for key, val in status.get('configurations', {}).items():
       # change = self.changeSets.get(val['changeid']); change['spec']
       configSpec = self.createConfigSpec(key, name, val['spec'])
-      config = Configuration(configSpec, resource)
-      self.createStatus(val, config)
-      # XXX1 load dependencies
-      resource.setConfiguration(config)
-      config.resourceChanges = ResourceChanges(val.get('modifications', {}))
+      self.createConfiguration(configSpec, resource, val)
 
     for key, val in decl.get('resources', {}).items():
       self.createResource(key, val, resource)

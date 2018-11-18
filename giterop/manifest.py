@@ -44,6 +44,8 @@ root: #root resource is always named 'root'
           param1: value
         dependencies:
           - ref: ::resource1::key[~$val]
+            schema
+            expected
             vars:
               val: 'expected'
             name: name1
@@ -450,15 +452,6 @@ class YamlManifest(Manifest):
     super(YamlManifest, self).__init__(rootResource, self.specs, templates, lastChangeId)
 
   def saveResource(self, resource, workDone):
-    configSpecMap = resource.spec['configurations']
-    for name, configSpec in configSpecMap.items():
-      task = workDone.get( (resource.name, name ) )
-      if task:
-        configSpec.lastAttempt = task.changeId
-      # XXX:
-      # elif 'lastAttempt' in configSpec and configSpec had changed
-      # del configSpec['lastAttempt']
-
     status = saveStatus(resource)
     status['attributes'] = resource._attributes
     if resource.createdOn:
@@ -476,7 +469,7 @@ class YamlManifest(Manifest):
   def saveConfiguration(self, config):
     spec = config.configurationSpec
     status = saveStatus(config)
-    #status['parameters'] = config.parameters
+    status['parameters'] = serializeValue(config.parameters)
     status["spec"] = saveConfigSpec(spec)
     status['modifications'] = saveResourceChanges(config.resourceChanges)
     # XXX dependencies.values(), self.configurationSpec.getPostConditions()
