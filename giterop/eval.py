@@ -2,6 +2,8 @@ import six
 import re
 import operator
 import collections
+from ruamel.yaml.comments import CommentedMap
+
 from .util import validateSchema
 
 def mapValue(value, resource):
@@ -29,8 +31,11 @@ def serializeValue(value):
     return value
 
 class _RefContext(object):
-  def __init__(self, vars):
+  def __init__(self, vars, currentResource):
     self.vars = vars
+    self.currentResource = currentResource
+    self.lastResource = currentResource
+    self.final = False
 
 class Ref(object):
   """
@@ -129,23 +134,36 @@ class Ref(object):
      'true': True, 'false': False, 'null': None
     }
 
+    self.foreach = None
     if isinstance(exp, dict):
       self.vars.update(exp.get('vars', {}))
+      if 'foreach' in exp:
+        self.foreach = exp
       exp = exp.get('ref', '')
 
     if vars:
       self.vars.update(vars)
-    self.source = exp
-    paths = list(parseExp(exp))
-    if (not paths[0].key or paths[0].key[0] not in '.$') and (paths[0].key or paths[0].filters):
-      # unspecified relative path: prepend segment to select ancestors
-      paths[:0] = [Segment('.ancestors', [], '?', [])]
-    self.paths = paths
 
-  def resolve(self, currentResource):
+    self.source = exp
+    if isinstance(exp, dict):
+      self.paths = None
+    else:
+      paths = list(parseExp(exp))
+      if (not paths[0].key or paths[0].key[0] not in '.$') and (paths[0].key or paths[0].filters):
+        # unspecified relative path: prepend segment to select ancestors
+        paths[:0] = [Segment('.ancestors', [], '?', [])]
+      self.paths = paths
+
+  def __repr__(self):
+    # XXX vars, foreach
+    return "Ref('%s')" % self.source
+
+  def _resolve(self, currentResource):
     #always return a list of matches
     #values in results list can be a list or None
-    context = _RefContext(dict((k, self.resolveIfRef(v, currentResource)) for (k, v) in self.vars.items()))
+    vars = dict((k, self.resolveIfRef(v, currentResource)) for (k, v) in self.vars.items())
+    vars['start'] = currentResource
+    context = _RefContext(vars, currentResource)
     if not self.paths[0].key and not self.paths[0].filters: # starts with "::"
       currentResource = currentResource.all
       paths = self.paths[1:]
@@ -161,13 +179,6 @@ class Ref(object):
       paths = self.paths
     return evalExp([currentResource], paths, context)
 
-  def resolveOne(self, currentResource):
-    return self._resolveOne(currentResource)
-
-  def __repr__(self):
-    # XXX vars
-    return "Ref('%s')" % self.source
-
   def _resolveOne(self, currentResource):
     #if no match return None
     #if more than one match return a list of matches
@@ -175,13 +186,39 @@ class Ref(object):
     #if you want to distinguish between None values and no match
     #or between single match that is a list and a list of matches
     #use resolve() which always returns a (possible empty) of matches
-    results = self.resolve(currentResource)
+    results = self._resolve(currentResource)
     if results is None:
       return None
     if len(results) == 1:
       return results[0]
     else:
       return results
+
+  def _foreach(self, result):
+    ctx = _RefContext(self.vars, result)
+    return eval(self.foreach, ctx)
+
+  def resolve(self, currentResource):
+    if self.paths is None:
+      # XXX results will be same as resolveAsOne
+      results = eval(self.source, _RefContext(self.vars, currentResource))
+    else:
+      results = self._resolve(currentResource)
+
+    if not results or not self.foreach:
+      return results
+    else:
+      return [self._foreach(results)]
+
+  def resolveOne(self, currentResource):
+    if self.paths is None:
+      results = eval(self.source, _RefContext(self.vars, currentResource))
+    else:
+      results = self._resolveOne(currentResource)
+
+    if results is None or not self.foreach:
+      return results
+    return self._foreach(results)
 
   @staticmethod
   def resolveIfRef(value, currentResource):
@@ -251,6 +288,54 @@ def validateSchemaFunc(arg, ctx):
   assert isinstance(args, list) and len(args) == 2
   return not not validateSchema(eval(args[0], ctx), eval(args[1], ctx))
 
+def _forEach(results, ctx):
+  keyExp = ctx.kw['foreach'].get('key')
+  valExp = ctx.kw['foreach']['value']
+  ictx = _RefContext(ctx.vars.copy(), ctx.currentResource)
+  Break = object()
+  Continue = object()
+  def makeItems():
+    for i, (k, v) in enumerate(results):
+      ictx.currentResource = v
+      ictx.vars['collection'] =  ctx.currentResource
+      ictx.vars['index'] = i
+      ictx.vars['key'] = k
+      ictx.vars['item'] = v
+      ictx.vars['break'] = Break
+      ictx.vars['continue'] = Continue
+      if keyExp:
+        key = eval(keyExp, ictx)
+        if key is Break:
+          break
+        elif key is Continue:
+          continue
+      val = eval(valExp, ictx)
+      if val is Break:
+        break
+      elif val is Continue:
+        continue
+      if keyExp:
+        yield (key, val)
+      else:
+        yield val
+
+  if keyExp:
+    return CommentedMap(makeItems())
+  else:
+    return list(makeItems())
+
+def forEachFunc(arg, ctx):
+  results = ctx.currentResource
+  if results:
+    if isinstance(results, collections.Mapping):
+      return _forEach(results.items(), ctx)
+    elif isinstance(results, collections.Sequence):
+      return _forEach(enumerate(results), ctx)
+    else:
+      return _forEach([(0, results)], ctx)
+  else:
+    return results
+
 funcs = {
   'if': ifFunc,
   'and': andFunc,
@@ -259,6 +344,7 @@ funcs = {
   'q': quoteFunc,
   'eq': eqFunc,
   'validate': validateSchemaFunc,
+  'foreach': forEachFunc,
 }
 
 def eval(val, ctx):
@@ -268,19 +354,19 @@ def eval(val, ctx):
       if func:
         break
     else:
-      return val
+      return mapValue(val, ctx.currentResource)
     args = val[key]
     ctx.kw = val
     return func(args, ctx)
   elif isinstance(val, six.string_types):
     return Ref(val, ctx.vars).resolveOne(ctx.currentResource)
   else:
-    return val
+    return mapValue(val, ctx.currentResource)
 
+# XXX replace uses of this with Ref.resolveOneIfRef 
 def evalDict(exp, currentResource):
-    ctx = _RefContext(exp.get('vars', {}))
-    ctx.currentResource = currentResource
-    return eval(exp['eval'], ctx)
+    ctx = _RefContext(exp.get('vars', {}), currentResource)
+    return eval(exp['ref'], ctx)
 
 #return a segment
 Segment = collections.namedtuple('Segment', ['key', 'test', 'modifier', 'filters'])
@@ -311,14 +397,19 @@ def lookup(value, key, context):
       key = context.vars[key[1:]]
 
     getter = getattr(value, '__reflookup__', None)
-    value = getter(key) if getter else value[key]
+    if getter:
+      context.lastResource = value
+      value = getter(key)
+    else:
+      value = value[key]
 
-    # if Ref.isRef(value):
-    #   value = Ref.resolveIfRef(value, self)
-    #   if not value:
-    #     return []
-
-    return [value]
+    if context.final:
+      # this will end in the final result so map the whole object
+      return [mapValue(value, context.lastResource)]
+    elif Ref.isRef(value):
+      return Ref(value).resolve(context.lastResource)
+    else:
+      return [value]
   except (KeyError, IndexError, TypeError, ValueError):
     return []
 
@@ -359,20 +450,21 @@ def recursiveEval(v, exp, context):
 
   for item in v:
     if _treatAsSingular(item, exp[0]):
-      iv = evalItem(item, exp[0], context)
       rest = exp[1:]
+      context.final = not rest
+      iv = evalItem(item, exp[0], context)
     else:
       if useValue:
         if not isinstance(item, collections.Mapping):
           continue
         iv = item.values()
-        rest = exp[1:]
+        rest = exp[1:] # advance past "*" segment
       else:
         # flattens
         iv = item
         rest = exp
 
-    #if iv is empty, it won't yield
+    #iv will be a generator or list
     results = recursiveEval(iv, rest, context) if rest else iv
     for r in results:
       yield r

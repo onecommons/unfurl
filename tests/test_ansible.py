@@ -34,8 +34,14 @@ testansible:
             proxy: proxy.atlanta.example.com
 all:
   children
-    ref: ".root[template:awsAccount]"
+    ref: "::[$start::awsaccount]" # find the resource whose name matches awsaccount parameter
+    ::foo=.all[$start::awsaccount]
+    ref ".::awsaccount" # this config's awsaccount parameter
+    ref: ::*[awsaccount]? # starting from root find the first resource with a awsaccount attribute
+    ref: awsaccount # find the first anscestor parameter/attribute named 'awsaccount'
     foreach:
+      #if key, value children defined generates a map otherwise a list
+      # defines $item $index $key
       key:   ref: ".:name"
              vars:
       value:
@@ -52,13 +58,12 @@ all:
   hostvars:
    foo: ref: .foo
   provides:
-   - target: ref: '$host:.descendents[hostname=$host]:hostname'
+   - target: ref: '$host::.descendents[hostname=$host]::hostname'
              vars:
-              hostname: ref: '$host:hostname'
-     metadata:
-      foo: ref: '$host:$key'
-      bar: ref: '$host:$key'
-
+              hostname: ref: '$host::hostname'
+     attributes:
+      foo: ref: '$host::$key'
+      bar: ref: '$host::$key'
 
 template:
  ansible_template:

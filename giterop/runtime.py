@@ -255,8 +255,7 @@ class ResourceRef(object):
     if key[0] == '.':
       return self._getProp(key)
 
-    value = self._map[key]
-    return Ref.resolveOneIfRef(value, self)
+    return self._map[key]
 
   def yieldParents(self):
     "yield self and ancestors"
@@ -637,14 +636,14 @@ class Dependency(object):
     self.name = name
 
   def refresh(self, config):
-    expr = dict(eval=self.expr,
+    expr = dict(ref=self.expr,
         vars=dict(val=self.expected, changeId=config.lastAttempt))
     result = evalDict(expr, config)
     if self.expected is not None:
       self.expected = result
 
   def changed(self, config):
-    expr = dict(eval=self.expr,
+    expr = dict(ref=self.expr,
         vars=dict(val=self.expected, changeId=config.lastAttempt))
     result = evalDict(expr, config)
 
@@ -926,7 +925,7 @@ class TaskView(object):
   # updates update those changes
   # other configurations maybe modify those changes, triggering a configuration change
   def query(self, query, dependency=False, name=None, required=False):
-    result = evalDict(dict(eval=query), self.currentConfig)
+    result = evalDict(dict(ref=query), self.currentConfig)
     if dependency:
       dependency = Dependency(query, result, name=name, required=required)
       self.currentConfig.dependencies[name] = dependency

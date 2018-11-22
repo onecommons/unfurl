@@ -111,19 +111,19 @@ class EvalTest(unittest.TestCase):
   def test_funcs(self):
     resource = self._getTestResource()
     test1 = {
-      'eval': '.name',
+      'ref': '.name',
       'vars': {
         'a': None
       }
     }
     test2 = {
-      'eval': '$b',
+      'ref': '$b',
       'vars': {
         'b': 1
       }
     }
     test3 = {
-      'eval': {
+      'ref': {
         'if': {'not': '$a'},
         'then': {'q': 'expected'},
         'else': {'q': 'unexpected'},
@@ -132,12 +132,29 @@ class EvalTest(unittest.TestCase):
         'a': None
       }
     }
-    result1 = evalDict(test1, resource)
+    result1 = Ref(test1).resolveOne(resource)
     self.assertEqual('test', result1)
-    result2 = evalDict(test2, resource)
+    result2 = Ref.resolveOneIfRef(test2, resource)
     self.assertEqual(1, result2)
-    result3 = evalDict(test3, resource)
+    result3 = Ref.resolveIfRef(test3, resource)
     self.assertEqual('expected', result3)
+
+  def test_forEach(self):
+    resource = self._getTestResource()
+    test1 = {
+      'ref': '.',
+      'foreach': {
+          'key':   '.name',
+          'value': {'content': { 'ref': 'b'}}
+      },
+    }
+    expected = {
+      'test': {'content': [1, 2, 3]}
+    }
+    result1 = Ref(test1).resolve(resource)
+    self.assertEqual([expected], result1)
+    result2 = Ref(test1).resolveOne(resource)
+    self.assertEqual(expected, result2)
 
   def test_serializeValues(self):
     resource = self._getTestResource()
