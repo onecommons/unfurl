@@ -22,7 +22,9 @@ class TestConfigurator(Configurator):
       }
       if shouldYield:
         resourceSpec['dependent'] = True
-      jobrequest = task.addResources([resourceSpec])
+
+      updateSpec = dict(name='.self', status=dict(attributes={'newAttribute': 1}))
+      jobrequest = task.addResources([resourceSpec, updateSpec])
       if shouldYield:
         job = yield jobrequest
         assert job, jobrequest
@@ -169,15 +171,22 @@ class ConfiguratorTest(unittest.TestCase):
     assert not run.unexpectedAbort, run.unexpectedAbort.getStackTrace()
     self.assertEqual(list(run.workDone.keys()), [('test3', 'test'), ('added1', 'config1')])
 
+    # verify added1
     added = {'.added': {
       'name': 'added1',
       'template': 'resourceTemplate1'
       }
     }
     modifications = lookupPath(runner.manifest.manifest,
-    'root.resources.test3.status.configurations.test.modifications.added1'.split('.'))
-    self.assertEqual(modifications, added)
+    'root.resources.test3.status.configurations.test.modifications'.split('.'))
+    self.assertEqual(modifications['added1'], added)
     self.assertEqual(runner.manifest.manifest['changes'][0]['changes']['added1'], added)
+
+    # verify modified
+    self.assertEqual(modifications['test3'], {
+      'copyOfMeetsTheRequirement': 'copy',
+      'newAttribute': 1
+    })
 
     jobOptions.repair="none"
     self.verifyRoundtrip(run.out.getvalue(), jobOptions)
@@ -186,6 +195,12 @@ class ConfiguratorTest(unittest.TestCase):
     run = runner.run(jobOptions)
     assert not run.unexpectedAbort, run.unexpectedAbort.getStackTrace()
     self.assertEqual(list(run.workDone.keys()), [('test4', 'test'), ('added2', 'config1')])
+    #print('test4', run.out.getvalue())
+
+    # verify dependencies added
+    dependencies = lookupPath(runner.manifest.manifest,
+    'root.resources.test4.status.configurations.test.dependencies'.split('.'))
+    self.assertEqual(dependencies, [{"ref": "::added2"}])
 
     jobOptions.repair="none"
     self.verifyRoundtrip(run.out.getvalue(), jobOptions)

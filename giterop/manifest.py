@@ -43,10 +43,9 @@ root: #root resource is always named 'root'
         parameters: #actual
           param1: value
         dependencies:
-          name1:
-            ref: ::resource1::key[~$val]
+          - ref: ::resource1::key[~$val]
             expected: "value"
-          name2:
+          - name: named1
             ref: .configurations::foo[.operational]
             required: true
             schema:
@@ -235,11 +234,17 @@ schema = {
               'default': {}
             },
             "dependencies": {
-              "allOf": [
-                { "$ref": "#/definitions/namedObjects" },
-                {"additionalProperties": { "$ref": "#/definitions/namedObjects" }}
-              ],
-              'default': {}
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                    "name":      { "type": "string" },
+                    "ref":       { "type": "string" },
+                    "expected":  {},
+                    "schema":    { "$ref": "#/definitions/schema" },
+                    "required":  { "type": "boolean"},
+                },
+              },
             },
           }
       }],
@@ -315,6 +320,8 @@ def saveConfigSpec(spec):
 
 def saveDependency(dep):
   saved = CommentedMap()
+  if dep.name:
+    saved['name'] = dep.name
   saved['ref'] = dep.expr
   if dep.expected is not None:
     saved['expected'] = serializeValue(dep.expected)
@@ -483,8 +490,7 @@ class YamlManifest(Manifest):
     status['parameters'] = serializeValue(config.parameters)
     status["spec"] = saveConfigSpec(spec)
     status['modifications'] = saveResourceChanges(config.resourceChanges)
-    status['dependencies'] = CommentedMap((key, saveDependency(val))
-                        for key, val in config.dependencies.items())
+    status['dependencies'] = [saveDependency(val) for val in config.dependencies.values()]
     return (config.name, status)
 
   def saveTask(self, task):

@@ -869,8 +869,28 @@ class TaskView(object):
 
     errors = []
     newResources = []
+    newResourceSpecs = []
     for resourceSpec in resources:
+      originalResourceSpec = resourceSpec
       try:
+        rname = resourceSpec['name']
+        if rname == '.self':
+          existingResource = self.currentConfig.resource
+        else:
+          existingResource = self.findResource(rname)
+        if existingResource:
+          status = resourceSpec.get('status')
+          operational = Manifest.createStatus(status)
+          if operational.localStatus:
+            existingResource.localStatus = operational.localStatus
+          attributes = status and status.get('attributes')
+          if attributes:
+            for key, value in mapValue(attributes, existingResource).items():
+               existingResource.attributes[key] = value
+               logger.debug('setting attribute %s with %s on %s', key, value, existingResource.name)
+          logger.info("updating resources %s", existingResource.name)
+          continue
+
         templateName = resourceSpec.get('template')
         if templateName:
           template = self.currentConfig.configurationSpec.provides.get(templateName)
@@ -885,7 +905,6 @@ class TaskView(object):
         configurations = dict((name, self._createConfigurationSpecDict(configSpec))
                                               for name, configSpec in configSpecs)
         # logger.debug("configurations %s", configurations)
-        rname = resourceSpec['name']
         pname = resourceSpec.get('parent')
         parent = self.findResource(pname) if pname else self.currentConfig.resource.root
         if parent is None:
@@ -901,16 +920,19 @@ class TaskView(object):
         resource.createdOn = self.parentId
         resource.createdFrom = templateName
         if resource.required or resourceSpec.get('dependent'):
-          self.addDependency(resource, name=resource.name, required=resource.required)
+          self.addDependency(resource, required=resource.required)
       except:
         errors.append(GitErOpAddingResourceError(self, resourceSpec))
       else:
+        newResourceSpecs.append(originalResourceSpec)
         newResources.append(resource)
 
-    self.resourceChanges.addResources(resources)
-    self.pendingConfig.resourceChanges.addResources(resources)
-    self.addedResources.extend(newResources)
+    if newResourceSpecs:
+      self.resourceChanges.addResources(newResourceSpecs)
+      self.pendingConfig.resourceChanges.addResources(newResourceSpecs)
+      self.addedResources.extend(newResources)
     logger.info("add resources %s", newResources)
+
     jobRequest = JobRequest(newResources, errors)
     if self.job:
       self.job.jobRequestQueue.append(jobRequest)
@@ -927,22 +949,17 @@ class TaskView(object):
   def query(self, query, dependency=False, name=None, required=False):
     result = evalDict(dict(ref=query), self.currentConfig)
     if dependency:
-      dependency = Dependency(query, result, name=name, required=required)
-      self.currentConfig.dependencies[name] = dependency
+      self.addDependency(query, result, name=name, required=required)
     return result
 
   def addDependency(self, expr, expected=None, schema=None, name=None, required=False):
     getter = getattr(expr, 'asRef', None)
     if getter:
       # expr is a configuration or resource
-      if expected is None and schema is None:
-        expected = expr
       expr = getter()['ref']
 
     dependency = Dependency(expr, expected, schema, name, required)
-    if not name:
-      name = expr
-    self.currentConfig.dependencies[name] = dependency
+    self.currentConfig.dependencies[name or expr] = dependency
     self.dependenciesChanged = True
     return dependency
 
@@ -1574,9 +1591,11 @@ class Manifest(AttributeManager):
     config._parameters = changeSet.get('parameters')
 
     config.dependencies = {}
-    for key, val in changeSet.get('dependencies', {}).items():
+    for val in changeSet.get('dependencies', []):
+      key = val.get('name') or val['ref']
+      assert key not in config.dependencies
       config.dependencies[key] = Dependency(val['ref'], val.get('expected'),
-                                val.get('schema'), key, val.get('required'))
+                    val.get('schema'), val.get('name'), val.get('required'))
 
     if 'modifications' in changeSet:
       config.resourceChanges = ResourceChanges(changeSet['modifications'])
