@@ -188,6 +188,7 @@ class ConfiguratorTest(unittest.TestCase):
       'newAttribute': 1
     })
 
+    # print('test3', run.out.getvalue())
     jobOptions.repair="none"
     self.verifyRoundtrip(run.out.getvalue(), jobOptions)
 
@@ -195,7 +196,7 @@ class ConfiguratorTest(unittest.TestCase):
     run = runner.run(jobOptions)
     assert not run.unexpectedAbort, run.unexpectedAbort.getStackTrace()
     self.assertEqual(list(run.workDone.keys()), [('test4', 'test'), ('added2', 'config1')])
-    #print('test4', run.out.getvalue())
+    # print('test4', run.out.getvalue())
 
     # verify dependencies added
     dependencies = lookupPath(runner.manifest.manifest,

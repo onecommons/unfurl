@@ -48,7 +48,7 @@ root:
 '''
     with self.assertRaises(GitErOpError) as err:
       YamlManifest(manifest)
-    self.assertEqual(str(err.exception), 'can not find "templates/production" in document')
+    self.assertEqual(str(err.exception), 'missing includes: [templates/production]')
 
     manifest = '''
 apiVersion: giterops/v1alpha1

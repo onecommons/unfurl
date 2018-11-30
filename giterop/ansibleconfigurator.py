@@ -10,6 +10,12 @@ import ansible.constants as C
 from ansible.cli.playbook import PlaybookCLI
 from ansible.plugins.callback import CallbackBase
 
+def runTemplate(data, dataLoader=None, vars=None):
+  from ansible.template import Templar
+  # dataLoader can be None, is only used by _lookup and to set _basedir (else ./)
+  # see https://github.com/ansible/ansible/test/units/template/test_templar.py
+  return Templar(dataLoader, variables=vars).template(data)
+
 # https://github.com/ansible/ansible-runner
 # ansible fails by host
 class AnsibleConfigurator(Configurator):

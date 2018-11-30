@@ -86,6 +86,24 @@ class ExpandDocTest(unittest.TestCase):
     patchDict(old, new)
     self.assertEqual(old, new)
 
+  def test_missingInclude(self):
+    doc1 = CommentedMap([
+     ('+a/c', None),
+     ('a', {'+b': None }),
+     ('b', {'c': {'d': 1}}),
+    ])
+    includes, expanded = expandDoc(doc1, cls=CommentedMap)
+    self.assertEqual(expanded, {
+      'd': 1,
+      'a': {'c': {'d': 1}},
+      'b': {'c': {'d': 1}}
+    })
+    self.assertEqual(len(includes), 2)
+
+    doc1['missing'] = {'+include-missing': None}
+    with self.assertRaises(GitErOpError) as err:
+      includes, expanded = expandDoc(doc1, cls=CommentedMap)
+
   def test_recursion(self):
     doc = {
       "test3": {
@@ -226,4 +244,4 @@ root:
 '''
     with self.assertRaises(GitErOpError) as err:
       YamlManifest(manifest)
-    self.assertEqual(str(err.exception), 'can not find "templates/production" in document')
+    self.assertEqual(str(err.exception), 'missing includes: [templates/production]')

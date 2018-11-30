@@ -4,7 +4,7 @@ import six
 import traceback
 import itertools
 import collections
-from six.moves import reduce
+import os.path
 from jsonschema import Draft4Validator, validators, RefResolver
 from ruamel.yaml.comments import CommentedMap
 import logging
@@ -12,6 +12,9 @@ logger = logging.getLogger('gitup')
 
  #import pickle
 pickleVersion = 2 #pickle.DEFAULT_PROTOCOL
+
+from ansible.plugins.loader import lookup_loader
+lookup_loader.add_directory(os.path.abspath(os.path.dirname(__file__)))
 
 class AnsibleDummyCli(object):
   def __init__(self):
@@ -199,6 +202,14 @@ def hasTemplate(doc, key, path, cls):
     template = template[segment]
   return True
 
+class _MissingInclude(object):
+  def __init__(self, key, value):
+    self.key = key
+    self.value = value
+
+  def __repr__(self):
+    return self.key
+
 def expandDict(doc, path, includes, current, cls=dict):
   """
   Return a copy of `doc` that expands include directives.
@@ -216,6 +227,11 @@ def expandDict(doc, path, includes, current, cls=dict):
     if key.startswith('+'):
       if key == mergeStrategyKey:
         # cleaner want to skip copying key if not inside a template
+        cp[key] = value
+        continue
+      foundTemplate = hasTemplate(doc, key[1:], path, cls)
+      if not foundTemplate:
+        includes.setdefault(path, []).append( _MissingInclude(key[1:], value) )
         cp[key] = value
         continue
       includes.setdefault(path, []).append( (key, value) )
@@ -247,13 +263,29 @@ def expandDict(doc, path, includes, current, cls=dict):
   # e,g, mergeDicts(mergeDicts(a, b), cp)
   #return includes, reduce(lambda accum, next: mergeDicts(accum, next, cls), templates, {}), cp
 
+def _findMissingIncludes(includes):
+  for x in includes.values():
+    for i in x:
+      if isinstance(i, _MissingInclude):
+        yield i
+
 def expandDoc(doc, current=None, cls=dict):
   includes = CommentedMap()
   if current is None:
     current = doc
   if not isinstance(doc, (dict, cls)) or not isinstance(current, (dict, cls)):
     raise GitErOpError('malformed YAML or JSON document')
-  return includes, expandDict(doc, (), includes, current, cls)
+  expanded = expandDict(doc, (), includes, current, cls)
+  last = 0
+  while True:
+    missing = list(_findMissingIncludes(includes))
+    if len(missing) == 0:
+      return includes, expanded
+    if len(missing) == last: # no progress
+      raise GitErOpError('missing includes: %s' % missing)
+    last = len(missing)
+    includes = CommentedMap()
+    expanded = expandDict(expanded, (), includes, current, cls)
 
 def expandList(doc, path, includes, value, cls=dict):
   for i, item in enumerate(value):
@@ -371,12 +403,13 @@ def addTemplate(changedDoc, path, template):
 
 def restoreIncludes(includes, originalDoc, changedDoc, cls=dict):
   """
-  Modifies changedDoc with includes found in originalDoc
+  Modifies changedDoc with to use the includes found in originalDoc
   """
   # if the path to the include still exists
   # resolve the include
   # if the include doesn't exist in the current doc, re-add it
   # create a diff between the current object and the merged includes
+  expandedOriginalIncludes, expandedOriginalDoc = expandDoc(originalDoc, cls=cls)
   for key, value in includes.items():
     ref = lookupPath(changedDoc, key, cls)
     if ref is None:
@@ -389,7 +422,10 @@ def restoreIncludes(includes, originalDoc, changedDoc, cls=dict):
       if stillHasTemplate:
         template = getTemplate(changedDoc, includeKey[1:], includeValue, key, cls)
       else:
-        template = getTemplate(originalDoc, includeKey[1:], includeValue, key, cls)
+        if hasTemplate(originalDoc, includeKey[1:], key, cls):
+          template = getTemplate(originalDoc, includeKey[1:], includeValue, key, cls)
+        else:
+          template = getTemplate(expandedOriginalDoc, includeKey[1:], includeValue, key, cls)
 
       if not isinstance(ref, (dict, cls)):
         #XXX3 if isinstance(ref, list) lists not yet implemented
@@ -408,7 +444,10 @@ def restoreIncludes(includes, originalDoc, changedDoc, cls=dict):
 
       if not stillHasTemplate:
         if includeValue != 'raw':
-          template = getTemplate(originalDoc, includeKey[1:], 'raw', key, cls)
+          if hasTemplate(originalDoc, includeKey[1:], key, cls):
+            template = getTemplate(originalDoc, includeKey[1:], 'raw', key, cls)
+          else:
+            template = getTemplate(expandedOriginalDoc, includeKey[1:], 'raw', key, cls)
         addTemplate(changedDoc, includeKey[1:], template)
 
     if isinstance(ref, (dict, cls)):

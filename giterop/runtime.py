@@ -258,7 +258,7 @@ class ResourceRef(object):
     return self._map[key]
 
   def yieldParents(self):
-    "yield self and ancestors"
+    "yield self and ancestors starting from self"
     resource = self
     while resource:
       yield resource
@@ -267,6 +267,11 @@ class ResourceRef(object):
   @property
   def ancestors(self):
     return list(self.yieldParents())
+
+  @property
+  def parents(self):
+    """list of parents starting from root"""
+    return list(reversed(self.ancestors))[:-1]
 
   @property
   def root(self):
@@ -805,6 +810,16 @@ class TaskView(object):
     self.dependenciesChanged = False
     self.resourceChanges = ResourceChanges()
 
+  # duck type with ChangeSet
+  @property
+  def resourceName(self):
+    return self.currentConfig.resource.name
+
+  # duck type with ChangeSet
+  @property
+  def configName(self):
+    return self.currentConfig.name
+
   def addMessage(self, message):
     self.messages.append(message)
 
@@ -917,12 +932,12 @@ class TaskView(object):
                 attributes=resourceSpec.get('attributes')
               )
           ), parent)
-        resource.createdOn = self.parentId
+        resource.createdOn = self
         resource.createdFrom = templateName
         if resource.required or resourceSpec.get('dependent'):
           self.addDependency(resource, required=resource.required)
       except:
-        errors.append(GitErOpAddingResourceError(self, resourceSpec))
+        errors.append(GitErOpAddingResourceError(self, originalResourceSpec))
       else:
         newResourceSpecs.append(originalResourceSpec)
         newResources.append(resource)
@@ -1540,12 +1555,11 @@ status compared to current spec is different: compare difference for each:
       yield task.currentConfig
 
 class Manifest(AttributeManager):
-  def __init__(self, rootResource, specs, templates=None, lastChangeId=0):
+  def __init__(self, rootResource, specs, lastChangeId=0):
     super(Manifest, self).__init__()
     self.rootResource = rootResource
     rootResource.attributeManager = self
     self.specs = specs
-    self.templates = templates or {}
     self.lastChangeId=lastChangeId
 
   def getRootResource(self):
@@ -1615,17 +1629,16 @@ class Manifest(AttributeManager):
           ("configurations", configSpecs)
         ]),
         status=operational.localStatus)
-    resource.createdOn = status.get('createdOn')
+    resource.createdOn = self.changeSets.get(status.get('createdOn'))
     resource.createdFrom = status.get('createdFrom')
     for configSpec in configSpecs.values():
       if not configSpec.lastAttempt:
         continue
       changeSet = self.changeSets.get(configSpec.lastAttempt)
       if changeSet:
-        changeSetStatus = self.createStatus(changeSet)
-        if changeSetStatus.status in [Status.notapplied, Status.notpresent]:
+        if changeSet.status.status in [Status.notapplied, Status.notpresent]:
           # these will not be in the status' configurations so set them now
-          self.createConfiguration(configSpec, resource, changeSet, changeSetStatus.localStatus)
+          self.createConfiguration(configSpec, resource, changeSet.dump(), changeSet.status.localStatus)
 
     for key, val in status.get('configurations', {}).items():
       # change = self.changeSets.get(val['changeid']); change['spec']

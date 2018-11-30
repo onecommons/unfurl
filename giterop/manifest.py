@@ -93,6 +93,7 @@ from .runtime import (JobOptions, Status, Priority, serializeValue,
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap
 from codecs import open
+from six.moves import reduce
 import sys
 yaml = YAML()
 
@@ -390,6 +391,12 @@ class ChangeRecord(object):
   ])
 
   def __init__(self, task):
+    if isinstance(task, dict):
+      self._initFromDict(task)
+    else:
+      self._initFromTask(task)
+
+  def _initFromTask(self, task):
     for (k,v) in self.HeaderAttributes.items():
       setattr(self, k, getattr(task, k, v))
 
@@ -409,7 +416,7 @@ class ChangeRecord(object):
       else:
         setattr(self, k, getattr(task.pendingConfig, k, v))
 
-  def load(self, src):
+  def _initFromDict(self, src):
     for (k,v) in self.HeaderAttributes.items():
       setattr(self, k, src.get(k, v))
     self.status = Manifest.createStatus(src)
@@ -463,18 +470,35 @@ class YamlManifest(Manifest):
       self.valid = not not messages
 
     self.specs = []
-    self.changeSets = dict((c['changeId'], c) for c in  manifest.get('changes', []))
+    self.changeSets = dict((c['changeId'], ChangeRecord(c)) for c in  manifest.get('changes', []))
     lastChangeId = self.changeSets and max(self.changeSets.keys()) or 0
     rootResource = self.createResource('root', manifest['root'], None)
-    templates = None #XXX3
-    super(YamlManifest, self).__init__(rootResource, self.specs, templates, lastChangeId)
+    super(YamlManifest, self).__init__(rootResource, self.specs, lastChangeId)
+
+  @staticmethod
+  def _getResourcePath(resource):
+    return reduce(lambda x, y: x + y,
+        ((p.name, 'resources') for p in resource.parents), ()) + (resource.name,)
+
+  def _getConfigPath(self, changeset):
+    assert changeset
+    resource = self.rootResource.findResource(changeset.resourceName)
+    assert resource
+    return self._getResourcePath(resource) + ('spec', 'configurations', changeset.configName)
 
   def saveResource(self, resource, workDone):
     status = saveStatus(resource)
     status['attributes'] = resource._attributes
-    if resource.createdOn:
-      status['createdOn'] = resource.createdOn
+    if resource.createdOn: #will be either a Task or a ChangeRecord
+      status['createdOn'] = resource.createdOn.changeId
     if resource.createdFrom:
+      insertKey = self._getResourcePath(resource) + ('spec',)
+      if insertKey not in self.includes:
+        # if this resource is being added for the first time and it's from a template
+        # create a merge include directive pointing at the template
+        configPath = '/'.join(self._getConfigPath(resource.createdOn))
+        includePath = '+' + configPath + '/provides/' + resource.createdFrom
+        self.includes[insertKey] = [(includePath, None)]
       status['createdFrom'] = resource.createdFrom
 
     status['configurations'] = CommentedMap(map(self.saveConfiguration, resource.effectiveConfigurations.values()))
