@@ -13,8 +13,9 @@ logger = logging.getLogger('gitup')
  #import pickle
 pickleVersion = 2 #pickle.DEFAULT_PROTOCOL
 
-from ansible.plugins.loader import lookup_loader
-lookup_loader.add_directory(os.path.abspath(os.path.dirname(__file__)))
+from ansible.plugins.loader import lookup_loader, filter_loader
+lookup_loader.add_directory(os.path.abspath(os.path.dirname(__file__)), True)
+filter_loader.add_directory(os.path.abspath(os.path.dirname(__file__)), True)
 
 class AnsibleDummyCli(object):
   def __init__(self):

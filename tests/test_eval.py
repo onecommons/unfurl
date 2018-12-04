@@ -35,6 +35,7 @@ class EvalTest(unittest.TestCase):
           ],
       'e': {'a1':{'b1': 'v1'},
             'a2':{'b2': 'v2'}},
+      'f': {'a': 1, 'b': {'ref': '.::f::a'} },
       }
     resource = Resource("test", attributes=resourceDef)
     return resource
@@ -97,7 +98,8 @@ class EvalTest(unittest.TestCase):
        ['::test', [resource]],
        ['d::*', set(['va', 'vb'])],
        ['e::*::b2', ['v2']],
-       ["*", []]
+       ["*", []],
+       ["f", [{'a': 1, 'b': 1}]],
        #XXX test nested ['.[k[d=3]=4]']
     ]:
       ref = Ref(exp)

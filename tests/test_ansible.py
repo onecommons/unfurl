@@ -4,7 +4,7 @@ import os
 import os.path
 import warnings
 from giterop import *
-from giterop.ansibleconfigurator import *
+from giterop.ansibleconfigurator import runPlaybooks, runTemplate
 
 """
 ansible_connection=ssh
@@ -109,6 +109,14 @@ class AnsibleTest(unittest.TestCase):
     # task test-verbosity was ok this time
     assert results.resultsByStatus.ok.get('test-verbosity')
     assert not results.resultsByStatus.skipped.get('test-verbosity')
+
+  def test_template(self):
+    self.assertEqual(runTemplate(" {{ foo }} ", {"foo": "hello"}), " hello ")
+    from giterop.runtime import Resource
+    vars = dict(__gitup = Resource("test", attributes=dict(a1="hello")))
+    self.assertEqual(runTemplate(' {{ "::test::a1" | ref }} ', vars), " hello ")
+    self.assertEqual(runTemplate(' {{ lookup("gitup", "::test::a1") }} ', vars), " hello ")
+    self.assertEqual(runTemplate(' {{  query("gitup", "::test::a1") }} ', vars), " ['hello'] ")
 
   def test_incremental(self):
     """
