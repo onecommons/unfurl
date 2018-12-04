@@ -114,9 +114,9 @@ class AnsibleTest(unittest.TestCase):
     self.assertEqual(runTemplate(" {{ foo }} ", {"foo": "hello"}), " hello ")
     from giterop.runtime import Resource
     vars = dict(__gitup = Resource("test", attributes=dict(a1="hello")))
-    self.assertEqual(runTemplate(' {{ "::test::a1" | ref }} ', vars), " hello ")
-    self.assertEqual(runTemplate(' {{ lookup("gitup", "::test::a1") }} ', vars), " hello ")
-    self.assertEqual(runTemplate(' {{  query("gitup", "::test::a1") }} ', vars), " ['hello'] ")
+    self.assertEqual(runTemplate(' {{ "::test::a1" | ref }} ', vars), u" hello ")
+    self.assertEqual(runTemplate(' {{ lookup("gitup", "::test::a1") }} ', vars), u" hello ")
+    self.assertEqual(runTemplate('{{  query("gitup", "::test::a1") }}', vars), [u'hello'])
 
   def test_incremental(self):
     """
