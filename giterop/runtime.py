@@ -39,7 +39,7 @@ from .util import (GitErOpError, GitErOpTaskError, GitErOpAddingResourceError,
   lookupClass, AutoRegisterClass, ChainMap, toEnum, diffDicts, validateSchema, mergeDicts, intersectDict)
 from .eval import Ref, mapValue, serializeValue, evalDict
 import logging
-logger = logging.getLogger('gitup')
+logger = logging.getLogger('giterop')
 
 # question: if a configuration failed to apply should that affect the status of the configuration?
 # OTOH the previous version of the configuration status is still in effect
@@ -526,7 +526,7 @@ class ConfigurationSpec(object):
     results = self.findMissingRequirements(configuration.resource)
     return not results
 
-  # XXX2 evaluate priority (resource too??)
+  # XXX1 evaluate priority (resource too??)
   def shouldRun(self, configuration):
     return Defaults.shouldRun
 

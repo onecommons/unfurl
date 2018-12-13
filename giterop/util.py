@@ -8,7 +8,7 @@ import os.path
 from jsonschema import Draft4Validator, validators, RefResolver
 from ruamel.yaml.comments import CommentedMap
 import logging
-logger = logging.getLogger('gitup')
+logger = logging.getLogger('giterup')
 
  #import pickle
 pickleVersion = 2 #pickle.DEFAULT_PROTOCOL

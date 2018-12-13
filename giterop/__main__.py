@@ -8,7 +8,7 @@ from .manifest import runJob
 from . import __version__
 import click
 import logging
-logger = logging.getLogger('gitup')
+logger = logging.getLogger('giterup')
 
 def initLogging(quiet, logfile, verbose):
   logging.captureWarnings(True)
