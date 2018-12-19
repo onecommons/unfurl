@@ -103,12 +103,12 @@ class EvalTest(unittest.TestCase):
        #XXX test nested ['.[k[d=3]=4]']
     ]:
       ref = Ref(exp)
-      # print ('eval', ref, ref.paths)
+      # print ('eval', ref, ref.source)
       if isinstance(expected, set):
         # for results where order isn't guaranteed in python2.7
-        self.assertEqual(set(ref.resolve(resource)), expected, [ref] + ref.paths)
+        self.assertEqual(set(ref.resolve(resource)), expected, ref.source)
       else:
-        self.assertEqual(ref.resolve(resource), expected, [ref] + ref.paths)
+        self.assertEqual(ref.resolve(resource), expected, ref.source)
 
   def test_funcs(self):
     resource = self._getTestResource()
@@ -138,8 +138,10 @@ class EvalTest(unittest.TestCase):
     self.assertEqual('test', result1)
     result2 = Ref.resolveOneIfRef(test2, resource)
     self.assertEqual(1, result2)
-    result3 = Ref.resolveIfRef(test3, resource)
+    result3 = Ref.resolveOneIfRef(test3, resource)
     self.assertEqual('expected', result3)
+    result4 = Ref.resolveIfRef(test3, resource)
+    self.assertEqual(['expected'], result4)
 
   def test_forEach(self):
     resource = self._getTestResource()

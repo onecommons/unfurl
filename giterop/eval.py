@@ -42,7 +42,7 @@ def serializeValue(value):
     return value
 
 class _RefContext(object):
-  def __init__(self, vars, currentResource):
+  def __init__(self, vars, currentResource, wantList=False):
     self.vars = vars
     # the original context:
     self.currentResource = currentResource
@@ -50,6 +50,47 @@ class _RefContext(object):
     self.lastResource = currentResource
     # current segment is the final segment:
     self.final = False
+    self.wantList = wantList
+
+class Expr(object):
+  def __init__(self, exp, vars = None):
+    self.vars = {
+     'true': True, 'false': False, 'null': None
+    }
+
+    if vars:
+      self.vars.update(vars)
+
+    self.source = exp
+    paths = list(parseExp(exp))
+    if (not paths[0].key or paths[0].key[0] not in '.$') and (paths[0].key or paths[0].filters):
+      # unspecified relative path: prepend segment to select ancestors
+      paths[:0] = [Segment('.ancestors', [], '?', [])]
+    self.paths = paths
+
+  def __repr__(self):
+    # XXX vars
+    return "Expr('%s')" % self.source
+
+  def resolve(self, currentResource):
+    vars = dict((k, Ref.resolveIfRef(v, currentResource)) for (k, v) in self.vars.items())
+
+    vars['start'] = currentResource
+    context = _RefContext(vars, currentResource)
+    if not self.paths[0].key and not self.paths[0].filters: # starts with "::"
+      currentResource = currentResource.all
+      paths = self.paths[1:]
+    elif self.paths[0].key and self.paths[0].key[0] == '$':
+      #if starts with a var, use that as the start
+      varName = self.paths[0].key[1:]
+      currentResource = context.vars[varName]
+      if len(self.paths) == 1:
+        # bare reference to a var, just return it's value
+        return [currentResource]
+      paths = [self.paths[0]._replace(key='')] + self.paths[1:]
+    else:
+      paths = self.paths
+    return evalExp([currentResource], paths, context)
 
 class Ref(object):
   """
@@ -157,82 +198,34 @@ class Ref(object):
 
     if vars:
       self.vars.update(vars)
-
     self.source = exp
-    if isinstance(exp, dict):
-      self.paths = None
-    else:
-      paths = list(parseExp(exp))
-      if (not paths[0].key or paths[0].key[0] not in '.$') and (paths[0].key or paths[0].filters):
-        # unspecified relative path: prepend segment to select ancestors
-        paths[:0] = [Segment('.ancestors', [], '?', [])]
-      self.paths = paths
 
-  def __repr__(self):
-    # XXX vars, foreach
-    return "Ref('%s')" % self.source
-
-  def _resolve(self, currentResource):
-    #always return a list of matches
-    #values in results list can be a list or None
-    vars = dict((k, self.resolveIfRef(v, currentResource)) for (k, v) in self.vars.items())
-    vars['start'] = currentResource
-    context = _RefContext(vars, currentResource)
-    if not self.paths[0].key and not self.paths[0].filters: # starts with "::"
-      currentResource = currentResource.all
-      paths = self.paths[1:]
-    elif self.paths[0].key and self.paths[0].key[0] == '$':
-      #if starts with a var, use that as the start
-      varName = self.paths[0].key[1:]
-      currentResource = context.vars[varName]
-      if len(self.paths) == 1:
-        # bare reference to a var, just return it's value
-        return [currentResource]
-      paths = [self.paths[0]._replace(key='')] + self.paths[1:]
-    else:
-      paths = self.paths
-    return evalExp([currentResource], paths, context)
-
-  def _resolveOne(self, currentResource):
-    #if no match return None
-    #if more than one match return a list of matches
-    #otherwise return match
-    #if you want to distinguish between None values and no match
-    #or between single match that is a list and a list of matches
-    #use resolve() which always returns a (possible empty) of matches
-    results = self._resolve(currentResource)
-    if results is None:
-      return None
-    if len(results) == 1:
-      return results[0]
-    else:
-      return results
-
-  def _foreach(self, result):
-    ctx = _RefContext(self.vars, result)
-    return eval(self.foreach, ctx)
-
-  def resolve(self, currentResource):
-    if self.paths is None:
-      # XXX results will be same as resolveAsOne
-      results = eval(self.source, _RefContext(self.vars, currentResource))
-    else:
-      results = self._resolve(currentResource)
-
-    if not results or not self.foreach:
-      return results
-    else:
-      return [self._foreach(results)]
-
-  def resolveOne(self, currentResource):
-    if self.paths is None:
-      results = eval(self.source, _RefContext(self.vars, currentResource))
-    else:
-      results = self._resolveOne(currentResource)
+  def _resolve(self, currentResource, wantList):
+    ctx = _RefContext(self.vars, currentResource, wantList)
+    results = eval(self.source, ctx)
 
     if results is None or not self.foreach:
       return results
-    return self._foreach(results)
+    return eval(self.foreach, _RefContext(self.vars, results, wantList))
+
+  def resolve(self, currentResource):
+    """
+    Return a list of matches
+    Note that values in the list can be a list or None
+    """
+    return self._resolve(currentResource, True)
+
+  def resolveOne(self, currentResource):
+    """
+    If no match return None
+    If more than one match return a list of matches
+    Otherwise return the match
+
+    Note: If you want to distinguish between None values and no match
+    or between single match that is a list and a list of matches
+    use resolve() which always returns a (possible empty) of matches
+    """
+    return self._resolve(currentResource, False)
 
   @staticmethod
   def resolveIfRef(value, currentResource):
@@ -250,8 +243,8 @@ class Ref(object):
     elif Ref.isRef(value):
       ref = Ref(value)
       #if ref.isExternalValue()
-      if currentResource.root.attributeManager:
-        currentResource.root.attributeManager.addRef(ref)
+      #if currentResource.root.attributeManager:
+      #  currentResource.root.attributeManager.addRef(ref)
       return ref.resolveOne(currentResource)
     else:
       return value
@@ -366,7 +359,6 @@ funcs = {
 }
 
 def eval(val, ctx):
-  # XXX pass on vars??
   if isinstance(val, dict):
     for key in val:
       func = funcs.get(key)
@@ -374,20 +366,31 @@ def eval(val, ctx):
         break
     else:
       return mapValue(val, ctx.currentResource)
+
     args = val[key]
     ctx.kw = val
-    return func(args, ctx)
+    wantList = ctx.wantList
+    # functions assume resolveOne semantics
+    ctx.wantList = False
+    results = func(args, ctx)
+    if wantList:
+      if results is None:
+        return []
+      elif not isinstance(results, list):
+        return [results]
+    return results
   elif isinstance(val, six.string_types):
-    # XXX redundant??
-    return Ref(val, ctx.vars).resolveOne(ctx.currentResource)
+  # XXX pass on vars??
+    expr = Expr(val, ctx.vars)
+    results = expr.resolve(ctx.currentResource)
+    if not ctx.wantList:
+      if not results:
+        return None
+      elif len(results) == 1:
+        return results[0]
+    return results
   else:
     return mapValue(val, ctx.currentResource)
-
-# XXX replace uses of this with Ref.resolveOneIfRef
-# assumes exp is dict with ref and maybe vars
-def evalDict(exp, currentResource):
-    ctx = _RefContext(exp.get('vars', {}), currentResource)
-    return eval(exp['ref'], ctx)
 
 #return a segment
 Segment = collections.namedtuple('Segment', ['key', 'test', 'modifier', 'filters'])

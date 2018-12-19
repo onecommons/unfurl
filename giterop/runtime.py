@@ -38,7 +38,7 @@ yaml = YAML()
 from enum import IntEnum
 from .util import (GitErOpError, GitErOpTaskError, GitErOpAddingResourceError,
   lookupClass, AutoRegisterClass, ChainMap, toEnum, diffDicts, validateSchema, mergeDicts, intersectDict)
-from .eval import Ref, mapValue, serializeValue, evalDict
+from .eval import Ref, mapValue, serializeValue
 import logging
 logger = logging.getLogger('giterop')
 
@@ -660,7 +660,7 @@ class Dependency(object):
   def refresh(self, config):
     expr = dict(ref=self.expr,
         vars=dict(val=self.expected, changeId=config.lastAttempt and config.lastAttempt.changeId))
-    result = evalDict(expr, config)
+    result = Ref(expr).resolveOne(config)
     if self.expected is not None:
       self.expected = result
 
@@ -670,7 +670,7 @@ class Dependency(object):
 
     assert not config.root.attributeManager.externalRefs
     try:
-      result = evalDict(expr, config)
+      result = Ref(expr).resolveOne(config)
     finally:
       externalRefs = config.root.attributeManager.clearRefs()
 
@@ -996,7 +996,7 @@ class TaskView(ChangeRecord):
   # updates update those changes
   # other configurations maybe modify those changes, triggering a configuration change
   def query(self, query, dependency=False, name=None, required=False):
-    result = evalDict(dict(ref=query), self.currentConfig)
+    result = Ref.resolveOneIfRef(query, self.currentConfig)
     if dependency:
       self.addDependency(query, result, name=name, required=required)
     return result
