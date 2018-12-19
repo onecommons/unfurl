@@ -1,5 +1,5 @@
 import unittest
-from giterop.eval import evalDict, Ref, mapValue, serializeValue
+from giterop.eval import Ref, mapValue, serializeValue, runTemplate
 from giterop.runtime import Resource
 from ruamel.yaml.comments import CommentedMap
 
@@ -164,3 +164,11 @@ class EvalTest(unittest.TestCase):
     serialized = serializeValue(src)
     self.assertEqual(serialized, {'a': ['b', {'ref': '::test'}]})
     self.assertEqual(src, mapValue(serialized, resource))
+
+  def test_template(self):
+    self.assertEqual(runTemplate(" {{ foo }} ", {"foo": "hello"}), " hello ")
+    from giterop.runtime import Resource
+    vars = dict(__giterop = Resource("test", attributes=dict(a1="hello")))
+    self.assertEqual(runTemplate(' {{ "::test::a1" | ref }} ', vars), u" hello ")
+    self.assertEqual(runTemplate(' {{ lookup("giterup", "::test::a1") }} ', vars), u" hello ")
+    self.assertEqual(runTemplate('{{  query("giterup", "::test::a1") }}', vars), [u'hello'])

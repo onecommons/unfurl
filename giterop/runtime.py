@@ -30,6 +30,7 @@ import collections
 import datetime
 import types
 from itertools import chain
+from ansible.template import Templar
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap
 yaml = YAML()
@@ -281,6 +282,10 @@ class ResourceRef(object):
   def all(self):
     return self.root._all
 
+  @property
+  def templar(self):
+    return self.root._templar
+
 class Resource(OperationalInstance, ResourceRef):
   def __init__(self, name='', attributes=None, parent=None,
         spec=None, status=None, priority=None, manualOveride=None):
@@ -305,7 +310,9 @@ class Resource(OperationalInstance, ResourceRef):
     self.attributeManager = None
     self.createdOn = None
     self.createdFrom = None
-    self._all = _ChildResources(self) if self.root is self else self.root._all
+    if self.root is self:
+      self._all = _ChildResources(self)
+      self._templar = Templar(None)
 
   def localStatus():
     doc = "The localStatus property."
@@ -622,6 +629,16 @@ class ResourceChanges(collections.OrderedDict):
     if resource:
       self.sync(resource)
 
+# how to represent: special type of ref?
+# generalize isRef: to check for 'path' or 'secret' in addition to 'ref'? (and don't forget about 'eval'!)
+# subclasses: local paths, kms, plugin loader
+class ExternalValue(object):
+  # check to see if config changed: parameters including ref in a template string
+  def hasChanged(changeset):
+    # has this value changed since changeset?
+    # can use the changeset's startTime or changeId or git revision (commitId) to determine if it has changed
+    return True
+
 class Dependency(object):
   """
   Represents a runtime dependencies for a configuration
@@ -642,15 +659,23 @@ class Dependency(object):
 
   def refresh(self, config):
     expr = dict(ref=self.expr,
-        vars=dict(val=self.expected, changeId=config.lastAttempt))
+        vars=dict(val=self.expected, changeId=config.lastAttempt and config.lastAttempt.changeId))
     result = evalDict(expr, config)
     if self.expected is not None:
       self.expected = result
 
-  def changed(self, config):
+  def hasChanged(self, config):
     expr = dict(ref=self.expr,
-        vars=dict(val=self.expected, changeId=config.lastAttempt))
-    result = evalDict(expr, config)
+        vars=dict(val=self.expected, changeId=config.lastAttempt and config.lastAttempt.changeId))
+
+    assert not config.root.attributeManager.externalRefs
+    try:
+      result = evalDict(expr, config)
+    finally:
+      externalRefs = config.root.attributeManager.clearRefs()
+
+    if any(externalRef.hasChanged(config.lastAttempt) for externalRef in externalRefs):
+      return True
 
     if self.schema:
       return not validateSchema(result, self.schema)
@@ -666,7 +691,9 @@ class Dependency(object):
         # if result is a resource or config see if changed since the last time we checked
         if not result.lastChange:
           return False
-        return result.lastChange > config.lastAttempt
+        if not config.lastAttempt:
+          return True
+        return result.lastChange > config.lastAttempt.changeId
     return False
 
 class Configuration(OperationalInstance, ResourceRef):
@@ -731,7 +758,7 @@ class Configuration(OperationalInstance, ResourceRef):
 
     # treat each parameter as a dependency
     # the expression is the name of parameter
-    return any(Dependency(".::" + name, val, name=name).changed(self)
+    return any(Dependency(".::" + name, val, name=name).hasChanged(self)
                                   for name, val in self._parameters.items())
 
   def refreshParameters(self):
@@ -740,7 +767,7 @@ class Configuration(OperationalInstance, ResourceRef):
     return self._parameters
 
   def hasDependenciesChanged(self):
-    return any(d.changed(self) for d in self.dependencies.values())
+    return any(d.hasChanged(self) for d in self.dependencies.values())
 
   def refreshDependencies(self):
     for d in self.dependencies.values():
@@ -798,7 +825,14 @@ class JobRequest(object):
     self.resources = resources
     self.errors = errors
 
-class TaskView(object):
+class ChangeRecord(object):
+  def __init__(self, changeId=0, parentId=None, commitId='', startTime=''):
+    self.changeId = changeId
+    self.parentId = parentId
+    self.commitId = commitId
+    self.startTime = startTime
+
+class TaskView(ChangeRecord):
   """
   The interface presented to configurators.
   """
@@ -810,12 +844,12 @@ class TaskView(object):
     self.dependenciesChanged = False
     self.resourceChanges = ResourceChanges()
 
-  # duck type with ChangeSet
+  # duck type with ChangeRecord
   @property
   def resourceName(self):
     return self.currentConfig.resource.name
 
-  # duck type with ChangeSet
+  # duck type with ChangeRecord
   @property
   def configName(self):
     return self.currentConfig.name
@@ -988,9 +1022,14 @@ class TaskView(object):
     return ConfiguratorResult(applied, modified, readyState, configChanged, results)
 
 class AttributeManager(object):
+  """
+  Tracks changes made to Resources
+  """
+
   def __init__(self):
     self.attributes = {}
     self.statuses = {}
+    self.externalRefs = []
 
   def setStatus(self, resource, newvalue):
     assert newvalue is None or isinstance(newvalue, Status)
@@ -1012,6 +1051,14 @@ class AttributeManager(object):
       return specd # converted to live refs
     else:
       return self.attributes[resource.name][1]
+
+  def addRef(self, ref):
+    self.externalRefs.append(ref)
+
+  def clearRefs(self):
+    refs = self.externalRefs
+    self.externalRefs = []
+    return refs
 
   def revertChanges(self):
     self.attributes = {}
@@ -1053,7 +1100,7 @@ class Task(TaskView, AttributeManager):
     self.parentId = parentId or job.changeId
     self.changeId = self.parentId
     self.reason = reason
-    spec.lastAttempt = self.changeId
+    spec.lastAttempt = self
 
     self.previousConfig = currentConfig
     if currentConfig:
@@ -1124,7 +1171,7 @@ class Task(TaskView, AttributeManager):
       config._lastConfigChange = self.changeId
     if statusChanged:
       config.localStatus = result.readyState
-    config.configurationSpec.lastAttempt = self.changeId
+    config.configurationSpec.lastAttempt = self
 
   def processResult(self, result):
     # applied indicates this configuration is active
@@ -1138,7 +1185,7 @@ class Task(TaskView, AttributeManager):
       self._setConfigStatus(self.pendingConfig, result)
     else:
       self.pendingConfig.localStatus = Status.notapplied
-      self.pendingConfig.configurationSpec.lastAttempt = self.changeId
+      self.pendingConfig.configurationSpec.lastAttempt = self
       if self.previousConfig:
         if result.modified:
           self.previousConfig._lastStateChange = self.changeId
@@ -1306,7 +1353,7 @@ status compared to current spec is different: compare difference for each:
 
     # there isn't a new config to run, see if the last applied config needs to be re-run
     assert lastChange
-    if (lastChange.hasParametersChanged() or lastChange.hasDependenciesChanged()) and (self.update or self.all):
+    if (lastChange.hasParametersChanged() or lastChange.hasDependenciesChanged()) and (self.upgrade or self.update or self.all):
       return 'config changed', lastChange.configurationSpec
 
     return self.checkForRepair(lastChange)
@@ -1590,12 +1637,20 @@ class Manifest(AttributeManager):
 
     return instance
 
-  @staticmethod
-  def createConfigSpec(configName, resourceName, spec):
+  def createConfigSpec(self, configName, resourceName, spec):
+    lastAttemptChangeId = spec.get('lastAttempt')
+    if lastAttemptChangeId:
+      changeSet = self.changeSets.get(lastAttemptChangeId)
+      if not changeSet:
+        raise GitErOpError("can not find changeset for changeid %s" % lastAttemptChangeId)
+      lastAttempt = changeSet.changeRecord
+    else:
+      lastAttempt = None
+
     return ConfigurationSpec(configName, resourceName, spec['className'],
           spec['majorVersion'], spec.get('minorVersion',''),
           intent=toEnum(Action, spec.get('intent', Defaults.intent)),
-          lastAttempt=spec.get('lastAttempt'),
+          lastAttempt = lastAttempt,
           parameters=spec.get('parameters'), parameterSchema=spec.get('parameterSchema'),
           requires=spec.get('requires'), provides=spec.get('provides'))
 
@@ -1629,19 +1684,19 @@ class Manifest(AttributeManager):
           ("configurations", configSpecs)
         ]),
         status=operational.localStatus)
-    resource.createdOn = self.changeSets.get(status.get('createdOn'))
+    changeset = self.changeSets.get(status.get('createdOn'))
+    resource.createdOn = changeset.changeRecord if changeset else None
     resource.createdFrom = status.get('createdFrom')
     for configSpec in configSpecs.values():
       if not configSpec.lastAttempt:
         continue
-      changeSet = self.changeSets.get(configSpec.lastAttempt)
+      changeSet = self.changeSets.get(configSpec.lastAttempt.changeId)
       if changeSet:
         if changeSet.status.status in [Status.notapplied, Status.notpresent]:
           # these will not be in the status' configurations so set them now
           self.createConfiguration(configSpec, resource, changeSet.dump(), changeSet.status.localStatus)
 
     for key, val in status.get('configurations', {}).items():
-      # change = self.changeSets.get(val['changeid']); change['spec']
       configSpec = self.createConfigSpec(key, name, val['spec'])
       self.createConfiguration(configSpec, resource, val)
 

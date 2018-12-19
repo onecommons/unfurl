@@ -6,6 +6,14 @@ from ruamel.yaml.comments import CommentedMap
 
 from .util import validateSchema
 
+def runTemplate(data, vars=None, dataLoader=None):
+  from ansible.template import Templar
+  # dataLoader can be None, is only used by _lookup and to set _basedir (else ./)
+  # see https://github.com/ansible/ansible/test/units/template/test_templar.py
+  # see ansible.template.vars.AnsibleJ2Vars,
+  return Templar(dataLoader, variables=vars).template(data)
+
+# XXX shouldn't this inherit vars (and pass on, include to template)?
 def mapValue(value, resource):
   #if self.kms.isKMSValueReference(value):
   #  value = kms.dereference(value)
@@ -14,6 +22,9 @@ def mapValue(value, resource):
     return dict((key, mapValue(v, resource)) for key, v in value.items())
   elif isinstance(value, (list, tuple)):
     return [mapValue(item, resource) for item in value]
+  elif isinstance(value, six.string_types):
+    resource.templar.set_available_variables(dict(__giterop = resource))
+    return resource.templar.template(value)
   else:
     return value
 
@@ -33,8 +44,11 @@ def serializeValue(value):
 class _RefContext(object):
   def __init__(self, vars, currentResource):
     self.vars = vars
+    # the original context:
     self.currentResource = currentResource
+    # the last resource encountered while evaluating:
     self.lastResource = currentResource
+    # current segment is the final segment:
     self.final = False
 
 class Ref(object):
@@ -234,7 +248,11 @@ class Ref(object):
     if isinstance(value, Ref):
       return value.resolveOne(currentResource)
     elif Ref.isRef(value):
-      return Ref(value).resolveOne(currentResource)
+      ref = Ref(value)
+      #if ref.isExternalValue()
+      if currentResource.root.attributeManager:
+        currentResource.root.attributeManager.addRef(ref)
+      return ref.resolveOne(currentResource)
     else:
       return value
 
@@ -348,6 +366,7 @@ funcs = {
 }
 
 def eval(val, ctx):
+  # XXX pass on vars??
   if isinstance(val, dict):
     for key in val:
       func = funcs.get(key)
@@ -359,11 +378,13 @@ def eval(val, ctx):
     ctx.kw = val
     return func(args, ctx)
   elif isinstance(val, six.string_types):
+    # XXX redundant??
     return Ref(val, ctx.vars).resolveOne(ctx.currentResource)
   else:
     return mapValue(val, ctx.currentResource)
 
-# XXX replace uses of this with Ref.resolveOneIfRef 
+# XXX replace uses of this with Ref.resolveOneIfRef
+# assumes exp is dict with ref and maybe vars
 def evalDict(exp, currentResource):
     ctx = _RefContext(exp.get('vars', {}), currentResource)
     return eval(exp['ref'], ctx)

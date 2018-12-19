@@ -89,7 +89,7 @@ import copy
 from .util import (GitErOpError, VERSION,
   expandDoc, restoreIncludes, patchDict, validateSchema)
 from .runtime import (JobOptions, Status, Priority, serializeValue,
-  Action, Defaults, Runner, Manifest, ResourceChanges)
+  Action, Defaults, Runner, Manifest, ResourceChanges, ChangeRecord)
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap
 from codecs import open
@@ -316,7 +316,7 @@ def saveConfigSpec(spec):
     saved["provides"] = spec.provides
 
   if spec.lastAttempt:
-    saved["lastAttempt"] = spec.lastAttempt
+    saved["lastAttempt"] = spec.lastAttempt.changeId
   return saved
 
 def saveDependency(dep):
@@ -367,18 +367,18 @@ def saveStatus(operational):
 
   return status
 
-class ChangeRecord(object):
+class Changeset(object):
   HeaderAttributes = CommentedMap([
    ('changeId', 0),
    ('parentId', None),
    ('commitId', ''),
    ('startTime', ''),
+   ('resourceName', ''),
+   ('configName', ''),
   ])
   CommonAttributes = CommentedMap([
     # ('readyState', {}),
     # ('priority', {}),
-    ('resourceName', ''),
-    ('configName', ''),
   ])
   RootAttributes = CommentedMap([
     # ('action', ''), # XXX
@@ -391,6 +391,7 @@ class ChangeRecord(object):
   ])
 
   def __init__(self, task):
+    self.changeRecord = ChangeRecord()
     if isinstance(task, dict):
       self._initFromDict(task)
     else:
@@ -398,11 +399,9 @@ class ChangeRecord(object):
 
   def _initFromTask(self, task):
     for (k,v) in self.HeaderAttributes.items():
-      setattr(self, k, getattr(task, k, v))
+      setattr(self.changeRecord, k, getattr(task, k, v))
 
     self.status = task.pendingConfig
-    self.resourceName = task.pendingConfig.resource.name
-    self.configName = task.pendingConfig.name
 
     for (k,v) in self.RootAttributes.items():
       if k == 'spec':
@@ -418,7 +417,7 @@ class ChangeRecord(object):
 
   def _initFromDict(self, src):
     for (k,v) in self.HeaderAttributes.items():
-      setattr(self, k, src.get(k, v))
+      setattr(self.changeRecord, k, src.get(k, v))
     self.status = Manifest.createStatus(src)
     for (k,v) in self.CommonAttributes.items():
       setattr(self, k, src.get(k, v))
@@ -428,13 +427,13 @@ class ChangeRecord(object):
   def dump(self):
     """
     convert dictionary suitable for serializing as yaml
-    or creating a ChangeRecord.
+    or creating a Changeset.
     """
-    items = [(k, getattr(self, k)) for k in ChangeRecord.HeaderAttributes]
+    items = [(k, getattr(self.changeRecord, k)) for k in Changeset.HeaderAttributes]
     items.extend( saveStatus(self.status).items() )
-    items.extend([(k, getattr(self, k)) for k in ChangeRecord.CommonAttributes
+    items.extend([(k, getattr(self, k)) for k in Changeset.CommonAttributes
                       if getattr(self, k)]) #skip empty values
-    items.extend([(k, getattr(self, k)) for k in ChangeRecord.RootAttributes
+    items.extend([(k, getattr(self, k)) for k in Changeset.RootAttributes
                           if getattr(self, k)] #skip empty values
                   )
     #CommentedMap so order is preserved in yaml output
@@ -470,7 +469,7 @@ class YamlManifest(Manifest):
       self.valid = not not messages
 
     self.specs = []
-    self.changeSets = dict((c['changeId'], ChangeRecord(c)) for c in  manifest.get('changes', []))
+    self.changeSets = dict((c['changeId'], Changeset(c)) for c in  manifest.get('changes', []))
     lastChangeId = self.changeSets and max(self.changeSets.keys()) or 0
     rootResource = self.createResource('root', manifest['root'], None)
     super(YamlManifest, self).__init__(rootResource, self.specs, lastChangeId)
@@ -489,7 +488,7 @@ class YamlManifest(Manifest):
   def saveResource(self, resource, workDone):
     status = saveStatus(resource)
     status['attributes'] = resource._attributes
-    if resource.createdOn: #will be either a Task or a ChangeRecord
+    if resource.createdOn: #will be a ChangeRecord
       status['createdOn'] = resource.createdOn.changeId
     if resource.createdFrom:
       insertKey = self._getResourcePath(resource) + ('spec',)
@@ -521,7 +520,7 @@ class YamlManifest(Manifest):
     """
     convert dictionary suitable for serializing as yaml
     """
-    return ChangeRecord(task).dump()
+    return Changeset(task).dump()
 
   def saveJob(self, job):
     changes = map(self.saveTask, job.workDone.values())
