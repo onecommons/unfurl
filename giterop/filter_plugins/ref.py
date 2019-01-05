@@ -5,8 +5,8 @@ from ansible.errors import AnsibleError, AnsibleFilterError
 
 @contextfilter
 def ref(context, ref):
-  resource = context['__giterop']
-  return Ref(ref).resolveOne(resource)
+  refContext = context['__giterop']
+  return Ref(ref).resolveOne(refContext)
 
 class FilterModule(object):
   def filters(self):

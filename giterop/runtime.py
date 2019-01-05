@@ -38,7 +38,7 @@ yaml = YAML()
 from enum import IntEnum
 from .util import (GitErOpError, GitErOpTaskError, GitErOpAddingResourceError,
   lookupClass, AutoRegisterClass, ChainMap, toEnum, diffDicts, validateSchema, mergeDicts, intersectDict)
-from .eval import Ref, mapValue, serializeValue
+from .eval import Ref, mapValue, serializeValue, RefContext
 import logging
 logger = logging.getLogger('giterop')
 
@@ -140,6 +140,14 @@ class Operational(object):
       return self.lastStateChange
     else:
       return max(self.lastStateChange, self.lastConfigChange)
+
+  def hasChanged(self, changeset):
+    # if changed since the last time we checked
+    if not self.lastChange:
+      return False
+    if not changeset:
+      return True
+    return self.lastChange > changeset.changeId
 
   @staticmethod
   def aggregateStatus(statuses, defaultStatus = Status.notapplied):
@@ -629,23 +637,14 @@ class ResourceChanges(collections.OrderedDict):
     if resource:
       self.sync(resource)
 
-# how to represent: special type of ref?
-# generalize isRef: to check for 'path' or 'secret' in addition to 'ref'? (and don't forget about 'eval'!)
-# subclasses: local paths, kms, plugin loader
-class ExternalValue(object):
-  # check to see if config changed: parameters including ref in a template string
-  def hasChanged(changeset):
-    # has this value changed since changeset?
-    # can use the changeset's startTime or changeId or git revision (commitId) to determine if it has changed
-    return True
-
 class Dependency(object):
   """
   Represents a runtime dependencies for a configuration
   """
+
   def __init__(self, expr, expected=None, schema=None, name=None, required=False):
     """
-    if schema is not None, set validate the result using schema
+    if schema is not None, validate the result using schema
     if expected is not None, test that result equals expected
     otherwise test that result isn't empty has not changed since the last attempt
     """
@@ -658,23 +657,26 @@ class Dependency(object):
     self.name = name
 
   def refresh(self, config):
-    expr = dict(ref=self.expr,
-        vars=dict(val=self.expected, changeId=config.lastAttempt and config.lastAttempt.changeId))
-    result = Ref(expr).resolveOne(config)
+    changeId = config.lastAttempt and config.lastAttempt.changeId
+    context = RefContext(config, dict(val=self.expected, changeId=changeId))
+    result = Ref(self.expr).resolveOne(context)
     if self.expected is not None:
       self.expected = result
 
+  @staticmethod
+  def hasValueChanged(value, changeset):
+    getter = getattr(value, 'hasChanged', None)
+    if getter:
+      return getter(changeset)
+    return False
+
   def hasChanged(self, config):
-    expr = dict(ref=self.expr,
-        vars=dict(val=self.expected, changeId=config.lastAttempt and config.lastAttempt.changeId))
+    changeId = config.lastAttempt and config.lastAttempt.changeId
+    context = RefContext(config, dict(val=self.expected, changeId=changeId))
+    result = Ref(self.expr).resolveOne(context)
 
-    assert not config.root.attributeManager.externalRefs
-    try:
-      result = Ref(expr).resolveOne(config)
-    finally:
-      externalRefs = config.root.attributeManager.clearRefs()
-
-    if any(externalRef.hasChanged(config.lastAttempt) for externalRef in externalRefs):
+    # check to see if config changed: including refs in a template string
+    if any(self.hasValueChanged(ref, config.lastAttempt) for ref in context.refs):
       return True
 
     if self.schema:
@@ -687,13 +689,6 @@ class Dependency(object):
       elif not result:
         # if expression evaluated to false then treat dependency as changed
         return True
-      elif isinstance(result, Operational):
-        # if result is a resource or config see if changed since the last time we checked
-        if not result.lastChange:
-          return False
-        if not config.lastAttempt:
-          return True
-        return result.lastChange > config.lastAttempt.changeId
     return False
 
 class Configuration(OperationalInstance, ResourceRef):
@@ -745,6 +740,9 @@ class Configuration(OperationalInstance, ResourceRef):
     return self._parameters
 
   def hasParametersChanged(self):
+    """
+    Evaluate configuration spec's parameters and compare with the current paramenters' values
+    """
     specParams = self.configurationSpec.parameters
     if self._parameters is None:
       #return True if parameters have been declared
@@ -1005,7 +1003,7 @@ class TaskView(ChangeRecord):
     getter = getattr(expr, 'asRef', None)
     if getter:
       # expr is a configuration or resource
-      expr = getter()['ref']
+      expr = Ref(getter()).source
 
     dependency = Dependency(expr, expected, schema, name, required)
     self.currentConfig.dependencies[name or expr] = dependency
@@ -1029,7 +1027,6 @@ class AttributeManager(object):
   def __init__(self):
     self.attributes = {}
     self.statuses = {}
-    self.externalRefs = []
 
   def setStatus(self, resource, newvalue):
     assert newvalue is None or isinstance(newvalue, Status)
@@ -1051,14 +1048,6 @@ class AttributeManager(object):
       return specd # converted to live refs
     else:
       return self.attributes[resource.name][1]
-
-  def addRef(self, ref):
-    self.externalRefs.append(ref)
-
-  def clearRefs(self):
-    refs = self.externalRefs
-    self.externalRefs = []
-    return refs
 
   def revertChanges(self):
     self.attributes = {}
@@ -1473,6 +1462,7 @@ status compared to current spec is different: compare difference for each:
     return config
 
   def createTask(self, configSpec, config, parentId=None, reason=None):
+    # XXX2 if via set, create remote task instead
     task = Task(self, configSpec, config, parentId, reason = reason)
     return task
 

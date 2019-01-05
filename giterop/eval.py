@@ -6,6 +6,59 @@ from ruamel.yaml.comments import CommentedMap
 
 from .util import validateSchema
 
+class ValueManager(object):
+
+  def hasChanged(self, name, changeset):
+    return False
+
+  def get(self, name):
+    return None
+
+  def set(self, name, value):
+    pass
+
+valueManagers = {}
+
+def externalValueFactory(arg, ctx):
+  assert ctx.currentFunc
+  # XXX2 add ctx.currentResource.root.namespace
+  return ExternalValue(ctx.currentFunc, arg)
+
+def registerValueManager(type, manager):
+  assert isinstance(manager, ValueManager)
+  assert type not in valueManagers
+  valueManagers[type] = manager
+  assert type not in funcs
+  funcs[type] = externalValueFactory
+
+def findValueManager(type):
+  return valueManagers[type]
+
+# example types: local paths, kms, plugin loader
+# note: actual values values are dependent on local environment so we don't want to serialize those values
+# XXX2 need error handling for when a transferred value is not available
+class ExternalValue(object):
+
+  def __init__(self, type, name):
+    self.type = type
+    self.name = name
+
+  def hasChanged(self, changeset):
+    # has this value changed since changeset?
+    # can use the changeset's startTime or changeId or git revision (commitId) to determine if it has changed
+    return findValueManager(self.type).hasChanged(self.name, changeset)
+
+  def get(self):
+    # XXX2 need namespace too?
+    return findValueManager(self.type).getValue(self.name)
+
+  def set(self, value):
+    # XXX2 need namespace too?
+    return findValueManager(self.type).setValue(self.name, value)
+
+  def asRef(self):
+    return {'ref': {self.type: self.name}}
+
 def runTemplate(data, vars=None, dataLoader=None):
   from ansible.template import Templar
   # dataLoader can be None, is only used by _lookup and to set _basedir (else ./)
@@ -13,24 +66,26 @@ def runTemplate(data, vars=None, dataLoader=None):
   # see ansible.template.vars.AnsibleJ2Vars,
   return Templar(dataLoader, variables=vars).template(data)
 
-# XXX shouldn't this inherit vars (and pass on, include to template)?
 def mapValue(value, resource):
-  #if self.kms.isKMSValueReference(value):
-  #  value = kms.dereference(value)
-  value = Ref.resolveOneIfRef(value, resource)
+  return _mapValue(value, RefContext(resource))
+
+# XXX shouldn't this inherit vars (and pass on, include to template)?
+def _mapValue(value, ctx):
+  if Ref.isRef(value):
+    value = Ref(value).resolveOne(ctx)
+
   if isinstance(value, dict):
-    return dict((key, mapValue(v, resource)) for key, v in value.items())
+    return dict((key, _mapValue(v, ctx)) for key, v in value.items())
   elif isinstance(value, (list, tuple)):
-    return [mapValue(item, resource) for item in value]
+    return [_mapValue(item, ctx) for item in value]
   elif isinstance(value, six.string_types):
-    resource.templar.set_available_variables(dict(__giterop = resource))
+    resource = ctx.currentResource
+    resource.templar.set_available_variables(dict(__giterop = ctx))
     return resource.templar.template(value)
   else:
     return value
 
 def serializeValue(value):
-  #if self.kms.isKMSValueReference(value):
-  #  value = kms.dereference(value)
   if isinstance(value, dict):
     return dict((key, serializeValue(v)) for key, v in value.items())
   elif isinstance(value, (list, tuple)):
@@ -41,9 +96,9 @@ def serializeValue(value):
       return getter()
     return value
 
-class _RefContext(object):
-  def __init__(self, vars, currentResource, wantList=False):
-    self.vars = vars
+class RefContext(object):
+  def __init__(self, currentResource, vars=None, wantList=False):
+    self.vars = vars or {}
     # the original context:
     self.currentResource = currentResource
     # the last resource encountered while evaluating:
@@ -51,6 +106,17 @@ class _RefContext(object):
     # current segment is the final segment:
     self.final = False
     self.wantList = wantList
+    self.currentFunc = None
+    self.refs = set()
+
+  def copy(self, resource=None, vars=None, wantList=None):
+    copy = RefContext(resource or self.currentResource, self.vars, self.wantList)
+    copy.refs = self.refs
+    if vars:
+      copy.vars.update(vars)
+    if wantList is not None:
+      copy.wantList = wantList
+    return copy
 
 class Expr(object):
   def __init__(self, exp, vars = None):
@@ -76,7 +142,7 @@ class Expr(object):
     vars = dict((k, Ref.resolveIfRef(v, currentResource)) for (k, v) in self.vars.items())
 
     vars['start'] = currentResource
-    context = _RefContext(vars, currentResource)
+    context = RefContext(currentResource, vars)
     if not self.paths[0].key and not self.paths[0].filters: # starts with "::"
       currentResource = currentResource.all
       paths = self.paths[1:]
@@ -200,22 +266,22 @@ class Ref(object):
       self.vars.update(vars)
     self.source = exp
 
-  def _resolve(self, currentResource, wantList):
-    ctx = _RefContext(self.vars, currentResource, wantList)
+  def _resolve(self, ctx, wantList):
+    ctx = ctx.copy(vars=self.vars, wantList=wantList)
     results = eval(self.source, ctx)
 
     if results is None or not self.foreach:
       return results
-    return eval(self.foreach, _RefContext(self.vars, results, wantList))
+    return eval(self.foreach, RefContext(results, self.vars, wantList))
 
-  def resolve(self, currentResource):
+  def resolve(self, ctx):
     """
     Return a list of matches
     Note that values in the list can be a list or None
     """
-    return self._resolve(currentResource, True)
+    return self._resolve(ctx, True)
 
-  def resolveOne(self, currentResource):
+  def resolveOne(self, ctx):
     """
     If no match return None
     If more than one match return a list of matches
@@ -225,27 +291,24 @@ class Ref(object):
     or between single match that is a list and a list of matches
     use resolve() which always returns a (possible empty) of matches
     """
-    return self._resolve(currentResource, False)
+    return self._resolve(ctx, False)
 
   @staticmethod
   def resolveIfRef(value, currentResource):
     if isinstance(value, Ref):
-      return value.resolve(currentResource)
+      return value.resolve(RefContext(currentResource))
     elif Ref.isRef(value):
-      return Ref(value).resolve(currentResource)
+      return Ref(value).resolve(RefContext(currentResource))
     else:
       return value
 
   @staticmethod
   def resolveOneIfRef(value, currentResource):
     if isinstance(value, Ref):
-      return value.resolveOne(currentResource)
+      return value.resolveOne(RefContext(currentResource))
     elif Ref.isRef(value):
       ref = Ref(value)
-      #if ref.isExternalValue()
-      #if currentResource.root.attributeManager:
-      #  currentResource.root.attributeManager.addRef(ref)
-      return ref.resolveOne(currentResource)
+      return ref.resolveOne(RefContext(currentResource))
     else:
       return value
 
@@ -302,7 +365,7 @@ def validateSchemaFunc(arg, ctx):
 def _forEach(results, ctx):
   keyExp = ctx.kw['foreach'].get('key')
   valExp = ctx.kw['foreach']['value']
-  ictx = _RefContext(ctx.vars.copy(), ctx.currentResource)
+  ictx = RefContext(ctx.currentResource, ctx.vars.copy())
   Break = object()
   Continue = object()
   def makeItems():
@@ -365,13 +428,14 @@ def eval(val, ctx):
       if func:
         break
     else:
-      return mapValue(val, ctx.currentResource)
+      return _mapValue(val, ctx)
 
     args = val[key]
     ctx.kw = val
     wantList = ctx.wantList
     # functions assume resolveOne semantics
     ctx.wantList = False
+    ctx.currentFunc = key
     results = func(args, ctx)
     if wantList:
       if results is None:
@@ -390,7 +454,7 @@ def eval(val, ctx):
         return results[0]
     return results
   else:
-    return mapValue(val, ctx.currentResource)
+    return _mapValue(val, ctx)
 
 #return a segment
 Segment = collections.namedtuple('Segment', ['key', 'test', 'modifier', 'filters'])
@@ -429,9 +493,9 @@ def lookup(value, key, context):
 
     if context.final:
       # this will end in the final result so map the whole object
-      return [mapValue(value, context.lastResource)]
+      return [_mapValue(value, context.copy(context.lastResource))]
     elif Ref.isRef(value):
-      return Ref(value).resolve(context.lastResource)
+      return Ref(value).resolve(context.copy(context.lastResource))
     else:
       return [value]
   except (KeyError, IndexError, TypeError, ValueError):

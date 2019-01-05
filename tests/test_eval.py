@@ -1,5 +1,5 @@
 import unittest
-from giterop.eval import Ref, mapValue, serializeValue, runTemplate
+from giterop.eval import Ref, mapValue, serializeValue, runTemplate, RefContext
 from giterop.runtime import Resource
 from ruamel.yaml.comments import CommentedMap
 
@@ -106,9 +106,9 @@ class EvalTest(unittest.TestCase):
       # print ('eval', ref, ref.source)
       if isinstance(expected, set):
         # for results where order isn't guaranteed in python2.7
-        self.assertEqual(set(ref.resolve(resource)), expected, ref.source)
+        self.assertEqual(set(ref.resolve(RefContext(resource))), expected, ref.source)
       else:
-        self.assertEqual(ref.resolve(resource), expected, ref.source)
+        self.assertEqual(ref.resolve(RefContext(resource)), expected, ref.source)
 
   def test_funcs(self):
     resource = self._getTestResource()
@@ -134,7 +134,7 @@ class EvalTest(unittest.TestCase):
         'a': None
       }
     }
-    result1 = Ref(test1).resolveOne(resource)
+    result1 = Ref(test1).resolveOne(RefContext(resource))
     self.assertEqual('test', result1)
     result2 = Ref.resolveOneIfRef(test2, resource)
     self.assertEqual(1, result2)
@@ -155,9 +155,9 @@ class EvalTest(unittest.TestCase):
     expected = {
       'test': {'content': [1, 2, 3]}
     }
-    result1 = Ref(test1).resolve(resource)
+    result1 = Ref(test1).resolve(RefContext(resource))
     self.assertEqual([expected], result1)
-    result2 = Ref(test1).resolveOne(resource)
+    result2 = Ref(test1).resolveOne(RefContext(resource))
     self.assertEqual(expected, result2)
 
   def test_serializeValues(self):
@@ -170,7 +170,7 @@ class EvalTest(unittest.TestCase):
   def test_template(self):
     self.assertEqual(runTemplate(" {{ foo }} ", {"foo": "hello"}), " hello ")
     from giterop.runtime import Resource
-    vars = dict(__giterop = Resource("test", attributes=dict(a1="hello")))
+    vars = dict(__giterop = RefContext(Resource("test", attributes=dict(a1="hello"))))
     self.assertEqual(runTemplate(' {{ "::test::a1" | ref }} ', vars), u" hello ")
     self.assertEqual(runTemplate(' {{ lookup("giterup", "::test::a1") }} ', vars), u" hello ")
     self.assertEqual(runTemplate('{{  query("giterup", "::test::a1") }}', vars), [u'hello'])

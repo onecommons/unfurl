@@ -69,6 +69,7 @@ def assertForm(src, types=dict):
     raise GitErOpError('Malformed definition: %s' % src)
   return src
 
+# map< apiversion, map<kind, ctor> >
 _ClassRegistry = {}
 # only one class can be associated with an api interface
 def registerClass(apiVersion, kind, factory, replace=False):
