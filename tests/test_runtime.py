@@ -245,3 +245,16 @@ root:
     with self.assertRaises(GitErOpError) as err:
       YamlManifest(manifest)
     self.assertEqual(str(err.exception), 'missing includes: [templates/production]')
+
+class TestInterface:
+  def __init__(self, resource):
+    self.resource = resource
+
+class InterfaceTest(unittest.TestCase):
+  def test_interface(self):
+    r = Resource('test')
+    r.addInterface(TestInterface)
+    self.assertEqual(r.attributes['.interfaces'], ['tests.test_runtime.TestInterface'])
+    i = r.findInterface(__name__ + '.' +  'TestInterface')
+    assert i, "interface not found"
+    self.assertIs(r, i.resource)

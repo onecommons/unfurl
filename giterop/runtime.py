@@ -37,7 +37,8 @@ yaml = YAML()
 
 from enum import IntEnum
 from .util import (GitErOpError, GitErOpTaskError, GitErOpAddingResourceError,
-  lookupClass, AutoRegisterClass, ChainMap, toEnum, diffDicts, validateSchema, mergeDicts, intersectDict)
+  lookupClass, AutoRegisterClass, loadClass, ChainMap, toEnum,
+  diffDicts, validateSchema, mergeDicts, intersectDict)
 from .eval import Ref, mapValue, serializeValue, RefContext
 import logging
 logger = logging.getLogger('giterop')
@@ -300,6 +301,7 @@ class Resource(OperationalInstance, ResourceRef):
     OperationalInstance.__init__(self, status, priority, manualOveride)
     self.name = name
     self._attributes = attributes or {}
+    self._interfaces = {}
 
     # configurations that are affecting the state of the resource
     self.effectiveConfigurations = CommentedMap()
@@ -341,6 +343,7 @@ class Resource(OperationalInstance, ResourceRef):
     attributes should be live values but _attributes will be serialized value
     """
     if not self.root.attributeManager:
+      # XXX3 changes to self.attributes aren't saved!
       return mapValue(self._attributes, self)
     # returned registered attribute or create a new one
     # attribute class getter resolves references
@@ -389,6 +392,39 @@ class Resource(OperationalInstance, ResourceRef):
       child = r.findResource(resourceid)
       if child:
         return child
+    return None
+
+  def addInterface(self, klass):
+    if not isinstance(klass, six.string_types):
+      klass = klass.__module__ + '.' + klass.__name__
+    if not self.root.attributeManager:
+      # changes to self.attributes aren't saved
+      attributes = self._attributes
+    else:
+      attributes = self.attributes
+    current = attributes.setdefault('.interfaces', [])
+    if klass not in current:
+      current.append(klass)
+    return current
+
+  def findInterface(self, iface):
+    # lazily creates class and instance
+    if isinstance(iface, six.string_types):
+      iface = loadClass(iface)
+    current = self.attributes.get('.interfaces')
+    if not current:
+      return None
+    for name in current:
+      info = self._interfaces.setdefault(name, {})
+      if not info:
+        _class = loadClass(name)
+      else:
+        _class  = info['class']
+      if (issubclass(iface, _class) or
+          hasattr(_class, 'isCompatibleFactory') and _class.isCompatibleFactory(iface)):
+        if 'instance' not in info:
+          info['instance'] = _class(self)
+        return info['instance']
     return None
 
   def __eq__(self, other):
@@ -639,7 +675,14 @@ class ResourceChanges(collections.OrderedDict):
 
 class Dependency(object):
   """
-  Represents a runtime dependencies for a configuration
+  Represents a runtime dependency for a configuration.
+
+  Dependencies are used to determine if a configuration needs re-run as follows:
+
+  * They are dynamically created when evaluating and comparing the configuration spec's attributes with the previous
+    values
+
+  * Persistent dependencies can be created when the configurator invoke these apis: `createConfiguration`, `addResources`, `query`, `addDependency`
   """
 
   def __init__(self, expr, expected=None, schema=None, name=None, required=False):
@@ -657,38 +700,45 @@ class Dependency(object):
     self.name = name
 
   def refresh(self, config):
-    changeId = config.lastAttempt and config.lastAttempt.changeId
-    context = RefContext(config, dict(val=self.expected, changeId=changeId))
-    result = Ref(self.expr).resolveOne(context)
     if self.expected is not None:
+      changeId = config.lastAttempt and config.lastAttempt.changeId
+      context = RefContext(config, dict(val=self.expected, changeId=changeId))
+      result = Ref(self.expr).resolveOne(context)
       self.expected = result
 
   @staticmethod
   def hasValueChanged(value, changeset):
-    getter = getattr(value, 'hasChanged', None)
-    if getter:
-      return getter(changeset)
-    return False
+    if isinstance(value, collections.Mapping):
+      if any(Dependency.hasValueChanged(v, changeset) for v in value.values()):
+        return True
+    elif isinstance(value, (list, tuple)):
+      if any(Dependency.hasValueChanged(v, changeset) for v in value):
+        return True
+    else:
+      getter = getattr(value, 'hasChanged', None)
+      if getter:
+        return getter(changeset)
+      return False
 
   def hasChanged(self, config):
     changeId = config.lastAttempt and config.lastAttempt.changeId
     context = RefContext(config, dict(val=self.expected, changeId=changeId))
     result = Ref(self.expr).resolveOne(context)
 
-    # check to see if config changed: including refs in a template string
-    if any(self.hasValueChanged(ref, config.lastAttempt) for ref in context.refs):
-      return True
-
     if self.schema:
       return not validateSchema(result, self.schema)
     else:
       if self.expected is not None:
-        expected = Ref.resolveOneIfRef(self.expected, config)
+        expected = mapValue(self.expected, config)
         if result != expected:
           return True
       elif not result:
         # if expression evaluated to false then treat dependency as changed
         return True
+
+    if self.hasValueChanged(result, config.lastAttempt):
+      return True
+
     return False
 
 class Configuration(OperationalInstance, ResourceRef):
@@ -1192,8 +1242,9 @@ class Task(TaskView, AttributeManager):
     # don't set the changeId until we're finish so that we have a higher changeid
     # than nested tasks and jobs that ran (avoids spurious config changed tasks)
     self.changeId = self.job.runner.incrementChangeId()
+    #XXX2 if attributes changed validate using attributesSchema
+    #XXX2 Check that configuration provided the metadata that it declared it would provide (see findMissingProvided)
     self.processResult(result)
-    #XXX2 Check that configuration provided the metadata that it declared it would provide
     resource = self.currentConfig.resource
 
     if (result.applied or result.modified) and self.changeList:

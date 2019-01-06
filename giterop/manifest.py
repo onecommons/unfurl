@@ -5,24 +5,29 @@ kind: Manifest
 root: #root resource is always named 'root'
   spec:
     attributes:
+      .interfaces:
+        - foo.bar.Interface
+    attributesSchema:
     configurations:
       name1:
         className
         version
         intent
+        parameters: #declared
         priority:
         provides:
-          .self: #.self describes the attributes that will
+          .self: #.self describes the attributes that this configuration will instantiate
             attributes
             attributesSchema
           .configurations: #configurations that maybe used by this configurator
             configTemplate1:
-          resourceTemplate1:
+          resourceTemplate1: # may create resources like this
             attributes:
               foo: bar
+              .interfaces:
+                - module.barManager
             configurations:
               config1:
-        parameters: #declared
         lastAttempt: changeid
   status:
     readyState:
@@ -117,6 +122,22 @@ schema = {
       "propertyNames": {
           "pattern": r"^[A-Za-z_][A-Za-z0-9_\-]*$"
         },
+    },
+    "secret": {
+      "type": "object",
+      "properties": {
+        "ref": {
+          "type": "object",
+          "properties": {
+            "secret": {
+              "type": "string",
+              "pattern": r"^[A-Za-z_][A-Za-z0-9_\-]*$"
+            },
+          },
+          "required": ["secret"]
+        },
+      },
+      "required": ["ref"]
     },
     "attributes": {
       "allOf": [
@@ -266,7 +287,7 @@ schema = {
       },
       "additionalProperties": True,
     },
-    "changeId": {"type":"number"},
+    "changeId": {"type": "number"},
     "schema":   {"type": "object"}
   }, # end definitions
 

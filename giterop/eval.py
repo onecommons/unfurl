@@ -17,7 +17,7 @@ class ValueManager(object):
   def set(self, name, value):
     pass
 
-valueManagers = {}
+_ValueManagers = {}
 
 def externalValueFactory(arg, ctx):
   assert ctx.currentFunc
@@ -26,13 +26,13 @@ def externalValueFactory(arg, ctx):
 
 def registerValueManager(type, manager):
   assert isinstance(manager, ValueManager)
-  assert type not in valueManagers
-  valueManagers[type] = manager
-  assert type not in funcs
-  funcs[type] = externalValueFactory
+  assert type not in _ValueManagers
+  _ValueManagers[type] = manager
+  assert type not in _Funcs
+  _Funcs[type] = externalValueFactory
 
 def findValueManager(type):
-  return valueManagers[type]
+  return _ValueManagers[type]
 
 # example types: local paths, kms, plugin loader
 # note: actual values values are dependent on local environment so we don't want to serialize those values
@@ -69,19 +69,19 @@ def runTemplate(data, vars=None, dataLoader=None):
 def mapValue(value, resource):
   return _mapValue(value, RefContext(resource))
 
-# XXX shouldn't this inherit vars (and pass on, include to template)?
 def _mapValue(value, ctx):
   if Ref.isRef(value):
     value = Ref(value).resolveOne(ctx)
 
-  if isinstance(value, dict):
+  if isinstance(value, collections.Mapping):
     return dict((key, _mapValue(v, ctx)) for key, v in value.items())
   elif isinstance(value, (list, tuple)):
     return [_mapValue(item, ctx) for item in value]
   elif isinstance(value, six.string_types):
-    resource = ctx.currentResource
-    resource.templar.set_available_variables(dict(__giterop = ctx))
-    return resource.templar.template(value)
+    templar = ctx.currentResource.templar
+    templar.set_available_variables(dict(__giterop = ctx))
+    value = templar.template(value)
+    return value
   else:
     return value
 
@@ -106,12 +106,9 @@ class RefContext(object):
     # current segment is the final segment:
     self.final = False
     self.wantList = wantList
-    self.currentFunc = None
-    self.refs = set()
 
   def copy(self, resource=None, vars=None, wantList=None):
     copy = RefContext(resource or self.currentResource, self.vars, self.wantList)
-    copy.refs = self.refs
     if vars:
       copy.vars.update(vars)
     if wantList is not None:
@@ -410,7 +407,7 @@ def forEachFunc(arg, ctx):
   else:
     return results
 
-funcs = {
+_Funcs = {
   'if': ifFunc,
   'and': andFunc,
   'or': orFunc,
@@ -424,7 +421,7 @@ funcs = {
 def eval(val, ctx):
   if isinstance(val, dict):
     for key in val:
-      func = funcs.get(key)
+      func = _Funcs.get(key)
       if func:
         break
     else:
@@ -432,10 +429,10 @@ def eval(val, ctx):
 
     args = val[key]
     ctx.kw = val
+    ctx.currentFunc = key
     wantList = ctx.wantList
     # functions assume resolveOne semantics
     ctx.wantList = False
-    ctx.currentFunc = key
     results = func(args, ctx)
     if wantList:
       if results is None:
@@ -444,7 +441,6 @@ def eval(val, ctx):
         return [results]
     return results
   elif isinstance(val, six.string_types):
-  # XXX pass on vars??
     expr = Expr(val, ctx.vars)
     results = expr.resolve(ctx.currentResource)
     if not ctx.wantList:

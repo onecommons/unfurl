@@ -85,6 +85,12 @@ class AutoRegisterClass(type):
     registerClass(VERSION, name, cls)
     return cls
 
+def loadClass(klass, defaultModule='__main__'):
+  import importlib
+  prefix, sep, suffix = klass.rpartition('.')
+  module = importlib.import_module(prefix or defaultModule)
+  return getattr(module, suffix, None)
+
 def lookupClass(kind, apiVersion=None, default=None):
   version = apiVersion or VERSION
   api = _ClassRegistry.get(version)
@@ -92,8 +98,13 @@ def lookupClass(kind, apiVersion=None, default=None):
     klass = api.get(kind, default)
   else:
     klass = default
+
   if not klass:
-    raise GitErOpError('Can not find class %s.%s' % (version, kind))
+    klass = loadClass(kind)
+    if klass:
+      registerClass(version, kind, klass, True)
+    else:
+      raise GitErOpError('Can not find class %s.%s' % (version, kind))
   return klass
 
 def toEnum(enum, value, default=None):
@@ -490,6 +501,7 @@ def extend_with_default(validator_class):
 DefaultValidatingLatestDraftValidator = extend_with_default(Draft4Validator)
 
 def validateSchema(obj, schema):
+  # XXX2 have option that includes definitions from manifest's schema
   validator = DefaultValidatingLatestDraftValidator(schema)
   return list(validator.iter_errors(obj))
 
