@@ -301,7 +301,7 @@ class Resource(OperationalInstance, ResourceRef):
     OperationalInstance.__init__(self, status, priority, manualOveride)
     self.name = name
     self._attributes = attributes or {}
-    self._interfaces = {}
+    self._interfaces = {} #XXX2 exclude when pickling
 
     # configurations that are affecting the state of the resource
     self.effectiveConfigurations = CommentedMap()
@@ -905,16 +905,6 @@ class TaskView(ChangeRecord):
   def addMessage(self, message):
     self.messages.append(message)
 
-  def _createConfigurationSpecDict(self, configSpec):
-    templateName = configSpec.get('template')
-    if templateName:
-      template = self.currentConfig.configurationSpec.provides.get(
-                                        '.configurations', {}).get(templateName)
-      if template is None:
-        raise GitErOpError('missing config template from provides' % templateName)
-      configSpec = mergeDicts(template, configSpec)
-    return configSpec
-
   def createConfigurationSpec(self, name, configSpec, resource=None):
     if isinstance(configSpec, six.string_types):
       configSpec = yaml.load(configSpec)
@@ -925,7 +915,8 @@ class TaskView(ChangeRecord):
       rname = resource.name
     else:
       rname = resource
-    return self.manifest.createConfigSpec(name, rname, self._createConfigurationSpecDict(configSpec))
+    return self.manifest.createConfigSpec(name, rname, configSpec,
+      self.currentConfig.configurationSpec.provides.get('.configurations'))
 
   # Configurations created by subtasks are transient insofar as the are not part of the spec,
   # but they are recorded as part of the resource's configuration state.
@@ -948,15 +939,16 @@ class TaskView(ChangeRecord):
       priority: required
       dependent: boolean
       parent:
-      attributes:
-        override1:
-      configurations:
-        configname:
-          template:
-            overrides1
-            overrides2
-            parameters:
-              foo
+      spec:
+        attributes:
+          override1:
+        configurations:
+          configname:
+            template:
+              overrides1
+              overrides2
+              parameters:
+                foo
       status:
         readyState: ok
         attributes:
@@ -988,34 +980,10 @@ class TaskView(ChangeRecord):
           logger.info("updating resources %s", existingResource.name)
           continue
 
-        templateName = resourceSpec.get('template')
-        if templateName:
-          template = self.currentConfig.configurationSpec.provides.get(templateName)
-          if template is None:
-            raise GitErOpError('missing resource template from provides' % templateName)
-          logger.debug('template %s: %s', templateName, template)
-          #logger.debug('resourceSpec %s', resourceSpec)
-          resourceSpec = mergeDicts(template, resourceSpec)
-          #logger.debug('merged resourceSpec %s', resourceSpec)
+        resource = self.manifest.createResource(rname, resourceSpec, self.currentConfig.resource.root,
+          self.currentConfig.configurationSpec.provides,
+          self.currentConfig.configurationSpec.provides.get('.configurations'), self)
 
-        configSpecs = resourceSpec.get('configurations', {}).items()
-        configurations = dict((name, self._createConfigurationSpecDict(configSpec))
-                                              for name, configSpec in configSpecs)
-        # logger.debug("configurations %s", configurations)
-        pname = resourceSpec.get('parent')
-        parent = self.findResource(pname) if pname else self.currentConfig.resource.root
-        if parent is None:
-          raise GitErOpError('can not find parent resource %s' % pname)
-
-        # attributes are part of spec but status can also contain attributes if needed
-        resource = self.manifest.createResource(rname, dict(
-          status=resourceSpec.get('status', {}),
-          spec=dict(configurations=configurations,
-                attributes=resourceSpec.get('attributes')
-              )
-          ), parent)
-        resource.createdOn = self
-        resource.createdFrom = templateName
         if resource.required or resourceSpec.get('dependent'):
           self.addDependency(resource, required=resource.required)
       except:
@@ -1678,7 +1646,17 @@ class Manifest(AttributeManager):
 
     return instance
 
-  def createConfigSpec(self, configName, resourceName, spec):
+  def mergeConfigSpec(self, configSpec, ctemplates=None):
+    templateName = configSpec.get('template')
+    if templateName:
+      template = ctemplates and ctemplates.get(templateName) or None
+      if template is None:
+        raise GitErOpError('missing config template: %s' % templateName)
+      configSpec = mergeDicts(template, configSpec)
+    return configSpec
+
+  def createConfigSpec(self, configName, resourceName, spec, ctemplates=None):
+    spec = self.mergeConfigSpec(spec, ctemplates)
     lastAttemptChangeId = spec.get('lastAttempt')
     if lastAttemptChangeId:
       changeSet = self.changeSets.get(lastAttemptChangeId)
@@ -1712,10 +1690,35 @@ class Manifest(AttributeManager):
     resource.setConfiguration(config)
     return config
 
-  def createResource(self, name, decl, parent):
+  def createResource(self, rname, resourceSpec, parent=None, rtemplates=None, ctemplates=None, changeset=None):
+    templateName = resourceSpec.get('template')
+    if templateName:
+      template = rtemplates.get(templateName)
+      if template is None:
+        raise GitErOpError('missing resource template %s' % templateName)
+      logger.debug('template %s: %s', templateName, template)
+      #logger.debug('resourceSpec %s', resourceSpec)
+      resourceSpec = resourceSpec.copy()
+      resourceSpec['spec'] = mergeDicts(template, resourceSpec.get('spec', {}))
+      resourceSpec.setdefault('status', {})['createdFrom'] = templateName
+      #logger.debug('merged resourceSpec %s', resourceSpec)
+
+    # if parent property is set it overrides the parent argument
+    pname = resourceSpec.get('parent')
+    if pname:
+      parent = self.getRootResource().findResource(pname)
+      if parent is None:
+        raise GitErOpError('can not find parent resource %s' % pname)
+
+    resource = self._createResource(rname, resourceSpec, parent, rtemplates, ctemplates)
+    if changeset:
+      resource.createdOn = changeset
+    return resource
+
+  def _createResource(self, name, decl, parent, rtemplates=None, ctemplates=None):
     status = decl.get('status', {})
     specs = decl['spec']
-    configSpecs = CommentedMap([(key, self.createConfigSpec(key, name, val))
+    configSpecs = CommentedMap([(key, self.createConfigSpec(key, name, val, ctemplates))
                               for key, val in specs['configurations'].items()])
     self.specs.extend(configSpecs.values())
     operational = self.createStatus(status)
@@ -1725,8 +1728,9 @@ class Manifest(AttributeManager):
           ("configurations", configSpecs)
         ]),
         status=operational.localStatus)
-    changeset = self.changeSets.get(status.get('createdOn'))
-    resource.createdOn = changeset.changeRecord if changeset else None
+    if status.get('createdOn'):
+      changeset = self.changeSets.get(status['createdOn'])
+      resource.createdOn = changeset.changeRecord if changeset else None
     resource.createdFrom = status.get('createdFrom')
     for configSpec in configSpecs.values():
       if not configSpec.lastAttempt:
@@ -1738,11 +1742,11 @@ class Manifest(AttributeManager):
           self.createConfiguration(configSpec, resource, changeSet.dump(), changeSet.status.localStatus)
 
     for key, val in status.get('configurations', {}).items():
-      configSpec = self.createConfigSpec(key, name, val['spec'])
+      configSpec = self.createConfigSpec(key, name, val['spec'], ctemplates)
       self.createConfiguration(configSpec, resource, val)
 
     for key, val in decl.get('resources', {}).items():
-      self.createResource(key, val, resource)
+      self.createResource(key, val, resource, rtemplates, ctemplates)
 
     return resource
 

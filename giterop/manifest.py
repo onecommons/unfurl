@@ -22,12 +22,14 @@ root: #root resource is always named 'root'
           .configurations: #configurations that maybe used by this configurator
             configTemplate1:
           resourceTemplate1: # may create resources like this
+            template:
             attributes:
               foo: bar
               .interfaces:
                 - module.barManager
             configurations:
               config1:
+                template:
         lastAttempt: changeid
   status:
     readyState:
@@ -492,7 +494,10 @@ class YamlManifest(Manifest):
     self.specs = []
     self.changeSets = dict((c['changeId'], Changeset(c)) for c in  manifest.get('changes', []))
     lastChangeId = self.changeSets and max(self.changeSets.keys()) or 0
-    rootResource = self.createResource('root', manifest['root'], None)
+
+    templates = manifest.get('templates', {})
+    rootResource = self.createResource('root', manifest['root'], None,
+                    templates.get('resources'), templates.get('configurations'))
     super(YamlManifest, self).__init__(rootResource, self.specs, lastChangeId)
 
   @staticmethod
