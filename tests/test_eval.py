@@ -100,6 +100,7 @@ class EvalTest(unittest.TestCase):
        ['e::*::b2', ['v2']],
        ["*", []],
        ["f", [{'a': 1, 'b': 1}]],
+       [{"q": "{{ foo }}"}, ["{{ foo }}"]]
        #XXX test nested ['.[k[d=3]=4]']
     ]:
       ref = Ref(exp)
@@ -136,11 +137,11 @@ class EvalTest(unittest.TestCase):
     }
     result1 = Ref(test1).resolveOne(RefContext(resource))
     self.assertEqual('test', result1)
-    result2 = Ref.resolveOneIfRef(test2, resource)
+    result2 = Ref(test2).resolveOne(RefContext(resource))
     self.assertEqual(1, result2)
-    result3 = Ref.resolveOneIfRef(test3, resource)
+    result3 = Ref(test3).resolveOne(RefContext(resource))
     self.assertEqual('expected', result3)
-    result4 = Ref.resolveIfRef(test3, resource)
+    result4 = Ref(test3).resolve(RefContext(resource))
     self.assertEqual(['expected'], result4)
 
   def test_forEach(self):
@@ -148,13 +149,20 @@ class EvalTest(unittest.TestCase):
     test1 = {
       'ref': '.',
       'foreach': {
-          'key':   '.name',
           'value': {'content': { 'ref': 'b'}}
       },
     }
+    expected0 = {'content': [1, 2, 3]}
     expected = {
-      'test': {'content': [1, 2, 3]}
+      'test': expected0
     }
+    result0 = Ref(test1).resolveOne(RefContext(resource))
+    self.assertEqual([expected0], result0)
+    # resolve has same result as resolveOne
+    self.assertEqual([expected0], Ref(test1).resolve(RefContext(resource)))
+
+    #add 'key' to make result a dict
+    test1['foreach']['key'] = '.name';
     result1 = Ref(test1).resolve(RefContext(resource))
     self.assertEqual([expected], result1)
     result2 = Ref(test1).resolveOne(RefContext(resource))
@@ -174,3 +182,24 @@ class EvalTest(unittest.TestCase):
     self.assertEqual(runTemplate(' {{ "::test::a1" | ref }} ', vars), u" hello ")
     self.assertEqual(runTemplate(' {{ lookup("giterup", "::test::a1") }} ', vars), u" hello ")
     self.assertEqual(runTemplate('{{  query("giterup", "::test::a1") }}', vars), [u'hello'])
+
+    #test that ref vars as can be used as template string vars
+    resource = self._getTestResource()
+    exp = {'a': "{{ aVar }} world"}
+    vars = {'aVar': 'hello'}
+    self.assertEqual(mapValue(exp, RefContext(resource, vars)), {'a': 'hello world'})
+
+  def test_vars(self):
+    # test dereferencing vars
+    resource = self._getTestResource()
+    query = {
+      'eval': "$aDict",
+      'vars': {
+        "aDict": {
+            'aRef': {"eval": '::test'},
+            "aTemplate": "{{ true }}"
+        }
+      }
+    }
+    result = Ref(query).resolveOne(RefContext(resource))
+    self.assertEqual(result, {'aRef': resource, 'aTemplate': True})

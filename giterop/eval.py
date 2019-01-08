@@ -4,60 +4,62 @@ import operator
 import collections
 from ruamel.yaml.comments import CommentedMap
 
-from .util import validateSchema
+from .util import validateSchema, GitErOpError
 
 class ValueManager(object):
 
-  def hasChanged(self, name, changeset):
+  def hasChanged(self, extVal, changeset):
     return False
 
-  def get(self, name):
+  def get(self, extVal):
     return None
 
-  def set(self, name, value):
-    pass
+  def set(self, extVal, value):
+    raise GitErOpError("ExternalValue %s does not implement set()" % self.type)
 
 _ValueManagers = {}
 
 def externalValueFactory(arg, ctx):
   assert ctx.currentFunc
-  # XXX2 add ctx.currentResource.root.namespace
-  return ExternalValue(ctx.currentFunc, arg)
+  return ExternalValue(ctx.currentResource.root, ctx.currentFunc, arg)
 
-def registerValueManager(type, manager):
+def registerValueManager(root, manager):
+  type = manager.type
   assert isinstance(manager, ValueManager)
-  assert type not in _ValueManagers
-  _ValueManagers[type] = manager
-  assert type not in _Funcs
-  _Funcs[type] = externalValueFactory
+  key = (id(root), type)
+  assert key not in _ValueManagers
+  _ValueManagers[key] = manager
+  if type not in _Funcs:
+    _Funcs[type] = externalValueFactory
+  else:
+    assert _Funcs[type] is externalValueFactory
 
-def findValueManager(type):
-  return _ValueManagers[type]
+def findValueManager(root, type):
+  return _ValueManagers[(id(root), type)]
 
 # example types: local paths, kms, plugin loader
-# note: actual values values are dependent on local environment so we don't want to serialize those values
+# note: actual values values maybe dependent on local environment so we don't want to serialize those values
 # XXX2 need error handling for when a transferred value is not available
 class ExternalValue(object):
 
-  def __init__(self, type, name):
+  def __init__(self, root, type, key):
     self.type = type
-    self.name = name
+    self.key = key
+    self.root = root
 
   def hasChanged(self, changeset):
     # has this value changed since changeset?
     # can use the changeset's startTime or changeId or git revision (commitId) to determine if it has changed
-    return findValueManager(self.type).hasChanged(self.name, changeset)
+    return findValueManager(self.root, self.type).hasChanged(self, changeset)
 
   def get(self):
-    # XXX2 need namespace too?
-    return findValueManager(self.type).getValue(self.name)
+    return findValueManager(self.root, self.type).get(self)
 
   def set(self, value):
-    # XXX2 need namespace too?
-    return findValueManager(self.type).setValue(self.name, value)
+    return findValueManager(self.root, self.type).set(self, value)
 
   def asRef(self):
-    return {'ref': {self.type: self.name}}
+    return {'ref': {self.type: self.key}}
 
 def runTemplate(data, vars=None, dataLoader=None):
   from ansible.template import Templar
@@ -66,8 +68,10 @@ def runTemplate(data, vars=None, dataLoader=None):
   # see ansible.template.vars.AnsibleJ2Vars,
   return Templar(dataLoader, variables=vars).template(data)
 
-def mapValue(value, resource):
-  return _mapValue(value, RefContext(resource))
+def mapValue(value, resourceOrCxt):
+  if not isinstance(resourceOrCxt, RefContext):
+    resourceOrCxt = RefContext(resourceOrCxt)
+  return _mapValue(value, resourceOrCxt)
 
 def _mapValue(value, ctx):
   if Ref.isRef(value):
@@ -79,8 +83,12 @@ def _mapValue(value, ctx):
     return [_mapValue(item, ctx) for item in value]
   elif isinstance(value, six.string_types):
     templar = ctx.currentResource.templar
-    templar.set_available_variables(dict(__giterop = ctx))
+    vars = dict(__giterop = ctx)
+    vars.update(ctx.vars)
+    templar.set_available_variables(vars)
     value = templar.template(value)
+    if Ref.isRef(value):
+      value = Ref(value).resolveOne(ctx)
     return value
   else:
     return value
@@ -136,8 +144,7 @@ class Expr(object):
     return "Expr('%s')" % self.source
 
   def resolve(self, currentResource):
-    vars = dict((k, Ref.resolveIfRef(v, currentResource)) for (k, v) in self.vars.items())
-
+    vars = mapValue(self.vars, currentResource)
     vars['start'] = currentResource
     context = RefContext(currentResource, vars)
     if not self.paths[0].key and not self.paths[0].filters: # starts with "::"
@@ -254,29 +261,30 @@ class Ref(object):
 
     self.foreach = None
     if isinstance(exp, dict):
+      if 'q' in exp:
+        self.source = exp
+        return
+
       self.vars.update(exp.get('vars', {}))
       if 'foreach' in exp:
         self.foreach = exp
-      exp = exp.get('ref', '')
+      exp = exp.get('eval', exp.get('ref',''))
 
     if vars:
       self.vars.update(vars)
     self.source = exp
 
-  def _resolve(self, ctx, wantList):
+  def resolve(self, ctx, wantList=True):
+    """
+    Return a list of matches
+    Note that values in the list can be a list or None
+    """
     ctx = ctx.copy(vars=self.vars, wantList=wantList)
     results = eval(self.source, ctx)
 
     if results is None or not self.foreach:
       return results
     return eval(self.foreach, RefContext(results, self.vars, wantList))
-
-  def resolve(self, ctx):
-    """
-    Return a list of matches
-    Note that values in the list can be a list or None
-    """
-    return self._resolve(ctx, True)
 
   def resolveOne(self, ctx):
     """
@@ -288,32 +296,15 @@ class Ref(object):
     or between single match that is a list and a list of matches
     use resolve() which always returns a (possible empty) of matches
     """
-    return self._resolve(ctx, False)
-
-  @staticmethod
-  def resolveIfRef(value, currentResource):
-    if isinstance(value, Ref):
-      return value.resolve(RefContext(currentResource))
-    elif Ref.isRef(value):
-      return Ref(value).resolve(RefContext(currentResource))
-    else:
-      return value
-
-  @staticmethod
-  def resolveOneIfRef(value, currentResource):
-    if isinstance(value, Ref):
-      return value.resolveOne(RefContext(currentResource))
-    elif Ref.isRef(value):
-      ref = Ref(value)
-      return ref.resolveOne(RefContext(currentResource))
-    else:
-      return value
+    return self.resolve(ctx, False)
 
   @staticmethod
   def isRef(value):
     if isinstance(value, dict):
-      if 'ref' in value:
+      if 'ref' in value or 'eval' in value:
         return len([x for x in ['vars', 'foreach'] if x in value]) + 1 == len(value)
+      if 'q' in value:
+        return len(value) == 1
       return False
     return isinstance(value, Ref)
 

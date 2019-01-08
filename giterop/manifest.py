@@ -2,6 +2,22 @@
 
 apiVersion: VERSION
 kind: Manifest
+
+locals:
+ properties:
+   name1:
+     type: string
+     default
+ required:
+secrets:
+   name1:
+     type: string
+     default
+   # save-digest: true
+   # prompt: true
+   # readonly: true
+ required:
+
 root: #root resource is always named 'root'
   spec:
     attributes:
@@ -353,6 +369,8 @@ def saveDependency(dep):
     saved['schema'] = dep.schema
   if dep.required:
     saved['required'] = dep.required
+  if dep.wantList:
+    saved['wantList'] = dep.wantList
   return saved
 
 def saveResourceSpec(rspec):

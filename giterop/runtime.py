@@ -29,13 +29,15 @@ import six
 import collections
 import datetime
 import types
+import os.path
 from itertools import chain
+from enum import IntEnum
+
 from ansible.template import Templar
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap
 yaml = YAML()
 
-from enum import IntEnum
 from .util import (GitErOpError, GitErOpTaskError, GitErOpAddingResourceError,
   lookupClass, AutoRegisterClass, loadClass, ChainMap, toEnum,
   diffDicts, validateSchema, mergeDicts, intersectDict)
@@ -488,11 +490,12 @@ class ConfiguratorResult(object):
 
   Readystate reports the Status of the current configuration.
   """
-  def __init__(self, applied, modified, readyState=None, configChanged=None, results=None):
+  def __init__(self, applied, modified, readyState=None, configChanged=None, result=None):
     self.applied = applied
     self.modified = modified
     self.readyState = readyState
     self.configChanged = configChanged
+    self.result = result
 
 @six.add_metaclass(AutoRegisterClass)
 class Configurator(object):
@@ -685,7 +688,7 @@ class Dependency(object):
   * Persistent dependencies can be created when the configurator invoke these apis: `createConfiguration`, `addResources`, `query`, `addDependency`
   """
 
-  def __init__(self, expr, expected=None, schema=None, name=None, required=False):
+  def __init__(self, expr, expected=None, schema=None, name=None, required=False, wantList=False):
     """
     if schema is not None, validate the result using schema
     if expected is not None, test that result equals expected
@@ -698,12 +701,13 @@ class Dependency(object):
     self.schema = schema
     self.required = required
     self.name = name
+    self.wantList= wantList
 
   def refresh(self, config):
     if self.expected is not None:
       changeId = config.lastAttempt and config.lastAttempt.changeId
       context = RefContext(config, dict(val=self.expected, changeId=changeId))
-      result = Ref(self.expr).resolveOne(context)
+      result = Ref(self.expr).resolve(context, wantList=self.wantList)
       self.expected = result
 
   @staticmethod
@@ -723,7 +727,7 @@ class Dependency(object):
   def hasChanged(self, config):
     changeId = config.lastAttempt and config.lastAttempt.changeId
     context = RefContext(config, dict(val=self.expected, changeId=changeId))
-    result = Ref(self.expr).resolveOne(context)
+    result = Ref(self.expr).resolve(context, wantList=self.wantList)
 
     if self.schema:
       return not validateSchema(result, self.schema)
@@ -1011,19 +1015,19 @@ class TaskView(ChangeRecord):
   # configuration has cumulative set of changes made it to resources
   # updates update those changes
   # other configurations maybe modify those changes, triggering a configuration change
-  def query(self, query, dependency=False, name=None, required=False):
-    result = Ref.resolveOneIfRef(query, self.currentConfig)
+  def query(self, query, dependency=False, name=None, required=False, wantList=False):
+    result = Ref(query).resolve(RefContext(self.currentConfig), wantList)
     if dependency:
-      self.addDependency(query, result, name=name, required=required)
+      self.addDependency(query, result, name=name, required=required, wantList=wantList)
     return result
 
-  def addDependency(self, expr, expected=None, schema=None, name=None, required=False):
+  def addDependency(self, expr, expected=None, schema=None, name=None, required=False, wantList=False):
     getter = getattr(expr, 'asRef', None)
     if getter:
-      # expr is a configuration or resource
+      # expr is a configuration or resource or ExternalValue
       expr = Ref(getter()).source
 
-    dependency = Dependency(expr, expected, schema, name, required)
+    dependency = Dependency(expr, expected, schema, name, required, wantList)
     self.currentConfig.dependencies[name or expr] = dependency
     self.dependenciesChanged = True
     return dependency
@@ -1034,8 +1038,8 @@ class TaskView(ChangeRecord):
       self.dependenciesChanged = True
     return old
 
-  def createResult(self, applied, modified, readyState=None, configChanged=None, results=None):
-    return ConfiguratorResult(applied, modified, readyState, configChanged, results)
+  def createResult(self, applied, modified, readyState=None, configChanged=None, result=None):
+    return ConfiguratorResult(applied, modified, readyState, configChanged, result)
 
 class AttributeManager(object):
   """
@@ -1128,6 +1132,7 @@ class Task(TaskView, AttributeManager):
     self.job = job
     self.changeList = []
     self.changeSet = None
+    self.result = None
 
   def validateParameters(self):
     spec = self.pendingConfig.configurationSpec
@@ -1225,6 +1230,7 @@ class Task(TaskView, AttributeManager):
       self.resourceChanges.updateChanges(accum, self.statuses, resource)
       self.pendingConfig.resourceChanges.updateChanges(accum, self.statuses, resource)
 
+    self.result = result
     return self.pendingConfig
 
   def commitChanges(self):
@@ -1616,13 +1622,20 @@ class Manifest(AttributeManager):
     self.rootResource = rootResource
     rootResource.attributeManager = self
     self.specs = specs
-    self.lastChangeId=lastChangeId
+    self.lastChangeId = lastChangeId
 
   def getRootResource(self):
     return self.rootResource
 
   def getConfigurationSpecs(self):
     return self.specs
+
+  def getBaseDir(self):
+    manifestPath = getattr(self, 'path', None)
+    if manifestPath:
+      return os.path.dirname(manifestPath)
+    else:
+      return '.'
 
   def saveJob(self, job):
     pass
@@ -1683,7 +1696,7 @@ class Manifest(AttributeManager):
       key = val.get('name') or val['ref']
       assert key not in config.dependencies
       config.dependencies[key] = Dependency(val['ref'], val.get('expected'),
-                    val.get('schema'), val.get('name'), val.get('required'))
+        val.get('schema'), val.get('name'), val.get('required'), val.get('wantList', False))
 
     if 'modifications' in changeSet:
       config.resourceChanges = ResourceChanges(changeSet['modifications'])
