@@ -3,70 +3,58 @@ import re
 import operator
 import collections
 from ruamel.yaml.comments import CommentedMap
+from .util import validateSchema, assertForm #, GitErOpError
 
-from .util import validateSchema, GitErOpError
-
-class ValueManager(object):
-
-  def hasChanged(self, extVal, changeset):
-    return False
-
-  def get(self, extVal):
-    return None
-
-  def set(self, extVal, value):
-    raise GitErOpError("ExternalValue %s does not implement set()" % self.type)
-
-_ValueManagers = {}
-
-def externalValueFactory(arg, ctx):
-  assert ctx.currentFunc
-  return ExternalValue(ctx.currentResource.root, ctx.currentFunc, arg)
-
-def registerValueManager(root, manager):
-  type = manager.type
-  assert isinstance(manager, ValueManager)
-  key = (id(root), type)
-  assert key not in _ValueManagers
-  _ValueManagers[key] = manager
-  if type not in _Funcs:
-    _Funcs[type] = externalValueFactory
-  else:
-    assert _Funcs[type] is externalValueFactory
-
-def findValueManager(root, type):
-  return _ValueManagers[(id(root), type)]
-
-# example types: local paths, kms, plugin loader
-# note: actual values values maybe dependent on local environment so we don't want to serialize those values
-# XXX2 need error handling for when a transferred value is not available
 class ExternalValue(object):
 
-  def __init__(self, root, type, key):
-    self.type = type
-    self.key = key
-    self.root = root
-
-  def hasChanged(self, changeset):
-    # has this value changed since changeset?
-    # can use the changeset's startTime or changeId or git revision (commitId) to determine if it has changed
-    return findValueManager(self.root, self.type).hasChanged(self, changeset)
+  def _setResolved(self, key, value):
+    self.getter = key
 
   def get(self):
-    return findValueManager(self.root, self.type).get(self)
+    pass
 
-  def set(self, value):
-    return findValueManager(self.root, self.type).set(self, value)
+# XXX __setstate__
 
-  def asRef(self):
-    return {'ref': {self.type: self.key}}
+  def resolve(self, key=None):
+    key = key or self.getter
+    if key:
+      value = self.get()
+      getter = getattr(value, '__reflookup__', None)
+      if getter:
+        return getter(key)
+      else:
+        return value[key]
+    else:
+      return self.get()
+
+  def asRef(self, options=None):
+    if options and options.get('resolveExternal'):
+      return serializeValue(self.resolve(), **options)
+    # external:local external:secret
+    serialized = {self.type: self.key}
+    if self.getter:
+      serialized['get'] = self.getter
+    return {'ref': serialized}
+
+  @staticmethod
+  def resolveAll(value):
+    if isinstance(value, collections.Mapping):
+      return dict((key, ExternalValue.resolveAll(v)) for key, v in value.items())
+    elif isinstance(value, (list, tuple)):
+      return [ExternalValue.resolveAll(item) for item in value]
+    elif isinstance(value, ExternalValue):
+      return value.resolve()
+    else:
+      return value
 
 def runTemplate(data, vars=None, dataLoader=None):
   from ansible.template import Templar
-  # dataLoader can be None, is only used by _lookup and to set _basedir (else ./)
-  # see https://github.com/ansible/ansible/test/units/template/test_templar.py
-  # see ansible.template.vars.AnsibleJ2Vars,
-  return Templar(dataLoader, variables=vars).template(data)
+  from ansible.parsing.dataloader import DataLoader
+  # implementation notes:
+  #   see https://github.com/ansible/ansible/test/units/template/test_templar.py
+  #   see ansible.template.vars.AnsibleJ2Vars,
+  #   dataLoader is only used by _lookup and to set _basedir (else ./)
+  return Templar(dataLoader or DataLoader(), variables=vars).template(data)
 
 def mapValue(value, resourceOrCxt):
   if not isinstance(resourceOrCxt, RefContext):
@@ -90,33 +78,35 @@ def _mapValue(value, ctx):
     if Ref.isRef(value):
       value = Ref(value).resolveOne(ctx)
     return value
-  else:
-    return value
+  elif ctx.resolveExternal and isinstance(value, ExternalValue):
+    return value.resolve()
+  return value
 
-def serializeValue(value):
+def serializeValue(value, **kw):
   if isinstance(value, dict):
-    return dict((key, serializeValue(v)) for key, v in value.items())
+    return dict((key, serializeValue(v, **kw)) for key, v in value.items())
   elif isinstance(value, (list, tuple)):
-    return [serializeValue(item) for item in value]
+    return [serializeValue(item, **kw) for item in value]
   else:
     getter = getattr(value, 'asRef', None)
     if getter:
-      return getter()
+      return getter(kw)
     return value
 
 class RefContext(object):
-  def __init__(self, currentResource, vars=None, wantList=False):
+  def __init__(self, currentResource, vars=None, wantList=False, resolveExternal=True):
     self.vars = vars or {}
     # the original context:
     self.currentResource = currentResource
     # the last resource encountered while evaluating:
     self.lastResource = currentResource
     # current segment is the final segment:
-    self.final = False
+    self._rest = None
     self.wantList = wantList
+    self.resolveExternal = resolveExternal
 
   def copy(self, resource=None, vars=None, wantList=None):
-    copy = RefContext(resource or self.currentResource, self.vars, self.wantList)
+    copy = RefContext(resource or self.currentResource, self.vars, self.wantList, self.resolveExternal)
     if vars:
       copy.vars.update(vars)
     if wantList is not None:
@@ -143,10 +133,11 @@ class Expr(object):
     # XXX vars
     return "Expr('%s')" % self.source
 
-  def resolve(self, currentResource):
+  def resolve(self, ctx):
+    currentResource = ctx.currentResource
     vars = mapValue(self.vars, currentResource)
     vars['start'] = currentResource
-    context = RefContext(currentResource, vars)
+    context = ctx.copy(currentResource, vars)
     if not self.paths[0].key and not self.paths[0].filters: # starts with "::"
       currentResource = currentResource.all
       paths = self.paths[1:]
@@ -280,11 +271,11 @@ class Ref(object):
     Note that values in the list can be a list or None
     """
     ctx = ctx.copy(vars=self.vars, wantList=wantList)
-    results = eval(self.source, ctx)
+    results = eval(self.source, ctx, True)
 
     if results is None or not self.foreach:
       return results
-    return eval(self.foreach, RefContext(results, self.vars, wantList))
+    return eval(self.foreach, ctx.copy(results, self.vars, wantList), True)
 
   def resolveOne(self, ctx):
     """
@@ -354,6 +345,8 @@ def _forEach(results, ctx):
   keyExp = ctx.kw['foreach'].get('key')
   valExp = ctx.kw['foreach']['value']
   ictx = RefContext(ctx.currentResource, ctx.vars.copy())
+  ictx.resolveExternal = ctx.resolveExternal
+
   Break = object()
   Continue = object()
   def makeItems():
@@ -409,7 +402,13 @@ _Funcs = {
   'foreach': forEachFunc,
 }
 
-def eval(val, ctx):
+def getEvalFuncs(name):
+  return _Funcs.get(name)
+
+def setEvalFuncs(name, val):
+  _Funcs[name] = val
+
+def eval(val, ctx, top=False):
   if isinstance(val, dict):
     for key in val:
       func = _Funcs.get(key)
@@ -418,13 +417,20 @@ def eval(val, ctx):
     else:
       return _mapValue(val, ctx)
 
+    if not top:
+      # functions assume this
+      ctx = ctx.copy()
+      ctx.resolveExternal = True
     args = val[key]
     ctx.kw = val
     ctx.currentFunc = key
     wantList = ctx.wantList
     # functions assume resolveOne semantics
     ctx.wantList = False
+
     results = func(args, ctx)
+    if ctx.resolveExternal:
+      results = ExternalValue.resolveAll(results)
     if wantList:
       if results is None:
         return []
@@ -433,7 +439,7 @@ def eval(val, ctx):
     return results
   elif isinstance(val, six.string_types):
     expr = Expr(val, ctx.vars)
-    results = expr.resolve(ctx.currentResource)
+    results = expr.resolve(ctx)
     if not ctx.wantList:
       if not results:
         return None
@@ -463,7 +469,7 @@ def evalTest(value, test, context):
       return True
   return False
 
-def lookup(value, key, context):
+def lookup(value, key, context, external):
   try:
     # if key == '.':
     #   key = context.currentKey
@@ -471,16 +477,23 @@ def lookup(value, key, context):
     if context and isinstance(key, six.string_types) and key.startswith('$'):
       key = context.vars[key[1:]]
 
-    getter = getattr(value, '__reflookup__', None)
-    if getter:
-      context.lastResource = value
-      value = getter(key)
+    if external:
+      value = external.resolve(key)
     else:
-      value = value[key]
+      getter = getattr(value, '__reflookup__', None)
+      if getter:
+        # XXX if value is resource
+        context.lastResource = value
+        value = getter(key)
+      else:
+        value = value[key]
 
-    if context.final:
-      # this will end in the final result so map the whole object
-      return [_mapValue(value, context.copy(context.lastResource))]
+    if not context._rest:
+      # this will be in the final result so map the whole object
+      final = _mapValue(value, context.copy(context.lastResource))
+      if external:
+        external._setResolved(key, final)
+      return [final]
     elif Ref.isRef(value):
       return Ref(value).resolve(context.copy(context.lastResource))
     else:
@@ -492,8 +505,12 @@ def evalItem(v, seg, context):
   """
     apply current item to current segment, return [] or [value]
   """
+  external = isinstance(v, ExternalValue) and v
+  if external:
+    v = v.get()
+
   if seg.key:
-    v = lookup(v, seg.key, context)
+    v = lookup(v, seg.key, context, external)
     if not v:
       return
     v = v[0]
@@ -508,7 +525,8 @@ def evalItem(v, seg, context):
 
   if seg.test and not evalTest(v, seg.test, context):
     return
-  yield v
+  # use external if this is that last segment
+  yield external if external and not context._rest else v
 
 def _treatAsSingular(item, seg):
   if seg.key == '*':
@@ -526,7 +544,7 @@ def recursiveEval(v, exp, context):
   for item in v:
     if _treatAsSingular(item, exp[0]):
       rest = exp[1:]
-      context.final = not rest
+      context._rest = rest
       iv = evalItem(item, exp[0], context)
     else:
       if useValue:
@@ -626,3 +644,40 @@ def parseStep(exp, start=None):
   #add filterExps to last Segment
   paths[-1] = paths[-1]._replace(filters = filterExps)
   return paths, rest
+
+def runLookup(name, templar, *args, **kw):
+  from ansible.plugins.loader import lookup_loader
+  # "{{ lookup('url', 'https://toshio.fedorapeople.org/one.txt', validate_certs=True) }}"
+  #       would end up calling the lookup plugin named url's run method like this::
+  #           run(['https://toshio.fedorapeople.org/one.txt'], variables=available_variables, validate_certs=True)
+  instance = lookup_loader.get(name, loader = templar._loader, templar = templar)
+  # ansible_search_path = []
+  result = instance.run(args, variables=templar._available_variables, **kw)
+  # XXX check for wantList
+  if not result:
+    return None
+  if len(result) == 1:
+    return result[0]
+  else:
+    return result
+
+def lookupFunc(arg, ctx):
+  """
+  lookup:
+    - file: 'foo' or []
+    - blah:
+  """
+  if isinstance(arg, dict):
+    assert len(arg) == 1
+    name, args = list(arg.items())[0]
+    kw = {}
+  else:
+    assertForm(arg, list)
+    name, args = list(assertForm(arg[0]).items())[0]
+    kw = dict(list(assertForm(kw).items())[0] for kw in arg[1:])
+
+  if not isinstance(args, list):
+    args = [args]
+  return runLookup(name, ctx.currentResource.templar, *args, **kw)
+
+_Funcs['lookup'] = lookupFunc

@@ -522,7 +522,11 @@ class ChainMap(collections.Mapping):
           pass
     raise KeyError(key)
 
+  def __setitem__(self, key, value):
+    self._maps[0][key] = value
+
   def __iter__(self):
+    # XXX can return duplicate keys
     return itertools.chain(*self._maps)
 
   def __len__(self):

@@ -1,4 +1,5 @@
 import unittest
+import os
 from giterop.eval import Ref, mapValue, serializeValue, runTemplate, RefContext
 from giterop.runtime import Resource
 from ruamel.yaml.comments import CommentedMap
@@ -100,11 +101,11 @@ class EvalTest(unittest.TestCase):
        ['e::*::b2', ['v2']],
        ["*", []],
        ["f", [{'a': 1, 'b': 1}]],
-       [{"q": "{{ foo }}"}, ["{{ foo }}"]]
+       # [{"q": "{{ foo }}"}, ["{{ foo }}"]]
        #XXX test nested ['.[k[d=3]=4]']
     ]:
       ref = Ref(exp)
-      # print ('eval', ref, ref.source)
+      #print ('eval', ref, ref.source)
       if isinstance(expected, set):
         # for results where order isn't guaranteed in python2.7
         self.assertEqual(set(ref.resolve(RefContext(resource))), expected, ref.source)
@@ -178,13 +179,16 @@ class EvalTest(unittest.TestCase):
   def test_template(self):
     self.assertEqual(runTemplate(" {{ foo }} ", {"foo": "hello"}), " hello ")
     from giterop.runtime import Resource
-    vars = dict(__giterop = RefContext(Resource("test", attributes=dict(a1="hello"))))
+    resource = Resource("test", attributes=dict(a1="hello"))
+    vars = dict(__giterop = RefContext(resource))
     self.assertEqual(runTemplate(' {{ "::test::a1" | ref }} ', vars), u" hello ")
     self.assertEqual(runTemplate(' {{ lookup("giterup", "::test::a1") }} ', vars), u" hello ")
     self.assertEqual(runTemplate('{{  query("giterup", "::test::a1") }}', vars), [u'hello'])
 
+    os.environ['TEST_ENV'] = 'testEnv' # note: tox doesn't pass on environment variables so we need to set one now
+    self.assertEqual(mapValue("{{ lookup('env', 'TEST_ENV') }}", resource), 'testEnv')
+
     #test that ref vars as can be used as template string vars
-    resource = self._getTestResource()
     exp = {'a': "{{ aVar }} world"}
     vars = {'aVar': 'hello'}
     self.assertEqual(mapValue(exp, RefContext(resource, vars)), {'a': 'hello world'})
@@ -203,3 +207,11 @@ class EvalTest(unittest.TestCase):
     }
     result = Ref(query).resolveOne(RefContext(resource))
     self.assertEqual(result, {'aRef': resource, 'aTemplate': True})
+
+  def test_lookup(self):
+    resource = self._getTestResource()
+    os.environ['TEST_ENV'] = 'testEnv' # note: tox doesn't pass on environment variables so we need to set one now
+    query = {
+      "eval": {"lookup": {"env": 'TEST_ENV'}}
+    }
+    self.assertEqual(mapValue(query, resource), 'testEnv')

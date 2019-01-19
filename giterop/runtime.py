@@ -34,6 +34,7 @@ from itertools import chain
 from enum import IntEnum
 
 from ansible.template import Templar
+from ansible.parsing.dataloader import DataLoader
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap
 yaml = YAML()
@@ -41,7 +42,9 @@ yaml = YAML()
 from .util import (GitErOpError, GitErOpTaskError, GitErOpAddingResourceError,
   lookupClass, AutoRegisterClass, loadClass, ChainMap, toEnum,
   diffDicts, validateSchema, mergeDicts, intersectDict)
-from .eval import Ref, mapValue, serializeValue, RefContext
+from .eval import Ref, mapValue, serializeValue, RefContext, ExternalValue
+#from .local import LocalEnv
+
 import logging
 logger = logging.getLogger('giterop')
 
@@ -324,7 +327,7 @@ class Resource(OperationalInstance, ResourceRef):
     self.createdFrom = None
     if self.root is self:
       self._all = _ChildResources(self)
-      self._templar = Templar(None)
+      self._templar = Templar(DataLoader())
 
   def localStatus():
     doc = "The localStatus property."
@@ -366,7 +369,7 @@ class Resource(OperationalInstance, ResourceRef):
   def _map(self):
     return self._attributes
 
-  def asRef(self):
+  def asRef(self, options=None):
     return {"ref": "::%s"% self.name}
 
   @property
@@ -726,18 +729,20 @@ class Dependency(object):
 
   def hasChanged(self, config):
     changeId = config.lastAttempt and config.lastAttempt.changeId
-    context = RefContext(config, dict(val=self.expected, changeId=changeId))
+    context = RefContext(config, dict(val=self.expected, changeId=changeId), resolveExternal=False)
     result = Ref(self.expr).resolve(context, wantList=self.wantList)
 
     if self.schema:
-      return not validateSchema(result, self.schema)
+      # result isn't as expected, something changed
+      if not validateSchema(result, self.schema):
+        return False
     else:
       if self.expected is not None:
-        expected = mapValue(self.expected, config)
+        expected = mapValue(self.expected, RefContext(config, resolveExternal=False))
         if result != expected:
           return True
       elif not result:
-        # if expression evaluated to false then treat dependency as changed
+        # if expression no longer true (e.g. a resource wasn't found), then treat dependency as changed
         return True
 
     if self.hasValueChanged(result, config.lastAttempt):
@@ -785,7 +790,7 @@ class Configuration(OperationalInstance, ResourceRef):
   def parameters(self):
     # self._parameters is serialized but parameters is live
     if self._parameters is None:
-      self.refreshParameters()
+      self.resetParameters()
     # XXX2 cache this
     return mapValue(self._parameters, self)
 
@@ -799,7 +804,8 @@ class Configuration(OperationalInstance, ResourceRef):
     """
     specParams = self.configurationSpec.parameters
     if self._parameters is None:
-      #return True if parameters have been declared
+      # if _parameters were not set
+      # return True if parameters have been declared
       return not not specParams
 
     if set(specParams) != set(self._parameters):
@@ -810,11 +816,13 @@ class Configuration(OperationalInstance, ResourceRef):
 
     # treat each parameter as a dependency
     # the expression is the name of parameter
+    # val will be the last saved parameter values, re-evaluate the spec'd params and compare them
+    # note: external values will be compared
     return any(Dependency(".::" + name, val, name=name).hasChanged(self)
                                   for name, val in self._parameters.items())
 
-  def refreshParameters(self):
-    # re-evaluate parameters from the spec
+  def resetParameters(self):
+    # reset parameters from the spec
     self._parameters = self.configurationSpec.parameters
     return self._parameters
 
@@ -838,7 +846,7 @@ class Configuration(OperationalInstance, ResourceRef):
   def findMissingProvided(self):
     return self.configurationSpec.findMissingProvided(self.resource)
 
-  def asRef(self):
+  def asRef(self, options=None):
     return {"ref": "::%s::.configurations::%s" % (self.configurationSpec.target, self.name)}
 
   def __eq__(self, other):
@@ -1015,8 +1023,8 @@ class TaskView(ChangeRecord):
   # configuration has cumulative set of changes made it to resources
   # updates update those changes
   # other configurations maybe modify those changes, triggering a configuration change
-  def query(self, query, dependency=False, name=None, required=False, wantList=False):
-    result = Ref(query).resolve(RefContext(self.currentConfig), wantList)
+  def query(self, query, dependency=False, name=None, required=False, wantList=False, resolveExternal=True):
+    result = Ref(query).resolve(RefContext(self.currentConfig, resolveExternal=resolveExternal), wantList)
     if dependency:
       self.addDependency(query, result, name=name, required=required, wantList=wantList)
     return result
@@ -1063,10 +1071,11 @@ class AttributeManager(object):
 
   def getAttributes(self, resource):
     if resource.name not in self.attributes:
-      specd = mapValue(resource.spec.get('attributes', {}), resource)
-      attributes = mapValue(resource._attributes, resource)
+      specd = mapValue(resource.spec.get('attributes', {}), RefContext(resource, resolveExternal=False))
+      attributes = mapValue(resource._attributes, RefContext(resource, resolveExternal=False))
       specd.update(attributes)
-      self.attributes[resource.name] = (resource, specd, serializeValue(specd))
+      specd = ExternalValue.resolveAll(specd)
+      self.attributes[resource.name] = (resource, specd, serializeValue(specd, resolveExternal=True), serializeValue(specd))
       return specd # converted to live refs
     else:
       return self.attributes[resource.name][1]
@@ -1078,17 +1087,21 @@ class AttributeManager(object):
 
   def commitChanges(self):
     changes = {}
-    for resource, attributes, original in self.attributes.values():
+    # current and original don't have external values
+    for resource, current, original, serializedWithExternalValues  in self.attributes.values():
       # 1. convert to back json (refs)
-      serialized = serializeValue(attributes)
+      serializedCurrent = serializeValue(current)
       # 2. diff with resource._attributes
-      diff = diffDicts(original, serialized)
+      # neither will have ExternalValues
+      diff = diffDicts(original, serializedCurrent)
       if not diff:
         continue
       # 3. save diff
       changes[resource.name] = diff
       # 4. update resource
-      resource._attributes = serialized
+      # apply the changes to attributesWithExternalValues
+      updatedSerializedWithExternalValues = mergeDicts(diff, serializedWithExternalValues)
+      resource._attributes = updatedSerializedWithExternalValues
     self.attributes = {}
     # self.statuses = {}
     return changes
@@ -1149,7 +1162,7 @@ class Task(TaskView, AttributeManager):
     config = self.pendingConfig
     self.currentConfig = config
     config.resource.setConfiguration(config)
-    config.refreshParameters()
+    config.resetParameters()
     config.refreshDependencies()
 
   def startRun(self):
@@ -1764,7 +1777,11 @@ class Manifest(AttributeManager):
     return resource
 
 class Runner(object):
-  def __init__(self, manifest):
+  def __init__(self, manifest, localEnv=None):
+    # if not localEnv:
+    #   localEnv = LocalEnv()
+    if localEnv:
+      localEnv.addManifest(manifest)
     self.manifest = manifest
     self.lastChangeId = manifest.lastChangeId
     self.currentJob = None
