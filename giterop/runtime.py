@@ -253,7 +253,7 @@ class _ChildResources(collections.Mapping):
     return len(tuple(self))
 
 class ResourceRef(object):
-  # ABC requires 'parent', 'root', and '_map'
+  # ABC requires 'parent', and '_resolve'
 
   def _getProp(self, name):
     if name == '.':
@@ -270,7 +270,7 @@ class ResourceRef(object):
     if key[0] == '.':
       return self._getProp(key)
 
-    return self._map[key]
+    return self._resolve(key)
 
   def yieldParents(self):
     "yield self and ancestors starting from self"
@@ -365,9 +365,8 @@ class Resource(OperationalInstance, ResourceRef):
     # attribute class getter resolves references
     return self.root.attributeManager.getSerializedAttributes(self)
 
-  @property
-  def _map(self):
-    return self._attributes
+  def _resolve(self, key):
+    return self._attributes[key]
 
   def asRef(self, options=None):
     return {"ref": "::%s"% self.name}
@@ -794,9 +793,8 @@ class Configuration(OperationalInstance, ResourceRef):
     # XXX2 cache this
     return mapValue(self._parameters, self)
 
-  @property
-  def _map(self):
-    return self._parameters
+  def _resolve(self, key):
+    return self._parameters[key]
 
   def hasParametersChanged(self):
     """
@@ -1088,7 +1086,7 @@ class AttributeManager(object):
   def commitChanges(self):
     changes = {}
     # current and original don't have external values
-    for resource, current, original, serializedWithExternalValues  in self.attributes.values():
+    for resource, current, original, serializedWithExternalValues in self.attributes.values():
       # 1. convert to back json (refs)
       serializedCurrent = serializeValue(current)
       # 2. diff with resource._attributes
@@ -1665,7 +1663,7 @@ class Manifest(AttributeManager):
     instance._lastConfigChange = status.get('lastConfigChange')
 
     readyState = status.get('readyState')
-    if not isinstance(readyState, dict):
+    if not isinstance(readyState, collections.Mapping):
       instance._localStatus = toEnum(Status, readyState)
     else:
       instance._localStatus = toEnum(Status, readyState.get('local'))

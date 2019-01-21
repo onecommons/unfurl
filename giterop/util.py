@@ -3,7 +3,7 @@ import optparse
 import six
 import traceback
 import itertools
-import collections
+from collections import Mapping, MutableSequence
 import os.path
 from jsonschema import Draft4Validator, validators, RefResolver
 from ruamel.yaml.comments import CommentedMap
@@ -59,12 +59,12 @@ class GitErOpTaskError(GitErOpError):
 
 class GitErOpAddingResourceError(GitErOpTaskError):
   def __init__(self, task, resourceSpec):
-    resourcename = isinstance(resourceSpec, dict) and resourceSpec.get('name', '')
+    resourcename = isinstance(resourceSpec, Mapping) and resourceSpec.get('name', '')
     message = "error creating resource %s" % resourcename
     super(GitErOpTaskError, self).__init__(task, message)
     self.resourceSpec = resourceSpec
 
-def assertForm(src, types=dict):
+def assertForm(src, types=Mapping):
   if not isinstance(src, types):
     raise GitErOpError('Malformed definition: %s' % src)
   return src
@@ -130,11 +130,11 @@ def mergeDicts(b, a, cls=dict):
   for key, val in a.items():
     if key == mergeStrategyKey:
       continue
-    if isinstance(val, (dict, cls)):
+    if isinstance(val, Mapping):
       strategy = val.get(mergeStrategyKey)
       if key in b:
         bval = b[key]
-        if isinstance(bval, (dict, cls)):
+        if isinstance(bval, Mapping):
           if not strategy:
             strategy = bval.get(mergeStrategyKey, 'merge')
           if strategy == 'merge':
@@ -155,7 +155,7 @@ def mergeDicts(b, a, cls=dict):
     #     elif mergelists == 'all' or key in mergelists:
     #       newlist = []
     #       for ai, bi in zip(val, bval):
-    #         if isinstance(ai, (dict, cls)) and isinstance(bi, (dict, cls)):
+    #         if isinstance(ai, Mapping) and isinstance(bi, Mapping):
     #           newlist.append(mergeDicts(bi, ai, cls))
     #         elif a1 != deletemarker:
     #           newlist.append(a1)
@@ -184,7 +184,7 @@ def getTemplate(doc, key, value, path, cls):
         templatePath = templatePath[:-1]
       template = lookupPath(doc, templatePath, cls)
     # XXX this check should allow array look up:
-    if not isinstance(template, (cls, dict)) or segment not in template:
+    if not isinstance(template, Mapping) or segment not in template:
       raise GitErOpError('can not find "%s" in document' % key)
     if templatePath is not None:
       templatePath.append(segment)
@@ -192,7 +192,7 @@ def getTemplate(doc, key, value, path, cls):
   if templatePath is None:
     templatePath = key.split('/')
 
-  if value != 'raw' and isinstance(template, (cls, dict)): # raw means no further processing
+  if value != 'raw' and isinstance(template, Mapping): # raw means no further processing
     # if the include path starts with the path to the template
     # throw recursion error
     prefix = list(itertools.takewhile(lambda x: x[0] == x[1], zip(path, templatePath)))
@@ -208,7 +208,7 @@ def hasTemplate(doc, key, path, cls):
     if segment == '..':
       path = path[:-1]
       template = lookupPath(doc, path, cls)
-    if not isinstance(template, (cls, dict)):
+    if not isinstance(template, Mapping):
       raise GitErOpError('included templates changed')
     if segment not in template:
       return False
@@ -235,7 +235,7 @@ def expandDict(doc, path, includes, current, cls=dict):
   cp = cls()
   # first merge any includes includes into cp
   templates = []
-  assert isinstance(current, (dict, cls)), current
+  assert isinstance(current, Mapping), current
   for (key, value) in current.items():
     if key.startswith('+'):
       if key == mergeStrategyKey:
@@ -249,7 +249,7 @@ def expandDict(doc, path, includes, current, cls=dict):
         continue
       includes.setdefault(path, []).append( (key, value) )
       template = getTemplate(doc, key[1:], value, path, cls)
-      if isinstance(template, (cls, dict)):
+      if isinstance(template, Mapping):
         templates.append( template )
       else:
         if len(current) > 1:
@@ -258,7 +258,7 @@ def expandDict(doc, path, includes, current, cls=dict):
           return template # current dict is replaced with a value
     elif key.startswith('q+'):
       cp[key[2:]] = value
-    elif isinstance(value, (dict, cls)):
+    elif isinstance(value, Mapping):
       cp[key] = expandDict(doc, path + (key,), includes, value, cls)
     elif isinstance(value, list):
       cp[key] = list(expandList(doc, path + (key,), includes, value, cls))
@@ -286,7 +286,7 @@ def expandDoc(doc, current=None, cls=dict):
   includes = CommentedMap()
   if current is None:
     current = doc
-  if not isinstance(doc, (dict, cls)) or not isinstance(current, (dict, cls)):
+  if not isinstance(doc, Mapping) or not isinstance(current, Mapping):
     raise GitErOpError('malformed YAML or JSON document')
   expanded = expandDict(doc, (), includes, current, cls)
   last = 0
@@ -306,7 +306,7 @@ def expandList(doc, path, includes, value, cls=dict):
       if item.startswith('+'):
         includes.setdefault(path+(i,), []).append( (item, None) )
         template = getTemplate(doc, item[1:], None, path, cls)
-        if isinstance(template, list):
+        if isinstance(template, MutableSequence):
           for i in template:
             yield i
         else:
@@ -315,9 +315,9 @@ def expandList(doc, path, includes, value, cls=dict):
         yield item[1:]
       else:
         yield item
-    elif isinstance(item, (dict, cls)):
+    elif isinstance(item, Mapping):
       newitem = expandDict(doc, path+(i,), includes, item, cls)
-      if isinstance(newitem, list):
+      if isinstance(newitem, MutableSequence):
         for i in newitem:
           yield i
       else:
@@ -335,7 +335,7 @@ def diffDicts(old, new, cls=dict):
     if key in new:
       newval = new[key]
       if val != newval:
-        if isinstance(val, (dict, cls)) and isinstance(newval, (dict, cls)):
+        if isinstance(val, Mapping) and isinstance(newval, Mapping):
           diff[key] = diffDicts(val, newval, cls)
         else:
           diff[key] = newval
@@ -356,9 +356,9 @@ def patchDict(old, new, cls=dict):
     if key in new:
       newval = new[key]
       if val != newval:
-        if isinstance(val, (dict, cls)) and isinstance(newval, (dict, cls)):
+        if isinstance(val, Mapping) and isinstance(newval, Mapping):
           old[key] = patchDict(val, newval, cls)
-        elif isinstance(val, list) and isinstance(newval, list):
+        elif isinstance(val, MutableSequence) and isinstance(newval, MutableSequence):
           # preserve old item in list if they are equal to the new item
           old[key] = [(val[val.index(item)] if item in val else item)
                                                     for item in newval]
@@ -382,7 +382,7 @@ def intersectDict(old, new, cls=dict):
     if key in new:
       newval = new[key]
       if val != newval:
-        if isinstance(val, (dict, cls)) and isinstance(newval, (dict, cls)):
+        if isinstance(val, Mapping) and isinstance(newval, Mapping):
           old[key] = intersectDict(val, newval, cls)
         else:
           del old[key]
@@ -394,7 +394,7 @@ def intersectDict(old, new, cls=dict):
 def lookupPath(doc, path, cls=dict):
   template = doc
   for segment in path:
-    if not isinstance(template, (cls, dict)) or segment not in template:
+    if not isinstance(template, Mapping) or segment not in template:
       return None
     template = template[segment]
   return template
@@ -440,7 +440,7 @@ def restoreIncludes(includes, originalDoc, changedDoc, cls=dict):
         else:
           template = getTemplate(expandedOriginalDoc, includeKey[1:], includeValue, key, cls)
 
-      if not isinstance(ref, (dict, cls)):
+      if not isinstance(ref, Mapping):
         #XXX3 if isinstance(ref, list) lists not yet implemented
         if ref == template:
           #ref still resolves to the template's value so replace it with the include
@@ -448,7 +448,7 @@ def restoreIncludes(includes, originalDoc, changedDoc, cls=dict):
         # ref isn't a map anymore so can't include a template
         break
 
-      if not isinstance(template, (dict, cls)):
+      if not isinstance(template, Mapping):
         # ref no longer includes that template
         continue
       else:
@@ -463,7 +463,7 @@ def restoreIncludes(includes, originalDoc, changedDoc, cls=dict):
             template = getTemplate(expandedOriginalDoc, includeKey[1:], 'raw', key, cls)
         addTemplate(changedDoc, includeKey[1:], template)
 
-    if isinstance(ref, (dict, cls)):
+    if isinstance(ref, Mapping):
       diff = diffDicts(mergedIncludes, ref, cls)
       replacePath(changedDoc, key, diff, cls)
 
@@ -507,7 +507,7 @@ def validateSchema(obj, schema):
 
 #RefResolver.from_schema(schema)
 
-class ChainMap(collections.Mapping):
+class ChainMap(Mapping):
   """
   Combine multiple mappings for sequential lookup.
   """

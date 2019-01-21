@@ -83,14 +83,14 @@ def _mapValue(value, ctx):
   return value
 
 def serializeValue(value, **kw):
-  if isinstance(value, dict):
+  getter = getattr(value, 'asRef', None)
+  if getter:
+    return getter(kw)
+  if isinstance(value, collections.Mapping):
     return dict((key, serializeValue(v, **kw)) for key, v in value.items())
   elif isinstance(value, (list, tuple)):
     return [serializeValue(item, **kw) for item in value]
   else:
-    getter = getattr(value, 'asRef', None)
-    if getter:
-      return getter(kw)
     return value
 
 class RefContext(object):
@@ -99,7 +99,8 @@ class RefContext(object):
     # the original context:
     self.currentResource = currentResource
     # the last resource encountered while evaluating:
-    self.lastResource = currentResource
+    self._lastResource = currentResource
+    self.lastKeys = []
     # current segment is the final segment:
     self._rest = None
     self.wantList = wantList
@@ -251,7 +252,7 @@ class Ref(object):
     }
 
     self.foreach = None
-    if isinstance(exp, dict):
+    if isinstance(exp, collections.Mapping):
       if 'q' in exp:
         self.source = exp
         return
@@ -291,7 +292,7 @@ class Ref(object):
 
   @staticmethod
   def isRef(value):
-    if isinstance(value, dict):
+    if isinstance(value, collections.Mapping):
       if 'ref' in value or 'eval' in value:
         return len([x for x in ['vars', 'foreach'] if x in value]) + 1 == len(value)
       if 'q' in value:
@@ -409,7 +410,7 @@ def setEvalFuncs(name, val):
   _Funcs[name] = val
 
 def eval(val, ctx, top=False):
-  if isinstance(val, dict):
+  if isinstance(val, collections.Mapping):
     for key in val:
       func = _Funcs.get(key)
       if func:
@@ -479,23 +480,25 @@ def lookup(value, key, context, external):
 
     if external:
       value = external.resolve(key)
+      context.lastKeys = []
     else:
       getter = getattr(value, '__reflookup__', None)
       if getter:
-        # XXX if value is resource
-        context.lastResource = value
+        # XXX check if value really is a resource
+        context._lastResource = value
         value = getter(key)
       else:
         value = value[key]
+    context.lastKeys.append(key)
 
     if not context._rest:
       # this will be in the final result so map the whole object
-      final = _mapValue(value, context.copy(context.lastResource))
+      final = _mapValue(value, context.copy(context._lastResource))
       if external:
         external._setResolved(key, final)
       return [final]
     elif Ref.isRef(value):
-      return Ref(value).resolve(context.copy(context.lastResource))
+      return Ref(value).resolve(context.copy(context._lastResource))
     else:
       return [value]
   except (KeyError, IndexError, TypeError, ValueError):
@@ -667,7 +670,7 @@ def lookupFunc(arg, ctx):
     - file: 'foo' or []
     - blah:
   """
-  if isinstance(arg, dict):
+  if isinstance(arg, collections.Mapping):
     assert len(arg) == 1
     name, args = list(arg.items())[0]
     kw = {}
