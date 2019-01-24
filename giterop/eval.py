@@ -2,6 +2,7 @@ import six
 import re
 import operator
 import collections
+from collections import Mapping, MutableSequence
 from ruamel.yaml.comments import CommentedMap
 from .util import validateSchema, assertForm #, GitErOpError
 
@@ -38,7 +39,7 @@ class ExternalValue(object):
 
   @staticmethod
   def resolveAll(value):
-    if isinstance(value, collections.Mapping):
+    if isinstance(value, Mapping):
       return dict((key, ExternalValue.resolveAll(v)) for key, v in value.items())
     elif isinstance(value, (list, tuple)):
       return [ExternalValue.resolveAll(item) for item in value]
@@ -65,7 +66,7 @@ def _mapValue(value, ctx):
   if Ref.isRef(value):
     value = Ref(value).resolveOne(ctx)
 
-  if isinstance(value, collections.Mapping):
+  if isinstance(value, Mapping):
     return dict((key, _mapValue(v, ctx)) for key, v in value.items())
   elif isinstance(value, (list, tuple)):
     return [_mapValue(item, ctx) for item in value]
@@ -86,7 +87,7 @@ def serializeValue(value, **kw):
   getter = getattr(value, 'asRef', None)
   if getter:
     return getter(kw)
-  if isinstance(value, collections.Mapping):
+  if isinstance(value, Mapping):
     return dict((key, serializeValue(v, **kw)) for key, v in value.items())
   elif isinstance(value, (list, tuple)):
     return [serializeValue(item, **kw) for item in value]
@@ -252,7 +253,7 @@ class Ref(object):
     }
 
     self.foreach = None
-    if isinstance(exp, collections.Mapping):
+    if isinstance(exp, Mapping):
       if 'q' in exp:
         self.source = exp
         return
@@ -292,7 +293,7 @@ class Ref(object):
 
   @staticmethod
   def isRef(value):
-    if isinstance(value, collections.Mapping):
+    if isinstance(value, Mapping):
       if 'ref' in value or 'eval' in value:
         return len([x for x in ['vars', 'foreach'] if x in value]) + 1 == len(value)
       if 'q' in value:
@@ -383,9 +384,9 @@ def _forEach(results, ctx):
 def forEachFunc(arg, ctx):
   results = ctx.currentResource
   if results:
-    if isinstance(results, collections.Mapping):
+    if isinstance(results, Mapping):
       return _forEach(results.items(), ctx)
-    elif isinstance(results, collections.Sequence):
+    elif isinstance(results, MutableSequence):
       return _forEach(enumerate(results), ctx)
     else:
       return _forEach([(0, results)], ctx)
@@ -410,7 +411,7 @@ def setEvalFuncs(name, val):
   _Funcs[name] = val
 
 def eval(val, ctx, top=False):
-  if isinstance(val, collections.Mapping):
+  if isinstance(val, Mapping):
     for key in val:
       func = _Funcs.get(key)
       if func:
@@ -508,11 +509,11 @@ def evalItem(v, seg, context):
   """
     apply current item to current segment, return [] or [value]
   """
-  external = isinstance(v, ExternalValue) and v
+  external = isinstance(v, ExternalValue)
   if external:
     v = v.get()
 
-  if seg.key:
+  if seg.key != '':
     v = lookup(v, seg.key, context, external)
     if not v:
       return
@@ -545,13 +546,14 @@ def recursiveEval(v, exp, context):
   useValue = exp[0].key == '*'
 
   for item in v:
+    assert item.__class__.__name__ != 'Resolved', v
     if _treatAsSingular(item, exp[0]):
       rest = exp[1:]
       context._rest = rest
       iv = evalItem(item, exp[0], context)
     else:
       if useValue:
-        if not isinstance(item, collections.Mapping):
+        if not isinstance(item, Mapping):
           continue
         iv = item.values()
         rest = exp[1:] # advance past "*" segment
@@ -670,7 +672,7 @@ def lookupFunc(arg, ctx):
     - file: 'foo' or []
     - blah:
   """
-  if isinstance(arg, collections.Mapping):
+  if isinstance(arg, Mapping):
     assert len(arg) == 1
     name, args = list(arg.items())[0]
     kw = {}
