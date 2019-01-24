@@ -54,7 +54,7 @@ root: #root resource is always named 'root'
       lastChange: changeId
     priority
     lastConfigChange: changeId
-    attributes: #merged from config changes and spec/attributes
+    attributes: # modifications to spec/attributes
     configurations:
       name:
         readyState:

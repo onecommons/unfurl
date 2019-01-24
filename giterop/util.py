@@ -123,7 +123,9 @@ mergeStrategyKey = '+%'
 def mergeDicts(b, a, cls=dict):
   """
   Returns a new dict (or cls) that recursively merges b into a.
-  b is base, a overrides
+  b is base, a overrides.
+
+  A superset of JSON merge patch (https://tools.ietf.org/html/rfc7386)
   """
   cp = cls()
   skip = []
@@ -347,9 +349,10 @@ def diffDicts(old, new, cls=dict):
       diff[key] = new[key]
   return diff
 
+# XXX rename function, confusing name
 def patchDict(old, new, cls=dict):
   """
-  transform old into new
+  Transform old into new while preserving old as much as possible.
   """
   # start with old to preserve original order
   for key, val in list(old.items()):
@@ -516,18 +519,20 @@ class ChainMap(Mapping):
 
   def __getitem__(self, key):
     for mapping in self._maps:
-        try:
-          return mapping[key]
-        except KeyError:
-          pass
+      try:
+        return mapping[key]
+      except KeyError:
+        pass
     raise KeyError(key)
 
   def __setitem__(self, key, value):
     self._maps[0][key] = value
 
   def __iter__(self):
-    # XXX can return duplicate keys
-    return itertools.chain(*self._maps)
+    return iter(frozenset(itertools.chain(*self._maps)))
 
   def __len__(self):
-    return len(frozenset(self))
+    return len(self.keys())
+
+  def __repr__(self):
+    return "ChainMap(%r)" % (self._maps,)

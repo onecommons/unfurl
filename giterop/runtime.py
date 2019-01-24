@@ -41,9 +41,10 @@ yaml = YAML()
 
 from .util import (GitErOpError, GitErOpTaskError, GitErOpAddingResourceError,
   lookupClass, AutoRegisterClass, loadClass, ChainMap, toEnum,
-  diffDicts, validateSchema, mergeDicts, intersectDict)
-from .eval import Ref, mapValue, serializeValue, RefContext, ExternalValue
+  validateSchema, mergeDicts)
+from .eval import Ref, mapValue, serializeValue, RefContext
 #from .local import LocalEnv
+from .support import AttributeManager, ResourceChanges, Status
 
 import logging
 logger = logging.getLogger('giterop')
@@ -55,10 +56,7 @@ logger = logging.getLogger('giterop')
 # and participate in resource graph
 # XXX3 add upgrade required field?
 
-# XXX3 doc: notpresent is a positive assertion of non-existence while notapplied just indicates non-liveness
-# notapplied is therefore the default initial state
-S = Status = IntEnum("Status", "ok degraded error pending notapplied notpresent", module=__name__)
-
+S = Status
 # ignore may must
 Priority = IntEnum("Priority", "ignore optional required", module=__name__)
 
@@ -348,22 +346,15 @@ class Resource(OperationalInstance, ResourceRef):
     attributes should be live values but _attributes will be serialized value
     """
     if not self.root.attributeManager:
-      # XXX3 changes to self.attributes aren't saved!
-      return mapValue(self._attributes, self)
+      if not self.attributeManager:
+        # inefficient but create a local one for now
+        self.attributeManager = AttributeManager()
+      # XXX3 changes to self.attributes aren't saved
+      return self.attributeManager.getAttributes(self)
+
     # returned registered attribute or create a new one
     # attribute class getter resolves references
     return self.root.attributeManager.getAttributes(self)
-
-  @property
-  def serializedAttributes(self):
-    """
-    attributes should be live values but _attributes will be serialized value
-    """
-    if not self.root.attributeManager:
-      return self._attributes
-    # returned registered attribute or create a new one
-    # attribute class getter resolves references
-    return self.root.attributeManager.getSerializedAttributes(self)
 
   def _resolve(self, key):
     return self._attributes[key]
@@ -609,74 +600,6 @@ class ConfigurationSpec(object):
       and self.intent == other.intent and self.parameters == other.parameters and self.parameterSchema and self.parameterSchema
       and self.requires == other.requires and self.provides == other.provides)
 
-class ResourceChanges(collections.OrderedDict):
-  """
-  Records changes made by configurations.
-  Serialized as the "modifications" properties
-
-  modifications:
-    resource1:
-      attribute1: newvalue
-      attribute2: %delete # if deleted
-      .added: # set if resource was added
-      .status: # set when status changes, including when removed (Status.notpresent)
-  """
-  statusIndex = 0
-  addedIndex = 1
-  attributesIndex = 2
-
-  def __init__(self, changes=None):
-    super(ResourceChanges, self).__init__()
-    if not changes:
-      return
-    for k, change in changes.items():
-      status = change.pop('.status', None)
-      self[k] = [
-        None if status is None else Manifest.createStatus(status).localStatus,
-        change.pop('.added', None),
-        change
-      ]
-
-  def sync(self, resource):
-    """ Update self to only include changes that are still live"""
-    root = resource.root
-    for k, v in list(self.items()):
-      current = root.findResource(k)
-      if current:
-        attributes = v[self.attributesIndex]
-        if attributes:
-          v[self.attributesIndex] = intersectDict(attributes, current.serializedAttributes)
-        if v[self.statusIndex] != current._localStatus:
-          v[self.statusIndex] = None
-      else:
-        del self[k]
-
-  def addChanges(self, changes):
-    for name, change in changes.items():
-      old = self.get(name)
-      if old:
-        old[self.attributesIndex] = mergeDicts(old[self.attributesIndex], change)
-      else:
-        self[name] = [None, None, change]
-
-  def addStatuses(self, changes):
-    for name, change in changes.items():
-      assert not isinstance(change[1], six.string_types)
-      old = self.get(name)
-      if old:
-        old[self.statusIndex] = change[1]
-      else:
-        self[name] = [change[1], None, {}]
-
-  def addResources(self, resources):
-    for resource in resources:
-      self[resource['name']] = [None, resource, None]
-
-  def updateChanges(self, changes, statuses, resource):
-    self.addChanges(changes)
-    self.addStatuses(statuses)
-    if resource:
-      self.sync(resource)
 
 class Dependency(object):
   """
@@ -847,17 +770,6 @@ class Configuration(OperationalInstance, ResourceRef):
   def asRef(self, options=None):
     return {"ref": "::%s::.configurations::%s" % (self.configurationSpec.target, self.name)}
 
-  def __eq__(self, other):
-    if self is other:
-      return True
-    if not isinstance(other, Configuration):
-      return False
-    if not self.lastChange:
-      # only support equality if resource has a changeid
-      return False
-    return (self.name == other.name and self.target == other.target
-              and self.lastChange == other.lastChange)
-
   # XXX3
   # @property
   # def outdated(self):
@@ -871,6 +783,17 @@ class Configuration(OperationalInstance, ResourceRef):
   #XXX3 like outdated
   #@property
   #def obsolete(self):
+
+  def __eq__(self, other):
+    if self is other:
+      return True
+    if not isinstance(other, Configuration):
+      return False
+    if not self.lastChange:
+      # only support equality if resource has a changeid
+      return False
+    return (self.name == other.name and self.target == other.target
+              and self.lastChange == other.lastChange)
 
 class TaskRequest(object):
   def __init__(self, configSpec, persist, required):
@@ -1047,62 +970,6 @@ class TaskView(ChangeRecord):
   def createResult(self, applied, modified, readyState=None, configChanged=None, result=None):
     return ConfiguratorResult(applied, modified, readyState, configChanged, result)
 
-class AttributeManager(object):
-  """
-  Tracks changes made to Resources
-  """
-
-  def __init__(self):
-    self.attributes = {}
-    self.statuses = {}
-
-  def setStatus(self, resource, newvalue):
-    assert newvalue is None or isinstance(newvalue, Status)
-    if resource.name not in self.statuses:
-      self.statuses[resource.name] = [resource._localStatus, newvalue]
-    else:
-      self.statuses[resource.name][1] = newvalue
-
-  def getSerializedAttributes(self, resource):
-    self.getAttributes(resource) # merge and serialize attributes
-    return self.attributes[resource.name][2]
-
-  def getAttributes(self, resource):
-    if resource.name not in self.attributes:
-      specd = mapValue(resource.spec.get('attributes', {}), RefContext(resource, resolveExternal=False))
-      attributes = mapValue(resource._attributes, RefContext(resource, resolveExternal=False))
-      specd.update(attributes)
-      specd = ExternalValue.resolveAll(specd)
-      self.attributes[resource.name] = (resource, specd, serializeValue(specd, resolveExternal=True), serializeValue(specd))
-      return specd # converted to live refs
-    else:
-      return self.attributes[resource.name][1]
-
-  def revertChanges(self):
-    self.attributes = {}
-    # for resource, old, new in self.statuses.values():
-    #   resource._localStatus = old
-
-  def commitChanges(self):
-    changes = {}
-    # current and original don't have external values
-    for resource, current, original, serializedWithExternalValues in self.attributes.values():
-      # 1. convert to back json (refs)
-      serializedCurrent = serializeValue(current)
-      # 2. diff with resource._attributes
-      # neither will have ExternalValues
-      diff = diffDicts(original, serializedCurrent)
-      if not diff:
-        continue
-      # 3. save diff
-      changes[resource.name] = diff
-      # 4. update resource
-      # apply the changes to attributesWithExternalValues
-      updatedSerializedWithExternalValues = mergeDicts(diff, serializedWithExternalValues)
-      resource._attributes = updatedSerializedWithExternalValues
-    self.attributes = {}
-    # self.statuses = {}
-    return changes
 
 class Task(TaskView, AttributeManager):
   """
@@ -1670,6 +1537,19 @@ class Manifest(AttributeManager):
 
     return instance
 
+  @staticmethod
+  def createResourceChanges(changes):
+    resourceChanges = ResourceChanges()
+    if changes:
+      for k, change in changes.items():
+        status = change.pop('.status', None)
+        resourceChanges[k] = [
+          None if status is None else Manifest.createStatus(status).localStatus,
+          change.pop('.added', None),
+          change
+        ]
+    return resourceChanges
+
   def mergeConfigSpec(self, configSpec, ctemplates=None):
     templateName = configSpec.get('template')
     if templateName:
@@ -1710,7 +1590,7 @@ class Manifest(AttributeManager):
         val.get('schema'), val.get('name'), val.get('required'), val.get('wantList', False))
 
     if 'modifications' in changeSet:
-      config.resourceChanges = ResourceChanges(changeSet['modifications'])
+      config.resourceChanges = self.createResourceChanges(changeSet['modifications'])
     resource.setConfiguration(config)
     return config
 

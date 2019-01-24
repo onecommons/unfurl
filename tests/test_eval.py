@@ -109,9 +109,9 @@ class EvalTest(unittest.TestCase):
       #print ('eval', ref, ref.source)
       if isinstance(expected, set):
         # for results where order isn't guaranteed in python2.7
-        self.assertEqual(set(ref.resolve(RefContext(resource))), expected, ref.source)
+        self.assertEqual(set(ref.resolve(RefContext(resource))), expected, "expr was: " + ref.source)
       else:
-        self.assertEqual(ref.resolve(RefContext(resource)), expected, ref.source)
+        self.assertEqual(ref.resolve(RefContext(resource)), expected, "expr was: " + ref.source)
 
   def test_funcs(self):
     resource = self._getTestResource()
@@ -193,6 +193,37 @@ class EvalTest(unittest.TestCase):
     exp = {'a': "{{ aVar }} world"}
     vars = {'aVar': 'hello'}
     self.assertEqual(mapValue(exp, RefContext(resource, vars)), {'a': 'hello world'})
+
+  def test_innerReferences(self):
+    resourceDef = {'a':
+      dict(b = {"ref": "a::c"},
+        c= {'e': 1},
+        d= ['2', {"ref": "a::d::0"}]
+      )
+    }
+    resource = Resource("test", attributes=resourceDef)
+
+    expectedA = {'c': {'e': 1}, 'b': {'e': 1}, 'd': ['2', '2']}
+    self.assertEqual(Ref("a").resolveOne(RefContext(resource)), expectedA)
+
+    expected = ['2']
+    self.assertEqual(Ref("a::d::0").resolve(RefContext(resource)), expected)
+    self.assertEqual(Ref("a::d::1").resolve(RefContext(resource)), expected)
+
+    # print('test_references', resource.attributes,
+    #   'AAAA', resource.attributes['a'],
+    #   'BBB', resource.attributes['a']['b'],
+    # )
+    self.assertEqual(resource.attributes['a'], expectedA)
+    self.assertEqual(resource.attributes['a']['d'][0], '2')
+    self.assertEqual(resource.attributes['a']['d'][1], '2')
+    self.assertEqual(resource.attributes['a']['b']['e'], 1)
+
+    self.assertEqual(Ref("a::b::e").resolve(RefContext(resource)), [1])
+
+    # test again to make sure it still resolves correctly
+    self.assertEqual(Ref("a::d::0").resolve(RefContext(resource)), expected)
+    self.assertEqual(Ref("a::d::1").resolve(RefContext(resource)), expected)
 
   def test_vars(self):
     # test dereferencing vars
