@@ -7,7 +7,7 @@ import copy
 import six
 from enum import IntEnum
 
-from .eval import mapValue, serializeValue, ExternalValue, RefContext #, _Funcs, Ref
+from .eval import mapValue, serializeValue, ExternalValue, RefContext, Ref #, _Funcs
 from .util import diffDicts, intersectDict, mergeDicts, ChainMap
 
 # XXX3 doc: notpresent is a positive assertion of non-existence while notapplied just indicates non-liveness
@@ -59,6 +59,12 @@ class Resolved(object):
           return diffDicts(old, val)
       return val
 
+  def __eq__(self, other):
+    if isinstance(other, Resolved):
+      return self.resolved == other.resolved
+    else:
+      return self.resolved == other
+
   def __repr__(self):
     return "Resolved(%r)" % self.resolved
 
@@ -84,12 +90,12 @@ class _Lazy(object):
       return val.resolved
     elif isinstance(val, _Lazy):
       return val
-    # elif Ref.isRef(val):
-    #   return mapValue(val, self.context)
-    # elif isinstance(val, Mapping):
-    #   return LazyDict(val, self.context)
-    # elif isinstance(val, (list,tuple)):
-    #   return LazyList(val, self.context)
+    elif Ref.isRef(val):
+      return mapValue(val, self.context)
+    elif isinstance(val, Mapping):
+      return LazyDict(val, self.context)
+    elif isinstance(val, (list,tuple)):
+      return LazyList(val, self.context)
     else:
       return mapValue(val, self.context)
 
@@ -116,6 +122,12 @@ class _Lazy(object):
 
   def __len__(self):
     return len(self._attributes)
+
+  def __eq__(self, other):
+    if isinstance(other, _Lazy):
+      return self._attributes == other._attributes
+    else:
+      return self._attributes == other
 
   def __repr__(self):
     return "Lazy(%r)" % self._attributes

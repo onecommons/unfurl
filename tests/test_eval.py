@@ -1,7 +1,8 @@
 import unittest
 import os
-from giterop.eval import Ref, mapValue, serializeValue, runTemplate, RefContext
+from giterop.eval import Ref, mapValue, serializeValue, runTemplate, RefContext, Expr
 from giterop.runtime import Resource
+from giterop.support import LazyList
 from ruamel.yaml.comments import CommentedMap
 
 class EvalTest(unittest.TestCase):
@@ -39,6 +40,7 @@ class EvalTest(unittest.TestCase):
       'f': {'a': 1, 'b': {'ref': '.::f::a'} },
       }
     resource = Resource("test", attributes=resourceDef)
+    assert resource.attributes['x'] == resourceDef['x']
     return resource
 
   def test_refs(self):
@@ -106,12 +108,12 @@ class EvalTest(unittest.TestCase):
        #XXX test nested ['.[k[d=3]=4]']
     ]:
       ref = Ref(exp)
-      #print ('eval', ref, ref.source)
+      # print ('eval', ref.source, ref)
       if isinstance(expected, set):
         # for results where order isn't guaranteed in python2.7
         self.assertEqual(set(ref.resolve(RefContext(resource))), expected, "expr was: " + ref.source)
       else:
-        self.assertEqual(ref.resolve(RefContext(resource)), expected, "expr was: " + ref.source)
+        self.assertEqual(ref.resolve(RefContext(resource, trace=0)), expected, "expr was: " + ref.source)
 
   def test_funcs(self):
     resource = self._getTestResource()
@@ -239,6 +241,34 @@ class EvalTest(unittest.TestCase):
     }
     result = Ref(query).resolveOne(RefContext(resource))
     self.assertEqual(result, {'aRef': resource, 'aTemplate': True})
+
+  def test_nodeTraversal1(self):
+    root = Resource('r2', { "a": [
+            dict(ref="::r1::a"), #'r1'
+            dict(ref="b") #'r2'
+          ],
+        "b" : 'r2'
+    })
+    child = Resource('r1', {'a': dict(ref="b"), 'b': 'r1'}, root)
+    ctx = RefContext(root)
+    x = [{
+      'a': [{'c':1}, {'c':2}],
+    }]
+    assert x == LazyList(x, ctx)
+    self.assertEqual(Ref('b').resolve(RefContext(child)), ['r1'])
+    self.assertEqual(Ref('a').resolve(RefContext(child)), ['r1'])
+    self.assertEqual(Ref('a').resolve(RefContext(root)), [['r1', 'r2']])
+
+  def test_nodeTraversal2(self):
+    root = Resource('root', {
+      'a': [{'ref':'::child'}, {'b': 2}]
+    })
+    child = Resource('child', {'b': 1}, root)
+    self.assertEqual(Ref('.ancestors').resolve(RefContext(child)), [[child, root]])
+    # self.assertEqual(Ref('a::b').resolve(RefContext(root)), [1])
+    self.assertEqual(Ref('a').resolve(RefContext(child)), [[child, {'b': 2}]])
+    # a resolves to [child, dict] so a::b resolves to [child[b], [b]2]
+    self.assertEqual(Ref('a::b').resolve(RefContext(child)), [1, 2])
 
   def test_lookup(self):
     resource = self._getTestResource()

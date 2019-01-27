@@ -357,7 +357,7 @@ class Resource(OperationalInstance, ResourceRef):
     return self.root.attributeManager.getAttributes(self)
 
   def _resolve(self, key):
-    return self._attributes[key]
+    return self.attributes[key]
 
   def asRef(self, options=None):
     return {"ref": "::%s"% self.name}
@@ -431,6 +431,9 @@ class Resource(OperationalInstance, ResourceRef):
       # only support equality if resource has a changeid
       return False
     return self.name == other.name and self.lastChange == other.lastChange
+
+  def __repr__(self):
+    return "Resource('%s')" % self.name
 
   def setConfiguration(self, configuration):
     name = configuration.name
