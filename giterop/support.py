@@ -2,7 +2,7 @@
 Internal classes supporting the runtime.
 """
 import collections
-from collections import Mapping, MutableSequence
+from collections import Mapping, MutableSequence, MutableMapping
 import copy
 import six
 from enum import IntEnum
@@ -36,12 +36,12 @@ class Resolved(object):
       val = serializeValue(self.resolved, **(options or {}))
       return val
 
-  def hasChanged(self):
+  def hasDiff(self):
     if self.original is _Deleted: # this is a new item
       return True
     else:
       if isinstance(self.resolved, _Lazy):
-        return self.resolved.hasChanged()
+        return self.resolved.hasDiff()
       else:
         newval = self.asRef()
         if self.original != newval:
@@ -76,8 +76,8 @@ class _Lazy(object):
       self._deleted = {}
       self.context = context
 
-  def hasChanged(self):
-    return any(isinstance(x, Resolved) and x.hasChanged() for x in self._attribute)
+  def hasDiff(self):
+    return any(isinstance(x, Resolved) and x.hasDiff() for x in self._attribute)
 
   def _serializeItem(self, val):
     if isinstance(val, Resolved):
@@ -132,17 +132,12 @@ class _Lazy(object):
   def __repr__(self):
     return "Lazy(%r)" % self._attributes
 
-class LazyDict(_Lazy, Mapping):
+class LazyDict(_Lazy, MutableMapping):
   """
   Evaluating expressions are not guaranteed to be idempotent (consider quoting)
   and resolving the whole tree up front can lead to evaluations of cicular references unless the
   order is carefully chosen. So evaluate lazily and memoize the results.
   """
-
-  # def __delitem__(self, key):
-  #   val = self._attributes[key]
-  #   self._deleted[key] = val
-  #   self._attributes[key] = _Deleted
 
   def __iter__(self):
       return iter(self._attributes)
@@ -154,7 +149,7 @@ class LazyDict(_Lazy, Mapping):
     # returns a dict with the same semantics as diffDicts
     diffDict = cls()
     for key, val in self._attributes.items():
-      if isinstance(val, Resolved) and val.hasChanged():
+      if isinstance(val, Resolved) and val.hasDiff():
         diffDict[key] = val.getDiff()
 
     for key in self._deleted:
@@ -293,7 +288,7 @@ class AttributeManager(object):
         if not isinstance(value, Resolved):
           # hasn't been touched so keep it as is
           resource._attributes[key] = value
-        elif key not in specd or value.hasChanged():
+        elif key not in specd or value.hasDiff():
           resource._attributes[key] = value.asRef()
 
       # save changes

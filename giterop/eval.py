@@ -6,13 +6,17 @@ from collections import Mapping, MutableSequence
 from ruamel.yaml.comments import CommentedMap
 from .util import validateSchema, assertForm #, GitErOpError
 
-class ExternalValue(object):
+class ChangeAware(object):
+  def hasChanged(self, changeset):
+    return False
 
-  def _setResolved(self, key, value):
-    self.getter = key
+class ExternalValue(ChangeAware):
 
   def get(self):
     pass
+
+  def _setResolved(self, key, value):
+    self.getter = key
 
 # XXX __setstate__
 
@@ -482,6 +486,7 @@ def evalTest(value, test, context):
       return True
   return False
 
+# given value and a key, return resultlist
 def lookup(value, key, context, external):
   try:
     # if key == '.':
@@ -522,6 +527,7 @@ def lookup(value, key, context, external):
   except (KeyError, IndexError, TypeError, ValueError):
     return []
 
+# take iterator, returns resultlist
 def evalItem(v, seg, context):
   """
     apply current item to current segment, return [] or [value]
@@ -547,7 +553,7 @@ def evalItem(v, seg, context):
   if seg.test and not evalTest(v, seg.test, context):
     return
   # use external if this is that last segment
-  yield external if external and not context._rest else v
+  yield [external] if external and not context._rest else v
 
 def _treatAsSingular(item, seg):
   if seg.key == '*':
@@ -572,6 +578,7 @@ def recursiveEval(v, exp, context):
     else:
       if useValue:
         if not isinstance(item, Mapping):
+          context.trace('* is skipping', item)
           continue
         iv = item.values()
         rest = exp[1:] # advance past "*" segment

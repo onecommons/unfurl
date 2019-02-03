@@ -10,6 +10,8 @@ import ansible.constants as C
 from ansible.cli.playbook import PlaybookCLI
 from ansible.plugins.callback import CallbackBase
 
+# https://docs.ansible.com/ansible/latest/reference_appendices/common_return_values.html#common-return-values
+
 # https://github.com/ansible/ansible-runner
 # ansible fails by host
 class AnsibleConfigurator(Configurator):

@@ -42,7 +42,7 @@ yaml = YAML()
 from .util import (GitErOpError, GitErOpTaskError, GitErOpAddingResourceError,
   lookupClass, AutoRegisterClass, loadClass, ChainMap, toEnum,
   validateSchema, mergeDicts)
-from .eval import Ref, mapValue, serializeValue, RefContext
+from .eval import Ref, mapValue, serializeValue, RefContext, ChangeAware
 #from .local import LocalEnv
 from .support import AttributeManager, ResourceChanges, Status
 
@@ -73,7 +73,7 @@ class Defaults(object):
 # semantics of priority / shouldRun / skip
 # semantics of notapplied
 
-class Operational(object):
+class Operational(ChangeAware):
   """
   This is an abstract base class for Jobs, Resources, and Configurations all have a Status associated with them
   and all use the same algorithm to compute their status from their dependent resouces, tasks, and configurations
@@ -392,12 +392,7 @@ class Resource(OperationalInstance, ResourceRef):
   def addInterface(self, klass):
     if not isinstance(klass, six.string_types):
       klass = klass.__module__ + '.' + klass.__name__
-    if not self.root.attributeManager:
-      # changes to self.attributes aren't saved
-      attributes = self._attributes
-    else:
-      attributes = self.attributes
-    current = attributes.setdefault('.interfaces', [])
+    current = self.attributes.setdefault('.interfaces', [])
     if klass not in current:
       current.append(klass)
     return current
@@ -604,7 +599,7 @@ class ConfigurationSpec(object):
       and self.requires == other.requires and self.provides == other.provides)
 
 
-class Dependency(object):
+class Dependency(ChangeAware):
   """
   Represents a runtime dependency for a configuration.
 
@@ -643,13 +638,12 @@ class Dependency(object):
     if isinstance(value, collections.Mapping):
       if any(Dependency.hasValueChanged(v, changeset) for v in value.values()):
         return True
-    elif isinstance(value, (list, tuple)):
+    elif isinstance(value, (collections.MutableSequence, tuple)):
       if any(Dependency.hasValueChanged(v, changeset) for v in value):
         return True
+    elif isinstance(value, ChangeAware):
+        return value.hasChanged(changeset)
     else:
-      getter = getattr(value, 'hasChanged', None)
-      if getter:
-        return getter(changeset)
       return False
 
   def hasChanged(self, config):
