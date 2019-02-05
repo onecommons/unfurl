@@ -1,3 +1,16 @@
+"""
+Public Api:
+
+mapValue - returns a copy of the given value resolving any embedded queries or template strings
+Ref.resolve given an expression, returns a ResultList
+Ref.resolveOne given an expression, return value, none or a (regular) list
+Ref.isRef return true if the given diction looks like a Ref
+
+Internal:
+evalRef() given expression (string or dictionary) return list of Results
+Expr.resolve() given expression string, return list of Results
+Results._mapValue same as mapValue but with lazily evaluation
+"""
 import six
 import re
 import operator
@@ -5,52 +18,7 @@ import collections
 from collections import Mapping, MutableSequence
 from ruamel.yaml.comments import CommentedMap
 from .util import validateSchema, assertForm #, GitErOpError
-
-class ChangeAware(object):
-  def hasChanged(self, changeset):
-    return False
-
-class ExternalValue(ChangeAware):
-
-  def get(self):
-    pass
-
-  def _setResolved(self, key, value):
-    self.getter = key
-
-# XXX __setstate__
-
-  def resolve(self, key=None):
-    key = key or self.getter
-    if key:
-      value = self.get()
-      getter = getattr(value, '__reflookup__', None)
-      if getter:
-        return getter(key)
-      else:
-        return value[key]
-    else:
-      return self.get()
-
-  def asRef(self, options=None):
-    if options and options.get('resolveExternal'):
-      return serializeValue(self.resolve(), **options)
-    # external:local external:secret
-    serialized = {self.type: self.key}
-    if self.getter:
-      serialized['get'] = self.getter
-    return {'ref': serialized}
-
-  @staticmethod
-  def resolveAll(value):
-    if isinstance(value, Mapping):
-      return dict((key, ExternalValue.resolveAll(v)) for key, v in value.items())
-    elif isinstance(value, (list, tuple)):
-      return [ExternalValue.resolveAll(item) for item in value]
-    elif isinstance(value, ExternalValue):
-      return value.resolve()
-    else:
-      return value
+from .result import ResultsList, Result, Results, ExternalValue, ResourceRef
 
 def runTemplate(data, vars=None, dataLoader=None):
   from ansible.template import Templar
@@ -83,29 +51,17 @@ def _mapValue(value, ctx):
     if Ref.isRef(value):
       value = Ref(value).resolveOne(ctx)
     return value
-  elif ctx.resolveExternal and isinstance(value, ExternalValue):
+  elif isinstance(value, ExternalValue):
     return value.resolve()
   return value
 
-def serializeValue(value, **kw):
-  getter = getattr(value, 'asRef', None)
-  if getter:
-    return getter(kw)
-  if isinstance(value, Mapping):
-    return dict((key, serializeValue(v, **kw)) for key, v in value.items())
-  elif isinstance(value, (MutableSequence, tuple)):
-    return [serializeValue(item, **kw) for item in value]
-  else:
-    return value
-
 class RefContext(object):
-  def __init__(self, currentResource, vars=None, wantList=False, resolveExternal=True, trace=0):
+  def __init__(self, currentResource, vars=None, wantList=False, resolveExternal=False, trace=0):
     self.vars = vars or {}
     # the original context:
     self.currentResource = currentResource
     # the last resource encountered while evaluating:
     self._lastResource = currentResource
-    self.lastKeys = []
     # current segment is the final segment:
     self._rest = None
     self.wantList = wantList
@@ -122,7 +78,7 @@ class RefContext(object):
 
   def trace(self, *msg):
     if self._trace:
-      print("%s :ctx:%s %s" % (' '.join(str(a) for a in msg), self._lastResource.name, self.lastKeys))
+      print("%s (ctx: %s)" % (' '.join(str(a) for a in msg), self._lastResource.name))
 
 class Expr(object):
   def __init__(self, exp, vars = None):
@@ -149,8 +105,10 @@ class Expr(object):
     return "Expr('%s')" % self.source
 
   def resolve(self, ctx):
+    # returns a list of Results
     currentResource = ctx.currentResource
-    vars = mapValue(self.vars, currentResource)
+    # use Results._mapValues because we don't want to resolve ExternalValues
+    vars = Results._mapValue(self.vars, currentResource)
     vars['start'] = currentResource
     context = ctx.copy(currentResource, vars)
     if not self.paths[0].key and not self.paths[0].filters: # starts with "::"
@@ -162,7 +120,7 @@ class Expr(object):
       currentResource = context.vars[varName]
       if len(self.paths) == 1:
         # bare reference to a var, just return it's value
-        return [currentResource]
+        return [Result(currentResource)]
       paths = [self.paths[0]._replace(key='')] + self.paths[1:]
     else:
       paths = self.paths
@@ -249,15 +207,11 @@ class Ref(object):
   ..           parent
   .parents     list of parents
   .ancestors   self and parents
+  .root        root ancestor
   .children    child resources
   .descendents (including self)
   .all       dictionary of child resources with their names as keys
   .configurations
-
-  Special resource names:
-
-  root
-  kms
   """
 
   def __init__(self, exp, vars = None):
@@ -282,15 +236,25 @@ class Ref(object):
 
   def resolve(self, ctx, wantList=True):
     """
-    Return a list of matches
+    Return a ResultList of matches
     Note that values in the list can be a list or None
     """
     ctx = ctx.copy(vars=self.vars, wantList=wantList)
-    results = eval(self.source, ctx, True)
-
-    if results is None or not self.foreach:
+    results = evalRef(self.source, ctx, True)
+    if results and self.foreach:
+      results = evalRef(self.foreach, ctx.copy(results, self.vars))
+    assert not isinstance(results, Results), results
+    results = ResultsList(results, ctx)
+    ctx.trace('Ref.resolve(wantList=%s)' % wantList, self.source, results)
+    if wantList:
       return results
-    return eval(self.foreach, ctx.copy(results, self.vars, wantList), True)
+    else:
+      if not results:
+        return None
+      elif len(results) == 1:
+        return results[0]
+      else:
+        return list(results)
 
   def resolveOne(self, ctx):
     """
@@ -314,31 +278,35 @@ class Ref(object):
       return False
     return isinstance(value, Ref)
 
+def evalAsBoolean(arg, ctx):
+  result = evalRef(arg, ctx)
+  return not not result[0].resolved if result else False
+
 def ifFunc(arg, ctx):
   kw = ctx.kw
-  result = eval(arg, ctx)
+  result = evalAsBoolean(arg, ctx)
   if result:
-    return eval(kw.get('then'), ctx)
+    return evalForFunc(kw.get('then'), ctx)
   else:
-    return eval(kw.get('else'), ctx)
+    return evalForFunc(kw.get('else'), ctx)
 
 def orFunc(arg, ctx):
-  args = eval(arg, ctx)
-  assert isinstance(args, MutableSequence)
+  args = evalForFunc(arg, ctx)
+  assert isinstance(args, MutableSequence), args
   for arg in args:
-    val = eval(arg, ctx)
+    val = evalForFunc(arg, ctx)
     if val:
       return val
 
 def notFunc(arg, ctx):
-  result = eval(arg, ctx)
+  result = evalAsBoolean(arg, ctx)
   return not result
 
 def andFunc(arg, ctx):
-  args = eval(arg, ctx)
+  args = evalForFunc(arg, ctx)
   assert isinstance(args, MutableSequence)
   for arg in args:
-    val = eval(arg, ctx)
+    val = evalForFunc(arg, ctx)
     if not val:
       return val
   return val
@@ -347,14 +315,14 @@ def quoteFunc(arg, ctx):
   return arg
 
 def eqFunc(arg, ctx):
-  args = eval(arg, ctx)
+  args = evalForFunc(arg, ctx)
   assert isinstance(args, MutableSequence) and len(args) == 2
-  return eval(args[0], ctx) == eval(args[1], ctx)
+  return evalRef(args[0], ctx) == evalRef(args[1], ctx)
 
 def validateSchemaFunc(arg, ctx):
-  args = eval(arg, ctx)
+  args = evalRef(arg, ctx)
   assert isinstance(args, MutableSequence) and len(args) == 2
-  return not not validateSchema(eval(args[0], ctx), eval(args[1], ctx))
+  return not not validateSchema(evalForFunc(args[0], ctx), evalForFunc(args[1], ctx))
 
 def _forEach(results, ctx):
   keyExp = ctx.kw['foreach'].get('key')
@@ -374,12 +342,12 @@ def _forEach(results, ctx):
       ictx.vars['break'] = Break
       ictx.vars['continue'] = Continue
       if keyExp:
-        key = eval(keyExp, ictx)
+        key = evalForFunc(keyExp, ictx)
         if key is Break:
           break
         elif key is Continue:
           continue
-      val = eval(valExp, ictx)
+      val = evalForFunc(valExp, ictx)
       if val is Break:
         break
       elif val is Continue:
@@ -423,46 +391,37 @@ def getEvalFuncs(name):
 def setEvalFuncs(name, val):
   _Funcs[name] = val
 
-def eval(val, ctx, top=False):
+# returns list of results
+def evalRef(val, ctx, top=False):
+  # functions and ResultsMap assume resolveOne semantics
+  if top:
+    ctx = ctx.copy(wantList = False)
   if isinstance(val, Mapping):
     for key in val:
       func = _Funcs.get(key)
       if func:
+        args = val[key]
+        ctx.kw = val
+        ctx.currentFunc = key
+        val = func(args, ctx)
+        if key == 'q':
+          return [Result(val)]
         break
-    else:
-      return _mapValue(val, ctx)
-
-    if not top:
-      # functions assume this
-      ctx = ctx.copy()
-      ctx.resolveExternal = True
-    args = val[key]
-    ctx.kw = val
-    ctx.currentFunc = key
-    wantList = ctx.wantList
-    # functions assume resolveOne semantics
-    ctx.wantList = False
-
-    results = func(args, ctx)
-    if ctx.resolveExternal:
-      results = ExternalValue.resolveAll(results)
-    if wantList:
-      if results is None:
-        return []
-      elif not isinstance(results, MutableSequence):
-        return [results]
-    return results
   elif isinstance(val, six.string_types):
     expr = Expr(val, ctx.vars)
     results = expr.resolve(ctx)
-    if not ctx.wantList:
-      if not results:
-        return None
-      elif len(results) == 1:
-        return results[0]
     return results
+
+  return [Result(Results._mapValue(val, ctx))]
+
+def evalForFunc(val, ctx):
+  results = evalRef(val, ctx)
+  if not results:
+    return None
+  if len(results) == 1:
+    return results[0].resolved
   else:
-    return _mapValue(val, ctx)
+    return [r.resolved for r in results]
 
 #return a segment
 Segment = collections.namedtuple('Segment', ['key', 'test', 'modifier', 'filters'])
@@ -486,74 +445,58 @@ def evalTest(value, test, context):
       return True
   return False
 
-# given value and a key, return resultlist
-def lookup(value, key, context, external):
+# given a Result and a key, return None or new Result
+def lookup(result, key, context):
   try:
     # if key == '.':
     #   key = context.currentKey
-
     if context and isinstance(key, six.string_types) and key.startswith('$'):
       key = context.vars[key[1:]]
 
-    if external:
-      value = external.resolve(key)
-      context.lastKeys = []
-    else:
-      getter = getattr(value, '__reflookup__', None)
-      if getter:
-        context.trace('setting _lastResource: %s' % value.name)
-        # XXX check if value really is a resource
-        context._lastResource = value
-        value = getter(key)
-        context.trace('__reflookup__ %s, got %s' % (key, value))
-      else:
-        value = value[key]
-        context.trace('regular lookup %s, got %s' % (key, value))
-    context.lastKeys.append(key)
+    if isinstance(result.resolved, ResourceRef):
+      context._lastResource = result.resolved
 
-    if not context._rest:
-      context.trace('mapValue %s with _lastResource %s' % (key, context._lastResource.name))
-      # this will be in the final result so map the whole object
-      final = _mapValue(value, context.copy(context._lastResource))
-      context.trace('mapValue', value, 'final', final)
-      if external:
-        external._setResolved(key, final)
-      return [final]
-    elif Ref.isRef(value):
-      context.trace('resolve reference:', value)
-      return Ref(value).resolve(context.copy(context._lastResource))
+    value = result.resolveKey(key)
+    context.trace('lookup %s, got %s' % (key, value))
+
+    if not context._rest or Ref.isRef(value):
+      value = Results._mapValue(value, context.copy(context._lastResource))
+
+    if result.external:
+      # XXX if value is external
+      return Result(ExternalValue(value, key, result.external))
     else:
-      return [value]
+      return Result(value)
+
   except (KeyError, IndexError, TypeError, ValueError):
-    return []
+    return None
 
-# take iterator, returns resultlist
-def evalItem(v, seg, context):
+# given a Result, yields the result
+def evalItem(result, seg, context):
   """
     apply current item to current segment, return [] or [value]
   """
-  external = isinstance(v, ExternalValue)
-  if external:
-    v = v.get()
-
   if seg.key != '':
-    v = lookup(v, seg.key, context, external)
-    if not v:
+    result = lookup(result, seg.key, context)
+    if not result:
       return
-    v = v[0]
 
+  value = result.resolved
   for filter in seg.filters:
-    results = evalExp([v] if _treatAsSingular(v, filter[0]) else v, filter, context)
+    if _treatAsSingular(value, filter[0]):
+      resultList = [value]
+    else:
+      resultList = value
+    results = evalExp(resultList, filter, context)
     negate = filter[0].modifier == '!'
     if negate and results:
       return
     elif not negate and not results:
       return
 
-  if seg.test and not evalTest(v, seg.test, context):
+  if seg.test and not evalTest(value, seg.test, context):
     return
-  # use external if this is that last segment
-  yield [external] if external and not context._rest else v
+  yield result
 
 def _treatAsSingular(item, seg):
   if seg.key == '*':
@@ -562,29 +505,35 @@ def _treatAsSingular(item, seg):
 
 def recursiveEval(v, exp, context):
   """
-  given a list of (previous) results,
-  yield a list of results
+  given a iterator of (previous) results,
+  yields Results
   """
   context.trace('recursive evaluating', exp)
   matchFirst = exp[0].modifier == '?'
   useValue = exp[0].key == '*'
-  for item in v:
-    assert item.__class__.__name__ != 'Resolved', v
+  for i in v:
+    if isinstance(i, Result):
+      result = i
+      item = result.resolved
+    else:
+      item = i
+      result = Result(i)
+
     if _treatAsSingular(item, exp[0]):
       rest = exp[1:]
       context._rest = rest
       context.trace('evaluating item %s with key %s' % (item, exp[0].key))
-      iv = evalItem(item, exp[0], context)
+      iv = evalItem(result, exp[0], context) # returns a generator that yields up to one result
     else:
       if useValue:
         if not isinstance(item, Mapping):
           context.trace('* is skipping', item)
           continue
-        iv = item.values()
+        iv = result._values()
         rest = exp[1:] # advance past "*" segment
       else:
         # flattens
-        iv = item
+        iv = item # item is a sequence
         rest = exp
         context.trace('flattening', item)
 
@@ -606,6 +555,7 @@ def recursiveEval(v, exp, context):
           return
 
 def evalExp(start, paths, context):
+  "Returns a list of Results"
   context.trace('evalexp', start, paths)
   assert isinstance(start, MutableSequence), start
   return list(recursiveEval(start, paths, context))
@@ -707,7 +657,8 @@ def lookupFunc(arg, ctx):
   """
   lookup:
     - file: 'foo' or []
-    - blah:
+    - kw1: value
+    - kw2: value
   """
   if isinstance(arg, Mapping):
     assert len(arg) == 1

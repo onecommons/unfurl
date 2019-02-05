@@ -42,7 +42,8 @@ yaml = YAML()
 from .util import (GitErOpError, GitErOpTaskError, GitErOpAddingResourceError,
   lookupClass, AutoRegisterClass, loadClass, ChainMap, toEnum,
   validateSchema, mergeDicts)
-from .eval import Ref, mapValue, serializeValue, RefContext, ChangeAware
+from .result import ResourceRef, Results, serializeValue, ChangeAware
+from .eval import Ref, mapValue, RefContext
 #from .local import LocalEnv
 from .support import AttributeManager, ResourceChanges, Status
 
@@ -249,54 +250,6 @@ class _ChildResources(collections.Mapping):
 
   def __len__(self):
     return len(tuple(self))
-
-class ResourceRef(object):
-  # ABC requires 'parent', and '_resolve'
-
-  def _getProp(self, name):
-    if name == '.':
-      return self
-    elif name == '..':
-      return self.parent
-    name = name[1:]
-    # XXX3 use propmap
-    return getattr(self, name)
-
-  def __reflookup__(self, key):
-    if not key:
-      raise KeyError(key)
-    if key[0] == '.':
-      return self._getProp(key)
-
-    return self._resolve(key)
-
-  def yieldParents(self):
-    "yield self and ancestors starting from self"
-    resource = self
-    while resource:
-      yield resource
-      resource = resource.parent
-
-  @property
-  def ancestors(self):
-    return list(self.yieldParents())
-
-  @property
-  def parents(self):
-    """list of parents starting from root"""
-    return list(reversed(self.ancestors))[:-1]
-
-  @property
-  def root(self):
-    return self.ancestors[-1]
-
-  @property
-  def all(self):
-    return self.root._all
-
-  @property
-  def templar(self):
-    return self.root._templar
 
 class Resource(OperationalInstance, ResourceRef):
   def __init__(self, name='', attributes=None, parent=None,
@@ -635,7 +588,9 @@ class Dependency(ChangeAware):
 
   @staticmethod
   def hasValueChanged(value, changeset):
-    if isinstance(value, collections.Mapping):
+    if isinstance(value, Results):
+      return Dependency.hasValueChanged(value._attributes, changeset)
+    elif isinstance(value, collections.Mapping):
       if any(Dependency.hasValueChanged(v, changeset) for v in value.values()):
         return True
     elif isinstance(value, (collections.MutableSequence, tuple)):
@@ -648,8 +603,8 @@ class Dependency(ChangeAware):
 
   def hasChanged(self, config):
     changeId = config.lastAttempt and config.lastAttempt.changeId
-    context = RefContext(config, dict(val=self.expected, changeId=changeId), resolveExternal=False)
-    result = Ref(self.expr).resolve(context, wantList=self.wantList)
+    context = RefContext(config, dict(val=self.expected, changeId=changeId))
+    result = Ref(self.expr).resolveOne(context) #resolve(context, self.wantList)
 
     if self.schema:
       # result isn't as expected, something changed
@@ -657,8 +612,9 @@ class Dependency(ChangeAware):
         return False
     else:
       if self.expected is not None:
-        expected = mapValue(self.expected, RefContext(config, resolveExternal=False))
+        expected = mapValue(self.expected, context)
         if result != expected:
+          logger.debug("hasChanged: %s != %s", result, expected)
           return True
       elif not result:
         # if expression no longer true (e.g. a resource wasn't found), then treat dependency as changed

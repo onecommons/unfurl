@@ -2,184 +2,17 @@
 Internal classes supporting the runtime.
 """
 import collections
-from collections import Mapping, MutableSequence, MutableMapping
 import copy
 import six
 from enum import IntEnum
 
-from .eval import mapValue, serializeValue, ExternalValue, RefContext, Ref #, _Funcs
-from .util import diffDicts, intersectDict, mergeDicts, ChainMap
+from .eval import RefContext
+from .result import ResultsMap, Result
+from .util import intersectDict, mergeDicts, ChainMap
 
 # XXX3 doc: notpresent is a positive assertion of non-existence while notapplied just indicates non-liveness
 # notapplied is therefore the default initial state
 Status = IntEnum("Status", "ok degraded error pending notapplied notpresent", module=__name__)
-
-_Deleted = object()
-class Resolved(object):
-  __slots__ = ('original', 'resolved', 'external')
-
-  def __init__(self, resolved, original = _Deleted):
-    self.original = original
-    if isinstance(resolved, ExternalValue):
-      self.resolved = resolved.resolve()
-      assert not isinstance(self.resolved, Resolved), self.resolved
-      self.external = resolved
-    else:
-      assert not isinstance(resolved, Resolved), resolved
-      self.resolved = resolved
-      self.external = None
-
-  def asRef(self, options=None):
-    if self.external:
-      return self.external.asRef()
-    else:
-      val = serializeValue(self.resolved, **(options or {}))
-      return val
-
-  def hasDiff(self):
-    if self.original is _Deleted: # this is a new item
-      return True
-    else:
-      if isinstance(self.resolved, _Lazy):
-        return self.resolved.hasDiff()
-      else:
-        newval = self.asRef()
-        if self.original != newval:
-          return True
-    return False
-
-  def getDiff(self):
-    if isinstance(self.resolved, _Lazy):
-      return self.resolved.getDiff()
-    else:
-      val = self.asRef()
-      if isinstance(val, Mapping):
-        old = serializeValue(self.original)
-        if isinstance(old, Mapping):
-          return diffDicts(old, val)
-      return val
-
-  def __eq__(self, other):
-    if isinstance(other, Resolved):
-      return self.resolved == other.resolved
-    else:
-      return self.resolved == other
-
-  def __repr__(self):
-    return "Resolved(%r)" % self.resolved
-
-class _Lazy(object):
-  __slots__ = ('_attributes', 'context', '_deleted')
-
-  def __init__(self, serializedOriginal, context):
-      self._attributes = serializedOriginal
-      self._deleted = {}
-      self.context = context
-
-  def hasDiff(self):
-    return any(isinstance(x, Resolved) and x.hasDiff() for x in self._attribute)
-
-  def _serializeItem(self, val):
-    if isinstance(val, Resolved):
-      return val.asRef()
-    else: # never resolved, so already in serialized form
-      return val
-
-  def _mapValue(self, val):
-    if isinstance(val, Resolved):
-      return val.resolved
-    elif isinstance(val, _Lazy):
-      return val
-    elif Ref.isRef(val):
-      return mapValue(val, self.context)
-    elif isinstance(val, Mapping):
-      return LazyDict(val, self.context)
-    elif isinstance(val, (list,tuple)):
-      return LazyList(val, self.context)
-    else:
-      return mapValue(val, self.context)
-
-  def __getitem__(self, key):
-    val = self._attributes[key]
-    if isinstance(val, Resolved):
-      assert not isinstance(val.resolved, Resolved), val
-      return val.resolved
-    else:
-      resolved = self._mapValue(val)
-      self._attributes[key] = Resolved(resolved, val)
-      assert not isinstance(resolved, Resolved), val
-      return resolved
-
-  def __setitem__(self, key, value):
-    assert not isinstance(value, Resolved), (key, value)
-    self._attributes[key] = Resolved(value)
-    self._deleted.pop(key, None)
-
-  def __delitem__(self, index):
-    val = self._attributes[index]
-    self._deleted[index] = val
-    del self._attributes[index]
-
-  def __len__(self):
-    return len(self._attributes)
-
-  def __eq__(self, other):
-    if isinstance(other, _Lazy):
-      return self._attributes == other._attributes
-    else:
-      return self._attributes == other
-
-  def __repr__(self):
-    return "Lazy(%r)" % self._attributes
-
-class LazyDict(_Lazy, MutableMapping):
-  """
-  Evaluating expressions are not guaranteed to be idempotent (consider quoting)
-  and resolving the whole tree up front can lead to evaluations of cicular references unless the
-  order is carefully chosen. So evaluate lazily and memoize the results.
-  """
-
-  def __iter__(self):
-      return iter(self._attributes)
-
-  def asRef(self, options=None):
-    return dict((key, self._serializeItem(val)) for key, val in self._attributes.items())
-
-  def getDiff(self, cls=dict):
-    # returns a dict with the same semantics as diffDicts
-    diffDict = cls()
-    for key, val in self._attributes.items():
-      if isinstance(val, Resolved) and val.hasDiff():
-        diffDict[key] = val.getDiff()
-
-    for key in self._deleted:
-      diffDict[key]= {'+%': 'delete'}
-
-    return diffDict
-
-class LazyList(_Lazy, MutableSequence):
-
-  # def __delitem__(self, index):
-  #   # val = self._attributes[index]
-  #   # self._deleted[index] = val
-  #   del self._attributes[index]
-
-  # def __getitem__(self, key):
-  #   print ('__getitem__', key, 'val', self._attributes[key])
-  #   val = super(LazyList, self).__getitem__(key)
-  #   print ('__getitem__ result', val)
-  #   return val
-
-  def insert(self, index, value):
-    assert not isinstance(value, Resolved), value
-    self._attributes.insert(index, Resolved(value))
-
-  def asRef(self, options=None):
-    return [self._serializeItem(val) for val in self._attributes]
-
-  def getDiff(self, cls=list):
-    # we don't have patchList yet so just returns the whole list
-    return cls(val.getDiff() if isinstance(val, Resolved) else val for val in self._attributes)
 
 class ResourceChanges(collections.OrderedDict):
   """
@@ -266,7 +99,7 @@ class AttributeManager(object):
   def getAttributes(self, resource):
     if resource.name not in self.attributes:
       specd = resource.spec.get('attributes', {})
-      attributes = LazyDict(ChainMap(copy.deepcopy(resource._attributes), specd), RefContext(resource))
+      attributes = ResultsMap(ChainMap(copy.deepcopy(resource._attributes), specd), RefContext(resource))
       self.attributes[resource.name] = (resource, attributes)
       return attributes
     else:
@@ -285,7 +118,7 @@ class AttributeManager(object):
       overrides, specd = attributes._attributes._maps
       resource._attributes = {}
       for key, value in overrides.items():
-        if not isinstance(value, Resolved):
+        if not isinstance(value, Result):
           # hasn't been touched so keep it as is
           resource._attributes[key] = value
         elif key not in specd or value.hasDiff():
