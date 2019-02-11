@@ -65,9 +65,14 @@ class ChangeAware(object):
     return False
 
 class ExternalValue(ChangeAware):
+  __slots__ = ('type', 'key')
+
+  def __init__(self, type, key):
+    self.type = type
+    self.key = key
 
   def get(self):
-    pass
+    return self.key
 
   def __eq__(self, other):
     if isinstance(other, ExternalValue):
@@ -91,13 +96,14 @@ class ExternalValue(ChangeAware):
     if options and options.get('resolveExternal'):
       return serializeValue(self.resolve(), **options)
     serialized = {self.type: self.key}
-    return {'ref': serialized}
+    return {'eval': serialized}
 
 _Deleted = object()
 class Result(ChangeAware):
-  __slots__ = ('original', 'resolved', 'external')
+  __slots__ = ('original', 'resolved', 'external', 'select')
 
   def __init__(self, resolved, original = _Deleted):
+    self.select = ()
     self.original = original
     if isinstance(resolved, ExternalValue):
       self.resolved = resolved.resolve()
@@ -112,7 +118,7 @@ class Result(ChangeAware):
     if self.external:
       ref = self.external.asRef()
       if self.select:
-        ref['foreach'] = self.select
+        ref['foreach'] = "." + "::".join(self.select)
       return ref
     else:
       val = serializeValue(self.resolved, **(options or {}))
@@ -167,8 +173,17 @@ class Result(ChangeAware):
         value = self.resolved[key]
     return value
 
-  def project(self, key):
-    return Result(self._resolveKey(key))
+  def project(self, key, currentResource):
+    from .eval import Ref
+    value = self._resolveKey(key)
+    if Ref.isRef(value):
+      value = Ref(value).resolveOne(currentResource)
+    result = Result(value)
+    if self.external:
+      # if value is an ExternalValue this will overwrite it
+      result.external = self.external
+      result.select = self.select + key
+    return result
 
   def hasChanged(self, changeset):
     if self.external:
@@ -219,9 +234,7 @@ class Results(object):
     "Recursively and lazily resolves any references in a value"
     # XXX but should return ExternalValues sometimes?!
     from .eval import mapValue, Ref
-    if isinstance(val, Result):
-      return val.resolved
-    elif isinstance(val, Results):
+    if isinstance(val, Results):
       return val
     elif Ref.isRef(val):
       result = Ref(val).resolveOne(context)

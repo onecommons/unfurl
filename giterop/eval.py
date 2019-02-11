@@ -51,8 +51,6 @@ def _mapValue(value, ctx):
     if Ref.isRef(value):
       value = Ref(value).resolveOne(ctx)
     return value
-  elif isinstance(value, ExternalValue):
-    return value.resolve()
   return value
 
 class RefContext(object):
@@ -460,13 +458,13 @@ def lookup(result, key, context):
     if isinstance(result.resolved, ResourceRef):
       context._lastResource = result.resolved
 
-    result = result.project(key)
+    result = result.project(key, context._lastResource)
     value = result.resolved
     context.trace('lookup %s, got %s' % (key, value))
 
-    if not context._rest or Ref.isRef(value):
-      # XXX what _mapValue returns an external value?
+    if not context._rest:
       result.resolved = Results._mapValue(value, context.copy(context._lastResource))
+      assert not isinstance(result.resolved, ExternalValue)
 
     return result
   except (KeyError, IndexError, TypeError, ValueError):

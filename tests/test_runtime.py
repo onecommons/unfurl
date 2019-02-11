@@ -258,3 +258,43 @@ class InterfaceTest(unittest.TestCase):
     i = r.findInterface(__name__ + '.' +  'TestInterface')
     assert i, "interface not found"
     self.assertIs(r, i.resource)
+
+  # XXX test ::container[.interfaces=Container]
+
+class FileTestConfigurator(Configurator):
+  def run(self, task):
+    assert self.canRun(task)
+
+    filevalue = task.query({'ref':{'file':'foo.txt'}}, wantList=True)
+    assert filevalue._attributes[0].external.type == 'file'
+
+    value = task.query({'ref':{'file':'foo.txt'}})
+    yield task.createResult(True, True, Status.ok, result = value)
+
+from giterop.eval import setEvalFuncs, ExternalValue
+setEvalFuncs('file', lambda arg, ctx: ExternalValue(ctx.currentFunc, arg))
+#from giterop.valuemanagers import registerValueManager, FileManager
+class FileTest(unittest.TestCase):
+
+  def test_fileRef(self):
+    simple = """
+    apiVersion: %s
+    kind: Manifest
+    root:
+      spec:
+        configurations:
+          test:
+            className:    FileTestConfigurator
+            majorVersion: 0
+            parameters: {}
+    """ % VERSION
+    manifest = YamlManifest(simple)
+    root = manifest.getRootResource()
+    # current dir will be the manifest's repo root
+    # registerValueManager(root, FileManager(root, manifest.getBaseDir()))
+    runner = Runner(manifest)
+    output = six.StringIO()
+    job = runner.run(JobOptions(add=True, out=output, startTime="test"))
+    self.assertEqual( job.workDone[('root', 'test')].result.result, 'foo.txt')
+
+  def test_change(self): pass
