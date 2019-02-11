@@ -71,17 +71,12 @@ class ExternalValue(ChangeAware):
 
   def __eq__(self, other):
     if isinstance(other, ExternalValue):
-      return self.keys == other.keys and self.get() == other.get()
+      return self.get() == other.get()
     return self.resolve() == other
-
-#XXX
-  def _setResolved(self, key, value):
-    self.getter = key
 
 # XXX __setstate__
 
   def resolve(self, key=None):
-    key = key or self.getter
     if key:
       value = self.get()
       getter = getattr(value, '__reflookup__', None)
@@ -95,10 +90,7 @@ class ExternalValue(ChangeAware):
   def asRef(self, options=None):
     if options and options.get('resolveExternal'):
       return serializeValue(self.resolve(), **options)
-    # external:local external:secret
     serialized = {self.type: self.key}
-    if self.getter:
-      serialized['get'] = self.getter
     return {'ref': serialized}
 
 _Deleted = object()
@@ -118,7 +110,10 @@ class Result(ChangeAware):
 
   def asRef(self, options=None):
     if self.external:
-      return self.external.asRef()
+      ref = self.external.asRef()
+      if self.select:
+        ref['foreach'] = self.select
+      return ref
     else:
       val = serializeValue(self.resolved, **(options or {}))
       return val
@@ -148,14 +143,20 @@ class Result(ChangeAware):
 
   def _values(self):
     resolved = self.resolved
-    if isinstance(resolved, ResultsMap):
+    if isinstance(resolved, ResultsList):
+      # iterate on list to make sure __getitem__ was called
+      return (resolved._attributes[i] for (i,v) in enumerate(resolved))
+    elif isinstance(resolved, ResultsMap):
+      # use items() to make sure __getitem__ was called
       return (resolved._attributes[k] for (k, v) in resolved.items())
     elif isinstance(resolved, Mapping):
       return resolved.values()
+    elif isinstance(resolved, MutableSequence):
+      return (Result(i) for i in resolved)
     else:
-      return None
+      return resolved
 
-  def resolveKey(self, key):
+  def _resolveKey(self, key):
     if self.external:
       value = self.external.resolve(key)
     else:
@@ -165,6 +166,9 @@ class Result(ChangeAware):
       else:
         value = self.resolved[key]
     return value
+
+  def project(self, key):
+    return Result(self._resolveKey(key))
 
   def hasChanged(self, changeset):
     if self.external:

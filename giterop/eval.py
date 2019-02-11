@@ -226,8 +226,7 @@ class Ref(object):
         return
 
       self.vars.update(exp.get('vars', {}))
-      if 'foreach' in exp:
-        self.foreach = exp
+      self.foreach = exp.get('foreach')
       exp = exp.get('eval', exp.get('ref',''))
 
     if vars:
@@ -242,8 +241,8 @@ class Ref(object):
     ctx = ctx.copy(vars=self.vars, wantList=wantList)
     results = evalRef(self.source, ctx, True)
     if results and self.foreach:
-      results = evalRef(self.foreach, ctx.copy(results, self.vars))
-    assert not isinstance(results, Results), results
+      results = forEach(self.foreach, ctx.copy([r.resolved for r in results], self.vars))
+    assert not isinstance(results, ResultsList), results
     results = ResultsList(results, ctx)
     ctx.trace('Ref.resolve(wantList=%s)' % wantList, self.source, results)
     if wantList:
@@ -320,16 +319,21 @@ def eqFunc(arg, ctx):
   return evalRef(args[0], ctx) == evalRef(args[1], ctx)
 
 def validateSchemaFunc(arg, ctx):
-  args = evalRef(arg, ctx)
+  args = evalForFunc(arg, ctx)
   assert isinstance(args, MutableSequence) and len(args) == 2
   return not not validateSchema(evalForFunc(args[0], ctx), evalForFunc(args[1], ctx))
 
-def _forEach(results, ctx):
-  keyExp = ctx.kw['foreach'].get('key')
-  valExp = ctx.kw['foreach']['value']
-  ictx = RefContext(ctx.currentResource, ctx.vars.copy())
-  ictx.resolveExternal = ctx.resolveExternal
+def _forEach(foreach, results, ctx):
+  if isinstance(foreach, six.string_types):
+    keyExp = None
+    valExp = foreach
+  else:
+    keyExp = foreach.get('key')
+    valExp = foreach.get('value')
+    if not valExp and not keyExp:
+      valExp = foreach
 
+  ictx = ctx.copy(wantList=False)
   Break = object()
   Continue = object()
   def makeItems():
@@ -348,6 +352,7 @@ def _forEach(results, ctx):
         elif key is Continue:
           continue
       val = evalForFunc(valExp, ictx)
+
       if val is Break:
         break
       elif val is Continue:
@@ -358,19 +363,19 @@ def _forEach(results, ctx):
         yield val
 
   if keyExp:
-    return CommentedMap(makeItems())
+    return [CommentedMap(makeItems())]
   else:
     return list(makeItems())
 
-def forEachFunc(arg, ctx):
+def forEach(foreach, ctx):
   results = ctx.currentResource
   if results:
     if isinstance(results, Mapping):
-      return _forEach(results.items(), ctx)
+      return _forEach(foreach, results.items(), ctx)
     elif isinstance(results, MutableSequence):
-      return _forEach(enumerate(results), ctx)
+      return _forEach(foreach, enumerate(results), ctx)
     else:
-      return _forEach([(0, results)], ctx)
+      return _forEach(foreach, [(0, results)], ctx)
   else:
     return results
 
@@ -382,7 +387,6 @@ _Funcs = {
   'q': quoteFunc,
   'eq': eqFunc,
   'validate': validateSchemaFunc,
-  'foreach': forEachFunc,
 }
 
 def getEvalFuncs(name):
@@ -456,18 +460,15 @@ def lookup(result, key, context):
     if isinstance(result.resolved, ResourceRef):
       context._lastResource = result.resolved
 
-    value = result.resolveKey(key)
+    result = result.project(key)
+    value = result.resolved
     context.trace('lookup %s, got %s' % (key, value))
 
     if not context._rest or Ref.isRef(value):
-      value = Results._mapValue(value, context.copy(context._lastResource))
+      # XXX what _mapValue returns an external value?
+      result.resolved = Results._mapValue(value, context.copy(context._lastResource))
 
-    if result.external:
-      # XXX if value is external
-      return Result(ExternalValue(value, key, result.external))
-    else:
-      return Result(value)
-
+    return result
   except (KeyError, IndexError, TypeError, ValueError):
     return None
 
@@ -483,7 +484,7 @@ def evalItem(result, seg, context):
 
   value = result.resolved
   for filter in seg.filters:
-    if _treatAsSingular(value, filter[0]):
+    if _treatAsSingular(result, filter[0]):
       resultList = [value]
     else:
       resultList = value
@@ -496,12 +497,15 @@ def evalItem(result, seg, context):
 
   if seg.test and not evalTest(value, seg.test, context):
     return
+  assert isinstance(result, Result), result
   yield result
 
-def _treatAsSingular(item, seg):
+def _treatAsSingular(result, seg):
   if seg.key == '*':
     return False
-  return not isinstance(item, MutableSequence) or isinstance(seg.key, six.integer_types)
+  # treat external values as single item even if they resolve to a list
+  # treat lists as a single item if indexing into it
+  return result.external or not isinstance(result.resolved, MutableSequence) or isinstance(seg.key, six.integer_types)
 
 def recursiveEval(v, exp, context):
   """
@@ -511,29 +515,24 @@ def recursiveEval(v, exp, context):
   context.trace('recursive evaluating', exp)
   matchFirst = exp[0].modifier == '?'
   useValue = exp[0].key == '*'
-  for i in v:
-    if isinstance(i, Result):
-      result = i
-      item = result.resolved
-    else:
-      item = i
-      result = Result(i)
+  for result in v:
+    assert isinstance(result, Result), result
+    item = result.resolved
 
-    if _treatAsSingular(item, exp[0]):
+    if _treatAsSingular(result, exp[0]):
       rest = exp[1:]
       context._rest = rest
       context.trace('evaluating item %s with key %s' % (item, exp[0].key))
       iv = evalItem(result, exp[0], context) # returns a generator that yields up to one result
     else:
+      iv = result._values()
       if useValue:
         if not isinstance(item, Mapping):
           context.trace('* is skipping', item)
           continue
-        iv = result._values()
         rest = exp[1:] # advance past "*" segment
       else:
         # flattens
-        iv = item # item is a sequence
         rest = exp
         context.trace('flattening', item)
 
@@ -544,12 +543,14 @@ def recursiveEval(v, exp, context):
       for r in results:
         found = True
         context.trace('recursive result', r)
+        assert isinstance(r, Result)
         yield r
       context.trace('found recursive %s matchFirst: %s' % (found, matchFirst))
       if found and matchFirst:
         return
     else:
       for r in iv:
+        assert isinstance(r, Result)
         yield r
         if matchFirst:
           return
@@ -558,7 +559,7 @@ def evalExp(start, paths, context):
   "Returns a list of Results"
   context.trace('evalexp', start, paths)
   assert isinstance(start, MutableSequence), start
-  return list(recursiveEval(start, paths, context))
+  return list(recursiveEval((Result(i) for i in start), paths, context))
 
 def _makeKey(key):
   try:

@@ -159,7 +159,6 @@ class EvalTest(unittest.TestCase):
     self.assertEqual(resource.attributes['b'], result5) # this doesn't seem obvious!
 
   def test_forEach(self):
-    return # XXX get foreach working again
     resource = self._getTestResource()
     test1 = {
       'ref': '.',
@@ -171,7 +170,7 @@ class EvalTest(unittest.TestCase):
     expected = {
       'test': expected0
     }
-    result0 = Ref(test1).resolveOne(RefContext(resource, trace=1))
+    result0 = Ref(test1).resolveOne(RefContext(resource, trace=0))
     self.assertEqual(expected0, result0)
     # resolve has same result as resolveOne
     self.assertEqual([expected0], Ref(test1).resolve(RefContext(resource)))
