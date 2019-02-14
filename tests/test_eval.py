@@ -290,3 +290,11 @@ class EvalTest(unittest.TestCase):
       "eval": {"lookup": {"env": 'TEST_ENV'}}
     }
     self.assertEqual(mapValue(query, resource), 'testEnv')
+
+  def test_jinjaTemplate(self):
+    resource = self._getTestResource()
+    query = {
+      "eval": {"template": "{%if test %}{{success}}{%else%}failed{%endif%}"},
+      "vars": {"test": True, "success": "expected"}
+    }
+    self.assertEqual(mapValue(query, resource), 'expected')

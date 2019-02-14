@@ -29,6 +29,16 @@ def runTemplate(data, vars=None, dataLoader=None):
   #   dataLoader is only used by _lookup and to set _basedir (else ./)
   return Templar(dataLoader or DataLoader(), variables=vars).template(data)
 
+def applyTemplate(value, ctx):
+  templar = ctx.currentResource.templar
+  vars = dict(__giterop = ctx)
+  vars.update(ctx.vars)
+  templar.set_available_variables(vars)
+  value = templar.template(value)
+  if Ref.isRef(value):
+    value = Ref(value).resolveOne(ctx)
+  return value
+
 def mapValue(value, resourceOrCxt):
   if not isinstance(resourceOrCxt, RefContext):
     resourceOrCxt = RefContext(resourceOrCxt)
@@ -43,14 +53,7 @@ def _mapValue(value, ctx):
   elif isinstance(value, (MutableSequence, tuple)):
     return [_mapValue(item, ctx) for item in value]
   elif isinstance(value, six.string_types):
-    templar = ctx.currentResource.templar
-    vars = dict(__giterop = ctx)
-    vars.update(ctx.vars)
-    templar.set_available_variables(vars)
-    value = templar.template(value)
-    if Ref.isRef(value):
-      value = Ref(value).resolveOne(ctx)
-    return value
+    return applyTemplate(value, ctx)
   return value
 
 class RefContext(object):
@@ -331,6 +334,7 @@ def _forEach(foreach, results, ctx):
     if not valExp and not keyExp:
       valExp = foreach
 
+  # XXX: should treat expressions as relative and not prepend .ancestor selector
   ictx = ctx.copy(wantList=False)
   Break = object()
   Continue = object()
@@ -385,12 +389,13 @@ _Funcs = {
   'q': quoteFunc,
   'eq': eqFunc,
   'validate': validateSchemaFunc,
+  'template': applyTemplate,
 }
 
-def getEvalFuncs(name):
+def getEvalFunc(name):
   return _Funcs.get(name)
 
-def setEvalFuncs(name, val):
+def setEvalFunc(name, val):
   _Funcs[name] = val
 
 # returns list of results
@@ -659,6 +664,7 @@ def lookupFunc(arg, ctx):
     - kw1: value
     - kw2: value
   """
+  # XXX arg = mapValue(arg, ctx)
   if isinstance(arg, Mapping):
     assert len(arg) == 1
     name, args = list(arg.items())[0]
