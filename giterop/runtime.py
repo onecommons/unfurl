@@ -279,6 +279,10 @@ class Resource(OperationalInstance, ResourceRef):
     if self.root is self:
       self._all = _ChildResources(self)
       self._templar = Templar(DataLoader())
+    # preload
+    self.getInterface('inherit')
+    self.getInterface('default')
+    self.getInterface('filter')
 
   def localStatus():
     doc = "The localStatus property."
@@ -310,7 +314,25 @@ class Resource(OperationalInstance, ResourceRef):
     return self.root.attributeManager.getAttributes(self)
 
   def _resolve(self, key):
-    return self.attributes[key]
+    try:
+      value = self.attributes[key]
+    except KeyError:
+      try:
+        inherit = self._interfaces.get('inherit') # pre-loaded
+        if inherit:
+          value = inherit(key)
+        else:
+          raise
+      except KeyError:
+        default = self._interfaces.get('default') # pre-loaded
+        if default:
+          value = default(key)
+        else:
+          raise
+    filter = self._interfaces.get('filter') # pre-loaded
+    if filter:
+      return filter(value)
+    return value
 
   def asRef(self, options=None):
     return {"ref": "::%s"% self.name}
@@ -342,32 +364,28 @@ class Resource(OperationalInstance, ResourceRef):
         return child
     return None
 
-  def addInterface(self, klass):
+  def addInterface(self, klass, name=None):
     if not isinstance(klass, six.string_types):
       klass = klass.__module__ + '.' + klass.__name__
-    current = self.attributes.setdefault('.interfaces', [])
-    if klass not in current:
-      current.append(klass)
+    current = self._attributes.setdefault('.interfaces', {})
+    current[name or klass] = klass
     return current
 
-  def findInterface(self, iface):
-    # lazily creates class and instance
-    if isinstance(iface, six.string_types):
-      iface = loadClass(iface)
-    current = self.attributes.get('.interfaces')
-    if not current:
-      return None
-    for name in current:
-      info = self._interfaces.setdefault(name, {})
-      if not info:
-        _class = loadClass(name)
-      else:
-        _class  = info['class']
-      if (issubclass(iface, _class) or
-          hasattr(_class, 'isCompatibleFactory') and _class.isCompatibleFactory(iface)):
-        if 'instance' not in info:
-          info['instance'] = _class(self)
-        return info['instance']
+  def getInterface(self, name):
+    if '.interfaces' not in self._attributes:
+      return None # no interfaces
+
+    if not isinstance(name, six.string_types):
+      name = name.__module__ + '.' + name.__name__
+    instance = self._interfaces.get(name)
+    if instance:
+      return instance
+    else:
+      className = self._attributes['.interfaces'].get(name)
+      if className:
+        instance = loadClass(className)(name, self)
+        self._interfaces[name] = instance
+        return instance
     return None
 
   def __eq__(self, other):

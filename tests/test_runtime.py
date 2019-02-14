@@ -247,17 +247,28 @@ root:
     self.assertEqual(str(err.exception), 'missing includes: [templates/production]')
 
 class TestInterface:
-  def __init__(self, resource):
+  def __init__(self, interfaceName, resource):
+    self.name = interfaceName
     self.resource = resource
 
 class InterfaceTest(unittest.TestCase):
+  """
+  .interfaces:
+    inherit: ClassName
+    default:
+    filter:
+  """
+
   def test_interface(self):
     r = Resource('test')
     r.addInterface(TestInterface)
-    self.assertEqual(r.attributes['.interfaces'], ['tests.test_runtime.TestInterface'])
-    i = r.findInterface(__name__ + '.' +  'TestInterface')
+    className = __name__ + '.TestInterface'
+    self.assertEqual(r.attributes['.interfaces'], {className: className})
+    i = r.getInterface(className)
     assert i, "interface not found"
     self.assertIs(r, i.resource)
+    self.assertEqual(i.name, className)
+    self.assertIs(r._interfaces[className], i)
 
   # XXX test ::container[.interfaces=Container]
 
@@ -271,8 +282,8 @@ class FileTestConfigurator(Configurator):
     value = task.query({'ref':{'file':'foo.txt'}})
     yield task.createResult(True, True, Status.ok, result = value)
 
-from giterop.eval import setEvalFuncs, ExternalValue
-setEvalFuncs('file', lambda arg, ctx: ExternalValue(ctx.currentFunc, arg))
+from giterop.eval import setEvalFunc, ExternalValue
+setEvalFunc('file', lambda arg, ctx: ExternalValue(ctx.currentFunc, arg))
 #from giterop.valuemanagers import registerValueManager, FileManager
 class FileTest(unittest.TestCase):
 

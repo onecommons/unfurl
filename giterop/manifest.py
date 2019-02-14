@@ -22,7 +22,7 @@ root: #root resource is always named 'root'
   spec:
     attributes:
       .interfaces:
-        - foo.bar.Interface
+        interfaceName: foo.bar.ClassName
     attributesSchema:
     configurations:
       name1:
@@ -42,7 +42,7 @@ root: #root resource is always named 'root'
             attributes:
               foo: bar
               .interfaces:
-                - module.barManager
+                iBarManager: module.barManager
             configurations:
               config1:
                 template:
