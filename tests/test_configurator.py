@@ -127,7 +127,7 @@ class ConfiguratorTest(unittest.TestCase):
 
     self.assertEqual(test1.attributes["meetsTheRequirement"], "copy")
     notYetProvided = runner.manifest.specs[0].findMissingProvided(test1)
-    self.assertEqual(str(notYetProvided),
+    self.assertEqual(str(notYetProvided[1]),
 """[<ValidationError: "'copyOfMeetsTheRequirement' is a required property">]""")
 
     jobOptions1 = JobOptions(resource='test1', startTime=datetime.datetime.fromordinal(1))
@@ -149,7 +149,7 @@ class ConfiguratorTest(unittest.TestCase):
     requiredAttribute = test2.attributes['meetsTheRequirement']
     assert requiredAttribute is False, requiredAttribute
     missing = runner.manifest.specs[0].findMissingRequirements(test2)
-    self.assertEqual(str(missing), '''[<ValidationError: "False is not of type 'string'">]''')
+    self.assertEqual(str(missing[1]), '''[<ValidationError: "False is not of type 'string'">]''')
 
     self.verifyRoundtrip(run1.out.getvalue(), jobOptions1)
 

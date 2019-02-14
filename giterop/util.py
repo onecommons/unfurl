@@ -504,9 +504,16 @@ def extend_with_default(validator_class):
 DefaultValidatingLatestDraftValidator = extend_with_default(Draft4Validator)
 
 def validateSchema(obj, schema):
+  return not findSchemaErrors(obj, schema)
+
+def findSchemaErrors(obj, schema):
   # XXX2 have option that includes definitions from manifest's schema
   validator = DefaultValidatingLatestDraftValidator(schema)
-  return list(validator.iter_errors(obj))
+  errors = list(validator.iter_errors(obj))
+  if not errors:
+    return None
+  message = '\n'.join(str(e) for e in errors)
+  return message, errors
 
 #RefResolver.from_schema(schema)
 

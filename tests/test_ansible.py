@@ -119,5 +119,5 @@ class AnsibleTest(unittest.TestCase):
 
   def test_changes(self):
     """
-    If configuration changes, make sure playbooks fun from the start
+    If configuration changes, make sure playbooks run from the start
     """

@@ -41,7 +41,7 @@ yaml = YAML()
 
 from .util import (GitErOpError, GitErOpTaskError, GitErOpAddingResourceError,
   lookupClass, AutoRegisterClass, loadClass, ChainMap, toEnum,
-  validateSchema, mergeDicts)
+  validateSchema, findSchemaErrors, mergeDicts)
 from .result import ResourceRef, Results, serializeValue, ChangeAware
 from .eval import Ref, mapValue, RefContext
 #from .local import LocalEnv
@@ -517,7 +517,7 @@ class ConfigurationSpec(object):
     if not self.requires:
       return []
     expanded = serializeValue(resource.attributes)
-    return validateSchema(expanded, self.requires)
+    return findSchemaErrors(expanded, self.requires)
 
   def findMissingProvided(self, resource):
     # print('provides', resource.name, self.target, self.provides)
@@ -533,7 +533,7 @@ class ConfigurationSpec(object):
       return []
 
     expanded = serializeValue(resource.attributes)
-    return validateSchema(expanded, spec['attributesSchema'])
+    return findSchemaErrors(expanded, spec['attributesSchema'])
 
   def create(self):
     return lookupClass(self.className)(self)
@@ -985,7 +985,7 @@ class Task(TaskView, AttributeManager):
 
   def validateParameters(self):
     spec = self.pendingConfig.configurationSpec
-    return not spec.validateParameters(
+    return spec.validateParameters(
                   spec.resolveParameters(self.pendingConfig))
 
   def start(self):

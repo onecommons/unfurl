@@ -1,7 +1,7 @@
 import unittest
 from giterop.runtime import JobOptions, Configurator, ConfigurationSpec, Status, Priority, Resource, Runner, Manifest, OperationalInstance
 from giterop.manifest import YamlManifest
-from giterop.util import GitErOpError, expandDoc, restoreIncludes, lookupClass, VERSION, diffDicts, mergeDicts, patchDict
+from giterop.util import GitErOpError, GitErOpValidationError, expandDoc, restoreIncludes, lookupClass, VERSION, diffDicts, mergeDicts, patchDict
 from ruamel.yaml.comments import CommentedMap
 import traceback
 import six
@@ -284,7 +284,6 @@ class FileTestConfigurator(Configurator):
 
 from giterop.eval import setEvalFunc, ExternalValue
 setEvalFunc('file', lambda arg, ctx: ExternalValue(ctx.currentFunc, arg))
-#from giterop.valuemanagers import registerValueManager, FileManager
 class FileTest(unittest.TestCase):
 
   def test_fileRef(self):
@@ -309,3 +308,65 @@ class FileTest(unittest.TestCase):
     self.assertEqual( job.workDone[('root', 'test')].result.result, 'foo.txt')
 
   def test_change(self): pass
+
+from click.testing import CliRunner
+class ImportTest(unittest.TestCase):
+
+  def test_import(self):
+    foreign = """
+    apiVersion: %s
+    kind: Manifest
+    root:
+      spec:
+        attributes:
+          prop1: ok
+          prop2: not-a-number
+    """ % VERSION
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+      with open('foreignmanifest.yaml', 'w') as f:
+        f.write(foreign)
+
+      importer = """
+      apiVersion: %s
+      kind: Manifest
+      imports:
+        test:
+          url: foreignmanifest.yaml
+          # resource: name # default is root
+          # attributes: # queries into resource
+          # configurations:
+          properties: # expected schema for attributes
+            prop2:
+             type: number
+            prop3:
+              type: string
+              default: 'default'
+      root:
+        spec:
+          attributes:
+            test:
+              eval:
+                external: test
+            mapped1:
+              eval:
+                external: test
+              foreach: prop1
+            mapped2:
+              eval:
+                external: test
+              foreach: prop2
+            mapped3:
+              eval:
+                external: test
+              foreach: prop3
+      """ % VERSION
+      manifest = YamlManifest(importer)
+      root = manifest.getRootResource()
+      assert root.attributes['test']
+      assert root.imports['test']
+      self.assertEqual(root.attributes['mapped1'], 'ok')
+      with self.assertRaises(GitErOpValidationError) as err:
+        root.attributes['mapped2']
+      self.assertIn('schema validation failed', str(err.exception))
+      self.assertEqual(root.attributes['mapped3'], 'default')

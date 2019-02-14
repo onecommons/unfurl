@@ -3,20 +3,29 @@
 apiVersion: VERSION
 kind: Manifest
 
-locals:
- properties:
-   name1:
-     type: string
-     default
- required:
-secrets:
-   name1:
-     type: string
-     default
-   # save-digest: true
-   # prompt: true
-   # readonly: true
- required:
+imports:
+  foo:
+    url: local/path # for now
+    resource: name # default is root
+    attributes: # queries into resource
+    configurations:
+    properties: # expected schema for attributes
+  # special case imports, url and resource can't be defined
+  locals:
+   properties:
+     name1:
+       type: string
+       default
+   required:
+  secrets:
+   properties:
+     name1:
+       type: string
+       default
+     # save-digest: true
+     # prompt: true
+     # readonly: true
+   required:
 
 root: #root resource is always named 'root'
   spec:
@@ -109,8 +118,8 @@ changes:
 
 import six
 import copy
-from .util import (GitErOpError, VERSION,
-  expandDoc, restoreIncludes, patchDict, validateSchema)
+from .util import (GitErOpError, GitErOpValidationError, VERSION,
+  expandDoc, restoreIncludes, patchDict, findSchemaErrors)
 from .runtime import (JobOptions, Status, Priority, serializeValue,
   Action, Defaults, Runner, Manifest, ResourceChanges, ChangeRecord)
 from ruamel.yaml import YAML
@@ -118,6 +127,7 @@ from ruamel.yaml.comments import CommentedMap
 from codecs import open
 from six.moves import reduce
 import sys
+import collections
 yaml = YAML()
 
 # XXX3 add as file to package data
@@ -335,6 +345,8 @@ schema = {
   "required": ["apiVersion", "kind", "root"]
 }
 
+Import = collections.namedtuple('Import', ['resource', 'spec', 'manifest'])
+
 def saveConfigSpec(spec):
   saved = CommentedMap([
     ("intent", spec.intent.name),
@@ -500,14 +512,11 @@ class YamlManifest(Manifest):
     self.includes, manifest = expandDoc(self.manifest, cls=CommentedMap)
     #print('expanded')
     #yaml.dump(manifest, sys.stdout)
-    messages = self.validate(manifest)
-    # XXX dont print, log validation errors
-    #for error in messages:
-    #  print(error)
-    if messages and validate:
-      raise GitErOpError(messages)
+    errors = self.validate(manifest)
+    if errors and validate:
+      raise GitErOpValidationError(*errors)
     else:
-      self.valid = not not messages
+      self.valid = not not errors
 
     self.specs = []
     self.changeSets = dict((c['changeId'], Changeset(c)) for c in  manifest.get('changes', []))
@@ -516,6 +525,7 @@ class YamlManifest(Manifest):
     templates = manifest.get('templates', {})
     rootResource = self.createResource('root', manifest['root'], None,
                     templates.get('resources'), templates.get('configurations'))
+    rootResource.imports = self.loadImports(manifest.get('imports', {}))
     super(YamlManifest, self).__init__(rootResource, self.specs, lastChangeId)
 
   @staticmethod
@@ -588,7 +598,26 @@ class YamlManifest(Manifest):
     yaml.dump(self.manifest, out)
 
   def validate(self, manifest):
-    return validateSchema(manifest, schema)
+    return findSchemaErrors(manifest, schema)
+
+  @staticmethod
+  def loadImports(importsSpec):
+    """
+      url: local/path # for now
+      resource: name # default is root
+      attributes: # queries into resource
+      configurations:
+      properties: # expected schema for attributes
+    """
+    imports = {}
+    for name, value in importsSpec.items():
+      imported = YamlManifest(path=value['url'])
+      rname = value.get('resource', 'root')
+      resource = imported.getRootResource().findResource(rname)
+      if not resource:
+        raise GitErOpError("Can not import '%s': resource '%s' not found" % (name, rname))
+      imports[name] = Import(resource, value, imported)
+    return imports
 
 def runJob(manifestPath, opts=None):
   manifest = YamlManifest(path=manifestPath)

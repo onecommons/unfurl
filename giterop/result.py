@@ -182,7 +182,7 @@ class Result(ChangeAware):
     if self.external:
       # if value is an ExternalValue this will overwrite it
       result.external = self.external
-      result.select = self.select + key
+      result.select = self.select + (key,)
     return result
 
   def hasChanged(self, changeset):
@@ -200,7 +200,7 @@ class Result(ChangeAware):
       return self.resolved == other
 
   def __repr__(self):
-    return "Result(%r)" % self.resolved
+    return "Result(%r, %r, %r)" % (self.resolved, self.external, self.select)
 
 class Results(object):
   """

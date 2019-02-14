@@ -79,7 +79,7 @@ class RefContext(object):
 
   def trace(self, *msg):
     if self._trace:
-      print("%s (ctx: %s)" % (' '.join(str(a) for a in msg), self._lastResource.name))
+      print("%s (ctx: %s)" % (' '.join(str(a) for a in msg), self._lastResource))
 
 class Expr(object):
   def __init__(self, exp, vars = None):
@@ -92,13 +92,15 @@ class Expr(object):
 
     self.source = exp
     paths = list(parseExp(exp))
-    if (not paths[0].key or paths[0].key[0] not in '.$') and (paths[0].key or paths[0].filters):
-      # unspecified relative path: prepend a segment to select ancestors
-      # and have the first segment only choose the first match
-      # note: the first match modifier is set on the first segment and not .ancestors
-      # because .ancestors is evaluated against the initial context resource and so
-      # its first match is always going to be the result of the whole query (since the initial context is just one item)
-      paths[:1] = [Segment('.ancestors', [], '', []), paths[0]._replace(modifier='?')]
+    if 'break' not in self.vars:
+      # hack to check that we aren't a foreach expression
+      if (not paths[0].key or paths[0].key[0] not in '.$') and (paths[0].key or paths[0].filters):
+        # unspecified relative path: prepend a segment to select ancestors
+        # and have the first segment only choose the first match
+        # note: the first match modifier is set on the first segment and not .ancestors
+        # because .ancestors is evaluated against the initial context resource and so
+        # its first match is always going to be the result of the whole query (since the initial context is just one item)
+        paths[:1] = [Segment('.ancestors', [], '', []), paths[0]._replace(modifier='?')]
     self.paths = paths
 
   def __repr__(self):
@@ -242,7 +244,7 @@ class Ref(object):
     ctx = ctx.copy(vars=self.vars, wantList=wantList)
     results = evalRef(self.source, ctx, True)
     if results and self.foreach:
-      results = forEach(self.foreach, ctx.copy([r.resolved for r in results], self.vars))
+      results = forEach(self.foreach, results, ctx)
     assert not isinstance(results, ResultsList), results
     results = ResultsList(results, ctx)
     ctx.trace('Ref.resolve(wantList=%s)' % wantList, self.source, results)
@@ -322,7 +324,7 @@ def eqFunc(arg, ctx):
 def validateSchemaFunc(arg, ctx):
   args = evalForFunc(arg, ctx)
   assert isinstance(args, MutableSequence) and len(args) == 2
-  return not not validateSchema(evalForFunc(args[0], ctx), evalForFunc(args[1], ctx))
+  return validateSchema(evalForFunc(args[0], ctx), evalForFunc(args[1], ctx))
 
 def _forEach(foreach, results, ctx):
   if isinstance(foreach, six.string_types):
@@ -334,14 +336,14 @@ def _forEach(foreach, results, ctx):
     if not valExp and not keyExp:
       valExp = foreach
 
-  # XXX: should treat expressions as relative and not prepend .ancestor selector
   ictx = ctx.copy(wantList=False)
+  # ictx._trace = 1
   Break = object()
   Continue = object()
   def makeItems():
     for i, (k, v) in enumerate(results):
       ictx.currentResource = v
-      ictx.vars['collection'] =  ctx.currentResource
+      ictx.vars['collection'] =  results
       ictx.vars['index'] = i
       ictx.vars['key'] = k
       ictx.vars['item'] = v
@@ -354,7 +356,6 @@ def _forEach(foreach, results, ctx):
         elif key is Continue:
           continue
       val = evalForFunc(valExp, ictx)
-
       if val is Break:
         break
       elif val is Continue:
@@ -369,7 +370,11 @@ def _forEach(foreach, results, ctx):
   else:
     return list(makeItems())
 
-def forEach(foreach, ctx):
+def forEach(foreach, results, ctx):
+  # results will be list of Results
+  return _forEach(foreach, enumerate(r.external or r.resolved for r in results), ctx)
+
+def forEachFunc(foreach, ctx):
   results = ctx.currentResource
   if results:
     if isinstance(results, Mapping):
@@ -390,6 +395,7 @@ _Funcs = {
   'eq': eqFunc,
   'validate': validateSchemaFunc,
   'template': applyTemplate,
+  'foreach': forEachFunc,
 }
 
 def getEvalFunc(name):
@@ -473,6 +479,10 @@ def lookup(result, key, context):
 
     return result
   except (KeyError, IndexError, TypeError, ValueError):
+    if context._trace:
+      context.trace('lookup return None due to exception:')
+      import traceback
+      traceback.print_exc()
     return None
 
 # given a Result, yields the result

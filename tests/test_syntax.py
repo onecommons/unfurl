@@ -16,16 +16,16 @@ class ManifestSyntaxTest(unittest.TestCase):
     kind: Manifest
     root: {}
     """
-    with self.assertRaises(GitErOpError) as err:
+    with self.assertRaises(GitErOpValidationError) as err:
       YamlManifest(badVersion)
-    self.assertEqual(str(err.exception), '[<ValidationError: "2 is not one of [\'giterops/v1alpha1\']">]')
+    self.assertEqual(str(err.exception.errors), '[<ValidationError: "2 is not one of [\'giterops/v1alpha1\']">]')
 
     missingVersion = """
     root: {}
     """
-    with self.assertRaises(GitErOpError) as err:
+    with self.assertRaises(GitErOpValidationError) as err:
       YamlManifest(missingVersion)
-    self.assertEqual(str(err.exception), '''[<ValidationError: "'apiVersion' is a required property">, <ValidationError: "'kind' is a required property">]''')
+    self.assertEqual(str(err.exception.errors), '''[<ValidationError: "'apiVersion' is a required property">, <ValidationError: "'kind' is a required property">]''')
 
   def test_resourcenames(self):
     #clusterids can only contain [a-z0-9]([a-z0-9\-]*[a-z0-9])?
@@ -158,9 +158,9 @@ root:
         +templates/base/configurations:
 
 '''
-    with self.assertRaises(GitErOpError) as err:
+    with self.assertRaises(GitErOpValidationError) as err:
       YamlManifest(manifest)
-    self.assertEqual(str(err.exception), '''[<ValidationError: "['step1', 'step2'] is not of type 'object'">]''')
+    self.assertEqual(str(err.exception.errors), '''[<ValidationError: "['step1', 'step2'] is not of type 'object'">]''')
 
 #   def test_badparams(self):
 #     # don't match spec definition
