@@ -41,6 +41,8 @@ class EvalTest(unittest.TestCase):
       }
     resource = Resource("test", attributes=resourceDef)
     assert resource.attributes['x'] == resourceDef['x']
+    assert resource.attributes['a'] == 'test'
+    assert resource.attributes['s'] is resource
     return resource
 
   def test_refs(self):

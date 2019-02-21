@@ -118,17 +118,19 @@ changes:
 
 import six
 import copy
-from .util import (GitErOpError, GitErOpValidationError, VERSION,
-  expandDoc, restoreIncludes, patchDict, findSchemaErrors)
-from .runtime import (JobOptions, Status, Priority, serializeValue,
-  Action, Defaults, Runner, Manifest, ResourceChanges, ChangeRecord)
-from ruamel.yaml import YAML
+import sys
+import collections
+import os.path
+
+from .util import (GitErOpError, VERSION, restoreIncludes, patchDict, YamlConfig)
+from .runtime import (JobOptions, Priority, Action, Defaults,
+                      Runner, Manifest, ChangeRecord)
+from .result import serializeValue
+from .support import ResourceChanges, Status, LocalEnv
+
 from ruamel.yaml.comments import CommentedMap
 from codecs import open
 from six.moves import reduce
-import sys
-import collections
-yaml = YAML()
 
 # XXX3 add as file to package data
 #schema=open(os.path.join(os.path.dirname(__file__), 'manifest-v1alpha1.json')).read()
@@ -345,7 +347,7 @@ schema = {
   "required": ["apiVersion", "kind", "root"]
 }
 
-Import = collections.namedtuple('Import', ['resource', 'spec', 'manifest'])
+Import = collections.namedtuple('Import', ['resource', 'spec'])
 
 def saveConfigSpec(spec):
   saved = CommentedMap([
@@ -495,28 +497,11 @@ class Changeset(object):
 # +./ +../ +/
 # +%: +url:ffff#fff:
 class YamlManifest(Manifest):
-  def __init__(self, manifest=None, path=None, validate=True):
-    if path:
-      self.path = path
-      with open(path, 'r') as f:
-        manifest = f.read()
-    else:
-      self.path = None
-    if isinstance(manifest, six.string_types):
-      self.manifest = yaml.load(manifest)
-    else:
-      self.manifest = manifest
-
-    #schema should include defaults but can't validate because it doesn't understand includes
-    #but should work most of time
-    self.includes, manifest = expandDoc(self.manifest, cls=CommentedMap)
-    #print('expanded')
-    #yaml.dump(manifest, sys.stdout)
-    errors = self.validate(manifest)
-    if errors and validate:
-      raise GitErOpValidationError(*errors)
-    else:
-      self.valid = not not errors
+  def __init__(self, manifest=None, path=None, validate=True, localEnv=None):
+    assert not (localEnv and (manifest or path)) # invalid combination of args
+    self.localEnv = localEnv
+    self.manifest = YamlConfig(manifest, path or localEnv and localEnv.path, validate, schema)
+    manifest = self.manifest.expanded
 
     self.specs = []
     self.changeSets = dict((c['changeId'], Changeset(c)) for c in  manifest.get('changes', []))
@@ -525,8 +510,18 @@ class YamlManifest(Manifest):
     templates = manifest.get('templates', {})
     rootResource = self.createResource('root', manifest['root'], None,
                     templates.get('resources'), templates.get('configurations'))
-    rootResource.imports = self.loadImports(manifest.get('imports', {}))
+
+    importsSpec = manifest.get('imports', {})
+    if localEnv:
+      importsSpec.setdefault('local', {})
+      importsSpec.setdefault('secret', {})
+    rootResource.imports = self.loadImports(importsSpec)
+    rootResource.baseDir = self.getBaseDir()
+
     super(YamlManifest, self).__init__(rootResource, self.specs, lastChangeId)
+
+  def getBaseDir(self):
+    return self.manifest.getBaseDir()
 
   @staticmethod
   def _getResourcePath(resource):
@@ -546,12 +541,12 @@ class YamlManifest(Manifest):
       status['createdOn'] = resource.createdOn.changeId
     if resource.createdFrom:
       insertKey = self._getResourcePath(resource) + ('spec',)
-      if insertKey not in self.includes:
+      if insertKey not in self.manifest.includes:
         # if this resource is being added for the first time and it's from a template
         # create a merge include directive pointing at the template
         configPath = '/'.join(self._getConfigPath(resource.createdOn))
         includePath = '+' + configPath + '/provides/' + resource.createdFrom
-        self.includes[insertKey] = [(includePath, None)]
+        self.manifest.includes[insertKey] = [(includePath, None)]
       status['createdFrom'] = resource.createdFrom
 
     status['configurations'] = CommentedMap(map(self.saveConfiguration, resource.effectiveConfigurations.values()))
@@ -580,14 +575,14 @@ class YamlManifest(Manifest):
     changes = map(self.saveTask, job.workDone.values())
     changed = CommentedMap([self.saveResource(self.rootResource, job.workDone)])
     # update changed with includes, this may change objects with references to these objects
-    restoreIncludes(self.includes, self.manifest, changed, cls=CommentedMap)
+    restoreIncludes(self.manifest.includes, self.manifest.config, changed, cls=CommentedMap)
     # modify original to preserve structure and comments
-    patchDict(self.manifest['root'], changed['root'], cls=CommentedMap)
-    self.manifest.setdefault('changes', []).extend(changes)
+    patchDict(self.manifest.config['root'], changed['root'], cls=CommentedMap)
+    self.manifest.config.setdefault('changes', []).extend(changes)
     if job.out:
       self.dump(job.out)
-    elif self.path:
-      with open(self.path, 'w') as f:
+    elif self.manifest.path:
+      with open(self.manifest.path, 'w') as f:
         self.dump(f)
     else:
       output = six.StringIO()
@@ -595,15 +590,11 @@ class YamlManifest(Manifest):
       job.out = output
 
   def dump(self, out=sys.stdout):
-    yaml.dump(self.manifest, out)
+    self.manifest.dump(out)
 
-  def validate(self, manifest):
-    return findSchemaErrors(manifest, schema)
-
-  @staticmethod
-  def loadImports(importsSpec):
+  def loadImports(self, importsSpec):
     """
-      url: local/path # for now
+      path: local/path # for now
       resource: name # default is root
       attributes: # queries into resource
       configurations:
@@ -611,16 +602,22 @@ class YamlManifest(Manifest):
     """
     imports = {}
     for name, value in importsSpec.items():
-      imported = YamlManifest(path=value['url'])
-      rname = value.get('resource', 'root')
-      resource = imported.getRootResource().findResource(rname)
+      resource = self.localEnv and self.localEnv.getLocalResource(name, value)
+      if not resource:
+        if 'path' not in value:
+          raise GitErOpError("Can not import '%s': no path specified" % (name))
+        path = os.path.join(self.getBaseDir(), value['path'])
+        imported = YamlManifest(path=path)
+        rname = value.get('resource', 'root')
+        resource = imported.getRootResource().findResource(rname)
       if not resource:
         raise GitErOpError("Can not import '%s': resource '%s' not found" % (name, rname))
-      imports[name] = Import(resource, value, imported)
+      imports[name] = Import(resource, value)
     return imports
 
-def runJob(manifestPath, opts=None):
-  manifest = YamlManifest(path=manifestPath)
+def runJob(manifestPath=None, opts=None):
+  localEnv = LocalEnv(manifestPath)
+  manifest = YamlManifest(localEnv=localEnv)
   runner = Runner(manifest)
   kw = opts or {}
   return runner.run(JobOptions(**kw))

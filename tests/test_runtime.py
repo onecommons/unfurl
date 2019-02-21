@@ -7,6 +7,8 @@ import traceback
 import six
 import datetime
 import copy
+import os.path
+from click.testing import CliRunner
 
 class SimpleConfigurator(Configurator):
   def run(self, task):
@@ -275,6 +277,9 @@ class InterfaceTest(unittest.TestCase):
 class FileTestConfigurator(Configurator):
   def run(self, task):
     assert self.canRun(task)
+    assert task.currentConfig.root.attributes['file'] == 'foo.txt'
+    assert os.path.isabs(task.currentConfig.parameters['path'])
+    assert task.currentConfig.parameters['contents'] == 'test', task.currentConfig.parameters['contents']
 
     filevalue = task.query({'ref':{'file':'foo.txt'}}, wantList=True)
     assert filevalue._attributes[0].external.type == 'file'
@@ -282,8 +287,6 @@ class FileTestConfigurator(Configurator):
     value = task.query({'ref':{'file':'foo.txt'}})
     yield task.createResult(True, True, Status.ok, result = value)
 
-from giterop.eval import setEvalFunc, ExternalValue
-setEvalFunc('file', lambda arg, ctx: ExternalValue(ctx.currentFunc, arg))
 class FileTest(unittest.TestCase):
 
   def test_fileRef(self):
@@ -292,24 +295,40 @@ class FileTest(unittest.TestCase):
     kind: Manifest
     root:
       spec:
+        attributes:
+          file:
+            eval:
+              file: foo.txt
         configurations:
           test:
             className:    FileTestConfigurator
             majorVersion: 0
-            parameters: {}
+            parameters:
+              path:
+                ref: file::path
+              contents:
+                ref: file::contents
     """ % VERSION
     manifest = YamlManifest(simple)
-    root = manifest.getRootResource()
-    # current dir will be the manifest's repo root
-    # registerValueManager(root, FileManager(root, manifest.getBaseDir()))
     runner = Runner(manifest)
     output = six.StringIO()
-    job = runner.run(JobOptions(add=True, out=output, startTime="test"))
+    cliRunner = CliRunner()
+    with cliRunner.isolated_filesystem(): # as tmpDir
+      with open('foo.txt', 'w') as f:
+        f.write('test')
+      job = runner.run(JobOptions(add=True, out=output, startTime="test"))
     self.assertEqual( job.workDone[('root', 'test')].result.result, 'foo.txt')
 
-  def test_change(self): pass
+  def test_change(self):
+    """
+    config parameter: file.path
+    run...
+    touch file...
+    run again...
+    assert it triggers update
+    """
+    # XXX
 
-from click.testing import CliRunner
 class ImportTest(unittest.TestCase):
 
   def test_import(self):
@@ -332,7 +351,7 @@ class ImportTest(unittest.TestCase):
       kind: Manifest
       imports:
         test:
-          url: foreignmanifest.yaml
+          path: foreignmanifest.yaml
           # resource: name # default is root
           # attributes: # queries into resource
           # configurations:

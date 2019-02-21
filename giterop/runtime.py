@@ -41,7 +41,7 @@ yaml = YAML()
 
 from .util import (GitErOpError, GitErOpTaskError, GitErOpAddingResourceError,
   lookupClass, AutoRegisterClass, loadClass, ChainMap, toEnum,
-  validateSchema, findSchemaErrors, mergeDicts)
+  validateSchema, findSchemaErrors, mergeDicts, YamlConfig)
 from .result import ResourceRef, Results, serializeValue, ChangeAware
 from .eval import Ref, mapValue, RefContext
 #from .local import LocalEnv
@@ -252,6 +252,11 @@ class _ChildResources(collections.Mapping):
     return len(tuple(self))
 
 class Resource(OperationalInstance, ResourceRef):
+  baseDir = ''
+  createdOn = None
+  createdFrom = None
+  attributeManager = None
+
   def __init__(self, name='', attributes=None, parent=None,
         spec=None, status=None, priority=None, manualOveride=None):
     OperationalInstance.__init__(self, status, priority, manualOveride)
@@ -273,9 +278,6 @@ class Resource(OperationalInstance, ResourceRef):
       parent.resources.append(self)
     self.resources = []
     self.spec = spec or {}
-    self.attributeManager = None
-    self.createdOn = None
-    self.createdFrom = None
     if self.root is self:
       self._all = _ChildResources(self)
       self._templar = Templar(DataLoader())
@@ -456,10 +458,18 @@ class ConfiguratorResult(object):
     self.configChanged = configChanged
     self.result = result
 
+  def __str__(self):
+    return ' '.join(filter(None,[
+      self.applied and 'applied',
+      self.modified and 'modified',
+      self.readyState and self.readyState.name,
+      self.configChanged and 'config changed']))
+
 @six.add_metaclass(AutoRegisterClass)
 class Configurator(object):
-  def __init__(self, configurationSpec):
+  def __init__(self, configurationSpec, runFunc=None):
     self.configurationSpec = configurationSpec
+    self.runFunc = runFunc
 
   # yields a JobRequest, TaskRequest or a ConfiguratorResult
   def run(self, task):
@@ -533,6 +543,7 @@ class ConfigurationSpec(object):
     return findSchemaErrors(expanded, spec['attributesSchema'])
 
   def create(self):
+    # XXX2 throw clearer exception if couldn't load class
     return lookupClass(self.className)(self)
 
   def canRun(self, configuration):
@@ -856,7 +867,7 @@ class TaskView(ChangeRecord):
         attributes:
     """
     if isinstance(resources, six.string_types):
-      resources = yaml.load(resources)
+      resources = YamlConfig(resources).config
 
     errors = []
     newResources = []
@@ -870,6 +881,8 @@ class TaskView(ChangeRecord):
         else:
           existingResource = self.findResource(rname)
         if existingResource:
+          # XXX2 if spec is defined (not just status), there should be a way to
+          # indicate this should replace an existing resource or throw an error
           status = resourceSpec.get('status')
           operational = Manifest.createStatus(status)
           if operational.localStatus:
@@ -937,6 +950,10 @@ class TaskView(ChangeRecord):
     return old
 
   def createResult(self, applied, modified, readyState=None, configChanged=None, result=None):
+    readyState = toEnum(Status, readyState)
+    if applied and (not readyState or readyState == Status.notapplied):
+        raise GitErOpTaskError(self, "need to set readyState if configuration was applied")
+
     return ConfiguratorResult(applied, modified, readyState, configChanged, result)
 
 
@@ -1040,7 +1057,7 @@ class Task(TaskView, AttributeManager):
       self.pendingConfig._lastStateChange = self.changeId
 
     if result.applied:
-      assert result.readyState and result.readyState != Status.notapplied
+      assert result.readyState and result.readyState != Status.notapplied, result.readyState
       self._setConfigStatus(self.pendingConfig, result)
     else:
       self.pendingConfig.localStatus = Status.notapplied
@@ -1048,8 +1065,7 @@ class Task(TaskView, AttributeManager):
       if self.previousConfig:
         if result.modified:
           self.previousConfig._lastStateChange = self.changeId
-        if result.readyState:
-          assert result.readyState != Status.notapplied
+        if result.readyState and result.readyState != Status.notapplied:
           self._setConfigStatus(self.previousConfig, result)
 
     self.pendingConfig.resource.setConfiguration(self.pendingConfig)
@@ -1455,7 +1471,9 @@ status compared to current spec is different: compare difference for each:
     return False #XXX3
 
   def summary(self):
-    return "XXX2"
+    line1 = 'Job completed: %s. Ran tasks:\n    ' % self.status.name
+    return (line1 + '\n    '.join(".".join(name) + ': ' + str(task.result)
+      for name, task in self.workDone.items()))
 
   def getOperationalDependencies(self):
     # XXX3 this isn't right, root job might have too many and child job might not have enough
@@ -1478,11 +1496,7 @@ class Manifest(AttributeManager):
     return self.specs
 
   def getBaseDir(self):
-    manifestPath = getattr(self, 'path', None)
-    if manifestPath:
-      return os.path.dirname(manifestPath)
-    else:
-      return '.'
+    return '.'
 
   def saveJob(self, job):
     pass

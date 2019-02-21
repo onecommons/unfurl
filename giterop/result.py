@@ -228,7 +228,7 @@ class Results(object):
       self.context = resourceOrCxt
 
   def hasDiff(self):
-    return any(isinstance(x, Result) and x.hasDiff() for x in self._attribute)
+    return any(isinstance(x, Result) and x.hasDiff() for x in self._attributes)
 
   def _serializeItem(self, val):
     if isinstance(val, Result):

@@ -1,3 +1,15 @@
-# just a list of paths, GitErOp will introspect
-local-repos:
-  - "path1"
+defaults: #for undeclared manifests
+  local:
+  secret:
+
+manifests:
+  - path: /path/to/manifest.yaml
+    default: true
+    local:
+      attributes:
+        prop1: 'found'
+        prop2: 1
+      # or instead of "attributes" an import spec ("path", "resource")
+    secret:
+      attributes:
+        password: 'shh...'

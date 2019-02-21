@@ -6,9 +6,11 @@ import itertools
 from collections import Mapping, MutableSequence
 import os.path
 from jsonschema import Draft4Validator, validators, RefResolver
+from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap
 import logging
 logger = logging.getLogger('giterup')
+yaml = YAML()
 
  #import pickle
 pickleVersion = 2 #pickle.DEFAULT_PROTOCOL
@@ -543,3 +545,42 @@ class ChainMap(Mapping):
 
   def __repr__(self):
     return "ChainMap(%r)" % (self._maps,)
+
+class YamlConfig(object):
+  def __init__(self, config=None, path=None, validate=True, schema=None):
+    self.schema = schema
+    if path:
+      assert not config
+      self.path = os.path.abspath(path)
+      with open(path, 'r') as f:
+        config = f.read()
+    else:
+      self.path = None
+    if isinstance(config, six.string_types):
+      self.config = yaml.load(config)
+    else:
+      self.config = config
+
+    #schema should include defaults but can't validate because it doesn't understand includes
+    #but should work most of time
+    self.includes, config = expandDoc(self.config, cls=CommentedMap)
+    self.expanded = config
+    #print('expanded')
+    #yaml.dump(config, sys.stdout)
+    errors = schema and self.validate(config)
+    if errors and validate:
+      raise GitErOpValidationError(*errors)
+    else:
+      self.valid = not not errors
+
+  def getBaseDir(self):
+    if self.path:
+      return os.path.dirname(self.path)
+    else:
+      return '.'
+
+  def dump(self, out=sys.stdout):
+    yaml.dump(self.config, out)
+
+  def validate(self, config):
+    return findSchemaErrors(config, self.schema)

@@ -140,7 +140,7 @@ class ConfiguratorTest(unittest.TestCase):
     assert not provided, provided
 
     # check that the modifications were recorded
-    self.assertEqual(runner.manifest.manifest['root']['resources']['test1']
+    self.assertEqual(runner.manifest.manifest.config['root']['resources']['test1']
           ['status']['configurations']['test']['modifications'],
           {'test1':{'copyOfMeetsTheRequirement': 'copy'}})
 
@@ -177,10 +177,10 @@ class ConfiguratorTest(unittest.TestCase):
       'template': 'resourceTemplate1'
       }
     }
-    modifications = lookupPath(runner.manifest.manifest,
+    modifications = lookupPath(runner.manifest.manifest.config,
     'root.resources.test3.status.configurations.test.modifications'.split('.'))
     self.assertEqual(modifications['added1'], added)
-    self.assertEqual(runner.manifest.manifest['changes'][0]['changes']['added1'], added)
+    self.assertEqual(runner.manifest.manifest.config['changes'][0]['changes']['added1'], added)
 
     # verify modified
     self.assertEqual(modifications['test3'], {
@@ -199,7 +199,7 @@ class ConfiguratorTest(unittest.TestCase):
     # print('test4', run.out.getvalue())
 
     # verify dependencies added
-    dependencies = lookupPath(runner.manifest.manifest,
+    dependencies = lookupPath(runner.manifest.manifest.config,
     'root.resources.test4.status.configurations.test.dependencies'.split('.'))
     self.assertEqual(dependencies, [{"ref": "::added2"}])
 

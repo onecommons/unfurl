@@ -17,7 +17,7 @@ import operator
 import collections
 from collections import Mapping, MutableSequence
 from ruamel.yaml.comments import CommentedMap
-from .util import validateSchema, assertForm #, GitErOpError
+from .util import validateSchema, assertForm, GitErOpError
 from .result import ResultsList, Result, Results, ExternalValue, ResourceRef
 
 def runTemplate(data, vars=None, dataLoader=None):
@@ -422,6 +422,8 @@ def evalRef(val, ctx, top=False):
         args = val[key]
         ctx.kw = val
         ctx.currentFunc = key
+        if key != 'foreach' and 'foreach' in val:
+          raise GitErOpError("unexpected 'foreach' found, did you intend it for the parent?")
         val = func(args, ctx)
         if key == 'q':
           return [Result(val)]
