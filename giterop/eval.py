@@ -248,15 +248,21 @@ class Ref(object):
     assert not isinstance(results, ResultsList), results
     results = ResultsList(results, ctx)
     ctx.trace('Ref.resolve(wantList=%s)' % wantList, self.source, results)
-    if wantList:
+    if wantList and not wantList == 'result':
       return results
     else:
       if not results:
         return None
       elif len(results) == 1:
-        return results[0]
+        if wantList == 'result':
+          return results._attributes[0]
+        else:
+          return results[0]
       else:
-        return list(results)
+        if wantList == 'result':
+          return Result(results)
+        else:
+          return list(results)
 
   def resolveOne(self, ctx):
     """
@@ -469,13 +475,15 @@ def lookup(result, key, context):
     if isinstance(result.resolved, ResourceRef):
       context._lastResource = result.resolved
 
-    result = result.project(key, context._lastResource)
+    ctx = context.copy(context._lastResource)
+    result = result.project(key, ctx)
     value = result.resolved
     context.trace('lookup %s, got %s' % (key, value))
 
     if not context._rest:
-      result.resolved = Results._mapValue(value, context.copy(context._lastResource))
-      assert not isinstance(result.resolved, ExternalValue)
+      assert not Ref.isRef(value)
+      result.resolved = Results._mapValue(value, ctx)
+      assert not isinstance(result.resolved, (ExternalValue, Result))
 
     return result
   except (KeyError, IndexError, TypeError, ValueError):

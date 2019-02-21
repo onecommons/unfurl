@@ -74,14 +74,14 @@ class ExternalValue(ChangeAware):
   def get(self):
     return self.key
 
+# XXX def __setstate__
+
   def __eq__(self, other):
     if isinstance(other, ExternalValue):
       return self.get() == other.get()
-    return self.resolve() == other
+    return self.get() == other
 
-# XXX __setstate__
-
-  def resolve(self, key=None):
+  def resolveKey(self, key=None, currentResource=None):
     if key:
       value = self.get()
       getter = getattr(value, '__reflookup__', None)
@@ -94,7 +94,7 @@ class ExternalValue(ChangeAware):
 
   def asRef(self, options=None):
     if options and options.get('resolveExternal'):
-      return serializeValue(self.resolve(), **options)
+      return serializeValue(self.get(), **options)
     serialized = {self.type: self.key}
     return {'eval': serialized}
 
@@ -106,7 +106,7 @@ class Result(ChangeAware):
     self.select = ()
     self.original = original
     if isinstance(resolved, ExternalValue):
-      self.resolved = resolved.resolve()
+      self.resolved = resolved.get()
       assert not isinstance(self.resolved, Result), self.resolved
       self.external = resolved
     else:
@@ -162,9 +162,10 @@ class Result(ChangeAware):
     else:
       return resolved
 
-  def _resolveKey(self, key):
+  def _resolveKey(self, key, currentResource):
+    # might return a Result
     if self.external:
-      value = self.external.resolve(key)
+      value = self.external.resolveKey(key, currentResource)
     else:
       getter = getattr(self.resolved, '__reflookup__', None)
       if getter:
@@ -173,12 +174,18 @@ class Result(ChangeAware):
         value = self.resolved[key]
     return value
 
-  def project(self, key, currentResource):
+  def project(self, key, ctx):
+    # returns a Result
     from .eval import Ref
-    value = self._resolveKey(key)
-    if Ref.isRef(value):
-      value = Ref(value).resolveOne(currentResource)
-    result = Result(value)
+    value = self._resolveKey(key, ctx.currentResource)
+    if isinstance(value, Result):
+      result = value
+    elif Ref.isRef(value):
+      result = Ref(value).resolve(ctx, wantList = 'result')
+      if not result:
+        raise KeyError(key)
+    else:
+      result = Result(value)
     if self.external:
       # if value is an ExternalValue this will overwrite it
       result.external = self.external
@@ -232,13 +239,11 @@ class Results(object):
   @staticmethod
   def _mapValue(val, context):
     "Recursively and lazily resolves any references in a value"
-    # XXX but should return ExternalValues sometimes?!
     from .eval import mapValue, Ref
     if isinstance(val, Results):
       return val
     elif Ref.isRef(val):
-      result = Ref(val).resolveOne(context)
-      return result
+      return Ref(val).resolve(context, wantList = 'result')
     elif isinstance(val, Mapping):
       return ResultsMap(val, context)
     elif isinstance(val, (list,tuple)):
@@ -254,7 +259,13 @@ class Results(object):
       return val.resolved
     else:
       resolved = self._mapValue(val, self.context)
-      self._attributes[key] = Result(resolved, val)
+      if isinstance(resolved, Result):
+        result = resolved
+        result.original = val
+        resolved = result.resolved
+      else:
+        result = Result(resolved, val)
+      self._attributes[key] = result
       assert not isinstance(resolved, Result), val
       return resolved
 

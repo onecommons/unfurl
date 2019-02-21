@@ -282,7 +282,6 @@ class Resource(OperationalInstance, ResourceRef):
     # preload
     self.getInterface('inherit')
     self.getInterface('default')
-    self.getInterface('filter')
 
   def localStatus():
     doc = "The localStatus property."
@@ -314,25 +313,23 @@ class Resource(OperationalInstance, ResourceRef):
     return self.root.attributeManager.getAttributes(self)
 
   def _resolve(self, key):
+    # might return a Result
     try:
-      value = self.attributes[key]
+      self.attributes[key] # force resolve
+      return self.attributes._attributes[key]
     except KeyError:
       try:
         inherit = self._interfaces.get('inherit') # pre-loaded
         if inherit:
-          value = inherit(key)
+          return inherit(key)
         else:
           raise
       except KeyError:
         default = self._interfaces.get('default') # pre-loaded
         if default:
-          value = default(key)
+          return default(key)
         else:
           raise
-    filter = self._interfaces.get('filter') # pre-loaded
-    if filter:
-      return filter(value)
-    return value
 
   def asRef(self, options=None):
     return {"ref": "::%s"% self.name}
@@ -684,10 +681,11 @@ class Configuration(OperationalInstance, ResourceRef):
     # self._parameters is serialized but parameters is live
     if self._parameters is None:
       self.resetParameters()
-    # XXX2 cache this
+    # XXX2 replace with ResultsList
     return mapValue(self._parameters, self)
 
   def _resolve(self, key):
+    # XXX2 return Result
     return self._parameters[key]
 
   def hasParametersChanged(self):
