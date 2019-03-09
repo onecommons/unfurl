@@ -284,6 +284,9 @@ class FileTestConfigurator(Configurator):
     filevalue = task.query({'ref':{'file':'foo.txt'}}, wantList=True)
     assert filevalue._attributes[0].external.type == 'file'
 
+    filevalue = task.query({'ref':{'file':'foo.txt'}, 'foreach': 'path'}, wantList=True)
+    assert filevalue._attributes[0].external.type == 'file'
+
     value = task.query({'ref':{'file':'foo.txt'}})
     yield task.createResult(True, True, Status.ok, result = value)
 
@@ -328,6 +331,13 @@ class FileTest(unittest.TestCase):
     assert it triggers update
     """
     # XXX
+
+class ImportTestConfigurator(Configurator):
+  def run(self, task):
+    assert self.canRun(task)
+    assert task.currentConfig.root.attributes['test']
+    assert task.currentConfig.root.attributes['mapped1']
+    yield task.createResult(True, True, Status.ok)
 
 class ImportTest(unittest.TestCase):
 
@@ -379,6 +389,10 @@ class ImportTest(unittest.TestCase):
               eval:
                 external: test
               foreach: prop3
+          configurations:
+            test:
+              className:   ImportTestConfigurator
+              majorVersion: 0
       """ % VERSION
       manifest = YamlManifest(importer)
       root = manifest.getRootResource()
@@ -389,3 +403,5 @@ class ImportTest(unittest.TestCase):
         root.attributes['mapped2']
       self.assertIn('schema validation failed', str(err.exception))
       self.assertEqual(root.attributes['mapped3'], 'default')
+      job = Runner(manifest).run(JobOptions(add=True, startTime="test"))
+      assert job.status == Status.ok, job.status

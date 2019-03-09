@@ -590,7 +590,10 @@ class YamlManifest(Manifest):
       job.out = output
 
   def dump(self, out=sys.stdout):
-    self.manifest.dump(out)
+    try:
+      self.manifest.dump(out)
+    except:
+      raise GitErOpError("Error saving manifest %s" % self.manifest.path, True)
 
   def loadImports(self, importsSpec):
     """

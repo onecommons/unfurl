@@ -177,7 +177,7 @@ class Result(ChangeAware):
   def project(self, key, ctx):
     # returns a Result
     from .eval import Ref
-    value = self._resolveKey(key, ctx.currentResource)
+    value = self._resolveKey(key, ctx._lastResource)
     if isinstance(value, Result):
       result = value
     elif Ref.isRef(value):

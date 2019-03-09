@@ -2,15 +2,17 @@
 Internal classes supporting the runtime.
 """
 import collections
+from collections import Mapping, MutableSequence
 import copy
 import os
 import os.path
 import six
 from enum import IntEnum
 
-from .eval import RefContext, setEvalFunc, Ref
+from .eval import RefContext, setEvalFunc, Ref, mapValue
 from .result import ResultsMap, Result, ExternalValue, serializeValue
-from .util import intersectDict, mergeDicts, ChainMap, findSchemaErrors, GitErOpError, GitErOpValidationError, YamlConfig
+from .util import (intersectDict, mergeDicts, ChainMap, findSchemaErrors,
+                GitErOpError, GitErOpValidationError, YamlConfig, assertForm)
 
 # XXX3 doc: notpresent is a positive assertion of non-existence while notapplied just indicates non-liveness
 # notapplied is therefore the default initial state
@@ -45,6 +47,46 @@ class File(ExternalValue):
       raise KeyError(name)
 
 setEvalFunc('file', lambda arg, ctx: File(arg))
+
+def runLookup(name, templar, *args, **kw):
+  from ansible.plugins.loader import lookup_loader
+  # https://docs.ansible.com/ansible/latest/plugins/lookup.html
+  # "{{ lookup('url', 'https://toshio.fedorapeople.org/one.txt', validate_certs=True) }}"
+  #       would end up calling the lookup plugin named url's run method like this::
+  #           run(['https://toshio.fedorapeople.org/one.txt'], variables=available_variables, validate_certs=True)
+  instance = lookup_loader.get(name, loader = templar._loader, templar = templar)
+  # ansible_search_path = []
+  result = instance.run(args, variables=templar._available_variables, **kw)
+  # XXX check for wantList
+  if not result:
+    return None
+  if len(result) == 1:
+    return result[0]
+  else:
+    return result
+
+def lookupFunc(arg, ctx):
+  """
+  lookup:
+    - file: 'foo' or []
+    - kw1: value
+    - kw2: value
+  """
+  arg = mapValue(arg, ctx)
+  if isinstance(arg, Mapping):
+    assert len(arg) == 1
+    name, args = list(arg.items())[0]
+    kw = {}
+  else:
+    assertForm(arg, list)
+    name, args = list(assertForm(arg[0]).items())[0]
+    kw = dict(list(assertForm(kw).items())[0] for kw in arg[1:])
+
+  if not isinstance(args, MutableSequence):
+    args = [args]
+  return runLookup(name, ctx.currentResource.templar, *args, **kw)
+
+setEvalFunc('lookup', lookupFunc)
 
 def getImport(arg, ctx):
   """
@@ -85,17 +127,13 @@ class ExternalResource(ExternalValue):
       return self.resource
 
     schema = self._getSchema(name)
-    hasDefault = schema and 'default' in schema
-    found = name in self.resource.attributes
-    if not found:
-      if hasDefault:
+    try:
+      value = self.resource._resolve(name)
+      # value maybe a Result
+    except KeyError:
+      if schema and 'default' in schema:
         return schema['default']
-      else:
-        raise KeyError(name)
-    value = self.resource.attributes[name]
     if schema:
-      # self.resource._attributes[name]
-      # validate against serialized value (assumes external resources are read-only)
       self._validate(value, schema, name)
     # we don't want to return a result across boundaries
     return value
@@ -129,6 +167,25 @@ def shortcut(arg, ctx):
   return Ref(dict(ref=dict(external=ctx.currentFunc), foreach=arg)).resolve(ctx, wantList='result')
 setEvalFunc('local', shortcut)
 setEvalFunc('secret', shortcut)
+
+class DelegateAttributes(object):
+  def __init__(self, interface, resource):
+    self.interface = interface
+    self.resource = resource
+    self.inheritFrom = resource.attributes.get('inheritFrom', {})
+    self.default = resource.attributes.get('default', {})
+
+  def __call__(self, key):
+    if self.interface == 'inherit':
+      return self.inheritFrom.attributes[key]
+    elif self.interface == 'default':
+      result = Ref(self.default).resolve(RefContext(self.resource, vars=dict(key=key)))
+      if not result:
+        raise KeyError(key)
+      elif len(result) == 1:
+        return result[0]
+      else:
+        return result
 
 class ResourceChanges(collections.OrderedDict):
   """
@@ -221,10 +278,10 @@ class AttributeManager(object):
     else:
       return self.attributes[resource.name][1]
 
-  def revertChanges(self):
-    self.attributes = {}
-    # for resource, old, new in self.statuses.values():
-    #   resource._localStatus = old
+  # def revertChanges(self):
+  #   self.attributes = {}
+  #   # for resource, old, new in self.statuses.values():
+  #   #   resource._localStatus = old
 
   def commitChanges(self):
     changes = {}
@@ -273,7 +330,7 @@ manifests:
       attributes:
         inheritFrom:
     secret:
-    default: True
+    default: true
 """
   def __init__(self, path=None):
     defaultConfig = {}
@@ -312,7 +369,7 @@ manifests:
     if localRepo:
       attributes = localRepo.get('attributes')
       if attributes is not None:
-        #if inheritFrom in attributes: add .interface
+        #XXX if inheritFrom or defaults in attributes: add .interface
         return Resource(localName, attributes)
       else:
         # set url and resource

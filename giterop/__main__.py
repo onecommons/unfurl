@@ -81,7 +81,7 @@ def version():
 
 @cli.command()
 def list():
-  click.echo("coming soon")
+  click.echo("coming soon") # XXX
 
 if __name__ == '__main__':
   cli(obj={})

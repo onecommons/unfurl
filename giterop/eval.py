@@ -17,8 +17,8 @@ import operator
 import collections
 from collections import Mapping, MutableSequence
 from ruamel.yaml.comments import CommentedMap
-from .util import validateSchema, assertForm, GitErOpError
-from .result import ResultsList, Result, Results, ExternalValue, ResourceRef
+from .util import validateSchema, GitErOpError
+from .result import ResultsList, Result, Results, ResultsMap, ExternalValue, ResourceRef
 
 def runTemplate(data, vars=None, dataLoader=None):
   from ansible.template import Templar
@@ -71,6 +71,8 @@ class RefContext(object):
 
   def copy(self, resource=None, vars=None, wantList=None):
     copy = RefContext(resource or self.currentResource, self.vars, self.wantList, self.resolveExternal, self._trace)
+    if not isinstance(copy.currentResource, ResourceRef) and isinstance(self._lastResource, ResourceRef):
+      copy._lastResource = self._lastResource
     if vars:
       copy.vars.update(vars)
     if wantList is not None:
@@ -349,7 +351,7 @@ def _forEach(foreach, results, ctx):
   def makeItems():
     for i, (k, v) in enumerate(results):
       ictx.currentResource = v
-      ictx.vars['collection'] =  results
+      ictx.vars['collection'] = results
       ictx.vars['index'] = i
       ictx.vars['key'] = k
       ictx.vars['item'] = v
@@ -361,15 +363,19 @@ def _forEach(foreach, results, ctx):
           break
         elif key is Continue:
           continue
-      val = evalForFunc(valExp, ictx)
-      if val is Break:
-        break
-      elif val is Continue:
-        continue
+      valResults = evalRef(valExp, ictx)
+      if len(valResults) == 1:
+        val = valResults[0].resolved
+        if val is Break:
+          break
+        elif val is Continue:
+          continue
+        valResults = valResults[0]
+
       if keyExp:
-        yield (key, val)
+        yield (key, valResults)
       else:
-        yield val
+        yield valResults
 
   if keyExp:
     return [CommentedMap(makeItems())]
@@ -430,10 +436,14 @@ def evalRef(val, ctx, top=False):
         break
   elif isinstance(val, six.string_types):
     expr = Expr(val, ctx.vars)
-    results = expr.resolve(ctx)
+    results = expr.resolve(ctx) # returns a list of Results
     return results
 
-  return [Result(Results._mapValue(val, ctx))]
+  mappedVal = Results._mapValue(val, ctx)
+  if isinstance(mappedVal, Result):
+    return [mappedVal]
+  else:
+    return [Result(mappedVal)]
 
 def evalForFunc(val, ctx):
   results = evalRef(val, ctx)
@@ -660,42 +670,3 @@ def parseStep(exp, start=None):
   #add filterExps to last Segment
   paths[-1] = paths[-1]._replace(filters = filterExps)
   return paths, rest
-
-def runLookup(name, templar, *args, **kw):
-  from ansible.plugins.loader import lookup_loader
-  # "{{ lookup('url', 'https://toshio.fedorapeople.org/one.txt', validate_certs=True) }}"
-  #       would end up calling the lookup plugin named url's run method like this::
-  #           run(['https://toshio.fedorapeople.org/one.txt'], variables=available_variables, validate_certs=True)
-  instance = lookup_loader.get(name, loader = templar._loader, templar = templar)
-  # ansible_search_path = []
-  result = instance.run(args, variables=templar._available_variables, **kw)
-  # XXX check for wantList
-  if not result:
-    return None
-  if len(result) == 1:
-    return result[0]
-  else:
-    return result
-
-def lookupFunc(arg, ctx):
-  """
-  lookup:
-    - file: 'foo' or []
-    - kw1: value
-    - kw2: value
-  """
-  # XXX arg = mapValue(arg, ctx)
-  if isinstance(arg, Mapping):
-    assert len(arg) == 1
-    name, args = list(arg.items())[0]
-    kw = {}
-  else:
-    assertForm(arg, list)
-    name, args = list(assertForm(arg[0]).items())[0]
-    kw = dict(list(assertForm(kw).items())[0] for kw in arg[1:])
-
-  if not isinstance(args, MutableSequence):
-    args = [args]
-  return runLookup(name, ctx.currentResource.templar, *args, **kw)
-
-_Funcs['lookup'] = lookupFunc
