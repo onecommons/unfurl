@@ -2,7 +2,7 @@
 """
 Applies a GitErOp manifest
 
-For each configuration checks if it should be run, records the result
+For each configuration, run it if required, then record the result
 """
 from .manifest import runJob
 from .support import Status

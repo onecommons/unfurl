@@ -1,119 +1,123 @@
 """Loads and saves a GitErOp manifest with the following format:
 
-apiVersion: VERSION
-kind: Manifest
+.. code-block:: YAML
 
-imports:
-  foo:
-    url: local/path # for now
-    resource: name # default is root
-    attributes: # queries into resource
-    configurations:
-    properties: # expected schema for attributes
-  # special case imports, url and resource can't be defined
-  locals:
-   properties:
-     name1:
-       type: string
-       default
-   required:
-  secrets:
-   properties:
-     name1:
-       type: string
-       default
-     # save-digest: true
-     # prompt: true
-     # readonly: true
-   required:
+  apiVersion: VERSION
+  kind: Manifest
 
-root: #root resource is always named 'root'
-  spec:
-    attributes:
-      .interfaces:
-        interfaceName: foo.bar.ClassName
-    attributesSchema:
-    configurations:
-      name1:
-        className
-        version
-        intent
-        parameters: #declared
-        priority:
-        provides:
-          .self: #.self describes the attributes that this configuration will instantiate
-            attributes
-            attributesSchema
-          .configurations: #configurations that maybe used by this configurator
-            configTemplate1:
-          resourceTemplate1: # may create resources like this
-            template:
-            attributes:
+  imports:
+    foo:
+      url: local/path # for now
+      resource: name # default is root
+      attributes: # queries into resource
+      configurations:
+      properties: # expected schema for attributes
+    # special case imports, url and resource can't be defined
+    locals:
+     properties:
+       name1:
+         type: string
+         default
+     required:
+    secrets:
+     properties:
+       name1:
+         type: string
+         default
+       # save-digest: true
+       # prompt: true
+       # readonly: true
+     required:
+
+  root: #root resource is always named 'root'
+    spec:
+      attributes:
+        .interfaces:
+          interfaceName: foo.bar.ClassName
+      attributesSchema:
+      configurations:
+        name1:
+          className
+          version
+          intent
+          parameters: #declared
+          priority:
+          parameterSchema:
+          requires:
+          provides:
+            .self: #.self describes the attributes that this configuration will instantiate
+              attributes
+              attributesSchema
+            .configurations: #configurations that maybe used by this configurator
+              configTemplate1:
+            resourceTemplate1: # may create resources like this
+              template:
+              attributes:
+                foo: bar
+                .interfaces:
+                  iBarManager: module.barManager
+              configurations:
+                config1:
+                  template:
+          lastAttempt: changeid
+    status:
+      readyState:
+        effective:
+        local:
+        lastChange: changeId
+      priority
+      lastConfigChange: changeId
+      attributes: # modifications to spec/attributes
+      configurations:
+        name:
+          readyState:
+            effective:
+            local:
+          lastConfigChange: changeId
+          lastStateChange: changeId
+          priority
+          parameters: #actual
+            param1: value
+          dependencies:
+            - ref: ::resource1::key[~$val]
+              expected: "value"
+            - name: named1
+              ref: .configurations::foo[.operational]
+              required: true
+              schema:
+                type: array
+          modifications:
+            resource1:
+              .added: # set if added resource
+              .status: # set when adding or removing
               foo: bar
-              .interfaces:
-                iBarManager: module.barManager
-            configurations:
-              config1:
-                template:
-        lastAttempt: changeid
-  status:
-    readyState:
-      effective:
-      local:
-      lastChange: changeId
-    priority
-    lastConfigChange: changeId
-    attributes: # modifications to spec/attributes
-    configurations:
-      name:
-        readyState:
-          effective:
-          local:
-        lastConfigChange: changeId
-        lastStateChange: changeId
-        priority
-        parameters: #actual
-          param1: value
-        dependencies:
-          - ref: ::resource1::key[~$val]
-            expected: "value"
-          - name: named1
-            ref: .configurations::foo[.operational]
-            required: true
-            schema:
-              type: array
-        modifications:
-          resource1:
-            .added: # set if added resource
-            .status: # set when adding or removing
-            foo: bar
-          resource2:
-            .spec:
-            .status: notpresent
-          resource3/child1: +%delete
-  resources:
-    child1:
-      +/resourceSpecs/node
-      status:
-       createdBy: changeid
-       createdFrom: templateName
+            resource2:
+              .spec:
+              .status: notpresent
+            resource3/child1: +%delete
+    resources:
+      child1:
+        +/resourceSpecs/node
+        status:
+         createdBy: changeid
+         createdFrom: templateName
 
-changes:
-  - changeId
-    startTime
-    commitId
-    parentChange
-    previousChange #XXX
-    readyState
-    priority
-    resource
-    config
-    action
-    spec
-    parameters
-    dependencies
-    changes
-    messages:
+  changes:
+    - changeId
+      startTime
+      commitId
+      parentChange
+      previousChange #XXX
+      readyState
+      priority
+      resource
+      config
+      action
+      spec
+      parameters
+      dependencies
+      changes
+      messages:
 """
 
 import six

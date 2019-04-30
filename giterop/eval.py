@@ -188,19 +188,21 @@ class Ref(object):
 
   For example, given:
 
-  {x: [ {
-          a: [{c:1}, {c:2}]
-        },
-        {
-          a: [{c:3}, {c:4}]
-        }
-      ]
-  }
+  .. code-block:: javascript
 
-  x:a:c resolves to:
-    [1,2,3,4]
+    {x: [ {
+            a: [{c:1}, {c:2}]
+          },
+          {
+            a: [{c:3}, {c:4}]
+          }
+        ]
+    }
+
+  `x:a:c` resolves to:
+    `[1,2,3,4]`
   not
-    [[1,2], [3,4]])
+    `[[1,2], [3,4]])`
 
   (Justification: It is inconvenient and fragile to tie data structures to the particular form of a query.
   If you want preserve structure (e.g. to know which values are part
