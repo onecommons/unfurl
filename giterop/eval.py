@@ -46,7 +46,7 @@ def mapValue(value, resourceOrCxt):
 
 def _mapValue(value, ctx):
   if Ref.isRef(value):
-    value = Ref(value).resolveOne(ctx)
+    return Ref(value).resolveOne(ctx)
 
   if isinstance(value, Mapping):
     return dict((key, _mapValue(v, ctx)) for key, v in value.items())

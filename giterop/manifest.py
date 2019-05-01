@@ -443,7 +443,7 @@ class Changeset(object):
     # ('action', ''), # XXX
     ('spec', {}),
     ('parameters', {}),
-    ('results', {}),
+    ('result', {}),
     # ('dependencies', {}), # XXX
     ('changes', {}),
     ('messages', []),
@@ -471,6 +471,8 @@ class Changeset(object):
         self.messages = task.messages
       elif k == 'parameters':
         self.parameters = serializeValue(task.pendingConfig.parameters)
+      elif k == 'result':
+        self.result = task.result.result
       else:
         setattr(self, k, getattr(task.pendingConfig, k, v))
 

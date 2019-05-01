@@ -85,7 +85,7 @@ class CliTest(unittest.TestCase):
         f.write('invalid manifest')
       result = runner.invoke(cli, ['run'])
       self.assertEqual(result.exit_code, 1)
-      self.assertEqual(result.output.strip(), "malformed YAML or JSON document\nError: malformed YAML or JSON document")
+      self.assertEqual(result.output.strip(), "top level element is not a dict\nError: top level element is not a dict")
 
   def test_localConfig(self):
     # test loading the default manifest declared in the local config

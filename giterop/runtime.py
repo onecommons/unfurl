@@ -868,7 +868,7 @@ class TaskView(ChangeRecord):
           attributes:
     """
     if isinstance(resources, six.string_types):
-      resources = YamlConfig(resources).config
+      resources = yaml.load(resources)
 
     errors = []
     newResources = []
