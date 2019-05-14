@@ -2,5 +2,9 @@
 include LICENSE
 include README.md
 
+global-exclude *.py[cod] __pycache__ *.so
+
 # Include the data files
-recursive-include data *
+recursive-include *.yaml
+
+prune giterop/vendor/toscaparser/tests

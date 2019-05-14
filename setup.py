@@ -99,8 +99,7 @@ setup(
     # Note that this is a string of words separated by whitespace, not a list.
     # XXX keywords='sample setuptools development',  # Optional
 
-    packages=find_packages(exclude=['docs', 'tests']),  # Required
-
+    packages= find_packages(exclude=['docs', 'tests']),  # Required
     # This field lists other packages that your project depends on to run.
     # Any package you put here will be installed by pip when your project is
     # installed, so they must be valid existing projects.
@@ -112,15 +111,23 @@ setup(
     "enum34",
     "ruamel.yaml>=0.15.37",
     "click",
-    "gitpython",
-    "ansible>=2.5",
+    "ansible==2.5.5",
     "jsonschema",
+    "subprocess32",
+    # soon:
+    #"gitpython",
 #required by openshift-ansible:
-    "pyOpenSSL",
-    "netaddr",
-    "httplib2",
-    "passlib",
+#    "pyOpenSSL",
+#    "netaddr",
+#    "httplib2",
+#    "passlib",
     #"credstash" #??
+# required by tosca-parser:
+    "pbr",
+    'stevedore',
+    "requests",
+    'python-dateutil'
+    # pytz # for tosca_parser
     ],
 
     # List additional groups of dependencies here (e.g. development

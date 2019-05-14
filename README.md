@@ -12,9 +12,9 @@ More simply, it is a tool that works with Git to record and deploy changes to yo
 * **Incremental**: only applies necessary changes
 * **Fast**: the above three features combined enable lightening-fast updates
 * **Configuration tool agnostic** with built-in support for Ansible and Terraform
-* **Secrets**: keeps secrets out of git so repos can be safely made public
-* **Flexible workflow**: use both as development tool on client or automated production deployment on server
-* **Dependency management**: Easily track dependencies and changes across infrastructure layers and boundaries.
+* **Secrets**: key manager integration; keeps secrets out of git so repos can be safely made public
+* **No server, no agent**: simple, stand-alone CLI that can be used both as development tool on client or for automated production deployment on server
+* **Dependency management**: Easily track dependencies and changes across infrastructure layers and boundaries. 
 * **Zero installation clients**: Use client-side container support to avoid client-side installation requirements.
 
 ## Installation

@@ -1,0 +1,3 @@
+[submodule "tosca-parser"]
+	path = tosca-parser
+	url = git@github.com:onecommons/tosca-parser.git

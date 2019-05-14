@@ -131,6 +131,7 @@ from .runtime import (JobOptions, Priority, Action, Defaults,
                       Runner, Manifest, ChangeRecord)
 from .result import serializeValue
 from .support import ResourceChanges, Status, LocalEnv
+from toscaparser.tosca_template import ToscaTemplate
 
 from ruamel.yaml.comments import CommentedMap
 from codecs import open
@@ -523,6 +524,9 @@ class YamlManifest(Manifest):
       importsSpec.setdefault('secret', {})
     rootResource.imports = self.loadImports(importsSpec)
     rootResource.baseDir = self.getBaseDir()
+
+    toscaDef = manifest.get('tosca')
+    self.tosca = toscaDef and ToscaTemplate(yaml_dict_tpl=toscaDef)
 
     super(YamlManifest, self).__init__(rootResource, self.specs, lastChangeId)
 

@@ -14,3 +14,8 @@ try:
   __version__ = get_distribution(__name__).version
 except DistributionNotFound:
   __version__ = "DEV"
+
+import os
+import sys
+vendor_dir = os.path.join(os.path.abspath(os.path.dirname(__file__)), 'vendor')
+sys.path.insert(0, vendor_dir)
