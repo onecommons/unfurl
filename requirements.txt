@@ -1,6 +1,8 @@
-# XXX sync with setup.py (use pbr)
 # Versions are pinned to prevent pypi releases arbitrarily breaking
 # tests with new APIs/semantics. We want to update versions deliberately.
+# For an analysis of "install_requires" vs pip's requirements files see
+# https://packaging.python.org/en/latest/requirements.html
+
 ansible==2.5.5
 click==6.7
 six==1.10.0
@@ -9,9 +11,15 @@ jsonschema
 subprocess32
 ruamel.yaml>=0.15.37
 
-boto==2.34.0
-pyOpenSSL==16.2.0
-shade==1.24.0
-passlib==1.6.5
-
 -r tosca-parser/requirements.txt
+
+# soon:
+#"gitpython",
+#required by openshift-ansible:
+#    "pyOpenSSL",
+#    "netaddr",
+#    "httplib2",
+#    "passlib",
+# boto==2.34.0
+# shade==1.24.0
+# passlib==1.6.5

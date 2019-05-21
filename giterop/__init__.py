@@ -9,11 +9,8 @@ But the intent is for commits in a git repo to correspond to reproducible config
 The git repo is also used to record or archive exact versions of each configurators applied.
 """
 
-from pkg_resources import get_distribution, DistributionNotFound
-try:
-  __version__ = get_distribution(__name__).version
-except DistributionNotFound:
-  __version__ = "DEV"
+import pbr.version
+__version__ = pbr.version.VersionInfo(__name__).version_string()
 
 import os
 import sys
