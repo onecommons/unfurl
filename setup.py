@@ -58,7 +58,7 @@ setup(
     #
     # This field corresponds to the "Home-Page" metadata field:
     # https://packaging.python.org/specifications/core-metadata/#home-page-optional
-    url='https://github.com/onecommons/gitterop',  # Optional
+    url='https://github.com/onecommons/giterop',  # Optional
 
     # This should be your name or the name of the organization which owns the
     # project.
@@ -100,6 +100,7 @@ setup(
     # XXX keywords='sample setuptools development',  # Optional
 
     packages= find_packages(exclude=['docs', 'tests']),  # Required
+    include_package_data=True,
     # This field lists other packages that your project depends on to run.
     # Any package you put here will be installed by pip when your project is
     # installed, so they must be valid existing projects.
@@ -142,24 +143,6 @@ setup(
         'dev': ['check-manifest'],
         'test': ['coverage', 'moto', 'mock', 'flake8'],
     },
-
-    # If there are data files included in your packages that need to be
-    # installed, specify them here.
-    #
-    # If using Python 2.6 or earlier, then these have to be included in
-    # MANIFEST.in as well.
-    # XXX needed for test package?
-    # package_data={  # Optional
-    #     'sample': ['package_data.dat'],
-    # },
-
-    # Although 'package_data' is the preferred approach, in some case you may
-    # need to place data files outside of your packages. See:
-    # http://docs.python.org/3.4/distutils/setupscript.html#installing-additional-files
-    #
-    # In this case, 'data_file' will be installed into '<sys.prefix>/my_data'
-    #XXX
-    #data_files=[('my_data', ['data/data_file'])],  # Optional
 
     # To provide executable scripts, use entry points in preference to the
     # "scripts" keyword. Entry points provide cross-platform support and allow

@@ -1,10 +1,9 @@
-# Include the license file
+# https://docs.python.org/2/distutils/sourcedist.html#the-manifest-in-template
 include LICENSE
 include README.md
 
+graft giterop
+prune giterop/vendor/toscaparser/tests
 global-exclude *.py[cod] __pycache__ *.so
-
 # Include the data files
 recursive-include *.yaml
-
-prune giterop/vendor/toscaparser/tests
