@@ -38,6 +38,7 @@ def initLogging(quiet, logfile, verbose):
 
 @click.group()
 @click.pass_context
+@click.option('--home', default='', type=click.Path(exists=False), help='path to .giterop home')
 @click.option('-v', '--verbose', count=True, help="verbose mode (-vvv for more)")
 @click.option('-q', '--quiet', default=False, help='Only output errors to the stdout')
 @click.option('--logfile', default=None,

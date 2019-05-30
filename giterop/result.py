@@ -60,8 +60,15 @@ class ResourceRef(object):
   def templar(self):
     return self.root._templar
 
+class ChangeRecord(object):
+  def __init__(self, changeId=0, parentId=None, commitId='', startTime=''):
+    self.changeId = changeId
+    self.parentId = parentId
+    self.commitId = commitId
+    self.startTime = startTime
+
 class ChangeAware(object):
-  def hasChanged(self, changeset):
+  def hasChanged(self, changeRecord):
     return False
 
 class ExternalValue(ChangeAware):

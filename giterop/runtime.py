@@ -41,7 +41,7 @@ yaml = YAML()
 from .util import (GitErOpError, GitErOpTaskError, GitErOpAddingResourceError,
   lookupClass, AutoRegisterClass, loadClass, ChainMap, toEnum,
   validateSchema, findSchemaErrors, mergeDicts, YamlConfig)
-from .result import ResourceRef, Results, serializeValue, ChangeAware
+from .result import ResourceRef, Results, serializeValue, ChangeAware, ChangeRecord
 from .eval import Ref, mapValue, RefContext
 #from .local import LocalEnv
 from .support import AttributeManager, ResourceChanges, Status
@@ -256,8 +256,9 @@ class Resource(OperationalInstance, ResourceRef):
   createdFrom = None
   attributeManager = None
 
+  # spec is a NodeTemplate
   def __init__(self, name='', attributes=None, parent=None,
-        spec=None, status=None, priority=None, manualOveride=None):
+        template=None, status=None, priority=None, manualOveride=None):
     OperationalInstance.__init__(self, status, priority, manualOveride)
     self.name = name
     self._attributes = attributes or {}
@@ -276,7 +277,7 @@ class Resource(OperationalInstance, ResourceRef):
         raise GitErOpError('can not create resource name "%s" is already in use' % name)
       parent.resources.append(self)
     self.resources = []
-    self.spec = spec or {}
+    self.template = template
     if self.root is self:
       self._all = _ChildResources(self)
       self._templar = Templar(DataLoader())
@@ -785,13 +786,6 @@ class JobRequest(object):
     self.resources = resources
     self.errors = errors
 
-class ChangeRecord(object):
-  def __init__(self, changeId=0, parentId=None, commitId='', startTime=''):
-    self.changeId = changeId
-    self.parentId = parentId
-    self.commitId = commitId
-    self.startTime = startTime
-
 class TaskView(ChangeRecord):
   """
   The interface presented to configurators.
@@ -817,6 +811,7 @@ class TaskView(ChangeRecord):
   def addMessage(self, message):
     self.messages.append(message)
 
+  # XXXT remove
   def createConfigurationSpec(self, name, configSpec, resource=None):
     if isinstance(configSpec, six.string_types):
       configSpec = yaml.load(configSpec)
@@ -830,6 +825,7 @@ class TaskView(ChangeRecord):
     return self.manifest.createConfigSpec(name, rname, configSpec,
       self.currentConfig.configurationSpec.provides.get('.configurations'))
 
+  # XXX how???
   # Configurations created by subtasks are transient insofar as the are not part of the spec,
   # but they are recorded as part of the resource's configuration state.
   # Marking as persistent or required will create a dependency on the new configuration.
@@ -840,29 +836,21 @@ class TaskView(ChangeRecord):
       self.addDependency(expr, required=required)
     return TaskRequest(configSpec, persist, required)
 
+  # XXX how can we explicitly associate relations with target resources etc.?
+  # through capability attributes and dependencies/relationship attributes
   def addResources(self, resources):
     """
     Either a list or string that is parsed as YAML
     Operational state indicates if it current exists or not
-    Will instantiate a new job, yield it to run that job right away
+    Will instantiate a new job, yield the return value to run that job right away
 
     .. code-block:: YAML
 
       - name:
-        template: # merge with template
+        template: # name of node template
         priority: required
         dependent: boolean
-        parent:
-        spec:
-          attributes:
-            override1:
-          configurations:
-            configname:
-              template:
-                overrides1
-                overrides2
-                parameters:
-                  foo
+        parent: 
         status:
           readyState: ok
           attributes:
@@ -1051,9 +1039,12 @@ class Task(TaskView, AttributeManager):
     config.configurationSpec.lastAttempt = self
 
   def processResult(self, result):
-    # applied indicates this configuration is active
-    # modified indicates if a "physical" change to this system was made
-    # (all combinations of these two are permissible)
+    """
+    `result.applied` indicates this configuration is active.
+    `result.modified` indicates if a "physical" change to this system was made.
+     (All combinations of these two are permissible -- modified and not applied
+     means changes were made to the system that couldn't be undone.
+    """
     if result.modified:
       self.pendingConfig._lastStateChange = self.changeId
 
@@ -1168,7 +1159,7 @@ class Job(OperationalInstance):
       resources=resourceNames)
     specs = []
     for r in jobRequest.resources:
-      if 'configurations' in r.spec:
+      if 'configurations' in r.spec: #XXXT
         specs.extend(r.spec['configurations'].values())
     childJob = Job(self.runner, self.rootResource.root, specs, jobOptions)
     assert childJob.parentJob is self
@@ -1539,6 +1530,12 @@ class Manifest(AttributeManager):
       configSpec = mergeDicts(template, configSpec)
     return configSpec
 
+  # find config spec from potentially old version of the tosca template
+  # get template then get node template name
+  # but we shouldn't need this, except maybe to revert?
+  # configuration just needs resource attributes and capabilities
+  # and a createdby
+  # dependencies need to be created from requirements and relations
   def createConfigSpec(self, configName, resourceName, spec, ctemplates=None):
     spec = self.mergeConfigSpec(spec, ctemplates)
     lastAttemptChangeId = spec.get('lastAttempt')
@@ -1574,18 +1571,19 @@ class Manifest(AttributeManager):
     resource.setConfiguration(config)
     return config
 
-  def createResource(self, rname, resourceSpec, parent=None, rtemplates=None, ctemplates=None, changeset=None):
+  def createResource(self, rname, resourceSpec, parent=None, rtemplates=None, changeset=None):
     templateName = resourceSpec.get('template')
     if templateName:
       template = rtemplates.get(templateName)
-      if template is None:
-        raise GitErOpError('missing resource template %s' % templateName)
+    if template is None:
+      raise GitErOpError('missing resource template %s' % templateName)
       logger.debug('template %s: %s', templateName, template)
       #logger.debug('resourceSpec %s', resourceSpec)
-      resourceSpec = resourceSpec.copy()
-      resourceSpec['spec'] = mergeDicts(template, resourceSpec.get('spec', {}))
-      resourceSpec.setdefault('status', {})['createdFrom'] = templateName
-      #logger.debug('merged resourceSpec %s', resourceSpec)
+
+    resourceSpec = resourceSpec.copy()
+    resourceSpec['spec'] = template
+    resourceSpec.setdefault('status', {})['createdFrom'] = templateName
+    #logger.debug('merged resourceSpec %s', resourceSpec)
 
     # if parent property is set it overrides the parent argument
     pname = resourceSpec.get('parent')
@@ -1594,43 +1592,37 @@ class Manifest(AttributeManager):
       if parent is None:
         raise GitErOpError('can not find parent resource %s' % pname)
 
-    resource = self._createResource(rname, resourceSpec, parent, rtemplates, ctemplates)
+    resource = self._createResource(rname, resourceSpec, parent, rtemplates)
     if changeset:
       resource.createdOn = changeset
     return resource
 
-  def _createResource(self, name, decl, parent, rtemplates=None, ctemplates=None):
+  def _createResource(self, name, decl, parent, rtemplates):
     status = decl.get('status', {})
     specs = decl['spec']
-    configSpecs = CommentedMap([(key, self.createConfigSpec(key, name, val, ctemplates))
-                              for key, val in specs['configurations'].items()])
-    self.specs.extend(configSpecs.values())
     operational = self.createStatus(status)
     resource = Resource(name, status.get('attributes'), parent,
-        spec=CommentedMap([
-          ("attributes", specs.get('attributes')),
-          ("configurations", configSpecs)
-        ]),
+        decl['spec'],
         status=operational.localStatus)
     if status.get('createdOn'):
       changeset = self.changeSets.get(status['createdOn'])
       resource.createdOn = changeset.changeRecord if changeset else None
     resource.createdFrom = status.get('createdFrom')
-    for configSpec in configSpecs.values():
-      if not configSpec.lastAttempt:
-        continue
-      changeSet = self.changeSets.get(configSpec.lastAttempt.changeId)
-      if changeSet:
-        if changeSet.status.status in [Status.notapplied, Status.notpresent]:
-          # these will not be in the status' configurations so set them now
-          self.createConfiguration(configSpec, resource, changeSet.dump(), changeSet.status.localStatus)
+    # for configSpec in configSpecs.values():
+    #   if not configSpec.lastAttempt:
+    #     continue
+    #   changeSet = self.changeSets.get(configSpec.lastAttempt.changeId)
+    #   if changeSet:
+    #     if changeSet.status.status in [Status.notapplied, Status.notpresent]:
+    #       # these will not be in the status' configurations so set them now
+    #       self.createConfiguration(configSpec, resource, changeSet.dump(), changeSet.status.localStatus)
 
     for key, val in status.get('configurations', {}).items():
       configSpec = self.createConfigSpec(key, name, val['spec'], ctemplates)
       self.createConfiguration(configSpec, resource, val)
 
     for key, val in decl.get('resources', {}).items():
-      self.createResource(key, val, resource, rtemplates, ctemplates)
+      self.createResource(key, val, resource, rtemplates)
 
     return resource
 

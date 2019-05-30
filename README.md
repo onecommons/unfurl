@@ -1,8 +1,8 @@
 ## What is GitErOp?
 
-At its most ambitious, GitErOp aims to be a package manager for the cloud, enabling you to easily deploy and integrate live services.
+At its most ambitious, GitErOp aims to be a decentralized package manager for the Internet, enabling you to easily deploy and integrate live services.
 
-More simply, it is a tool that works with Git to record and deploy changes to your DevOps infrastructure.
+More simply, it is a tool that works with Git to record and deploy changes to your DevOps infrastructure. GitErOp transforms a Git repo into a reproducible history of deployed services.
 
 ## Features
 
@@ -11,11 +11,19 @@ More simply, it is a tool that works with Git to record and deploy changes to yo
 * **Reproducible**: hermetic builds + git + locked-down, immutable infrastructure = full reproducibility
 * **Incremental**: only applies necessary changes
 * **Fast**: the above three features combined enable lightening-fast updates
-* **Configuration tool agnostic** with built-in support for Ansible and Terraform
+* **Configuration tool agnostic** and includes built-in support for Ansible and Terraform
 * **Secrets**: key manager integration; keeps secrets out of git so repos can be safely made public
-* **No server, no agent**: simple, stand-alone CLI that can be used both as development tool on client or for automated production deployment on server
+* **No server, no agent**: simple, stand-alone CLI that can be used both as development tool on client or for automated production deployment on a server
 * **Dependency management**: Easily track dependencies and changes across infrastructure layers and boundaries. 
-* **Zero installation clients**: Use client-side container support to avoid client-side installation requirements.
+* **Zero installation**: Uses client-side container support to avoid client-side installation requirements.
+
+## More Features
+
+## Concepts
+
+* Topology templates specify how resources should be configured using the TOSCA standard. Templates live in their own git repos.
+* Resource manifests describe the current state of resources and maintain a history of changes applied to those resources. Each manifest lives in its own git repo, which corresponds to the lifespan of the resources represented in the manifest.
+* Configurators apply changes to resources using the spec. Configurators are themselves first-class resources, so client-side installations can be hermetically bootstrapped too.
 
 ## Installation
 

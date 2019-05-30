@@ -16,7 +16,18 @@ from .util import (intersectDict, mergeDicts, ChainMap, findSchemaErrors,
 
 # XXX3 doc: notpresent is a positive assertion of non-existence while notapplied just indicates non-liveness
 # notapplied is therefore the default initial state
-Status = IntEnum("Status", "ok degraded error pending notapplied notpresent", module=__name__)
+Status = IntEnum("Status", "ok degraded stopped error pending notapplied notpresent", module=__name__)
+
+# ignore may must
+Priority = IntEnum("Priority", "ignore optional required", module=__name__)
+
+# omit discover exist
+Action = IntEnum("Action", "discover instantiate revert", module=__name__)
+
+class Defaults(object):
+  shouldRun = Priority.optional
+  canRun = True
+  intent = Action.instantiate
 
 class File(ExternalValue):
   """
@@ -205,9 +216,8 @@ class ResourceChanges(collections.OrderedDict):
 
   def sync(self, resource):
     """ Update self to only include changes that are still live"""
-    root = resource.root
     for k, v in list(self.items()):
-      current = root.findResource(k)
+      current = Ref(k).resolveOne(RefContext(resource))
       if current:
         attributes = v[self.attributesIndex]
         if attributes:
@@ -236,7 +246,7 @@ class ResourceChanges(collections.OrderedDict):
 
   def addResources(self, resources):
     for resource in resources:
-      self[resource['name']] = [None, resource, None]
+      self['::'+resource['name']] = [None, resource, None]
 
   def updateChanges(self, changes, statuses, resource):
     self.addChanges(changes)
@@ -264,19 +274,19 @@ class AttributeManager(object):
 
   def setStatus(self, resource, newvalue):
     assert newvalue is None or isinstance(newvalue, Status)
-    if resource.name not in self.statuses:
-      self.statuses[resource.name] = [resource._localStatus, newvalue]
+    if resource.key not in self.statuses:
+      self.statuses[resource.key] = [resource._localStatus, newvalue]
     else:
-      self.statuses[resource.name][1] = newvalue
+      self.statuses[resource.key][1] = newvalue
 
   def getAttributes(self, resource):
-    if resource.name not in self.attributes:
-      specd = resource.spec.get('attributes', {})
+    if resource.key not in self.attributes:
+      specd = resource.template.properties if resource.template else {}
       attributes = ResultsMap(ChainMap(copy.deepcopy(resource._attributes), specd), RefContext(resource))
-      self.attributes[resource.name] = (resource, attributes)
+      self.attributes[resource.key] = (resource, attributes)
       return attributes
     else:
-      return self.attributes[resource.name][1]
+      return self.attributes[resource.key][1]
 
   # def revertChanges(self):
   #   self.attributes = {}
@@ -301,7 +311,7 @@ class AttributeManager(object):
       diff = attributes.getDiff()
       if not diff:
         continue
-      changes[resource.name] = diff
+      changes[resource.key] = diff
     self.attributes = {}
     # self.statuses = {}
     return changes
@@ -317,10 +327,6 @@ class LocalConfig(object):
   local:
   secret:
 
-defaults: #for undeclared manifests
- local:
- secret:
-
 manifests:
   - path:
     local:
@@ -328,9 +334,14 @@ manifests:
       resource: root
       # or:
       attributes:
-        inheritFrom:
+        #XXX: inheritFrom:
     secret:
     default: true
+
+defaults: #used by manifests not defined above
+ local:
+ secret:
+
 """
   def __init__(self, path=None):
     defaultConfig = {}
@@ -372,7 +383,8 @@ manifests:
         #XXX if inheritFrom or defaults in attributes: add .interface
         return Resource(localName, attributes)
       else:
-        # set url and resource
+        # its local or secret is resource defined in a manifest
+        # set the url and resource name so the manifest loads it
         # XXX but should load here and save for re-use
         importSpec.update(localRepo)
         if 'path' in localRepo:
@@ -390,9 +402,18 @@ class LocalEnv(object):
   DefaultLocalConfigName = 'giterop.yaml'
   DefaultHomeDirectory = '.giterop_home'
 
-  def __init__(self, manifestPath=None):
+  def __init__(self, manifestPath=None, homepath=None):
     # XXX need to load and save local config
+    self.homeConfigPath = self.getHomeConfigPath(homepath)
     self.config, self.path = self.findConfigAndManifestPaths(manifestPath)
+
+  def getHomeConfigPath(self, homepath):
+    if homepath:
+      if os.path.isdir(homepath):
+        return os.path.abspath(os.path.join(homepath, self.DefaultLocalConfigName))
+      else:
+        return os.path.abspath(homepath)
+    return os.path.expanduser(os.path.join('~', self.DefaultHomeDirectory, self.DefaultLocalConfigName))
 
   def getLocalResource(self, name, importSpec):
     if name != 'local' and name != 'secret':
@@ -418,9 +439,8 @@ class LocalEnv(object):
       localConfig = LocalConfig(localConfigPath)
     else:
       # XXX load and merge home config even if local config exists
-      homeConfigPath = os.path.expanduser(os.path.join('~', self.DefaultHomeDirectory, self.DefaultLocalConfigName))
-      if os.path.exists(homeConfigPath):
-        localConfig = LocalConfig(homeConfigPath)
+      if os.path.exists(self.homeConfigPath):
+        localConfig = LocalConfig(self.homeConfigPath)
       else:
         localConfig = LocalConfig()
 

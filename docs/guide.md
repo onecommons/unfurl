@@ -8,6 +8,8 @@ GitErOp relies on other tools and services to actually do the work, they are enc
 
 Running GitErOp attempts to apply that specification and commits the results of that run. The exact versions of all external assets and tools utilized are recorded so playback can be fully reproducible.
 
+Easily express dependencies and requirements between arbitrary high-level services in a consistent manner.
+
 ## Design
 
 ### Metadata
@@ -47,3 +49,29 @@ GitErOp shares many similarities with Ansible; in fact it relies on Ansible as a
 Terraform's design shares many similarities to GitErOp but is more ambitious in that it attempts to calculate an update plan by generating a diff between the current specification and current state. This requires resource plugins to implement full CRUD semantics for managing resources and implement a fairly complex interface in Go.
 
 Unlike Terraform, GitErOp maintains a history of configuration changes -- enabling it to support much simpler semantics for resources. This way they can be defined in a simple and ad hoc manner and using just YAML configuration DSL or through a simple Python API as opposed to relying on Go developer with domain expertise building a resource plugin.
+
+## Change algebra
+spec:
+ the latest spec
+
+status:
+
+contains the current deployed state:
+attributes, capabilities, runtime dependencies, deployed artifacts
+Each resource also links the last node template version applied
+
+dependencies and artifacts record with configuration last updated them
+
+configchanged: inputs and attributes on each node
+* configuration tasks form a graph of dependencies between nodes 
+that the configuration depends on.
+* this forms the execution plan graph for each job
+* when a dependency changes, the associated configuration will be rerun 
+
+configurations:
+
+old subplans aren't compatible with the current state if depends on
+resources that no longer compatible.
+
+also if they produce results that will no longer be compatible
+ 

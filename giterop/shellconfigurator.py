@@ -10,6 +10,9 @@ parameters:
   select: contents
 """
 
+# support tosca 4.2 Environment Variable Conventions (p 153)
+# at least expose config parameters
+# see also 13.3.1 Shell scripts p 328
 # XXX add support for a stdin parameter
 # (that's a reason to make config parameters lazy too)
 

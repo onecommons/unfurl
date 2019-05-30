@@ -131,8 +131,7 @@ from .runtime import (JobOptions, Priority, Action, Defaults,
                       Runner, Manifest, ChangeRecord)
 from .result import serializeValue
 from .support import ResourceChanges, Status, LocalEnv
-from toscaparser.tosca_template import ToscaTemplate
-
+from .tosca import ToscaSpec
 from ruamel.yaml.comments import CommentedMap
 from codecs import open
 from six.moves import reduce
@@ -427,7 +426,7 @@ def saveStatus(operational):
 
   return status
 
-class Changeset(object):
+class Changeset(ChangeRecord):
   HeaderAttributes = CommentedMap([
    ('changeId', 0),
    ('parentId', None),
@@ -451,7 +450,6 @@ class Changeset(object):
   ])
 
   def __init__(self, task):
-    self.changeRecord = ChangeRecord()
     if isinstance(task, dict):
       self._initFromDict(task)
     else:
@@ -459,12 +457,13 @@ class Changeset(object):
 
   def _initFromTask(self, task):
     for (k,v) in self.HeaderAttributes.items():
-      setattr(self.changeRecord, k, getattr(task, k, v))
+      setattr(self, k, getattr(task, k, v))
 
     self.status = task.pendingConfig
 
     for (k,v) in self.RootAttributes.items():
       if k == 'spec':
+        # XXXT just reference topology and git revision
         self.spec = saveConfigSpec(task.pendingConfig.configurationSpec)
       elif k == 'changes':
         self.changes = saveResourceChanges(task.resourceChanges)
@@ -479,7 +478,7 @@ class Changeset(object):
 
   def _initFromDict(self, src):
     for (k,v) in self.HeaderAttributes.items():
-      setattr(self.changeRecord, k, src.get(k, v))
+      setattr(self, k, src.get(k, v))
     self.status = Manifest.createStatus(src)
     for (k,v) in self.CommonAttributes.items():
       setattr(self, k, src.get(k, v))
@@ -491,7 +490,7 @@ class Changeset(object):
     convert dictionary suitable for serializing as yaml
     or creating a Changeset.
     """
-    items = [(k, getattr(self.changeRecord, k)) for k in Changeset.HeaderAttributes]
+    items = [(k, getattr(self, k)) for k in Changeset.HeaderAttributes]
     items.extend( saveStatus(self.status).items() )
     items.extend([(k, getattr(self, k)) for k in Changeset.CommonAttributes
                       if getattr(self, k)]) #skip empty values
@@ -510,13 +509,15 @@ class YamlManifest(Manifest):
     self.manifest = YamlConfig(manifest, path or localEnv and localEnv.path, validate, schema)
     manifest = self.manifest.expanded
 
-    self.specs = []
     self.changeSets = dict((c['changeId'], Changeset(c)) for c in  manifest.get('changes', []))
     lastChangeId = self.changeSets and max(self.changeSets.keys()) or 0
 
-    templates = manifest.get('templates', {})
-    rootResource = self.createResource('root', manifest['root'], None,
-                    templates.get('resources'), templates.get('configurations'))
+    # needs to load previous version of template associated with current resources
+    toscaDef = manifest.get('tosca')
+    self.tosca = toscaDef and ToscaSpec(toscaDef)
+    self.specs = toscaDef and self.tosca.configSpecs or []
+
+    rootResource = self.createResource('root', manifest['root'], None, self.tosca.nodeTemplates)
 
     importsSpec = manifest.get('imports', {})
     if localEnv:
@@ -524,9 +525,6 @@ class YamlManifest(Manifest):
       importsSpec.setdefault('secret', {})
     rootResource.imports = self.loadImports(importsSpec)
     rootResource.baseDir = self.getBaseDir()
-
-    toscaDef = manifest.get('tosca')
-    self.tosca = toscaDef and ToscaTemplate(yaml_dict_tpl=toscaDef)
 
     super(YamlManifest, self).__init__(rootResource, self.specs, lastChangeId)
 
@@ -560,7 +558,7 @@ class YamlManifest(Manifest):
       status['createdFrom'] = resource.createdFrom
 
     status['configurations'] = CommentedMap(map(self.saveConfiguration, resource.effectiveConfigurations.values()))
-    spec = saveResourceSpec(resource.spec)
+    spec = saveResourceSpec(resource.spec) #XXXT
     return (resource.name, copy.deepcopy(CommentedMap([("spec", spec),
       ("resources", CommentedMap(map(lambda r: self.saveResource(r, workDone), resource.resources))),
       ("status", status),
@@ -629,7 +627,7 @@ class YamlManifest(Manifest):
     return imports
 
 def runJob(manifestPath=None, opts=None):
-  localEnv = LocalEnv(manifestPath)
+  localEnv = LocalEnv(manifestPath, opts and opts.get('home'))
   manifest = YamlManifest(localEnv=localEnv)
   runner = Runner(manifest)
   kw = opts or {}
