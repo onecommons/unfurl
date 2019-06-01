@@ -4,66 +4,75 @@ Applies a GitErOp manifest
 
 For each configuration, run it if required, then record the result
 """
-from .manifest import runJob
+from .yamlmanifest import runJob
 from .support import Status
 from . import __version__
 import click
 import sys
 import logging
-logger = logging.getLogger('giterup')
 
 def initLogging(quiet, logfile, verbose):
   logging.captureWarnings(True)
-  logger.setLevel(logging.DEBUG)
+  rootLogger = logging.getLogger()
+  rootLogger.setLevel(logging.DEBUG) # need to set this first
 
   if logfile:
     ch = logging.FileHandler(logfile)
     formatter = logging.Formatter(
-        '[%(asctime)s] %(message)s')
+        '[%(asctime)s] %(levelname)s: %(message)s')
     ch.setFormatter(formatter)
     ch.setLevel(logging.DEBUG)
-    logger.addHandler(ch)
+    rootLogger.addHandler(ch)
 
   ch = logging.StreamHandler()
-  formatter = logging.Formatter('%(message)s')
+  formatter = logging.Formatter('%(levelname)s: %(message)s')
   ch.setFormatter(formatter)
-
   if quiet:
     ch.setLevel(logging.CRITICAL)
   else:
     # TRACE (5)
-    levels = [logging.INFO, logging.DEBUG, 5, 5]
-    ch.setLevel(levels[verbose])
-  logger.addHandler(ch)
+    levels = [logging.INFO, logging.DEBUG, 5, 5, 5]
+    ch.setLevel(levels[min(verbose,3)])
+  rootLogger.addHandler(ch)
 
 @click.group()
 @click.pass_context
 @click.option('--home', default='', type=click.Path(exists=False), help='path to .giterop home')
 @click.option('-v', '--verbose', count=True, help="verbose mode (-vvv for more)")
-@click.option('-q', '--quiet', default=False, help='Only output errors to the stdout')
+@click.option('-q', '--quiet', default=False, is_flag=True, help='Only output errors to the stdout')
 @click.option('--logfile', default=None,
                               help='Log file for messages during quiet operation')
-def cli(ctx, verbose=0, quiet=False, logfile=None):
+def cli(ctx, verbose=0, quiet=False, logfile=None, home=''):
   # ensure that ctx.obj exists and is a dict (in case `cli()` is called
   # by means other than the `if` block below
   ctx.ensure_object(dict)
   ctx.obj['verbose'] = verbose
   initLogging(quiet, logfile, verbose)
 
+#giterop run foo:create -- terraform blah
+# --append
+# --replace
+# giterop run foo:check 'terraform blah' # save lastChangeId so we can recreate history for the target
+# each command builds a config (unless replace ) --replace
+# giterop add repo
+# giterop add image
+# giterop intervene # apply manual changes to status (create a change set and commit)
 @cli.command()
 @click.pass_context
-@click.argument('manifest', default='', type=click.Path(exists=False))
-@click.option('--resource', help="name of resource to start with")
-@click.option('--add', default=True, help="run newly added configurations")
-@click.option('--update', default=True, help="run configurations that whose spec has changed but don't require a major version change")
-@click.option('--repair', type=click.Choice(['error', 'degraded', 'notapplied', 'none']),
-  default="error", help="re-run configurations that are in an error or degraded state")
-@click.option('--upgrade', default=False, help="run configurations with major version changes or whose spec has changed")
-@click.option('--dryrun', default=False, help='Do not modify anything, just do a dry run.')
+@click.argument('action', default='*:upgrade')
+@click.argument('use', nargs=1, default='') # use:configurator
+@click.option('--manifest', default='', type=click.Path(exists=False))
+@click.option('--append', default=True, is_flag=True, help="add this command to the previous")
+@click.option('--replace', default=True, is_flag=True, help="replace the previous command")
+@click.option('--dryrun', default=False, is_flag=True, help='Do not modify anything, just do a dry run.')
 @click.option('--jobexitcode', type=click.Choice(['error', 'degraded', 'never']),
               default='never', help='Set exitcode if job status is not ok.')
-def run(ctx, manifest=None, **options):
+@click.argument('cmdline', nargs=-1)
+def run(ctx, action, use=None, cmdline=None, **options):
   options.update(ctx.obj)
+  return _run(options.pop('manifest'), options)
+
+def _run(manifest, options):
   try:
     job = runJob(manifest, options)
     if job.unexpectedAbort:
@@ -75,6 +84,22 @@ def run(ctx, manifest=None, **options):
   except Exception as err:
     # traceback.print_exc()
     raise click.ClickException(str(err))
+
+@cli.command()
+@click.pass_context
+@click.argument('manifest', default='', type=click.Path(exists=False))
+@click.option('--resource', help="name of resource to start with")
+@click.option('--add', default=True, is_flag=True, help="run newly added configurations")
+@click.option('--update', default=True, is_flag=True, help="run configurations that whose spec has changed but don't require a major version change")
+@click.option('--repair', type=click.Choice(['error', 'degraded', 'notapplied', 'none']),
+  default="error", help="re-run configurations that are in an error or degraded state")
+@click.option('--upgrade', default=False, is_flag=True, help="run configurations with major version changes or whose spec has changed")
+@click.option('--dryrun', default=False, is_flag=True, help='Do not modify anything, just do a dry run.')
+@click.option('--jobexitcode', type=click.Choice(['error', 'degraded', 'never']),
+              default='never', help='Set exitcode if job status is not ok.')
+def deploy(ctx, manifest=None, **options):
+  options.update(ctx.obj)
+  return _run(manifest, options)
 
 @cli.command()
 def version():
