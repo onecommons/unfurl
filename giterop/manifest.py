@@ -1,634 +1,215 @@
-"""Loads and saves a GitErOp manifest with the following format:
-
-.. code-block:: YAML
-
-  apiVersion: VERSION
-  kind: Manifest
-
-  imports:
-    foo:
-      url: local/path # for now
-      resource: name # default is root
-      attributes: # queries into resource
-      configurations:
-      properties: # expected schema for attributes
-    # special case imports, url and resource can't be defined
-    locals:
-     properties:
-       name1:
-         type: string
-         default
-     required:
-    secrets:
-     properties:
-       name1:
-         type: string
-         default
-       # save-digest: true
-       # prompt: true
-       # readonly: true
-     required:
-
-  root: #root resource is always named 'root'
-    spec:
-      attributes:
-        .interfaces:
-          interfaceName: foo.bar.ClassName
-      attributesSchema:
-      configurations:
-        name1:
-          className
-          version
-          intent
-          parameters: #declared
-          priority:
-          parameterSchema:
-          requires:
-          provides:
-            .self: #.self describes the attributes that this configuration will instantiate
-              attributes
-              attributesSchema
-            .configurations: #configurations that maybe used by this configurator
-              configTemplate1:
-            resourceTemplate1: # may create resources like this
-              template:
-              attributes:
-                foo: bar
-                .interfaces:
-                  iBarManager: module.barManager
-              configurations:
-                config1:
-                  template:
-          lastAttempt: changeid
-    status:
-      readyState:
-        effective:
-        local:
-        lastChange: changeId
-      priority
-      lastConfigChange: changeId
-      attributes: # modifications to spec/attributes
-      configurations:
-        name:
-          readyState:
-            effective:
-            local:
-          lastConfigChange: changeId
-          lastStateChange: changeId
-          priority
-          parameters: #actual
-            param1: value
-          dependencies:
-            - ref: ::resource1::key[~$val]
-              expected: "value"
-            - name: named1
-              ref: .configurations::foo[.operational]
-              required: true
-              schema:
-                type: array
-          modifications:
-            resource1:
-              .added: # set if added resource
-              .status: # set when adding or removing
-              foo: bar
-            resource2:
-              .spec:
-              .status: notpresent
-            resource3/child1: +%delete
-    resources:
-      child1:
-        +/resourceSpecs/node
-        status:
-         createdBy: changeid
-         createdFrom: templateName
-
-  changes:
-    - changeId
-      startTime
-      commitId
-      parentChange
-      previousChange #XXX
-      readyState
-      priority
-      resource
-      config
-      action
-      spec
-      parameters
-      dependencies
-      changes
-      messages:
-"""
-
-import six
-import copy
-import sys
 import collections
-import os.path
-
-from .util import (GitErOpError, VERSION, restoreIncludes, patchDict, YamlConfig)
-from .runtime import (JobOptions, Priority, Action, Defaults,
-                      Runner, Manifest, ChangeRecord)
-from .result import serializeValue
-from .support import ResourceChanges, Status, LocalEnv
-from .tosca import ToscaSpec
 from ruamel.yaml.comments import CommentedMap
-from codecs import open
-from six.moves import reduce
 
-# XXX3 add as file to package data
-#schema=open(os.path.join(os.path.dirname(__file__), 'manifest-v1alpha1.json')).read()
-schema = {
-  "$schema": "http://json-schema.org/draft-04/schema#",
-  "$id": "https://www.onecommons.org/schemas/giterop/v1alpha1.json",
-  "definitions": {
-    "atomic": {
-      "type": "object",
-      "properties": {
-        # XXX
-        # "+%": {
-        #   "default": "replaceProps"
-        # }
-      },
-    },
-    "namedObjects": {
-      "type": "object",
-      "propertyNames": {
-          "pattern": r"^[A-Za-z_][A-Za-z0-9_\-]*$"
-        },
-    },
-    "secret": {
-      "type": "object",
-      "properties": {
-        "ref": {
-          "type": "object",
-          "properties": {
-            "secret": {
-              "type": "string",
-              "pattern": r"^[A-Za-z_][A-Za-z0-9_\-]*$"
-            },
-          },
-          "required": ["secret"]
-        },
-      },
-      "required": ["ref"]
-    },
-    "attributes": {
-      "allOf": [
-        { "$ref": "#/definitions/namedObjects" },
-        { "$ref": "#/definitions/atomic" }
-      ],
-      'default': {}
-    },
-    "resource": {
-      "type": "object",
-      "properties": {
-        "spec": {
-          "type": "object",
-          "properties": {
-            "attributes": {
-              "$ref": "#/definitions/attributes",
-              "default": {}
-             },
-            "attributesSchema": {
-              "$ref": "#/definitions/schema",
-              "default": {}
-             },
-            "configurations": {
-              "allOf": [
-                { "$ref": "#/definitions/namedObjects" },
-                {"additionalProperties": { "$ref": "#/definitions/configurationSpec" }}
-              ],
-              'default': {}
-            },
-          },
-          'default': {}
-        },
-        "status": {
-          "allOf": [
-            {"$ref": "#/definitions/status" },
-            {"properties": {
-              "attributes": {
-                "$ref": "#/definitions/attributes",
-                "default": {}
-              },
-              "configurations": {
-                "allOf": [
-                  { "$ref": "#/definitions/namedObjects" },
-                  {"additionalProperties": { "$ref": "#/definitions/configurationStatus" }}
-                ],
-                'default': {}
-              }
-            }
-          }],
-          'default': {}
-        },
-        "resources": {
-          "allOf": [
-            { "$ref": "#/definitions/namedObjects" },
-            {"additionalProperties": { "$ref": "#/definitions/resource" }}
-          ],
-          'default': {}
-        },
-      },
-    },
-    "configurationSpec": {
-      "type": "object",
-      "properties": {
-        "className": {"type":"string"},
-        "majorVersion": {"anyOf": [{"type":"string"}, {"type":"number"}]},
-        "minorVersion": {"type":"string"},
-        "intent": { "enum": list(Action.__members__) },
-        "parameters": {
-          "$ref": "#/definitions/attributes",
-          "default": {}
-         },
-        "parameterSchema": {
-          "$ref": "#/definitions/schema",
-          "default": {}
-         },
-        "requires": {
-          "$ref": "#/definitions/schema",
-          "default": {}
-         },
-        "provides": {
-          "type": "object",
-          "properties": {
-            ".self": {
-              "$ref": "#/definitions/resource/properties/spec" #excepting "configurations"
-             },
-            ".configurations": {
-              "allOf": [
-                { "$ref": "#/definitions/namedObjects" },
-                # {"additionalProperties": { "$ref": "#/definitions/configurationSpec" }}
-              ],
-              'default': {}
-            },
-          },
-          # "additionalProperties": { "$ref": "#/definitions/resource/properties/spec" },
-          'default': {}
-        },
-         "lastAttempt": {"$ref": "#/definitions/changeId"}
-      },
-      "required": ["className", "majorVersion"]
-    },
-    "configurationStatus": {
-      "type": "object",
-      "allOf": [
-        { "$ref": "#/definitions/status" },
-        { "properties": {
-            "action": { "enum": list(Action.__members__) },
-            "parameters": {
-              "$ref": "#/definitions/attributes",
-              "default": {}
-            },
-            "modifications": {
-              "allOf": [
-                { "$ref": "#/definitions/namedObjects" },
-                {"additionalProperties": { "$ref": "#/definitions/namedObjects" }}
-              ],
-              'default': {}
-            },
-            "dependencies": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "properties": {
-                    "name":      { "type": "string" },
-                    "ref":       { "type": "string" },
-                    "expected":  {},
-                    "schema":    { "$ref": "#/definitions/schema" },
-                    "required":  { "type": "boolean"},
-                },
-              },
-            },
-          }
-      }],
-    },
-    "status": {
-      "type": "object",
-      "properties": {
-        "readyState": {
-          "type": "object",
-          "properties": {
-            "effective": { "enum": list(Status.__members__) },
-            "local":    { "enum": list(Status.__members__) }
-          }
-        },
-        "priority": { "enum": list(Priority.__members__) },
-        "lastStateChange": {"$ref": "#/definitions/changeId"},
-        "lastConfigChange": {"$ref": "#/definitions/changeId"},
-      },
-      "additionalProperties": True,
-    },
-    "changeId": {"type": "number"},
-    "schema":   {"type": "object"}
-  }, # end definitions
+from .support import ResourceChanges, AttributeManager, Status, Priority, Action, Defaults
+from .runtime import OperationalInstance, Resource, Capability, Relationship, ConfigChange
+from .util import GitErOpError, toEnum
+from .configurator import Dependency, ConfigurationSpec
 
-  "type": "object",
-  "properties": {
-    "apiVersion": { "enum": [ VERSION ] },
-    "kind": { "enum": [ "Manifest" ] },
-    "root": { "$ref": "#/definitions/resource" },
-    "changes": { "type": "array",
-      "additionalItems": {
-        "type": "object",
-        "allOf": [
-          { "$ref": "#/definitions/status" },
-          { "$ref": "#/definitions/configurationStatus" },
-          { "properties": {
-              "parentId": {"$ref": "#/definitions/changeId"},
-              'commitId': {"type": "string"},
-              'startTime':{"type": "string"},
-              "spec":     {"$ref": "#/definitions/configurationSpec" },
-            },
-            "required": ["changeId"]
-          },
-        ]
-      }
-    }
-  },
-  "required": ["apiVersion", "kind", "root"]
-}
+import logging
+logger = logging.getLogger('giterop')
 
-Import = collections.namedtuple('Import', ['resource', 'spec'])
+class Repo(object):
+  def checkout(self, commitid):
+    return workingDir
 
-def saveConfigSpec(spec):
-  saved = CommentedMap([
-    ("intent", spec.intent.name),
-    ("className", spec.className),
-    ("majorVersion", spec.majorVersion),
-    ("minorVersion", spec.minorVersion),
-    ("parameters", spec.parameters),
-    ("parameterSchema", spec.parameterSchema),
-    ("requires", spec.requires),
-  ])
-  if spec.provides:
-    dotSelf = spec.provides.get('.self')
-    if dotSelf:
-      # removed defaults put in by schema
-      dotSelf.pop('configurations', None)
-      if not dotSelf.get('attributes'):
-        dotSelf.pop('attributes', None)
-    saved["provides"] = spec.provides
+  def commit(self):
+    return commitid
 
-  if spec.lastAttempt:
-    saved["lastAttempt"] = spec.lastAttempt.changeId
-  return saved
+class SimpleRepo(Repo):
+  def __init__(self, lastCommitId):
+    self.lastCommitId = int(lastCommitId or 0)
 
-def saveDependency(dep):
-  saved = CommentedMap()
-  if dep.name:
-    saved['name'] = dep.name
-  saved['ref'] = dep.expr
-  if dep.expected is not None:
-    saved['expected'] = serializeValue(dep.expected)
-  if dep.schema is not None:
-    saved['schema'] = dep.schema
-  if dep.required:
-    saved['required'] = dep.required
-  if dep.wantList:
-    saved['wantList'] = dep.wantList
-  return saved
+  def checkout(self, commitid, useCurrent):
+    if useCurrent and commitid == self.lastCommitId:
+      return self.workingDir
+    return './revisions/{commitid}/files'
 
-def saveResourceSpec(rspec):
-    spec = CommentedMap()
-    if 'attributes' in rspec:
-      spec['attributes'] = rspec['attributes']
-    spec['configurations'] = CommentedMap([(cspec.name, saveConfigSpec(cspec))
-          for cspec in rspec['configurations'].values()])
-    return spec
+  def commit(self):
+    self.lastCommitId += 1
+    # copy current workingDir to /revisions/{commitid}/files
+    return self.lastCommitId
 
-def saveResourceChanges(changes):
-  d = CommentedMap()
-  for k, v in changes.items():
-    d[k] = v[ResourceChanges.attributesIndex] or {}
-    if v[ResourceChanges.statusIndex] is not None:
-      d[k]['.status'] = v[ResourceChanges.statusIndex].name
-    if v[ResourceChanges.addedIndex]:
-      d[k]['.added'] = v[ResourceChanges.addedIndex]
-  return d
+class Revision(object):
+  def __init__(self, revisionManager, commitid, workingDir):
+    self.revisionManager = revisionManager
+    self.workingDir = workingDir
+    self.commitId = commitid
 
-def saveStatus(operational):
-  readyState = CommentedMap([
-    ("effective", operational.status.name),
-  ])
-  if operational.localStatus is not None:
-    readyState['local'] =  operational.localStatus.name
+class RevisionManager(object):
+  def __init__(self, currentToscaTemplate):
+    self.revisions = {}
+    self.currentToscaTemplate = currentToscaTemplate
 
-  status = CommentedMap([("readyState", readyState)])
-  if operational.priority and operational.priority != Defaults.shouldRun:
-    status["priority"] = operational.priority.name
-  if operational.lastStateChange:
-    status["lastStateChange"] = operational.lastStateChange
-  if operational.lastConfigChange:
-    status["lastConfigChange"] = operational.lastConfigChange
+  def getRevision(self, repo, commitid):
+    key = (repo, commitid)
+    if key in self.revisions:
+      return self.revisions[key]
+    else:
+      workingDir = '.' # XXX self.repos[repo].checkout(commitid)
+      revision = Revision(self, commitid, workingDir)
+      revision.template = self.currentToscaTemplate
+      self.revisions[key] = revision
+      return revision
 
-  return status
-
-class Changeset(ChangeRecord):
-  HeaderAttributes = CommentedMap([
+ChangeRecordAttributes = CommentedMap([
    ('changeId', 0),
    ('parentId', None),
    ('commitId', ''),
    ('startTime', ''),
-   ('resourceName', ''),
-   ('configName', ''),
-  ])
-  CommonAttributes = CommentedMap([
-    # ('readyState', {}),
-    # ('priority', {}),
-  ])
-  RootAttributes = CommentedMap([
-    # ('action', ''), # XXX
-    ('spec', {}),
-    ('parameters', {}),
-    ('result', {}),
-    # ('dependencies', {}), # XXX
-    ('changes', {}),
-    ('messages', []),
-  ])
+]);
 
-  def __init__(self, task):
-    if isinstance(task, dict):
-      self._initFromDict(task)
-    else:
-      self._initFromTask(task)
+# XXX rename manifest.py YamlManifest.py
+class Manifest(AttributeManager):
+  """
+  Loads a model from dictionary representing the manifest
+  """
+  def __init__(self, currentToscaTemplate):
+    super(Manifest, self).__init__()
+    self.tosca = currentToscaTemplate
+    assert currentToscaTemplate
+    self.revisions = RevisionManager(self.tosca)
 
-  def _initFromTask(self, task):
-    for (k,v) in self.HeaderAttributes.items():
-      setattr(self, k, getattr(task, k, v))
+  def _ready(self, rootResource, lastChangeId=0):
+    self.rootResource = rootResource
+    rootResource.attributeManager = self
+    self.lastChangeId = lastChangeId
 
-    self.status = task.pendingConfig
-
-    for (k,v) in self.RootAttributes.items():
-      if k == 'spec':
-        # XXXT just reference topology and git revision
-        self.spec = saveConfigSpec(task.pendingConfig.configurationSpec)
-      elif k == 'changes':
-        self.changes = saveResourceChanges(task.resourceChanges)
-      elif k == 'messages':
-        self.messages = task.messages
-      elif k == 'parameters':
-        self.parameters = serializeValue(task.pendingConfig.parameters)
-      elif k == 'result':
-        self.result = task.result.result
-      else:
-        setattr(self, k, getattr(task.pendingConfig, k, v))
-
-  def _initFromDict(self, src):
-    for (k,v) in self.HeaderAttributes.items():
-      setattr(self, k, src.get(k, v))
-    self.status = Manifest.createStatus(src)
-    for (k,v) in self.CommonAttributes.items():
-      setattr(self, k, src.get(k, v))
-    for (k,v) in self.RootAttributes.items():
-      setattr(self, k, src.get(k, v))
-
-  def dump(self):
-    """
-    convert dictionary suitable for serializing as yaml
-    or creating a Changeset.
-    """
-    items = [(k, getattr(self, k)) for k in Changeset.HeaderAttributes]
-    items.extend( saveStatus(self.status).items() )
-    items.extend([(k, getattr(self, k)) for k in Changeset.CommonAttributes
-                      if getattr(self, k)]) #skip empty values
-    items.extend([(k, getattr(self, k)) for k in Changeset.RootAttributes
-                          if getattr(self, k)] #skip empty values
-                  )
-    #CommentedMap so order is preserved in yaml output
-    return CommentedMap(items)
-
-# +./ +../ +/
-# +%: +url:ffff#fff:
-class YamlManifest(Manifest):
-  def __init__(self, manifest=None, path=None, validate=True, localEnv=None):
-    assert not (localEnv and (manifest or path)) # invalid combination of args
-    self.localEnv = localEnv
-    self.manifest = YamlConfig(manifest, path or localEnv and localEnv.path, validate, schema)
-    manifest = self.manifest.expanded
-
-    self.changeSets = dict((c['changeId'], Changeset(c)) for c in  manifest.get('changes', []))
-    lastChangeId = self.changeSets and max(self.changeSets.keys()) or 0
-
-    # needs to load previous version of template associated with current resources
-    toscaDef = manifest.get('tosca')
-    self.tosca = toscaDef and ToscaSpec(toscaDef)
-    self.specs = toscaDef and self.tosca.configSpecs or []
-
-    rootResource = self.createResource('root', manifest['root'], None, self.tosca.nodeTemplates)
-
-    importsSpec = manifest.get('imports', {})
-    if localEnv:
-      importsSpec.setdefault('local', {})
-      importsSpec.setdefault('secret', {})
-    rootResource.imports = self.loadImports(importsSpec)
-    rootResource.baseDir = self.getBaseDir()
-
-    super(YamlManifest, self).__init__(rootResource, self.specs, lastChangeId)
+  def getRootResource(self):
+    return self.rootResource
 
   def getBaseDir(self):
-    return self.manifest.getBaseDir()
-
-  @staticmethod
-  def _getResourcePath(resource):
-    return reduce(lambda x, y: x + y,
-        ((p.name, 'resources') for p in resource.parents), ()) + (resource.name,)
-
-  def _getConfigPath(self, changeset):
-    assert changeset
-    resource = self.rootResource.findResource(changeset.resourceName)
-    assert resource
-    return self._getResourcePath(resource) + ('spec', 'configurations', changeset.configName)
-
-  def saveResource(self, resource, workDone):
-    status = saveStatus(resource)
-    status['attributes'] = resource._attributes
-    if resource.createdOn: #will be a ChangeRecord
-      status['createdOn'] = resource.createdOn.changeId
-    if resource.createdFrom:
-      insertKey = self._getResourcePath(resource) + ('spec',)
-      if insertKey not in self.manifest.includes:
-        # if this resource is being added for the first time and it's from a template
-        # create a merge include directive pointing at the template
-        configPath = '/'.join(self._getConfigPath(resource.createdOn))
-        includePath = '+' + configPath + '/provides/' + resource.createdFrom
-        self.manifest.includes[insertKey] = [(includePath, None)]
-      status['createdFrom'] = resource.createdFrom
-
-    status['configurations'] = CommentedMap(map(self.saveConfiguration, resource.effectiveConfigurations.values()))
-    spec = saveResourceSpec(resource.spec) #XXXT
-    return (resource.name, copy.deepcopy(CommentedMap([("spec", spec),
-      ("resources", CommentedMap(map(lambda r: self.saveResource(r, workDone), resource.resources))),
-      ("status", status),
-    ])))
-
-  def saveConfiguration(self, config):
-    spec = config.configurationSpec
-    status = saveStatus(config)
-    status['parameters'] = serializeValue(config.parameters)
-    status["spec"] = saveConfigSpec(spec)
-    status['modifications'] = saveResourceChanges(config.resourceChanges)
-    status['dependencies'] = [saveDependency(val) for val in config.dependencies.values()]
-    return (config.name, status)
-
-  def saveTask(self, task):
-    """
-    convert dictionary suitable for serializing as yaml
-    """
-    return Changeset(task).dump()
+    return '.'
 
   def saveJob(self, job):
-    changes = map(self.saveTask, job.workDone.values())
-    changed = CommentedMap([self.saveResource(self.rootResource, job.workDone)])
-    # update changed with includes, this may change objects with references to these objects
-    restoreIncludes(self.manifest.includes, self.manifest.config, changed, cls=CommentedMap)
-    # modify original to preserve structure and comments
-    patchDict(self.manifest.config['root'], changed['root'], cls=CommentedMap)
-    self.manifest.config.setdefault('changes', []).extend(changes)
-    if job.out:
-      self.dump(job.out)
-    elif self.manifest.path:
-      with open(self.manifest.path, 'w') as f:
-        self.dump(f)
+    pass
+
+  def getTemplateUri(self, template):
+    return 'self:%s:0' % template.name
+
+  def loadTemplate(self, template):
+    if ':' in template:
+      repo, name, commitId = template.split(':')
+      revision = self.revisions.getRevision(repo, commitId)
+      tosca = revision.template
     else:
-      output = six.StringIO()
-      self.dump(output)
-      job.out = output
+      name = template
+      tosca = self.tosca
+    return tosca.getTemplate(name)
 
-  def dump(self, out=sys.stdout):
-    try:
-      self.manifest.dump(out)
-    except:
-      raise GitErOpError("Error saving manifest %s" % self.manifest.path, True)
+#  load instances
+#    create a resource with the given template
+#  or generate a template setting interface with the referenced implementations
 
-  def loadImports(self, importsSpec):
+  @staticmethod
+  def loadStatus(status, instance=None):
+    if not instance:
+      instance = OperationalInstance()
+    if not status:
+      return instance
+
+    instance._priority = toEnum(Priority, status.get('priority'))
+    instance._lastStateChange = status.get('lastStateChange')
+    instance._lastConfigChange = status.get('lastConfigChange')
+
+    readyState = status.get('readyState')
+    if not isinstance(readyState, collections.Mapping):
+      instance._localStatus = toEnum(Status, readyState)
+    else:
+      instance._localStatus = toEnum(Status, readyState.get('local'))
+
+    return instance
+
+  @staticmethod
+  def loadResourceChanges(changes):
+    resourceChanges = ResourceChanges()
+    if changes:
+      for k, change in changes.items():
+        status = change.pop('.status', None)
+        resourceChanges[k] = [
+          None if status is None else Manifest.loadStatus(status).localStatus,
+          change.pop('.added', None),
+          change
+        ]
+    return resourceChanges
+
+  def loadConfigChange(self, changeId):
     """
-      path: local/path # for now
-      resource: name # default is root
-      attributes: # queries into resource
-      configurations:
-      properties: # expected schema for attributes
+    Reconstruct the Configuration that was applied in the past
     """
-    imports = {}
-    for name, value in importsSpec.items():
-      resource = self.localEnv and self.localEnv.getLocalResource(name, value)
-      if not resource:
-        if 'path' not in value:
-          raise GitErOpError("Can not import '%s': no path specified" % (name))
-        path = os.path.join(self.getBaseDir(), value['path'])
-        imported = YamlManifest(path=path)
-        rname = value.get('resource', 'root')
-        resource = imported.getRootResource().findResource(rname)
-      if not resource:
-        raise GitErOpError("Can not import '%s': resource '%s' not found" % (name, rname))
-      imports[name] = Import(resource, value)
-    return imports
+    changeSet = self.changeSets.get(changeId)
+    if not changeSet:
+      raise GitErOpError("can not find changeset for changeid %s" % changeId)
 
-def runJob(manifestPath=None, opts=None):
-  localEnv = LocalEnv(manifestPath, opts and opts.get('home'))
-  manifest = YamlManifest(localEnv=localEnv)
-  runner = Runner(manifest)
-  kw = opts or {}
-  return runner.run(JobOptions(**kw))
+    configChange = ConfigChange()
+    Manifest.loadStatus(changeSet, configChange)
+    for (k,v) in ChangeRecordAttributes.items():
+      setattr(self, k, changeSet.get(k, v))
+
+    configChange.inputs = changeSet.get('inputs')
+
+    configChange.dependencies = {}
+    for val in changeSet.get('dependencies', []):
+      key = val.get('name') or val['ref']
+      assert key not in configChange.dependencies
+      configChange.dependencies[key] = Dependency(val['ref'], val.get('expected'),
+        val.get('schema'), val.get('name'), val.get('required'), val.get('wantList', False))
+
+    if 'changes' in changeSet:
+      configChange.resourceChanges = self.loadResourceChanges(changeSet['changes'])
+
+    configChange.result = changeSet.get('result')
+    configChange.messages = changeSet.get('messages', [])
+
+    # XXX
+    # ('action', ''),
+    # ('target', ''), # nodeinstance key
+    # implementationType: configurator resource | artifact | configurator class
+    # implementation: repo:key#commitid | className:version
+    return configChange
+
+  # find config spec from potentially old version of the tosca template
+  # get template then get node template name
+  # but we shouldn't need this, except maybe to revert?
+  def loadConfigSpec(self, configName, spec):
+    return ConfigurationSpec(configName, spec['action'], spec['className'],
+          spec.get('majorVersion'), spec.get('minorVersion',''),
+          intent=toEnum(Action, spec.get('intent', Defaults.intent)),
+          parameters=spec.get('inputs'), parameterSchema=spec.get('inputsSchema'),
+          preConditions=spec.get('preConditions'), postConditions=spec.get('postConditions'))
+
+  def loadResource(self, rname, resourceSpec, parent=None):
+    # if parent property is set it overrides the parent argument
+    pname = resourceSpec.get('parent')
+    if pname:
+      parent = self.getRootResource().findResource(pname)
+      if parent is None:
+        raise GitErOpError('can not find parent resource %s' % pname)
+
+    resource = self._createNodeInstance(Resource, rname, resourceSpec, parent)
+    return resource
+
+  def _createNodeInstance(self, ctor, name, status, parent):
+    templateName = status.get('template', name)
+    template = self.loadTemplate(templateName)
+    if template is None:
+      raise GitErOpError('missing resource template %s' % templateName)
+      logger.debug('template %s: %s', templateName, template)
+
+    operational = self.loadStatus(status)
+    resource = ctor(name, status.get('attributes'), parent, template, status=operational.localStatus)
+    if status.get('createdOn'):
+      changeset = self.changeSets.get(status['createdOn'])
+      resource.createdOn = changeset.changeRecord if changeset else None
+    resource.createdFrom = status.get('createdFrom')
+
+    for key, val in status.get('capabilities', {}).items():
+      self._createNodeInstance(Capability, key, val, resource)
+
+    for key, val in status.get('requirements', {}).items():
+      self._createNodeInstance(Relationship, key, val, resource)
+
+    for key, val in status.get('resources', {}).items():
+      self._createNodeInstance(Resource, key, val, resource)
+
+    return resource

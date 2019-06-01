@@ -1,11 +1,8 @@
-import os
-import tempfile
-import json
 import collections
 
-from .util import *
-from .runtime import *
-
+from .util import ansibleDisplay, ansibleDummyCli
+#from .runtime import *
+from .configurator import Configurator
 import ansible.constants as C
 from ansible.cli.playbook import PlaybookCLI
 from ansible.plugins.callback import CallbackBase
@@ -109,7 +106,7 @@ class AnsibleConfigurator(Configurator):
       host = results.inventoryManager.get_host(hostname)
       host_vars = results.variableManager.get_vars(host=host)
       #extract provides from results
-      task.resource.update()
+      task.target.update()
       task.createResource()
       task.discoverResource()
       return self.status.failed if results.exit_code  else self.status.success

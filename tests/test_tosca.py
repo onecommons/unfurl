@@ -1,5 +1,5 @@
 import unittest
-from giterop.manifest import YamlManifest
+from giterop.yamlmanifest import YamlManifest
 from giterop.util import GitErOpError, GitErOpValidationError
 
 manifest = '''
@@ -30,10 +30,10 @@ spec:
                 distribution: RHEL
                 version: 6.5
           interfaces:
-           Configurator.configuration1:
+           Standard:
             inputs:
               # provides: [capability1]
-            instantiate:
+            create:
               inputs:
                 parameters:
                 priority:

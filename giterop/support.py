@@ -25,7 +25,7 @@ Priority = IntEnum("Priority", "ignore optional required", module=__name__)
 Action = IntEnum("Action", "discover instantiate revert", module=__name__)
 
 class Defaults(object):
-  shouldRun = Priority.optional
+  shouldRun = Priority.required
   canRun = True
   intent = Action.instantiate
 
@@ -144,6 +144,8 @@ class ExternalResource(ExternalValue):
     except KeyError:
       if schema and 'default' in schema:
         return schema['default']
+      raise
+
     if schema:
       self._validate(value, schema, name)
     # we don't want to return a result across boundaries

@@ -16,7 +16,7 @@ parameters:
 # XXX add support for a stdin parameter
 # (that's a reason to make config parameters lazy too)
 
-from giterop.runtime import Configurator, Status
+from giterop.configurator import Configurator, Status
 import json
 import os
 #import os.path
@@ -29,10 +29,8 @@ else:
     import subprocess
 # cf https://github.com/opsmop/opsmop/blob/master/opsmop/core/command.py
 
-# invoke template for command line
-# invoke template on output
-# result updates config
 
+# XXX set environment vars?
 class ShellConfigurator(Configurator):
 
   def runProcess(self, cmd, shell=False, timeout=None):
@@ -87,11 +85,11 @@ class ShellConfigurator(Configurator):
         'eval': dict(template=params['resultTemplate']),
         'vars': result.__dict__})
       if results and results.strip():
-        task.addResources(results)
+        task.updateResources(results)
     return status
 
   def run(self, task):
-    params = task.currentConfig.parameters
+    params = task.configSpec.parameters
     assert self.canRun(task)
     cmd = params['command']
     # default for shell: True if command is a string otherwise False

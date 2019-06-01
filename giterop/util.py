@@ -291,7 +291,7 @@ def expandDoc(doc, current=None, cls=dict):
   if current is None:
     current = doc
   if not isinstance(doc, Mapping) or not isinstance(current, Mapping):
-    raise GitErOpError('top level element is not a dict')
+    raise GitErOpError('top level element %s is not a dict' % doc)
   expanded = expandDict(doc, (), includes, current, cls)
   last = 0
   while True:
