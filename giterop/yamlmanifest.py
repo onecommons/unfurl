@@ -4,14 +4,15 @@
 
   apiVersion: VERSION
   kind: Manifest
-
   imports:
-    foo: # manifest to represent as a resource
-      url: local/path # for now
+    name: # manifest to represent as a resource
+      file: # if is missing, manifest must declared in local config
+      repository:
+      commit:
       resource: name # default is root
       attributes: # queries into manifest
-      properties: # expected schema for attributes
-    # special case imports, url and resource can't be defined
+      properties: # expected JSON schema for attributes
+    # locals and secrets are special cases that must be defined in local config
     locals:
      properties:
        name1:
@@ -116,7 +117,8 @@ import sys
 import collections
 import os.path
 
-from .util import (GitErOpError, VERSION, restoreIncludes, patchDict, YamlConfig)
+from .util import (GitErOpError, VERSION, restoreIncludes, patchDict)
+from .yamlloader import YamlConfig, loadFromRepo
 from .result import serializeValue, ChangeRecord
 from .support import ResourceChanges, Status, LocalEnv, Priority, Action, Defaults
 from .tosca import ToscaSpec
@@ -410,7 +412,8 @@ class YamlManifest(Manifest):
   def __init__(self, manifest=None, path=None, validate=True, localEnv=None):
     assert not (localEnv and (manifest or path)) # invalid combination of args
     self.localEnv = localEnv
-    self.manifest = YamlConfig(manifest, path or localEnv and localEnv.path, validate, schema)
+    self.manifest = YamlConfig(manifest, path or localEnv and localEnv.path,
+                                    validate, schema, self.loadFromRepo)
     manifest = self.manifest.expanded
 
     spec = manifest.get('spec', {})
@@ -421,7 +424,7 @@ class YamlManifest(Manifest):
       toscaDef = {'node_templates': spec['node_templates']}
     else:
       toscaDef = {}
-    super(YamlManifest, self).__init__(ToscaSpec(toscaDef, spec))
+    super(YamlManifest, self).__init__(ToscaSpec(toscaDef, spec, self.manifest.path))
     assert self.tosca
     inputs = spec.get('inputs', {})
 
@@ -446,6 +449,17 @@ class YamlManifest(Manifest):
 
   def getBaseDir(self):
     return self.manifest.getBaseDir()
+
+  def loadFromRepo(self, templatePath, baseDir):
+    name = 'spec'
+    if isinstance(templatePath, dict):
+      repo = templatePath.get('repository', {}).copy()
+      name = repo.pop('name', name)
+      repositories = {name: repo}
+
+    context = {}
+    path, template = loadFromRepo(name, templatePath, baseDir, repositories, context)
+    return template
 
   def createTopologyResource(self, status, inputs):
     """
@@ -487,6 +501,12 @@ class YamlManifest(Manifest):
     # modify original to preserve structure and comments
     if 'status' not in self.manifest.config:
       self.manifest.config['status'] = {}
+
+    # XXX imported resources need to include its repo's workingdir commitid its status
+    # status and job's changeset also need to save status of repositories
+    # that were accessed by loadFromRepo() and add them with commitid and repotype
+    # note: initialcommit:requiredcommit means any repo that has at least requiredcommit
+
     # XXX replace root with inputs and outputs
     if 'root' not in self.manifest.config['status']:
       self.manifest.config['status']['root'] = changed['root']
@@ -506,26 +526,34 @@ class YamlManifest(Manifest):
 
   def dump(self, out=sys.stdout):
     try:
+      # remove extraneous elements added processing 'copy' element
+      self.manifest.config.pop('+copy-contents', None)
+      self.manifest.config.pop('copy-contents', None)
       self.manifest.dump(out)
     except:
       raise GitErOpError("Error saving manifest %s" % self.manifest.path, True)
 
   def loadImports(self, importsSpec):
     """
-      path: local/path # for now
+      file: local/path # for now
+      repository: uri or repository name in TOSCA template
+      commitId:
       resource: name # default is root
       attributes: # queries into resource
-      configurations:
       properties: # expected schema for attributes
     """
     imports = {}
     for name, value in importsSpec.items():
       resource = self.localEnv and self.localEnv.getLocalResource(name, value)
       if not resource:
-        if 'path' not in value:
-          raise GitErOpError("Can not import '%s': no path specified" % (name))
-        path = os.path.join(self.getBaseDir(), value['path'])
-        imported = YamlManifest(path=path)
+        if 'file' not in value:
+          raise GitErOpError("Can not import '%s': no file specified" % (name))
+        # use tosca's loader instead, this can be an url into a repo
+        # if repo is url to a git repo, find or create working dir
+        repositories = self.tosca.template.tpl.get('repositories',{})
+        context = {'repoType': 'instance'} # we know we are loading an instance repo
+        path, yamlDict = loadFromRepo(name, value, self.getBaseDir(), repositories, context)
+        imported = YamlManifest(yamlDict, path=path)
         rname = value.get('resource', 'root')
         resource = imported.getRootResource().findResource(rname)
       if not resource:

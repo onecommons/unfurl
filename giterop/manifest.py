@@ -1,4 +1,5 @@
 import collections
+import os.path
 from ruamel.yaml.comments import CommentedMap
 
 from .support import ResourceChanges, AttributeManager, Status, Priority, Action, Defaults
@@ -10,6 +11,17 @@ import logging
 logger = logging.getLogger('giterop')
 
 class Repo(object):
+  @staticmethod
+  def makeRepo(url, repotype, basedir):
+    # XXX git or simple based on url
+    # basedir is the project/subproject root or local-config root dependening where the import definition lives
+    if repotype=='instance':
+      dir = os.path.join(basedir, 'instances', 'current')
+    else:
+      dir = os.path.join(basedir, repotype)
+    # XXX error if exists, else mkdirs
+    return SimpleRepo(url, dir)
+
   def checkout(self, commitid):
     return workingDir
 
@@ -37,9 +49,10 @@ class Revision(object):
     self.commitId = commitid
 
 class RevisionManager(object):
-  def __init__(self, currentToscaTemplate):
+  def __init__(self, currentToscaTemplate, localEnv=None):
     self.revisions = {}
     self.currentToscaTemplate = currentToscaTemplate
+    self.localEnv = localEnv
 
   def getRevision(self, repo, commitid):
     key = (repo, commitid)
@@ -52,6 +65,14 @@ class RevisionManager(object):
       self.revisions[key] = revision
       return revision
 
+  def getRepoWorkingDir(self, uri, commitid=None):
+    localEnv = self.localEnv
+    if 'uri' not in localEnv:
+      repo = Repo.makeRepo(uri)
+      localEnv.addRepo(repo)
+
+    return localEnv[uri].checkout(commitid, True)
+
 ChangeRecordAttributes = CommentedMap([
    ('changeId', 0),
    ('parentId', None),
@@ -59,7 +80,6 @@ ChangeRecordAttributes = CommentedMap([
    ('startTime', ''),
 ]);
 
-# XXX rename manifest.py YamlManifest.py
 class Manifest(AttributeManager):
   """
   Loads a model from dictionary representing the manifest

@@ -58,7 +58,7 @@ tosca_ext_tpl = yaml.load(tosca_ext)
 class ToscaSpec(object):
   ConfiguratorType = 'giterop.nodes.Configurator'
 
-  def __init__(self, toscaDef, instances=None):
+  def __init__(self, toscaDef, instances=None, path=None):
 
     if "node_templates" in toscaDef:
       # shortcut
@@ -72,7 +72,8 @@ class ToscaSpec(object):
     if instances:
       self.loadInstances(toscaDef, instances)
 
-    self.template = ToscaTemplate(yaml_dict_tpl=toscaDef)
+    # need to set a path for the import loader
+    self.template = ToscaTemplate(path=path, yaml_dict_tpl=toscaDef)
     self.nodeTemplates = {}
     self.configurators = {}
     self.relationshipTemplates = {}

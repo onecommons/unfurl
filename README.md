@@ -15,15 +15,40 @@ More simply, it is a tool that works with Git to record and deploy changes to yo
 * **Secrets**: key manager integration; keeps secrets out of git so repos can be safely made public
 * **No server, no agent**: simple, stand-alone CLI that can be used both as development tool on client or for automated production deployment on a server
 * **Dependency management**: Easily track dependencies and changes across infrastructure layers and boundaries. 
-* **Zero installation**: Uses client-side container support to avoid client-side installation requirements.
+* **Zero installation**: Uses client-side container support to bootstrap and automate installation requirements.
 
 ## More Features
+
+* Editor friendly config files: 
+  - Comments, order, and whitespace are preserved.
+  - Syntactic macros provide generic facility for re-use and avoiding verbose, boiler-plate
 
 ## Concepts
 
 * Topology templates specify how resources should be configured using the TOSCA standard. Templates live in their own git repos.
 * Resource manifests describe the current state of resources and maintain a history of changes applied to those resources. Each manifest lives in its own git repo, which corresponds to the lifespan of the resources represented in the manifest.
 * Configurators apply changes to resources using the spec. Configurators are themselves first-class resources, so client-side installations can be hermetically bootstrapped too.
+
+## Usage:
+
+  giterop init [project] 
+  
+  Creates a new GitErOp project including new git repositories for the specification
+  and the instances. It will have the following directory structure:
+  
+  project/
+    spec/ # Git repository containing the specification and related artifacts
+    instances/current/ # Git repository containing manifest.yaml
+    revisions/ # initially empty, can contain working directories for repositories
+    .giterop # marker file to indicate root of giterop project
+
+  giterop clone [path to project or specific instance repository] 
+  
+  Clones the project or repository into a new project
+  
+  giterop newinstance [path to project] [manifest-template.yaml]
+  
+  Create new instance repo using "manifest-template.yaml" (defaults to the project's spec/manifest-template.yaml)
 
 ## Installation
 

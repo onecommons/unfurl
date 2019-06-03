@@ -6,11 +6,9 @@ import itertools
 from collections import Mapping, MutableSequence
 import os.path
 from jsonschema import Draft4Validator, validators, RefResolver
-from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap
 import logging
 logger = logging.getLogger('giterup')
-yaml = YAML()
 
  #import pickle
 pickleVersion = 2 #pickle.DEFAULT_PROTOCOL
@@ -176,37 +174,44 @@ def mergeDicts(b, a, cls=dict):
       cp[key] = val
   return cp
 
+includeKey = '%include'
 def getTemplate(doc, key, value, path, cls):
   template = doc
   templatePath = None
-  for segment in key.split('/'):
-    # XXX raise error if .. not at start of key
-    if segment == '..':
-      if templatePath is None:
-        templatePath = path[:-1]
-      else:
-        templatePath = templatePath[:-1]
-      template = lookupPath(doc, templatePath, cls)
-    # XXX this check should allow array look up:
-    if not isinstance(template, Mapping) or segment not in template:
-      raise GitErOpError('can not find "%s" in document' % key)
-    if templatePath is not None:
-      templatePath.append(segment)
-    template = template[segment]
-  if templatePath is None:
-    templatePath = key.split('/')
+  if key == includeKey:
+    value, template = doc.loadTemplate(value)
+  else:
+    for segment in key.split('/'):
+      # XXX raise error if .. not at start of key
+      if segment == '..':
+        if templatePath is None:
+          templatePath = path[:-1]
+        else:
+          templatePath = templatePath[:-1]
+        template = lookupPath(doc, templatePath, cls)
+      # XXX this check should allow array look up:
+      if not isinstance(template, Mapping) or segment not in template:
+        raise GitErOpError('can not find "%s" in document' % key)
+      if templatePath is not None:
+        templatePath.append(segment)
+      template = template[segment]
+    if templatePath is None:
+      templatePath = key.split('/')
 
   if value != 'raw' and isinstance(template, Mapping): # raw means no further processing
     # if the include path starts with the path to the template
     # throw recursion error
-    prefix = list(itertools.takewhile(lambda x: x[0] == x[1], zip(path, templatePath)))
-    if len(prefix) == len(templatePath):
-      raise GitErOpError('recursive include "%s" in "%s"' % (templatePath, path))
+    if key != includeKey:
+      prefix = list(itertools.takewhile(lambda x: x[0] == x[1], zip(path, templatePath)))
+      if len(prefix) == len(templatePath):
+        raise GitErOpError('recursive include "%s" in "%s"' % (templatePath, path))
     includes = CommentedMap()
     template = expandDict(doc, path, includes, template, cls=dict)
   return template
 
 def hasTemplate(doc, key, path, cls):
+  if key == includeKey:
+    return hasattr(doc, 'loadTemplate')
   template = doc
   for segment in key.split('/'):
     if segment == '..':
@@ -454,7 +459,7 @@ def restoreIncludes(includes, originalDoc, changedDoc, cls=dict):
         break
 
       if not isinstance(template, Mapping):
-        # ref no longer includes that template
+        # ref no longer includes that template or we don't want to save it
         continue
       else:
         mergedIncludes = mergeDicts(mergedIncludes, template, cls)
@@ -545,42 +550,3 @@ class ChainMap(Mapping):
 
   def __repr__(self):
     return "ChainMap(%r)" % (self._maps,)
-
-class YamlConfig(object):
-  def __init__(self, config=None, path=None, validate=True, schema=None):
-    self.schema = schema
-    if path:
-      assert not config
-      self.path = os.path.abspath(path)
-      with open(path, 'r') as f:
-        config = f.read()
-    else:
-      self.path = None
-    if isinstance(config, six.string_types):
-      self.config = yaml.load(config)
-    else:
-      self.config = config
-
-    #schema should include defaults but can't validate because it doesn't understand includes
-    #but should work most of time
-    self.includes, config = expandDoc(self.config, cls=CommentedMap)
-    self.expanded = config
-    #print('expanded')
-    #yaml.dump(config, sys.stdout)
-    errors = schema and self.validate(config)
-    if errors and validate:
-      raise GitErOpValidationError(*errors)
-    else:
-      self.valid = not not errors
-
-  def getBaseDir(self):
-    if self.path:
-      return os.path.dirname(self.path)
-    else:
-      return '.'
-
-  def dump(self, out=sys.stdout):
-    yaml.dump(self.config, out)
-
-  def validate(self, config):
-    return findSchemaErrors(config, self.schema)

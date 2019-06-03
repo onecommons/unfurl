@@ -3,6 +3,7 @@ from giterop.runtime import Status, Priority, Resource, OperationalInstance
 from giterop.job import JobOptions, Runner
 from giterop.configurator import Configurator, ConfigurationSpec
 from giterop.yamlmanifest import YamlManifest
+from giterop.yamlloader import YamlConfig
 from giterop.util import GitErOpError, GitErOpValidationError, expandDoc, restoreIncludes, lookupClass, VERSION, diffDicts, mergeDicts, patchDict
 from ruamel.yaml.comments import CommentedMap
 import traceback
@@ -335,6 +336,37 @@ class FileTest(unittest.TestCase):
       job = runner.run(JobOptions(add=True, out=output, startTime="test"))
     self.assertEqual( job.workDone['configurator-test'].result.result, 'foo.txt')
 
+  def test_manifest_template(self):
+    template = """
+apiVersion: giterops/v1alpha1
+kind: Manifest
+spec:
+  a: 1
+  b: 2
+status: {}
+    """
+    cliRunner = CliRunner()
+    with cliRunner.isolated_filesystem(): # as tmpDir
+      with open('template.yaml', 'w') as f:
+        f.write(template)
+
+      instanceYaml = """
+apiVersion: giterops/v1alpha1
+kind: Manifest
++%include:
+  file: template.yaml
+spec:
+  b: 3
+      """
+      manifest = YamlManifest(instanceYaml)
+      assert manifest.manifest.expanded['spec']['a'] == 1
+      assert manifest.manifest.expanded['spec']['b'] == 3
+      output = six.StringIO()
+      manifest.dump(output)
+      config = YamlConfig(output.getvalue())
+      assert config.config['+%include'] == {'file':'template.yaml'}
+      assert 'a' not in config.config['spec']
+
   def test_change(self):
     """
     config parameter: file.path
@@ -375,7 +407,7 @@ apiVersion: %s
 kind: Manifest
 imports:
   test:
-    path: foreignmanifest.yaml
+    file: foreignmanifest.yaml
     resource: foreign # default is root
     # attributes: # queries into resource
     properties: # expected schema for attributes

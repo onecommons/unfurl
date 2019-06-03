@@ -48,8 +48,8 @@ defaults: #used if manifest isnt found in `manifests` list below
           lookup:
             env: "GEO_{{ key | upper }}"
 
-manifests:
-  - path: git/default-manifest.yaml
+instances:
+  - file: git/default-manifest.yaml
     local:
       attributes:
         prop1: 'found'
@@ -85,7 +85,7 @@ class CliTest(unittest.TestCase):
         f.write('invalid manifest')
       result = runner.invoke(cli, ['run'])
       self.assertEqual(result.exit_code, 1)
-      self.assertIn("manifest is not a dict", result.output.strip())
+      self.assertIn("invalid YAML document", result.output.strip())
 
   def test_localConfig(self):
     # test loading the default manifest declared in the local config
@@ -103,6 +103,6 @@ class CliTest(unittest.TestCase):
       os.chdir(repoDir)
       with open('default-manifest.yaml', 'w') as f:
         f.write(manifest)
-      result = runner.invoke(cli, ['-vv', 'deploy', '--jobexitcode', 'degraded'])
+      result = runner.invoke(cli, ['-vvv', 'deploy', '--jobexitcode', 'degraded'])
       self.assertEqual(result.exit_code, 0, result.output)
       assert not result.exception, '\n'.join(traceback.format_exception(*result.exc_info))

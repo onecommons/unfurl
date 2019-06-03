@@ -12,7 +12,8 @@ from enum import IntEnum
 from .eval import RefContext, setEvalFunc, Ref, mapValue
 from .result import ResultsMap, Result, ExternalValue, serializeValue
 from .util import (intersectDict, mergeDicts, ChainMap, findSchemaErrors,
-                GitErOpError, GitErOpValidationError, YamlConfig, assertForm)
+                GitErOpError, GitErOpValidationError, assertForm)
+from .yamlloader import YamlConfig
 
 # XXX3 doc: notpresent is a positive assertion of non-existence while notapplied just indicates non-liveness
 # notapplied is therefore the default initial state
@@ -320,27 +321,34 @@ class AttributeManager(object):
 
 class LocalConfig(object):
   """
-  the local configuration.
+  The local configuration.
 
-  Contains a map of repos
+  - a list of top-level projects
+  - list of instance manifests with their local configuration
+  - the default local and secret instances
 
-  Each repo can have the following:
-  path
-  local:
-  secret:
-
-manifests:
+projects:
   - path:
+    default: True
+    instance: instances/current
+    spec: spec
+
+instances:
+  - file:
+    repository:
+    # default instance if there are multiple instances in that project
+    # (only applicable when config is local to a project)
+    default: true
     local:
-      path: path
+      file: path
+      repository:
       resource: root
       # or:
       attributes:
         #XXX: inheritFrom:
     secret:
-    default: true
 
-defaults: #used by manifests not defined above
+defaults: # used if the manifest isn't defined above
  local:
  secret:
 
@@ -349,7 +357,7 @@ defaults: #used by manifests not defined above
     defaultConfig = {}
     # XXX define schema and validate
     self.config = YamlConfig(defaultConfig, path=path)
-    self.manifests = self.config.config.get('manifests', [])
+    self.manifests = self.config.config.get('instances', [])
     self.defaults = self.config.config.get('defaults', {})
 
   def adjustPath(self, path):
@@ -360,11 +368,11 @@ defaults: #used by manifests not defined above
 
   def getDefaultManifestPath(self):
     if len(self.manifests) == 1:
-      return self.adjustPath(self.manifests[0]['path'])
+      return self.adjustPath(self.manifests[0]['file'])
     else:
       for spec in self.manifests:
         if spec.get('default'):
-          return self.adjustPath(spec['path'])
+          return self.adjustPath(spec['file'])
     return None
 
   def getLocalResource(self, manifestPath, localName, importSpec):
@@ -374,7 +382,7 @@ defaults: #used by manifests not defined above
     from .runtime import Resource
     localRepo = None
     for spec in self.manifests:
-      if manifestPath == self.adjustPath(spec['path']):
+      if manifestPath == self.adjustPath(spec['file']):
         localRepo = spec.get(localName)
     if not localRepo:
       localRepo = self.defaults.get(localName)
@@ -385,12 +393,14 @@ defaults: #used by manifests not defined above
         #XXX if inheritFrom or defaults in attributes: add .interface
         return Resource(localName, attributes)
       else:
-        # its local or secret is resource defined in a manifest
-        # set the url and resource name so the manifest loads it
+        # the local or secret is a resource defined in a local manifest
+        # set the url and resource name so the importing manifest loads it
         # XXX but should load here and save for re-use
         importSpec.update(localRepo)
-        if 'path' in localRepo:
-          importSpec['path'] = self.adjustPath(localRepo['path'])
+        if 'file' in localRepo:
+          importSpec['file'] = self.adjustPath(localRepo['file'])
+        if 'repository' in localRepo:
+          importSpec['repository'] = self.adjustPath(localRepo['repository'])
         return None
 
     # none found, return empty resource
@@ -405,9 +415,12 @@ class LocalEnv(object):
   DefaultHomeDirectory = '.giterop_home'
 
   def __init__(self, manifestPath=None, homepath=None):
-    # XXX need to load and save local config
+    # XXX need to save local config when changed
     self.homeConfigPath = self.getHomeConfigPath(homepath)
+    # the LocalConfig and the path to the specified instance manifest
     self.config, self.path = self.findConfigAndManifestPaths(manifestPath)
+    # XXX project path
+    # XXX map<initialcommits, [repos]>, map<urls, [repos]>
 
   def getHomeConfigPath(self, homepath):
     if homepath:
@@ -428,7 +441,7 @@ class LocalEnv(object):
     """
     fullPath = None
     if not manifestPath:
-      localConfigPath, fullPath = self.findConfigPaths('.') # search for manifest or .giterop in current directory
+      localConfigPath, fullPath = self.findConfigPaths('.') # search for manifest or giterop.yaml in current directory
     elif not os.path.exists(manifestPath):
       raise GitErOpError("Manifest file does not exist: %s" % os.path.abspath(manifestPath))
     else:
@@ -449,10 +462,11 @@ class LocalEnv(object):
     if not fullPath:
       if localConfigPath:
         fullPath = localConfig.getDefaultManifestPath()
-        if fullPath and not os.path.exists(fullPath):
-          raise GitErOpError("The default manifest found in the local config does not exist: %s" % os.path.abspath(fullPath))
-        else:
-          return localConfig, fullPath
+        if fullPath:
+          if not os.path.exists(fullPath):
+            raise GitErOpError("The default manifest found in %s does not exist: %s" % (localConfigPath, os.path.abspath(fullPath)))
+          else:
+            return localConfig, fullPath
 
       message = "Can't find a giterop repository in current directory (or any of the parent directories)"
       raise GitErOpError(message)

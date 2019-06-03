@@ -102,11 +102,24 @@ def deploy(ctx, manifest=None, **options):
   return _run(manifest, options)
 
 @cli.command()
+@click.pass_context
+def init(ctx, projectdir, **options):
+  """
+giterop init [project] # creates a giterop project with new spec and instance repos
+"""
+  options.update(ctx.obj)
+  # error if projectdir exists
+  # else createproject(basedir, options.home)
+
+#gitop clone [instance or spec repo] # clones repos into new project
+#gitop newinstance # create new instance repo using manifest-template.yaml
+
+@cli.command()
 def version():
   click.echo("giterop version %s" % __version__)
 
 @cli.command()
-def list():
+def plan():
   click.echo("coming soon") # XXX
 
 if __name__ == '__main__':
