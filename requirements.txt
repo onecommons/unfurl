@@ -9,7 +9,7 @@ enum34
 jsonschema
 subprocess32
 ruamel.yaml>=0.15.37
-
+gitpython
 -r tosca-parser/requirements.txt
 
 # soon:

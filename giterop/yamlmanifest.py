@@ -119,16 +119,15 @@ import os.path
 
 from .util import (GitErOpError, VERSION, restoreIncludes, patchDict)
 from .yamlloader import YamlConfig, loadFromRepo
-from .result import serializeValue, ChangeRecord
-from .support import ResourceChanges, Status, LocalEnv, Priority, Action, Defaults
+from .result import serializeValue
+from .support import ResourceChanges, Status, Priority, Action, Defaults
+from .localenv import LocalEnv
 from .tosca import ToscaSpec
 from .job import JobOptions, Runner
 from .manifest import Manifest, ChangeRecordAttributes
-from .runtime import Resource
 
 from ruamel.yaml.comments import CommentedMap
 from codecs import open
-from six.moves import reduce
 
 # XXX3 add as file to package data
 #schema=open(os.path.join(os.path.dirname(__file__), 'manifest-v1alpha1.json')).read()
@@ -412,7 +411,7 @@ class YamlManifest(Manifest):
   def __init__(self, manifest=None, path=None, validate=True, localEnv=None):
     assert not (localEnv and (manifest or path)) # invalid combination of args
     self.localEnv = localEnv
-    self.manifest = YamlConfig(manifest, path or localEnv and localEnv.path,
+    self.manifest = YamlConfig(manifest, path or localEnv and localEnv.manifestPath,
                                     validate, schema, self.loadFromRepo)
     manifest = self.manifest.expanded
 
@@ -457,8 +456,7 @@ class YamlManifest(Manifest):
       name = repo.pop('name', name)
       repositories = {name: repo}
 
-    context = {}
-    path, template = loadFromRepo(name, templatePath, baseDir, repositories, context)
+    path, template = loadFromRepo(name, templatePath, baseDir, repositories, 'spec')
     return template
 
   def createTopologyResource(self, status, inputs):
@@ -551,8 +549,8 @@ class YamlManifest(Manifest):
         # use tosca's loader instead, this can be an url into a repo
         # if repo is url to a git repo, find or create working dir
         repositories = self.tosca.template.tpl.get('repositories',{})
-        context = {'repoType': 'instance'} # we know we are loading an instance repo
-        path, yamlDict = loadFromRepo(name, value, self.getBaseDir(), repositories, context)
+        # load an instance repo
+        path, yamlDict = loadFromRepo(name, value, self.getBaseDir(), repositories, 'instance')
         imported = YamlManifest(yamlDict, path=path)
         rname = value.get('resource', 'root')
         resource = imported.getRootResource().findResource(rname)

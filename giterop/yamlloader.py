@@ -7,7 +7,7 @@ from six.moves import urllib
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap
 from .util import expandDoc, GitErOpValidationError, findSchemaErrors
-
+from .repo import findGitRepo
 from toscaparser.common.exception import ExceptionCollector
 from toscaparser.common.exception import URLException
 from toscaparser.utils.gettextutils import _
@@ -16,15 +16,19 @@ import logging
 logger = logging.getLogger('giterup')
 yaml = YAML()
 
-def load_yaml(path, a_file=True, context=None):
-    # find the repo in the localenv
-    # if context and context.isGitRepo(path, a_file):
-    #   path = context.getOrCreateWorkingDir(path)
-    #   a_file=True
+def load_yaml(path, isFile=True, importLoader=None):
+    from .localenv import LocalEnv
+    # check if this path is to a git repo
+    repoURL, filePath, revision = findGitRepo(path, isFile, importLoader)
+    if repoURL: # it's a git repo
+      # find the project that the loading file is in
+      workingDir = LocalEnv.active.findOrCreateWorkingDir(repoURL, revision, importLoader and importLoader.path)
+      path = os.path.join(workingDir, filePath)
+      isFile = True
 
     f = None
     try:
-        f = codecs.open(path, encoding='utf-8', errors='strict') if a_file \
+        f = codecs.open(path, encoding='utf-8', errors='strict') if isFile \
             else urllib.request.urlopen(path)
     except urllib.error.URLError as e:
         if hasattr(e, 'reason'):
@@ -118,13 +122,15 @@ class YamlConfig(object):
     self._cachedDocIncludes[key] = template
     return value, template
 
-def loadFromRepo(import_name, import_uri_def, basePath, repositories, context):
+def loadFromRepo(import_name, import_uri_def, basePath, repositories, repoType):
   """
   Returns (url or fullpath, parsed yaml)
   """
-  context.update(import_uri_def)
+  context = import_uri_def.copy()
+  context['repoType'] =  repoType
   context['base'] = basePath
   context['repositories'] = repositories
   uridef = {k: v for k, v in import_uri_def.items() if k in ['file', 'repository']}
+  # this will invoke load_yaml above
   return (toscaparser.imports.ImportsLoader(None, basePath, tpl=context)
             ._load_import_template(import_name, uridef))

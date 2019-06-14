@@ -10,6 +10,8 @@ from . import __version__
 import click
 import sys
 import logging
+import os
+import os.path
 
 def initLogging(quiet, logfile, verbose):
   logging.captureWarnings(True)
@@ -103,13 +105,25 @@ def deploy(ctx, manifest=None, **options):
 
 @cli.command()
 @click.pass_context
+@click.argument('projectdir', default='.', type=click.Path(exists=False))
 def init(ctx, projectdir, **options):
   """
 giterop init [project] # creates a giterop project with new spec and instance repos
 """
   options.update(ctx.obj)
-  # error if projectdir exists
-  # else createproject(basedir, options.home)
+  from .init import createProject
+
+  if os.path.exists(projectdir):
+    if not os.path.isdir(projectdir):
+      raise click.ClickException(projectdir + ": file already exists")
+    elif os.listdir(projectdir):
+      raise click.ClickException(projectdir + " is not empty")
+
+  try:
+    createProject(projectdir, options.home)
+  except Exception as err:
+    # traceback.print_exc()
+    raise click.ClickException(str(err))
 
 #gitop clone [instance or spec repo] # clones repos into new project
 #gitop newinstance # create new instance repo using manifest-template.yaml
