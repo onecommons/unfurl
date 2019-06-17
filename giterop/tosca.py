@@ -117,12 +117,12 @@ class ToscaSpec(object):
 
   # load implementations
   #  create configurator template for each implementation
-  def loadImplementation(self, impl):
-    implementation = impl['className']
+  def loadImplementation(self, _impl):
+    impl = _impl.copy()
+    implementation = impl.pop('className')
+    impl['parameters'] = impl.pop('inputs', {})
     return dict(type=self.ConfiguratorType,
-      properties={
-        'parameters': impl.get('inputs', {})
-      },
+      properties=impl,
       interfaces={
         'Provides':
           {'run': {
@@ -170,7 +170,7 @@ class EntitySpec(object):
     return self.toscaEntityTemplate.is_derived_from(typeStr)
 
   def getUri(self):
-    return "todo://"
+    return self.name # XXX
 
   def __repr__(self):
     return "EntitySpec('%s')" % self.name

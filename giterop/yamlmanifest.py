@@ -433,8 +433,8 @@ class YamlManifest(Manifest):
     status = manifest.get('status', {})
     rootResource = self.createTopologyResource(status, inputs)
     for name, instance in spec.get('instances', {}).items():
-       if not rootResource.findResource(name):
-         self.loadResource(name, instance or {}, parent=rootResource)
+      if not rootResource.findResource(name):
+        self.loadResource(name, instance or {}, parent=rootResource)
 
     importsSpec = manifest.get('imports', {})
     if localEnv:
@@ -464,14 +464,14 @@ class YamlManifest(Manifest):
     If an instance of the toplogy is recorded in status, load it,
     otherwise create a new resource using the inputs in the spec
     """
-    if 'readyState' not in status:
+    if 'root' not in status:
       # create a root resource from the topologies inputs: properties, outputs: attributes
       # XXX use the substitution_mapping (3.8.12) represent the resource
       #XXX: validate values with input.schema
       decl = dict(template = 'self:#topology:0',
                   attributes = dict(inputs=inputs, outputs={}))
     else:
-      decl = status.copy()
+      decl = status['root'].copy()
       decl['attributes'] = dict(inputs=status.get('inputs', {}),
                                 outputs=status.get('outputs', {}))
     return self.loadResource('root', decl, None)

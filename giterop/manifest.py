@@ -154,7 +154,7 @@ class Manifest(AttributeManager):
       logger.debug('template %s: %s', templateName, template)
 
     operational = self.loadStatus(status)
-    resource = ctor(name, status.get('attributes'), parent, template, status=operational.localStatus)
+    resource = ctor(name, status.get('attributes'), parent, template, operational)
     if status.get('createdOn'):
       changeset = self.changeSets.get(status['createdOn'])
       resource.createdOn = changeset.changeRecord if changeset else None

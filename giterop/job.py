@@ -11,7 +11,7 @@ from .support import Status, Priority, AttributeManager, ResourceChanges
 from .util import GitErOpError, GitErOpTaskError, mergeDicts
 from .runtime import ConfigChange, Resource
 from .configurator import TaskView, ConfiguratorResult, Dependency, ConfigurationSpec
-# from .plan import Plan XXX
+from .plan import Plan
 
 import logging
 logger = logging.getLogger('giterop')
@@ -127,6 +127,9 @@ class ConfigTask(ConfigChange, TaskView, AttributeManager):
       assert result.readyState and result.readyState != Status.notapplied, result.readyState
       self._setConfigStatus(instance, result)
     else:
+      if instance._lastConfigChange is None:
+        # if this has never been set before, record this to indicate we tried
+        instance._lastConfigChange = self.changeId
       # configurator wasn't able to apply so leave the instance state as is
       # except in the case where explicitly set another status
       # e.g. if it left the instance in an error state
@@ -275,10 +278,25 @@ class Job(ConfigChange):
     task = ConfigTask(self, configSpec, target, target.lastConfigChange, parentId, reason = reason)
     return task
 
+  def filterConfig(self, config, target):
+    opts = self.jobOptions
+    if opts.readOnly and config.intent != 'discover':
+      return None
+    if opts.requiredOnly and not config.required:
+      return None
+    if opts.resource and target.name != opts.resource:
+      return None
+    if opts.resources and target.name not in opts.resources:
+      return None
+    if opts.template and target.template.name != opts.template:
+      return None
+    return config
+
   def getCandidateTasks(self):
     # XXX plan might call job.runJobRequest(configuratorJob) before yielding
     for (configSpec, target, reason) in self.plan.executePlan():
-      if self.runner.isConfigAlreadyHandled(configSpec):
+      configSpec = self.filterConfig(configSpec, target)
+      if not configSpec or self.runner.isConfigAlreadyHandled(configSpec):
         # configuration may have premptively run while executing another task
         continue
 
@@ -375,7 +393,7 @@ class Job(ConfigChange):
           else:
             reason = 'configSpec declined'
         else:
-          reason = 'invalid precondition: %s' % preErrors
+          reason = 'invalid precondition: %s' % str(preErrors)
       else:
         reason = 'invalid inputs'
     except Exception:
@@ -491,115 +509,3 @@ class Runner(object):
     self.currentJob = None
     self.manifest.saveJob(job)
     return job
-
-class Plan(object):
-  """
-  create:  template or unapplied resource
-  upgrade: resource
-  delete:  resource
-  check:   resource
-
-  options:
-  --append with create to avoid error if exists
-  in the future, should run with previous command on this resource or template
-  use:configurator use that configurator
-  """
-  rootConfigurator = None # XXX3
-
-  def __init__(self, root, toscaSpec, jobOptions):
-    self.jobOptions = jobOptions
-    self.root = root
-    self.tosca = toscaSpec
-    assert self.tosca
-
-  def findResourcesFromTemplate(self, nodeTemplate):
-    for resource in self.root.getSelfAndDescendents():
-      if resource.template.name == nodeTemplate.name:
-        yield resource
-
-  def findResourceFromTemplate(self, nodeTemplate):
-    for resource in self.root.getSelfAndDescendents():
-      if resource.template.name == nodeTemplate.name:
-        return resource
-
-  def createResource(self, template):
-    # XXX create capabilities and requirements too?
-    return Resource(template.name, template=template, parent=self.root)
-
-  def getConfigurationSpecFromInterface(self, iDef):
-    '''implementation can either be a named artifact (including a python configurator class),
-      configurator node template, or a file path'''
-
-    implementation = iDef.implementation
-    if isinstance(implementation, dict):
-      implementation = implementation.get('primary')
-    configuratorTemplate = self.tosca.configurators.get(implementation)
-    if configuratorTemplate:
-      attributes = configuratorTemplate.properties
-      kw = { k : attributes[k] for k in set(attributes) & set(ConfigurationSpec.getDefaults()) }
-      if 'parameters' not in kw:
-        kw['parameters'] = iDef.inputs
-      if 'className' not in kw:
-        kw['className'] = configuratorTemplate.getInterfaces()[0].implementation
-      return ConfigurationSpec(configuratorTemplate.name, iDef.name, **kw)
-    else:
-      # for now assume its a configurator class
-      # XXX: see if its a artifact, if its a executable file, create a ShellConfigurator
-      return ConfigurationSpec(implementation, iDef.name, className=implementation, parameters = iDef.inputs)
-
-  def findImplementation(self, interfaceType, operation, template):
-    for iDef in template.getInterfaces():
-      if iDef.type == interfaceType and iDef.name == operation:
-        return self.getConfigurationSpecFromInterface(iDef)
-    return None
-
-  def executePlan(self):
-    """
-    yields configSpec, target, reason
-    """
-    opts = self.jobOptions
-    if opts.template:
-      template = self.tosca.getTemplate(opts.template)
-    else:
-      # XXX randoming picking the first one
-      template = self.tosca.nodeTemplates and [
-        t for t in self.tosca.nodeTemplates.values()
-          if not t.isCompatibleType(self.tosca.ConfiguratorType)][0]
-    if not template:
-      raise GitErOpError('template not found %s' % template)
-
-    if opts.add:
-      skipAdd = False
-      # XXX NodeInstance instead to include relationships
-      resource = self.findResourceFromTemplate(template)
-      if resource:
-        if resource.status != Status.notapplied:
-          if not opts.append:
-            if not opts.upgrade:
-              raise GitErOpError('resource %s already created for template %s (run with --upgrade)' % (resource.name, template.name))
-            else:
-              skipAdd = True
-      else:
-        # XXX NodeInstance instead to include relationships
-        resource = self.createResource(template)
-      if not skipAdd:
-        yield self.generateConfiguration('create', resource, 'add', opts.useConfigurator)
-
-    if opts.upgrade:
-      if not resource:
-        resource = self.findResourceFromTemplate(template)
-      if not resource or resource.status != Status.notapplied:
-        yield self.generateConfiguration('create', resource, 'upgrade', opts.useConfigurator)
-      else:
-        yield self.generateConfiguration('configure', resource, 'upgrade', opts.cmdline, opts.useConfigurator)
-
-  def generateConfiguration(self, action, resource, reason=None, cmdLine=None, useConfigurator=None):
-    # XXX update joboptions, useConfigurator
-    if cmdLine:
-      params = dict(command=cmdLine)
-      configSpec = ConfigurationSpec('cmdline', action, className='ShellConfigurator', parameters = params)
-    else:
-      configSpec = self.findImplementation('Standard', action, resource.template)
-    if not configSpec:
-      raise GitErOpError('unable to find an implementation to "%s" "%s"' % (action, resource.name) )
-    return (configSpec, resource, reason or action)

@@ -137,12 +137,20 @@ class Operational(ChangeAware):
 
 class OperationalInstance(Operational):
   def __init__(self, status=None, priority=None, manualOveride=None, lastStateChange=None, lastConfigChange=None):
-    self._localStatus = toEnum(Status, status)
-    self._manualOverideStatus = toEnum(Status, manualOveride)
-    self._priority = toEnum(Priority, priority)
-    self._lastStateChange = lastStateChange
-    self._lastConfigChange = lastConfigChange
-    self.dependencies = []
+    if isinstance(status, OperationalInstance):
+      self._localStatus = status._localStatus
+      self._manualOverideStatus = status._manualOverideStatus
+      self._priority = status._priority
+      self._lastStateChange = status._lastStateChange
+      self._lastConfigChange = status._lastConfigChange
+      self.dependencies = status.dependencies
+    else:
+      self._localStatus = toEnum(Status, status)
+      self._manualOverideStatus = toEnum(Status, manualOveride)
+      self._priority = toEnum(Priority, priority)
+      self._lastStateChange = lastStateChange
+      self._lastConfigChange = lastConfigChange
+      self.dependencies = []
     #self.repairable = False # XXX3
     #self.messages = [] # XXX3
 
@@ -219,7 +227,7 @@ class NodeInstance(OperationalInstance, ResourceRef):
   attributeManager = None
 
   def __init__(self, name='', attributes=None, parent=None, template=None, status=None):
-    OperationalInstance.__init__(self, **(status or {}))
+    OperationalInstance.__init__(self, status)
     self.name = name
     self._attributes = attributes or {}
     self.parent = parent

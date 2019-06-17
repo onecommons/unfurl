@@ -224,14 +224,13 @@ class RunTest(unittest.TestCase):
     self.assertEqual(manifest2.lastChangeId, 3)
     output2 = six.StringIO()
     job2 = Runner(manifest2).run(JobOptions(add=True, out=output2, startTime="test"))
-    #  print('2', output2.getvalue())
+    # print('2', output2.getvalue())
     assert not job2.unexpectedAbort, job2.unexpectedAbort.getStackTrace()
 
-    # XXX re-enable asserts when Plan works better:
     # should not find any tasks to run
-    # assert len(job2.workDone) == 0, job2.workDone
-    # self.maxDiff = None
-    # self.assertEqual(output.getvalue(), output2.getvalue())
+    assert len(job2.workDone) == 0, job2.workDone
+    self.maxDiff = None
+    self.assertEqual(output.getvalue(), output2.getvalue())
 
   def test_template_inheritance(self):
     manifest = '''
