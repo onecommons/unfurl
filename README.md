@@ -1,3 +1,5 @@
+# WARNING: Under heavy construction!
+
 ## What is GitErOp?
 
 At its most ambitious, GitErOp aims to be a decentralized package manager for the Internet, enabling you to easily deploy and integrate live services.
@@ -19,13 +21,17 @@ More simply, it is a tool that works with Git to record and deploy changes to yo
 
 ## More Features
 
+* Specifications, instance status, and change history authored and recorded in a simple YAML vocabulary. 
+* Or use [TOSCA's](https://www.oasis-open.org/committees/tc_home.php?wg_abbrev=tosca) (Topology and Orchestration Specification for Cloud Applications) YAML vocabulary for more carefully typed specification.
 * Editor friendly config files: 
   - Comments, order, and whitespace are preserved.
-  - Syntactic macros provide generic facility for re-use and avoiding verbose, boiler-plate
+  - Syntactic macros for YAML provide generic facility for re-use and avoiding verbose, boiler-plate
+* Path-based query DSL to express dynamic relationships between resources and configurations
+* Ansible-compatible Jinja2 templates
 
 ## Concepts
 
-* Topology templates specify how resources should be configured using the TOSCA standard. Templates live in their own git repos.
+* Topology templates specify how resources should be configured using the [TOSCA standard](https://www.oasis-open.org/committees/tc_home.php?wg_abbrev=tosca). Templates live in their own git repos.
 * Resource manifests describe the current state of resources and maintain a history of changes applied to those resources. Each manifest lives in its own git repo, which corresponds to the lifespan of the resources represented in the manifest.
 * Configurators apply changes to resources using the spec. Configurators are themselves first-class resources, so client-side installations can be hermetically bootstrapped too.
 
@@ -79,5 +85,3 @@ Arguments after `--` are passed to the test runner, e.g. to run an individual te
      2. create manifest with root resource: configure using kms
      3. (optional) run bootstrap to create a secure root resource
  3. start creating your manifest
-
-## Usage
