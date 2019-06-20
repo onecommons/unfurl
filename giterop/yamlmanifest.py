@@ -45,36 +45,34 @@
         intent
         inputs:
   status:
-    # root resource will tbe replaced with:
-    # inputs:
-    # outputs:
-    # template: repo:topology_template:revision
-    # operatingStatus
-    # resources:
-    root: # root resource is always named "root"
-      template: repo:templateName:revision
-      attributes:
-        .interfaces:
-          interfaceName: foo.bar.ClassName
-      capabilities:
-        - name:
-          attributes:
-          operatingStatus
-          lastChange: changeId
-      requirements:
-       - name:
-         operatingStatus
-         lastChange
-      readyState:
-        effective:
-        local:
-        lastConfigChange: changeId
-        lastStateChange: changeId
-
-      priority
-    resources:
-      child1:
-        # ...
+    topology: repo:topology_template:revision
+    inputs:
+    outputs:
+    readyState: #, etc.
+    instances:
+      name: # root resource is always named "root"
+        template: repo:templateName:revision
+        attributes:
+          .interfaces:
+            interfaceName: foo.bar.ClassName
+        capabilities:
+          - name:
+            attributes:
+            operatingStatus
+            lastChange: changeId
+        requirements:
+         - name:
+           operatingStatus
+           lastChange
+        readyState:
+          effective:
+          local:
+          lastConfigChange: changeId
+          lastStateChange: changeId
+        priority
+      resources:
+        child1:
+          # ...
   changes:
     - changeId
       startTime
@@ -125,6 +123,7 @@ from .localenv import LocalEnv
 from .tosca import ToscaSpec
 from .job import JobOptions, Runner
 from .manifest import Manifest, ChangeRecordAttributes
+from .runtime import TopologyResource, Resource
 
 from ruamel.yaml.comments import CommentedMap
 from codecs import open
@@ -178,6 +177,7 @@ schema = {
       "allOf": [
         { "$ref": "#/definitions/status" },
         {"properties": {
+          "template": {"type": "string"},
           "attributes": {
             "$ref": "#/definitions/attributes",
             "default": {}
@@ -286,12 +286,27 @@ schema = {
     "kind":   { "enum": [ "Manifest" ] },
     "spec":    {"type": "object"},
     "status": {
-               "type": "object",
-               "properties": {
-                  "root": { "$ref": "#/definitions/resource" },
-                },
-                'default': {}
-              },
+      "type": "object",
+      "allOf": [
+        {"properties": {
+          "topology": { "type": "string" },
+          "inputs": {
+            "$ref": "#/definitions/attributes",
+           },
+          "outputs": {
+            "$ref": "#/definitions/attributes",
+          },
+          "instances": {
+            "allOf": [
+              { "$ref": "#/definitions/namedObjects" },
+              {"additionalProperties": { "$ref": "#/definitions/resource" }}
+            ],
+          },
+        }},
+        { "$ref": "#/definitions/status" },
+      ],
+      'default': {}
+    },
     "changes": { "type": "array",
       "additionalItems": {
         "type": "object",
@@ -394,7 +409,8 @@ def saveTask(task):
   changes = saveResourceChanges(task._resourceChanges)
   if changes:
     output['changes'] = changes
-  output['messages'] = task.messages
+  if task.messages:
+    output['messages'] = task.messages
   dependencies = [saveDependency(val) for val in task.dependencies.values()]
   if dependencies:
     output['dependencies'] = dependencies
@@ -406,7 +422,6 @@ def saveTask(task):
 
 
 # +./ +../ +/
-# +%: +url:ffff#fff:
 class YamlManifest(Manifest):
   def __init__(self, manifest=None, path=None, validate=True, localEnv=None):
     assert not (localEnv and (manifest or path)) # invalid combination of args
@@ -423,17 +438,17 @@ class YamlManifest(Manifest):
       toscaDef = {'node_templates': spec['node_templates']}
     else:
       toscaDef = {}
-    super(YamlManifest, self).__init__(ToscaSpec(toscaDef, spec, self.manifest.path))
+    status = manifest.get('status', {})
+    super(YamlManifest, self).__init__(ToscaSpec(toscaDef, spec.get('inputs'), spec, self.manifest.path))
     assert self.tosca
-    inputs = spec.get('inputs', {})
 
     self.changeSets = dict((c['changeId'], c) for c in  manifest.get('changes', []))
     lastChangeId = self.changeSets and max(self.changeSets.keys()) or 0
 
-    status = manifest.get('status', {})
-    rootResource = self.createTopologyResource(status, inputs)
+    rootResource = self.createTopologyResource(status)
     for name, instance in spec.get('instances', {}).items():
       if not rootResource.findResource(name):
+        # XXX like Plan.createResource() parent should be hostedOn target if defined
         self.loadResource(name, instance or {}, parent=rootResource)
 
     importsSpec = manifest.get('imports', {})
@@ -459,27 +474,30 @@ class YamlManifest(Manifest):
     path, template = loadFromRepo(name, templatePath, baseDir, repositories, 'spec')
     return template
 
-  def createTopologyResource(self, status, inputs):
+  def createTopologyResource(self, status):
     """
     If an instance of the toplogy is recorded in status, load it,
-    otherwise create a new resource using the inputs in the spec
+    otherwise create a new resource using the the topology as its template
     """
-    if 'root' not in status:
-      # create a root resource from the topologies inputs: properties, outputs: attributes
-      # XXX use the substitution_mapping (3.8.12) represent the resource
-      #XXX: validate values with input.schema
-      decl = dict(template = 'self:#topology:0',
-                  attributes = dict(inputs=inputs, outputs={}))
-    else:
-      decl = status['root'].copy()
-      decl['attributes'] = dict(inputs=status.get('inputs', {}),
-                                outputs=status.get('outputs', {}))
-    return self.loadResource('root', decl, None)
+    # XXX use the substitution_mapping (3.8.12) represent the resource
+    topologyName = status.get('toplogy', 'self:#topology:0')
+    template = self.loadTemplate(topologyName)
+    if template is None:
+      raise GitErOpError('missing topology template %s' % topologyName)
+    operational = self.loadStatus(status)
+    root = TopologyResource(template, operational)
+    for key, val in status.get('instances', {}).items():
+      self._createNodeInstance(Resource, key, val, root)
+    return root
 
   def saveNodeInstance(self, resource):
     status = CommentedMap()
-    status['template'] =  resource.template.getUri()
-    status['attributes'] = resource._attributes
+    status['template'] = resource.template.getUri()
+
+    # only save the attributes that were set by the instance, not spec properties or attribute defaults
+    # particularly, because these will get loaded in later runs and mask any spec properties with the same name
+    if resource._attributes:
+      status['attributes'] = resource._attributes
     saveStatus(resource, status)
     if resource.createdOn: #will be a ChangeRecord
       status['createdOn'] = resource.createdOn.changeId
@@ -491,9 +509,20 @@ class YamlManifest(Manifest):
     status['resources'] = CommentedMap(map(lambda r: self.saveResource(r, workDone), resource.resources))
     return (name, status)
 
+  def saveRootResource(self, workDone):
+    resource = self.rootResource
+    status = CommentedMap()
+    status['topology'] = resource.template.getUri()
+    # record the input and output values
+    status['inputs'] = serializeValue(resource.attributes['inputs'])
+    status['outputs'] = serializeValue(resource.attributes['outputs'])
+    saveStatus(resource, status)
+    status['instances'] = CommentedMap(map(lambda r: self.saveResource(r, workDone), resource.resources))
+    return status
+
   def saveJob(self, job):
     changes = map(saveTask, job.workDone.values())
-    changed = CommentedMap([self.saveResource(self.rootResource, job.workDone)])
+    changed = self.saveRootResource(job.workDone)
     # update changed with includes, this may change objects with references to these objects
     restoreIncludes(self.manifest.includes, self.manifest.config, changed, cls=CommentedMap)
     # modify original to preserve structure and comments
@@ -506,10 +535,10 @@ class YamlManifest(Manifest):
     # note: initialcommit:requiredcommit means any repo that has at least requiredcommit
 
     # XXX replace root with inputs and outputs
-    if 'root' not in self.manifest.config['status']:
-      self.manifest.config['status']['root'] = changed['root']
+    if not self.manifest.config['status']:
+      self.manifest.config['status'] = changed
     else:
-      patchDict(self.manifest.config['status']['root'], changed['root'], cls=CommentedMap)
+      patchDict(self.manifest.config['status'], changed, cls=CommentedMap)
     self.manifest.config.setdefault('changes', []).extend(changes)
 
     if job.out:
@@ -524,9 +553,6 @@ class YamlManifest(Manifest):
 
   def dump(self, out=sys.stdout):
     try:
-      # remove extraneous elements added processing 'copy' element
-      self.manifest.config.pop('+copy-contents', None)
-      self.manifest.config.pop('copy-contents', None)
       self.manifest.dump(out)
     except:
       raise GitErOpError("Error saving manifest %s" % self.manifest.path, True)

@@ -39,7 +39,6 @@ class GitErOpError(Exception):
   def __init__(self, message, saveStack=False):
     super(GitErOpError, self).__init__(message)
     self.stackInfo = sys.exc_info() if saveStack else None
-    logger.error(message, exc_info=saveStack)
 
   def getStackTrace(self):
     if not self.stackInfo:
@@ -55,6 +54,7 @@ class GitErOpTaskError(GitErOpError):
   def __init__(self, task, message):
     super(GitErOpTaskError, self).__init__(message, True)
     self.task = task
+    logger.error(message, exc_info=True)
     task.errors.append(self)
 
 class GitErOpAddingResourceError(GitErOpTaskError):
@@ -100,7 +100,11 @@ def lookupClass(kind, apiVersion=None, default=None):
     klass = default
 
   if not klass:
-    klass = loadClass(kind)
+    try:
+      klass = loadClass(kind)
+    except ImportError:
+      klass = None
+
     if klass:
       registerClass(version, kind, klass, True)
     else:
@@ -530,6 +534,9 @@ class ChainMap(Mapping):
   """
   def __init__(self, *maps):
     self._maps = maps
+
+  def split(self):
+    return self._maps[0], ChainMap(*self._maps[1:])
 
   def __getitem__(self, key):
     for mapping in self._maps:

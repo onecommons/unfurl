@@ -151,7 +151,7 @@ class Manifest(AttributeManager):
     template = self.loadTemplate(templateName)
     if template is None:
       raise GitErOpError('missing resource template %s' % templateName)
-      logger.debug('template %s: %s', templateName, template)
+    logger.debug('template %s: %s', templateName, template)
 
     operational = self.loadStatus(status)
     resource = ctor(name, status.get('attributes'), parent, template, operational)

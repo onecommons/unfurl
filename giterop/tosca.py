@@ -58,7 +58,7 @@ tosca_ext_tpl = yaml.load(tosca_ext)
 class ToscaSpec(object):
   ConfiguratorType = 'giterop.nodes.Configurator'
 
-  def __init__(self, toscaDef, instances=None, path=None):
+  def __init__(self, toscaDef, inputs=None, instances=None, path=None):
 
     if "node_templates" in toscaDef:
       # shortcut
@@ -73,7 +73,7 @@ class ToscaSpec(object):
       self.loadInstances(toscaDef, instances)
 
     # need to set a path for the import loader
-    self.template = ToscaTemplate(path=path, yaml_dict_tpl=toscaDef)
+    self.template = ToscaTemplate(path=path, parsed_params=inputs, yaml_dict_tpl=toscaDef)
     self.nodeTemplates = {}
     self.configurators = {}
     self.relationshipTemplates = {}
@@ -85,7 +85,7 @@ class ToscaSpec(object):
           self.configurators[template.name[len('configurator-'):]
             if template.name.startswith('configurator-') else template.name] = nodeTemplate
         self.nodeTemplates[template.name] = nodeTemplate
-    self.topology = TopologySpec(self.template.topology_template)
+    self.topology = TopologySpec(self.template.topology_template, inputs)
 
   def getTemplate(self, name):
     if name == '#topology':
@@ -94,6 +94,7 @@ class ToscaSpec(object):
 
   def loadInstances(self, toscaDef, tpl):
     """
+    Creates node templates for any instances defined in the spec
 
     .. code-block:: YAML
 
@@ -157,6 +158,12 @@ class EntitySpec(object):
     # XXX attribute definitions are found on StatefulEntityType (but does not support default values)
     self.properties = {prop.name: prop.value
         for prop in toscaNodeTemplate.get_properties_objects()}
+    if toscaNodeTemplate.type_definition:
+      attrDefs = toscaNodeTemplate.type_definition.get_attributes_def_objects()
+      self.defaultAttributes = {prop.name: prop.default
+              for prop in attrDefs if prop.default is not None}
+    else:
+      self.defaultAttributes = {}
 
   def getInterfaces(self):
     return self.toscaEntityTemplate.interfaces
@@ -191,12 +198,18 @@ class RelationshipSpec(EntitySpec):
 
 class TopologySpec(EntitySpec):
 # has attributes: tosca_id, tosca_name, state, (3.4.1 Node States p.61)
-  def __init__(self, template=None):
+  def __init__(self, template=None, inputs=None):
     if not template:
       template = _defaultTopology
+    inputs = inputs or {}
+
     self.toscaEntityTemplate = template
     self.name = '#topology'
-    self.properties = {}
+    inputs = {input.name: inputs.get(input.name, input.default)
+                          for input in template.inputs}
+    outputs = {output.name: output.value for output in template.outputs}
+    self.properties = dict(inputs=inputs, outputs=outputs)
+    self.defaultAttributes = {}
 
 # capabilities.Capability isn't an EntityTemplate but duck types with it
 class CapabilitySpec(EntitySpec):

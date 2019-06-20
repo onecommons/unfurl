@@ -1,5 +1,6 @@
+import six
 from .runtime import Resource
-from .util import GitErOpError
+from .util import GitErOpError, lookupClass
 from .support import Status
 from .configurator import ConfigurationSpec
 
@@ -38,15 +39,30 @@ class Plan(object):
 
   def createResource(self, template):
     # XXX create capabilities and requirements too?
+    # XXX if requirement with HostedOn relationshio, target is the parent not root 
     return Resource(template.name, template=template, parent=self.root)
+
+  def createShellConfigurator(self, cmdLine, action, inputs=None, timeout=None):
+      params = dict(command=cmdLine, timeout=timeout)
+      if inputs:
+        params.update(inputs)
+      return ConfigurationSpec('cmdline', action, className='giterop.shellconfigurator.ShellConfigurator', parameters = params)
 
   def getConfigurationSpecFromInterface(self, iDef):
     '''implementation can either be a named artifact (including a python configurator class),
       configurator node template, or a file path'''
 
     implementation = iDef.implementation
+    timeout = None
     if isinstance(implementation, dict):
+      timeout = implementation.get('timeout')
       implementation = implementation.get('primary')
+      if isinstance(implementation, dict):
+        # it's an artifact definition
+        # XXX retreive from repository if defined
+        implementation = implementation.get('file')
+    if not implementation or not isinstance(implementation, six.string_types):
+      raise GitErOpError('invalid implementation spec %s' % implementation)
     configuratorTemplate = self.tosca.configurators.get(implementation)
     if configuratorTemplate:
       attributes = configuratorTemplate.properties
@@ -57,9 +73,13 @@ class Plan(object):
         kw['className'] = configuratorTemplate.getInterfaces()[0].implementation
       return ConfigurationSpec(configuratorTemplate.name, iDef.name, **kw)
     else:
-      # for now assume its a configurator class
-      # XXX: see if its a artifact, if its a executable file, create a ShellConfigurator
-      return ConfigurationSpec(implementation, iDef.name, className=implementation, parameters = iDef.inputs)
+      try:
+        lookupClass(implementation)
+        return ConfigurationSpec(implementation, iDef.name, className=implementation, parameters = iDef.inputs)
+      except GitErOpError:
+        # assume its executable file, create a ShellConfigurator
+        # XXX check if it's actually an executable file
+        return self.createShellConfigurator([implementation], iDef.name, iDef.inputs, timeout=timeout)
 
   def findImplementation(self, interfaceType, operation, template):
     for iDef in template.getInterfaces():
@@ -220,8 +240,7 @@ Returns:
   def generateConfiguration(self, action, resource, reason=None, cmdLine=None, useConfigurator=None):
     # XXX update joboptions, useConfigurator
     if cmdLine:
-      params = dict(command=cmdLine)
-      configSpec = ConfigurationSpec('cmdline', action, className='ShellConfigurator', parameters = params)
+      configSpec = self.createShellConfigurator(cmdLine, action)
     else:
       configSpec = self.findImplementation('Standard', action, resource.template)
     if not configSpec:

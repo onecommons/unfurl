@@ -26,7 +26,6 @@ Action = IntEnum("Action", "discover instantiate revert", module=__name__)
 
 class Defaults(object):
   shouldRun = Priority.required
-  canRun = True
   intent = Action.instantiate
 
 class File(ExternalValue):
@@ -98,6 +97,11 @@ def lookupFunc(arg, ctx):
   return runLookup(name, ctx.currentResource.templar, *args, **kw)
 
 setEvalFunc('lookup', lookupFunc)
+
+# XXX add toplevel option to setEvalFunc
+# def getInput(arg, ctx):
+#   return ctx.currentResource.root.attributes['inputs'][arg]
+# setEvalFunc('get_input', getInput, True)
 
 def getImport(arg, ctx):
   """
@@ -283,8 +287,15 @@ class AttributeManager(object):
 
   def getAttributes(self, resource):
     if resource.key not in self.attributes:
-      specd = resource.template.properties if resource.template else {}
-      attributes = ResultsMap(ChainMap(copy.deepcopy(resource._attributes), specd), RefContext(resource))
+      # XXX also need to merge in attribute defaults from template's type
+      if resource.template:
+        specd = resource.template.properties
+        defaultAttributes = resource.template.defaultAttributes
+        _attributes = ChainMap(copy.deepcopy(resource._attributes), specd, defaultAttributes)
+      else:
+        _attributes = ChainMap(copy.deepcopy(resource._attributes))
+
+      attributes = ResultsMap(_attributes, RefContext(resource))
       self.attributes[resource.key] = (resource, attributes)
       return attributes
     else:
@@ -300,13 +311,14 @@ class AttributeManager(object):
     # current and original don't have external values
     for resource, attributes in self.attributes.values():
       # save in _attributes in serialized form
-      overrides, specd = attributes._attributes._maps
+      overrides, specd = attributes._attributes.split()
       resource._attributes = {}
       for key, value in overrides.items():
         if not isinstance(value, Result):
           # hasn't been touched so keep it as is
           resource._attributes[key] = value
         elif key not in specd or value.hasDiff():
+          # value is a Result
           resource._attributes[key] = value.asRef()
 
       # save changes

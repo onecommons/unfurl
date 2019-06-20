@@ -237,12 +237,6 @@ class Results(object):
   def hasDiff(self):
     return any(isinstance(x, Result) and x.hasDiff() for x in self._attributes)
 
-  def _serializeItem(self, val):
-    if isinstance(val, Result):
-      return val.asRef()
-    else: # never resolved, so already in serialized form
-      return val
-
   @staticmethod
   def _mapValue(val, context):
     "Recursively and lazily resolves any references in a value"
@@ -305,9 +299,6 @@ class ResultsMap(Results, MutableMapping):
   def __iter__(self):
       return iter(self._attributes)
 
-  def asRef(self, options=None):
-    return dict((key, self._serializeItem(val)) for key, val in self._attributes.items())
-
   def resolveAll(self):
     list(self.values())
 
@@ -329,9 +320,6 @@ class ResultsList(Results, MutableSequence):
   def insert(self, index, value):
     assert not isinstance(value, Result), value
     self._attributes.insert(index, Result(value))
-
-  def asRef(self, options=None):
-    return [self._serializeItem(val) for val in self._attributes]
 
   def getDiff(self, cls=list):
     # we don't have patchList yet so just returns the whole list

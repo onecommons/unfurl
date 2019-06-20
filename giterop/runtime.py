@@ -413,3 +413,11 @@ class Resource(NodeInstance):
 
   def __repr__(self):
     return "Resource('%s')" % self.name
+
+class TopologyResource(Resource):
+  def __init__(self, template, status=None):
+    Resource.__init__(self, 'root', template=template, status=status)
+
+  def getOperationalDependencies(self):
+    for instance in self.resources:
+      yield instance
