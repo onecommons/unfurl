@@ -15,7 +15,7 @@ from click.testing import CliRunner
 
 class SimpleConfigurator(Configurator):
   def run(self, task):
-    assert self.canRun(task)
+    assert not self.cantRun(task)
     yield task.createResult(True, True, Status.ok)
 
 simpleConfigSpec = ConfigurationSpec('subtask', 'instantiate', 'SimpleConfigurator', 0)
@@ -23,7 +23,7 @@ simpleConfigSpec = ConfigurationSpec('subtask', 'instantiate', 'SimpleConfigurat
 class TestSubtaskConfigurator(Configurator):
 
   def run(self, task):
-    assert self.canRun(task)
+    assert not self.cantRun(task)
     configuration = yield task.createSubTask(simpleConfigSpec)
     assert configuration.status == Status.ok, configuration.status
     # print ("running TestSubtaskConfigurator")
@@ -284,7 +284,7 @@ class InterfaceTest(unittest.TestCase):
 
 class FileTestConfigurator(Configurator):
   def run(self, task):
-    assert self.canRun(task)
+    assert not self.cantRun(task)
     assert task.target.attributes['file'] == 'foo.txt'
     print('task.configSpec.parameters', task.configSpec.parameters)
     assert os.path.isabs(task.inputs['path']), task.inputs
@@ -378,7 +378,7 @@ spec:
 
 class ImportTestConfigurator(Configurator):
   def run(self, task):
-    assert self.canRun(task)
+    assert not self.cantRun(task)
     assert task.target.attributes['test']
     assert task.target.attributes['mapped1']
     yield task.createResult(True, True, Status.ok)

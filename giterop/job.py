@@ -371,7 +371,7 @@ class Job(ConfigChange):
     task.priority = priority
     return priority > Priority.ignore
 
-  def canRunTask(self, task):
+  def cantRunTask(self, task):
     """
     Checked at runtime right before each task is run
 
@@ -382,29 +382,29 @@ class Job(ConfigChange):
     try:
       canRun = False
       reason = ''
-      if task.configSpec.validateParameters():
-        preErrors = task.configSpec.getInvalidPreconditions(task.target)
-        if not preErrors:
-          if task.configSpec.canRun():
-              if task.configurator.canRun(task):
-                canRun = True
-              else:
-                reason = 'configurator declined'
-          else:
-            reason = 'configSpec declined'
-        else:
-          reason = 'invalid precondition: %s' % str(preErrors)
+      errors = task.configSpec.cantRun()
+      if errors:
+        reason = 'invalid configuration: %s' % str(errors)
       else:
-        reason = 'invalid inputs'
+        preErrors = task.configSpec.findInvalidPreconditions(task.target)
+        if preErrors:
+          reason = 'invalid preconditions: %s' % str(preErrors)
+        else:
+          errors = task.configurator.cantRun(task)
+          if errors:
+            reason = 'configurator declined: %s' % str(errors)
+          else:
+            canRun = True
     except Exception:
-      GitErOpTaskError(task, "canRun failed")
+      GitErOpTaskError(task, "cantRun failed")
+      reason = 'unexpected exception in cantRun'
       canRun = False
 
     if canRun:
-      return True
+      return False
     else:
       logger.info("could not run task %s: %s", task, reason)
-      return False
+      return "could not run: " + reason
 
   def shouldAbort(self, task):
     return False #XXX3
@@ -424,6 +424,9 @@ class Job(ConfigChange):
     for task in self.workDone.values():
       yield task
 
+  def getOutputs(self):
+    return self.rootResource.attributes.get('outputs', {})
+
   def runTask(self, task):
     """
     During each task run:
@@ -435,8 +438,9 @@ class Job(ConfigChange):
     """
     # XXX3 need a way for configurator to declare that is the manager of a particular resource or type of resource or metadata so we know to handle that request
     # XXX3 recursion or loop detection
-    if not self.canRunTask(task):
-      return task.finished(ConfiguratorResult(False, False))
+    errors = self.cantRunTask(task)
+    if errors:
+      return task.finished(ConfiguratorResult(False, False, result=errors))
 
     task.start()
     change = None
@@ -463,11 +467,7 @@ class Job(ConfigChange):
         return task.finished(ConfiguratorResult(True, True, Status.error))
 
 class Runner(object):
-  def __init__(self, manifest, localEnv=None):
-    # if not localEnv:
-    #   localEnv = LocalEnv()
-    if localEnv:
-      localEnv.addManifest(manifest)
+  def __init__(self, manifest):
     self.manifest = manifest
     assert self.manifest.tosca
     self.lastChangeId = manifest.lastChangeId

@@ -29,8 +29,23 @@ else:
     import subprocess
 # cf https://github.com/opsmop/opsmop/blob/master/opsmop/core/command.py
 
+import logging
+logger = logging.getLogger('giterop')
 
-# XXX set environment vars?
+
+try:
+  from shutil import which
+except ImportError:
+  from distutils import spawn
+  def which(executable, mode=os.F_OK | os.X_OK, path=None):
+    executable = spawn.find_executable(executable, path)
+    if executable:
+      if os.access(executable, mode):
+        return executable
+    return None
+
+# XXX set environment vars
+# XXX we should know if cmd if not os.access(implementation, os.X):
 class ShellConfigurator(Configurator):
 
   def runProcess(self, cmd, shell=False, timeout=None):
@@ -80,6 +95,11 @@ class ShellConfigurator(Configurator):
 
   def handleResults(self, task, params, result):
     status = Status.error if result.error or result.returncode else Status.ok
+    if status == Status.error:
+      logger.warning("shell task failed %s", result)
+    else:
+      logger.info("ran shell task %s", result)
+
     if status != Status.error and params.get('resultTemplate'):
       results = task.query({
         'eval': dict(template=params['resultTemplate']),
@@ -88,9 +108,18 @@ class ShellConfigurator(Configurator):
         task.updateResources(results)
     return status
 
+  def cantRun(self, task):
+    params = task.configSpec.parameters
+    cmd = params.get('command')
+    if not cmd:
+      return "missing command to execute"
+    if isinstance(cmd, list) and not params.get('shell') and not which(cmd[0]):
+      return "'%s' is not executable" % cmd[0]
+    return False
+
   def run(self, task):
     params = task.configSpec.parameters
-    assert self.canRun(task)
+    assert not self.cantRun(task)
     cmd = params['command']
     # default for shell: True if command is a string otherwise False
     shell = params.get('shell', isinstance(cmd, six.string_types))

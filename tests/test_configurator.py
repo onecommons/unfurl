@@ -11,7 +11,7 @@ logger.setLevel(logging.DEBUG)
 
 class TestConfigurator(Configurator):
   def run(self, task):
-    assert self.canRun(task)
+    assert not self.cantRun(task)
     attributes = task.target.attributes
     attributes['copyOfMeetsTheRequirement'] = attributes["meetsTheRequirement"]
     params = task.inputs
@@ -93,7 +93,7 @@ class ConfiguratorTest(unittest.TestCase):
     runner = Runner(YamlManifest(manifest))
     test1 = runner.manifest.getRootResource().findResource('test1')
     assert test1
-    # missing = runner.manifest.spec[0].getInvalidPreconditions(test1)
+    # missing = runner.manifest.spec[0].findInvalidPreconditions(test1)
     # assert not missing, missing
 
     run1 = runner.run(JobOptions(resource='test1'))

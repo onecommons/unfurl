@@ -35,11 +35,11 @@ class ConfigurationSpec(object):
     self.preConditions = preConditions
     self.postConditions = postConditions
 
-  def validateParameters(self):
-    return validateSchema(self.parameters, self.parameterSchema)
+  def findInvalidateParameters(self):
+    return findSchemaErrors(self.parameters, self.parameterSchema)
 
   # XXX same for postConditions
-  def getInvalidPreconditions(self, target):
+  def findInvalidPreconditions(self, target):
     if not self.preConditions:
       return []
     # XXX this should be like a Dependency object
@@ -50,8 +50,11 @@ class ConfigurationSpec(object):
     # XXX2 throw clearer exception if couldn't load class
     return lookupClass(self.className)(self)
 
-  def canRun(self):
-    return True
+  def cantRun(self):
+    """
+    Returns False or an error message
+    """
+    return self.findInvalidateParameters()
 
   def shouldRun(self):
     return Defaults.shouldRun
@@ -89,11 +92,12 @@ class ConfiguratorResult(object):
     self.result = result
 
   def __str__(self):
+    result = '' if self.result is None else str(self.result)
     return 'changes: ' + (' '.join(filter(None,[
       self.applied and 'applied',
       self.modified and 'modified',
       self.readyState and self.readyState.name,
-      self.configChanged and 'config'])) or 'none')
+      self.configChanged and 'config'])) or 'none') + ' ' + result
 
 @six.add_metaclass(AutoRegisterClass)
 class Configurator(object):
@@ -108,13 +112,15 @@ class Configurator(object):
   def dryRun(self, task):
     yield None
 
-  def canRun(self, task):
+  def cantRun(self, task):
     """
     Does this configurator support the requested action and parameters
     given the current state of the resource?
     (e.g. can we upgrade from the previous configuration?)
+
+    Returns False or an error message (list or string)
     """
-    return Defaults.canRun
+    return False
 
   def shouldRun(self, task):
     """Does this configuration need to be run?"""
