@@ -7,10 +7,11 @@ Each task tracks and records its modifications to the system's state
 import collections
 import datetime
 import types
-from .support import Status, Priority, AttributeManager, ResourceChanges
+from .support import Status, Priority, AttributeManager
+from .result import serializeValue
 from .util import GitErOpError, GitErOpTaskError, mergeDicts
-from .runtime import ConfigChange, Resource
-from .configurator import TaskView, ConfiguratorResult, Dependency, ConfigurationSpec
+from .runtime import ConfigChange
+from .configurator import TaskView, ConfiguratorResult, Dependency
 from .plan import Plan
 
 import logging
@@ -172,14 +173,15 @@ class ConfigTask(ConfigChange, TaskView, AttributeManager):
     self.changeList.append(changes)
     return changes
 
-  # XXX
-  def hasParametersChanged(self):
+  def hasInputsChanged(self):
     """
-    Evaluate configuration spec's parameters and compare with the current paramenters' values
+    Evaluate configuration spec's inputs and compare with the current inputs' values
     """
-    specParams = self.configSpec.parameters
-    # XXX need to load last change
-    _parameters = self.lastConfigChange and self.lastConfigChange.parameters # serialized, not live
+    specParams = serializeValue(self.inputs)
+    _parameters = None
+    if self.lastConfigChange:
+      changeset = self._manifest.getChangeRecord(self.lastConfigChange)
+      _parameters = changeset.get('inputs')
     if _parameters is None:
       # if _parameters were not set
       # return True if parameters have been declared
@@ -375,16 +377,16 @@ class Job(ConfigChange):
     """
     Checked at runtime right before each task is run
 
-    * validate parameters
+    * validate inputs
     * check pre-conditions to see if it can be run
     * check task if it can be run
     """
     try:
       canRun = False
       reason = ''
-      errors = task.configSpec.cantRun()
+      errors = task.configSpec.findInvalidateInputs(task.inputs)
       if errors:
-        reason = 'invalid configuration: %s' % str(errors)
+        reason = 'invalid inputs: %s' % str(errors)
       else:
         preErrors = task.configSpec.findInvalidPreconditions(task.target)
         if preErrors:

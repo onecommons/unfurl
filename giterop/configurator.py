@@ -18,11 +18,11 @@ class ConfigurationSpec(object):
   @classmethod
   def getDefaults(self):
       return dict(className=None, majorVersion=0, minorVersion='', intent=Defaults.intent,
-      parameters=None, parameterSchema=None, preConditions=None, postConditions=None)
+      inputs=None, inputSchema=None, preConditions=None, postConditions=None)
 
   def __init__(self, name, action, className=None, majorVersion=0, minorVersion='',
       intent=Defaults.intent,
-      parameters=None, parameterSchema=None, preConditions=None, postConditions=None):
+      inputs=None, inputSchema=None, preConditions=None, postConditions=None):
     assert name and className, "missing required arguments"
     self.name = name
     self.action = action
@@ -30,13 +30,13 @@ class ConfigurationSpec(object):
     self.majorVersion = majorVersion
     self.minorVersion = minorVersion
     self.intent = intent
-    self.parameters = parameters or {}
-    self.parameterSchema = parameterSchema or {}
+    self.inputs = inputs or {}
+    self.inputSchema = inputSchema or {}
     self.preConditions = preConditions
     self.postConditions = postConditions
 
-  def findInvalidateParameters(self):
-    return findSchemaErrors(self.parameters, self.parameterSchema)
+  def findInvalidateInputs(self, inputs):
+    return findSchemaErrors(serializeValue(inputs), self.inputSchema)
 
   # XXX same for postConditions
   def findInvalidPreconditions(self, target):
@@ -49,12 +49,6 @@ class ConfigurationSpec(object):
   def create(self):
     # XXX2 throw clearer exception if couldn't load class
     return lookupClass(self.className)(self)
-
-  def cantRun(self):
-    """
-    Returns False or an error message
-    """
-    return self.findInvalidateParameters()
 
   def shouldRun(self):
     return Defaults.shouldRun
@@ -70,7 +64,7 @@ class ConfigurationSpec(object):
     # XXX3 add unit tests
     return (self.name == other.name and self.className == other.className
       and self.majorVersion == other.majorVersion and self.minorVersion == other.minorVersion
-      and self.intent == other.intent and self.parameters == other.parameters and self.parameterSchema and self.parameterSchema
+      and self.intent == other.intent and self.inputs == other.inputs and self.inputSchema == self.inputSchema
       and self.preConditions == other.preConditions and self.postConditions == other.postConditions)
 
 class ConfiguratorResult(object):
@@ -141,7 +135,7 @@ class TaskView(object):
     self.target = target
     self.reason = reason
     # XXX refcontext should include TARGET HOST etc.
-    self.inputs = mapValue(self.configSpec.parameters, target)
+    self.inputs = mapValue(self.configSpec.inputs, target)
     # private:
     self._manifest = manifest
     self.messages = []

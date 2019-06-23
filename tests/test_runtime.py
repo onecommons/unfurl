@@ -286,7 +286,6 @@ class FileTestConfigurator(Configurator):
   def run(self, task):
     assert not self.cantRun(task)
     assert task.target.attributes['file'] == 'foo.txt'
-    print('task.configSpec.parameters', task.configSpec.parameters)
     assert os.path.isabs(task.inputs['path']), task.inputs
     assert task.inputs['contents'] == 'test', task.inputs['contents']
 

@@ -339,8 +339,6 @@ def saveConfigSpec(spec):
     saved["majorVersion"] = spec.majorVersion
   if spec.minorVersion:
     saved["minorVersion"] = spec.minorVersion
-  if spec.parameters:
-    saved['inputs'] = spec.parameters
   # if spec.provides:
   #   dotSelf = spec.provides.get('.self')
   #   if dotSelf:
@@ -406,6 +404,8 @@ def saveTask(task):
   if task.previousConfigChangeId:
     output['previousId'] = task.previousConfigChangeId
   output['implementation'] = saveConfigSpec(task.configSpec)
+  if task.inputs:
+    output['inputs'] = serializeValue(task.inputs)
   changes = saveResourceChanges(task._resourceChanges)
   if changes:
     output['changes'] = changes
@@ -463,6 +463,9 @@ class YamlManifest(Manifest):
 
   def getBaseDir(self):
     return self.manifest.getBaseDir()
+
+  def getChangeRecord(self, changeid):
+    return self.changeSets.get(changeid)
 
   def loadFromRepo(self, templatePath, baseDir):
     name = 'spec'

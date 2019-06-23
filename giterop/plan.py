@@ -32,21 +32,16 @@ class Plan(object):
       if resource.template.name == nodeTemplate.name:
         yield resource
 
-  def findResourceFromTemplate(self, nodeTemplate):
-    for resource in self.root.getSelfAndDescendents():
-      if resource.template.name == nodeTemplate.name:
-        return resource
-
   def createResource(self, template):
     # XXX create capabilities and requirements too?
-    # XXX if requirement with HostedOn relationshio, target is the parent not root 
+    # XXX if requirement with HostedOn relationshio, target is the parent not root
     return Resource(template.name, template=template, parent=self.root)
 
   def createShellConfigurator(self, cmdLine, action, inputs=None, timeout=None):
       params = dict(command=cmdLine, timeout=timeout)
       if inputs:
         params.update(inputs)
-      return ConfigurationSpec('cmdline', action, className='giterop.shellconfigurator.ShellConfigurator', parameters = params)
+      return ConfigurationSpec('cmdline', action, className='giterop.shellconfigurator.ShellConfigurator', inputs = params)
 
   def getConfigurationSpecFromInterface(self, iDef):
     '''implementation can either be a named artifact (including a python configurator class),
@@ -59,7 +54,7 @@ class Plan(object):
       implementation = implementation.get('primary')
       if isinstance(implementation, dict):
         # it's an artifact definition
-        # XXX retreive from repository if defined
+        # XXX retrieve from repository if defined
         implementation = implementation.get('file')
     if not implementation or not isinstance(implementation, six.string_types):
       raise GitErOpError('invalid implementation spec %s' % implementation)
@@ -67,15 +62,15 @@ class Plan(object):
     if configuratorTemplate:
       attributes = configuratorTemplate.properties
       kw = { k : attributes[k] for k in set(attributes) & set(ConfigurationSpec.getDefaults()) }
-      if 'parameters' not in kw:
-        kw['parameters'] = iDef.inputs
+      if 'inputs' not in kw:
+        kw['inputs'] = iDef.inputs
       if 'className' not in kw:
         kw['className'] = configuratorTemplate.getInterfaces()[0].implementation
       return ConfigurationSpec(configuratorTemplate.name, iDef.name, **kw)
     else:
       try:
         lookupClass(implementation)
-        return ConfigurationSpec(implementation, iDef.name, className=implementation, parameters = iDef.inputs)
+        return ConfigurationSpec(implementation, iDef.name, className=implementation, inputs = iDef.inputs)
       except GitErOpError:
         # assume its executable file, create a ShellConfigurator
         # XXX check if it's actually an executable file
@@ -103,21 +98,13 @@ Returns:
       and the :class:`ConfigurationSpec` to run or `None` if it shound't be included.
     """
     jobOptions = self.jobOptions
-
-    assert template or resource
+    assert resource
     if jobOptions.all and template:
       return 'all', template
-    if template:
-      if not resource:
-        if jobOptions.add:
-          # XXX3 what if config.intent == A.revert? return None?
-          return 'add', template
-        else:
-          return None
-      elif resource.status == Status.notapplied and not resource.lastConfigChange and jobOptions.add:
+    if template and resource.status == Status.notapplied and not resource.lastConfigChange and jobOptions.add:
         return 'add', template
 
-    if resource and not template:
+    if not template:
       if jobOptions.revertObsolete:
         return 'revert obsolete', oldTemplate
       if jobOptions.all:
@@ -126,7 +113,7 @@ Returns:
       if resource.status == Status.notapplied and jobOptions.add:
         return 'never applied', oldTemplate
     elif template != oldTemplate:
-      # the user changed the configuration (including parameters):
+      # the user changed the configuration:
       if jobOptions.upgrade:
         return 'upgrade', template
       if resource.status == Status.notpresent and jobOptions.add:
@@ -137,24 +124,22 @@ Returns:
         if False:  # XXX if isMinorDifference(template, oldTemplate)
           return 'update', template
 
-    # XXX
     # there isn't a new config to run, see if the last applied config needs to be re-run
-    #assert resource
-    #if (lastChange.hasParametersChanged() or lastChange.hasDependenciesChanged()) and (jobOptions.upgrade or jobOptions.update or jobOptions.all):
-    #  return 'config changed', lastChange.configurationSpec
-
+    # XXX: if (jobOptions.upgrade or jobOptions.update or jobOptions.all):
+    #  if (configTask.hasInputsChanged() or configTask.hasDependenciesChanged()) and
+    #    return 'config changed', configTask.configSpec
     return self.checkForRepair(resource, oldTemplate)
 
-  def checkForRepair(self, lastChange, lastTemplate):
+  def checkForRepair(self, instance, lastTemplate):
     jobOptions = self.jobOptions
 
-    assert lastChange
+    assert instance
     # spec = lastChange.configurationSpec
 
     if jobOptions.repair=="none":
       return None
-    status = lastChange.status
-    if status == Status.notapplied and lastChange.required:
+    status = instance.status
+    if status == Status.notapplied and instance.required:
       status = Status.error # treat as error
 
     # repair should only apply to configurations that are active and in need of repair
@@ -174,7 +159,7 @@ Returns:
       assert jobOptions.repair == 'error', jobOptions.repair
       return None # skip repairing this
     else:
-      assert jobOptions.repair == 'error', "repair: %s status: %s" % (jobOptions.repair, lastChange.status)
+      assert jobOptions.repair == 'error', "repair: %s status: %s" % (jobOptions.repair, instance.status)
       return 'error', lastTemplate # repair this
 
   def executePlan(self):
@@ -206,25 +191,26 @@ Returns:
 
     visited = set()
     for template in templates:
-      resource = self.findResourceFromTemplate(template)
-      if resource:
+      found = False
+      for resource in self.findResourcesFromTemplate(template):
+        found = True
         visited.add(id(resource))
-        oldTemplate = template # XXX get the old version of the template
-      else:
-        oldTemplate = None
-      include = self.includeTask(template, resource, oldTemplate)
-      if include:
-        reason, template = include
-        operation = 'create'
-        if resource:
-          if not resource.status.notapplied and not resource.status.notpresent:
+        include = self.includeTask(template, resource, resource.template)
+        if include:
+          reason, template = include
+          if resource.status.notapplied or resource.status.notpresent:
+            operation = 'create'
+          else:
             operation = 'configure'
-        else:
-          # XXX NodeInstance instead to include relationships
-          resource = self.createResource(template)
+          yield self.generateConfiguration(operation, resource, reason, opts.useConfigurator)
+
+      if not found and (opts.add or opts.all):
+        reason = 'add'
+        operation = 'create'
+        # XXX create NodeInstance instead to include relationships
+        resource = self.createResource(template)
+        visited.add(id(resource))
         yield self.generateConfiguration(operation, resource, reason, opts.useConfigurator)
-      else:
-        logger.info("skipping config %s:%s", resource.key, template.name)
 
     if opts.all or opts.revertObsolete:
       for resource in self.root.getSelfAndDescendents():

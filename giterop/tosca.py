@@ -121,7 +121,6 @@ class ToscaSpec(object):
   def loadImplementation(self, _impl):
     impl = _impl.copy()
     implementation = impl.pop('className')
-    impl['parameters'] = impl.pop('inputs', {})
     return dict(type=self.ConfiguratorType,
       properties=impl,
       interfaces={

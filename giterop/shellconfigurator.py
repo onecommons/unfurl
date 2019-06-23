@@ -1,5 +1,5 @@
 """
-parameters:
+inputs:
  command: "--switch {{ '.::foo' | ref }}"
  timeout: 9999
  resultTemplate:
@@ -14,7 +14,7 @@ parameters:
 # at least expose config parameters
 # see also 13.3.1 Shell scripts p 328
 # XXX add support for a stdin parameter
-# (that's a reason to make config parameters lazy too)
+# (that's a reason to make config inputs lazy too)
 
 from giterop.configurator import Configurator, Status
 import json
@@ -109,7 +109,7 @@ class ShellConfigurator(Configurator):
     return status
 
   def cantRun(self, task):
-    params = task.configSpec.parameters
+    params = task.inputs
     cmd = params.get('command')
     if not cmd:
       return "missing command to execute"
@@ -118,7 +118,7 @@ class ShellConfigurator(Configurator):
     return False
 
   def run(self, task):
-    params = task.configSpec.parameters
+    params = task.inputs
     assert not self.cantRun(task)
     cmd = params['command']
     # default for shell: True if command is a string otherwise False

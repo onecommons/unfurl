@@ -132,7 +132,7 @@ class Manifest(AttributeManager):
     return ConfigurationSpec(configName, spec['action'], spec['className'],
           spec.get('majorVersion'), spec.get('minorVersion',''),
           intent=toEnum(Action, spec.get('intent', Defaults.intent)),
-          parameters=spec.get('inputs'), parameterSchema=spec.get('inputsSchema'),
+          inputs=spec.get('inputs'), inputSchema=spec.get('inputSchema'),
           preConditions=spec.get('preConditions'), postConditions=spec.get('postConditions'))
 
   def loadResource(self, rname, resourceSpec, parent=None):
