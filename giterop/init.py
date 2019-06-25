@@ -1,7 +1,7 @@
 """
 Project folder structure:
 
-project/spec/.git # has template.yaml and manifest-template.yaml
+project/spec/.git # has service-template.yaml and manifest-template.yaml
         instances/current/.git # has manifest.yaml
         # subprojects are created by repository declarations in spec or instance
         subproject/spec/
@@ -13,7 +13,7 @@ project/spec/.git # has template.yaml and manifest-template.yaml
 import uuid
 import os
 import os.path
-from git import Git, Repo
+from git import Repo
 from . import __version__
 
 def writeLocalConfig(projectdir):
@@ -65,6 +65,8 @@ repositories:
     url: file:.
     metadata:
       initial-commit: %s
+topology_template:
+  node_templates:
 """ % repo.head.commit.hexsha)
   manifestTemplatePath = os.path.join(gitDir, 'manifest-template.yaml')
   with open(manifestTemplatePath, 'w') as f:
@@ -77,7 +79,7 @@ repositories:
   status: {}
       """)
   repo.index.add(['service-template.yaml', 'manifest-template.yaml'])
-  repo.index.commit("Default Boilerplate")
+  repo.index.commit("Default specification repository boilerplate")
   return repo
 
 def createInstanceRepo(gitDir, specRepo):
@@ -104,7 +106,7 @@ spec:
           initial-commit: %s
 """ % (specRepo.head.commit.hexsha, repo.head.commit.hexsha))
   repo.index.add(['manifest.yaml'])
-  repo.index.commit("Default Boilerplate")
+  repo.index.commit("Default instance repository boilerplate")
   return repo
 
 def createProject(projectdir, home=None):

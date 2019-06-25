@@ -97,8 +97,10 @@ class GitRepo(Repo):
   def revision(self):
     return self.repo.head.commit.hexsha
 
-  def show(self, relPath, commitId):
-    return self.repo.git.show(commitId+':'+relPath)
+  def show(self, path, commitId):
+    if os.path.abspath(path):
+      path = path[len(self.workingDir)+1:]
+    return self.repo.git.show(commitId+':'+path)
 
   def checkout(self, revision=''):
     # if revision isn't specified and repo is not pinned:
@@ -157,24 +159,25 @@ class SimpleRepo(Repo):
     # copy current workingDir to /revisions/{commitid}/files
     return self.lastCommitId
 
-class Revision(object):
-  def __init__(self, revisionManager, commitid, workingDir):
-    self.revisionManager = revisionManager
-    self.workingDir = workingDir
-    self.commitId = commitid
+# class Revision(object):
+#   def __init__(self, revisionManager, commitid, workingDir):
+#     self.revisionManager = revisionManager
+#     self.workingDir = workingDir
+#     self.commitId = commitid
 
 class RevisionManager(object):
   def __init__(self, manifest, localEnv=None):
     self.manifest = manifest
-    # XXX currentCommitId
-    self.revisions = {manifest.currentCommitId: manifest}
+    self.revisions = {manifest.specDigest: manifest}
     self.localEnv = localEnv
 
-  def getRevision(self, commitid):
-    if commitid in self.revisions:
-      return self.revisions[commitid]
+  def getRevision(self, change):
+    digest = change['specDigest']
+    commitid = change['startCommit']
+    if digest in self.revisions:
+      return self.revisions[digest]
     else:
       from .manifest import SnapShotManifest
       manifest = SnapShotManifest(self.manifest, commitid)
-      self.revisions[commitid] = manifest
+      self.revisions[digest] = manifest
       return manifest

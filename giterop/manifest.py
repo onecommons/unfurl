@@ -1,5 +1,7 @@
 import collections
 import os.path
+import hashlib
+import json
 from ruamel.yaml.comments import CommentedMap
 from .tosca import ToscaSpec
 
@@ -33,6 +35,7 @@ class Manifest(AttributeManager):
     self.tosca = self.loadSpec(spec, path)
     self.specDigest = self.getSpecDigest(spec)
     self.revisions = RevisionManager(self)
+    self.path = path
 
   def loadSpec(self, spec, path):
     if 'tosca' in spec:
@@ -55,9 +58,17 @@ class Manifest(AttributeManager):
     toscaDef.manifest = self
     return ToscaSpec(toscaDef, spec.get('inputs'), spec, path)
 
+  def getSpecDigest(self, spec):
+    m = hashlib.sha1() # use same digest function as git
+    t = self.tosca.template
+    for tpl in [spec, t.topology_template.custom_defs, t.nested_tosca_tpls_with_topology]:
+      m.update(json.dumps(tpl, sort_keys=True).encode("utf-8"))
+    return m.hexdigest()
+
   def _ready(self, rootResource, lastChangeId=0):
     self.rootResource = rootResource
-    rootResource.attributeManager = self
+    if rootResource:
+      rootResource.attributeManager = self
     self.lastChangeId = lastChangeId
 
   def getRootResource(self):
@@ -70,8 +81,8 @@ class Manifest(AttributeManager):
     pass
 
   def loadTemplate(self, name, lastChange=None):
-    if lastChange and lastChange.specDigest != self.specDigest:
-      return self.revisions.getRevision(lastChange.commitId).tosca.getTemplate(name)
+    if lastChange:
+      return self.revisions.getRevision(lastChange).tosca.getTemplate(name)
     else:
       return self.tosca.getTemplate(name)
 
@@ -167,19 +178,28 @@ class Manifest(AttributeManager):
     resource = self._createNodeInstance(Resource, rname, resourceSpec, parent)
     return resource
 
+  def _getLastChange(self, operational):
+    if not operational.lastConfigChange:
+      return None
+    changerecord = self.changeSets[operational.lastConfigChange]
+    parentId = changerecord.get('parentId')
+    if parentId:
+      return self.changeSets[parentId]
+    return changerecord
+
   def _createNodeInstance(self, ctor, name, status, parent):
     operational = self.loadStatus(status)
     templateName = status.get('template', name)
     template = self.loadTemplate(templateName)
     if template is None:
+      if operational.lastConfigChange:
+        changerecord = self._getLastChange(operational)
+        template = self.loadTemplate(templateName, changerecord)
+    if template is None:
       raise GitErOpError('missing resource template %s' % templateName)
     logger.debug('template %s: %s', templateName, template)
 
     resource = ctor(name, status.get('attributes'), parent, template, operational)
-    if status.get('createdOn'):
-      changeset = self.changeSets.get(status['createdOn'])
-      resource.createdOn = changeset.changeRecord if changeset else None
-    resource.createdFrom = status.get('createdFrom')
 
     for key, val in status.get('capabilities', {}).items():
       self._createNodeInstance(Capability, key, val, resource)
@@ -196,11 +216,13 @@ class Manifest(AttributeManager):
     repoURL, filePath, revision = findGitRepo(path, isFile, importLoader)
     if not repoURL or not self.localEnv:
       return None, None, None, None
+    explicitRevision = revision
     basePath = importLoader.path #XXX check if dir or not
-    #if not revision: #XXX
-    #  revision = findPinned(repoURL) self.repoStatus
+    # if not explicitRevision:
+    #   revision = self.repoStatus.get(repoURL)
     repo, filePath, revision, bare = self.localEnv.findOrCreateWorkingDir(repoURL, isFile, revision, basePath)
-    # XXX if willUse: self.updateRepoStatus(repo, revision)
+    # if willUse and (not explicitRevision or not bare):
+    #   self.updateRepoStatus(repo, revision)
     return repo, filePath, revision, bare
 
   def findPathInRepos(self, path, importLoader=None, willUse=False):
@@ -209,7 +231,7 @@ class Manifest(AttributeManager):
     If the revision is pinned and doesn't match the repo, it might be bare
     """
     candidate = None
-    if self.repo: #gets first crack
+    if self.repo: # our own repo gets first crack
       filePath, revision, bare = self.repo.findPath(path, importLoader)
       if filePath:
         if not bare:
@@ -222,12 +244,17 @@ class Manifest(AttributeManager):
         if bare and candidate:
           return candidate
         else:
-          # XXX if willUse: self.updateRepoStatus(repo, revision)
+          # if willUse:
+          #     self.updateRepoStatus(repo, revision)
           return repo, filePath, revision, bare
     return None, None, None, None
 
+  # def updateRepoStatus(self, repos):
+  #   self.repoStatus.update({repo['url'] : repo['commit']
+  #       for repo in repos.values() if repo.get('commit')})
+
   def loadHook(self, yamlConfig, templatePath, baseDir):
-    self.repoStatus = yamlConfig.config.get('status', {}).get('repositories')
+    #self.updateRepoStatus(yamlConfig.config.get('status', {}).get('repositories',{}))
     repositories = yamlConfig.config.get('spec', {}).get('tosca', {}).get('repositories', {})
 
     if isinstance(templatePath, dict):
@@ -250,13 +277,13 @@ class Manifest(AttributeManager):
 class SnapShotManifest(Manifest):
   def __init__(self, manifest, commitId):
     self.commitId = commitId
-    oldManifest = manifest.repo.git.show(commitId+':'+manifest.path)
+    oldManifest = manifest.repo.show(manifest.path, commitId)
     self.repo = manifest.repo
     self.localEnv =  manifest.localEnv
     self.manifest = YamlConfig(oldManifest, manifest.path,
                                     loadHook=self.loadHook)
-    manifest = self.manifest.expanded
-    spec = manifest.get('spec', {})
-    super(SnapShotManifest, self).__init__(spec, self.manifest.path, manifest.localEnv)
+    expanded = self.manifest.expanded
+    spec = expanded.get('spec', {})
+    super(SnapShotManifest, self).__init__(spec, self.manifest.path, self.localEnv)
     # just needs the spec, not root resource
     self._ready(None)

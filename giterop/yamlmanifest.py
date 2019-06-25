@@ -132,8 +132,6 @@
 import six
 import sys
 import collections
-import hashlib
-import json
 import os.path
 import itertools
 
@@ -467,12 +465,14 @@ class YamlManifest(Manifest):
     assert self.tosca
     status = manifest.get('status', {})
 
-    self.changeLogPath = manifest.get('changeLogPath')
+    self.changeLogPath = manifest.get('changeLog')
     if self.changeLogPath:
       fullPath = os.path.join(self.getBaseDir(), self.changeLogPath)
       if os.path.exists(fullPath):
-        changes = load_yaml(fullPath).get('changes', [])
+        changelog = load_yaml(fullPath)
+        changes = changelog.get('changes', [])
       else:
+        logger.warning("missing changelog: %s", fullPath)
         changes = manifest.get('changes', [])
     else:
       changes = manifest.get('changes', [])
@@ -480,7 +480,7 @@ class YamlManifest(Manifest):
         # save changes to a separate file if we're in a local environment
         self.changeLogPath = 'changes.yaml'
 
-    self.changeSets = dict((c.get('changeId', 'jobId'), c) for c in changes)
+    self.changeSets = dict( (c.get('changeId', c.get('jobId', 0)), c) for c in changes)
     lastChangeId = self.changeSets and max(self.changeSets.keys()) or 0
 
     rootResource = self.createTopologyResource(status)
@@ -501,13 +501,6 @@ class YamlManifest(Manifest):
 
   def getBaseDir(self):
     return self.manifest.getBaseDir()
-
-  def getSpecDigest(self, spec):
-    m = hashlib.sha1() # use same digest function as git
-    t = self.tosca.template
-    for tpl in [spec, t.topology_template.custom_defs, t.nested_tosca_tpls_with_topology]:
-      m.update(json.dumps(tpl, sort_keys=True).encode("utf-8"))
-    return m.hexdigest()
 
   def createTopologyResource(self, status):
     """
