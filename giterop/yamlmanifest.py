@@ -110,17 +110,16 @@
 """
 
 import six
-import copy
 import sys
 import collections
-import os.path
+import hashlib
+import json
 
 from .util import (GitErOpError, VERSION, restoreIncludes, patchDict)
 from .yamlloader import YamlConfig, loadFromRepo
 from .result import serializeValue
 from .support import ResourceChanges, Status, Priority, Action, Defaults
 from .localenv import LocalEnv
-from .tosca import ToscaSpec
 from .job import JobOptions, Runner
 from .manifest import Manifest, ChangeRecordAttributes
 from .runtime import TopologyResource, Resource
@@ -401,8 +400,6 @@ def saveTask(task):
   items = [(k, getattr(task, k)) for k in ChangeRecordAttributes]
   items.extend( saveStatus(task).items() )
   output = CommentedMap(items) #CommentedMap so order is preserved in yaml output
-  if task.previousConfigChangeId:
-    output['previousId'] = task.previousConfigChangeId
   output['implementation'] = saveConfigSpec(task.configSpec)
   if task.inputs:
     output['inputs'] = serializeValue(task.inputs)
@@ -423,24 +420,19 @@ def saveTask(task):
 
 # +./ +../ +/
 class YamlManifest(Manifest):
+
   def __init__(self, manifest=None, path=None, validate=True, localEnv=None):
     assert not (localEnv and (manifest or path)) # invalid combination of args
     self.localEnv = localEnv
+    self.repo = localEnv and localEnv.instanceRepo
     self.manifest = YamlConfig(manifest, path or localEnv and localEnv.manifestPath,
-                                    validate, schema, self.loadFromRepo)
+                                    validate, schema, self.loadHook)
     manifest = self.manifest.expanded
-
     spec = manifest.get('spec', {})
-    if 'tosca' in spec:
-      toscaDef = spec['tosca']
-    elif 'node_templates' in spec:
-      # allow node_templates shortcut
-      toscaDef = {'node_templates': spec['node_templates']}
-    else:
-      toscaDef = {}
-    status = manifest.get('status', {})
-    super(YamlManifest, self).__init__(ToscaSpec(toscaDef, spec.get('inputs'), spec, self.manifest.path))
+    super(YamlManifest, self).__init__(spec, self.manifest.path, localEnv)
     assert self.tosca
+    self.specDigest = self.getSpecDigest(spec)
+    status = manifest.get('status', {})
 
     self.changeSets = dict((c['changeId'], c) for c in  manifest.get('changes', []))
     lastChangeId = self.changeSets and max(self.changeSets.keys()) or 0
@@ -464,18 +456,12 @@ class YamlManifest(Manifest):
   def getBaseDir(self):
     return self.manifest.getBaseDir()
 
-  def getChangeRecord(self, changeid):
-    return self.changeSets.get(changeid)
-
-  def loadFromRepo(self, templatePath, baseDir):
-    name = 'spec'
-    if isinstance(templatePath, dict):
-      repo = templatePath.get('repository', {}).copy()
-      name = repo.pop('name', name)
-      repositories = {name: repo}
-
-    path, template = loadFromRepo(name, templatePath, baseDir, repositories, 'spec')
-    return template
+  def getSpecDigest(self, spec):
+    m = hashlib.sha256()
+    t = self.tosca.template
+    for tpl in [spec, t.topology_template.custom_defs, t.nested_tosca_tpls_with_topology]:
+      m.update(json.dumps(tpl).encode("utf-8"))
+    return m.hexdigest()
 
   def createTopologyResource(self, status):
     """
@@ -484,9 +470,10 @@ class YamlManifest(Manifest):
     """
     # XXX use the substitution_mapping (3.8.12) represent the resource
     topologyName = status.get('toplogy', 'self:#topology:0')
-    template = self.loadTemplate(topologyName)
-    if template is None:
-      raise GitErOpError('missing topology template %s' % topologyName)
+    #template = self.loadTemplate(topologyName)
+    #if template is None:
+  #    raise GitErOpError('missing topology template %s' % topologyName)
+    template = self.tosca.topology
     operational = self.loadStatus(status)
     root = TopologyResource(template, operational)
     for key, val in status.get('instances', {}).items():
@@ -525,19 +512,20 @@ class YamlManifest(Manifest):
 
   def saveJob(self, job):
     changes = map(saveTask, job.workDone.values())
+
     changed = self.saveRootResource(job.workDone)
+    # XXX imported resources need to include its repo's workingdir commitid its status
+    # status and job's changeset also need to save status of repositories
+    # that were accessed by loadFromRepo() and add them with commitid and repotype
+    # note: initialcommit:requiredcommit means any repo that has at least requiredcommit
+
     # update changed with includes, this may change objects with references to these objects
     restoreIncludes(self.manifest.includes, self.manifest.config, changed, cls=CommentedMap)
     # modify original to preserve structure and comments
     if 'status' not in self.manifest.config:
       self.manifest.config['status'] = {}
 
-    # XXX imported resources need to include its repo's workingdir commitid its status
-    # status and job's changeset also need to save status of repositories
-    # that were accessed by loadFromRepo() and add them with commitid and repotype
-    # note: initialcommit:requiredcommit means any repo that has at least requiredcommit
 
-    # XXX replace root with inputs and outputs
     if not self.manifest.config['status']:
       self.manifest.config['status'] = changed
     else:
@@ -579,7 +567,8 @@ class YamlManifest(Manifest):
         # if repo is url to a git repo, find or create working dir
         repositories = self.tosca.template.tpl.get('repositories',{})
         # load an instance repo
-        path, yamlDict = loadFromRepo(name, value, self.getBaseDir(), repositories, 'instance')
+        importDef = value.copy()
+        path, yamlDict = loadFromRepo(name, importDef, self.getBaseDir(), repositories, self)
         imported = YamlManifest(yamlDict, path=path)
         rname = value.get('resource', 'root')
         resource = imported.getRootResource().findResource(rname)

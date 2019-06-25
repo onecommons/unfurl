@@ -8,7 +8,6 @@ Differences with TOSCA 1.1:
  * Interface "implementation" values can be a node template name, and the corresponding
    instance will be used to execute the operation.
 """
-
 import toscaparser
 from toscaparser.tosca_template import ToscaTemplate
 from toscaparser.topology_template import TopologyTemplate
@@ -52,6 +51,7 @@ interface_types:
     step9:
 """
 from ruamel.yaml import YAML
+from ruamel.yaml.comments import CommentedMap
 yaml = YAML()
 tosca_ext_tpl = yaml.load(tosca_ext)
 
@@ -59,15 +59,6 @@ class ToscaSpec(object):
   ConfiguratorType = 'giterop.nodes.Configurator'
 
   def __init__(self, toscaDef, inputs=None, instances=None, path=None):
-
-    if "node_templates" in toscaDef:
-      # shortcut
-      toscaDef = dict(tosca_definitions_version='tosca_simple_yaml_1_0',
-                  topology_template=toscaDef)
-    else:
-      # make sure this is present
-      toscaDef['tosca_definitions_version']='tosca_simple_yaml_1_0'
-
     toscaDef.update(tosca_ext_tpl)
     if instances:
       self.loadInstances(toscaDef, instances)
@@ -154,7 +145,6 @@ class EntitySpec(object):
     # nodes have both properties and attributes
     # as do capability properties and relationships
     # but only property values are declared
-    # XXX attribute definitions are found on StatefulEntityType (but does not support default values)
     self.properties = {prop.name: prop.value
         for prop in toscaNodeTemplate.get_properties_objects()}
     if toscaNodeTemplate.type_definition:

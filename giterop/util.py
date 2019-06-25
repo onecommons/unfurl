@@ -178,11 +178,11 @@ def mergeDicts(b, a, cls=dict):
       cp[key] = val
   return cp
 
-includeKey = '%include'
+IncludeKey = '%include'
 def getTemplate(doc, key, value, path, cls):
   template = doc
   templatePath = None
-  if key == includeKey:
+  if key == IncludeKey:
     value, template = doc.loadTemplate(value)
   else:
     for segment in key.split('/'):
@@ -205,16 +205,18 @@ def getTemplate(doc, key, value, path, cls):
   if value != 'raw' and isinstance(template, Mapping): # raw means no further processing
     # if the include path starts with the path to the template
     # throw recursion error
-    if key != includeKey:
+    if key != IncludeKey:
       prefix = list(itertools.takewhile(lambda x: x[0] == x[1], zip(path, templatePath)))
       if len(prefix) == len(templatePath):
         raise GitErOpError('recursive include "%s" in "%s"' % (templatePath, path))
     includes = CommentedMap()
     template = expandDict(doc, path, includes, template, cls=dict)
+  if key == IncludeKey:
+    doc.loadTemplate(expandDoc)
   return template
 
 def hasTemplate(doc, key, path, cls):
-  if key == includeKey:
+  if key == IncludeKey:
     return hasattr(doc, 'loadTemplate')
   template = doc
   for segment in key.split('/'):
@@ -445,6 +447,9 @@ def restoreIncludes(includes, originalDoc, changedDoc, cls=dict):
 
     mergedIncludes = {}
     for (includeKey, includeValue) in value:
+      if includeKey[1:] == IncludeKey:
+        ref = None
+        continue
       stillHasTemplate = hasTemplate(changedDoc, includeKey[1:], key, cls)
       if stillHasTemplate:
         template = getTemplate(changedDoc, includeKey[1:], includeValue, key, cls)

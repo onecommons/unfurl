@@ -8,8 +8,7 @@ There is always a home project that contains the local secret instances.
 import os
 import os.path
 # import six
-import git
-
+from .repo import Repo
 from .util import (GitErOpError)
 from .yamlloader import YamlConfig
 
@@ -32,6 +31,24 @@ class Project(object):
           giterop.yaml # might create 'secret' or 'local' subprojects
           revisions/...
   """
+  def __init__(self, path, localEnv):
+    if os.path.isdir(path):
+      self.projectRoot = path
+      test = os.path.join(self.projectRoot, localEnv.DefaultLocalConfigName)
+      # XXX merge or copy homeConfig
+      if os.path.exists(test):
+        self.localConfig = LocalConfig(test)
+      elif localEnv.homeProject:
+        self.localConfig = localEnv.homeProject.localConfig
+      else:
+        self.localConfig = LocalConfig()
+    else:
+      self.projectRoot = os.path.dirname(path)
+      # XXX merge homeConfig
+      self.localConfig = LocalConfig(path)
+
+    self.workingDirs = Repo.findGitWorkingDirs(self.projectRoot)
+
   def getCurrentInstanceRepo(self):
     return os.path.join(self.projectRoot, 'instances', 'current')
 
@@ -41,24 +58,13 @@ class Project(object):
       if not os.path.exists(fullPath):
         raise GitErOpError("The default manifest found in %s does not exist: %s" % (self.localConfig.config.path, os.path.abspath(fullPath)))
     else:
-      fullPath = os.path.join(self.getCurrentInstanceRepo(), self.DefaultManifestName)
+      fullPath = os.path.join(self.getCurrentInstanceRepo(), DefaultManifestName)
       if not os.path.exists(fullPath):
         raise GitErOpError("The default manifest does not exist: %s" % os.path.abspath(fullPath))
     return fullPath
 
-  def __init__(self, path, localEnv):
-    if os.path.isdir(path):
-      self.projectRoot = path
-      test = os.path.join(self.projectRoot, localEnv.DefaultLocalConfigName)
-      # XXX merge or copy homeConfig
-      if os.path.exists(test):
-        self.localConfig = LocalConfig(test)
-      else:
-        self.localConfig = localEnv.homeConfig
-    else:
-      self.projectRoot = os.path.dirname(path)
-      # XXX merge homeConfig
-      self.localConfig = LocalConfig(path)
+  def isPathInProject(self, path):
+    return os.path.abspath(self.projectRoot)+os.sep in os.path.abspath(path)+os.sep
 
   def _createPathForGitRepo(self, gitUrl):
     basename = name = os.path.splitext(os.path.basename(gitUrl))[0]
@@ -68,30 +74,33 @@ class Project(object):
       counter += 1
     return os.path.join(self.projectRoot, name)
 
+  def findGitRepo(self, repoURL, revision=None):
+    candidate = None
+    for dir, (url, repo) in self.workingDirs.items():
+      if repoURL == url:
+        if not revision or revision == repo.revision:
+          return repo
+        else:
+          candidate = repo
+    return candidate
+
+  def findPathInRepos(self, path, importLoader=None):
+    candidate = None
+    for dir, (url, repo) in self.workingDirs.items():
+      filePath, revision, bare = repo.findPath(path, importLoader)
+      if filePath:
+        if not bare:
+          return repo, filePath, revision, bare
+        else:
+          candidate = (repo, filePath, revision, bare)
+    return candidate or None, None, None, None
+
   def createWorkingDir(self, gitUrl, revision='HEAD'):
     localRepoPath = self._createPathForGitRepo(gitUrl)
-    empty_repo = git.Repo.init(localRepoPath)
-    origin = empty_repo.create_remote('origin', gitUrl)
-    empty_repo.create_head('master', origin.refs.master)
-    empty_repo.set_tracking_branch(origin.refs.master).checkout(revision)
-    return localRepoPath
-
-  def findGitWorkingDirs(self):
-    workingDirs = {}
-    for root, dirs, files in os.walk(self.projectRoot):
-      if '.git' in dirs:
-        dirs.clear()  # don't visit CVS directories
-        # XXX get git url
-        repo = git.Repo(root)
-        if repo.remotes:
-          try:
-            remote = repo.remotes['origin']
-          except:
-            remote = repo.remotes[0]
-          workingDirs[root] = (remote.url, repo.head.ref.hexsha)
-        else:
-          workingDirs[root] = (root, repo.head.ref.hexsha)
-    return workingDirs
+    repo = Repo.createWorkingDir(gitUrl, localRepoPath, revision)
+    # add to workingDirs
+    self.workingDirs[localRepoPath] = (gitUrl, repo)
+    return repo
 
 class LocalConfig(object):
   """
@@ -189,7 +198,7 @@ class LocalEnv(object):
   The instance manifest and/or the current project
   The local configuration
   """
-  active = None
+  homeProject = None
 
   def __init__(self, manifestPath=None, homepath=None):
     """
@@ -198,10 +207,7 @@ class LocalEnv(object):
     """
     # XXX need to save local config when changed
     self.homeConfigPath = self.getHomeConfigPath(homepath)
-    if os.path.exists(self.homeConfigPath):
-      self.homeConfig = LocalConfig(self.homeConfigPath)
-    else:
-      self.homeConfig = LocalConfig()
+    self.homeProject = Project(self.homeConfigPath, self)
 
     if manifestPath:
       pathORproject = self.findManifestPath(manifestPath)
@@ -216,10 +222,10 @@ class LocalEnv(object):
       self.manifestPath = pathORproject
       self.project = self.findProject(os.path.dirname(pathORproject))
 
-    self.config = self.project and self.project.localConfig or self.homeConfig
+    self.instanceRepo = self._getInstanceRepo()
+    self.config = self.project and self.project.localConfig or self.homeProject.localConfig
 
     # XXX map<initialcommits, [repos]>, map<urls, [repos]>
-    LocalEnv.active = self
 
   # manifestPath specified
   #  doesn't exist: error
@@ -241,6 +247,12 @@ class LocalEnv(object):
           raise GitErOpError(message)
     else:
       return manifestPath
+
+  def _getInstanceRepo(self):
+    if self.project:
+      return self.project.workingDirs.get(self.manifestPath)
+    else:
+      return Repo.createGitRepoIfExists(self.manifestPath)
 
   def searchForManifestOrProject(self, dir):
     current = os.path.abspath(dir)
@@ -290,13 +302,36 @@ class LocalEnv(object):
       return None
     return self.config.getLocalResource(self.manifestPath, name, importSpec)
 
-  #XXX def findGitRepo(self, repoURL, basepath=None):
-    # can be anywhere, not just in current project
+  def findGitRepo(self, repoURL, isFile=True, revision=None):
+    if self.project:
+      repo = self.project.findGitRepo(repoURL, revision)
+      if not repo:
+        return self.homeProject.findGitRepo(repoURL, revision)
 
-  def findOrCreateWorkingDir(self, repoURL, revision, basepath=None):
-    workingDir = self.findGitRepo(repoURL, revision, basepath)
-    if not workingDir:
-      project = self.project or self.homeProject
-      workingDir = project.createWorkingDir(repoURL, revision, basepath)
-      # add to workingDirs
-    return workingDir
+  def findOrCreateWorkingDir(self, repoURL, isFile=True, revision=None, basepath=None):
+    repo = self.findGitRepo(repoURL, revision)
+    if not repo:
+      if self.project and (basepath is None or self.project.isPathInProject(basepath)):
+        project = self.project
+      else:
+        project = self.homeProject
+      repo = project.createWorkingDir(repoURL, revision, basepath)
+    return repo, repo.workingDir, repo.revision, revision and repo.revision != revision
+
+  def findPathInRepos(self, path, importLoader=None):
+    candidate = None
+    if self.project:
+      repo, filePath, revision, bare = self.project.findPathInRepos(path, importLoader)
+      if repo:
+        if not bare:
+          return repo, filePath, revision, bare
+        else:
+          candidate = (repo, filePath, revision, bare)
+
+    repo, filePath, revision, bare = self.homeProject.findPathInRepos(path, importLoader)
+    if repo:
+      if bare and candidate:
+        return candidate
+      else:
+        return repo, filePath, revision, bare
+    return None, None, None, None

@@ -7,7 +7,6 @@ from six.moves import urllib
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap
 from .util import expandDoc, GitErOpValidationError, findSchemaErrors
-from .repo import findGitRepo
 from toscaparser.common.exception import ExceptionCollector
 from toscaparser.common.exception import URLException
 from toscaparser.utils.gettextutils import _
@@ -17,15 +16,29 @@ logger = logging.getLogger('giterup')
 yaml = YAML()
 
 def load_yaml(path, isFile=True, importLoader=None):
-    from .localenv import LocalEnv
-    # check if this path is to a git repo
-    repoURL, filePath, revision = findGitRepo(path, isFile, importLoader)
-    if repoURL: # it's a git repo
-      # find the project that the loading file is in
-      workingDir = LocalEnv.active.findOrCreateWorkingDir(repoURL, revision, importLoader and importLoader.path)
-      path = os.path.join(workingDir, filePath)
-      isFile = True
+    manifest = importLoader and getattr(importLoader.tpl, 'manifest', None)
+    # check if this path is into a git repo
+    if manifest:
+      repo, filePath, revision, bare = manifest.findRepoFromGitUrl(path, isFile, importLoader, True)
+      if repo: # it's a git repo
+        if bare:
+          return yaml.load(repo.show(filePath, revision))
+        # find the project that the loading file is in
+        # tracks which commit was used, returns a workingDir
+        workingDir = repo.checkout(revision)
+        path = os.path.join(workingDir, filePath)
+        isFile = True
+      else:
+        # if it's a file, check if it's only in the repo
+        if isFile:
+          repo, filePath, revision, bare = manifest.findPathInRepos(path, importLoader, True)
+          if repo:
+            if bare:
+              return yaml.load(repo.show(filePath, revision))
+            else:
+              path = os.path.join(repo.workingDir, filePath)
 
+    # XXX urls and files outside of a repo should be saved and commited to the repo the importLoader is in
     f = None
     try:
         f = codecs.open(path, encoding='utf-8', errors='strict') if isFile \
@@ -51,7 +64,7 @@ import toscaparser.imports
 toscaparser.imports.YAML_LOADER = load_yaml
 
 class YamlConfig(object):
-  def __init__(self, config=None, path=None, validate=True, schema=None, loadFromRepo=None):
+  def __init__(self, config=None, path=None, validate=True, schema=None, loadHook=None):
     self.schema = schema
     if path:
       self.path = os.path.abspath(path)
@@ -74,8 +87,9 @@ class YamlConfig(object):
     #schema should include defaults but can't validate because it doesn't understand includes
     #but should work most of time
     self.config.loadTemplate = self.loadInclude
-    self.loadFromRepo = loadFromRepo
+    self.loadHook = loadHook
 
+    self.baseDirs = [self.getBaseDir()]
     self.includes, config = expandDoc(self.config, cls=CommentedMap)
     self.expanded = config
     # print('expanded')
@@ -86,11 +100,11 @@ class YamlConfig(object):
     else:
       self.valid = not not errors
 
-  def loadYaml(self, path):
-    path = os.path.abspath(os.path.join(self.getBaseDir(), path))
+  def loadYaml(self, path, baseDir=None):
+    path = os.path.abspath(os.path.join(baseDir or self.getBaseDir(), path))
     with open(path, 'r') as f:
       config = f.read()
-    return yaml.load(config)
+    return path, yaml.load(config)
 
   def getBaseDir(self):
     if self.path:
@@ -105,32 +119,40 @@ class YamlConfig(object):
     return findSchemaErrors(config, self.schema)
 
   def loadInclude(self, templatePath):
+    if templatePath is expandDoc:
+      self.baseDirs.pop()
+      return
+
     if isinstance(templatePath, dict):
       value = templatePath.get('merge')
       key = templatePath['file']
     else:
+      value = None
       key = templatePath
 
     if key in self._cachedDocIncludes:
-      return value, self._cachedDocIncludes[key]
+      path, template = self._cachedDocIncludes[key]
+      self.baseDirs.append(os.path.dirname(path))
+      return value, template
 
-    if self.loadFromRepo:
-      template = self.loadFromRepo(templatePath, self.getBaseDir())
+    if self.loadHook:
+      path, template = self.loadHook(self, templatePath, self.baseDirs[-1])
     else:
-      template = self.loadYaml(key)
+      path, template = self.loadYaml(key, self.baseDirs[-1])
+    self.baseDirs.append(os.path.dirname(path))
 
-    self._cachedDocIncludes[key] = template
+    self._cachedDocIncludes[key] = [path, template]
     return value, template
 
-def loadFromRepo(import_name, import_uri_def, basePath, repositories, repoType):
+def loadFromRepo(import_name, import_uri_def, basePath, repositories, manifest):
   """
   Returns (url or fullpath, parsed yaml)
   """
-  context = import_uri_def.copy()
-  context['repoType'] =  repoType
+  context = CommentedMap(import_uri_def.items())
   context['base'] = basePath
   context['repositories'] = repositories
+  context.manifest = manifest
   uridef = {k: v for k, v in import_uri_def.items() if k in ['file', 'repository']}
   # this will invoke load_yaml above
-  return (toscaparser.imports.ImportsLoader(None, basePath, tpl=context)
-            ._load_import_template(import_name, uridef))
+  loader = toscaparser.imports.ImportsLoader(None, basePath, tpl=context)
+  return (loader._load_import_template(import_name, uridef))

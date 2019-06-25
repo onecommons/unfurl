@@ -109,7 +109,6 @@ Returns:
         return 'revert obsolete', oldTemplate
       if jobOptions.all:
         return 'all', oldTemplate
-      # use lastAttempt to distinguish between a change that was never applied and one that failed to apply
       if resource.status == Status.notapplied and jobOptions.add:
         return 'never applied', oldTemplate
     elif template != oldTemplate:
