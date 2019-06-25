@@ -88,19 +88,16 @@ def createInstanceRepo(gitDir, specRepo):
 apiVersion: giterops/v1alpha1
 kind: Manifest
 # merge in manifest-template.yaml from spec repo
-# (we need to declare the repository inline since the configuration hasn't been loaded yet)
-# we include initial-commit so the repo could be reconstructed solely from this instance repo
 +%%include:
   file: manifest-template.yaml
-  repository:
-    name: spec
-    url: file:../../spec
-    metadata:
-      initial-commit: %s
+  repository: spec
 spec:
   tosca:
-    # add this repository to the list
     repositories:
+      spec:
+        url: file:../../spec
+        metadata:
+          initial-commit: %s
       instance:
         url: file:.
         metadata:

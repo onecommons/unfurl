@@ -228,19 +228,21 @@ class Manifest(AttributeManager):
 
   def loadHook(self, yamlConfig, templatePath, baseDir):
     self.repoStatus = yamlConfig.config.get('status', {}).get('repositories')
+    repositories = yamlConfig.config.get('spec', {}).get('tosca', {}).get('repositories', {})
 
-    name = 'spec'
-    repositories = {}
     if isinstance(templatePath, dict):
       templatePath = templatePath.copy()
-      # a full repository spec maybe part of the include
-      repo = templatePath.get('repository', {}).copy()
-      name = repo.pop('name', name)
-      if repo:
+      path = templatePath['file']
+      name = os.path.basename(path)
+      repo = templatePath.get('repository')
+      if isinstance(repo, dict):
+        # a full repository spec maybe part of the include
+        reponame = repo.pop('name', name)
         # replace spec with just its name
-        templatePath['repository'] = name
-        repositories = {name: repo}
+        templatePath['repository'] = reponame
+        repositories[reponame] = repo
     else:
+      name = os.path.basename(templatePath)
       templatePath = dict(file = templatePath)
 
     return loadFromRepo(name, templatePath, baseDir, repositories, self)
