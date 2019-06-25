@@ -13,7 +13,7 @@ project/spec/.git # has template.yaml and manifest-template.yaml
 import uuid
 import os
 import os.path
-from git import Git
+from git import Git, Repo
 from . import __version__
 
 def writeLocalConfig(projectdir):
@@ -25,19 +25,22 @@ giterop:
   version: %s
 projectroot: true
 """ % __version__)
+  return filepath
 
 def createHome(path=None):
   """
   Write ~/.giterop_home/giterop.yaml if missing
   """
-  writeLocalConfig(path or os.path.expanduser(os.path.join('~', '.giterop_home')))
+  homedir = path or os.path.expanduser(os.path.join('~', '.giterop_home'))
+  if not os.path.exists(homedir):
+    return writeLocalConfig(homedir)
   # XXX when is giterop.yaml instances deployed?
 
 def createRepo(repotype, gitDir, gitUri=None):
   os.makedirs(gitDir)
-  g = Git( gitDir )
-  repo = g.init()
-  filepath = os.path.join(gitDir, '.giterop')
+  repo = Repo.init( gitDir )
+  filename = '.giterop'
+  filepath = os.path.join(gitDir, filename)
   with open(filepath, 'w') as f:
     f.write("""\
   giterop:
@@ -46,23 +49,25 @@ def createRepo(repotype, gitDir, gitUri=None):
     type: %s
     uuid: %s
   """ % (__version__, repotype, uuid.uuid1()))
-  repo.index.add([filepath])
+
+  repo.index.add([filename])
   repo.index.commit("Initial Commit")
   return repo
 
 def createSpecRepo(gitDir):
   repo = createRepo('spec', gitDir)
-  filepath = os.path.join(gitDir, 'service-template.yaml')
-  with open(filepath, 'w') as f:
+  serviceTemplatePath = os.path.join(gitDir, 'service-template.yaml')
+  with open(serviceTemplatePath, 'w') as f:
     f.write("""\
 tosca_definitions_version: tosca_simple_yaml_1_0
 repositories:
   spec:
-    url: .
-    initial-commit: %s
-""" % repo.head.ref.hexsha)
-  filepath = os.path.join(gitDir, 'manifest-template.yaml')
-  with open(filepath, 'w') as f:
+    url: file:.
+    metadata:
+      initial-commit: %s
+""" % repo.head.commit.hexsha)
+  manifestTemplatePath = os.path.join(gitDir, 'manifest-template.yaml')
+  with open(manifestTemplatePath, 'w') as f:
     f.write("""\
   apiVersion: giterops/v1alpha1
   kind: Manifest
@@ -71,9 +76,9 @@ repositories:
       +%include: service-template.yaml
   status: {}
       """)
-  # XXX add service-template.yaml
-  repo.index.add([filepath])
+  repo.index.add(['service-template.yaml', 'manifest-template.yaml'])
   repo.index.commit("Default Boilerplate")
+  return repo
 
 def createInstanceRepo(gitDir, specRepo):
   repo = createRepo('instance', gitDir)
@@ -85,20 +90,25 @@ kind: Manifest
 # merge in manifest-template.yaml from spec repo
 # (we need to declare the repository inline since the configuration hasn't been loaded yet)
 # we include initial-commit so the repo could be reconstructed solely from this instance repo
-+%include:
++%%include:
   file: manifest-template.yaml
   repository:
     name: spec
-    url: ../../spec
-    initial-commit: %s
+    url: file:../../spec
+    metadata:
+      initial-commit: %s
 spec:
   tosca:
     # add this repository to the list
     repositories:
       instance:
-        url: .
-        initial-commit: %s
-""" % (specRepo.head.ref.hexsha, repo.head.ref.hexsha))
+        url: file:.
+        metadata:
+          initial-commit: %s
+""" % (specRepo.head.commit.hexsha, repo.head.commit.hexsha))
+  repo.index.add(['manifest.yaml'])
+  repo.index.commit("Default Boilerplate")
+  return repo
 
 def createProject(projectdir, home=None):
   """
@@ -107,7 +117,8 @@ def createProject(projectdir, home=None):
   # adds ~/.giterop_home/giterop.yaml if missing
   # add project to ~/.giterop_home/giterop.yaml
   """
-  createHome(home)
-  writeLocalConfig(projectdir)
+  newHome = createHome(home)
+  projectConfigPath = writeLocalConfig(projectdir)
   specRepo = createSpecRepo(os.path.join(projectdir, 'spec'))
   createInstanceRepo(os.path.join(projectdir, 'instances', 'current'), specRepo)
+  return newHome, projectConfigPath

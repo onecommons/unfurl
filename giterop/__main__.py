@@ -12,6 +12,7 @@ import sys
 import logging
 import os
 import os.path
+import traceback
 
 def initLogging(quiet, logfile, verbose):
   logging.captureWarnings(True)
@@ -44,11 +45,12 @@ def initLogging(quiet, logfile, verbose):
 @click.option('-q', '--quiet', default=False, is_flag=True, help='Only output errors to the stdout')
 @click.option('--logfile', default=None,
                               help='Log file for messages during quiet operation')
-def cli(ctx, verbose=0, quiet=False, logfile=None, home=''):
+def cli(ctx, verbose=0, quiet=False, logfile=None, **kw):
   # ensure that ctx.obj exists and is a dict (in case `cli()` is called
   # by means other than the `if` block below
   ctx.ensure_object(dict)
   ctx.obj['verbose'] = verbose
+  ctx.obj.update(kw)
   initLogging(quiet, logfile, verbose)
 
 #giterop run foo:create -- terraform blah
@@ -120,7 +122,10 @@ giterop init [project] # creates a giterop project with new spec and instance re
       raise click.ClickException(projectdir + " is not empty")
 
   try:
-    createProject(projectdir, options.home)
+    homePath, projectPath = createProject(projectdir, options['home'])
+    if homePath:
+      click.echo("giterop home created at %s" % homePath)
+    click.echo("New GitErOp project created at %s" % projectPath)
   except Exception as err:
     # traceback.print_exc()
     raise click.ClickException(str(err))
