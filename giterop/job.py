@@ -8,15 +8,26 @@ import collections
 import datetime
 import types
 from .support import Status, Priority, AttributeManager
-from .result import serializeValue
+from .result import serializeValue, ChangeRecord
 from .util import GitErOpError, GitErOpTaskError, mergeDicts
-from .runtime import ConfigChange
-from .configurator import TaskView, ConfiguratorResult, Dependency
+from .runtime import OperationalInstance
+from .configurator import TaskView, ConfiguratorResult
 from .plan import Plan
 
 import logging
 logger = logging.getLogger('giterop')
-logger.setLevel(logging.DEBUG)
+
+class ConfigChange(OperationalInstance, ChangeRecord):
+  """
+  Represents a configuration change made to the system.
+  It has a operating status and a list of dependencies that contribute to its status.
+  There are two kinds of dependencies:
+    1. Live resource attributes that the configuration's inputs depend on.
+    2. Other configurations and resources it relies on to function properly.
+  """
+  def __init__(self, status=None, **kw):
+    OperationalInstance.__init__(self, status, **kw)
+    ChangeRecord.__init__(self)
 
 class TaskRequest(object):
   def __init__(self, configSpec, resource, persist, required):
@@ -36,8 +47,8 @@ class ConfigTask(ConfigChange, TaskView, AttributeManager):
     instantiates and runs Configurator
     updates Configurator's target's status and lastConfigChange
   """
-  def __init__(self, job, configSpec, target, previousConfigChangeId=None, parentId=None, reason = None):
-    ConfigChange.__init__(self)
+  def __init__(self, job, configSpec, target, parentId=None, reason = None):
+    ConfigChange.__init__(self, lastConfigChange=target.lastConfigChange)
     TaskView.__init__(self, job.runner.manifest, configSpec, target, reason)
     AttributeManager.__init__(self)
     self.parentId = parentId or job.changeId
@@ -49,7 +60,6 @@ class ConfigTask(ConfigChange, TaskView, AttributeManager):
     self.job = job
     self.changeList = []
     self.result = None
-    self.previousConfigChangeId = previousConfigChangeId
 
     # set the attribute manager on the root resource
     # XXX refcontext in attributeManager should define $TARGET $HOST etc.
@@ -177,28 +187,28 @@ class ConfigTask(ConfigChange, TaskView, AttributeManager):
     """
     Evaluate configuration spec's inputs and compare with the current inputs' values
     """
-    specParams = serializeValue(self.inputs)
+    # XXX this is really a "reconfiguration" operation, which can be distinct from 'configure'
     _parameters = None
-    if self.lastConfigChange:
-      changeset = self._manifest.getChangeRecord(self.lastConfigChange)
-      _parameters = changeset.get('inputs')
-    if _parameters is None:
-      # if _parameters were not set
-      # return True if parameters have been declared
-      return not not specParams
+    if self.lastConfigChange: # XXX this is never set
+      changeset = self._manifest.loadConfigChange(self.lastConfigChange)
+      _parameters = changeset.inputs
+    if not _parameters:
+      return not not self.inputs
 
-    if set(specParams) != set(_parameters):
+    if set(self.inputs.keys()) != set(_parameters.keys()):
       return True #params were added or removed
 
     # XXX3 not all parameters need to be live
     # add an optional liveParameters attribute to config spec to specify which ones to check
 
-    # treat each parameter as a dependency
-    # the expression is the name of parameter
-    # val will be the last saved parameter values, re-evaluate the spec'd params and compare them
-    # note: external values will be compared
-    return any(Dependency(".::" + name, val, name=name).hasChanged(self)
-                                  for name, val in _parameters.items())
+    # compare old with new
+    for name, val in self.inputs.items():
+      if serializeValue(val) != _parameters[name]:
+        return True
+      # XXX if the value changed since the last time we checked
+      #if Dependency.hasValueChanged(val, lastChecked):
+      #  return True
+    return False
 
   def hasDependenciesChanged(self):
     return any(d.hasChanged(self) for d in self.dependencies.values())
@@ -277,7 +287,7 @@ class Job(ConfigChange):
 
   def createTask(self, configSpec, target, parentId=None, reason=None):
     # XXX2 if 'via'/runsOn set, create remote task instead
-    task = ConfigTask(self, configSpec, target, target.lastConfigChange, parentId, reason = reason)
+    task = ConfigTask(self, configSpec, target, parentId, reason = reason)
     return task
 
   def filterConfig(self, config, target):
