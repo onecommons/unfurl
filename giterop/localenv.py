@@ -225,8 +225,6 @@ class LocalEnv(object):
     self.instanceRepo = self._getInstanceRepo()
     self.config = self.project and self.project.localConfig or self.homeProject.localConfig
 
-    # XXX map<initialcommits, [repos]>, map<urls, [repos]>
-
   # manifestPath specified
   #  doesn't exist: error
   #  is a directory: either instance repo or a project
@@ -249,10 +247,11 @@ class LocalEnv(object):
       return manifestPath
 
   def _getInstanceRepo(self):
-    if self.project:
-      return self.project.workingDirs.get(self.manifestPath)
+    instanceDir = os.path.dirname(self.manifestPath)
+    if self.project and instanceDir in self.project.workingDirs:
+      return self.project.workingDirs[instanceDir][1]
     else:
-      return Repo.createGitRepoIfExists(self.manifestPath)
+      return Repo.createGitRepoIfExists(instanceDir)
 
   def searchForManifestOrProject(self, dir):
     current = os.path.abspath(dir)

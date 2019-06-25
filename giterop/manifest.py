@@ -31,6 +31,7 @@ class Manifest(AttributeManager):
     self.repo = localEnv and localEnv.instanceRepo
     self.currentCommitId = self.repo and self.repo.revision
     self.tosca = self.loadSpec(spec, path)
+    self.specDigest = self.getSpecDigest(spec)
     self.revisions = RevisionManager(self)
 
   def loadSpec(self, spec, path):
@@ -49,9 +50,9 @@ class Manifest(AttributeManager):
       # make sure this is present
       toscaDef['tosca_definitions_version']='tosca_simple_yaml_1_0'
 
+    # hack so we can sneak through manifest to the yamlloader
     toscaDef = CommentedMap(toscaDef.items())
     toscaDef.manifest = self
-    # toscaDef.setdefault('metadata', {})['manager'] = self
     return ToscaSpec(toscaDef, spec.get('inputs'), spec, path)
 
   def _ready(self, rootResource, lastChangeId=0):

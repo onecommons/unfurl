@@ -6,7 +6,7 @@ At its most ambitious, GitErOp aims to be a decentralized package manager for th
 
 More simply, it is a tool that works with Git to record and deploy changes to your DevOps infrastructure. GitErOp transforms a Git repo into a reproducible history of deployed services.
 
-## Features
+## Goals
 
 * **Next-level GitOps**: both configuration and operational status stored in git
 * **Hermetic**: tracks exact version of environment and deployment artifacts
@@ -19,15 +19,17 @@ More simply, it is a tool that works with Git to record and deploy changes to yo
 * **Dependency management**: Easily track dependencies and changes across infrastructure layers and boundaries. 
 * **Zero installation**: Uses client-side container support to bootstrap and automate installation requirements.
 
-## More Features
+## Features
 
 * Specifications, instance status, and change history authored and recorded in a simple YAML vocabulary. 
-* Or use [TOSCA's](https://www.oasis-open.org/committees/tc_home.php?wg_abbrev=tosca) (Topology and Orchestration Specification for Cloud Applications) YAML vocabulary for more carefully typed specification.
+* Or use [TOSCA's](https://www.oasis-open.org/committees/tc_home.php?wg_abbrev=tosca) (Topology and Orchestration Specification for Cloud Applications) YAML vocabulary for more carefully typed specifications.
 * Editor friendly config files: 
   - Comments, order, and whitespace are preserved.
   - Syntactic macros for YAML provide generic facility for re-use and avoiding verbose, boiler-plate
 * Path-based query DSL to express dynamic relationships between resources and configurations
 * Ansible-compatible Jinja2 templates
+* Records history of changes and commits them to a Git repository.
+* API for dynamic configuration allows scripted specifications to be recorded alongside declarative ones.
 
 ## Concepts
 

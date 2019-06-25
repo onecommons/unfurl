@@ -156,7 +156,7 @@ class ConfigTask(ConfigChange, TaskView, AttributeManager):
     # than nested tasks and jobs that ran (avoids spurious config changed tasks)
     self.changeId = self.job.runner.incrementChangeId()
     #XXX2 if attributes changed validate using attributesSchema
-    #XXX2 Check that configuration provided the metadata that it declared it would provide (see findMissingProvided)
+    #XXX2 Check that configuration provided the metadata that it declared (check postCondition)
     self.processResult(result)
     resource = self.target
 
@@ -274,6 +274,8 @@ class Job(ConfigChange):
     super(Job, self).__init__(Status.ok)
     assert isinstance(jobOptions, JobOptions)
     self.__dict__.update(jobOptions.__dict__)
+    if self.startTime is None:
+      self.startTime = datetime.datetime.now()
     self.jobOptions = jobOptions
     self.runner = runner
     self.plan = plan
@@ -422,6 +424,9 @@ class Job(ConfigChange):
     return False #XXX3
 
   def summary(self):
+    if not self.workDone:
+      return 'Job %s completed: %s. Found nothing to do.' % (self.changeId, self.status.name)
+
     def format(name, task):
       required = '[required]' if task.required else ''
       return "%s: %s:%s: %s" % (name, required, task.status.name, task.result)
@@ -519,5 +524,5 @@ class Runner(object):
       job.localStatus = Status.error
       job.unexpectedAbort = GitErOpError("unexpected exception while running job", True)
     self.currentJob = None
-    self.manifest.saveJob(job)
+    self.manifest.commitJob(job)
     return job

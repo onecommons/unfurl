@@ -188,6 +188,7 @@ Returns:
         t for t in self.tosca.nodeTemplates.values()
           if not t.isCompatibleType(self.tosca.ConfiguratorType)]
 
+    logging.debug('checking for tasks for templates %s', [t.name for t in templates])
     visited = set()
     for template in templates:
       found = False
@@ -214,6 +215,7 @@ Returns:
     if opts.all or opts.revertObsolete:
       for resource in self.root.getSelfAndDescendents():
         if id(resource) not in visited:
+          logging.debug('checking for tasks for orphaned resource %s', resource.name)
           # it's an orphaned config
           include = self.includeTask(None, resource, resource.template)
           if not include:

@@ -73,40 +73,60 @@
       resources:
         child1:
           # ...
-  changes:
-    - changeId
-      startTime
-      commitId
-      parentId # allows execution plan order to be reconstructed
-      previousId # XXX
-      target
-      readyState
-      priority
-      resource
-      config
-      action
-      implementation:
-        type: resource | artifact | class
-        key: repo:key#commitid | className:version
-      inputs
-      dependencies:
-        - ref: ::resource1::key[~$val]
-          expected: "value"
-        - name: named1
-          ref: .configurations::foo[.operational]
-          required: true
-          schema:
-            type: array
-      changes:
-        resource1:
-          .added: # set if added resource
-          .status: # set when adding or removing
-          foo: bar
-        resource2:
-          .spec:
-          .status: notpresent
-        resource3/child1: +%delete
-      messages: []
+  repositories
+  changeLog: changes.yaml
+  latestChanges:
+    jobId: 1 # should be last that ran, instead of first?
+    startCommit: ''
+    startTime:
+    specDigest:
+    lastChangeId:
+    readyState:
+      effective: error
+      local: ok
+
+# in changes.yaml:
+  - jobId: 1
+    startCommit:
+    endCommit: ''
+    startTime:
+    specDigest:
+    tasksRun:
+    readyState:
+      effective: error
+      local: ok
+  - changeId: 2
+    startTime
+    parentId: 1 # allows execution plan order to be reconstructed
+    previousId # XXX last time this configuration ran
+    target
+    readyState
+    priority
+    resource
+    config
+    action
+    implementation:
+      type: resource | artifact | class
+      key: repo:key#commitid | className:version
+    inputs
+    dependencies:
+      - ref: ::resource1::key[~$val]
+        expected: "value"
+      - name: named1
+        ref: .configurations::foo[.operational]
+        required: true
+        schema:
+          type: array
+    changes:
+      resource1:
+        .added: # set if added resource
+        .status: # set when adding or removing
+        foo: bar
+      resource2:
+        .spec:
+        .status: notpresent
+      resource3/child1: +%delete
+    messages: []
 """
 
 import six
@@ -114,9 +134,11 @@ import sys
 import collections
 import hashlib
 import json
+import os.path
+import itertools
 
 from .util import (GitErOpError, VERSION, restoreIncludes, patchDict)
-from .yamlloader import YamlConfig, loadFromRepo
+from .yamlloader import YamlConfig, loadFromRepo, load_yaml
 from .result import serializeValue
 from .support import ResourceChanges, Status, Priority, Action, Defaults
 from .localenv import LocalEnv
@@ -124,8 +146,13 @@ from .job import JobOptions, Runner
 from .manifest import Manifest, ChangeRecordAttributes
 from .runtime import TopologyResource, Resource
 
+from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap
 from codecs import open
+
+import logging
+logger = logging.getLogger('giterup')
+yaml = YAML()
 
 # XXX3 add as file to package data
 #schema=open(os.path.join(os.path.dirname(__file__), 'manifest-v1alpha1.json')).read()
@@ -383,7 +410,7 @@ def saveStatus(operational, status=None):
   if status is None:
     status = CommentedMap()
   status["readyState"] = readyState
-  if operational.priority and operational.priority != Defaults.shouldRun:
+  if operational.priority: #and operational.priority != Defaults.shouldRun:
     status["priority"] = operational.priority.name
   if operational.lastStateChange:
     status["lastStateChange"] = operational.lastStateChange
@@ -392,14 +419,22 @@ def saveStatus(operational, status=None):
 
   return status
 
+def saveConfigChange(configChange):
+  items = [(k, getattr(configChange, k)) for k in ChangeRecordAttributes]
+  items.extend( saveStatus(configChange).items() )
+  return CommentedMap(items) #CommentedMap so order is preserved in yaml output
+
 def saveTask(task):
   """
   convert dictionary suitable for serializing as yaml
   or creating a Changeset.
   """
-  items = [(k, getattr(task, k)) for k in ChangeRecordAttributes]
-  items.extend( saveStatus(task).items() )
-  output = CommentedMap(items) #CommentedMap so order is preserved in yaml output
+  output = CommentedMap()
+  output['changeId'] = task.changeId
+  output['parentId'] = task.parentId
+  if task.target:
+    output['target'] = task.target.key
+  saveStatus(task, output)
   output['implementation'] = saveConfigSpec(task.configSpec)
   if task.inputs:
     output['inputs'] = serializeValue(task.inputs)
@@ -417,7 +452,6 @@ def saveTask(task):
 
   return output
 
-
 # +./ +../ +/
 class YamlManifest(Manifest):
 
@@ -431,10 +465,22 @@ class YamlManifest(Manifest):
     spec = manifest.get('spec', {})
     super(YamlManifest, self).__init__(spec, self.manifest.path, localEnv)
     assert self.tosca
-    self.specDigest = self.getSpecDigest(spec)
     status = manifest.get('status', {})
 
-    self.changeSets = dict((c['changeId'], c) for c in  manifest.get('changes', []))
+    self.changeLogPath = manifest.get('changeLogPath')
+    if self.changeLogPath:
+      fullPath = os.path.join(self.getBaseDir(), self.changeLogPath)
+      if os.path.exists(fullPath):
+        changes = load_yaml(fullPath).get('changes', [])
+      else:
+        changes = manifest.get('changes', [])
+    else:
+      changes = manifest.get('changes', [])
+      if localEnv:
+        # save changes to a separate file if we're in a local environment
+        self.changeLogPath = 'changes.yaml'
+
+    self.changeSets = dict((c.get('changeId', 'jobId'), c) for c in changes)
     lastChangeId = self.changeSets and max(self.changeSets.keys()) or 0
 
     rootResource = self.createTopologyResource(status)
@@ -457,10 +503,10 @@ class YamlManifest(Manifest):
     return self.manifest.getBaseDir()
 
   def getSpecDigest(self, spec):
-    m = hashlib.sha256()
+    m = hashlib.sha1() # use same digest function as git
     t = self.tosca.template
     for tpl in [spec, t.topology_template.custom_defs, t.nested_tosca_tpls_with_topology]:
-      m.update(json.dumps(tpl).encode("utf-8"))
+      m.update(json.dumps(tpl, sort_keys=True).encode("utf-8"))
     return m.hexdigest()
 
   def createTopologyResource(self, status):
@@ -502,7 +548,6 @@ class YamlManifest(Manifest):
   def saveRootResource(self, workDone):
     resource = self.rootResource
     status = CommentedMap()
-    status['topology'] = resource.template.getUri()
     # record the input and output values
     status['inputs'] = serializeValue(resource.attributes['inputs'])
     status['outputs'] = serializeValue(resource.attributes['outputs'])
@@ -510,9 +555,27 @@ class YamlManifest(Manifest):
     status['instances'] = CommentedMap(map(lambda r: self.saveResource(r, workDone), resource.resources))
     return status
 
-  def saveJob(self, job):
-    changes = map(saveTask, job.workDone.values())
+  def saveJobRecord(self, job):
+    """
+    jobId: 1 # should be last that ran, instead of first?
+    startCommit: '' #commitId when job began
+    startTime:
+    specDigest:
+    lastChangeId:
+    readyState:
+      effective: error
+      local: ok
+    """
+    output = CommentedMap()
+    output['jobId'] = job.changeId
+    output['startTime'] = job.startTime
+    if self.currentCommitId:
+      output['startCommit'] = self.currentCommitId
+    output['specDigest'] = self.specDigest
+    output['lastChangeId'] = job.runner.lastChangeId
+    return saveStatus(job, output)
 
+  def saveJob(self, job):
     changed = self.saveRootResource(job.workDone)
     # XXX imported resources need to include its repo's workingdir commitid its status
     # status and job's changeset also need to save status of repositories
@@ -525,28 +588,75 @@ class YamlManifest(Manifest):
     if 'status' not in self.manifest.config:
       self.manifest.config['status'] = {}
 
-
     if not self.manifest.config['status']:
       self.manifest.config['status'] = changed
     else:
       patchDict(self.manifest.config['status'], changed, cls=CommentedMap)
-    self.manifest.config.setdefault('changes', []).extend(changes)
+
+    jobRecord = self.saveJobRecord(job)
+    if job.workDone:
+      # no work was done, so bother recording this job
+      self.manifest.config['latestChange'] = jobRecord
+      changes = map(saveTask, job.workDone.values())
+      if self.changeLogPath:
+        self.manifest.config['changeLog'] = self.changeLogPath
+      else:
+        self.manifest.config.setdefault('changes', []).extend(changes)
+    else:
+      changes = []
 
     if job.out:
       self.dump(job.out)
-    elif self.manifest.path:
-      with open(self.manifest.path, 'w') as f:
-        self.dump(f)
     else:
       output = six.StringIO()
       self.dump(output)
       job.out = output
+      if self.manifest.path:
+        with open(self.manifest.path, 'w') as f:
+          f.write(output.getvalue())
+    return jobRecord, changes
 
   def dump(self, out=sys.stdout):
     try:
       self.manifest.dump(out)
     except:
       raise GitErOpError("Error saving manifest %s" % self.manifest.path, True)
+
+  def commitJob(self, job):
+    jobRecord, changes = self.saveJob(job)
+    if not changes:
+      logger.info("job run didn't make any changes; nothing to commit")
+      return
+    if self.repo:
+      self.repo.repo.index.add([self.manifest.path])
+      self.repo.repo.index.commit("Updating status for job %s" % job.changeId)
+      jobRecord['endCommit'] = self.repo.revision
+    if self.changeLogPath:
+      self.saveChangeLog(jobRecord, changes)
+      if self.repo:
+        self.repo.repo.index.add([os.path.join(self.getBaseDir(), self.changeLogPath)])
+        self.repo.repo.index.commit("Updating changelog for job %s" % job.changeId)
+        logger.info("committed instance repo changes: %s", self.repo.revision)
+
+  def saveChangeLog(self, jobRecord, newChanges):
+    """
+    manifest: manifest.yaml
+    changes:
+    """
+    try:
+      changelog = CommentedMap()
+      changelog['manifest'] = os.path.basename(self.manifest.path)
+      key = lambda r: r.get('lastChangeId', r.get('changeId',0))
+      changes = itertools.chain([jobRecord], newChanges, self.changeSets.values())
+      changelog['changes'] = sorted(changes, key=key, reverse = True)
+      output = six.StringIO()
+      yaml.dump(changelog, output)
+      fullPath = os.path.join(self.getBaseDir(), self.changeLogPath)
+      logger.info("saving changelog to %s", fullPath)
+      with open(fullPath, 'w') as f:
+        f.write(output.getvalue())
+    except:
+      raise GitErOpError("Error saving changelog %s" % self.changeLogPath, True)
 
   def loadImports(self, importsSpec):
     """

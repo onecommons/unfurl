@@ -167,7 +167,6 @@ class RevisionManager(object):
   def __init__(self, manifest, localEnv=None):
     self.manifest = manifest
     # XXX currentCommitId
-    # XXX manifest.repo
     self.revisions = {manifest.currentCommitId: manifest}
     self.localEnv = localEnv
 

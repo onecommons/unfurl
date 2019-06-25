@@ -86,7 +86,8 @@ def _run(manifest, options):
     if options['jobexitcode'] != 'never' and Status[options['jobexitcode']] <= job.status:
        sys.exit(1)
   except Exception as err:
-    # traceback.print_exc()
+    if options['verbose']:
+      traceback.print_exc()
     raise click.ClickException(str(err))
 
 @cli.command()
@@ -127,7 +128,8 @@ giterop init [project] # creates a giterop project with new spec and instance re
       click.echo("giterop home created at %s" % homePath)
     click.echo("New GitErOp project created at %s" % projectPath)
   except Exception as err:
-    # traceback.print_exc()
+    if options['verbose']:
+      traceback.print_exc()
     raise click.ClickException(str(err))
 
 #gitop clone [instance or spec repo] # clones repos into new project
