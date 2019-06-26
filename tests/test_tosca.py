@@ -38,11 +38,13 @@ spec:
       node_templates:
         my_server:
           type: tosca.nodes.Compute
+          properties:
+            test:  { concat: ['cpus: ', {get_input: cpus }] }
           capabilities:
             # Host container properties
             host:
              properties:
-               num_cpus: { get_input: cpus }  # {eval: "::root::inputs::cpus"} # { get_input: cpus }
+               num_cpus: { eval: ::inputs::cpus }
                disk_size: 10 GB
                mem_size: 512 MB
             # Guest Operating System properties
@@ -70,5 +72,6 @@ class ToscaSyntaxTest(unittest.TestCase):
     manifest = YamlManifest(manifestDoc)
     job = Runner(manifest).run(JobOptions(add=True, startTime="time-to-test"))
     assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
+    assert manifest.getRootResource().findResource('my_server').attributes['test'], 'cpus: 2'
     assert job.getOutputs()['server_ip'], '10.0.0.1'
     assert job.status == Status.ok, job.summary()

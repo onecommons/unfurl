@@ -9,7 +9,7 @@ import os.path
 import six
 from enum import IntEnum
 
-from .eval import RefContext, setEvalFunc, Ref, mapValue
+from .eval import RefContext, setEvalFunc, Ref, mapValue, evalForFunc
 from .result import ResultsMap, Result, ExternalValue, serializeValue
 from .util import (intersectDict, mergeDicts, ChainMap, findSchemaErrors,
                 GitErOpError, GitErOpValidationError, assertForm)
@@ -98,10 +98,18 @@ def lookupFunc(arg, ctx):
 
 setEvalFunc('lookup', lookupFunc)
 
-# XXX add toplevel option to setEvalFunc
-# def getInput(arg, ctx):
-#   return ctx.currentResource.root.attributes['inputs'][arg]
-# setEvalFunc('get_input', getInput, True)
+def getInput(arg, ctx):
+  return ctx.currentResource.root.findResource('inputs').attributes[arg]
+setEvalFunc('get_input', getInput, True)
+
+def concat(args, ctx):
+  return ''.join([str(a) for a in evalForFunc(args, ctx)])
+setEvalFunc('concat', concat, True)
+
+def token(args, ctx):
+  args = evalForFunc(args, ctx)
+  return args[0].split(args[1])[args[2]]
+setEvalFunc('token', token, True)
 
 def getImport(arg, ctx):
   """

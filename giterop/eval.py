@@ -234,7 +234,7 @@ class Ref(object):
 
       self.vars.update(exp.get('vars', {}))
       self.foreach = exp.get('foreach')
-      exp = exp.get('eval', exp.get('ref',''))
+      exp = exp.get('eval', exp.get('ref', exp))
 
     if vars:
       self.vars.update(vars)
@@ -285,8 +285,8 @@ class Ref(object):
     if isinstance(value, Mapping):
       if 'ref' in value or 'eval' in value:
         return len([x for x in ['vars', 'foreach'] if x in value]) + 1 == len(value)
-      if 'q' in value:
-        return len(value) == 1
+      if len(value) == 1 and list(value)[0] in _FuncsTop:
+        return True
       return False
     return isinstance(value, Ref)
 
@@ -411,12 +411,15 @@ _Funcs = {
   'template': applyTemplate,
   'foreach': forEachFunc,
 }
+_FuncsTop = ['q']
 
 def getEvalFunc(name):
   return _Funcs.get(name)
 
-def setEvalFunc(name, val):
+def setEvalFunc(name, val, topLevel = False):
   _Funcs[name] = val
+  if topLevel:
+    _FuncsTop.append(val)
 
 # returns list of results
 def evalRef(val, ctx, top=False):

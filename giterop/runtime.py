@@ -16,7 +16,7 @@ from .util import (GitErOpError, loadClass, toEnum)
 from .result import ResourceRef, ChangeAware
 #from .local import LocalEnv
 from .support import AttributeManager, Defaults, Status, Action, Priority
-from .tosca import CapabilitySpec, RelationshipSpec, NodeSpec
+from .tosca import CapabilitySpec, RelationshipSpec, NodeSpec, TopologySpec
 
 import logging
 logger = logging.getLogger('giterop')
@@ -403,6 +403,8 @@ class Resource(NodeInstance):
     return "Resource('%s')" % self.name
 
 class TopologyResource(Resource):
+  templateType = TopologySpec
+
   def __init__(self, template, status=None):
     Resource.__init__(self, 'root', template=template, status=status)
     # add these as special child resources so they can be accessed like "::inputs::foo"

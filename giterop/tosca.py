@@ -13,6 +13,17 @@ from toscaparser.tosca_template import ToscaTemplate
 from toscaparser.topology_template import TopologyTemplate
 from toscaparser.elements.capabilitytype import CapabilityTypeDef
 
+from toscaparser import functions
+class RefFunc(functions.Function):
+  def result(self):
+      return {self.name: self.args}
+
+  def validate(self):
+      pass
+
+functions.function_mappings['eval'] = RefFunc
+functions.function_mappings['ref'] = RefFunc
+
 tosca_ext = """
 tosca_definitions_version: tosca_simple_yaml_1_0
 node_types:
