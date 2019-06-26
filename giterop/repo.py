@@ -24,16 +24,16 @@ def findGitRepo(path, isFile=True, importLoader=None):
     return a + '.git', c, ''
 
 class Repo(object):
-  @staticmethod
-  def makeRepo(url, repotype, basedir):
-    # XXX git or simple based on url
-    # basedir is the project/subproject root or local-config root dependening where the import definition lives
-    if repotype=='instance':
-      dir = os.path.join(basedir, 'instances', 'current')
-    else:
-      dir = os.path.join(basedir, repotype)
-    # XXX error if exists, else mkdirs
-    return SimpleRepo(url, dir)
+  # @staticmethod
+  # def makeRepo(url, repotype, basedir):
+  #   # XXX git or simple based on url
+  #   # basedir is the project/subproject root or local-config root dependening where the import definition lives
+  #   if repotype=='instance':
+  #     dir = os.path.join(basedir, 'instances', 'current')
+  #   else:
+  #     dir = os.path.join(basedir, repotype)
+  #   # XXX error if exists, else mkdirs
+  #   return SimpleRepo(url, dir)
 
   @staticmethod
   def findGitWorkingDirs(rootDir, gitDir='.git'):
@@ -56,9 +56,7 @@ class Repo(object):
     if not base:
       return None, None, None
     repoRoot = os.path.abspath(base)
-    abspath = os.path.abspath(path)
-    if repoRoot[-1] != '/':
-      repoRoot += '/'
+    abspath = os.path.abspath(path).rstrip('/')
     if repoRoot in abspath:
       # XXX find pinned
       # if importLoader:
@@ -91,7 +89,11 @@ class GitRepo(Repo):
 
   @property
   def workingDir(self):
-    return self.repo.working_tree_dir
+    dir = self.repo.working_tree_dir
+    if not dir or dir[-1] == '/':
+      return dir
+    else:
+      return dir + '/'
 
   @property
   def revision(self):
@@ -99,7 +101,7 @@ class GitRepo(Repo):
 
   def show(self, path, commitId):
     if os.path.abspath(path):
-      path = path[len(self.workingDir)+1:]
+      path = path[len(self.workingDir):]
     return self.repo.git.show(commitId+':'+path)
 
   def checkout(self, revision=''):
@@ -145,25 +147,19 @@ class GitRepo(Repo):
     repo.index.add(changeFiles)
     repo.git.commit('')
 
-class SimpleRepo(Repo):
-  def __init__(self, lastCommitId):
-    self.lastCommitId = int(lastCommitId or 0)
-
-  def checkout(self, commitid, useCurrent):
-    if useCurrent and commitid == self.lastCommitId:
-      return self.workingDir
-    return './revisions/{commitid}/files'
-
-  def commit(self):
-    self.lastCommitId += 1
-    # copy current workingDir to /revisions/{commitid}/files
-    return self.lastCommitId
-
-# class Revision(object):
-#   def __init__(self, revisionManager, commitid, workingDir):
-#     self.revisionManager = revisionManager
-#     self.workingDir = workingDir
-#     self.commitId = commitid
+# class SimpleRepo(Repo):
+#   def __init__(self, lastCommitId):
+#     self.lastCommitId = int(lastCommitId or 0)
+#
+#   def checkout(self, commitid, useCurrent):
+#     if useCurrent and commitid == self.lastCommitId:
+#       return self.workingDir
+#     return './revisions/{commitid}/files'
+#
+#   def commit(self):
+#     self.lastCommitId += 1
+#     # copy current workingDir to /revisions/{commitid}/files
+#     return self.lastCommitId
 
 class RevisionManager(object):
   def __init__(self, manifest, localEnv=None):
