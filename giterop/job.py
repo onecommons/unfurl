@@ -442,7 +442,7 @@ class Job(ConfigChange):
       yield task
 
   def getOutputs(self):
-    return self.rootResource.attributes.get('outputs', {})
+    return self.rootResource.outputs.attributes
 
   def runTask(self, task):
     """

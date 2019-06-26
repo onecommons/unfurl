@@ -194,10 +194,10 @@ class TopologySpec(EntitySpec):
 
     self.toscaEntityTemplate = template
     self.name = '#topology'
-    inputs = {input.name: inputs.get(input.name, input.default)
+    self.inputs = {input.name: inputs.get(input.name, input.default)
                           for input in template.inputs}
-    outputs = {output.name: output.value for output in template.outputs}
-    self.properties = dict(inputs=inputs, outputs=outputs)
+    self.outputs = {output.name: output.value for output in template.outputs}
+    self.properties = {}
     self.defaultAttributes = {}
 
 # capabilities.Capability isn't an EntityTemplate but duck types with it

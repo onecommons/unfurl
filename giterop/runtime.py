@@ -405,7 +405,11 @@ class Resource(NodeInstance):
 class TopologyResource(Resource):
   def __init__(self, template, status=None):
     Resource.__init__(self, 'root', template=template, status=status)
+    # add these as special child resources so they can be accessed like "::inputs::foo"
+    self.inputs = Resource('inputs', template.inputs, self)
+    self.outputs = Resource('outputs', template.outputs, self)
 
   def getOperationalDependencies(self):
     for instance in self.resources:
-      yield instance
+      if instance.name not in ['inputs', 'outputs']:
+        yield instance

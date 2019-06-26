@@ -510,7 +510,7 @@ class YamlManifest(Manifest):
     topologyName = status.get('toplogy', 'self:#topology:0')
     #template = self.loadTemplate(topologyName)
     #if template is None:
-  #    raise GitErOpError('missing topology template %s' % topologyName)
+    #   raise GitErOpError('missing topology template %s' % topologyName)
     template = self.tosca.topology
     operational = self.loadStatus(status)
     root = TopologyResource(template, operational)
@@ -533,18 +533,22 @@ class YamlManifest(Manifest):
 
   def saveResource(self, resource, workDone):
     name, status = self.saveNodeInstance(resource)
-    status['capabilities'] = CommentedMap(map(self.saveNodeInstance, resource.capabilities))
-    status['resources'] = CommentedMap(map(lambda r: self.saveResource(r, workDone), resource.resources))
+    if resource.capabilities:
+      status['capabilities'] = CommentedMap(map(self.saveNodeInstance, resource.capabilities))
+    if resource.resources:
+      status['resources'] = CommentedMap(map(lambda r: self.saveResource(r, workDone), resource.resources))
     return (name, status)
 
   def saveRootResource(self, workDone):
     resource = self.rootResource
     status = CommentedMap()
     # record the input and output values
-    status['inputs'] = serializeValue(resource.attributes['inputs'])
-    status['outputs'] = serializeValue(resource.attributes['outputs'])
+    status['inputs'] = serializeValue(resource.inputs.attributes)
+    status['outputs'] = serializeValue(resource.outputs.attributes)
     saveStatus(resource, status)
-    status['instances'] = CommentedMap(map(lambda r: self.saveResource(r, workDone), resource.resources))
+    # getOperationalDependencies() skips inputs and outputs
+    status['instances'] = CommentedMap(map(lambda r: self.saveResource(r, workDone),
+                                                resource.getOperationalDependencies()))
     return status
 
   def saveJobRecord(self, job):

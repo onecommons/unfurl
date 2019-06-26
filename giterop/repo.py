@@ -52,7 +52,7 @@ class Repo(object):
     return None
 
   def findPath(self, path, importLoader=None):
-    base = self.workingDir # XXX: or self.baseDir
+    base = self.workingDir
     if not base:
       return None, None, None
     repoRoot = os.path.abspath(base)
@@ -79,7 +79,7 @@ class Repo(object):
 class GitRepo(Repo):
   def __init__(self, gitrepo):
     self.repo = gitrepo
-    self.url = self.workingDir
+    self.url = self.workingDir or gitrepo.git_dir
     if gitrepo.remotes:
       try:
         remote = gitrepo.remotes['origin']
@@ -100,7 +100,7 @@ class GitRepo(Repo):
     return self.repo.head.commit.hexsha
 
   def show(self, path, commitId):
-    if os.path.abspath(path):
+    if os.path.abspath(path) and self.workingDir:
       path = path[len(self.workingDir):]
     return self.repo.git.show(commitId+':'+path)
 
