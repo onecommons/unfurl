@@ -189,8 +189,10 @@ class DelegateAttributes(object):
   def __init__(self, interface, resource):
     self.interface = interface
     self.resource = resource
-    self.inheritFrom = resource.attributes.get('inheritFrom', {})
-    self.default = resource.attributes.get('default', {})
+    if interface == 'inherit':
+      self.inheritFrom = resource.attributes['inheritFrom']
+    if interface == 'default':
+      self.default = resource.attributes['default']
 
   def __call__(self, key):
     if self.interface == 'inherit':

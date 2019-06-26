@@ -23,7 +23,19 @@ def writeLocalConfig(projectdir):
     f.write("""\
 giterop:
   version: %s
-projectroot: true
+instances:
+  - file: instances/current/manifest.yaml
+    default: true
+
+# this is the default behavior, so not needed:
+# defaults: # used if the instance isn't defined above
+#   local:
+#     # local and secret can have "attributes" instead of declaring an import
+#     attributes:
+#       inheritFrom: home
+#   secret:
+#     attributes:
+#       inheritFrom: home
 """ % __version__)
   return filepath
 

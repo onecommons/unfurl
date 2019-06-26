@@ -40,8 +40,6 @@ localConfig = """
 defaults: #used if manifest isnt found in `manifests` list below
  secret:
   attributes:
-    .interfaces:
-      default: giterop.support.DelegateAttributes
     default: # if key isn't found, apply this:
       q: # quote
         eval:

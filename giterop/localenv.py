@@ -35,17 +35,15 @@ class Project(object):
     if os.path.isdir(path):
       self.projectRoot = path
       test = os.path.join(self.projectRoot, localEnv.DefaultLocalConfigName)
-      # XXX merge or copy homeConfig
       if os.path.exists(test):
-        self.localConfig = LocalConfig(test)
+        self.localConfig = LocalConfig(test, localEnv.homeProject and localEnv.homeProject.localConfig)
       elif localEnv.homeProject:
         self.localConfig = localEnv.homeProject.localConfig
       else:
         self.localConfig = LocalConfig()
     else:
       self.projectRoot = os.path.dirname(path)
-      # XXX merge homeConfig
-      self.localConfig = LocalConfig(path)
+      self.localConfig = LocalConfig(path, localEnv.homeProject and localEnv.homeProject.localConfig)
 
     self.workingDirs = Repo.findGitWorkingDirs(self.projectRoot)
 
@@ -138,12 +136,13 @@ projects:
     instance: instances/current
     spec: spec
 """
-  def __init__(self, path=None):
+  def __init__(self, path=None, parentConfig=None):
     defaultConfig = {}
     # XXX define schema and validate
     self.config = YamlConfig(defaultConfig, path=path)
     self.manifests = self.config.config.get('instances', [])
     self.defaults = self.config.config.get('defaults', {})
+    self.parentConfig = parentConfig
 
   def adjustPath(self, path):
     """
@@ -171,11 +170,27 @@ projects:
         localRepo = spec.get(localName)
     if not localRepo:
       localRepo = self.defaults.get(localName)
+    if not localRepo and self.parentConfig:
+      return self.parentConfig.getLocalResource(manifestPath, localName, importSpec)
 
     if localRepo:
       attributes = localRepo.get('attributes')
       if attributes is not None:
-        #XXX if inheritFrom or defaults in attributes: add .interface
+        if 'default' in attributes:
+          if not 'default' in attributes.get('.interfaces', {}):
+            attributes.setdefault('.interfaces', {})['default'] = 'giterop.support.DelegateAttributes'
+        if 'inheritFrom' in attributes:
+          if not 'inherit' in attributes.get('.interfaces', {}):
+            attributes.setdefault('.interfaces', {})['inherit'] = 'giterop.support.DelegateAttributes'
+          if attributes['inheritFrom'] == 'home' and self.parentConfig:
+            parent = self.parentConfig.getLocalResource(manifestPath, localName, importSpec)
+            localResource = Resource(localName, attributes)
+            if parent:
+              localResource._attributes['inheritFrom'] = parent
+              return localResource
+            else:
+              importSpec['inheritHack'] = localResource
+              return None
         return Resource(localName, attributes)
       else:
         # the local or secret is a resource defined in a local manifest

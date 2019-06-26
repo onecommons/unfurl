@@ -8,7 +8,6 @@
     name: # manifest to represent as a resource
       file: # if is missing, manifest must declared in local config
       repository:
-      commit:
       resource: name # default is root
       attributes: # queries into manifest
       properties: # expected JSON schema for attributes
@@ -76,7 +75,7 @@
   repositories
   changeLog: changes.yaml
   latestChanges:
-    jobId: 1 # should be last that ran, instead of first?
+    jobId: 1
     startCommit: ''
     startTime:
     specDigest:
@@ -639,6 +638,7 @@ class YamlManifest(Manifest):
     try:
       changelog = CommentedMap()
       changelog['manifest'] = os.path.basename(self.manifest.path)
+      # put jobs before their child tasks
       key = lambda r: r.get('lastChangeId', r.get('changeId',0))
       changes = itertools.chain([jobRecord], newChanges, self.changeSets.values())
       changelog['changes'] = sorted(changes, key=key, reverse = True)
@@ -675,6 +675,9 @@ class YamlManifest(Manifest):
         imported = YamlManifest(yamlDict, path=path)
         rname = value.get('resource', 'root')
         resource = imported.getRootResource().findResource(rname)
+        if 'inheritHack' in value:
+          value['inheritHack']._attributes['inheritFrom'] = resource
+          resource = value.pop('inheritHack')
       if not resource:
         raise GitErOpError("Can not import '%s': resource '%s' not found" % (name, rname))
       imports[name] = Import(resource, value)

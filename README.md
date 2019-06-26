@@ -47,8 +47,7 @@ More simply, it is a tool that works with Git to record and deploy changes to yo
   project/
     spec/ # Git repository containing the specification and related artifacts
     instances/current/ # Git repository containing manifest.yaml
-    revisions/ # initially empty, can contain working directories for repositories
-    .giterop # marker file to indicate root of giterop project
+    giterop.yaml # local configuration file for the project
 
   giterop clone [path to project or specific instance repository] 
   
