@@ -3,7 +3,9 @@
 # For an analysis of "install_requires" vs pip's requirements files see
 # https://packaging.python.org/en/latest/requirements.html
 
-ansible==2.5.5
+ansible==2.7.11
+mitogen==0.2.7
+openshift
 click==6.7
 enum34
 jsonschema

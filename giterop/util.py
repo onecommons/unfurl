@@ -5,7 +5,7 @@ import traceback
 import itertools
 from collections import Mapping, MutableSequence
 import os.path
-from jsonschema import Draft4Validator, validators, RefResolver
+from jsonschema import Draft4Validator, validators
 from ruamel.yaml.comments import CommentedMap
 import logging
 logger = logging.getLogger('giterup')
@@ -13,9 +13,11 @@ logger = logging.getLogger('giterup')
  #import pickle
 pickleVersion = 2 #pickle.DEFAULT_PROTOCOL
 
-from ansible.plugins.loader import lookup_loader, filter_loader
+from ansible.plugins.loader import lookup_loader, filter_loader, strategy_loader
 lookup_loader.add_directory(os.path.abspath(os.path.dirname(__file__)), True)
 filter_loader.add_directory(os.path.abspath(os.path.dirname(__file__)), True)
+strategy_loader.add_directory(os.path.abspath(os.path.join(os.path.dirname(__file__),
+                      'vendor', 'ansible_mitogen', 'plugins', 'strategy')), False)
 
 class AnsibleDummyCli(object):
   def __init__(self):
