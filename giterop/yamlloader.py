@@ -75,6 +75,10 @@ class YamlConfig(object):
       self.path = None
 
     if isinstance(config, six.string_types):
+      if path:
+        # set name on a StringIO so parsing error messages include the path
+        config = six.StringIO(config)
+        config.name = path
       self.config = yaml.load(config)
     elif isinstance(config, dict):
       self.config = CommentedMap(config.items())
@@ -103,8 +107,8 @@ class YamlConfig(object):
   def loadYaml(self, path, baseDir=None):
     path = os.path.abspath(os.path.join(baseDir or self.getBaseDir(), path))
     with open(path, 'r') as f:
-      config = f.read()
-    return path, yaml.load(config)
+      config = yaml.load(f)
+    return path, config
 
   def getBaseDir(self):
     if self.path:
