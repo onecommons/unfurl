@@ -9,7 +9,7 @@ import datetime
 import types
 from .support import Status, Priority, AttributeManager
 from .result import serializeValue, ChangeRecord
-from .util import GitErOpError, GitErOpTaskError, mergeDicts
+from .util import GitErOpError, GitErOpTaskError, mergeDicts, ansibleDisplay
 from .runtime import OperationalInstance
 from .configurator import TaskView, ConfiguratorResult
 from .plan import Plan
@@ -236,6 +236,7 @@ class JobOptions(object):
     parentJob=None,
     startTime=None,
     out=None,
+    verbose=0,
 
     resource=None,
     resources=None,
@@ -519,6 +520,7 @@ class Runner(object):
     job = self.createJob(jobOptions)
     self.currentJob = job
     try:
+      ansibleDisplay.verbosity = jobOptions.verbose
       job.run()
     except Exception:
       job.localStatus = Status.error

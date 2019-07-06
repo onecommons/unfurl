@@ -76,14 +76,19 @@ class CliTest(unittest.TestCase):
     self.assertEqual(result.exit_code, 0, result)
     self.assertEqual(result.output.strip(), "giterop version %s" % __version__)
 
+  def test_badargs(self):
+    runner = CliRunner()
+    result = runner.invoke(cli, ['--badarg'])
+    self.assertEqual(result.exit_code, 2, result)
+
   def test_run(self):
     runner = CliRunner()
     with runner.isolated_filesystem():
       with open('manifest.yaml', 'w') as f:
         f.write('invalid manifest')
+
       result = runner.invoke(cli, ['run'])
-      self.assertEqual(result.exit_code, 1)
-      self.assertIn("invalid YAML document", result.output.strip())
+      self.assertIsInstance(result.exception, GitErOpValidationError)
 
   def test_localConfig(self):
     # test loading the default manifest declared in the local config
@@ -102,5 +107,6 @@ class CliTest(unittest.TestCase):
       with open('default-manifest.yaml', 'w') as f:
         f.write(manifest)
       result = runner.invoke(cli, ['-vvv', 'deploy', '--jobexitcode', 'degraded'])
+      # need this to see output if no error print(result.output)
       self.assertEqual(result.exit_code, 0, result.output)
       assert not result.exception, '\n'.join(traceback.format_exception(*result.exc_info))

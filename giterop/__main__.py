@@ -4,6 +4,8 @@ Applies a GitErOp manifest
 
 For each configuration, run it if required, then record the result
 """
+from __future__ import print_function
+
 from .yamlmanifest import runJob
 from .support import Status
 from . import __version__
@@ -77,18 +79,21 @@ def run(ctx, action, use=None, cmdline=None, **options):
   return _run(options.pop('manifest'), options)
 
 def _run(manifest, options):
-  try:
-    job = runJob(manifest, options)
-    if job.unexpectedAbort:
-      raise job.unexpectedAbort
-    else:
-      click.echo(job.summary())
-    if options['jobexitcode'] != 'never' and Status[options['jobexitcode']] <= job.status:
-       sys.exit(1)
-  except Exception as err:
+  job = runJob(manifest, options)
+  if job.unexpectedAbort:
     if options['verbose']:
-      traceback.print_exc()
-    raise click.ClickException(str(err))
+      print(job.unexpectedAbort.getStackTrace(), file=sys.stderr)
+      raise job.unexpectedAbort
+  else:
+    click.echo(job.summary())
+
+  if options['jobexitcode'] != 'never' and Status[options['jobexitcode']] <= job.status:
+    if options.get('standalone_mode') is False:
+      return 1
+    else:
+      sys.exit(1)
+  else:
+    return 0
 
 @cli.command()
 @click.pass_context
@@ -99,6 +104,7 @@ def _run(manifest, options):
 @click.option('--repair', type=click.Choice(['error', 'degraded', 'notapplied', 'none']),
   default="error", help="re-run configurations that are in an error or degraded state")
 @click.option('--upgrade', default=False, is_flag=True, help="run configurations with major version changes or whose spec has changed")
+@click.option('--all', default=False, is_flag=True, help="(re)run all configurations")
 @click.option('--dryrun', default=False, is_flag=True, help='Do not modify anything, just do a dry run.')
 @click.option('--jobexitcode', type=click.Choice(['error', 'degraded', 'never']),
               default='never', help='Set exitcode if job status is not ok.')
@@ -122,15 +128,10 @@ giterop init [project] # creates a giterop project with new spec and instance re
     elif os.listdir(projectdir):
       raise click.ClickException(projectdir + " is not empty")
 
-  try:
-    homePath, projectPath = createProject(projectdir, options['home'])
-    if homePath:
-      click.echo("giterop home created at %s" % homePath)
-    click.echo("New GitErOp project created at %s" % projectPath)
-  except Exception as err:
-    if options['verbose']:
-      traceback.print_exc()
-    raise click.ClickException(str(err))
+  homePath, projectPath = createProject(projectdir, options['home'])
+  if homePath:
+    click.echo("giterop home created at %s" % homePath)
+  click.echo("New GitErOp project created at %s" % projectPath)
 
 #gitop clone [instance or spec repo] # clones repos into new project
 #gitop newinstance # create new instance repo using manifest-template.yaml
@@ -143,5 +144,33 @@ def version():
 def plan():
   click.echo("coming soon") # XXX
 
+def printHelp():
+  ctx = cli.make_context('giterop', [])
+  click.echo(cli.get_help(ctx))
+
+def main():
+  obj = {'standalone_mode': False}
+  try:
+    rv = cli(standalone_mode=False, obj=obj)
+    sys.exit(rv or 0)
+  except click.UsageError as err:
+    click.echo("Error: %s" % err)
+    printHelp()
+    sys.exit(err.exit_code)
+  except click.Abort:
+    click.echo('Aborted!', file=sys.stderr)
+    sys.exit(1)
+  except click.ClickException as e:
+    if obj.get('verbose'):
+      traceback.print_exc(file=sys.stderr)
+    e.show()
+    sys.exit(e.exit_code)
+  except Exception as err:
+    if obj.get('verbose'):
+      traceback.print_exc(file=sys.stderr)
+    else:
+      click.echo(str(err), file=sys.stderr)
+    sys.exit(1)
+
 if __name__ == '__main__':
-  cli(obj={})
+  main()

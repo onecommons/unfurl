@@ -21,7 +21,7 @@ setup(
     #
     entry_points={  # Optional
         'console_scripts': [
-            'giterop=giterop.__main__:cli',
+            'giterop=giterop.__main__:main',
         ],
     },
 )
