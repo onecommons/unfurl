@@ -1,75 +1,13 @@
 import giterop.util
 import unittest
+from giterop.yamlmanifest import YamlManifest
+from giterop.job import Runner, JobOptions
+from giterop.ansibleconfigurator import runPlaybooks
+from giterop.runtime import Status
 import os
 import os.path
 import warnings
-from giterop import *
-from giterop.ansibleconfigurator import runPlaybooks
-
-"""
-ansible_connection=ssh
-ansible_ssh_user=ubuntu
-ansible_ssh_private_key_file=~/.ssh/fairblocker.pem
-
-testansible:
-  #sshconfig: defaultconfig
-  inventory:
-    all:
-      hosts:
-        mail.example.com:
-      children:
-        webservers:
-          hosts:
-            foo.example.com:
-            bar.example.com:
-        dbservers:
-          hosts:
-            one.example.com:
-            two.example.com:
-            three.example.com:
-             ansible_port: 5555
-             ansible_host: 192.0.2.50
-          vars:
-            ntp_server: ntp.atlanta.example.com
-            proxy: proxy.atlanta.example.com
-all:
-  children
-    ref: "::[$start::awsaccount]" # find the resource whose name matches awsaccount parameter
-    ::foo=.all[$start::awsaccount]
-    ref ".::awsaccount" # this config's awsaccount parameter
-    ref: ::*[awsaccount]? # starting from root find the first resource with a awsaccount attribute
-    ref: awsaccount # find the first anscestor parameter/attribute named 'awsaccount'
-    foreach:
-      #if key, value children defined generates a map otherwise a list
-      # defines $item $index $key
-      key:   ref: ".:name"
-             vars:
-      value:
-        hosts:
-          ref: ".descendents"
-          foreach:
-            key: ref: hostname
-            value:
-              template: ansible_hostvars
-    - webserver: ref: ".descendents[shape:webserver]"
-    - name:
-      members:
-      vars:
-  hostvars:
-   foo: ref: .foo
-  provides:
-   - target: ref: '$host::.descendents[hostname=$host]::hostname'
-             vars:
-              hostname: ref: '$host::hostname'
-     attributes:
-      foo: ref: '$host::$key'
-      bar: ref: '$host::$key'
-
-template:
- ansible_template:
-  ansible_port?: ref: port
-  ansible_host: ref: host
-"""
+import sys
 
 class AnsibleTest(unittest.TestCase):
   def setUp(self):
@@ -104,20 +42,48 @@ class AnsibleTest(unittest.TestCase):
     # task test-verbosity was skipped
     assert not results.resultsByStatus.ok.get('test-verbosity')
     assert results.resultsByStatus.skipped.get('test-verbosity')
-
     results = self.runPlaybook(['-vv'])
     # task test-verbosity was ok this time
     assert results.resultsByStatus.ok.get('test-verbosity')
     assert not results.resultsByStatus.skipped.get('test-verbosity')
 
-  def test_incremental(self):
-    """
-    """
-    # run()
-    # run again()
-    # playbook tasks start off from where it left off per host, but rerun always tasks
+manifest = '''
+apiVersion: giterops/v1alpha1
+kind: Manifest
+configurations:
+  create:
+    implementation: giterop.ansibleconfigurator.AnsibleConfigurator
+    inputs:
+      playbook:
+        q:
+          - name: Hello
+            command: echo "{{hostvars['localhost'].ansible_python_interpreter}}"
+spec:
+  node_templates:
+    test1:
+      type: tosca.nodes.Root
+      interfaces:
+        Standard:
+          +configurations:
+'''
 
-  def test_changes(self):
+class AnsibleConfiguratorTest(unittest.TestCase):
+  def setUp(self):
+    try:
+      # Ansible generates tons of ResourceWarnings
+      warnings.simplefilter("ignore", ResourceWarning)
+    except:
+      # python 2.x doesn't have ResourceWarning
+      pass
+
+  def test_ansible(self):
     """
-    If configuration changes, make sure playbooks run from the start
+    test that runner figures out the proper tasks to run
     """
+    runner = Runner(YamlManifest(manifest))
+    run1 = runner.run(JobOptions(resource='test1'))
+    assert not run1.unexpectedAbort, run1.unexpectedAbort.getStackTrace()
+    assert len(run1.workDone) == 1, run1.workDone
+    result = list(run1.workDone.values())[0].result.result
+    self.assertEqual(result, {'returncode': 0, 'stdout': sys.executable})
+    assert run1.status == Status.ok, run1.summary()

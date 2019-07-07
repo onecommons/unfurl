@@ -6,7 +6,7 @@ inputs:
   # cmd, stdout, stderr
   ref:
     file:
-      ./handleResults.tpl
+      ./handleResult.tpl
   select: contents
 """
 
@@ -17,12 +17,10 @@ inputs:
 # (that's a reason to make config inputs lazy too)
 
 from giterop.configurator import Configurator, Status
-import json
 import os
 #import os.path
 import sys
 import six
-import tempfile
 if os.name == 'posix' and sys.version_info[0] < 3:
     import subprocess32 as subprocess
 else:
@@ -31,7 +29,6 @@ else:
 
 import logging
 logger = logging.getLogger('giterop')
-
 
 try:
   from shutil import which
@@ -53,7 +50,7 @@ class ShellConfigurator(Configurator):
     Returns an object with the following attributes:
 
     cmd
-    timeout (None if there was no timeout)
+    timeout (None unless timeout occurred)
     stderr
     stdout
     returncode (None if the process didn't complete)
@@ -77,12 +74,13 @@ class ShellConfigurator(Configurator):
       except:
         pass
       completed.cmd = cmdStr
-      completed.timeout = timeout
+      completed.timeout = None
       completed.error = None
       return completed
     except subprocess.TimeoutExpired as err:
+      completed.timeout = timeout
       err.returncode = None
-      err.error = err
+      err.error = None
       return err
     except Exception as err:
       err.cmd = cmdStr
@@ -93,16 +91,16 @@ class ShellConfigurator(Configurator):
       err.error = err
       return err
 
-  def handleResults(self, task, params, result):
+  def handleResult(self, task, result, resultTemplate=None):
     status = Status.error if result.error or result.returncode else Status.ok
     if status == Status.error:
       logger.warning("shell task failed %s", result)
     else:
       logger.info("ran shell task %s", result)
 
-    if status != Status.error and params.get('resultTemplate'):
+    if status != Status.error and resultTemplate:
       results = task.query({
-        'eval': dict(template=params['resultTemplate']),
+        'eval': dict(template=resultTemplate),
         'vars': result.__dict__})
       if results and results.strip():
         task.updateResources(results)
@@ -124,5 +122,5 @@ class ShellConfigurator(Configurator):
     # default for shell: True if command is a string otherwise False
     shell = params.get('shell', isinstance(cmd, six.string_types))
     result = self.runProcess(cmd, shell=shell, timeout=params.get('timeout'))
-    status = self.handleResults(task, params, result)
+    status = self.handleResult(task, result, params.get('resultTemplate'))
     yield task.createResult(True, True, status, result=result.__dict__)

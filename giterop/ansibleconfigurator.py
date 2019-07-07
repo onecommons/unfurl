@@ -1,16 +1,54 @@
 import collections
-
-from .util import ansibleDisplay, ansibleDummyCli
-#from .runtime import *
-from .configurator import Configurator
+import json
+import tempfile
+import sys
+from ruamel.yaml import YAML
+from giterop.util import ansibleDisplay, ansibleDummyCli, assertForm
+from giterop.configurator import Configurator, Status
 import ansible.constants as C
 from ansible.cli.playbook import PlaybookCLI
-from ansible.plugins.callback import CallbackBase
+from ansible.plugins.callback.default import CallbackModule
+from ansible.module_utils import six
 
-# https://docs.ansible.com/ansible/latest/reference_appendices/common_return_values.html#common-return-values
+yaml = YAML()
 
-# https://github.com/ansible/ansible-runner
-# ansible fails by host
+# input parameters:
+#  playbook
+#  playbookArgs
+#  extraVars
+#  inventory
+#  XXX environVars
+def ansibleResults(result):
+  # result is per-task ansible.executor.task_result.TaskResult
+  # https://github.com/ansible/ansible/blob/devel/lib/ansible/executor/task_result.py
+  # https://docs.ansible.com/ansible/latest/reference_appendices/common_return_values.html
+  # map to same result names used by shellconfigurator
+
+  # XXX map ansible facts and user set variables, needed for result templates
+  # https://docs.ansible.com/ansible/latest/user_guide/playbooks_variables.html#variables-discovered-from-systems-facts
+  """
+  stderr
+  stdout
+  returncode (None if the process didn't complete)
+  error if an exception was raised
+  """
+  # _check_key checks 'results' if task was a loop
+  # 'warnings': result._check_key('warning'),
+  result = result.clean_copy()
+  # print('result._result', result._result)
+  resultDict = {
+    'returncode': result._check_key('rc'),
+  }
+  keyMap = {'msg':['msg'], 'error': ['exception', 'module_stderr'], 'stdout': ['stdout', 'module_stdout']}
+  for name, keys in keyMap.items():
+    for key in keys:
+      val = result._check_key(key)
+      if val:
+        resultDict[name] = val
+        break
+
+  return resultDict
+
 class AnsibleConfigurator(Configurator):
   """
   The current resource is the inventory.
@@ -24,22 +62,32 @@ class AnsibleConfigurator(Configurator):
   and to map vars to types of different resource
   """
 
-  def __init__(self, configuratorDef):
-    super(AnsibleConfigurator, self).__init__(configuratorDef)
+  def __init__(self, configSpec):
+    super(AnsibleConfigurator, self).__init__(configSpec)
     self._cleanupRoutines = []
 
-  def getCustomProperties(self):
-    return {}
+  def dryRun(self, task):
+    yield self.run(task)
 
-  #could have parameter for mapping resource attributes to groups
-  #also need to map attributes to host vars
   def getInventory(self, task):
-    # find hosts and how to connect to them
-    return 'localhost,'
-    # tp = tempfile.NamedTemporaryFile(suffix='.json')
-    # self._cleanupRoutines.append(lambda: tp.close())
-    # json.dump({"localhost"}, fp)
-    # return tp.name
+    return task.inputs.get('inventory')
+    # add groups for tosca HOST, ORCHESTRATOR, TARGET, SELF keywords
+    # XXX cache and reuse file
+    # https://github.com/ansible/ansible/issues/33132#issuecomment-346575458
+    #return self._saveToTempfile(inventory, '-inventory.ini')
+    # XXX if user set inventory create a folder to merge:
+    # https://allandenot.com/devops/2015/01/16/ansible-with-multiple-inventory-files.html
+
+  def _saveToTempfile(self, obj, suffix='.yml'):
+    tp = tempfile.NamedTemporaryFile('w+t', suffix=suffix)
+    self._cleanupRoutines.append(lambda: tp.close())
+    if suffix.endswith('.json'):
+      json.dump(obj, tp)
+    elif suffix.endswith('.yml') or suffix.endswith('.yaml'):
+      yaml.dump(obj, tp)
+    else:
+      tp.write(obj)
+    return tp.name
 
   def _cleanup(self):
     for func in self._cleanupRoutines:
@@ -50,78 +98,87 @@ class AnsibleConfigurator(Configurator):
         pass
     self._cleanupRoutines = []
 
-  def _makeResource(self, var):
-    """
-     # find a resource that matches the ansible host
-     # or create / discover new resources from the ansible host
-     - host:
-        match:
-          '.:hostname': vf:':hostname'
-
-#declare a ansible var and map it to resource metadata
-     - hostvar: var1
-       var1: vf:'.'
-
-#map a hostvar to metadata on a particular resource
-     - hostvar: var1
-       target: vf:':host?' # target resource that matches host?
-       metadata:
-        var1: vf:'.'
-
-    # create/discover new resource from hostvar
-     - hostvar: ec2_service
-       resource:
-         template: ec2serviceResourceTemplate
-         name: vf: ':gename:'
-         metadata:
-          # . is current var?
-          # .. is hosts' hostvars?
-          foo: vf: '..:ddd'
-    """
-
-  #use requires to map attributes to vars,
-  #have a parameter for the mapping or just set_facts in playbook
+  # have a parameter for the mapping or just set_facts in playbook
   def getVars(self, task):
     """
     just add a lookup() plugin?
     add attribute to parameters to map to vars?
     # ansible yaml file but we evaluate the valuesFrom first?
     """
-    pass
+    return {}
 
-  def getArgs(self):
-    return []
+  def _makePlayBook(self, playbook):
+    assertForm(playbook, collections.MutableSequence)
+    # XXX use host group instead of localhost depending on operation_host
+    if playbook and not 'hosts' in playbook[0]:
+      return [dict(hosts='localhost', gather_facts=False, tasks=playbook)]
+    else:
+      return playbook
+
+  def getPlaybook(self, task):
+    playbook = task.inputs['playbook']
+    if isinstance(playbook, six.string_types):
+      return playbook
+    playbook = self._makePlayBook(playbook)
+    return self._saveToTempfile(playbook, '-playbook.yml')
+
+  def getPlaybookArgs(self, task):
+    args = task.inputs.get('playbookArgs', [])
+    if not isinstance(args, collections.MutableSequence):
+      args = [args]
+    if task.dryRun:
+      args.append('--check')
+    return args
+
+  def _processResult(self, task, result):
+    resultTemplate = task.inputs.get('resultTemplate')
+    if resultTemplate:
+      results = task.query({
+        'eval': dict(template=resultTemplate),
+        'vars': result.__dict__})
+      if results and results.strip():
+        task.updateResources(results)
 
   def run(self, task):
-    #build host inventory from resource
-    #build vars from parameters
-    #map output to resource updates
-    #https://github.com/ansible/ansible/blob/devel/lib/ansible/plugins/callback/log_plays.py
     try:
+      #build host inventory from resource
       inventory = self.getInventory(task)
-      playbook = self.getPlayBook(task)
-      extraVars = self.getVars(task)
-      results = runPlaybooks([playbook], inventory, extraVars, self.getArgs())
-      hostname = task.getResource().get('hostname')
-      host = results.inventoryManager.get_host(hostname)
-      host_vars = results.variableManager.get_vars(host=host)
-      #extract provides from results
-      task.target.update()
-      task.createResource()
-      task.discoverResource()
-      return self.status.failed if results.exit_code  else self.status.success
-    finally:
-      self.cleanup()
+      playbook = self.getPlaybook(task)
 
-#https://github.com/ansible/ansible/blob/d72587084b4c43746cdb13abb262acf920079865/examples/scripts/uptime.py
+      #build vars from inputs
+      extraVars = self.getVars(task)
+      results = runPlaybooks([playbook], inventory, extraVars, self.getPlaybookArgs(task))
+
+      if results.exit_code or len(results.resultsByStatus.failed):
+        status = Status.error
+      else:
+        # unreachable, failed, skipped
+        # XXX degraded vs. error if required?
+        status = Status.ok
+
+      applied = len(results.resultsByStatus.ok) + len(results.resultsByStatus.failed)
+      # XXX if more then one task??
+      result = results.results and ansibleResults(results.results[0]) or None
+      if result and status == Status.ok or status == Status.degraded:
+        self._processResult(task, result)
+      yield task.createResult(applied > 0, results.changed > 0, status, result=result)
+    finally:
+      self._cleanup()
+
+# see https://github.com/ansible/ansible/blob/d72587084b4c43746cdb13abb262acf920079865/examples/scripts/uptime.py
+# and https://github.com/ansible/ansible/blob/devel/lib/ansible/plugins/callback/log_plays.py
 _ResultsByStatus = collections.namedtuple('_ResultsByStatus', "ok failed skipped unreachable")
-class ResultCallback(CallbackBase):
+class ResultCallback(CallbackModule):
   # NOTE: callbacks will run in seperate process
   #see ansible.executor.task_result.TaskResult and ansible.playbook.task.Task
 
   def __init__(self):
+    super(ResultCallback, self).__init__()
     self.results = []
+    # named tuple of OrderedDict<task_name:list<result>>
     self.resultsByStatus = _ResultsByStatus(*[collections.OrderedDict() for x in range(4)])
+    self._load_name = 'result'
+    self.changed = 0
 
   def getInfo(self, result):
     host = result._host
@@ -132,39 +189,48 @@ class ResultCallback(CallbackBase):
 
   def _addResult(self, status, result):
     self.results.append(result)
+    if result._result.get('changed', False):
+      self.changed += 1
     # XXX should save by host too
     getattr(self.resultsByStatus, status).setdefault(result.task_name, []).append(result)
 
-  def v2_runner_on_ok(self, result, **kwargs):
+  def v2_runner_on_ok(self, result):
     self._addResult('ok', result)
     #print("ok", self.getInfo(result))
+    super(ResultCallback, self).v2_runner_on_ok(result)
 
   def v2_runner_on_skipped(self, result):
     self._addResult('skipped', result)
     #print("skipped", self.getInfo(result))
+    super(ResultCallback, self).v2_runner_on_skipped(result)
 
   def v2_runner_on_failed(self, result, **kwargs):
     self._addResult('failed', result)
     #print("failed", self.getInfo(result))
+    super(ResultCallback, self).v2_runner_on_failed(result, **kwargs)
 
-  def v2_runner_on_unreachable(self, result, **kwargs):
+  def v2_runner_on_unreachable(self, result):
     self._addResult('unreachable', result)
     #print("unreachable", self.getInfo(result))
+    super(ResultCallback, self).v2_runner_on_unreachable(result)
 
 def runPlaybooks(playbooks, _inventory, params=None, args=None):
-  # util should have set this up already
-  args=['ansible-playbook', '-i', _inventory] + (args or []) + playbooks
+  # giterop.util should have initialized ansibleDummyCli and ansibleDisplay already
+  inventoryArgs =  ['-i', _inventory] if _inventory else []
+  args=['ansible-playbook'] + inventoryArgs + (args or []) + playbooks
   cli = PlaybookCLI(args)
   cli.parse()
-  ansibleDisplay.verbosity = cli.options.verbosity
 
   # CallbackBase imports __main__.cli (which is set to ansibleDummyCli)
   # as assigns its options to self._options
   ansibleDummyCli.options.__dict__.update(cli.options.__dict__)
 
+  # replace C.DEFAULT_STDOUT_CALLBACK with our own so we have control over logging
+  # config/base.yml sets C.DEFAULT_STDOUT_CALLBACK == 'default' (ansible/plugins/callback/default.py)
+  # (cli/console.py and cli/adhoc.py sets it to 'minimal' but PlaybookCLI.run() in cli/playbook.py uses the default)
   #see also https://github.com/projectatomic/atomic-host-tests/blob/master/callback_plugins/default.py
-  #C.DEFAULT_STDOUT_CALLBACK == 'default' (ansible/plugins/callback/default.py)
   resultsCB = ResultCallback()
+  resultsCB.set_options()
   C.DEFAULT_STDOUT_CALLBACK = resultsCB
 
   _play_prereqs = cli._play_prereqs
@@ -174,89 +240,16 @@ def runPlaybooks(playbooks, _inventory, params=None, args=None):
       variable_manager._extra_vars.update(params)
     resultsCB.inventoryManager = inventory
     resultsCB.variableManager = variable_manager
+    # XXX inventory.localhost is None right now
+    # inventory.localhost.set_variable("ansible_python_interpreter", sys.executable)
     return loader, inventory, variable_manager
   cli._play_prereqs = hook_play_prereqs
 
-  resultsCB.exit_code = cli.run()
+  oldVerbosity = ansibleDisplay.verbosity
+  try:
+    if cli.options.verbosity > ansibleDisplay.verbosity:
+      ansibleDisplay.verbosity = cli.options.verbosity
+    resultsCB.exit_code = cli.run()
+  finally:
+    ansibleDisplay.verbosity = oldVerbosity
   return resultsCB
-
-class IncrementalRunner(object):
-  """
-  Before the play is run, we assign each task a position based on the order it is statically queued.
-  After a task is run the position of the task is recorded. It should always be greater than the last position.
-
-  Re-running a playbook with an identical configuration, we can skip queuing tasks whose position is less
-  than the last completed for all currently targeted hosts.
-
-  We can save check points with a task names and digests to verify that the save positions correspond to the same task.
-
-  For dynamic includes (invoked by a strategy plugin) we can't rely on the task's invocation order being deterministic.
-  """
-  def __init__(self):
-    self.foo = 1
-
-# monkey patch Task/Taggable.evaluate_tags ?
-# which is only called by Block.filter_tagged_tasks
-# which in turn is called by Playbook iterator and strategy plugins
-# but won't be called per host -- update "self.when" on task?
-
-# TaskQueueManager.run() / PlayIterator() is called for each playbook and for each possible batches of hosts
-# (see playbook_executor.py#L151)
-# so _Gindex should by playbook at least
-# doesn't this assume a task is only executed once? bad assumption!
-
-  #key is iterator.get_next_task_for_host
-  # see StrategyBase._queue_task and _process_pending_results
-# workers run executor.task_executor
-
-def shouldRunAnsibleTask(self, task, only_tags, skip_tags, all_vars):
-  # playbooks haven't changed, inventory and host_vars haven't changed,
-  #configuration haven't changed, etc.
-  if not self.lastCompatibleRun:
-    return True
-  #hmmm how to uniquely identity tasks and their order????
-  pos = task._Gindex
-  if pos < 0:
-    return True
-  #we ran before successfully don't need to do it again
-  return self.lastCompatibleRun.completedTaskIndex < pos
-
-def getAnsibleTaskDigest(task):
-  d = task.serialize()
-  del d['uuid']
-  return hasher(d)
-
-def setTaskPos(self, task):
-  #task._parent.__class__.__name__
-  #if not isReproducible(task):
-  #  return -1
-
-  digest = getAnsibleTaskDigest(task)
-  if digest not in self.tasks:
-    self.tasks[task._uuid] = task
-    task._Gindex = len(self.tasks)
-  else:
-    assert task._Gindex > -1
-
-def evaluate_tags(task, tags, all_vars):
-  if not hasattr(task, '_Gindex'):
-    setattr(task, '_Gindex', -1)
-
-  res = super(Task, task).evaluate_tags(self, only_tags, skip_tags, all_vars)
-  if not res:
-    return res
-
-  if 'always' in self.tags:
-    return True
-
-  #all_vars is either all_vars or task_vars when called by strategy
-  state = all_vars.get('__giterop')
-  if state:
-    if state.currentTask:
-      state.currentTask.setTaskPos(self)
-      return state.currentTask.shouldRunAnsibleTask(self, only_tags, skip_tags, all_vars)
-  else:
-    task._Gindex = -1
-    #isn't being called from a static position
-    #don't update task.position and if the task has already set, remove it so we don't confused when it is run
-  return res

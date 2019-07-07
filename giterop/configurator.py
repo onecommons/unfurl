@@ -95,9 +95,8 @@ class ConfiguratorResult(object):
 
 @six.add_metaclass(AutoRegisterClass)
 class Configurator(object):
-  def __init__(self, configurationSpec, runFunc=None):
+  def __init__(self, configurationSpec):
     self.configSpec = configurationSpec
-    self.runFunc = runFunc
 
   # yields a JobRequest, TaskRequest or a ConfiguratorResult
   def run(self, task):

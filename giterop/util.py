@@ -24,8 +24,18 @@ class AnsibleDummyCli(object):
   def __init__(self):
     self.options = optparse.Values()
 ansibleDummyCli = AnsibleDummyCli()
-from ansible.utils.display import Display
-ansibleDisplay = Display()
+from ansible.utils import display
+display.logger = logging.getLogger('ansible')
+class AnsibleDisplay(display.Display):
+  def display(self, msg, color=None, stderr=False, screen_only=False, log_only=False):
+    if screen_only:
+      return
+    log_only = True
+    return super(AnsibleDisplay, self).display(msg, color, stderr, screen_only, log_only)
+import ansible.constants as C
+if 'ANSIBLE_NOCOWS' not in os.environ:
+  C.ANSIBLE_NOCOWS=1
+ansibleDisplay = AnsibleDisplay()
 
 def initializeAnsible():
   main = sys.modules.get('__main__')
