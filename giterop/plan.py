@@ -73,7 +73,6 @@ class Plan(object):
         return ConfigurationSpec(implementation, iDef.name, className=implementation, inputs = iDef.inputs)
       except GitErOpError:
         # assume its executable file, create a ShellConfigurator
-        # XXX check if it's actually an executable file
         return self.createShellConfigurator([implementation], iDef.name, iDef.inputs, timeout=timeout)
 
   def findImplementation(self, interfaceType, operation, template):
@@ -212,16 +211,17 @@ Returns:
         visited.add(id(resource))
         yield self.generateConfiguration(operation, resource, reason, opts.useConfigurator)
 
-    if opts.all or opts.revertObsolete:
-      for resource in self.root.getSelfAndDescendents():
-        if id(resource) not in visited:
-          logging.debug('checking for tasks for orphaned resource %s', resource.name)
-          # it's an orphaned config
-          include = self.includeTask(None, resource, resource.template)
-          if not include:
-            continue
-          reason, config = include
-          yield self.generateConfiguration('delete', resource, reason)
+    if opts.revertObsolete: #XXX expose option in cli (as --prune ?)
+      for instance in self.root.getOperationalDependencies():
+        for resource in instance.getSelfAndDescendents():
+          if id(resource) not in visited:
+            logging.debug('checking for tasks for orphaned resource %s', resource.name)
+            # it's an orphaned config
+            include = self.includeTask(None, resource, resource.template)
+            if not include:
+              continue
+            reason, config = include
+            yield self.generateConfiguration('delete', resource, reason)
     # #XXX opts.create, opts.append, opts.cmdline, opts.useConfigurator
 
   def generateConfiguration(self, action, resource, reason=None, cmdLine=None, useConfigurator=None):
