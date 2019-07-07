@@ -131,13 +131,14 @@
 import six
 import sys
 import collections
+import numbers
 import os.path
 import itertools
 
-from .util import (GitErOpError, VERSION, restoreIncludes, patchDict)
+from .util import (GitErOpError, VERSION, toYamlText, restoreIncludes, patchDict)
 from .yamlloader import YamlConfig, loadFromRepo, load_yaml
 from .result import serializeValue
-from .support import ResourceChanges, Status, Priority, Action, Defaults
+from .support import ResourceChanges, Status, Priority, Action
 from .localenv import LocalEnv
 from .job import JobOptions, Runner
 from .manifest import Manifest, ChangeRecordAttributes
@@ -398,14 +399,17 @@ def saveResourceChanges(changes):
   return d
 
 def saveStatus(operational, status=None):
+  if status is None:
+    status = CommentedMap()
+  if not operational.lastChange and operational.status == Status.notapplied:
+    # skip status
+    return status
+
   readyState = CommentedMap([
     ("effective", operational.status.name),
   ])
   if operational.localStatus is not None:
     readyState['local'] =  operational.localStatus.name
-
-  if status is None:
-    status = CommentedMap()
   status["readyState"] = readyState
   if operational.priority: #and operational.priority != Defaults.shouldRun:
     status["priority"] = operational.priority.name
@@ -420,6 +424,16 @@ def saveConfigChange(configChange):
   items = [(k, getattr(configChange, k)) for k in ChangeRecordAttributes]
   items.extend( saveStatus(configChange).items() )
   return CommentedMap(items) #CommentedMap so order is preserved in yaml output
+
+def saveResult(value):
+  if isinstance(value, collections.Mapping):
+    return CommentedMap((key, saveResult(v)) for key, v in value.items())
+  elif isinstance(value, (collections.MutableSequence, tuple)):
+    return [saveResult(item) for item in value]
+  elif value is not None and not isinstance(value, (numbers.Real, bool)):
+    return toYamlText(value)
+  else:
+    return value
 
 def saveTask(task):
   """
@@ -445,7 +459,7 @@ def saveTask(task):
     output['dependencies'] = dependencies
   result = task.result.result
   if result:
-    output['result'] = result
+    output['result'] = saveResult(result)
 
   return output
 
@@ -507,10 +521,6 @@ class YamlManifest(Manifest):
     otherwise create a new resource using the the topology as its template
     """
     # XXX use the substitution_mapping (3.8.12) represent the resource
-    topologyName = status.get('toplogy', 'self:#topology:0')
-    #template = self.loadTemplate(topologyName)
-    #if template is None:
-    #   raise GitErOpError('missing topology template %s' % topologyName)
     template = self.tosca.topology
     operational = self.loadStatus(status)
     root = TopologyResource(template, operational)

@@ -7,6 +7,7 @@ from collections import Mapping, MutableSequence
 import os.path
 from jsonschema import Draft4Validator, validators
 from ruamel.yaml.comments import CommentedMap
+from ruamel.yaml.scalarstring import ScalarString, FoldedScalarString
 import logging
 logger = logging.getLogger('giterup')
 
@@ -33,9 +34,7 @@ def initializeAnsible():
   main.cli = ansibleDummyCli
 initializeAnsible()
 
-VERSION = 'giterops/v1alpha1'
-TEMPLATESKEY = 'templates'
-CONFIGURATORSKEY = 'configurators'
+VERSION = 'giterops/v1alpha1' # api version
 
 class GitErOpError(Exception):
   def __init__(self, message, saveStack=False):
@@ -65,6 +64,15 @@ class GitErOpAddingResourceError(GitErOpTaskError):
     message = "error creating resource %s" % resourcename
     super(GitErOpTaskError, self).__init__(task, message)
     self.resourceSpec = resourceSpec
+
+def toYamlText(val):
+  if isinstance(val, ScalarString):
+    return val
+  # convert or copy string (copy to deal with things like AnsibleUnsafeText)
+  val = str(val)
+  if '\n' in val:
+    return FoldedScalarString(val)
+  return val
 
 def assertForm(src, types=Mapping):
   if not isinstance(src, types):
