@@ -40,7 +40,7 @@ class Repo(object):
     workingDirs = {}
     for root, dirs, files in os.walk(rootDir):
       if gitDir in dirs:
-        dirs.clear()  # don't visit sub directories
+        del dirs[:]  # don't visit sub directories
         repo = GitRepo(git.Repo(root))
         workingDirs[root] = (repo.url, repo)
     return workingDirs
