@@ -18,7 +18,7 @@ class EvalTest(unittest.TestCase):
     cm.insert(1, 'a', 1, comment="a comment")
     self.assertEqual(cm, {'a':1, 'b': 2})
 
-  def _getTestResource(self):
+  def _getTestResource(self, more=None):
     resourceDef = {
       "name": "test",
       'a': {'ref': 'name'},
@@ -39,6 +39,8 @@ class EvalTest(unittest.TestCase):
             'a2':{'b2': 'v2'}},
       'f': {'a': 1, 'b': {'ref': '.::f::a'} },
       }
+    if more:
+      resourceDef.update(more)
     resource = Resource("test", attributes=resourceDef)
     assert resource.attributes['x'] == resourceDef['x']
     assert resource.attributes['a'] == 'test'
@@ -170,7 +172,7 @@ class EvalTest(unittest.TestCase):
     }
     expected0 = {'content': [1, 2, 3]}
     expected = {
-      'test': expected0
+      'UmVzb3VyY2UoJ3Rlc3QnKQ==': expected0
     }
     result0 = Ref(test1).resolveOne(RefContext(resource, trace=0))
     self.assertEqual(expected0, result0)
@@ -178,11 +180,12 @@ class EvalTest(unittest.TestCase):
     self.assertEqual([expected0], Ref(test1).resolve(RefContext(resource)))
 
     #add 'key' to make result a dict
-    test1['foreach']['key'] = '.name';
-    result1 = Ref(test1).resolve(RefContext(resource))
-    self.assertEqual([expected], result1)
-    result2 = Ref(test1).resolveOne(RefContext(resource))
-    self.assertEqual(expected, result2)
+    # test that template strings work
+    test1['foreach']['key'] = '{{ item | ref | b64encode}}';
+    result1 = Ref(test1).resolveOne(RefContext(resource))
+    self.assertEqual(expected, result1)
+    result2 = Ref(test1).resolve(RefContext(resource))
+    self.assertEqual([expected], result2)
 
   def test_serializeValues(self):
     resource = self._getTestResource()
@@ -191,8 +194,11 @@ class EvalTest(unittest.TestCase):
     self.assertEqual(serialized, {'a': ['b', {'ref': '::test'}]})
     self.assertEqual(src, mapValue(serialized, resource))
 
-  def test_template(self):
+  def test_jinjaTemplate(self):
     self.assertEqual(runTemplate(" {{ foo }} ", {"foo": "hello"}), " hello ")
+    # test jinja2 native types
+    self.assertEqual(runTemplate("{{[foo]}}", {"foo": "hello"}), ["hello"])
+
     from giterop.runtime import Resource
     resource = Resource("test", attributes=dict(a1="hello"))
     vars = dict(__giterop = RefContext(resource))
@@ -207,6 +213,18 @@ class EvalTest(unittest.TestCase):
     exp = {'a': "{{ aVar }} world"}
     vars = {'aVar': 'hello'}
     self.assertEqual(mapValue(exp, RefContext(resource, vars)), {'a': 'hello world'})
+
+  def test_templateFunc(self):
+    query = {
+      "eval": {"template": "{%if testVar %}{{success}}{%else%}failed{%endif%}"},
+      "vars": {"testVar": True, "success": dict(eval={
+        'if': '$true',
+        'then': '.name'})
+      }
+    }
+    resource = self._getTestResource({'aTemplate': query})
+    self.assertEqual(mapValue(query, resource), 'test')
+    self.assertEqual(resource.attributes['aTemplate'], 'test')
 
   def test_innerReferences(self):
     resourceDef = {'a':
@@ -257,6 +275,16 @@ class EvalTest(unittest.TestCase):
     result = Ref(query).resolveOne(RefContext(resource))
     self.assertEqual(result, {'aRef': resource, 'aTemplate': True})
 
+    query = {
+      'eval': "$aRef",
+      'vars': {
+        "aRef": {"eval": '::test'}
+      }
+    }
+    assert Ref.isRef(query['vars']['aRef'])
+    result = Ref(query).resolveOne(RefContext(resource))
+    self.assertEqual(result, resource)
+
   def test_nodeTraversal1(self):
     root = Resource('r2', { "a": [
             dict(ref="::r1::a"), #'r1'
@@ -292,11 +320,3 @@ class EvalTest(unittest.TestCase):
       "eval": {"lookup": {"env": 'TEST_ENV'}}
     }
     self.assertEqual(mapValue(query, resource), 'testEnv')
-
-  def test_jinjaTemplate(self):
-    resource = self._getTestResource()
-    query = {
-      "eval": {"template": "{%if test %}{{success}}{%else%}failed{%endif%}"},
-      "vars": {"test": True, "success": "expected"}
-    }
-    self.assertEqual(mapValue(query, resource), 'expected')

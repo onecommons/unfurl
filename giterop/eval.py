@@ -29,14 +29,18 @@ def runTemplate(data, vars=None, dataLoader=None):
   #   dataLoader is only used by _lookup and to set _basedir (else ./)
   return Templar(dataLoader or DataLoader(), variables=vars).template(data)
 
+def isTemplate(val, ctx):
+  return isinstance(val, six.string_types) and not not ctx._lastResource.templar._clean_regex.search(val)
+
 def applyTemplate(value, ctx):
-  templar = ctx.currentResource.templar
+  templar = ctx._lastResource.templar
   vars = dict(__giterop = ctx)
   vars.update(ctx.vars)
   templar.set_available_variables(vars)
-  value = templar.template(value)
-  if Ref.isRef(value):
-    value = Ref(value).resolveOne(ctx)
+  oldvalue = value
+  value = templar.template(value.strip())
+  if value != oldvalue:
+    ctx.trace("processed template:", value)
   return value
 
 def mapValue(value, resourceOrCxt):
@@ -52,7 +56,7 @@ def _mapValue(value, ctx):
     return dict((key, _mapValue(v, ctx)) for key, v in value.items())
   elif isinstance(value, (MutableSequence, tuple)):
     return [_mapValue(item, ctx) for item in value]
-  elif isinstance(value, six.string_types):
+  elif isTemplate(value, ctx):
     return applyTemplate(value, ctx)
   return value
 
@@ -69,8 +73,9 @@ class RefContext(object):
     self.resolveExternal = resolveExternal
     self._trace = trace
 
-  def copy(self, resource=None, vars=None, wantList=None):
-    copy = RefContext(resource or self.currentResource, self.vars, self.wantList, self.resolveExternal, self._trace)
+  def copy(self, resource=None, vars=None, wantList=None, trace=0):
+    copy = RefContext(resource or self.currentResource, self.vars, self.wantList,
+      self.resolveExternal, max(self._trace, trace))
     if not isinstance(copy.currentResource, ResourceRef) and isinstance(self._lastResource, ResourceRef):
       copy._lastResource = self._lastResource
     if vars:
@@ -109,13 +114,9 @@ class Expr(object):
     # XXX vars
     return "Expr('%s')" % self.source
 
-  def resolve(self, ctx):
+  def resolve(self, context):
     # returns a list of Results
-    currentResource = ctx.currentResource
-    # use Results._mapValues because we don't want to resolve ExternalValues
-    vars = Results._mapValue(self.vars, currentResource)
-    vars['start'] = currentResource
-    context = ctx.copy(currentResource, vars)
+    currentResource = context.currentResource
     if not self.paths[0].key and not self.paths[0].filters: # starts with "::"
       currentResource = currentResource.all
       paths = self.paths[1:]
@@ -227,6 +228,7 @@ class Ref(object):
     }
 
     self.foreach = None
+    self.trace = 0
     if isinstance(exp, Mapping):
       if 'q' in exp:
         self.source = exp
@@ -234,6 +236,7 @@ class Ref(object):
 
       self.vars.update(exp.get('vars', {}))
       self.foreach = exp.get('foreach')
+      self.trace = exp.get('trace', 0)
       exp = exp.get('eval', exp.get('ref', exp))
 
     if vars:
@@ -245,7 +248,7 @@ class Ref(object):
     Return a ResultList of matches
     Note that values in the list can be a list or None
     """
-    ctx = ctx.copy(vars=self.vars, wantList=wantList)
+    ctx = ctx.copy(vars=self.vars, wantList=wantList, trace=self.trace)
     results = evalRef(self.source, ctx, True)
     if results and self.foreach:
       results = forEach(self.foreach, results, ctx)
@@ -284,7 +287,7 @@ class Ref(object):
   def isRef(value):
     if isinstance(value, Mapping):
       if 'ref' in value or 'eval' in value:
-        return len([x for x in ['vars', 'foreach'] if x in value]) + 1 == len(value)
+        return len([x for x in ['vars', 'trace', 'foreach'] if x in value]) + 1 == len(value)
       if len(value) == 1 and list(value)[0] in _FuncsTop:
         return True
       return False
@@ -344,6 +347,7 @@ def _forEach(foreach, results, ctx):
     keyExp = foreach.get('key')
     valExp = foreach.get('value')
     if not valExp and not keyExp:
+      # it's a dict that needs to be evaluated
       valExp = foreach
 
   ictx = ctx.copy(wantList=False)
@@ -380,6 +384,7 @@ def _forEach(foreach, results, ctx):
         yield valResults
 
   if keyExp:
+    # use CommentedMap to preserve order
     return [CommentedMap(makeItems())]
   else:
     return list(makeItems())
@@ -425,7 +430,10 @@ def setEvalFunc(name, val, topLevel = False):
 def evalRef(val, ctx, top=False):
   # functions and ResultsMap assume resolveOne semantics
   if top:
-    ctx = ctx.copy(wantList = False)
+    # use Results._mapValues because we don't want to resolve ExternalValues
+    vars = Results._mapValue(ctx.vars, ctx.currentResource)
+    vars['start'] = ctx.currentResource
+    ctx = ctx.copy(ctx.currentResource, vars, wantList = False)
   if isinstance(val, Mapping):
     for key in val:
       func = _Funcs.get(key)
@@ -440,9 +448,12 @@ def evalRef(val, ctx, top=False):
           return [Result(val)]
         break
   elif isinstance(val, six.string_types):
-    expr = Expr(val, ctx.vars)
-    results = expr.resolve(ctx) # returns a list of Results
-    return results
+    if isTemplate(val, ctx):
+      return [Result(applyTemplate(val, ctx))]
+    else:
+      expr = Expr(val, ctx.vars)
+      results = expr.resolve(ctx) # returns a list of Results
+      return results
 
   mappedVal = Results._mapValue(val, ctx)
   if isinstance(mappedVal, Result):

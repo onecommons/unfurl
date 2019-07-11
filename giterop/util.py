@@ -35,6 +35,8 @@ class AnsibleDisplay(display.Display):
 import ansible.constants as C
 if 'ANSIBLE_NOCOWS' not in os.environ:
   C.ANSIBLE_NOCOWS=1
+if 'ANSIBLE_JINJA2_NATIVE' not in os.environ:
+  C.DEFAULT_JINJA2_NATIVE=1
 ansibleDisplay = AnsibleDisplay()
 
 def initializeAnsible():
