@@ -24,6 +24,12 @@ class RefFunc(functions.Function):
 functions.function_mappings['eval'] = RefFunc
 functions.function_mappings['ref'] = RefFunc
 
+def createDefaultTopology():
+  return dict(
+  node_templates = {'_default': {'type': 'tosca.nodes.Root'}},
+  relationship_templates= {'_default': {'type': 'tosca.relationships.Root'}}
+  )
+
 tosca_ext = """
 tosca_definitions_version: tosca_simple_yaml_1_0
 node_types:
@@ -71,6 +77,12 @@ class ToscaSpec(object):
 
   def __init__(self, toscaDef, inputs=None, instances=None, path=None):
     toscaDef.update(tosca_ext_tpl)
+    # for key in tosca_ext_tpl:
+    toscaDef.setdefault('topology_template', dict(
+                        node_templates = {},
+                        relationship_templates= {}
+            ))
+
     if instances:
       self.loadInstances(toscaDef, instances)
 
@@ -142,11 +154,7 @@ class ToscaSpec(object):
       }
     return template
 
-_defaultTopology = TopologyTemplate(dict(
-  node_templates = {'_default': {'type': 'tosca.nodes.Root'}},
-  relationship_templates= {'_default': {'type': 'tosca.relationships.Root'}}
-  ), {})
-
+_defaultTopology = TopologyTemplate(createDefaultTopology(), {})
 
 # represents a node, capability or relationship
 class EntitySpec(object):

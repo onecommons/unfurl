@@ -550,7 +550,7 @@ def findSchemaErrors(obj, schema):
   errors = list(validator.iter_errors(obj))
   if not errors:
     return None
-  message = '\n'.join(str(e) for e in errors)
+  message = '\n'.join(e.message for e in errors)
   return message, errors
 
 #RefResolver.from_schema(schema)

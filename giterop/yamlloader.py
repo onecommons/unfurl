@@ -100,6 +100,7 @@ class YamlConfig(object):
     # yaml.dump(config, sys.stdout)
     errors = schema and self.validate(config)
     if errors and validate:
+      # errors = (message, errors)
       raise GitErOpValidationError(*errors)
     else:
       self.valid = not not errors
