@@ -9,7 +9,7 @@ import os.path
 import six
 from enum import IntEnum
 
-from .eval import RefContext, setEvalFunc, Ref, mapValue, evalForFunc
+from .eval import RefContext, setEvalFunc, Ref, mapValue
 from .result import ResultsMap, Result, ExternalValue, serializeValue
 from .util import (intersectDict, mergeDicts, ChainMap, findSchemaErrors,
                 GitErOpError, GitErOpValidationError, assertForm)
@@ -56,7 +56,7 @@ class File(ExternalValue):
     else:
       raise KeyError(name)
 
-setEvalFunc('file', lambda arg, ctx: File(arg))
+setEvalFunc('file', lambda arg, ctx: File(mapValue(arg, ctx)))
 
 def runLookup(name, templar, *args, **kw):
   from ansible.plugins.loader import lookup_loader
@@ -103,13 +103,21 @@ def getInput(arg, ctx):
 setEvalFunc('get_input', getInput, True)
 
 def concat(args, ctx):
-  return ''.join([str(a) for a in evalForFunc(args, ctx)])
+  return ''.join([str(a) for a in mapValue(args, ctx)])
 setEvalFunc('concat', concat, True)
 
 def token(args, ctx):
-  args = evalForFunc(args, ctx)
+  args = mapValue(args, ctx)
   return args[0].split(args[1])[args[2]]
 setEvalFunc('token', token, True)
+
+# XXX this doesn't work with node_filters, need an instance to get a specific result
+def getToscaProperty(args, ctx):
+  from toscaparser.functions import get_function
+  tosca_tpl = ctx.currentResource.root.template.toscaEntityTemplate
+  node_template = ctx.currentResource.template.toscaEntityTemplate
+  return get_function(tosca_tpl, node_template, {'get_property': args}).result()
+setEvalFunc('get_property', getToscaProperty, True)
 
 def getImport(arg, ctx):
   """

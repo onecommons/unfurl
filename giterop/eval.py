@@ -230,14 +230,12 @@ class Ref(object):
     self.foreach = None
     self.trace = 0
     if isinstance(exp, Mapping):
-      if 'q' in exp:
-        self.source = exp
-        return
-
-      self.vars.update(exp.get('vars', {}))
-      self.foreach = exp.get('foreach')
-      self.trace = exp.get('trace', 0)
-      exp = exp.get('eval', exp.get('ref', exp))
+      keys = list(exp)
+      if keys and keys[0] not in _FuncsTop:
+        self.vars.update(exp.get('vars', {}))
+        self.foreach = exp.get('foreach')
+        self.trace = exp.get('trace', 0)
+        exp = exp.get('eval', exp.get('ref', exp))
 
     if vars:
       self.vars.update(vars)
@@ -330,14 +328,14 @@ def quoteFunc(arg, ctx):
   return arg
 
 def eqFunc(arg, ctx):
-  args = evalForFunc(arg, ctx)
+  args = mapValue(arg, ctx)
   assert isinstance(args, MutableSequence) and len(args) == 2
-  return evalRef(args[0], ctx) == evalRef(args[1], ctx)
+  return args[0] == args[1]
 
 def validateSchemaFunc(arg, ctx):
-  args = evalForFunc(arg, ctx)
+  args = mapValue(arg, ctx)
   assert isinstance(args, MutableSequence) and len(args) == 2
-  return validateSchema(evalForFunc(args[0], ctx), evalForFunc(args[1], ctx))
+  return validateSchema(args[0], args[1])
 
 def _forEach(foreach, results, ctx):
   if isinstance(foreach, six.string_types):
@@ -417,17 +415,17 @@ _Funcs = {
   'foreach': forEachFunc,
 }
 _FuncsTop = ['q']
-
 def getEvalFunc(name):
   return _Funcs.get(name)
 
 def setEvalFunc(name, val, topLevel = False):
   _Funcs[name] = val
   if topLevel:
-    _FuncsTop.append(val)
+    _FuncsTop.append(name)
 
 # returns list of results
 def evalRef(val, ctx, top=False):
+  "val is assumed to be an expression, evaluate and return a list of Results"
   # functions and ResultsMap assume resolveOne semantics
   if top:
     # use Results._mapValues because we don't want to resolve ExternalValues
@@ -462,6 +460,7 @@ def evalRef(val, ctx, top=False):
     return [Result(mappedVal)]
 
 def evalForFunc(val, ctx):
+  "like `evalRef` except it returns the resolved value"
   results = evalRef(val, ctx)
   if not results:
     return None
