@@ -4,10 +4,6 @@ from giterop.job import Runner, JobOptions, Status
 from giterop.configurator import Configurator
 from giterop.util import lookupPath
 import datetime
-import logging
-logging.basicConfig(level=logging.DEBUG)
-logger = logging.getLogger('gitup')
-logger.setLevel(logging.DEBUG)
 
 class TestConfigurator(Configurator):
   def run(self, task):

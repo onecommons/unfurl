@@ -8,37 +8,13 @@ from __future__ import print_function
 
 from .yamlmanifest import runJob
 from .support import Status
-from . import __version__
+from . import __version__, initLogging
 import click
 import sys
-import logging
 import os
 import os.path
 import traceback
-
-def initLogging(quiet, logfile, verbose):
-  logging.captureWarnings(True)
-  rootLogger = logging.getLogger()
-  rootLogger.setLevel(logging.DEBUG) # need to set this first
-
-  if logfile:
-    ch = logging.FileHandler(logfile)
-    formatter = logging.Formatter(
-        '[%(asctime)s] %(levelname)s: %(message)s')
-    ch.setFormatter(formatter)
-    ch.setLevel(logging.DEBUG)
-    rootLogger.addHandler(ch)
-
-  ch = logging.StreamHandler()
-  formatter = logging.Formatter('%(levelname)s: %(message)s')
-  ch.setFormatter(formatter)
-  if quiet:
-    ch.setLevel(logging.CRITICAL)
-  else:
-    # TRACE (5)
-    levels = [logging.INFO, logging.DEBUG, 5, 5, 5]
-    ch.setLevel(levels[min(verbose,3)])
-  rootLogger.addHandler(ch)
+import logging
 
 @click.group()
 @click.pass_context
@@ -53,7 +29,14 @@ def cli(ctx, verbose=0, quiet=False, logfile=None, **kw):
   ctx.ensure_object(dict)
   ctx.obj['verbose'] = verbose
   ctx.obj.update(kw)
-  initLogging(quiet, logfile, verbose)
+  if quiet:
+    logLevel = logging.CRITICAL
+  else:
+    # TRACE (5)
+    levels = [logging.INFO, logging.DEBUG, 5, 5, 5]
+    logLevel = levels[min(verbose,3)]
+  
+  initLogging(logLevel, logfile)
 
 #giterop run foo:create -- terraform blah
 # --append

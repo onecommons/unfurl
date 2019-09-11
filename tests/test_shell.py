@@ -4,10 +4,6 @@ from giterop.job import Runner, JobOptions
 from giterop.configurator import Configurator, Status
 from giterop.util import lookupPath
 import datetime
-import logging
-logging.basicConfig(level=logging.DEBUG)
-logger = logging.getLogger('giterup')
-logger.setLevel(logging.DEBUG)
 
 manifest = '''
 apiVersion: giterops/v1alpha1
@@ -41,6 +37,6 @@ class ShellConfiguratorTest(unittest.TestCase):
     runner = Runner(YamlManifest(manifest))
 
     run1 = runner.run(JobOptions(resource='test1'))
-    assert len(run1.workDone) == 1, run1.workDone    
+    assert len(run1.workDone) == 1, run1.workDone
     self.assertEqual(runner.manifest.getRootResource().findResource('test1').attributes['stdout'], 'helloworld')
     assert not run1.unexpectedAbort, run1.unexpectedAbort.getStackTrace()

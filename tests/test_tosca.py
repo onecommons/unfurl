@@ -5,11 +5,6 @@ from giterop.support import Status
 from giterop.configurator import Configurator
 # from giterop.util import GitErOpError, GitErOpValidationError
 
-import logging
-logging.basicConfig(level=logging.DEBUG)
-logger = logging.getLogger('giterup')
-logger.setLevel(logging.DEBUG)
-
 class SetAttributeConfigurator(Configurator):
   def run(self, task):
     task.target.attributes['private_address'] = '10.0.0.1'
