@@ -9,7 +9,7 @@ import datetime
 import types
 from .support import Status, Priority, AttributeManager
 from .result import serializeValue, ChangeRecord
-from .util import GitErOpError, GitErOpTaskError, mergeDicts, ansibleDisplay
+from .util import GitErOpError, GitErOpTaskError, mergeDicts, ansibleDisplay, toEnum
 from .runtime import OperationalInstance
 from .configurator import TaskView, ConfiguratorResult
 from .plan import Plan
@@ -148,6 +148,7 @@ class ConfigTask(ConfigChange, TaskView, AttributeManager):
         instance.localStatus = result.readyState
 
   def finished(self, result):
+    assert result
     if self.generator:
       self.generator.close()
       self.generator = None
@@ -310,9 +311,14 @@ class Job(ConfigChange):
   def getCandidateTasks(self):
     # XXX plan might call job.runJobRequest(configuratorJob) before yielding
     for (configSpec, target, reason) in self.plan.executePlan():
+      configSpecName = configSpec.name
       configSpec = self.filterConfig(configSpec, target)
-      if not configSpec or self.runner.isConfigAlreadyHandled(configSpec):
+      if not configSpec:
+        logger.debug("skipping configspec %s for %s", configSpecName, target.name)
+        continue
+      if self.runner.isConfigAlreadyHandled(configSpec):
         # configuration may have premptively run while executing another task
+        logger.debug("configspec %s for target %s already handled", configSpecName, target.name)
         continue
 
       yield self.createTask(configSpec, target, reason=reason)
@@ -383,7 +389,7 @@ class Job(ConfigChange):
       GitErOpTaskError(task, "shouldRun failed")
       return False
 
-    task.priority = priority
+    task.priority = toEnum(Priority, priority, Priority.ignore)
     return priority > Priority.ignore
 
   def cantRunTask(self, task):
@@ -430,7 +436,7 @@ class Job(ConfigChange):
 
     def format(name, task):
       required = '[required]' if task.required else ''
-      return "%s: %s:%s: %s" % (name, required, task.status.name, task.result)
+      return "%s: %s:%s: %s" % (name, required, task.status.name, task.result or "skipped")
 
     line1 = 'Job %s completed: %s. Tasks:\n    ' % (self.changeId, self.status.name)
     tasks = '\n    '.join(format(name, task) for name, task in self.workDone.items())
@@ -492,12 +498,13 @@ class Runner(object):
     self.currentJob = None
 
   def addWork(self, task):
-    key = task.configSpec.name
+    key = "%s:%s:%s:%s" % (task.target.name, task.configSpec.name, task.configSpec.action, task.changeId)
     self.currentJob.workDone[key] = task
     task.job.workDone[key] = task
 
   def isConfigAlreadyHandled(self, configSpec):
-    return configSpec.name in self.currentJob.workDone
+    return False # XXX
+    # return configSpec.name in self.currentJob.workDone
 
   def createJob(self, joboptions):
     """
@@ -524,7 +531,7 @@ class Runner(object):
       job.run()
     except Exception:
       job.localStatus = Status.error
-      job.unexpectedAbort = GitErOpError("unexpected exception while running job", True)
+      job.unexpectedAbort = GitErOpError("unexpected exception while running job", True, True)
     self.currentJob = None
     self.manifest.commitJob(job)
     return job

@@ -49,9 +49,11 @@ initializeAnsible()
 VERSION = 'giterops/v1alpha1' # api version
 
 class GitErOpError(Exception):
-  def __init__(self, message, saveStack=False):
+  def __init__(self, message, saveStack=False, log=False):
     super(GitErOpError, self).__init__(message)
     self.stackInfo = sys.exc_info() if saveStack else None
+    if log:
+      logger.error(message, exc_info=True)
 
   def getStackTrace(self):
     if not self.stackInfo:
@@ -65,9 +67,8 @@ class GitErOpValidationError(GitErOpError):
 
 class GitErOpTaskError(GitErOpError):
   def __init__(self, task, message):
-    super(GitErOpTaskError, self).__init__(message, True)
+    super(GitErOpTaskError, self).__init__(message, True, True)
     self.task = task
-    logger.error(message, exc_info=True)
     task.errors.append(self)
 
 class GitErOpAddingResourceError(GitErOpTaskError):

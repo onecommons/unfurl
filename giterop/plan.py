@@ -32,10 +32,20 @@ class Plan(object):
       if resource.template.name == nodeTemplate.name:
         yield resource
 
+  def findParentResource(self, source):
+    parentTemplate = findParentTemplate(source.toscaEntityTemplate)
+    if not parentTemplate:
+      return self.root
+    for parent in self.findResourcesFromTemplate(parentTemplate):
+      # XXX need to evaluate matches
+      return parent
+
   def createResource(self, template):
     # XXX create capabilities and requirements too?
     # XXX if requirement with HostedOn relationshio, target is the parent not root
-    return Resource(template.name, template=template, parent=self.root)
+    parent = self.findParentResource(template)
+    assert parent, "parent should have already been created"
+    return Resource(template.name, template=template, parent=parent)
 
   def createShellConfigurator(self, cmdLine, action, inputs=None, timeout=None):
       params = dict(command=cmdLine, timeout=timeout)
@@ -46,7 +56,6 @@ class Plan(object):
   def getConfigurationSpecFromInterface(self, iDef):
     '''implementation can either be a named artifact (including a python configurator class),
       configurator node template, or a file path'''
-
     implementation = iDef.implementation
     timeout = None
     if isinstance(implementation, dict):
@@ -187,7 +196,12 @@ Returns:
         t for t in self.tosca.nodeTemplates.values()
           if not t.isCompatibleType(self.tosca.ConfiguratorType)]
 
-    logging.debug('checking for tasks for templates %s', [t.name for t in templates])
+    # order by ancestors
+    templates = list(orderTemplates(
+        self.tosca.template.topology_template.graph,
+        {t.name : t for t in templates}))
+
+    logger.debug('checking for tasks for templates %s', [t.name for t in templates])
     visited = set()
     for template in templates:
       found = False
@@ -202,6 +216,8 @@ Returns:
           else:
             operation = 'configure'
           yield self.generateConfiguration(operation, resource, reason, opts.useConfigurator)
+        else:
+          logger.debug('skipping task for %s:%s', resource.name, template.name),
 
       if not found and (opts.add or opts.all):
         reason = 'add'
@@ -215,7 +231,7 @@ Returns:
       for instance in self.root.getOperationalDependencies():
         for resource in instance.getSelfAndDescendents():
           if id(resource) not in visited:
-            logging.debug('checking for tasks for orphaned resource %s', resource.name)
+            logger.debug('checking for tasks for orphaned resource %s', resource.name)
             # it's an orphaned config
             include = self.includeTask(None, resource, resource.template)
             if not include:
@@ -231,8 +247,37 @@ Returns:
     else:
       configSpec = self.findImplementation('Standard', action, resource.template)
     if not configSpec:
-      raise GitErOpError('unable to find an implementation to "%s" "%s"' % (action, resource.name) )
+      raise GitErOpError('unable to find an implementation to "%s" "%s" on ""%s"' % (action, resource.template.name, resource.template.name) )
+    logger.debug('creating configuration %s with %s to run for %s: %s', configSpec.name, configSpec.inputs, resource.name, reason or action)
     return (configSpec, resource, reason or action)
+
+def orderTemplates(graph, templates):
+  seen = set()
+  for source in graph:
+    if source in seen:
+      continue
+    for ancestor in getAncestorTemplates(source):
+      if ancestor in seen:
+        continue
+      seen.add(ancestor)
+      template = templates.get(ancestor.name)
+      if template:
+        yield template
+
+def getAncestorTemplates(source):
+  for target, relation in source.related.items():
+    if relation.type == 'tosca.relationships.HostedOn':
+      for ancestor in getAncestorTemplates(target):
+        yield ancestor
+      break
+  yield source
+
+def findParentTemplate(source):
+  for target, relation in source.related.items():
+    if relation.type == 'tosca.relationships.HostedOn':
+      return target
+    return None
+
 
 # XXX!:
 def buildDependencyGraph():

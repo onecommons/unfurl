@@ -457,9 +457,12 @@ def saveTask(task):
   dependencies = [saveDependency(val) for val in task.dependencies.values()]
   if dependencies:
     output['dependencies'] = dependencies
-  result = task.result.result
-  if result:
-    output['result'] = saveResult(result)
+  if task.result:
+    result = task.result.result
+    if result:
+      output['result'] = saveResult(result)
+  else:
+    output['result'] = "skipped"
 
   return output
 
@@ -583,7 +586,7 @@ class YamlManifest(Manifest):
 
   def saveJob(self, job):
     changed = self.saveRootResource(job.workDone)
-    # XXX imported resources need to include its repo's workingdir commitid its status
+    # XXX imported resources need to include its repo's workingdir commitid in their status
     # status and job's changeset also need to save status of repositories
     # that were accessed by loadFromRepo() and add them with commitid and repotype
     # note: initialcommit:requiredcommit means any repo that has at least requiredcommit
@@ -601,7 +604,6 @@ class YamlManifest(Manifest):
 
     jobRecord = self.saveJobRecord(job)
     if job.workDone:
-      # no work was done, so bother recording this job
       self.manifest.config['latestChange'] = jobRecord
       changes = map(saveTask, job.workDone.values())
       if self.changeLogPath:
@@ -609,6 +611,7 @@ class YamlManifest(Manifest):
       else:
         self.manifest.config.setdefault('changes', []).extend(changes)
     else:
+      # no work was done, so bother recording this job
       changes = []
 
     if job.out:

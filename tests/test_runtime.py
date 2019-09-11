@@ -285,7 +285,7 @@ class InterfaceTest(unittest.TestCase):
 class FileTestConfigurator(Configurator):
   def run(self, task):
     assert not self.cantRun(task)
-    assert task.target.attributes['file'] == 'foo.txt'
+    assert task.target.attributes['file'] == 'foo.txt', task.target.attributes
     assert os.path.isabs(task.inputs['path']), task.inputs
     assert task.inputs['contents'] == 'test', task.inputs['contents']
 
@@ -332,7 +332,8 @@ class FileTest(unittest.TestCase):
       with open('foo.txt', 'w') as f:
         f.write('test')
       job = runner.run(JobOptions(add=True, out=output, startTime="test"))
-    self.assertEqual( job.workDone['configurator-test'].result.result, 'foo.txt')
+    task = list(job.workDone.values())[0]
+    self.assertEqual(task.result.result, 'foo.txt')
 
   def test_manifest_template(self):
     template = """
