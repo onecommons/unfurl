@@ -22,7 +22,6 @@ spec:
   inputs:
     cpus: 2
   tosca:
-    tosca_definitions_version: tosca_simple_yaml_1_0
     topology_template:
       inputs:
         cpus:

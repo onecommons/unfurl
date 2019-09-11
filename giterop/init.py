@@ -15,6 +15,7 @@ import os
 import os.path
 from git import Repo
 from . import __version__
+from .tosca import TOSCA_VERSION
 
 def writeLocalConfig(projectdir):
   os.makedirs(projectdir)
@@ -71,7 +72,7 @@ def createSpecRepo(gitDir):
   serviceTemplatePath = os.path.join(gitDir, 'service-template.yaml')
   with open(serviceTemplatePath, 'w') as f:
     f.write("""\
-tosca_definitions_version: tosca_simple_yaml_1_0
+tosca_definitions_version: %s
 repositories:
   spec:
     url: file:.
@@ -79,7 +80,7 @@ repositories:
       initial-commit: %s
 topology_template:
   node_templates:
-""" % repo.head.commit.hexsha)
+""" % (TOSCA_VERSION, repo.head.commit.hexsha))
   manifestTemplatePath = os.path.join(gitDir, 'manifest-template.yaml')
   with open(manifestTemplatePath, 'w') as f:
     f.write("""\

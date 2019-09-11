@@ -1,0 +1,44 @@
+tosca_definitions_version: tosca_simple_giterop_1_0_0
+node_types:
+  giterop.nodes.Configurator:
+    derived_from: tosca.nodes.Root
+    interfaces:
+      Provides:
+        type: giterop.interfaces.Provides
+
+  giterop.nodes.Default:
+    derived_from: tosca.nodes.Root
+
+interface_types:
+  giterop.interfaces.Configurator:
+    instantiate:
+      description: Coming soon!
+    revert:
+      description: Coming soon!
+    discover:
+      description: Coming soon!
+
+  giterop.interfaces.Provides:
+    run:
+      description: Coming soon!
+    step1:
+      description: Coming soon!
+    step2:
+      description: Coming soon!
+    step3:
+      description: Coming soon!
+    step4:
+    step5:
+    step6:
+    step7:
+    step8:
+    step9:
+
+  giterop.nodes.Configurator:
+    derived_from: tosca.nodes.Root
+    interfaces:
+      Provides:
+        type: giterop.interfaces.Provides
+
+  giterop.nodes.Default:
+    derived_from: tosca.nodes.Root

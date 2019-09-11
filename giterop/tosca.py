@@ -8,12 +8,13 @@ Differences with TOSCA 1.1:
  * Interface "implementation" values can be a node template name, and the corresponding
    instance will be used to execute the operation.
 """
-import toscaparser
+from .tosca_plugins import TOSCA_VERSION
+
 from toscaparser.tosca_template import ToscaTemplate
 from toscaparser.topology_template import TopologyTemplate
 from toscaparser.elements.capabilitytype import CapabilityTypeDef
-
 from toscaparser import functions
+
 class RefFunc(functions.Function):
   def result(self):
       return {self.name: self.args}
@@ -25,58 +26,16 @@ functions.function_mappings['eval'] = RefFunc
 functions.function_mappings['ref'] = RefFunc
 
 def createDefaultTopology():
-  return dict(
-  node_templates = {'_default': {'type': 'tosca.nodes.Root'}},
-  relationship_templates= {'_default': {'type': 'tosca.relationships.Root'}}
-  )
-
-tosca_ext = """
-tosca_definitions_version: tosca_simple_yaml_1_0
-node_types:
-  giterop.nodes.Configurator:
-    derived_from: tosca.nodes.Root
-    interfaces:
-      Provides:
-        type: giterop.interfaces.Provides
-
-  giterop.nodes.Default:
-    derived_from: tosca.nodes.Root
-
-interface_types:
-  giterop.interfaces.Configurator:
-    instantiate:
-      description: Coming soon!
-    revert:
-      description: Coming soon!
-    discover:
-      description: Coming soon!
-
-  giterop.interfaces.Provides:
-    run:
-      description: Coming soon!
-    step1:
-      description: Coming soon!
-    step2:
-      description: Coming soon!
-    step3:
-      description: Coming soon!
-    step4:
-    step5:
-    step6:
-    step7:
-    step8:
-    step9:
-"""
-from ruamel.yaml import YAML
-from ruamel.yaml.comments import CommentedMap
-yaml = YAML()
-tosca_ext_tpl = yaml.load(tosca_ext)
+  tpl = dict(tosca_definitions_version=TOSCA_VERSION, topology_template=dict(
+    node_templates = {'_default': {'type': 'tosca.nodes.Root'}},
+    relationship_templates= {'_default': {'type': 'tosca.relationships.Root'}}
+    ))
+  return ToscaTemplate(yaml_dict_tpl=tpl).topology_template
 
 class ToscaSpec(object):
   ConfiguratorType = 'giterop.nodes.Configurator'
 
   def __init__(self, toscaDef, inputs=None, instances=None, path=None):
-    toscaDef.update(tosca_ext_tpl)
     # for key in tosca_ext_tpl:
     toscaDef.setdefault('topology_template', dict(
                         node_templates = {},
@@ -154,7 +113,7 @@ class ToscaSpec(object):
       }
     return template
 
-_defaultTopology = TopologyTemplate(createDefaultTopology(), {})
+_defaultTopology =  createDefaultTopology()
 
 # represents a node, capability or relationship
 class EntitySpec(object):

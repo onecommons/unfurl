@@ -3,7 +3,7 @@ import os.path
 import hashlib
 import json
 from ruamel.yaml.comments import CommentedMap
-from .tosca import ToscaSpec
+from .tosca import ToscaSpec, TOSCA_VERSION
 
 from .support import ResourceChanges, AttributeManager, Status, Priority, Action, Defaults
 from .runtime import OperationalInstance, Resource, Capability, Relationship
@@ -47,11 +47,11 @@ class Manifest(AttributeManager):
       toscaDef = {}
     if "node_templates" in toscaDef:
       # shortcut
-      toscaDef = dict(tosca_definitions_version='tosca_simple_yaml_1_0',
+      toscaDef = dict(tosca_definitions_version=TOSCA_VERSION,
                   topology_template=toscaDef)
     else:
       # make sure this is present
-      toscaDef['tosca_definitions_version']='tosca_simple_yaml_1_0'
+      toscaDef['tosca_definitions_version']=TOSCA_VERSION
 
     # hack so we can sneak through manifest to the yamlloader
     toscaDef = CommentedMap(toscaDef.items())
