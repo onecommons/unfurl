@@ -10,6 +10,9 @@ from ansible.cli.playbook import PlaybookCLI
 from ansible.plugins.callback.default import CallbackModule
 from ansible.module_utils import six
 
+import logging
+logger = logging.getLogger('giterop')
+
 yaml = YAML()
 
 # input parameters:
@@ -17,8 +20,9 @@ yaml = YAML()
 #  playbookArgs
 #  extraVars
 #  inventory
+#  returnValues
 #  XXX environVars
-def ansibleResults(result):
+def ansibleResults(result, extraKeys=()):
   # result is per-task ansible.executor.task_result.TaskResult
   # https://github.com/ansible/ansible/blob/devel/lib/ansible/executor/task_result.py
   # https://docs.ansible.com/ansible/latest/reference_appendices/common_return_values.html
@@ -47,6 +51,8 @@ def ansibleResults(result):
         resultDict[name] = val
         break
 
+  for key in extraKeys:
+    resultDict[key] = result._check_key(key)
   return resultDict
 
 class AnsibleConfigurator(Configurator):
@@ -115,8 +121,11 @@ class AnsibleConfigurator(Configurator):
     else:
       return playbook
 
+  def findPlaybook(self, task):
+    return task.inputs['playbook']
+
   def getPlaybook(self, task):
-    playbook = task.inputs['playbook']
+    playbook = self.findPlaybook(task)
     if isinstance(playbook, six.string_types):
       return playbook
     playbook = self._makePlayBook(playbook)
@@ -139,6 +148,9 @@ class AnsibleConfigurator(Configurator):
       if results and results.strip():
         task.updateResources(results)
 
+  def getResultKeys(self, task, results):
+    return task.inputs.get('returnValues', [])
+
   def run(self, task):
     try:
       #build host inventory from resource
@@ -156,11 +168,15 @@ class AnsibleConfigurator(Configurator):
         # XXX degraded vs. error if required?
         status = Status.ok
 
+      logger.debug('runplaybook status %s results %s', status, results.results[0]._check_key('result'))
+
       applied = len(results.resultsByStatus.ok) + len(results.resultsByStatus.failed)
       # XXX if more then one task??
-      result = results.results and ansibleResults(results.results[0]) or None
+      result = results.results and ansibleResults(results.results[0], self.getResultKeys(task, results.results[0])) or None
       if result and status == Status.ok or status == Status.degraded:
+        # this can update resources so don't do it on error
         self._processResult(task, result)
+
       yield task.createResult(applied > 0, results.changed > 0, status, result=result)
     finally:
       self._cleanup()
@@ -246,6 +262,8 @@ def runPlaybooks(playbooks, _inventory, params=None, args=None):
   cli._play_prereqs = hook_play_prereqs
 
   oldVerbosity = ansibleDisplay.verbosity
+  if logging.getLogger('ansible').getEffectiveLevel() <= 10: # debug
+    ansibleDisplay.verbosity = 2
   try:
     if cli.options.verbosity > ansibleDisplay.verbosity:
       ansibleDisplay.verbosity = cli.options.verbosity

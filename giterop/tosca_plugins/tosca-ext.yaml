@@ -9,6 +9,100 @@ node_types:
   giterop.nodes.Default:
     derived_from: tosca.nodes.Root
 
+  giterop.nodes.K8sCluster:
+    derived_from: tosca.nodes.Root
+    properties:
+      connection:
+        type: any
+        required: false
+       # any K8S_AUTH_* in https://docs.ansible.com/ansible/latest/modules/k8s_module.html#k8s-module
+       # or if not specified checks in cluster KUBERNETES_SERVICE_HOST, KUBERNETES_SERVICE_PORT and /var/run/secrets/kubernetes.io/serviceaccount/
+       # see also https://www.terraform.io/docs/providers/kubernetes/index.html
+    capabilities:
+      host:
+        type: tosca.capabilities.Container
+        valid_source_types: [giterop.nodes.K8sRawResource, giterop.nodes.K8sNamespace]
+    attributes:
+      apiserver:
+        type: string
+        metadata:
+         immutable: true
+    interfaces:
+      Standard:
+        inputs:
+          connection: {get_property: ['SELF', 'connection']}
+        create:
+          giterop.k8s.ClusterConfigurator
+        configure:
+          giterop.k8s.ClusterConfigurator
+
+  giterop.nodes.DockerImage:
+    derived_from: tosca.nodes.Root
+    # usage: ::image::repoDigest::0
+    properties:
+      name:
+        type: string
+      tag:
+        type: string
+        default: 'latest'
+    attributes:
+       repoDigests:
+        type: list
+    interfaces:
+      Standard:
+        create:
+          # need to check hasChanged() if tag isn't a digest
+          giterop.k8s.ImageConfigurator
+        configure:
+          giterop.k8s.ImageConfigurator
+
+  giterop.nodes.K8sRawResource:
+    derived_from: tosca.nodes.Root
+    requirements:
+      - host:
+          node: giterop.nodes.K8sCluster
+          relationship: tosca.relationships.HostedOn
+    properties:
+     definition:
+       type: any
+       required: False
+    attributes:
+      resource:
+       type: any
+    interfaces:
+      Standard:
+        inputs:
+          connection: {get_property: ['HOST', 'connection']}
+        create:
+          giterop.k8s.ResourceConfigurator
+        configure:
+          giterop.k8s.ResourceConfigurator
+        delete:
+          giterop.k8s.ResourceConfigurator
+
+  giterop.nodes.K8sNamespace:
+    derived_from: giterop.nodes.K8sRawResource
+    capabilities:
+      host:
+        type: tosca.capabilities.Container
+        valid_source_types: [giterop.nodes.K8sResource]
+    properties:
+      name:
+        type: string
+        default: default
+        metadata:
+           immutable: true
+
+  giterop.nodes.K8sResource:
+    derived_from: giterop.nodes.K8sRawResource
+    requirements:
+      - host:
+          node: giterop.nodes.K8sNamespace
+          relationship: tosca.relationships.HostedOn
+
+  giterop.nodes.k8sSecretResource:
+    derived_from: giterop.nodes.K8sResource
+
 interface_types:
   giterop.interfaces.Configurator:
     instantiate:
