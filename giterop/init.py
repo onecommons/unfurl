@@ -98,6 +98,8 @@ topology_template:
 def createInstanceRepo(gitDir, specRepo):
   repo = createRepo('instance', gitDir)
   filepath = os.path.join(gitDir, 'manifest.yaml')
+  relPathToSpecRepo = os.path.relpath(specRepo.working_tree_dir, os.path.abspath(gitDir))
+  specInitialCommit = list(specRepo.iter_commits('HEAD', max_parents=0))[0].hexsha
   with open(filepath, 'w') as f:
     f.write("""\
 apiVersion: giterops/v1alpha1
@@ -110,14 +112,14 @@ spec:
   tosca:
     repositories:
       spec:
-        url: file:../../spec
+        url: file:%s
         metadata:
           initial-commit: %s
       instance:
         url: file:.
         metadata:
           initial-commit: %s
-""" % (specRepo.head.commit.hexsha, repo.head.commit.hexsha))
+""" % (relPathToSpecRepo, specInitialCommit, repo.head.commit.hexsha))
   repo.index.add(['manifest.yaml'])
   repo.index.commit("Default instance repository boilerplate")
   return repo
@@ -134,3 +136,38 @@ def createProject(projectdir, home=None):
   specRepo = createSpecRepo(os.path.join(projectdir, 'spec'))
   createInstanceRepo(os.path.join(projectdir, 'instances', 'current'), specRepo)
   return newHome, projectConfigPath
+
+def createNewInstance(specRepoDir, targetPath):
+  from .repo import Repo
+  sourceRepo = Repo.createGitRepoIfExists(specRepoDir)
+  if not sourceRepo:
+    return None, "No repository exists at " + os.path.abspath(specRepoDir)
+  if not sourceRepo.isValidSpecRepo():
+    return None, "The respository at '%s' is not valid" % os.path.abspath(specRepoDir)
+
+  # XXX
+  #if localEnv.findPathInRepos(targetPath):
+  #  return None # "can't create repo in another repo"
+  instanceRepo = createInstanceRepo(targetPath, sourceRepo.repo)
+  # XXX
+  #project = localEnv.findProject(targetPath)
+  #if project: # add to project
+  return instanceRepo, "created new instance repository at %s" % os.path.abspath(targetPath)
+
+def cloneSpecToNewProject(sourceDir, projectDir):
+  from .repo import Repo
+  sourceRepo = Repo.createGitRepoIfExists(sourceDir)
+  if not sourceRepo:
+    return None, "No repository exists at " + os.path.abspath(sourceDir)
+  if not sourceRepo.isValidSpecRepo():
+    return None, "The respository at '%s' is not valid" % os.path.abspath(sourceDir)
+
+  if os.path.exists(projectDir):
+    return None, os.path.abspath(projectDir) + ": file already exists"
+
+  # XXX make sure projectdir is usable
+  projectConfigPath = writeLocalConfig(projectDir)
+  fullProjectDir = os.path.abspath(projectDir)
+  specRepo = sourceRepo.clone(os.path.join(fullProjectDir, 'spec'))
+  createInstanceRepo(os.path.join(projectDir, 'instances', 'current'), specRepo.repo)
+  return projectConfigPath, "New project created at %s" % fullProjectDir

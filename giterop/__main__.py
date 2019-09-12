@@ -35,7 +35,7 @@ def cli(ctx, verbose=0, quiet=False, logfile=None, **kw):
     # TRACE (5)
     levels = [logging.INFO, logging.DEBUG, 5, 5, 5]
     logLevel = levels[min(verbose,3)]
-  
+
   initLogging(logLevel, logfile)
 
 #giterop run foo:create -- terraform blah
@@ -116,8 +116,37 @@ giterop init [project] # creates a giterop project with new spec and instance re
     click.echo("giterop home created at %s" % homePath)
   click.echo("New GitErOp project created at %s" % projectPath)
 
-#gitop clone [instance or spec repo] # clones repos into new project
-#gitop newinstance # create new instance repo using manifest-template.yaml
+@cli.command()
+@click.pass_context
+@click.argument('spec_repo_dir', type=click.Path(exists=True)) #, help='path to spec repository')
+@click.argument('new_instance_dir', type=click.Path(exists=False)) #, help='path for new instance repository')
+def newinstance(ctx, spec_repo_dir, new_instance_dir, *args, **options):
+  """
+Creates a new instance repository for the given specification repository.
+"""
+  options.update(ctx.obj)
+  from .init import createNewInstance
+  repo, message = createNewInstance(spec_repo_dir, new_instance_dir)
+  if repo:
+    click.echo(message)
+  else:
+    raise click.ClickException(message)
+
+@cli.command()
+@click.pass_context
+@click.argument('spec_repo_dir', type=click.Path(exists=True)) #, help='path to spec repository')
+@click.argument('new_project_dir', type=click.Path(exists=False)) #, help='path for new project')
+def clone(ctx, spec_repo_dir, new_project_dir, **options):
+  """
+Create a new project by cloning the given specification repository and creating a new instance repository.
+"""
+  options.update(ctx.obj)
+  from .init import cloneSpecToNewProject
+  projectConfigPath, message = cloneSpecToNewProject(spec_repo_dir, new_project_dir)
+  if projectConfigPath:
+    click.echo(message)
+  else:
+    raise click.ClickException(message)
 
 @cli.command()
 def version():
@@ -125,7 +154,8 @@ def version():
 
 @cli.command()
 def plan():
-  click.echo("coming soon") # XXX
+  # XXX show status and task to run including preview of generated templates, cmds to run etc.
+  click.echo("coming soon")
 
 def printHelp():
   ctx = cli.make_context('giterop', [])

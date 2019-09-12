@@ -2,7 +2,7 @@ import os
 import os.path
 import git
 from git.repo.fun import (
-    find_worktree_git_dir
+    is_git_dir
 )
 import logging
 logger = logging.getLogger('giterop')
@@ -47,7 +47,7 @@ class Repo(object):
 
   @staticmethod
   def createGitRepoIfExists(rootDir, gitDir='.git'):
-    if find_worktree_git_dir(os.path.join(rootDir, gitDir)):
+    if is_git_dir(os.path.join(rootDir, gitDir)):
       return GitRepo(git.Repo(rootDir))
     return None
 
@@ -67,6 +67,9 @@ class Repo(object):
       bare = not self.workingDir or revision != self.revision
       return abspath[len(repoRoot):], revision, bare
     return None, None, None
+
+  def isValidSpecRepo(self):
+    return os.path.isfile(os.path.join(self.workingDir, 'manifest-template.yaml'))
 
   @classmethod
   def createWorkingDir(cls, gitUrl, localRepoPath, revision='HEAD'):
@@ -111,6 +114,9 @@ class GitRepo(Repo):
     logger.info("checking out '%s' at %s to %s", self.url, revision or 'HEAD', self.workingDir)
     return self.workingDir
 
+  # XXX: def getDependentRepos()
+  # XXX: def isDirty()
+
   def canMakeClean(self):
     for repo in self.getDependentRepos():
       if not repo.canMakeClean():
@@ -134,18 +140,22 @@ class GitRepo(Repo):
       if repo.isDirty():
         yield repo
 
+  # XXX unused.. logic is currently in yamlmanifest.commitJob()
   def commit(self):
     # before run referenced dirty repos should be committed?
     # at the very least the state of any declared repo should be saved
     # otherwise two different runs of the same commit could pull different versions
     # this is true for the spec repos also -- save in spec's manifest-template?
-    repo = self.gitRepo
+    repo = self.repo
     repo.index.add('*')
     # commit the manifest first so we can get a commit ref for the changerecord
     commit = repo.git.commit('')
     changeFiles = self.manifest.saveChanges(commit.hexsha)
     repo.index.add(changeFiles)
     repo.git.commit('')
+
+  def clone(self, newPath):
+    return GitRepo(self.repo.clone(newPath))
 
 # class SimpleRepo(Repo):
 #   def __init__(self, lastCommitId):
