@@ -204,7 +204,7 @@ class EvalTest(unittest.TestCase):
     vars = dict(__giterop = RefContext(resource))
     self.assertEqual(runTemplate(' {{ "::test::a1" | ref }} ', vars), u" hello ")
     self.assertEqual(runTemplate(' {{ lookup("giterop", "::test::a1") }} ', vars), u" hello ")
-    self.assertEqual(runTemplate('{{  query("giter  op", "::test::a1") }}', vars), [u'hello'])
+    self.assertEqual(runTemplate('{{  query("giterop", "::test::a1") }}', vars), [u'hello'])
 
     os.environ['TEST_ENV'] = 'testEnv' # note: tox doesn't pass on environment variables so we need to set one now
     self.assertEqual(mapValue("{{ lookup('env', 'TEST_ENV') }}", resource), 'testEnv')
