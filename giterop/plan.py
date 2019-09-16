@@ -186,20 +186,21 @@ Returns:
     yields configSpec, target, reason
     """
     opts = self.jobOptions
+    templates = [] if not self.tosca.nodeTemplates else [
+      t for t in self.tosca.nodeTemplates.values()
+        if not t.isCompatibleType(self.tosca.ConfiguratorType)]
+
     if opts.template:
-      template = self.tosca.getTemplate(opts.template)
-      if not template:
-        raise GitErOpError('template not found %s' % template)
-      templates = [template]
+      filterTemplate = self.tosca.getTemplate(opts.template)
+      if not filterTemplate:
+        raise GitErOpError('specified template not found %s' % filterTemplate)
     else:
-      templates = [] if not self.tosca.nodeTemplates else [
-        t for t in self.tosca.nodeTemplates.values()
-          if not t.isCompatibleType(self.tosca.ConfiguratorType)]
+      filterTemplate = None
 
     # order by ancestors
     templates = list(orderTemplates(
         self.tosca.template.topology_template.graph,
-        {t.name : t for t in templates}))
+        {t.name : t for t in templates}, filterTemplate and filterTemplate.name))
 
     logger.debug('checking for tasks for templates %s', [t.name for t in templates])
     visited = set()
@@ -251,9 +252,11 @@ Returns:
     logger.debug('creating configuration %s with %s to run for %s: %s', configSpec.name, configSpec.inputs, resource.name, reason or action)
     return (configSpec, resource, reason or action)
 
-def orderTemplates(graph, templates):
+def orderTemplates(graph, templates, filter=None):
   seen = set()
   for source in graph:
+    if filter and source.name != filter:
+      continue
     if source in seen:
       continue
     for ancestor in getAncestorTemplates(source):
