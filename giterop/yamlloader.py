@@ -6,7 +6,9 @@ from six.moves import urllib
 
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap
-from .util import expandDoc, GitErOpValidationError, findSchemaErrors
+from ruamel.yaml.representer import RepresenterError
+
+from .util import expandDoc, GitErOpError, GitErOpValidationError, findSchemaErrors, makeMapWithBase
 from toscaparser.common.exception import ExceptionCollector
 from toscaparser.common.exception import URLException
 from toscaparser.utils.gettextutils import _
@@ -14,8 +16,16 @@ from toscaparser.utils.gettextutils import _
 import logging
 logger = logging.getLogger('giterup')
 yaml = YAML()
+# monkey patch for better error message
+def represent_undefined(self, data):
+    raise RepresenterError('cannot represent an object: %s of type %s' % (data, type(data)))
+yaml.representer.represent_undefined = represent_undefined
+yaml.representer.add_representer(None, represent_undefined)
 
 def load_yaml(path, isFile=True, importLoader=None):
+  try:
+    originalPath = path
+    bare = False
     manifest = importLoader and getattr(importLoader.tpl, 'manifest', None)
     # check if this path is into a git repo
     if manifest:
@@ -59,51 +69,67 @@ def load_yaml(path, isFile=True, importLoader=None):
     except Exception as e:
         raise
     return yaml.load(f.read())
+  except:
+    if bare:
+      msg = 'Could not retrieve %s from repo (originally %s)' % (filePath, originalPath)
+    elif path != originalPath:
+      msg = 'Could not load "%s" (originally "%s")' % (path, originalPath)
+    else:
+      msg = 'Could not load "%s"' % path
+    raise GitErOpError(msg, True)
 
 import toscaparser.imports
 toscaparser.imports.YAML_LOADER = load_yaml
 
 class YamlConfig(object):
   def __init__(self, config=None, path=None, validate=True, schema=None, loadHook=None):
-    self.schema = schema
-    if path:
-      self.path = os.path.abspath(path)
-      if os.path.isfile(self.path):
-        with open(self.path, 'r') as f:
-          config = f.read()
-    else:
-      self.path = None
-
-    if isinstance(config, six.string_types):
+    try:
+      self.schema = schema
       if path:
-        # set name on a StringIO so parsing error messages include the path
-        config = six.StringIO(config)
-        config.name = path
-      self.config = yaml.load(config)
-    elif isinstance(config, dict):
-      self.config = CommentedMap(config.items())
-    else:
-      self.config = config
-    if not isinstance(self.config, CommentedMap):
-      raise GitErOpValidationError('invalid YAML document: %s' % self.config)
+        self.path = os.path.abspath(path)
+        if os.path.isfile(self.path):
+          with open(self.path, 'r') as f:
+            config = f.read()
+        # otherwise use default config
+      else:
+        self.path = None
 
-    self._cachedDocIncludes = {}
-    #schema should include defaults but can't validate because it doesn't understand includes
-    #but should work most of time
-    self.config.loadTemplate = self.loadInclude
-    self.loadHook = loadHook
+      if isinstance(config, six.string_types):
+        if self.path:
+          # set name on a StringIO so parsing error messages include the path
+          config = six.StringIO(config)
+          config.name = self.path
+        self.config = yaml.load(config)
+      elif isinstance(config, dict):
+        self.config = CommentedMap(config.items())
+      else:
+        self.config = config
+      if not isinstance(self.config, CommentedMap):
+        raise GitErOpValidationError('invalid YAML document: %s' % self.config)
 
-    self.baseDirs = [self.getBaseDir()]
-    self.includes, config = expandDoc(self.config, cls=CommentedMap)
-    self.expanded = config
-    # print('expanded')
-    # yaml.dump(config, sys.stdout)
-    errors = schema and self.validate(config)
-    if errors and validate:
-      # errors = (message, errors)
-      raise GitErOpValidationError(*errors)
-    else:
-      self.valid = not not errors
+      self._cachedDocIncludes = {}
+      #schema should include defaults but can't validate because it doesn't understand includes
+      #but should work most of time
+      self.config.loadTemplate = self.loadInclude
+      self.loadHook = loadHook
+
+      self.baseDirs = [self.getBaseDir()]
+      self.includes, expandedConfig = expandDoc(self.config, cls=makeMapWithBase(self.baseDirs[0]))
+      self.expanded = expandedConfig
+      # print('expanded')
+      # yaml.dump(config, sys.stdout)
+      errors = schema and self.validate(expandedConfig)
+      if errors and validate:
+        (message, schemaErrors) = errors
+        raise GitErOpValidationError("JSON Schema validation failed: " + message, errors)
+      else:
+        self.valid = not not errors
+    except:
+      if self.path:
+        msg = "Unable to load yaml config at %s" % self.path
+      else:
+        msg = "Unable to parse yaml config"
+      raise GitErOpError(msg, True)
 
   def loadYaml(self, path, baseDir=None):
     path = os.path.abspath(os.path.join(baseDir or self.getBaseDir(), path))
@@ -124,12 +150,14 @@ class YamlConfig(object):
     return findSchemaErrors(config, self.schema)
 
   def loadInclude(self, templatePath):
-    if templatePath is expandDoc:
+    if templatePath == self.baseDirs[-1]:
       self.baseDirs.pop()
       return
 
     if isinstance(templatePath, dict):
       value = templatePath.get('merge')
+      if 'file' not in templatePath:
+        raise GitErOpError('file missing from document %%include: %s' % templatePath)
       key = templatePath['file']
     else:
       value = None
@@ -137,17 +165,23 @@ class YamlConfig(object):
 
     if key in self._cachedDocIncludes:
       path, template = self._cachedDocIncludes[key]
-      self.baseDirs.append(os.path.dirname(path))
-      return value, template
+      baseDir = os.path.dirname(path)
+      self.baseDirs.append(baseDir)
+      return value, template, baseDir
 
-    if self.loadHook:
-      path, template = self.loadHook(self, templatePath, self.baseDirs[-1])
-    else:
-      path, template = self.loadYaml(key, self.baseDirs[-1])
-    self.baseDirs.append(os.path.dirname(path))
+    try:
+      baseDir = self.baseDirs[-1]
+      if self.loadHook:
+        path, template = self.loadHook(self, templatePath, baseDir)
+      else:
+        path, template = self.loadYaml(key, baseDir)
+      newBaseDir = os.path.dirname(path)
+    except:
+      raise GitErOpError('unable to load document %%include: %s (base: %s)' % (templatePath, baseDir), True, True)
+    self.baseDirs.append(newBaseDir)
 
     self._cachedDocIncludes[key] = [path, template]
-    return value, template
+    return value, template, newBaseDir
 
 def loadFromRepo(import_name, import_uri_def, basePath, repositories, manifest):
   """
@@ -158,6 +192,6 @@ def loadFromRepo(import_name, import_uri_def, basePath, repositories, manifest):
   context['repositories'] = repositories
   context.manifest = manifest
   uridef = {k: v for k, v in import_uri_def.items() if k in ['file', 'repository']}
-  # this will invoke load_yaml above
+  # _load_import_template will invoke load_yaml above
   loader = toscaparser.imports.ImportsLoader(None, basePath, tpl=context)
   return (loader._load_import_template(import_name, uridef))

@@ -33,11 +33,12 @@ class File(ExternalValue):
   Represents a local file.
   get() returns the given file path (usually relative)
   """
-  def __init__(self, name):
+  def __init__(self, name, baseDir=''):
     super(File, self).__init__('file', name)
+    self.baseDir = baseDir or ''
 
-  def getFullPath(self, baseDir):
-    return os.path.abspath(os.path.join(baseDir, self.get()))
+  def getFullPath(self):
+    return os.path.abspath(os.path.join(self.baseDir, self.get()))
 
   def resolveKey(self, name=None, currentResource=None):
     """
@@ -47,16 +48,15 @@ class File(ExternalValue):
     if not name:
       return self.get()
 
-    baseDir = currentResource.root.baseDir
     if name == 'path':
-      return self.getFullPath(baseDir)
+      return self.getFullPath()
     elif name == 'contents':
-      with open(self.getFullPath(baseDir), 'r') as f:
+      with open(self.getFullPath(), 'r') as f:
         return f.read()
     else:
       raise KeyError(name)
 
-setEvalFunc('file', lambda arg, ctx: File(mapValue(arg, ctx)))
+setEvalFunc('file', lambda arg, ctx: File(mapValue(arg, ctx), ctx.baseDir))
 
 def runLookup(name, templar, *args, **kw):
   from ansible.plugins.loader import lookup_loader
@@ -99,7 +99,10 @@ def lookupFunc(arg, ctx):
 setEvalFunc('lookup', lookupFunc)
 
 def getInput(arg, ctx):
-  return ctx.currentResource.root.findResource('inputs').attributes[arg]
+  try:
+    return ctx.currentResource.root.findResource('inputs').attributes[arg]
+  except KeyError:
+    raise GitErOpError("undefined input '%s'" % arg)
 setEvalFunc('get_input', getInput, True)
 
 def concat(args, ctx):
@@ -313,7 +316,7 @@ class AttributeManager(object):
       else:
         _attributes = ChainMap(copy.deepcopy(resource._attributes))
 
-      attributes = ResultsMap(_attributes, RefContext(resource))
+      attributes = ResultsMap(_attributes, RefContext(resource), False)
       self.attributes[resource.key] = (resource, attributes)
       return attributes
     else:
@@ -331,6 +334,7 @@ class AttributeManager(object):
       # save in _attributes in serialized form
       overrides, specd = attributes._attributes.split()
       resource._attributes = {}
+      if overrides: type(overrides)
       for key, value in overrides.items():
         if not isinstance(value, Result):
           # hasn't been touched so keep it as is

@@ -65,7 +65,7 @@ class Repo(object):
       if True:
         revision = self.revision
       bare = not self.workingDir or revision != self.revision
-      return abspath[len(repoRoot):], revision, bare
+      return abspath[len(repoRoot)+1:], revision, bare
     return None, None, None
 
   def isValidSpecRepo(self):

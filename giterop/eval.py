@@ -53,7 +53,14 @@ def _mapValue(value, ctx):
     return Ref(value).resolveOne(ctx)
 
   if isinstance(value, Mapping):
-    return dict((key, _mapValue(v, ctx)) for key, v in value.items())
+    try:
+      oldBaseDir = ctx.baseDir
+      ctx.baseDir = getattr(value, 'baseDir', oldBaseDir)
+      if ctx.baseDir and ctx.baseDir != oldBaseDir:
+        ctx.trace("found baseDir", ctx.baseDir)
+      return dict((key, _mapValue(v, ctx)) for key, v in value.items())
+    finally:
+      ctx.baseDir = oldBaseDir
   elif isinstance(value, (MutableSequence, tuple)):
     return [_mapValue(item, ctx) for item in value]
   elif isTemplate(value, ctx):
@@ -72,6 +79,7 @@ class RefContext(object):
     self.wantList = wantList
     self.resolveExternal = resolveExternal
     self._trace = trace
+    self.baseDir = currentResource.root.baseDir
 
   def copy(self, resource=None, vars=None, wantList=None, trace=0):
     copy = RefContext(resource or self.currentResource, self.vars, self.wantList,
@@ -82,6 +90,7 @@ class RefContext(object):
       copy.vars.update(vars)
     if wantList is not None:
       copy.wantList = wantList
+    copy.baseDir = self.baseDir
     return copy
 
   def trace(self, *msg):
@@ -247,6 +256,7 @@ class Ref(object):
     Note that values in the list can be a list or None
     """
     ctx = ctx.copy(vars=self.vars, wantList=wantList, trace=self.trace)
+    ctx.trace('Ref.resolve(wantList=%s) start' % wantList, self.source)
     results = evalRef(self.source, ctx, True)
     if results and self.foreach:
       results = forEach(self.foreach, results, ctx)
@@ -430,7 +440,7 @@ def evalRef(val, ctx, top=False):
   if top:
     # use Results._mapValues because we don't want to resolve ExternalValues
     vars = Results._mapValue(ctx.vars, ctx.currentResource)
-    vars['start'] = ctx.currentResource
+    vars._attributes['start'] = ctx.currentResource
     ctx = ctx.copy(ctx.currentResource, vars, wantList = False)
   if isinstance(val, Mapping):
     for key in val:

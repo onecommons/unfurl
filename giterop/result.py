@@ -221,11 +221,12 @@ class Results(object):
   Evaluating expressions are not guaranteed to be idempotent (consider quoting)
   and resolving the whole tree up front can lead to evaluations of cicular references unless the
   order is carefully chosen. So evaluate lazily and memoize the results.
+  This also allows us to track changes to the returned structure.
   """
 
-  __slots__ = ('_attributes', 'context', '_deleted')
+  __slots__ = ('_attributes', 'context', '_deleted', 'doFullResolve')
 
-  def __init__(self, serializedOriginal, resourceOrCxt):
+  def __init__(self, serializedOriginal, resourceOrCxt, doFullResolve=False):
       from .eval import RefContext
       assert not isinstance(serializedOriginal, Results), serializedOriginal
       self._attributes = serializedOriginal
@@ -233,6 +234,7 @@ class Results(object):
       if not isinstance(resourceOrCxt, RefContext):
         resourceOrCxt = RefContext(resourceOrCxt)
       self.context = resourceOrCxt
+      self.doFullResolve = doFullResolve
 
   def hasDiff(self):
     return any(isinstance(x, Result) and x.hasDiff() for x in self._attributes)
@@ -254,12 +256,16 @@ class Results(object):
       return mapValue(val, context)
 
   def __getitem__(self, key):
+    from .eval import mapValue
     val = self._attributes[key]
     if isinstance(val, Result):
       assert not isinstance(val.resolved, Result), val
       return val.resolved
     else:
-      resolved = self._mapValue(val, self.context)
+      if self.doFullResolve:
+        resolved = mapValue(val, self.context)
+      else:
+        resolved = self._mapValue(val, self.context)
       if isinstance(resolved, Result):
         result = resolved
         result.original = val

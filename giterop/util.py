@@ -147,6 +147,15 @@ def toEnum(enum, value, default=None):
   else:
     return value
 
+def makeMapWithBase(baseDir):
+  def factory(*args, **kws):
+    map = CommentedMap(*args, **kws)
+    map.baseDir = baseDir
+    map.mapCtor = makeMapWithBase(baseDir)
+    return map
+
+  return factory
+
 # XXX?? because json keys are strings allow number keys to merge with lists
 # values: merge, replace, delete, renamekey
 mergeStrategyKey = '+%'
@@ -170,7 +179,7 @@ def mergeDicts(b, a, cls=dict):
         if isinstance(bval, Mapping):
           if not strategy:
             strategy = bval.get(mergeStrategyKey, 'merge')
-          if strategy == 'merge':
+            cls = getattr(bval, 'mapCtor', cls)
             cp[key] = mergeDicts(bval, val, cls)
             continue
           if strategy == 'error':
@@ -210,7 +219,8 @@ def getTemplate(doc, key, value, path, cls):
   template = doc
   templatePath = None
   if key == IncludeKey:
-    value, template = doc.loadTemplate(value)
+    value, template, baseDir = doc.loadTemplate(value)
+    cls = makeMapWithBase(baseDir)
   else:
     for segment in key.split('/'):
       # XXX raise error if .. not at start of key
@@ -229,17 +239,19 @@ def getTemplate(doc, key, value, path, cls):
     if templatePath is None:
       templatePath = key.split('/')
 
-  if value != 'raw' and isinstance(template, Mapping): # raw means no further processing
-    # if the include path starts with the path to the template
-    # throw recursion error
-    if key != IncludeKey:
-      prefix = list(itertools.takewhile(lambda x: x[0] == x[1], zip(path, templatePath)))
-      if len(prefix) == len(templatePath):
-        raise GitErOpError('recursive include "%s" in "%s"' % (templatePath, path))
-    includes = CommentedMap()
-    template = expandDict(doc, path, includes, template, cls=dict)
-  if key == IncludeKey:
-    doc.loadTemplate(expandDoc)
+  try:
+    if value != 'raw' and isinstance(template, Mapping): # raw means no further processing
+      # if the include path starts with the path to the template
+      # throw recursion error
+      if key != IncludeKey:
+        prefix = list(itertools.takewhile(lambda x: x[0] == x[1], zip(path, templatePath)))
+        if len(prefix) == len(templatePath):
+          raise GitErOpError('recursive include "%s" in "%s"' % (templatePath, path))
+      includes = CommentedMap()
+      template = expandDict(doc, path, includes, template, cls=cls)
+  finally:
+    if key == IncludeKey:
+      doc.loadTemplate(baseDir) # pop baseDir
   return template
 
 def hasTemplate(doc, key, path, cls):
@@ -311,6 +323,7 @@ def expandDict(doc, path, includes, current, cls=dict):
     accum = templates.pop(0)
     templates.append(cp)
     while templates:
+      cls = getattr(templates[0], 'mapCtor', cls)
       accum = mergeDicts(accum, templates.pop(0), cls)
     return accum
   else:
