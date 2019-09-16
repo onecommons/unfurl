@@ -120,7 +120,9 @@ class CliTest(unittest.TestCase):
         f.write('invalid manifest')
 
       result = runner.invoke(cli, ['run'])
-      self.assertIsInstance(result.exception, GitErOpValidationError)
+      self.assertEqual(result.exit_code, 1, result)
+      # XXX log handler is writing to the CliRunner's output stream
+      self.assertEqual(result.output.strip(), 'Unable to create job')
 
   def test_localConfig(self):
     # test loading the default manifest declared in the local config

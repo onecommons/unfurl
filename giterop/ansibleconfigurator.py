@@ -73,7 +73,8 @@ class AnsibleConfigurator(Configurator):
     self._cleanupRoutines = []
 
   def dryRun(self, task):
-    yield self.run(task)
+    for result in self.run(task):
+      yield result
 
   def getInventory(self, task):
     return task.inputs.get('inventory')
@@ -234,6 +235,7 @@ def runPlaybooks(playbooks, _inventory, params=None, args=None):
   # giterop.util should have initialized ansibleDummyCli and ansibleDisplay already
   inventoryArgs =  ['-i', _inventory] if _inventory else []
   args=['ansible-playbook'] + inventoryArgs + (args or []) + playbooks
+  logger.info('running ' + ' '.join(args))
   cli = PlaybookCLI(args)
   cli.parse()
 

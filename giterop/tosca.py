@@ -9,10 +9,15 @@ Differences with TOSCA 1.1:
    instance will be used to execute the operation.
 """
 from .tosca_plugins import TOSCA_VERSION
-
+from .util import GitErOpValidationError
+from .eval import Ref
 from toscaparser.tosca_template import ToscaTemplate
-from toscaparser.topology_template import TopologyTemplate
+# from toscaparser.topology_template import TopologyTemplate
 from toscaparser.elements.capabilitytype import CapabilityTypeDef
+from toscaparser.common.exception import ExceptionCollector, ValidationError
+import logging
+logger = logging.getLogger('giterop')
+
 from toscaparser import functions
 
 class RefFunc(functions.Function):
@@ -24,6 +29,11 @@ class RefFunc(functions.Function):
 
 functions.function_mappings['eval'] = RefFunc
 functions.function_mappings['ref'] = RefFunc
+
+toscaIsFunction = functions.is_function
+def is_function(function):
+  return toscaIsFunction(function) or Ref.isRef(function)
+functions.is_function = is_function
 
 def createDefaultTopology():
   tpl = dict(tosca_definitions_version=TOSCA_VERSION, topology_template=dict(
@@ -45,8 +55,15 @@ class ToscaSpec(object):
     if instances:
       self.loadInstances(toscaDef, instances)
 
-    # need to set a path for the import loader
-    self.template = ToscaTemplate(path=path, parsed_params=inputs, yaml_dict_tpl=toscaDef)
+    logger.info("Validating TOSCA template at %s", path)
+    try:
+      # need to set a path for the import loader
+      self.template = ToscaTemplate(path=path, parsed_params=inputs, yaml_dict_tpl=toscaDef)
+    except ValidationError:
+      message = "\n".join(ExceptionCollector.getExceptionsReport(False))
+      raise GitErOpValidationError("TOSCA validation failed for %s: \n%s"  % (path, message),
+              ExceptionCollector.getExceptions())
+
     self.nodeTemplates = {}
     self.configurators = {}
     self.relationshipTemplates = {}
@@ -120,6 +137,7 @@ class EntitySpec(object):
   def __init__(self, toscaNodeTemplate):
     self.toscaEntityTemplate = toscaNodeTemplate
     self.name = toscaNodeTemplate.name
+    self.type = toscaNodeTemplate.type
     # nodes have both properties and attributes
     # as do capability properties and relationships
     # but only property values are declared

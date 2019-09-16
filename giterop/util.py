@@ -50,8 +50,12 @@ VERSION = 'giterops/v1alpha1' # api version
 
 class GitErOpError(Exception):
   def __init__(self, message, saveStack=False, log=False):
+    if saveStack:
+      (type, value, traceback) = sys.exc_info()
+      if value:
+        message += ': ' + str(value)
     super(GitErOpError, self).__init__(message)
-    self.stackInfo = sys.exc_info() if saveStack else None
+    self.stackInfo =  (type, value, traceback) if saveStack and value else None
     if log:
       logger.error(message, exc_info=True)
 
@@ -66,8 +70,8 @@ class GitErOpValidationError(GitErOpError):
     self.errors = errors or []
 
 class GitErOpTaskError(GitErOpError):
-  def __init__(self, task, message):
-    super(GitErOpTaskError, self).__init__(message, True, True)
+  def __init__(self, task, message, log=False):
+    super(GitErOpTaskError, self).__init__(message, True, log)
     self.task = task
     task.errors.append(self)
 

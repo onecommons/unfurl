@@ -254,7 +254,7 @@ root:
 '''
     with self.assertRaises(GitErOpError) as err:
       YamlManifest(manifest)
-    self.assertEqual(str(err.exception), 'missing includes: [templates/production]')
+    self.assertIn('missing includes: [templates/production]', str(err.exception))
 
 class TestInterface:
   def __init__(self, interfaceName, resource):

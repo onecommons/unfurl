@@ -218,6 +218,27 @@ class ConfigTask(ConfigChange, TaskView, AttributeManager):
     for d in self.dependencies.values():
       d.refresh(self)
 
+  def summary(self):
+    if self.target.name != self.target.template.name:
+      rname = "%s (%s)" % (self.target.name != self.target.template.name)
+    else:
+      rname = self.target.name
+
+    if self.configSpec.name != self.configSpec.className:
+      cname = "%s (%s)" % (self.configSpec.name, self.configSpec.className)
+    else:
+      cname = self.configSpec.name
+    return ("Run {action} on resource {rname} (type {rtype}, status {rstatus}) "
+      + "using configurator {cname}, priority {priority}, reason: {reason}").format(
+        action=self.configSpec.action,
+        rname=rname,
+        rtype=self.target.template.type,
+        rstatus=self.target.status.name,
+        cname=cname,
+        priority=self.priority.name,
+        reason=self.reason
+      )
+
   def __repr__(self):
     return "ConfigTask(%s:%s %s)" % (
       self.target,
@@ -252,8 +273,10 @@ class JobOptions(object):
     upgrade=False, # run configurations with major version changes or whose spec has changed
     all=False, # (re)run all configurations
     verify=False, # XXX3 discover first and set status if it differs from expected state
-    readOnly=False, # only run configurations that won't alter the system
-    dryRun=False, # XXX2
+    readonly=False, # only run configurations that won't alter the system
+    dryrun=False, # XXX2
+    planOnly=False,
+
     requiredOnly=False,
     revertObsolete=False, #revert
 
@@ -276,6 +299,7 @@ class Job(ConfigChange):
     super(Job, self).__init__(Status.ok)
     assert isinstance(jobOptions, JobOptions)
     self.__dict__.update(jobOptions.__dict__)
+    self.dryRun = jobOptions.dryrun
     if self.startTime is None:
       self.startTime = datetime.datetime.now()
     self.jobOptions = jobOptions
@@ -296,25 +320,23 @@ class Job(ConfigChange):
 
   def filterConfig(self, config, target):
     opts = self.jobOptions
-    if opts.readOnly and config.intent != 'discover':
-      return None
+    if opts.readonly and config.intent != 'discover':
+      return None, "read only"
     if opts.requiredOnly and not config.required:
-      return None
+      return None, "required"
     if opts.resource and target.name != opts.resource:
-      return None
+      return None, "resource"
     if opts.resources and target.name not in opts.resources:
-      return None
-    if opts.template and target.template.name != opts.template:
-      return None
-    return config
+      return None, "resources"
+    return config, None
 
   def getCandidateTasks(self):
     # XXX plan might call job.runJobRequest(configuratorJob) before yielding
     for (configSpec, target, reason) in self.plan.executePlan():
       configSpecName = configSpec.name
-      configSpec = self.filterConfig(configSpec, target)
+      configSpec, filterReason = self.filterConfig(configSpec, target)
       if not configSpec:
-        logger.debug("skipping configspec %s for %s", configSpecName, target.name)
+        logger.debug("skipping configspec %s for %s: doesn't match %s filter", configSpecName, target.name, filterReason)
         continue
       if self.runner.isConfigAlreadyHandled(configSpec):
         # configuration may have premptively run while executing another task
@@ -329,8 +351,12 @@ class Job(ConfigChange):
       if not self.shouldRunTask(task):
         continue
 
-      logger.info("running task %s", task)
-      self.runTask(task)
+      if self.jobOptions.planOnly:
+        if not self.cantRunTask(task):
+          logger.info(task.summary())
+      else:
+        logger.info("Running task %s", task)
+        self.runTask(task)
 
       if self.shouldAbort(task):
         return self.rootResource
@@ -378,18 +404,18 @@ class Job(ConfigChange):
   def shouldRunTask(self, task):
     """
     Checked at runtime right before each task is run
-
-    * check "when" conditions to see if it should be run
-    * check task if it should be run
     """
     try:
       priority = task.configurator.shouldRun(task)
     except Exception:
       #unexpected error don't run this
-      GitErOpTaskError(task, "shouldRun failed")
+      GitErOpTaskError(task, "shouldRun failed unexpectedly", True)
       return False
 
-    task.priority = toEnum(Priority, priority, Priority.ignore)
+    priority = toEnum(Priority, priority, Priority.ignore)
+    if priority != task.priority:
+      logger.debug("configurator changed task %s priority from %s to %s", task, task.priority, priority)
+      task.priority = priority
     return priority > Priority.ignore
 
   def cantRunTask(self, task):
@@ -403,21 +429,26 @@ class Job(ConfigChange):
     try:
       canRun = False
       reason = ''
-      errors = task.configSpec.findInvalidateInputs(task.inputs)
-      if errors:
-        reason = 'invalid inputs: %s' % str(errors)
+      missing = [dep for dep in task.target.getOperationalDependencies()
+                        if not dep.operational and dep.required]
+      if missing:
+        reason = "missing required dependencies: %s" % ','.join([dep.name for dep in missing])
       else:
-        preErrors = task.configSpec.findInvalidPreconditions(task.target)
-        if preErrors:
-          reason = 'invalid preconditions: %s' % str(preErrors)
+        errors = task.configSpec.findInvalidateInputs(task.inputs)
+        if errors:
+          reason = 'invalid inputs: %s' % str(errors)
         else:
-          errors = task.configurator.cantRun(task)
-          if errors:
-            reason = 'configurator declined: %s' % str(errors)
+          preErrors = task.configSpec.findInvalidPreconditions(task.target)
+          if preErrors:
+            reason = 'invalid preconditions: %s' % str(preErrors)
           else:
-            canRun = True
+            errors = task.configurator.cantRun(task)
+            if errors:
+              reason = 'configurator declined: %s' % str(errors)
+            else:
+              canRun = True
     except Exception:
-      GitErOpTaskError(task, "cantRun failed")
+      GitErOpTaskError(task, "cantRun failed unexpectedly", True)
       reason = 'unexpected exception in cantRun'
       canRun = False
 
@@ -451,6 +482,10 @@ class Job(ConfigChange):
   def getOutputs(self):
     return self.rootResource.outputs.attributes
 
+  def runQuery(self, query, trace=0):
+    from .eval import evalForFunc, RefContext
+    return evalForFunc(query, RefContext(self.rootResource, trace=trace))
+
   def runTask(self, task):
     """
     During each task run:
@@ -460,7 +495,6 @@ class Job(ConfigChange):
     * Requests a resource with requested metadata, if it doesn't exist, a task is run to make it so
     (e.g. add a dns entry, install a package).
     """
-    # XXX3 need a way for configurator to declare that is the manager of a particular resource or type of resource or metadata so we know to handle that request
     # XXX3 recursion or loop detection
     errors = self.cantRunTask(task)
     if errors:
@@ -472,7 +506,7 @@ class Job(ConfigChange):
       try:
         result = task.send(change)
       except Exception:
-        GitErOpTaskError(task, "configurator.run failed")
+        GitErOpTaskError(task, "configurator.run failed", True)
         # assume the worst
         return task.finished(ConfiguratorResult(True, True, Status.error))
       if isinstance(result, TaskRequest):
@@ -487,7 +521,7 @@ class Job(ConfigChange):
         logger.info("finished running task %s: %s; %s", task, task.target.status, result)
         return retVal
       else:
-        GitErOpTaskError(task, 'unexpected result from configurator')
+        GitErOpTaskError(task, 'unexpected result from configurator', True)
         return task.finished(ConfiguratorResult(True, True, Status.error))
 
 class Runner(object):

@@ -27,7 +27,7 @@ def initLogging(level, logfile=None):
   if logfile:
     ch = logging.FileHandler(logfile)
     formatter = logging.Formatter(
-        '[%(asctime)s] %(levelname)s: %(message)s')
+        '[%(asctime)s] %(name)s:%(levelname)s: %(message)s')
     ch.setFormatter(formatter)
     ch.setLevel(logging.DEBUG)
     rootLogger.addHandler(ch)
@@ -36,7 +36,7 @@ def initLogging(level, logfile=None):
   global _logHandler
   if not _logHandler:
     _logHandler = logging.StreamHandler()
-    formatter = logging.Formatter('%(levelname)s: %(message)s')
+    formatter = logging.Formatter('%(name)s:%(levelname)s: %(message)s')
     _logHandler.setFormatter(formatter)
     rootLogger.addHandler(_logHandler)
 

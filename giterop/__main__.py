@@ -15,6 +15,10 @@ import os
 import os.path
 import traceback
 import logging
+import functools
+
+def option_group(*options):
+  return lambda func: functools.reduce(lambda a,b: b(a), options, func)
 
 @click.group()
 @click.pass_context
@@ -38,6 +42,13 @@ def cli(ctx, verbose=0, quiet=False, logfile=None, **kw):
 
   initLogging(logLevel, logfile)
 
+jobControlOptions = option_group(
+  click.option('--dryrun', default=False, is_flag=True, help='Do not modify anything, just do a dry run.'),
+  click.option('--jobexitcode', type=click.Choice(['error', 'degraded', 'never']),
+              default='never', help='Set exitcode if job status is not ok.')
+)
+
+
 #giterop run foo:create -- terraform blah
 # --append
 # --replace
@@ -53,9 +64,7 @@ def cli(ctx, verbose=0, quiet=False, logfile=None, **kw):
 @click.option('--manifest', default='', type=click.Path(exists=False))
 @click.option('--append', default=True, is_flag=True, help="add this command to the previous")
 @click.option('--replace', default=True, is_flag=True, help="replace the previous command")
-@click.option('--dryrun', default=False, is_flag=True, help='Do not modify anything, just do a dry run.')
-@click.option('--jobexitcode', type=click.Choice(['error', 'degraded', 'never']),
-              default='never', help='Set exitcode if job status is not ok.')
+@jobControlOptions
 @click.argument('cmdline', nargs=-1)
 def run(ctx, action, use=None, cmdline=None, **options):
   options.update(ctx.obj)
@@ -63,14 +72,21 @@ def run(ctx, action, use=None, cmdline=None, **options):
 
 def _run(manifest, options):
   job = runJob(manifest, options)
-  if job.unexpectedAbort:
+  if not job:
+    click.echo("Unable to create job")
+  elif job.unexpectedAbort:
+    click.echo("Job unexpected aborted")
     if options['verbose']:
-      print(job.unexpectedAbort.getStackTrace(), file=sys.stderr)
       raise job.unexpectedAbort
   else:
     click.echo(job.summary())
+    query = options.get('query')
+    if query:
+      click.echo("query: " + query)
+      result = job.runQuery(query, options.get('trace'))
+      click.echo(result)
 
-  if options['jobexitcode'] != 'never' and Status[options['jobexitcode']] <= job.status:
+  if not job or options['jobexitcode'] != 'never' and Status[options['jobexitcode']] <= job.status:
     if options.get('standalone_mode') is False:
       return 1
     else:
@@ -78,21 +94,38 @@ def _run(manifest, options):
   else:
     return 0
 
+jobFilterOptions = option_group(
+  click.option('--template', help="template to target"),
+  click.option('--add', default=True, is_flag=True, help="run newly added configurations"),
+  click.option('--update', default=True, is_flag=True,
+    help="run configurations that whose spec has changed but don't require a major version change"),
+  click.option('--repair', type=click.Choice(['error', 'degraded', 'notapplied', 'none']),
+  default="error", help="re-run configurations that are in an error or degraded state"),
+  click.option('--upgrade', default=False, is_flag=True,
+    help="run configurations with major version changes or whose spec has changed"),
+  click.option('--all', default=False, is_flag=True, help="(re)run all configurations")
+)
+
 @cli.command()
 @click.pass_context
 @click.argument('manifest', default='', type=click.Path(exists=False))
-@click.option('--resource', help="name of resource to start with")
-@click.option('--add', default=True, is_flag=True, help="run newly added configurations")
-@click.option('--update', default=True, is_flag=True, help="run configurations that whose spec has changed but don't require a major version change")
-@click.option('--repair', type=click.Choice(['error', 'degraded', 'notapplied', 'none']),
-  default="error", help="re-run configurations that are in an error or degraded state")
-@click.option('--upgrade', default=False, is_flag=True, help="run configurations with major version changes or whose spec has changed")
-@click.option('--all', default=False, is_flag=True, help="(re)run all configurations")
-@click.option('--dryrun', default=False, is_flag=True, help='Do not modify anything, just do a dry run.')
-@click.option('--jobexitcode', type=click.Choice(['error', 'degraded', 'never']),
-              default='never', help='Set exitcode if job status is not ok.')
+@jobFilterOptions
+@jobControlOptions
 def deploy(ctx, manifest=None, **options):
   options.update(ctx.obj)
+  return _run(manifest, options)
+
+@cli.command()
+@click.pass_context
+@click.argument('manifest', default='', type=click.Path(exists=False))
+@jobFilterOptions
+@jobControlOptions
+@click.option('--query')
+@click.option('--trace', default=0)
+def plan(ctx, manifest=None, **options):
+  options.update(ctx.obj)
+  options['planOnly'] = True
+  # XXX show status and task to run including preview of generated templates, cmds to run etc.
   return _run(manifest, options)
 
 @cli.command()
@@ -151,11 +184,6 @@ Create a new project by cloning the given specification repository and creating 
 @cli.command()
 def version():
   click.echo("giterop version %s" % __version__)
-
-@cli.command()
-def plan():
-  # XXX show status and task to run including preview of generated templates, cmds to run etc.
-  click.echo("coming soon")
 
 def printHelp():
   ctx = cli.make_context('giterop', [])

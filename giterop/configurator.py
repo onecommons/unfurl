@@ -100,10 +100,10 @@ class Configurator(object):
 
   # yields a JobRequest, TaskRequest or a ConfiguratorResult
   def run(self, task):
-    yield None
+    yield task.createResult(False, False)
 
   def dryRun(self, task):
-    yield None
+    yield task.createResult(False, False)
 
   def cantRun(self, task):
     """

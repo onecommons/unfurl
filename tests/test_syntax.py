@@ -17,16 +17,16 @@ class ManifestSyntaxTest(unittest.TestCase):
     kind: Manifest
     spec: {}
     """
-    with self.assertRaises(GitErOpValidationError) as err:
+    with self.assertRaises(GitErOpError) as err:
       YamlManifest(badVersion)
-    self.assertEqual(str(err.exception.errors), '[<ValidationError: "2 is not one of [\'giterops/v1alpha1\']">]')
+    self.assertIn("2 is not one of [\'giterops/v1alpha1\']", str(err.exception))
 
     missingVersion = """
     spec: {}
     """
-    with self.assertRaises(GitErOpValidationError) as err:
+    with self.assertRaises(GitErOpError) as err:
       YamlManifest(missingVersion)
-    self.assertEqual(str(err.exception.errors), '''[<ValidationError: "'apiVersion' is a required property">, <ValidationError: "'kind' is a required property">]''')
+    self.assertIn("'apiVersion' is a required property", str(err.exception)) #, <ValidationError: "'kind' is a required property">]''')
 
   @unittest.skip("TODO")
   def test_validResourceNames(self):
@@ -46,7 +46,7 @@ spec:
 '''
     with self.assertRaises(GitErOpError) as err:
       YamlManifest(manifest)
-    self.assertEqual(str(err.exception), 'missing includes: [templates/production]')
+    self.assertIn('missing includes: [templates/production]', str(err.exception))
 
     manifest = '''
 apiVersion: giterops/v1alpha1
@@ -151,7 +151,7 @@ root:
 '''
     with self.assertRaises(GitErOpValidationError) as err:
       YamlManifest(manifest)
-    self.assertEqual(str(err.exception.errors), '''[<ValidationError: "['step1', 'step2'] is not of type 'object'">]''')
+    self.assertIn(str(err.exception.errors), '''[<ValidationError: "['step1', 'step2'] is not of type 'object'">]''')
 
 #   def test_badparams(self):
 #     # don't match spec definition

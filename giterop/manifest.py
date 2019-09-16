@@ -227,7 +227,7 @@ class Manifest(AttributeManager):
 
   def findPathInRepos(self, path, importLoader=None, willUse=False):
     """
-    File path is inside a folder that is managed by repo.
+    Check if the file path is inside a folder that is managed by a repository.
     If the revision is pinned and doesn't match the repo, it might be bare
     """
     candidate = None

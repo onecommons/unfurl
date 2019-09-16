@@ -510,7 +510,6 @@ class YamlManifest(Manifest):
       importsSpec.setdefault('local', {})
       importsSpec.setdefault('secret', {})
     rootResource.imports = self.loadImports(importsSpec)
-    # XXX should baseDir be relative to the tosca template -- isn't that where artifacts would live?
     rootResource.baseDir = self.getBaseDir()
 
     self._ready(rootResource, lastChangeId)
@@ -632,10 +631,19 @@ class YamlManifest(Manifest):
       raise GitErOpError("Error saving manifest %s" % self.manifest.path, True)
 
   def commitJob(self, job):
+    if job.planOnly:
+      return
+    if job.dryRun:
+      logger.info("printing results from dry run")
+      if not job.out and self.manifest.path:
+        job.out = sys.stdout
     jobRecord, changes = self.saveJob(job)
     if not changes:
       logger.info("job run didn't make any changes; nothing to commit")
       return
+    if job.dryRun:
+      return
+
     if self.repo:
       self.repo.repo.index.add([self.manifest.path])
       self.repo.repo.index.commit("Updating status for job %s" % job.changeId)
@@ -700,9 +708,23 @@ class YamlManifest(Manifest):
       imports[name] = Import(resource, value)
     return imports
 
-def runJob(manifestPath=None, opts=None):
-  localEnv = LocalEnv(manifestPath, opts and opts.get('home'))
-  manifest = YamlManifest(localEnv=localEnv)
+def runJob(manifestPath=None, _opts=None):
+  _opts = _opts or {}
+  localEnv = LocalEnv(manifestPath, _opts.get('home'))
+  opts = JobOptions(**_opts)
+  path = localEnv.manifestPath
+  if opts.planOnly:
+    logger.info("creating plan for %s", path)
+  else:
+    logger.info("running job for %s", path)
+
+  logger.info('loading manifest at %s', path)
+  try:
+    manifest = YamlManifest(localEnv=localEnv)
+  except Exception as e:
+    logger.error('failed to load manifest at %s: %s', path, str(e),
+                                  exc_info=opts.verbose >= 2)
+    return None
+
   runner = Runner(manifest)
-  kw = opts or {}
-  return runner.run(JobOptions(**kw))
+  return runner.run(opts)
