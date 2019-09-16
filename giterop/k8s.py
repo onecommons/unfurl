@@ -1,7 +1,7 @@
 import codecs
 from .configurator import Configurator #, Status
 from .ansibleconfigurator import AnsibleConfigurator
-
+import json
 from ansible.module_utils.k8s.common import K8sAnsibleMixin
 
 class ClusterConfigurator(Configurator):
@@ -11,13 +11,18 @@ class ClusterConfigurator(Configurator):
     client = K8sAnsibleMixin().get_api_client(**connectionConfig)
     return client.configuration.host
 
-  def shouldRun(self, task):
-    assert not self.cantRun(task)
-    # print('kube connection config', task.inputs.get('connection', {}))
-    task.target.attributes['apiserver'] = self._getHost(task.inputs.get('connection', {}))
-    return False
+  def run(self, task):
+    # just test the connection
+    task.target.attributes['apiServer'] = self._getHost(task.inputs.get('connection', {}))
+    yield task.createResult(True, False, "ok")
 
 class ResourceConfigurator(AnsibleConfigurator):
+  def dryRun(self, task):
+    # print("generating playbook")
+    #print(self.findPlaybook(task))
+    # print(json.dumps(self.findPlaybook(task), indent=4))
+    yield task.createResult(False, False)
+
   def makeSecret(self, data):
     # XXX omit data from status
     return dict(type='Opaque', apiVersion='v1', kind='Secret',
@@ -39,8 +44,14 @@ class ResourceConfigurator(AnsibleConfigurator):
     md = definition.setdefault('metadata', {})
     if namespace and 'namespace' not in md:
       md['namespace'] = namespace
-    if 'name' not in md:
-      md['name'] = task.target.attributes.get('name', task.target.name)
+    #else: error if namespace mismatch?
+
+    # XXX if using target.name, convert into kube friendly dns-style name
+    name = task.target.attributes.get('name', task.target.name)
+    if 'name' in md and md['name'] != name:
+      task.target.attributes['name'] = md['name']
+    else:
+      md['name'] = name
 
   def findPlaybook(self, task):
     definition = self.getDefinition(task)
@@ -50,6 +61,9 @@ class ResourceConfigurator(AnsibleConfigurator):
     moduleSpec = dict(state=state, definition=definition, **connection)
     # print('moduleSpec', moduleSpec)
     return [dict(k8s=moduleSpec)]
+
+  def _processResult(self, task, result):
+    task.target.attributes['apiResource'] = result.get('result')
 
   def getResultKeys(self, task, results):
     # save first time even if it hasn't changed

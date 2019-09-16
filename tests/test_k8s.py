@@ -11,12 +11,17 @@ import warnings
 manifestScript = """
 apiVersion: giterops/v1alpha1
 kind: Manifest
+vars:
+  defaultNamespace:
+    requirements:
+       - host: k8sNamespace
 spec:
   tosca:
+    dsl_definitions:
     topology_template:
       inputs:
         kubeConnection:
-          type: any
+          type: map
           default:
             context: docker-for-desktop
       node_templates:
@@ -54,14 +59,12 @@ class k8sTest(unittest.TestCase):
       pass
 
   def test_k8sConfig(self):
-    # test loading the default manifest declared in the local config
-    # test locals and secrets:
-    #    declared attributes and default lookup
-    #    inherited from default (inheritFrom)
-    #    verify secret contents isn't saved in config
+    #  verify secret contents isn't saved in config
     # [{'k8s': {'state': 'present', 'definition': {'apiVersion': 'v1', 'kind': 'Namespace', 'metadata': {'name': 'octest'}}, 'context': 'docker-for-desktop'}}]
-    os.environ['TEST_SECRET'] = 'secret'
+    os.environ['TEST_SECRET'] = 'a secret'
     manifest = YamlManifest(manifestScript)
     job = Runner(manifest).run(JobOptions(add=True, startTime="time-to-test"))
-    # print(job.summary())
+    #print(job.summary())
+    #print(job.out.getvalue())
+    assert not job.unexpectedAbort
     assert job.status == Status.ok, job.summary()

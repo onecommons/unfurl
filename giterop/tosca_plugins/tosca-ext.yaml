@@ -13,7 +13,7 @@ node_types:
     derived_from: tosca.nodes.Root
     properties:
       connection:
-        type: any
+        type: map
         required: false
        # any K8S_AUTH_* in https://docs.ansible.com/ansible/latest/modules/k8s_module.html#k8s-module
        # or if not specified checks in cluster KUBERNETES_SERVICE_HOST, KUBERNETES_SERVICE_PORT and /var/run/secrets/kubernetes.io/serviceaccount/
@@ -23,7 +23,7 @@ node_types:
         type: tosca.capabilities.Container
         valid_source_types: [giterop.nodes.K8sRawResource, giterop.nodes.K8sNamespace]
     attributes:
-      apiserver:
+      apiResource:
         type: string
         metadata:
          immutable: true
@@ -65,10 +65,15 @@ node_types:
     properties:
      definition:
        type: any
-       required: False
+       required: false
     attributes:
-      resource:
-       type: any
+      apiResource:
+       type: map
+       required: false
+      name:
+       type: string
+       default:
+         eval: .name
     interfaces:
       Standard:
         inputs:
@@ -99,6 +104,10 @@ node_types:
       - host:
           node: giterop.nodes.K8sNamespace
           relationship: tosca.relationships.HostedOn
+    attributes:
+      namespace:
+        type: string
+        default: {get_property: ['HOST', 'name']}
 
   giterop.nodes.k8sSecretResource:
     derived_from: giterop.nodes.K8sResource
