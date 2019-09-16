@@ -219,25 +219,49 @@ class Result(ChangeAware):
 class Results(object):
   """
   Evaluating expressions are not guaranteed to be idempotent (consider quoting)
-  and resolving the whole tree up front can lead to evaluations of cicular references unless the
+  and resolving the whole tree up front can lead to evaluations of circular references unless the
   order is carefully chosen. So evaluate lazily and memoize the results.
   This also allows us to track changes to the returned structure.
   """
 
-  __slots__ = ('_attributes', 'context', '_deleted', 'doFullResolve')
+  __slots__ = ('_attributes', 'context', '_deleted')
 
-  def __init__(self, serializedOriginal, resourceOrCxt, doFullResolve=False):
+  doFullResolve=False
+  def __init__(self, serializedOriginal, resourceOrCxt):
       from .eval import RefContext
       assert not isinstance(serializedOriginal, Results), serializedOriginal
       self._attributes = serializedOriginal
       self._deleted = {}
       if not isinstance(resourceOrCxt, RefContext):
-        resourceOrCxt = RefContext(resourceOrCxt)
-      self.context = resourceOrCxt
-      self.doFullResolve = doFullResolve
+        ctx = RefContext(resourceOrCxt)
+      else:
+        ctx = resourceOrCxt
+
+      oldBaseDir = ctx.baseDir
+      newBaseDir = getattr(serializedOriginal, 'baseDir', oldBaseDir)
+      if newBaseDir and newBaseDir != oldBaseDir:
+        ctx = ctx.copy()
+        ctx.baseDir = newBaseDir
+        ctx.trace("found baseDir", newBaseDir, 'old', oldBaseDir)
+      self.context = ctx
 
   def hasDiff(self):
     return any(isinstance(x, Result) and x.hasDiff() for x in self._attributes)
+
+  def getCopy(self, key, default=None):
+    from .eval import mapValue
+    try:
+      val = self._attributes[key]
+    except:
+      val = default
+    else:
+      if isinstance(val, Result):
+        assert not isinstance(val.resolved, Result), val
+        if val.original is _Deleted:
+          val = val.asRef()
+        else:
+          val = val.original
+    return mapValue(val, self.context)
 
   @staticmethod
   def _mapValue(val, context):

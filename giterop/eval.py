@@ -34,6 +34,8 @@ def isTemplate(val, ctx):
 
 def applyTemplate(value, ctx):
   templar = ctx._lastResource.templar
+  # XXX if ctx.baseDir and ctx.baseDir != templar._basedir:
+  #  create a new templar (need to call set_basedir on the Dataloader first)
   vars = dict(__giterop = ctx)
   vars.update(ctx.vars)
   templar.set_available_variables(vars)

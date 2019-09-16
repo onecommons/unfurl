@@ -18,9 +18,10 @@ class ClusterConfigurator(Configurator):
 
 class ResourceConfigurator(AnsibleConfigurator):
   def dryRun(self, task):
-    # print("generating playbook")
+    print("generating playbook")
     #print(self.findPlaybook(task))
-    # print(json.dumps(self.findPlaybook(task), indent=4))
+    #print(self.findPlaybook(task))
+    print(json.dumps(self.findPlaybook(task), indent=4))
     yield task.createResult(False, False)
 
   def makeSecret(self, data):
@@ -34,8 +35,9 @@ class ResourceConfigurator(AnsibleConfigurator):
     elif task.target.template.isCompatibleType('giterop.nodes.k8sSecretResource'):
       return self.makeSecret(task.target.attributes.get('data', {}))
     else:
-      # if string: parse
-      return task.target.attributes.get('definition', {})
+      # XXX if definition is string: parse
+      # get copy so subsequent modifications dont affect the definition
+      return task.target.attributes.getCopy('definition', {})
 
   def updateMetadata(self, definition, task):
     namespace = None

@@ -316,7 +316,7 @@ class AttributeManager(object):
       else:
         _attributes = ChainMap(copy.deepcopy(resource._attributes))
 
-      attributes = ResultsMap(_attributes, RefContext(resource), False)
+      attributes = ResultsMap(_attributes, RefContext(resource))
       self.attributes[resource.key] = (resource, attributes)
       return attributes
     else:
