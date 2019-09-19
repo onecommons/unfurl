@@ -8,7 +8,8 @@ from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap
 from ruamel.yaml.representer import RepresenterError
 
-from .util import expandDoc, GitErOpError, GitErOpValidationError, findSchemaErrors, makeMapWithBase
+from .util import sensitive_str, GitErOpError, GitErOpValidationError
+from .util import expandDoc, findSchemaErrors, makeMapWithBase
 from toscaparser.common.exception import ExceptionCollector
 from toscaparser.common.exception import URLException
 from toscaparser.utils.gettextutils import _
@@ -21,6 +22,10 @@ def represent_undefined(self, data):
     raise RepresenterError('cannot represent an object: %s of type %s' % (data, type(data)))
 yaml.representer.represent_undefined = represent_undefined
 yaml.representer.add_representer(None, represent_undefined)
+
+def represent_sensitive(dumper, data):
+  return dumper.represent_scalar(u'tag:yaml.org,2002:str', "[[REDACTED]]")
+yaml.representer.add_representer(sensitive_str, represent_sensitive)
 
 def load_yaml(path, isFile=True, importLoader=None):
   try:

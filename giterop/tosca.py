@@ -147,8 +147,13 @@ class EntitySpec(object):
       attrDefs = toscaNodeTemplate.type_definition.get_attributes_def_objects()
       self.defaultAttributes = {prop.name: prop.default
               for prop in attrDefs if prop.default is not None}
+      propDefs = toscaNodeTemplate.type_definition.get_properties_def()
+      propDefs.update(toscaNodeTemplate.type_definition.get_attributes_def())
+      self.attributeDefs = propDefs
     else:
       self.defaultAttributes = {}
+      self.attributeDefs = {}
+
 
   def getInterfaces(self):
     return self.toscaEntityTemplate.interfaces

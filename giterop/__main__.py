@@ -86,7 +86,7 @@ def _run(manifest, options):
       result = job.runQuery(query, options.get('trace'))
       click.echo(result)
 
-  if not job or options['jobexitcode'] != 'never' and Status[options['jobexitcode']] <= job.status:
+  if not job or (options['jobexitcode'] != 'never' and Status[options['jobexitcode']] <= job.status):
     if options.get('standalone_mode') is False:
       return 1
     else:

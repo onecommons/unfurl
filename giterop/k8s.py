@@ -1,4 +1,5 @@
 import codecs
+from .util import sensitive_str
 from .configurator import Configurator #, Status
 from .ansibleconfigurator import AnsibleConfigurator
 import json
@@ -25,7 +26,6 @@ class ResourceConfigurator(AnsibleConfigurator):
     yield task.createResult(False, False)
 
   def makeSecret(self, data):
-    # XXX omit data from status
     return dict(type='Opaque', apiVersion='v1', kind='Secret',
         data={k: codecs.encode(str(v).encode(), 'base64').decode() for k, v in data.items()})
 
@@ -65,7 +65,11 @@ class ResourceConfigurator(AnsibleConfigurator):
     return [dict(k8s=moduleSpec)]
 
   def _processResult(self, task, result):
-    task.target.attributes['apiResource'] = result.get('result')
+    resource = result.get('result')
+    task.target.attributes['apiResource'] = resource
+    data = resource and resource.get('kind') == 'Secret' and resource.get('data')
+    if data:
+      resource['data'] = {k: sensitive_str(v) for k, v in data.items()}
 
   def getResultKeys(self, task, results):
     # save first time even if it hasn't changed

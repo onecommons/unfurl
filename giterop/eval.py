@@ -19,42 +19,6 @@ from collections import Mapping, MutableSequence
 from ruamel.yaml.comments import CommentedMap
 from .util import validateSchema, GitErOpError
 from .result import ResultsList, Result, Results, ExternalValue, ResourceRef
-from ansible.template import Templar
-from ansible.parsing.dataloader import DataLoader
-
-def _getTemplateTestRegEx():
-  return Templar(DataLoader())._clean_regex
-_clean_regex = _getTemplateTestRegEx()
-
-def isTemplate(val, ctx):
-  return isinstance(val, six.string_types) and not not _clean_regex.search(val)
-
-def applyTemplate(value, ctx):
-  # implementation notes:
-  #   see https://github.com/ansible/ansible/test/units/template/test_templar.py
-  #   see ansible.template.vars.AnsibleJ2Vars,
-  #   dataLoader is only used by _lookup and to set _basedir (else ./)
-  if ctx.baseDir and ctx.templar._basedir != ctx.baseDir:
-    # we need to create a new templar
-    loader = DataLoader()
-    if ctx.baseDir:
-      loader.set_basedir(ctx.baseDir)
-    templar = Templar(loader)
-    ctx.templar = templar
-
-
-  vars = dict(__giterop = ctx)
-  vars.update(ctx.vars)
-  # replaces current vars
-  ctx.templar.set_available_variables(vars)
-
-  oldvalue = value
-  # strip whitespace so jinija native types resolve even with extra whitespace
-  # disable caching so we don't need to worry about the value of a cached var changing
-  value = ctx.templar.template(value.strip(), cache=False)
-  if value != oldvalue:
-    ctx.trace("processed template:", value)
-  return value
 
 def mapValue(value, resourceOrCxt):
   if not isinstance(resourceOrCxt, RefContext):
@@ -62,6 +26,8 @@ def mapValue(value, resourceOrCxt):
   return _mapValue(value, resourceOrCxt)
 
 def _mapValue(value, ctx):
+  from .support import isTemplate, applyTemplate
+
   if Ref.isRef(value):
     return Ref(value).resolveOne(ctx)
 
@@ -80,6 +46,41 @@ def _mapValue(value, ctx):
     return applyTemplate(value, ctx)
   return value
 
+class _Tracker(object):
+  def __init__(self):
+    self.count = 0
+    self.referenced = []
+    self.vars = None
+
+  def start(self):
+    self.count += 1
+    return len(self.referenced)
+
+  def stop(self):
+    self.count -= 1
+    return self.count
+
+  def addReference(self, ref, result):
+    if self.count > 0:
+      self.referenced.append([ref, result])
+
+  def addKeyReference(self, key):
+    if key in self.vars:
+      self.addReference(key, self.vars._attributes[key])
+
+  def getReferencedResults(self, index=0):
+    referenced = self.referenced[index:]
+    if not referenced:
+      return
+    for (ref, results) in referenced:
+      if not isinstance(ref, Ref):
+        assert isinstance(results, Result)
+        yield results
+      else:
+        for obj in results._attributes:
+          assert isinstance(obj, Result)
+          yield obj
+
 class RefContext(object):
   def __init__(self, currentResource, vars=None, wantList=False, resolveExternal=False, trace=0):
     self.vars = vars or {}
@@ -94,6 +95,7 @@ class RefContext(object):
     self._trace = trace
     self.baseDir = currentResource.root.baseDir
     self.templar = currentResource.templar
+    self.referenced = _Tracker()
 
   def copy(self, resource=None, vars=None, wantList=None, trace=0):
     copy = RefContext(resource or self.currentResource, self.vars, self.wantList,
@@ -106,11 +108,17 @@ class RefContext(object):
       copy.wantList = wantList
     copy.baseDir = self.baseDir
     copy.templar = self.templar
+    copy.referenced = self.referenced
+    if isinstance(vars, Results):
+      self.referenced.vars = vars
     return copy
 
   def trace(self, *msg):
     if self._trace:
       print("%s (ctx: %s)" % (' '.join(str(a) for a in msg), self._lastResource))
+
+  def addReference(self, ref, result):
+    self.referenced.addReference(ref, result)
 
 class Expr(object):
   def __init__(self, exp, vars = None):
@@ -267,8 +275,10 @@ class Ref(object):
 
   def resolve(self, ctx, wantList=True):
     """
-    Return a ResultList of matches
+    If wantList=True (default) returns a ResultList of matches
     Note that values in the list can be a list or None
+    If wantList=False return `resolveOne` semantics
+    If wantList='result' return a Result
     """
     ctx = ctx.copy(vars=self.vars, wantList=wantList, trace=self.trace)
     ctx.trace('Ref.resolve(wantList=%s) start' % wantList, self.source)
@@ -278,6 +288,7 @@ class Ref(object):
       results = forEach(self.foreach, results, ctx)
     assert not isinstance(results, ResultsList), results
     results = ResultsList(results, ctx)
+    ctx.addReference(self, results)
     ctx.trace('Ref.resolve(wantList=%s) results' % wantList, self.source, results)
     if wantList and not wantList == 'result':
       return results
@@ -439,7 +450,6 @@ _Funcs = {
   'q': quoteFunc,
   'eq': eqFunc,
   'validate': validateSchemaFunc,
-  'template': applyTemplate,
   'foreach': forEachFunc,
 }
 _FuncsTop = ['q']
@@ -454,12 +464,18 @@ def setEvalFunc(name, val, topLevel = False):
 # returns list of results
 def evalRef(val, ctx, top=False):
   "val is assumed to be an expression, evaluate and return a list of Results"
+  from .support import isTemplate, applyTemplate
+
   # functions and ResultsMap assume resolveOne semantics
   if top:
-    # use Results._mapValues because we don't want to resolve ExternalValues
-    vars = Results._mapValue(ctx.vars, ctx.currentResource)
+    # use Results._mapValues because we want to preserve ExternalValues
+    varctx = ctx.copy()
+    varctx.vars = {} # var context can't have itself as its vars
+    vars = Results._mapValue(ctx.vars, varctx)
     vars._attributes['start'] = ctx.currentResource
     ctx = ctx.copy(ctx.currentResource, vars, wantList = False)
+    # XXX Result are lost, it's now a regular dict
+
   if isinstance(val, Mapping):
     for key in val:
       func = _Funcs.get(key)

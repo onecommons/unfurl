@@ -177,7 +177,6 @@ class AnsibleConfigurator(Configurator):
       if result and status == Status.ok or status == Status.degraded:
         # this can update resources so don't do it on error
         self._processResult(task, result)
-
       yield task.createResult(applied > 0, results.changed > 0, status, result=result)
     finally:
       self._cleanup()

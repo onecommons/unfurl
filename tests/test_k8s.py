@@ -44,7 +44,7 @@ spec:
          properties:
              name: test-secret
              data:
-               uri: "{{ lookup('env', 'TEST_SECRET') }}" # XXX make secret
+               uri: "{{ lookup('env', 'TEST_SECRET') }}"
 """
 
 class k8sTest(unittest.TestCase):

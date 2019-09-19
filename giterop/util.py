@@ -82,8 +82,11 @@ class GitErOpAddingResourceError(GitErOpTaskError):
     super(GitErOpTaskError, self).__init__(task, message)
     self.resourceSpec = resourceSpec
 
+class sensitive_str(str):
+  pass
+
 def toYamlText(val):
-  if isinstance(val, ScalarString):
+  if isinstance(val, (ScalarString, sensitive_str)):
     return val
   # convert or copy string (copy to deal with things like AnsibleUnsafeText)
   val = str(val)

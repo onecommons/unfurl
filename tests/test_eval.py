@@ -1,8 +1,9 @@
 import unittest
 import os
-from giterop.eval import Ref, mapValue, applyTemplate, RefContext
-from giterop.runtime import Resource
 from giterop.result import ResultsList, serializeValue
+from giterop.eval import Ref, mapValue, RefContext
+from giterop.support import applyTemplate
+from giterop.runtime import Resource
 from ruamel.yaml.comments import CommentedMap
 
 class EvalTest(unittest.TestCase):

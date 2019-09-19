@@ -23,9 +23,11 @@ node_types:
         type: tosca.capabilities.Container
         valid_source_types: [giterop.nodes.K8sRawResource, giterop.nodes.K8sNamespace]
     attributes:
-      apiResource:
+      apiServer:
+        description: URL to the cluster's api server
         type: string
         metadata:
+          # mark this is as immutable to make sure the connection is pointing at the same cluster in subsequent runs
          immutable: true
     interfaces:
       Standard:
@@ -96,7 +98,8 @@ node_types:
         type: string
         default: default
         metadata:
-           immutable: true
+          # namespaces can't be renamed
+          immutable: true
 
   giterop.nodes.K8sResource:
     derived_from: giterop.nodes.K8sRawResource

@@ -13,9 +13,9 @@ subprocess32
 ruamel.yaml>=0.15.37
 gitpython
 -r tosca-parser/requirements.txt
+click-log
 
 # soon:
-#"gitpython",
 #required by openshift-ansible:
 #    "pyOpenSSL",
 #    "netaddr",

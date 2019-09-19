@@ -148,7 +148,7 @@ class Result(ChangeAware):
       return self.resolved.getDiff()
     else:
       val = self.asRef()
-      if isinstance(val, Mapping):
+      if not self.external and isinstance(val, Mapping):
         old = serializeValue(self.original)
         if isinstance(old, Mapping):
           return diffDicts(old, val)
@@ -276,7 +276,7 @@ class Results(object):
     elif isinstance(val, (list,tuple)):
       return ResultsList(val, context)
     else:
-      # at this point, just evaluates templates in strings
+      # at this point, just evaluates templates in strings or returns val
       return mapValue(val, context)
 
   def __getitem__(self, key):
@@ -291,6 +291,7 @@ class Results(object):
       else:
         self.context.trace('Results._mapValue', val)
         resolved = self._mapValue(val, self.context)
+      # will return a Result if val was an expression that was evaluated
       if isinstance(resolved, Result):
         result = resolved
         result.original = val

@@ -5,7 +5,6 @@ from collections import MutableSequence
 from click.testing import CliRunner
 from giterop.__main__ import cli
 from giterop import __version__
-from giterop.util import GitErOpValidationError
 from giterop.configurator import Configurator
 
 manifest = """
@@ -45,7 +44,7 @@ spec:
               aLocalDict:
                eval:
                 # XXX test with secret instead (need to propagate secretness)
-                local: aDict
+                secret: aDict
             # trace: 1
       interfaces:
         Standard:
@@ -91,7 +90,11 @@ class CliTestConfigurator(Configurator):
       }], attrs['aListOfItems']
     assert attrs['local1'] == 'found', attrs['local1']
     assert attrs['local2'] == 1, attrs['local2']
-    assert attrs['testApikey'].reveal == 'secret', 'failed to reveal environment variable, maybe DelegateAttributes is broken?'
+    assert attrs['testApikey'] == 'secret', 'failed to get secret environment variable, maybe DelegateAttributes is broken?'
+    # XXX var resolution is losing externalvalue so we don't know the template is sensitive
+    # assert attrs._attributes['aListOfItems'].external.type == 'sensitive'
+    # XXX this should be marked as secret so it should serializes as "[REDACTED]"
+    # attrs['copyofAListOfItems'] = attrs['aListOfItems']
     yield task.createResult(True, False, "ok")
 
 class CliTest(unittest.TestCase):
@@ -142,6 +145,6 @@ class CliTest(unittest.TestCase):
         f.write(manifest)
       result = runner.invoke(cli, ['-vvv', 'deploy', '--jobexitcode', 'degraded'])
       # uncomment this to see output:
-      # print("result.output", result.output)
+      print("result.output", result.exit_code, result.output)
       assert not result.exception, '\n'.join(traceback.format_exception(*result.exc_info))
       self.assertEqual(result.exit_code, 0, result.output)

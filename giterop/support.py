@@ -12,7 +12,12 @@ from enum import IntEnum
 from .eval import RefContext, setEvalFunc, Ref, mapValue
 from .result import ResultsMap, Result, ExternalValue, serializeValue
 from .util import (intersectDict, mergeDicts, ChainMap, findSchemaErrors,
-                GitErOpError, GitErOpValidationError, assertForm)
+                GitErOpError, GitErOpValidationError, assertForm, sensitive_str)
+from ansible.template import Templar
+from ansible.parsing.dataloader import DataLoader
+
+import logging
+logger = logging.getLogger('giterup')
 
 # XXX3 doc: notpresent is a positive assertion of non-existence while notapplied just indicates non-liveness
 # notapplied is therefore the default initial state
@@ -57,6 +62,79 @@ class File(ExternalValue):
       raise KeyError(name)
 
 setEvalFunc('file', lambda arg, ctx: File(mapValue(arg, ctx), ctx.baseDir))
+
+# XXX need an api check if an object was marked sensitive
+# _secrets = weakref.WeakValueDictionary()
+# def addSecret(secret):
+#   _secrets[id(secret.get())] = secret
+# def isSecret(obj):
+#    return id(obj) in _secrets
+
+class SensitiveValue(ExternalValue):
+  def __init__(self, value):
+    super(SensitiveValue, self).__init__('sensitive', value)
+
+  def asRef(self, options=None):
+    return sensitive_str(self.get())
+
+setEvalFunc('sensitive', lambda arg, ctx: SensitiveValue(mapValue(arg, ctx)))
+
+def isSensitive(obj):
+  return isinstance(obj, (sensitive_str, SensitiveValue, SecretResource))
+
+def _getTemplateTestRegEx():
+  return Templar(DataLoader())._clean_regex
+_clean_regex = _getTemplateTestRegEx()
+
+def isTemplate(val, ctx):
+  return isinstance(val, six.string_types) and not not _clean_regex.search(val)
+
+class _VarTrackerDict(dict):
+  def __getitem__(self, key):
+    val = super(_VarTrackerDict, self).__getitem__(key)
+    self.ctx.referenced.addKeyReference(key)
+    return val
+
+def applyTemplate(value, ctx):
+  # implementation notes:
+  #   see https://github.com/ansible/ansible/test/units/template/test_templar.py
+  #   see ansible.template.vars.AnsibleJ2Vars,
+  #   dataLoader is only used by _lookup and to set _basedir (else ./)
+  if ctx.baseDir and ctx.templar._basedir != ctx.baseDir:
+    # we need to create a new templar
+    loader = DataLoader()
+    if ctx.baseDir:
+      loader.set_basedir(ctx.baseDir)
+    templar = Templar(loader)
+    ctx.templar = templar
+
+  vars = _VarTrackerDict(__giterop = ctx)
+  vars.update(ctx.vars)
+  vars.ctx = ctx
+
+  # replaces current vars
+  # don't use setter to avoid isinstance(dict) check
+  ctx.templar._available_variables = vars
+  index = ctx.referenced.start()
+
+  oldvalue = value
+  # set referenced to track references (set by Ref.resolve)
+  # need a way to turn on and off
+  try:
+    # strip whitespace so jinija native types resolve even with extra whitespace
+    # disable caching so we don't need to worry about the value of a cached var changing
+    value = ctx.templar.template(value.strip(), cache=False)
+    if value != oldvalue:
+      ctx.trace("processed template:", value)
+      for result in ctx.referenced.getReferencedResults(index):
+        if isSensitive(result.external or result.resolved):
+          ctx.trace("setting template result as sensitive")
+          return SensitiveValue(value) # mark the template result as sensitive
+  finally:
+    ctx.referenced.stop()
+  return value
+
+setEvalFunc('template', applyTemplate)
 
 def runLookup(name, templar, *args, **kw):
   from ansible.plugins.loader import lookup_loader
@@ -142,6 +220,8 @@ def getImport(arg, ctx):
   else:
     return ExternalResource(arg, imported)
 
+setEvalFunc('external', getImport)
+
 class ExternalResource(ExternalValue):
   """
   Wraps a foreign resource
@@ -181,31 +261,11 @@ class ExternalResource(ExternalValue):
     # we don't want to return a result across boundaries
     return value
 
-class Secret(object):
-  def __init__(self, _secret):
-    self._reveal = _secret
-
-  @property
-  def reveal(self):
-    if isinstance(self._reveal, Result):
-      return self._reveal.resolved
-    else:
-      return self._reveal
-
-  def __reflookup__(self, key):
-    if key == 'reveal':
-      return self._reveal
-    raise KeyError(key)
-
 class SecretResource(ExternalResource):
   def resolveKey(self, name=None, currentResource=None):
     # raises KeyError if not found
-    val = super(SecretResource, self).resolveKey(name, currentResource)
-    if isinstance(val, Secret):
-      return val
-    return Secret(val)
+    return super(SecretResource, self).resolveKey(name, currentResource)
 
-setEvalFunc('external', getImport)
 # shortcuts for local and secret
 def shortcut(arg, ctx):
   return Ref(dict(ref=dict(external=ctx.currentFunc), foreach=arg)).resolve(ctx, wantList='result')
@@ -316,7 +376,6 @@ class AttributeManager(object):
 
   def getAttributes(self, resource):
     if resource.key not in self.attributes:
-      # XXX also need to merge in attribute defaults from template's type
       if resource.template:
         specd = resource.template.properties
         defaultAttributes = resource.template.defaultAttributes
@@ -337,25 +396,41 @@ class AttributeManager(object):
 
   def commitChanges(self):
     changes = {}
-    # current and original don't have external values
     for resource, attributes in self.attributes.values():
       # save in _attributes in serialized form
       overrides, specd = attributes._attributes.split()
       resource._attributes = {}
-      if overrides: type(overrides)
+      defs = resource.template and resource.template.attributeDefs or {}
+      foundSensitive = []
       for key, value in overrides.items():
         if not isinstance(value, Result):
           # hasn't been touched so keep it as is
           resource._attributes[key] = value
         elif key not in specd or value.hasDiff():
-          # value is a Result
-          resource._attributes[key] = value.asRef()
+          # value is a Result and it is either new or different from the original value, so save
+          defMeta = key in defs and defs[key].schema.get('metadata', {}) or {}
+
+          #XXX if defMeta.get('immutable') and key in specd:
+          #  error('value of attribute "%s" changed but is marked immutable' % key)
+
+          if defMeta.get('sensitive'):
+            # attribute marked as sensitive and value isn't a secret so mark value as sensitive
+            if not value.external: # externalvalues are ok since they don't reveal much
+              # we won't be able to restore this value since we can't save it
+              resource._attributes[key] = sensitive_str(value.resolved)
+              foundSensitive.append(key)
+              continue
+          resource._attributes[key] = value.asRef() #serialize Result
 
       # save changes
       diff = attributes.getDiff()
       if not diff:
         continue
+      for key in foundSensitive:
+        if key in diff:
+          diff[key] = resource._attributes[key]
       changes[resource.key] = diff
+
     self.attributes = {}
     # self.statuses = {}
     return changes
