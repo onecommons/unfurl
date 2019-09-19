@@ -92,13 +92,16 @@ def isTemplate(val, ctx):
 class _VarTrackerDict(dict):
   def __getitem__(self, key):
     val = super(_VarTrackerDict, self).__getitem__(key)
-    self.ctx.referenced.addKeyReference(key)
-    return val
+    if isinstance(val, Result):
+      self.ctx.referenced.addReference(key, val)
+      return val.resolved
+    else:
+      self.ctx.referenced.addReference(key, Result(val))
+      return val
 
 def applyTemplate(value, ctx):
   # implementation notes:
   #   see https://github.com/ansible/ansible/test/units/template/test_templar.py
-  #   see ansible.template.vars.AnsibleJ2Vars,
   #   dataLoader is only used by _lookup and to set _basedir (else ./)
   if ctx.baseDir and ctx.templar._basedir != ctx.baseDir:
     # we need to create a new templar

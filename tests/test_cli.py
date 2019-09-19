@@ -91,8 +91,7 @@ class CliTestConfigurator(Configurator):
     assert attrs['local1'] == 'found', attrs['local1']
     assert attrs['local2'] == 1, attrs['local2']
     assert attrs['testApikey'] == 'secret', 'failed to get secret environment variable, maybe DelegateAttributes is broken?'
-    # XXX var resolution is losing externalvalue so we don't know the template is sensitive
-    # assert attrs._attributes['aListOfItems'].external.type == 'sensitive'
+    assert attrs._attributes['aListOfItems'].external.type == 'sensitive'
     # XXX this should be marked as secret so it should serializes as "[REDACTED]"
     # attrs['copyofAListOfItems'] = attrs['aListOfItems']
     yield task.createResult(True, False, "ok")

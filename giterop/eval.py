@@ -25,11 +25,12 @@ def mapValue(value, resourceOrCxt):
     resourceOrCxt = RefContext(resourceOrCxt)
   return _mapValue(value, resourceOrCxt)
 
-def _mapValue(value, ctx):
+def _mapValue(value, ctx, wantList=False):
   from .support import isTemplate, applyTemplate
 
   if Ref.isRef(value):
-    return Ref(value).resolveOne(ctx)
+    # wantList=False := resolveOne
+    return Ref(value).resolve(ctx, wantList=wantList)
 
   if isinstance(value, Mapping):
     try:
@@ -37,11 +38,11 @@ def _mapValue(value, ctx):
       ctx.baseDir = getattr(value, 'baseDir', oldBaseDir)
       if ctx.baseDir and ctx.baseDir != oldBaseDir:
         ctx.trace("found baseDir", ctx.baseDir)
-      return dict((key, _mapValue(v, ctx)) for key, v in value.items())
+      return dict((key, _mapValue(v, ctx, wantList)) for key, v in value.items())
     finally:
       ctx.baseDir = oldBaseDir
   elif isinstance(value, (MutableSequence, tuple)):
-    return [_mapValue(item, ctx) for item in value]
+    return [_mapValue(item, ctx, wantList) for item in value]
   elif isTemplate(value, ctx):
     return applyTemplate(value, ctx)
   return value
@@ -50,7 +51,6 @@ class _Tracker(object):
   def __init__(self):
     self.count = 0
     self.referenced = []
-    self.vars = None
 
   def start(self):
     self.count += 1
@@ -63,10 +63,6 @@ class _Tracker(object):
   def addReference(self, ref, result):
     if self.count > 0:
       self.referenced.append([ref, result])
-
-  def addKeyReference(self, key):
-    if key in self.vars:
-      self.addReference(key, self.vars._attributes[key])
 
   def getReferencedResults(self, index=0):
     referenced = self.referenced[index:]
@@ -109,8 +105,6 @@ class RefContext(object):
     copy.baseDir = self.baseDir
     copy.templar = self.templar
     copy.referenced = self.referenced
-    if isinstance(vars, Results):
-      self.referenced.vars = vars
     return copy
 
   def trace(self, *msg):
@@ -119,6 +113,13 @@ class RefContext(object):
 
   def addReference(self, ref, result):
     self.referenced.addReference(ref, result)
+
+  def resolveVar(self, key):
+    value = self.vars[key[1:]]
+    if isinstance(value, Result):
+      return value.resolved
+    else:
+      return value
 
 class Expr(object):
   def __init__(self, exp, vars = None):
@@ -154,8 +155,7 @@ class Expr(object):
       paths = self.paths[1:]
     elif self.paths[0].key and self.paths[0].key[0] == '$':
       #if starts with a var, use that as the start
-      varName = self.paths[0].key[1:]
-      currentResource = context.vars[varName]
+      currentResource = context.resolveVar(self.paths[0].key)
       if len(self.paths) == 1:
         # bare reference to a var, just return it's value
         return [Result(currentResource)]
@@ -468,13 +468,11 @@ def evalRef(val, ctx, top=False):
 
   # functions and ResultsMap assume resolveOne semantics
   if top:
-    # use Results._mapValues because we want to preserve ExternalValues
     varctx = ctx.copy()
     varctx.vars = {} # var context can't have itself as its vars
-    vars = Results._mapValue(ctx.vars, varctx)
-    vars._attributes['start'] = ctx.currentResource
+    vars = _mapValue(ctx.vars, varctx, wantList='result')
+    vars['start'] = ctx.currentResource
     ctx = ctx.copy(ctx.currentResource, vars, wantList = False)
-    # XXX Result are lost, it's now a regular dict
 
   if isinstance(val, Mapping):
     for key in val:
@@ -523,7 +521,7 @@ def evalTest(value, test, context):
   key = test[1]
   try:
     if context and isinstance(key, six.string_types) and key.startswith('$'):
-      compare = context.vars[key[1:]]
+      compare = context.resolveVar(key)
     else:
       # try to coerce string to value type
       compare = type(value)(key)
@@ -542,7 +540,7 @@ def lookup(result, key, context):
     # if key == '.':
     #   key = context.currentKey
     if context and isinstance(key, six.string_types) and key.startswith('$'):
-      key = context.vars[key[1:]]
+      key = context.resolveVar(key)
 
     if isinstance(result.resolved, ResourceRef):
       context._lastResource = result.resolved
