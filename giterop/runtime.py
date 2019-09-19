@@ -364,6 +364,13 @@ class Resource(NodeInstance):
         return child
     return None
 
+  def setBaseDir(self, baseDir):
+    self.baseDir = baseDir
+    if not self._templar or self._templar._basedir != baseDir:
+      loader = DataLoader()
+      loader.set_basedir(baseDir)
+      self._templar = Templar(loader)
+
   def addInterface(self, klass, name=None):
     if not isinstance(klass, six.string_types):
       klass = klass.__module__ + '.' + klass.__name__

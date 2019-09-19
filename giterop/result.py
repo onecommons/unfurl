@@ -289,6 +289,7 @@ class Results(object):
       if self.doFullResolve:
         resolved = mapValue(val, self.context)
       else:
+        self.context.trace('Results._mapValue', val)
         resolved = self._mapValue(val, self.context)
       if isinstance(resolved, Result):
         result = resolved

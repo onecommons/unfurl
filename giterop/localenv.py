@@ -191,7 +191,9 @@ projects:
             else:
               importSpec['inheritHack'] = localResource
               return None
-        return Resource(localName, attributes)
+        repoResource = Resource(localName, attributes)
+        repoResource.baseDir = self.config.getBaseDir()
+        return repoResource
       else:
         # the local or secret is a resource defined in a local manifest
         # set the url and resource name so the importing manifest loads it

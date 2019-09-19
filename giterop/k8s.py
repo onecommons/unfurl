@@ -27,7 +27,7 @@ class ResourceConfigurator(AnsibleConfigurator):
   def makeSecret(self, data):
     # XXX omit data from status
     return dict(type='Opaque', apiVersion='v1', kind='Secret',
-        data={k: codecs.encode(v.encode(), 'base64').decode() for k, v in data.items()})
+        data={k: codecs.encode(str(v).encode(), 'base64').decode() for k, v in data.items()})
 
   def getDefinition(self, task):
     if task.target.template.isCompatibleType('giterop.nodes.K8sNamespace'):

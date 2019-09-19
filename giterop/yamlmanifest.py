@@ -510,7 +510,7 @@ class YamlManifest(Manifest):
       importsSpec.setdefault('local', {})
       importsSpec.setdefault('secret', {})
     rootResource.imports = self.loadImports(importsSpec)
-    rootResource.baseDir = self.getBaseDir()
+    rootResource.setBaseDir(self.getBaseDir())
 
     self._ready(rootResource, lastChangeId)
 

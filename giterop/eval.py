@@ -18,29 +18,40 @@ import collections
 from collections import Mapping, MutableSequence
 from ruamel.yaml.comments import CommentedMap
 from .util import validateSchema, GitErOpError
-from .result import ResultsList, Result, Results, ResultsMap, ExternalValue, ResourceRef
+from .result import ResultsList, Result, Results, ExternalValue, ResourceRef
+from ansible.template import Templar
+from ansible.parsing.dataloader import DataLoader
 
-def runTemplate(data, vars=None, dataLoader=None):
-  from ansible.template import Templar
-  from ansible.parsing.dataloader import DataLoader
+def _getTemplateTestRegEx():
+  return Templar(DataLoader())._clean_regex
+_clean_regex = _getTemplateTestRegEx()
+
+def isTemplate(val, ctx):
+  return isinstance(val, six.string_types) and not not _clean_regex.search(val)
+
+def applyTemplate(value, ctx):
   # implementation notes:
   #   see https://github.com/ansible/ansible/test/units/template/test_templar.py
   #   see ansible.template.vars.AnsibleJ2Vars,
   #   dataLoader is only used by _lookup and to set _basedir (else ./)
-  return Templar(dataLoader or DataLoader(), variables=vars).template(data)
+  if ctx.baseDir and ctx.templar._basedir != ctx.baseDir:
+    # we need to create a new templar
+    loader = DataLoader()
+    if ctx.baseDir:
+      loader.set_basedir(ctx.baseDir)
+    templar = Templar(loader)
+    ctx.templar = templar
 
-def isTemplate(val, ctx):
-  return isinstance(val, six.string_types) and not not ctx._lastResource.templar._clean_regex.search(val)
 
-def applyTemplate(value, ctx):
-  templar = ctx._lastResource.templar
-  # XXX if ctx.baseDir and ctx.baseDir != templar._basedir:
-  #  create a new templar (need to call set_basedir on the Dataloader first)
   vars = dict(__giterop = ctx)
   vars.update(ctx.vars)
-  templar.set_available_variables(vars)
+  # replaces current vars
+  ctx.templar.set_available_variables(vars)
+
   oldvalue = value
-  value = templar.template(value.strip())
+  # strip whitespace so jinija native types resolve even with extra whitespace
+  # disable caching so we don't need to worry about the value of a cached var changing
+  value = ctx.templar.template(value.strip(), cache=False)
   if value != oldvalue:
     ctx.trace("processed template:", value)
   return value
@@ -82,6 +93,7 @@ class RefContext(object):
     self.resolveExternal = resolveExternal
     self._trace = trace
     self.baseDir = currentResource.root.baseDir
+    self.templar = currentResource.templar
 
   def copy(self, resource=None, vars=None, wantList=None, trace=0):
     copy = RefContext(resource or self.currentResource, self.vars, self.wantList,
@@ -93,6 +105,7 @@ class RefContext(object):
     if wantList is not None:
       copy.wantList = wantList
     copy.baseDir = self.baseDir
+    copy.templar = self.templar
     return copy
 
   def trace(self, *msg):
@@ -260,11 +273,12 @@ class Ref(object):
     ctx = ctx.copy(vars=self.vars, wantList=wantList, trace=self.trace)
     ctx.trace('Ref.resolve(wantList=%s) start' % wantList, self.source)
     results = evalRef(self.source, ctx, True)
+    ctx.trace('Ref.resolve(wantList=%s) evalRef' % wantList, self.source, results)
     if results and self.foreach:
       results = forEach(self.foreach, results, ctx)
     assert not isinstance(results, ResultsList), results
     results = ResultsList(results, ctx)
-    ctx.trace('Ref.resolve(wantList=%s)' % wantList, self.source, results)
+    ctx.trace('Ref.resolve(wantList=%s) results' % wantList, self.source, results)
     if wantList and not wantList == 'result':
       return results
     else:
@@ -380,6 +394,8 @@ def _forEach(foreach, results, ctx):
         elif key is Continue:
           continue
       valResults = evalRef(valExp, ictx)
+      if not valResults:
+        continue
       if len(valResults) == 1:
         val = valResults[0].resolved
         if val is Break:
@@ -463,6 +479,7 @@ def evalRef(val, ctx, top=False):
     else:
       expr = Expr(val, ctx.vars)
       results = expr.resolve(ctx) # returns a list of Results
+      ctx.trace('expr.resolve', results)
       return results
 
   mappedVal = Results._mapValue(val, ctx)

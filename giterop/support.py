@@ -77,8 +77,15 @@ def runLookup(name, templar, *args, **kw):
 
 def lookupFunc(arg, ctx):
   """
+  Runs an ansible lookup plugin. Usage:
+
   lookup:
-    - file: 'foo' or []
+     lookupFunctionName: 'arg' or ['arg1', 'arg2']
+
+  Or if you need to pass keyword arguments to the lookup function:
+
+  lookup:
+    - lookupFunctionName: 'arg' or ['arg1', 'arg2']
     - kw1: value
     - kw2: value
   """
@@ -94,7 +101,7 @@ def lookupFunc(arg, ctx):
 
   if not isinstance(args, MutableSequence):
     args = [args]
-  return runLookup(name, ctx.currentResource.templar, *args, **kw)
+  return runLookup(name, ctx.templar, *args, **kw)
 
 setEvalFunc('lookup', lookupFunc)
 
@@ -192,6 +199,7 @@ class Secret(object):
 
 class SecretResource(ExternalResource):
   def resolveKey(self, name=None, currentResource=None):
+    # raises KeyError if not found
     val = super(SecretResource, self).resolveKey(name, currentResource)
     if isinstance(val, Secret):
       return val

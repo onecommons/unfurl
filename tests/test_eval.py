@@ -1,6 +1,6 @@
 import unittest
 import os
-from giterop.eval import Ref, mapValue, runTemplate, RefContext
+from giterop.eval import Ref, mapValue, applyTemplate, RefContext
 from giterop.runtime import Resource
 from giterop.result import ResultsList, serializeValue
 from ruamel.yaml.comments import CommentedMap
@@ -195,16 +195,17 @@ class EvalTest(unittest.TestCase):
     self.assertEqual(src, mapValue(serialized, resource))
 
   def test_jinjaTemplate(self):
-    self.assertEqual(runTemplate(" {{ foo }} ", {"foo": "hello"}), " hello ")
-    # test jinja2 native types
-    self.assertEqual(runTemplate("{{[foo]}}", {"foo": "hello"}), ["hello"])
-
-    from giterop.runtime import Resource
     resource = Resource("test", attributes=dict(a1="hello"))
-    vars = dict(__giterop = RefContext(resource))
-    self.assertEqual(runTemplate(' {{ "::test::a1" | ref }} ', vars), u" hello ")
-    self.assertEqual(runTemplate(' {{ lookup("giterop", "::test::a1") }} ', vars), u" hello ")
-    self.assertEqual(runTemplate('{{  query("giterop", "::test::a1") }}', vars), [u'hello'])
+    ctx = RefContext(resource, {"foo": "hello"})
+
+    self.assertEqual(applyTemplate(" {{ foo }} ", ctx), "hello")
+    # test jinja2 native types
+    self.assertEqual(applyTemplate(" {{[foo]}} ", ctx), ["hello"])
+
+    self.assertEqual(applyTemplate(' {{ "::test::a1" | ref }} ', ctx), u"hello")
+    self.assertEqual(applyTemplate(' {{ lookup("giterop", "::test::a1") }} ', ctx), u"hello")
+    # ansible query() always returns a list
+    self.assertEqual(applyTemplate('{{  query("giterop", "::test::a1") }}', ctx), [u'hello'])
 
     os.environ['TEST_ENV'] = 'testEnv' # note: tox doesn't pass on environment variables so we need to set one now
     self.assertEqual(mapValue("{{ lookup('env', 'TEST_ENV') }}", resource), 'testEnv')
