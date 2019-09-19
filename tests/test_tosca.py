@@ -17,6 +17,14 @@ spec:
   inputs:
     cpus: 2
   tosca:
+    node_types:
+      testy.nodes.aNodeType:
+        derived_from: tosca.nodes.Root
+        properties:
+          private_address:
+            type: string
+            metadata:
+              sensitive: true
     topology_template:
       inputs:
         cpus:
@@ -24,12 +32,23 @@ spec:
           description: Number of CPUs for the server.
           constraints:
             - valid_values: [ 1, 2, 4, 8 ]
+          metadata:
+            sensitive: true
       outputs:
         server_ip:
           description: The private IP address of the provisioned server.
           # equivalent to { get_attribute: [ my_server, private_address ] }
           value: {eval: "::my_server::private_address"}
       node_templates:
+        testSensitive:
+          type: testy.nodes.aNodeType
+          properties:
+            private_address: foo
+          interfaces:
+           Standard:
+            create:
+              implementation:
+                primary: SetAttributeConfigurator
         my_server:
           type: tosca.nodes.Compute
           properties:
@@ -69,3 +88,5 @@ class ToscaSyntaxTest(unittest.TestCase):
     assert manifest.getRootResource().findResource('my_server').attributes['test'], 'cpus: 2'
     assert job.getOutputs()['server_ip'], '10.0.0.1'
     assert job.status == Status.ok, job.summary()
+    # XXX verify redacted output
+    # print(job.out.getvalue())
