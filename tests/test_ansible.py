@@ -38,14 +38,16 @@ class AnsibleTest(unittest.TestCase):
     self.assertEqual(hostfacts['echoresults']['stdout'], "hello")
 
   def test_verbosity(self):
-    results = self.runPlaybook()
-    # task test-verbosity was skipped
-    assert not results.resultsByStatus.ok.get('test-verbosity')
-    assert results.resultsByStatus.skipped.get('test-verbosity')
-    results = self.runPlaybook(['-vv'])
-    # task test-verbosity was ok this time
-    assert results.resultsByStatus.ok.get('test-verbosity')
-    assert not results.resultsByStatus.skipped.get('test-verbosity')
+    # setting GITEROP_LOGGING can break this test, so skip if it's set
+    if not os.getenv('GITEROP_LOGGING'):
+      results = self.runPlaybook()
+      # task test-verbosity was skipped
+      assert not results.resultsByStatus.ok.get('test-verbosity')
+      assert results.resultsByStatus.skipped.get('test-verbosity')
+      results = self.runPlaybook(['-vv'])
+      # task test-verbosity was ok this time
+      assert results.resultsByStatus.ok.get('test-verbosity')
+      assert not results.resultsByStatus.skipped.get('test-verbosity')
 
 manifest = '''
 apiVersion: giterops/v1alpha1
