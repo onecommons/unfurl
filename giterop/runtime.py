@@ -182,7 +182,7 @@ class OperationalInstance(Operational):
   def priority():
     doc = "The priority property."
     def fget(self):
-      return self._priority
+      return Defaults.shouldRun if self._priority is None else self._priority
     def fset(self, value):
       self._priority = value
     def fdel(self):
@@ -341,8 +341,11 @@ class Resource(NodeInstance):
     return  "::%s"% self.name
 
   def getOperationalDependencies(self):
-    for instance in chain(self.capabilities, self.requirements):
-      yield instance
+    # XXX
+    #for instance in chain(self.capabilities, self.requirements):
+    #  yield instance
+    if self.parent and self.parent is not self.root:
+      yield self.parent
 
   def getSelfAndDescendents(self):
     "Recursive descendent including self"
