@@ -47,6 +47,9 @@ class Project(object):
 
     self.workingDirs = Repo.findGitWorkingDirs(self.projectRoot)
 
+  def getRepos(self):
+    return [repo for (gitUrl, repo) in self.workingDirs.values()]
+
   def getCurrentInstanceRepo(self):
     return os.path.join(self.projectRoot, 'instances', 'current')
 
@@ -247,7 +250,7 @@ class LocalEnv(object):
   #  is a directory: either instance repo or a project
   def findManifestPath(self, manifestPath):
     if not os.path.exists(manifestPath):
-      raise GitErOpError("Manifest file does not exist: %s" % os.path.abspath(manifestPath))
+      raise GitErOpError("Manifest file does not exist: '%s'" % os.path.abspath(manifestPath))
 
     if os.path.isdir(manifestPath):
       test = os.path.join(manifestPath, DefaultManifestName)
@@ -258,7 +261,7 @@ class LocalEnv(object):
         if os.path.exists(test):
           return Project(test, self)
         else:
-          message = "Can't find a giterop manifest or project in folder: %s" % manifestPath
+          message = "Can't find a giterop manifest or project in folder '%s'" % manifestPath
           raise GitErOpError(message)
     else:
       return manifestPath
@@ -269,6 +272,12 @@ class LocalEnv(object):
       return self.project.workingDirs[instanceDir][1]
     else:
       return Repo.createGitRepoIfExists(instanceDir)
+
+  def getRepos(self):
+    if self.project:
+      return self.project.getRepos()
+    else:
+      return [self.instanceRepo]
 
   def searchForManifestOrProject(self, dir):
     current = os.path.abspath(dir)

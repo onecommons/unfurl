@@ -102,6 +102,19 @@ class GitRepo(Repo):
   def revision(self):
     return self.repo.head.commit.hexsha
 
+  def runCmd(self, args):
+    """
+    :return:
+      tuple(int(status), str(stdout), str(stderr))
+    """
+    gitcmd = self.repo.git
+    call = [gitcmd.GIT_PYTHON_GIT_EXECUTABLE]
+    # add persistent git options
+    call.extend(gitcmd._persistent_git_options)
+    call.extend(list(args))
+
+    return gitcmd.execute(call, with_exceptions=False, with_extended_output=True)
+
   def show(self, path, commitId):
     if os.path.abspath(path) and self.workingDir:
       path = path[len(self.workingDir):]
@@ -116,6 +129,7 @@ class GitRepo(Repo):
 
   # XXX: def getDependentRepos()
   # XXX: def isDirty()
+  # XXX: def canManage()
 
   def canMakeClean(self):
     for repo in self.getDependentRepos():

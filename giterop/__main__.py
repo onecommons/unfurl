@@ -181,6 +181,30 @@ Create a new project by cloning the given specification repository and creating 
   else:
     raise click.ClickException(message)
 
+@cli.command(context_settings={"ignore_unknown_options": True})
+@click.pass_context
+@click.option('--dir', default='.', type=click.Path(exists=True), help='path to spec repository')
+@click.argument('gitargs', nargs=-1)
+def git(ctx, gitargs, dir='.'):
+  """
+giterop git --dir=/path/to/start [gitoptions] [gitcmd] [gitcmdoptions]: Runs command on each project repository.
+"""
+  from .localenv import LocalEnv
+  localEnv = LocalEnv(dir)
+  repos = localEnv.getRepos()
+  status = 0
+  for repo in repos:
+    repoPath = os.path.relpath(repo.workingDir, os.path.abspath(dir))
+    click.echo("*** Running 'git %s' in './%s'" % (' '.join(gitargs), repoPath))
+    _status, stdout, stderr = repo.runCmd(gitargs)
+    click.echo(stdout + ' \n')
+    if _status != 0:
+      status = _status
+
+  # if stderr.strip():
+  #   raise click.ClickException(stderr)
+  return status
+
 @cli.command()
 def version():
   click.echo("giterop version %s" % __version__)
@@ -210,7 +234,7 @@ def main():
     if obj.get('verbose'):
       traceback.print_exc(file=sys.stderr)
     else:
-      click.echo(str(err), file=sys.stderr)
+      click.echo("Exiting with error: " + str(err), file=sys.stderr)
     sys.exit(1)
 
 if __name__ == '__main__':
