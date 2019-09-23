@@ -19,6 +19,7 @@ class ClusterConfigurator(Configurator):
 
 class ResourceConfigurator(AnsibleConfigurator):
   def dryRun(self, task):
+    # XXX don't use print()
     print("generating playbook")
     #print(self.findPlaybook(task))
     #print(self.findPlaybook(task))
@@ -26,8 +27,9 @@ class ResourceConfigurator(AnsibleConfigurator):
     yield task.createResult(False, False)
 
   def makeSecret(self, data):
+    # base64 adds trailing \n so strip it out
     return dict(type='Opaque', apiVersion='v1', kind='Secret',
-        data={k: codecs.encode(str(v).encode(), 'base64').decode() for k, v in data.items()})
+        data={k: codecs.encode(str(v).encode(), 'base64').decode().strip() for k, v in data.items()})
 
   def getDefinition(self, task):
     if task.target.template.isCompatibleType('giterop.nodes.K8sNamespace'):
@@ -61,7 +63,6 @@ class ResourceConfigurator(AnsibleConfigurator):
     state = 'absent' if task.configSpec.action == 'delete' else 'present'
     connection = task.inputs.get('connection') or {}
     moduleSpec = dict(state=state, definition=definition, **connection)
-    # print('moduleSpec', moduleSpec)
     return [dict(k8s=moduleSpec)]
 
   def _processResult(self, task, result):
