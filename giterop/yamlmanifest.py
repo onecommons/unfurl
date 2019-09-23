@@ -136,7 +136,7 @@ import os.path
 import itertools
 
 from .util import (GitErOpError, VERSION, toYamlText, restoreIncludes, patchDict)
-from .yamlloader import YamlConfig, loadFromRepo, load_yaml
+from .yamlloader import YamlConfig, loadFromRepo, load_yaml, yaml
 from .result import serializeValue
 from .support import ResourceChanges, Status, Priority, Action
 from .localenv import LocalEnv
@@ -144,13 +144,11 @@ from .job import JobOptions, Runner
 from .manifest import Manifest, ChangeRecordAttributes
 from .runtime import TopologyResource, Resource
 
-from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap
 from codecs import open
 
 import logging
 logger = logging.getLogger('giterup')
-yaml = YAML()
 
 # XXX3 add as file to package data
 #schema=open(os.path.join(os.path.dirname(__file__), 'manifest-v1alpha1.json')).read()
@@ -554,9 +552,12 @@ class YamlManifest(Manifest):
   def saveRootResource(self, workDone):
     resource = self.rootResource
     status = CommentedMap()
+
     # record the input and output values
+    # XXX make sure sensative values are redacted (and need to check for 'sensitive' metadata)
     status['inputs'] = serializeValue(resource.inputs.attributes)
     status['outputs'] = serializeValue(resource.outputs.attributes)
+
     saveStatus(resource, status)
     # getOperationalDependencies() skips inputs and outputs
     status['instances'] = CommentedMap(map(lambda r: self.saveResource(r, workDone),
