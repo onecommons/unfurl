@@ -462,8 +462,14 @@ class Job(ConfigChange):
     return False #XXX3
 
   def summary(self):
+    outputString = ''
+    outputs = self.getOutputs()
+    if outputs:
+      outputString = ('\nOutputs:\n    ' +
+      '\n    '.join("%s: %s" % (name, value) for name, value in serializeValue(outputs).items()))
+
     if not self.workDone:
-      return 'Job %s completed: %s. Found nothing to do.' % (self.changeId, self.status.name)
+      return 'Job %s completed: %s. Found nothing to do. %s' % (self.changeId, self.status.name, outputString)
 
     def format(name, task):
       required = '[required]' if task.required else ''
@@ -471,7 +477,7 @@ class Job(ConfigChange):
 
     line1 = 'Job %s completed: %s. Tasks:\n    ' % (self.changeId, self.status.name)
     tasks = '\n    '.join(format(name, task) for name, task in self.workDone.items())
-    return (line1 + tasks)
+    return (line1 + tasks + outputString)
 
   def getOperationalDependencies(self):
     # XXX3 this isn't right, root job might have too many and child job might not have enough
