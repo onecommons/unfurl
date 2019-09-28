@@ -601,7 +601,10 @@ class ChainMap(Mapping):
     return iter(frozenset(itertools.chain(*self._maps)))
 
   def __len__(self):
-    return len(self.keys())
+    return len(frozenset(itertools.chain(*self._maps)))
+
+  def __nonzero__(self):
+    return all(self._maps)
 
   def __repr__(self):
     return "ChainMap(%r)" % (self._maps,)

@@ -236,6 +236,8 @@ class EvalTest(unittest.TestCase):
       )
     }
     resource = Resource("test", attributes=resourceDef)
+    assert not not resource.attributes
+    self.assertEqual(len(resource.attributes), 1)
 
     expectedA = {'c': {'e': 1}, 'b': {'e': 1}, 'd': ['2', '2']}
     self.assertEqual(resource.attributes['a']['b'], expectedA['b'])
