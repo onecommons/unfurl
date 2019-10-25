@@ -84,7 +84,7 @@ topology_template:
   manifestTemplatePath = os.path.join(gitDir, 'manifest-template.yaml')
   with open(manifestTemplatePath, 'w') as f:
     f.write("""\
-  apiVersion: unfurls/v1alpha1
+  apiVersion: unfurl/v1alpha1
   kind: Manifest
   spec:
     tosca:
@@ -102,7 +102,7 @@ def createInstanceRepo(gitDir, specRepo):
   specInitialCommit = list(specRepo.iter_commits('HEAD', max_parents=0))[0].hexsha
   with open(filepath, 'w') as f:
     f.write("""\
-apiVersion: unfurls/v1alpha1
+apiVersion: unfurl/v1alpha1
 kind: Manifest
 # merge in manifest-template.yaml from spec repo
 +%%include:

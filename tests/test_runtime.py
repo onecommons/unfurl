@@ -234,7 +234,7 @@ class RunTest(unittest.TestCase):
 
   def test_template_inheritance(self):
     manifest = '''
-apiVersion: unfurls/v1alpha1
+apiVersion: unfurl/v1alpha1
 kind: Manifest
 configurators:
   step1:
@@ -337,7 +337,7 @@ class FileTest(unittest.TestCase):
 
   def test_manifest_template(self):
     template = """
-apiVersion: unfurls/v1alpha1
+apiVersion: unfurl/v1alpha1
 kind: Manifest
 spec:
   a: 1
@@ -350,7 +350,7 @@ status: {}
         f.write(template)
 
       instanceYaml = """
-apiVersion: unfurls/v1alpha1
+apiVersion: unfurl/v1alpha1
 kind: Manifest
 +%include:
   file: template.yaml

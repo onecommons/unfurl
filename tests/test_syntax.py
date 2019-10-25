@@ -5,7 +5,7 @@ from unfurl.util import UnfurlError, UnfurlValidationError
 class ManifestSyntaxTest(unittest.TestCase):
   def test_hasVersion(self):
     hasVersion = """
-    apiVersion: unfurls/v1alpha1
+    apiVersion: unfurl/v1alpha1
     kind: Manifest
     spec: {}
     """
@@ -19,7 +19,7 @@ class ManifestSyntaxTest(unittest.TestCase):
     """
     with self.assertRaises(UnfurlError) as err:
       YamlManifest(badVersion)
-    self.assertIn("2 is not one of [\'unfurls/v1alpha1\']", str(err.exception))
+    self.assertIn("2 is not one of [\'unfurl/v1alpha1\']", str(err.exception))
 
     missingVersion = """
     spec: {}
@@ -35,7 +35,7 @@ class ManifestSyntaxTest(unittest.TestCase):
 
   def test_template_inheritance(self):
     manifest = '''
-apiVersion: unfurls/v1alpha1
+apiVersion: unfurl/v1alpha1
 kind: Manifest
 templates:
   base:
@@ -49,7 +49,7 @@ spec:
     self.assertIn('missing includes: [templates/production]', str(err.exception))
 
     manifest = '''
-apiVersion: unfurls/v1alpha1
+apiVersion: unfurl/v1alpha1
 kind: Manifest
 
 configurators:
@@ -84,7 +84,7 @@ root:
     #component names have to be qualified to override
     #duplicate names both run with distinct values
     manifest = '''
-apiVersion: unfurls/v1alpha1
+apiVersion: unfurl/v1alpha1
 kind: Manifest
 
 configurators:
@@ -127,7 +127,7 @@ root:
   @unittest.skip("update syntax")
   def test_missingConfigurator(self):
     manifest = '''
-apiVersion: unfurls/v1alpha1
+apiVersion: unfurl/v1alpha1
 kind: Manifest
 
 configurators:
@@ -156,7 +156,7 @@ root:
 #   def test_badparams(self):
 #     # don't match spec definition
 #     manifest = '''
-# apiVersion: unfurls/v1alpha1
+# apiVersion: unfurl/v1alpha1
 # kind: Manifest
 #
 # configurators:
@@ -193,7 +193,7 @@ root:
 #   def test_unexpectedParam(self):
 #     #parameter missing from spec
 #     manifest = '''
-# apiVersion: unfurls/v1alpha1
+# apiVersion: unfurl/v1alpha1
 # kind: Manifest
 #
 # configurators:
@@ -228,7 +228,7 @@ root:
 #   def test_missingParam(self):
 #     #missing required parameter
 #     manifest = '''
-# apiVersion: unfurls/v1alpha1
+# apiVersion: unfurl/v1alpha1
 # kind: Manifest
 #
 # configurators:

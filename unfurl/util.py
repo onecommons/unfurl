@@ -46,7 +46,7 @@ def initializeAnsible():
   main.cli = ansibleDummyCli
 initializeAnsible()
 
-VERSION = 'unfurls/v1alpha1' # api version
+VERSION = 'unfurl/v1alpha1' # api version
 
 class UnfurlError(Exception):
   def __init__(self, message, saveStack=False, log=False):

@@ -11,7 +11,7 @@ class SetAttributeConfigurator(Configurator):
     yield task.createResult(True, True, Status.ok)
 
 manifestDoc = '''
-apiVersion: unfurls/v1alpha1
+apiVersion: unfurl/v1alpha1
 kind: Manifest
 spec:
   inputs:

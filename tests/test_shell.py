@@ -6,7 +6,7 @@ from unfurl.util import lookupPath
 import datetime
 
 manifest = '''
-apiVersion: unfurls/v1alpha1
+apiVersion: unfurl/v1alpha1
 kind: Manifest
 configurations:
   create:

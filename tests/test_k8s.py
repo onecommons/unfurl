@@ -9,7 +9,7 @@ import os.path
 import warnings
 
 manifestScript = """
-apiVersion: unfurls/v1alpha1
+apiVersion: unfurl/v1alpha1
 kind: Manifest
 vars:
   defaultNamespace:

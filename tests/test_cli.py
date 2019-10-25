@@ -8,7 +8,7 @@ from unfurl import __version__
 from unfurl.configurator import Configurator
 
 manifest = """
-apiVersion: unfurls/v1alpha1
+apiVersion: unfurl/v1alpha1
 kind: Manifest
 imports:
   local:

@@ -50,7 +50,7 @@ class AnsibleTest(unittest.TestCase):
       assert not results.resultsByStatus.skipped.get('test-verbosity')
 
 manifest = '''
-apiVersion: unfurls/v1alpha1
+apiVersion: unfurl/v1alpha1
 kind: Manifest
 configurations:
   create:

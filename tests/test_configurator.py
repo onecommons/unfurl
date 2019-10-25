@@ -29,12 +29,12 @@ class TestConfigurator(Configurator):
     yield task.createResult(True, True, Status.ok)
 
 manifest = '''
-apiVersion: unfurls/v1alpha1
+apiVersion: unfurl/v1alpha1
 kind: Manifest
 spec:
  implementations:
   test:
-    apiVersion: unfurls/v1alpha1
+    apiVersion: unfurl/v1alpha1
     className: TestConfigurator
     majorVersion: 0
     preConditions:
