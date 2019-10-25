@@ -7,14 +7,14 @@ from .tosca import ToscaSpec, TOSCA_VERSION
 
 from .support import ResourceChanges, AttributeManager, Status, Priority, Action, Defaults
 from .runtime import OperationalInstance, Resource, Capability, Relationship
-from .util import GitErOpError, toEnum
+from .util import UnfurlError, toEnum
 from .configurator import Dependency, ConfigurationSpec
 from .repo import RevisionManager, findGitRepo
 from .yamlloader import YamlConfig, loadFromRepo
 from .job import ConfigChange
 
 import logging
-logger = logging.getLogger('giterop')
+logger = logging.getLogger('unfurl')
 
 ChangeRecordAttributes = CommentedMap([
    ('changeId', 0),
@@ -128,7 +128,7 @@ class Manifest(AttributeManager):
     """
     changeSet = self.changeSets.get(changeId)
     if not changeSet:
-      raise GitErOpError("can not find changeset for changeid %s" % changeId)
+      raise UnfurlError("can not find changeset for changeid %s" % changeId)
 
     configChange = ConfigChange()
     Manifest.loadStatus(changeSet, configChange)
@@ -173,7 +173,7 @@ class Manifest(AttributeManager):
     if pname:
       parent = self.getRootResource().findResource(pname)
       if parent is None:
-        raise GitErOpError('can not find parent resource %s' % pname)
+        raise UnfurlError('can not find parent resource %s' % pname)
 
     resource = self._createNodeInstance(Resource, rname, resourceSpec, parent)
     return resource
@@ -196,7 +196,7 @@ class Manifest(AttributeManager):
         changerecord = self._getLastChange(operational)
         template = self.loadTemplate(templateName, changerecord)
     if template is None:
-      raise GitErOpError('missing resource template %s' % templateName)
+      raise UnfurlError('missing resource template %s' % templateName)
     logger.debug('template %s: %s', templateName, template)
 
     resource = ctor(name, status.get('attributes'), parent, template, operational)

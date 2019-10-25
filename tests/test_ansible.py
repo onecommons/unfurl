@@ -1,9 +1,9 @@
-import giterop.util
+import unfurl.util
 import unittest
-from giterop.yamlmanifest import YamlManifest
-from giterop.job import Runner, JobOptions
-from giterop.ansibleconfigurator import runPlaybooks
-from giterop.runtime import Status
+from unfurl.yamlmanifest import YamlManifest
+from unfurl.job import Runner, JobOptions
+from unfurl.ansibleconfigurator import runPlaybooks
+from unfurl.runtime import Status
 import os
 import os.path
 import warnings
@@ -12,7 +12,7 @@ import sys
 class AnsibleTest(unittest.TestCase):
   def setUp(self):
     # need to call this again on python 2.7:
-    giterop.util.initializeAnsible()
+    unfurl.util.initializeAnsible()
     try:
       # Ansible generates tons of ResourceWarnings
       warnings.simplefilter("ignore", ResourceWarning)
@@ -38,8 +38,8 @@ class AnsibleTest(unittest.TestCase):
     self.assertEqual(hostfacts['echoresults']['stdout'], "hello")
 
   def test_verbosity(self):
-    # setting GITEROP_LOGGING can break this test, so skip if it's set
-    if not os.getenv('GITEROP_LOGGING'):
+    # setting UNFURL_LOGGING can break this test, so skip if it's set
+    if not os.getenv('UNFURL_LOGGING'):
       results = self.runPlaybook()
       # task test-verbosity was skipped
       assert not results.resultsByStatus.ok.get('test-verbosity')
@@ -50,11 +50,11 @@ class AnsibleTest(unittest.TestCase):
       assert not results.resultsByStatus.skipped.get('test-verbosity')
 
 manifest = '''
-apiVersion: giterops/v1alpha1
+apiVersion: unfurls/v1alpha1
 kind: Manifest
 configurations:
   create:
-    implementation: giterop.ansibleconfigurator.AnsibleConfigurator
+    implementation: unfurl.ansibleconfigurator.AnsibleConfigurator
     inputs:
       playbook:
         q:

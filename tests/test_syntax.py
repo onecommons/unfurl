@@ -1,11 +1,11 @@
 import unittest
-from giterop.yamlmanifest import YamlManifest
-from giterop.util import GitErOpError, GitErOpValidationError
+from unfurl.yamlmanifest import YamlManifest
+from unfurl.util import UnfurlError, UnfurlValidationError
 
 class ManifestSyntaxTest(unittest.TestCase):
   def test_hasVersion(self):
     hasVersion = """
-    apiVersion: giterops/v1alpha1
+    apiVersion: unfurls/v1alpha1
     kind: Manifest
     spec: {}
     """
@@ -17,14 +17,14 @@ class ManifestSyntaxTest(unittest.TestCase):
     kind: Manifest
     spec: {}
     """
-    with self.assertRaises(GitErOpError) as err:
+    with self.assertRaises(UnfurlError) as err:
       YamlManifest(badVersion)
-    self.assertIn("2 is not one of [\'giterops/v1alpha1\']", str(err.exception))
+    self.assertIn("2 is not one of [\'unfurls/v1alpha1\']", str(err.exception))
 
     missingVersion = """
     spec: {}
     """
-    with self.assertRaises(GitErOpError) as err:
+    with self.assertRaises(UnfurlError) as err:
       YamlManifest(missingVersion)
     self.assertIn("'apiVersion' is a required property", str(err.exception)) #, <ValidationError: "'kind' is a required property">]''')
 
@@ -35,7 +35,7 @@ class ManifestSyntaxTest(unittest.TestCase):
 
   def test_template_inheritance(self):
     manifest = '''
-apiVersion: giterops/v1alpha1
+apiVersion: unfurls/v1alpha1
 kind: Manifest
 templates:
   base:
@@ -44,12 +44,12 @@ templates:
 spec:
     +templates/production:
 '''
-    with self.assertRaises(GitErOpError) as err:
+    with self.assertRaises(UnfurlError) as err:
       YamlManifest(manifest)
     self.assertIn('missing includes: [templates/production]', str(err.exception))
 
     manifest = '''
-apiVersion: giterops/v1alpha1
+apiVersion: unfurls/v1alpha1
 kind: Manifest
 
 configurators:
@@ -84,7 +84,7 @@ root:
     #component names have to be qualified to override
     #duplicate names both run with distinct values
     manifest = '''
-apiVersion: giterops/v1alpha1
+apiVersion: unfurls/v1alpha1
 kind: Manifest
 
 configurators:
@@ -127,7 +127,7 @@ root:
   @unittest.skip("update syntax")
   def test_missingConfigurator(self):
     manifest = '''
-apiVersion: giterops/v1alpha1
+apiVersion: unfurls/v1alpha1
 kind: Manifest
 
 configurators:
@@ -149,14 +149,14 @@ root:
         +templates/base/configurations:
 
 '''
-    with self.assertRaises(GitErOpValidationError) as err:
+    with self.assertRaises(UnfurlValidationError) as err:
       YamlManifest(manifest)
     self.assertIn(str(err.exception.errors), '''[<ValidationError: "['step1', 'step2'] is not of type 'object'">]''')
 
 #   def test_badparams(self):
 #     # don't match spec definition
 #     manifest = '''
-# apiVersion: giterops/v1alpha1
+# apiVersion: unfurls/v1alpha1
 # kind: Manifest
 #
 # configurators:
@@ -186,14 +186,14 @@ root:
 #             # error: should be a string
 #             test: 0
 # '''
-#     with self.assertRaises(GitErOpValidationError) as err:
+#     with self.assertRaises(UnfurlValidationError) as err:
 #       m = YamlManifest(manifest)
 #     self.assertEqual(err and str(err.exception.errors[0][0]), "invalid value")
 #
 #   def test_unexpectedParam(self):
 #     #parameter missing from spec
 #     manifest = '''
-# apiVersion: giterops/v1alpha1
+# apiVersion: unfurls/v1alpha1
 # kind: Manifest
 #
 # configurators:
@@ -221,14 +221,14 @@ root:
 #           parameters:
 #             doesntexist: True
 # '''
-#     with self.assertRaises(GitErOpValidationError) as err:
+#     with self.assertRaises(UnfurlValidationError) as err:
 #       YamlManifest(manifest)
 #     self.assertEqual(str(err.exception.errors[0][0]), "unexpected parameters")
 #
 #   def test_missingParam(self):
 #     #missing required parameter
 #     manifest = '''
-# apiVersion: giterops/v1alpha1
+# apiVersion: unfurls/v1alpha1
 # kind: Manifest
 #
 # configurators:
@@ -252,6 +252,6 @@ root:
 #       configurations:
 #         - name: base.step1
 # '''
-#     with self.assertRaises(GitErOpValidationError) as err:
+#     with self.assertRaises(UnfurlValidationError) as err:
 #       YamlManifest(manifest)
 #     self.assertEqual(str(err.exception.errors[0][0]), "missing required parameter")

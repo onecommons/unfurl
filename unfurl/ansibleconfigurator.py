@@ -3,15 +3,15 @@ import json
 import tempfile
 import sys
 from ruamel.yaml import YAML
-from giterop.util import ansibleDisplay, ansibleDummyCli, assertForm
-from giterop.configurator import Configurator, Status
+from unfurl.util import ansibleDisplay, ansibleDummyCli, assertForm
+from unfurl.configurator import Configurator, Status
 import ansible.constants as C
 from ansible.cli.playbook import PlaybookCLI
 from ansible.plugins.callback.default import CallbackModule
 from ansible.module_utils import six
 
 import logging
-logger = logging.getLogger('giterop')
+logger = logging.getLogger('unfurl')
 
 yaml = YAML()
 
@@ -231,7 +231,7 @@ class ResultCallback(CallbackModule):
     super(ResultCallback, self).v2_runner_on_unreachable(result)
 
 def runPlaybooks(playbooks, _inventory, params=None, args=None):
-  # giterop.util should have initialized ansibleDummyCli and ansibleDisplay already
+  # unfurl.util should have initialized ansibleDummyCli and ansibleDisplay already
   inventoryArgs =  ['-i', _inventory] if _inventory else []
   args=['ansible-playbook'] + inventoryArgs + (args or []) + playbooks
   logger.info('running ' + ' '.join(args))

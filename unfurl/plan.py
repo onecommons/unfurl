@@ -1,11 +1,11 @@
 import six
 from .runtime import Resource
-from .util import GitErOpError, lookupClass
+from .util import UnfurlError, lookupClass
 from .support import Status
 from .configurator import ConfigurationSpec
 
 import logging
-logger = logging.getLogger('giterop')
+logger = logging.getLogger('unfurl')
 
 class Plan(object):
   """
@@ -51,7 +51,7 @@ class Plan(object):
       params = dict(command=cmdLine, timeout=timeout)
       if inputs:
         params.update(inputs)
-      return ConfigurationSpec('cmdline', action, className='giterop.shellconfigurator.ShellConfigurator', inputs = params)
+      return ConfigurationSpec('cmdline', action, className='unfurl.shellconfigurator.ShellConfigurator', inputs = params)
 
   def getConfigurationSpecFromInterface(self, iDef):
     '''implementation can either be a named artifact (including a python configurator class),
@@ -66,7 +66,7 @@ class Plan(object):
         # XXX retrieve from repository if defined
         implementation = implementation.get('file')
     if not implementation or not isinstance(implementation, six.string_types):
-      raise GitErOpError('invalid implementation spec %s' % implementation)
+      raise UnfurlError('invalid implementation spec %s' % implementation)
     configuratorTemplate = self.tosca.configurators.get(implementation)
     if configuratorTemplate:
       attributes = configuratorTemplate.properties
@@ -80,7 +80,7 @@ class Plan(object):
       try:
         lookupClass(implementation)
         return ConfigurationSpec(implementation, iDef.name, className=implementation, inputs = iDef.inputs)
-      except GitErOpError:
+      except UnfurlError:
         # assume its executable file, create a ShellConfigurator
         return self.createShellConfigurator([implementation], iDef.name, iDef.inputs, timeout=timeout)
 
@@ -193,7 +193,7 @@ Returns:
     if opts.template:
       filterTemplate = self.tosca.getTemplate(opts.template)
       if not filterTemplate:
-        raise GitErOpError('specified template not found %s' % filterTemplate)
+        raise UnfurlError('specified template not found %s' % filterTemplate)
     else:
       filterTemplate = None
 
@@ -248,7 +248,7 @@ Returns:
     else:
       configSpec = self.findImplementation('Standard', action, resource.template)
     if not configSpec:
-      raise GitErOpError('unable to find an implementation to "%s" "%s" on ""%s"' % (action, resource.template.name, resource.template.name) )
+      raise UnfurlError('unable to find an implementation to "%s" "%s" on ""%s"' % (action, resource.template.name, resource.template.name) )
     logger.debug('creating configuration %s with %s to run for %s: %s', configSpec.name, configSpec.inputs, resource.name, reason or action)
     return (configSpec, resource, reason or action)
 

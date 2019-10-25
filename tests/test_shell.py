@@ -1,16 +1,16 @@
 import unittest
-from giterop.yamlmanifest import YamlManifest
-from giterop.job import Runner, JobOptions
-from giterop.configurator import Configurator, Status
-from giterop.util import lookupPath
+from unfurl.yamlmanifest import YamlManifest
+from unfurl.job import Runner, JobOptions
+from unfurl.configurator import Configurator, Status
+from unfurl.util import lookupPath
 import datetime
 
 manifest = '''
-apiVersion: giterops/v1alpha1
+apiVersion: unfurls/v1alpha1
 kind: Manifest
 configurations:
   create:
-    implementation: giterop.shellconfigurator.ShellConfigurator
+    implementation: unfurl.shellconfigurator.ShellConfigurator
     inputs:
      command: "echo 'helloworld'"
      timeout: 9999

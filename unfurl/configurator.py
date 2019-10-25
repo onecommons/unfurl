@@ -2,7 +2,7 @@ import six
 import collections
 from .support import Status, Defaults, ResourceChanges
 from .result import serializeValue, ChangeAware, Results
-from .util import AutoRegisterClass, lookupClass, validateSchema, findSchemaErrors, GitErOpTaskError, toEnum, GitErOpAddingResourceError
+from .util import AutoRegisterClass, lookupClass, validateSchema, findSchemaErrors, UnfurlTaskError, toEnum, UnfurlAddingResourceError
 from .eval import Ref, mapValue, RefContext
 from .runtime import NodeInstance
 
@@ -10,7 +10,7 @@ from ruamel.yaml import YAML
 yaml = YAML()
 
 import logging
-logger = logging.getLogger('giterop')
+logger = logging.getLogger('unfurl')
 
 # we want ConfigurationSpec to be standalone and easily serializable
 class ConfigurationSpec(object):
@@ -152,7 +152,7 @@ class TaskView(object):
   def createResult(self, applied, modified, readyState=None, configChanged=None, result=None):
     readyState = toEnum(Status, readyState)
     if applied and (not readyState or readyState == Status.notapplied):
-        raise GitErOpTaskError(self, "need to set readyState if configuration was applied")
+        raise UnfurlTaskError(self, "need to set readyState if configuration was applied")
 
     return ConfiguratorResult(applied, modified, readyState, configChanged, result)
 
@@ -266,7 +266,7 @@ class TaskView(object):
         if resource.required or resourceSpec.get('dependent'):
           self.addDependency(resource, required=resource.required)
       except:
-        errors.append(GitErOpAddingResourceError(self, originalResourceSpec))
+        errors.append(UnfurlAddingResourceError(self, originalResourceSpec))
       else:
         newResourceSpecs.append(originalResourceSpec)
         newResources.append(resource)

@@ -1,8 +1,8 @@
 import unittest
-from giterop.yamlmanifest import YamlManifest
-from giterop.job import Runner, JobOptions, Status
-from giterop.configurator import Configurator
-from giterop.util import lookupPath
+from unfurl.yamlmanifest import YamlManifest
+from unfurl.job import Runner, JobOptions, Status
+from unfurl.configurator import Configurator
+from unfurl.util import lookupPath
 import datetime
 
 class TestConfigurator(Configurator):
@@ -29,12 +29,12 @@ class TestConfigurator(Configurator):
     yield task.createResult(True, True, Status.ok)
 
 manifest = '''
-apiVersion: giterops/v1alpha1
+apiVersion: unfurls/v1alpha1
 kind: Manifest
 spec:
  implementations:
   test:
-    apiVersion: giterops/v1alpha1
+    apiVersion: unfurls/v1alpha1
     className: TestConfigurator
     majorVersion: 0
     preConditions:

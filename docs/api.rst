@@ -1,25 +1,25 @@
-GitErOp's API
+Unfurl's API
 ===================================
 
-.. automodule:: giterop
+.. automodule:: unfurl
   :members:
 
 Manifest
 --------
-.. automodule:: giterop.manifest
+.. automodule:: unfurl.manifest
   :members:
 
 Runtime
 -------
-.. automodule:: giterop.runtime
+.. automodule:: unfurl.runtime
   :members:
 
 Eval
 ----
-.. automodule:: giterop.eval
+.. automodule:: unfurl.eval
   :members:
 
 Util
 ----
-.. automodule:: giterop.util
+.. automodule:: unfurl.util
   :members:

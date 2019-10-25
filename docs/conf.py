@@ -2,13 +2,13 @@
 #
 import sys, os
 sys.path.insert(0, os.path.abspath('..'))
-import giterop
-VERSION = giterop.__version__
+import unfurl
+VERSION = unfurl.__version__
 
 
 # -- Project information -----------------------------------------------------
 
-project = 'GitErOp'
+project = 'Unfurl'
 copyright = '2019, Adam Souzis'
 author = 'Adam Souzis'
 release = VERSION

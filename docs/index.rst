@@ -1,4 +1,4 @@
-Welcome to GitErOp's documentation!
+Welcome to Unfurl's documentation!
 ===================================
 
 .. toctree::

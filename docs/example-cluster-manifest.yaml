@@ -157,7 +157,7 @@ clusters:
             masterCount: 1
         - name: production.default-registry: #override clusterSpec
           action: uninstall
-      #added by giterop
+      #added by unfurl
       status:
         actions:
           - component: production.default-registry

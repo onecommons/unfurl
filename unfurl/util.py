@@ -9,7 +9,7 @@ from jsonschema import Draft4Validator, validators
 from ruamel.yaml.comments import CommentedMap
 from ruamel.yaml.scalarstring import ScalarString, FoldedScalarString
 import logging
-logger = logging.getLogger('giterup')
+logger = logging.getLogger('unfurl')
 
  #import pickle
 pickleVersion = 2 #pickle.DEFAULT_PROTOCOL
@@ -46,15 +46,15 @@ def initializeAnsible():
   main.cli = ansibleDummyCli
 initializeAnsible()
 
-VERSION = 'giterops/v1alpha1' # api version
+VERSION = 'unfurls/v1alpha1' # api version
 
-class GitErOpError(Exception):
+class UnfurlError(Exception):
   def __init__(self, message, saveStack=False, log=False):
     if saveStack:
       (type, value, traceback) = sys.exc_info()
       if value:
         message += ': ' + str(value)
-    super(GitErOpError, self).__init__(message)
+    super(UnfurlError, self).__init__(message)
     self.stackInfo =  (type, value, traceback) if saveStack and value else None
     if log:
       logger.error(message, exc_info=True)
@@ -64,22 +64,22 @@ class GitErOpError(Exception):
       return ''
     return ''.join(traceback.format_exception(*self.stackInfo))
 
-class GitErOpValidationError(GitErOpError):
+class UnfurlValidationError(UnfurlError):
   def __init__(self, message, errors=None):
-    super(GitErOpValidationError, self).__init__(message)
+    super(UnfurlValidationError, self).__init__(message)
     self.errors = errors or []
 
-class GitErOpTaskError(GitErOpError):
+class UnfurlTaskError(UnfurlError):
   def __init__(self, task, message, log=False):
-    super(GitErOpTaskError, self).__init__(message, True, log)
+    super(UnfurlTaskError, self).__init__(message, True, log)
     self.task = task
     task.errors.append(self)
 
-class GitErOpAddingResourceError(GitErOpTaskError):
+class UnfurlAddingResourceError(UnfurlTaskError):
   def __init__(self, task, resourceSpec):
     resourcename = isinstance(resourceSpec, Mapping) and resourceSpec.get('name', '')
     message = "error creating resource %s" % resourcename
-    super(GitErOpTaskError, self).__init__(task, message)
+    super(UnfurlTaskError, self).__init__(task, message)
     self.resourceSpec = resourceSpec
 
 class sensitive_str(str):
@@ -96,7 +96,7 @@ def toYamlText(val):
 
 def assertForm(src, types=Mapping):
   if not isinstance(src, types):
-    raise GitErOpError('Malformed definition: %s' % src)
+    raise UnfurlError('Malformed definition: %s' % src)
   return src
 
 # map< apiversion, map<kind, ctor> >
@@ -106,7 +106,7 @@ def registerClass(apiVersion, kind, factory, replace=False):
   api = _ClassRegistry.setdefault(apiVersion, {})
   if not replace and kind in api:
     if api[kind] is not factory:
-      raise GitErOpError('class already registered for %s.%s' % (apiVersion, kind))
+      raise UnfurlError('class already registered for %s.%s' % (apiVersion, kind))
   api[kind] = factory
 
 class AutoRegisterClass(type):
@@ -138,7 +138,7 @@ def lookupClass(kind, apiVersion=None, default=None):
     if klass:
       registerClass(version, kind, klass, True)
     else:
-      raise GitErOpError('Can not find class %s.%s' % (version, kind))
+      raise UnfurlError('Can not find class %s.%s' % (version, kind))
   return klass
 
 def toEnum(enum, value, default=None):
@@ -186,7 +186,7 @@ def mergeDicts(b, a, cls=dict):
             cp[key] = mergeDicts(bval, val, cls)
             continue
           if strategy == 'error':
-            raise GitErOpError('merging %s is not allowed, +%: error was set' % key)
+            raise UnfurlError('merging %s is not allowed, +%: error was set' % key)
       if strategy == 'delete':
         skip.append(key)
         continue
@@ -235,7 +235,7 @@ def getTemplate(doc, key, value, path, cls):
         template = lookupPath(doc, templatePath, cls)
       # XXX this check should allow array look up:
       if not isinstance(template, Mapping) or segment not in template:
-        raise GitErOpError('can not find "%s" in document' % key)
+        raise UnfurlError('can not find "%s" in document' % key)
       if templatePath is not None:
         templatePath.append(segment)
       template = template[segment]
@@ -249,7 +249,7 @@ def getTemplate(doc, key, value, path, cls):
       if key != IncludeKey:
         prefix = list(itertools.takewhile(lambda x: x[0] == x[1], zip(path, templatePath)))
         if len(prefix) == len(templatePath):
-          raise GitErOpError('recursive include "%s" in "%s"' % (templatePath, path))
+          raise UnfurlError('recursive include "%s" in "%s"' % (templatePath, path))
       includes = CommentedMap()
       template = expandDict(doc, path, includes, template, cls=cls)
   finally:
@@ -266,7 +266,7 @@ def hasTemplate(doc, key, path, cls):
       path = path[:-1]
       template = lookupPath(doc, path, cls)
     if not isinstance(template, Mapping):
-      raise GitErOpError('included templates changed')
+      raise UnfurlError('included templates changed')
     if segment not in template:
       return False
     template = template[segment]
@@ -310,7 +310,7 @@ def expandDict(doc, path, includes, current, cls=dict):
         templates.append( template )
       else:
         if len(current) > 1:
-          raise GitErOpError('can not merge non-map value %s' % template)
+          raise UnfurlError('can not merge non-map value %s' % template)
         else:
           return template # current dict is replaced with a value
     elif key.startswith('q+'):
@@ -345,7 +345,7 @@ def expandDoc(doc, current=None, cls=dict):
   if current is None:
     current = doc
   if not isinstance(doc, Mapping) or not isinstance(current, Mapping):
-    raise GitErOpError('top level element %s is not a dict' % doc)
+    raise UnfurlError('top level element %s is not a dict' % doc)
   expanded = expandDict(doc, (), includes, current, cls)
   last = 0
   while True:
@@ -353,7 +353,7 @@ def expandDoc(doc, current=None, cls=dict):
     if len(missing) == 0:
       return includes, expanded
     if len(missing) == last: # no progress
-      raise GitErOpError('missing includes: %s' % missing)
+      raise UnfurlError('missing includes: %s' % missing)
     last = len(missing)
     includes = CommentedMap()
     expanded = expandDict(expanded, (), includes, current, cls)

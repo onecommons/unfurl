@@ -1,5 +1,5 @@
 """
-The basic operation of GitErOp is to apply the specified configuration to a resource
+The basic operation of Unfurl is to apply the specified configuration to a resource
 and record the results.
 
 A manifest can contain a reproducible history of changes to a resource.
@@ -43,6 +43,6 @@ def initLogging(level, logfile=None):
   _logHandler.setLevel(level)
   return _logHandler
 
-_logEnv = os.getenv('GITEROP_LOGGING')
+_logEnv = os.getenv('UNFURL_LOGGING')
 if _logEnv is not None:
   initLogging(_logEnv)

@@ -5,7 +5,7 @@ from git.repo.fun import (
     is_git_dir
 )
 import logging
-logger = logging.getLogger('giterop')
+logger = logging.getLogger('unfurl')
 
 def findGitRepo(path, isFile=True, importLoader=None):
   """

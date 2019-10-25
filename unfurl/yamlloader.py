@@ -8,14 +8,14 @@ from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap
 from ruamel.yaml.representer import RepresenterError
 
-from .util import sensitive_str, GitErOpError, GitErOpValidationError
+from .util import sensitive_str, UnfurlError, UnfurlValidationError
 from .util import expandDoc, findSchemaErrors, makeMapWithBase
 from toscaparser.common.exception import ExceptionCollector
 from toscaparser.common.exception import URLException
 from toscaparser.utils.gettextutils import _
 
 import logging
-logger = logging.getLogger('giterup')
+logger = logging.getLogger('unfurl')
 yaml = YAML()
 # monkey patch for better error message
 def represent_undefined(self, data):
@@ -81,7 +81,7 @@ def load_yaml(path, isFile=True, importLoader=None):
       msg = 'Could not load "%s" (originally "%s")' % (path, originalPath)
     else:
       msg = 'Could not load "%s"' % path
-    raise GitErOpError(msg, True)
+    raise UnfurlError(msg, True)
 
 import toscaparser.imports
 toscaparser.imports.YAML_LOADER = load_yaml
@@ -110,7 +110,7 @@ class YamlConfig(object):
       else:
         self.config = config
       if not isinstance(self.config, CommentedMap):
-        raise GitErOpValidationError('invalid YAML document: %s' % self.config)
+        raise UnfurlValidationError('invalid YAML document: %s' % self.config)
 
       self._cachedDocIncludes = {}
       #schema should include defaults but can't validate because it doesn't understand includes
@@ -126,7 +126,7 @@ class YamlConfig(object):
       errors = schema and self.validate(expandedConfig)
       if errors and validate:
         (message, schemaErrors) = errors
-        raise GitErOpValidationError("JSON Schema validation failed: " + message, errors)
+        raise UnfurlValidationError("JSON Schema validation failed: " + message, errors)
       else:
         self.valid = not not errors
     except:
@@ -134,7 +134,7 @@ class YamlConfig(object):
         msg = "Unable to load yaml config at %s" % self.path
       else:
         msg = "Unable to parse yaml config"
-      raise GitErOpError(msg, True)
+      raise UnfurlError(msg, True)
 
   def loadYaml(self, path, baseDir=None):
     path = os.path.abspath(os.path.join(baseDir or self.getBaseDir(), path))
@@ -162,7 +162,7 @@ class YamlConfig(object):
     if isinstance(templatePath, dict):
       value = templatePath.get('merge')
       if 'file' not in templatePath:
-        raise GitErOpError('file missing from document %%include: %s' % templatePath)
+        raise UnfurlError('file missing from document %%include: %s' % templatePath)
       key = templatePath['file']
     else:
       value = None
@@ -182,7 +182,7 @@ class YamlConfig(object):
         path, template = self.loadYaml(key, baseDir)
       newBaseDir = os.path.dirname(path)
     except:
-      raise GitErOpError('unable to load document %%include: %s (base: %s)' % (templatePath, baseDir), True, True)
+      raise UnfurlError('unable to load document %%include: %s (base: %s)' % (templatePath, baseDir), True, True)
     self.baseDirs.append(newBaseDir)
 
     self._cachedDocIncludes[key] = [path, template]

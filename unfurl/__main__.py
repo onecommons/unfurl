@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-Applies a GitErOp manifest
+Applies a Unfurl manifest
 
 For each configuration, run it if required, then record the result
 """
@@ -22,7 +22,7 @@ def option_group(*options):
 
 @click.group()
 @click.pass_context
-@click.option('--home', default='', type=click.Path(exists=False), help='path to .giterop home')
+@click.option('--home', default='', type=click.Path(exists=False), help='path to .unfurl home')
 @click.option('-v', '--verbose', count=True, help="verbose mode (-vvv for more)")
 @click.option('-q', '--quiet', default=False, is_flag=True, help='Only output errors to the stdout')
 @click.option('--logfile', default=None,
@@ -49,14 +49,14 @@ jobControlOptions = option_group(
 )
 
 
-#giterop run foo:create -- terraform blah
+#unfurl run foo:create -- terraform blah
 # --append
 # --replace
-# giterop run foo:check 'terraform blah' # save lastChangeId so we can recreate history for the target
+# unfurl run foo:check 'terraform blah' # save lastChangeId so we can recreate history for the target
 # each command builds a config (unless replace ) --replace
-# giterop add repo
-# giterop add image
-# giterop intervene # apply manual changes to status (create a change set and commit)
+# unfurl add repo
+# unfurl add image
+# unfurl intervene # apply manual changes to status (create a change set and commit)
 @cli.command()
 @click.pass_context
 @click.argument('action', default='*:upgrade')
@@ -133,7 +133,7 @@ def plan(ctx, manifest=None, **options):
 @click.argument('projectdir', default='.', type=click.Path(exists=False))
 def init(ctx, projectdir, **options):
   """
-giterop init [project] # creates a giterop project with new spec and instance repos
+unfurl init [project] # creates a unfurl project with new spec and instance repos
 """
   options.update(ctx.obj)
   from .init import createProject
@@ -146,8 +146,8 @@ giterop init [project] # creates a giterop project with new spec and instance re
 
   homePath, projectPath = createProject(projectdir, options['home'])
   if homePath:
-    click.echo("giterop home created at %s" % homePath)
-  click.echo("New GitErOp project created at %s" % projectPath)
+    click.echo("unfurl home created at %s" % homePath)
+  click.echo("New Unfurl project created at %s" % projectPath)
 
 @cli.command()
 @click.pass_context
@@ -187,7 +187,7 @@ Create a new project by cloning the given specification repository and creating 
 @click.argument('gitargs', nargs=-1)
 def git(ctx, gitargs, dir='.'):
   """
-giterop git --dir=/path/to/start [gitoptions] [gitcmd] [gitcmdoptions]: Runs command on each project repository.
+unfurl git --dir=/path/to/start [gitoptions] [gitcmd] [gitcmdoptions]: Runs command on each project repository.
 """
   from .localenv import LocalEnv
   localEnv = LocalEnv(dir)
@@ -207,10 +207,10 @@ giterop git --dir=/path/to/start [gitoptions] [gitcmd] [gitcmdoptions]: Runs com
 
 @cli.command()
 def version():
-  click.echo("giterop version %s" % __version__)
+  click.echo("unfurl version %s" % __version__)
 
 def printHelp():
-  ctx = cli.make_context('giterop', [])
+  ctx = cli.make_context('unfurl', [])
   click.echo(cli.get_help(ctx))
 
 def main():

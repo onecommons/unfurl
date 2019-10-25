@@ -9,14 +9,14 @@ Differences with TOSCA 1.1:
    instance will be used to execute the operation.
 """
 from .tosca_plugins import TOSCA_VERSION
-from .util import GitErOpValidationError
+from .util import UnfurlValidationError
 from .eval import Ref
 from toscaparser.tosca_template import ToscaTemplate
 # from toscaparser.topology_template import TopologyTemplate
 from toscaparser.elements.capabilitytype import CapabilityTypeDef
 from toscaparser.common.exception import ExceptionCollector, ValidationError
 import logging
-logger = logging.getLogger('giterop')
+logger = logging.getLogger('unfurl')
 
 from toscaparser import functions
 
@@ -43,7 +43,7 @@ def createDefaultTopology():
   return ToscaTemplate(yaml_dict_tpl=tpl).topology_template
 
 class ToscaSpec(object):
-  ConfiguratorType = 'giterop.nodes.Configurator'
+  ConfiguratorType = 'unfurl.nodes.Configurator'
 
   def __init__(self, toscaDef, inputs=None, instances=None, path=None):
     # for key in tosca_ext_tpl:
@@ -61,7 +61,7 @@ class ToscaSpec(object):
       self.template = ToscaTemplate(path=path, parsed_params=inputs, yaml_dict_tpl=toscaDef)
     except ValidationError:
       message = "\n".join(ExceptionCollector.getExceptionsReport(False))
-      raise GitErOpValidationError("TOSCA validation failed for %s: \n%s"  % (path, message),
+      raise UnfurlValidationError("TOSCA validation failed for %s: \n%s"  % (path, message),
               ExceptionCollector.getExceptions())
 
     self.nodeTemplates = {}
@@ -122,7 +122,7 @@ class ToscaSpec(object):
         })
 
   def loadInstance(self, impl):
-    template = {'type': 'tosca.nodes.Root'} #'giterop.nodes.Default'}
+    template = {'type': 'tosca.nodes.Root'} #'unfurl.nodes.Default'}
     implementations = impl.get('implementations')
     if implementations:
       template['interfaces'] = {

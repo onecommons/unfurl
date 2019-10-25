@@ -1,15 +1,15 @@
-import giterop.util
+import unfurl.util
 import unittest
 
-from giterop.yamlmanifest import YamlManifest
-from giterop.job import Runner, JobOptions
-from giterop.runtime import Status
+from unfurl.yamlmanifest import YamlManifest
+from unfurl.job import Runner, JobOptions
+from unfurl.runtime import Status
 import os
 import os.path
 import warnings
 
 manifestScript = """
-apiVersion: giterops/v1alpha1
+apiVersion: unfurls/v1alpha1
 kind: Manifest
 vars:
   defaultNamespace:
@@ -26,11 +26,11 @@ spec:
             context: docker-for-desktop
       node_templates:
         k8sCluster:
-         type: giterop.nodes.K8sCluster
+         type: unfurl.nodes.K8sCluster
          properties:
            connection: { get_input: kubeConnection }
         k8sNamespace:
-         type: giterop.nodes.K8sNamespace
+         type: unfurl.nodes.K8sNamespace
          requirements:
            - host: k8sCluster
          properties:
@@ -38,7 +38,7 @@ spec:
         testSecret:
          # add metadata, type: Opaque
          # base64 values and omit data from status
-         type: giterop.nodes.k8sSecretResource
+         type: unfurl.nodes.k8sSecretResource
          requirements:
            - host: k8sNamespace
          properties:
@@ -50,7 +50,7 @@ spec:
 class k8sTest(unittest.TestCase):
   def setUp(self):
     # need to call this again on python 2.7:
-    giterop.util.initializeAnsible()
+    unfurl.util.initializeAnsible()
     try:
       # Ansible generates tons of ResourceWarnings
       warnings.simplefilter("ignore", ResourceWarning)

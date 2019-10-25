@@ -1,9 +1,9 @@
 import unittest
 import os
-from giterop.result import ResultsList, serializeValue
-from giterop.eval import Ref, mapValue, RefContext
-from giterop.support import applyTemplate
-from giterop.runtime import Resource
+from unfurl.result import ResultsList, serializeValue
+from unfurl.eval import Ref, mapValue, RefContext
+from unfurl.support import applyTemplate
+from unfurl.runtime import Resource
 from ruamel.yaml.comments import CommentedMap
 
 class EvalTest(unittest.TestCase):
@@ -204,9 +204,9 @@ class EvalTest(unittest.TestCase):
     self.assertEqual(applyTemplate(" {{[foo]}} ", ctx), ["hello"])
 
     self.assertEqual(applyTemplate(' {{ "::test::a1" | ref }} ', ctx), u"hello")
-    self.assertEqual(applyTemplate(' {{ lookup("giterop", "::test::a1") }} ', ctx), u"hello")
+    self.assertEqual(applyTemplate(' {{ lookup("unfurl", "::test::a1") }} ', ctx), u"hello")
     # ansible query() always returns a list
-    self.assertEqual(applyTemplate('{{  query("giterop", "::test::a1") }}', ctx), [u'hello'])
+    self.assertEqual(applyTemplate('{{  query("unfurl", "::test::a1") }}', ctx), [u'hello'])
 
     os.environ['TEST_ENV'] = 'testEnv' # note: tox doesn't pass on environment variables so we need to set one now
     self.assertEqual(mapValue("{{ lookup('env', 'TEST_ENV') }}", resource), 'testEnv')

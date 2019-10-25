@@ -1,15 +1,15 @@
-tosca_definitions_version: tosca_simple_giterop_1_0_0
+tosca_definitions_version: tosca_simple_unfurl_1_0_0
 node_types:
-  giterop.nodes.Configurator:
+  unfurl.nodes.Configurator:
     derived_from: tosca.nodes.Root
     interfaces:
       Provides:
-        type: giterop.interfaces.Provides
+        type: unfurl.interfaces.Provides
 
-  giterop.nodes.Default:
+  unfurl.nodes.Default:
     derived_from: tosca.nodes.Root
 
-  giterop.nodes.K8sCluster:
+  unfurl.nodes.K8sCluster:
     derived_from: tosca.nodes.Root
     properties:
       connection:
@@ -21,7 +21,7 @@ node_types:
     capabilities:
       host:
         type: tosca.capabilities.Container
-        valid_source_types: [giterop.nodes.K8sRawResource, giterop.nodes.K8sNamespace]
+        valid_source_types: [unfurl.nodes.K8sRawResource, unfurl.nodes.K8sNamespace]
     attributes:
       apiServer:
         description: URL to the cluster's api server
@@ -34,11 +34,11 @@ node_types:
         inputs:
           connection: {get_property: ['SELF', 'connection']}
         create:
-          giterop.k8s.ClusterConfigurator
+          unfurl.k8s.ClusterConfigurator
         configure:
-          giterop.k8s.ClusterConfigurator
+          unfurl.k8s.ClusterConfigurator
 
-  giterop.nodes.DockerImage:
+  unfurl.nodes.DockerImage:
     derived_from: tosca.nodes.Root
     # usage: ::image::repoDigest::0
     properties:
@@ -54,15 +54,15 @@ node_types:
       Standard:
         create:
           # need to check hasChanged() if tag isn't a digest
-          giterop.k8s.ImageConfigurator
+          unfurl.k8s.ImageConfigurator
         configure:
-          giterop.k8s.ImageConfigurator
+          unfurl.k8s.ImageConfigurator
 
-  giterop.nodes.K8sRawResource:
+  unfurl.nodes.K8sRawResource:
     derived_from: tosca.nodes.Root
     requirements:
       - host:
-          node: giterop.nodes.K8sCluster
+          node: unfurl.nodes.K8sCluster
           relationship: tosca.relationships.HostedOn
     properties:
      definition:
@@ -81,18 +81,18 @@ node_types:
         inputs:
           connection: {get_property: ['HOST', 'connection']}
         create:
-          giterop.k8s.ResourceConfigurator
+          unfurl.k8s.ResourceConfigurator
         configure:
-          giterop.k8s.ResourceConfigurator
+          unfurl.k8s.ResourceConfigurator
         delete:
-          giterop.k8s.ResourceConfigurator
+          unfurl.k8s.ResourceConfigurator
 
-  giterop.nodes.K8sNamespace:
-    derived_from: giterop.nodes.K8sRawResource
+  unfurl.nodes.K8sNamespace:
+    derived_from: unfurl.nodes.K8sRawResource
     capabilities:
       host:
         type: tosca.capabilities.Container
-        valid_source_types: [giterop.nodes.K8sResource]
+        valid_source_types: [unfurl.nodes.K8sResource]
     properties:
       name:
         type: string
@@ -101,22 +101,22 @@ node_types:
           # namespaces can't be renamed
           immutable: true
 
-  giterop.nodes.K8sResource:
-    derived_from: giterop.nodes.K8sRawResource
+  unfurl.nodes.K8sResource:
+    derived_from: unfurl.nodes.K8sRawResource
     requirements:
       - host:
-          node: giterop.nodes.K8sNamespace
+          node: unfurl.nodes.K8sNamespace
           relationship: tosca.relationships.HostedOn
     attributes:
       namespace:
         type: string
         default: {get_property: ['HOST', 'name']}
 
-  giterop.nodes.k8sSecretResource:
-    derived_from: giterop.nodes.K8sResource
+  unfurl.nodes.k8sSecretResource:
+    derived_from: unfurl.nodes.K8sResource
 
 interface_types:
-  giterop.interfaces.Configurator:
+  unfurl.interfaces.Configurator:
     instantiate:
       description: Coming soon!
     revert:
@@ -124,7 +124,7 @@ interface_types:
     discover:
       description: Coming soon!
 
-  giterop.interfaces.Provides:
+  unfurl.interfaces.Provides:
     run:
       description: Coming soon!
     step1:
@@ -140,11 +140,11 @@ interface_types:
     step8:
     step9:
 
-  giterop.nodes.Configurator:
+  unfurl.nodes.Configurator:
     derived_from: tosca.nodes.Root
     interfaces:
       Provides:
-        type: giterop.interfaces.Provides
+        type: unfurl.interfaces.Provides
 
-  giterop.nodes.Default:
+  unfurl.nodes.Default:
     derived_from: tosca.nodes.Root

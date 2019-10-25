@@ -9,13 +9,13 @@ import datetime
 import types
 from .support import Status, Priority, AttributeManager
 from .result import serializeValue, ChangeRecord
-from .util import GitErOpError, GitErOpTaskError, mergeDicts, ansibleDisplay, toEnum
+from .util import UnfurlError, UnfurlTaskError, mergeDicts, ansibleDisplay, toEnum
 from .runtime import OperationalInstance
 from .configurator import TaskView, ConfiguratorResult
 from .plan import Plan
 
 import logging
-logger = logging.getLogger('giterop')
+logger = logging.getLogger('unfurl')
 
 class ConfigChange(OperationalInstance, ChangeRecord):
   """
@@ -386,7 +386,7 @@ class Job(ConfigChange):
     #     if not len(job.workDone) or self.shouldAbort(job):
     #       break
     #   else:
-    #     raise GitErOpError("too many final dependency runs")
+    #     raise UnfurlError("too many final dependency runs")
 
     return self.rootResource
 
@@ -409,7 +409,7 @@ class Job(ConfigChange):
       priority = task.configurator.shouldRun(task)
     except Exception:
       #unexpected error don't run this
-      GitErOpTaskError(task, "shouldRun failed unexpectedly", True)
+      UnfurlTaskError(task, "shouldRun failed unexpectedly", True)
       return False
 
     priority = toEnum(Priority, priority, Priority.ignore)
@@ -448,7 +448,7 @@ class Job(ConfigChange):
             else:
               canRun = True
     except Exception:
-      GitErOpTaskError(task, "cantRun failed unexpectedly", True)
+      UnfurlTaskError(task, "cantRun failed unexpectedly", True)
       reason = 'unexpected exception in cantRun'
       canRun = False
 
@@ -512,7 +512,7 @@ class Job(ConfigChange):
       try:
         result = task.send(change)
       except Exception:
-        GitErOpTaskError(task, "configurator.run failed", True)
+        UnfurlTaskError(task, "configurator.run failed", True)
         # assume the worst
         return task.finished(ConfiguratorResult(True, True, Status.error))
       if isinstance(result, TaskRequest):
@@ -527,7 +527,7 @@ class Job(ConfigChange):
         logger.info("finished running task %s: %s; %s", task, task.target.status, result)
         return retVal
       else:
-        GitErOpTaskError(task, 'unexpected result from configurator', True)
+        UnfurlTaskError(task, 'unexpected result from configurator', True)
         return task.finished(ConfiguratorResult(True, True, Status.error))
 
 class Runner(object):
@@ -571,7 +571,7 @@ class Runner(object):
       job.run()
     except Exception:
       job.localStatus = Status.error
-      job.unexpectedAbort = GitErOpError("unexpected exception while running job", True, True)
+      job.unexpectedAbort = UnfurlError("unexpected exception while running job", True, True)
     self.currentJob = None
     self.manifest.commitJob(job)
     return job

@@ -12,12 +12,12 @@ from enum import IntEnum
 from .eval import RefContext, setEvalFunc, Ref, mapValue
 from .result import ResultsMap, Result, ExternalValue, serializeValue
 from .util import (intersectDict, mergeDicts, ChainMap, findSchemaErrors,
-                GitErOpError, GitErOpValidationError, assertForm, sensitive_str)
+                UnfurlError, UnfurlValidationError, assertForm, sensitive_str)
 from ansible.template import Templar
 from ansible.parsing.dataloader import DataLoader
 
 import logging
-logger = logging.getLogger('giterup')
+logger = logging.getLogger('unfurl')
 
 # XXX3 doc: notpresent is a positive assertion of non-existence while notapplied just indicates non-liveness
 # notapplied is therefore the default initial state
@@ -111,7 +111,7 @@ def applyTemplate(value, ctx):
     templar = Templar(loader)
     ctx.templar = templar
 
-  vars = _VarTrackerDict(__giterop = ctx)
+  vars = _VarTrackerDict(__unfurl = ctx)
   vars.update(ctx.vars)
   vars.ctx = ctx
 
@@ -190,7 +190,7 @@ def getInput(arg, ctx):
   try:
     return ctx.currentResource.root.findResource('inputs').attributes[arg]
   except KeyError:
-    raise GitErOpError("undefined input '%s'" % arg)
+    raise UnfurlError("undefined input '%s'" % arg)
 setEvalFunc('get_input', getInput, True)
 
 def concat(args, ctx):
@@ -217,7 +217,7 @@ def getImport(arg, ctx):
   try:
     imported = ctx.currentResource.root.imports[arg]
   except KeyError:
-    raise GitErOpError("Can't find import '%s'" % arg)
+    raise UnfurlError("Can't find import '%s'" % arg)
   if arg == 'secret':
     return SecretResource(arg, imported)
   else:
@@ -238,7 +238,7 @@ class ExternalResource(ExternalValue):
     if schema:
       messages = findSchemaErrors(serializeValue(obj), schema)
       if messages:
-        raise GitErOpValidationError("schema validation failed for attribute '%s': %s" % (name, messages[1]), messages[1])
+        raise UnfurlValidationError("schema validation failed for attribute '%s': %s" % (name, messages[1]), messages[1])
 
   def _getSchema(self, name):
     return self.schema and self.schema.get(name, {})

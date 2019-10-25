@@ -1,4 +1,4 @@
-apiVersion: giterops/v1alpha1
+apiVersion: unfurls/v1alpha1
 kind: Manifest
 src: repo-path #XXX
 commit:
@@ -41,10 +41,10 @@ configuration:
 
 configurators:
   custom: #local path in repo if not built in
-    apiVersion: giterops/v1alpha1
+    apiVersion: unfurls/v1alpha1
     kind: Custom
   helmfile:
-    apiVersion: giterops/v1alpha1
+    apiVersion: unfurls/v1alpha1
     kind: Helm
     # refers to chart source:
     src:

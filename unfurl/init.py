@@ -6,8 +6,8 @@ project/spec/.git # has service-template.yaml and manifest-template.yaml
         # subprojects are created by repository declarations in spec or instance
         subproject/spec/
                   instances/current
-        # giterop.yaml merges with ~/.giterop_home/giterop.yaml
-        giterop.yaml # might create 'secret' or 'local' subprojects
+        # unfurl.yaml merges with ~/.unfurl_home/unfurl.yaml
+        unfurl.yaml # might create 'secret' or 'local' subprojects
         revisions/...
 """
 import uuid
@@ -19,10 +19,10 @@ from .tosca import TOSCA_VERSION
 
 def writeLocalConfig(projectdir):
   os.makedirs(projectdir)
-  filepath = os.path.join(projectdir, 'giterop.yaml')
+  filepath = os.path.join(projectdir, 'unfurl.yaml')
   with open(filepath, 'w') as f:
     f.write("""\
-giterop:
+unfurl:
   version: %s
 instances:
   - file: instances/current/manifest.yaml
@@ -42,21 +42,21 @@ instances:
 
 def createHome(path=None):
   """
-  Write ~/.giterop_home/giterop.yaml if missing
+  Write ~/.unfurl_home/unfurl.yaml if missing
   """
-  homedir = path or os.path.expanduser(os.path.join('~', '.giterop_home'))
+  homedir = path or os.path.expanduser(os.path.join('~', '.unfurl_home'))
   if not os.path.exists(homedir):
     return writeLocalConfig(homedir)
-  # XXX when is giterop.yaml instances deployed?
+  # XXX when is unfurl.yaml instances deployed?
 
 def createRepo(repotype, gitDir, gitUri=None):
   os.makedirs(gitDir)
   repo = Repo.init( gitDir )
-  filename = '.giterop'
+  filename = '.unfurl'
   filepath = os.path.join(gitDir, filename)
   with open(filepath, 'w') as f:
     f.write("""\
-  giterop:
+  unfurl:
     version: %s
   repo:
     type: %s
@@ -84,7 +84,7 @@ topology_template:
   manifestTemplatePath = os.path.join(gitDir, 'manifest-template.yaml')
   with open(manifestTemplatePath, 'w') as f:
     f.write("""\
-  apiVersion: giterops/v1alpha1
+  apiVersion: unfurls/v1alpha1
   kind: Manifest
   spec:
     tosca:
@@ -102,7 +102,7 @@ def createInstanceRepo(gitDir, specRepo):
   specInitialCommit = list(specRepo.iter_commits('HEAD', max_parents=0))[0].hexsha
   with open(filepath, 'w') as f:
     f.write("""\
-apiVersion: giterops/v1alpha1
+apiVersion: unfurls/v1alpha1
 kind: Manifest
 # merge in manifest-template.yaml from spec repo
 +%%include:
@@ -126,10 +126,10 @@ spec:
 
 def createProject(projectdir, home=None):
   """
-  # creates .giterop, project/specs/manifest-template.yaml, instances/current/manifest.yaml
+  # creates .unfurl, project/specs/manifest-template.yaml, instances/current/manifest.yaml
   # init git repos with initial commits
-  # adds ~/.giterop_home/giterop.yaml if missing
-  # add project to ~/.giterop_home/giterop.yaml
+  # adds ~/.unfurl_home/unfurl.yaml if missing
+  # add project to ~/.unfurl_home/unfurl.yaml
   """
   newHome = createHome(home)
   projectConfigPath = writeLocalConfig(projectdir)

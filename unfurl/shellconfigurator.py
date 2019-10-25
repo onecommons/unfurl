@@ -16,7 +16,7 @@ inputs:
 # XXX add support for a stdin parameter
 # (that's a reason to make config inputs lazy too)
 
-from giterop.configurator import Configurator, Status
+from unfurl.configurator import Configurator, Status
 import os
 #import os.path
 import sys
@@ -28,7 +28,7 @@ else:
 # cf https://github.com/opsmop/opsmop/blob/master/opsmop/core/command.py
 
 import logging
-logger = logging.getLogger('giterop')
+logger = logging.getLogger('unfurl')
 
 try:
   from shutil import which

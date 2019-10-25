@@ -1,10 +1,10 @@
 # WARNING: Under heavy construction!
 
-## What is GitErOp?
+## What is Unfurl?
 
-At its most ambitious, GitErOp aims to be a decentralized package manager for the Internet, enabling you to easily deploy and integrate live services.
+At its most ambitious, Unfurl aims to be a decentralized package manager for the Internet, enabling you to easily deploy and integrate live services.
 
-More simply, it is a tool that works with Git to record and deploy changes to your DevOps infrastructure. GitErOp transforms a Git repo into a reproducible history of deployed services.
+More simply, it is a tool that works with Git to record and deploy changes to your DevOps infrastructure. Unfurl transforms a Git repo into a reproducible history of deployed services.
 
 ## Goals
 
@@ -39,21 +39,21 @@ More simply, it is a tool that works with Git to record and deploy changes to yo
 
 ## Usage:
 
-  giterop init [project] 
+  unfurl init [project] 
   
-  Creates a new GitErOp project including new git repositories for the specification
+  Creates a new Unfurl project including new git repositories for the specification
   and the instances. It will have the following directory structure:
   
   project/
     spec/ # Git repository containing the specification and related artifacts
     instances/current/ # Git repository containing manifest.yaml
-    giterop.yaml # local configuration file for the project
+    unfurl.yaml # local configuration file for the project
 
-  giterop clone [path to project or specific instance repository] 
+  unfurl clone [path to project or specific instance repository] 
   
   Clones the project or repository into a new project
   
-  giterop newinstance [path to project] [manifest-template.yaml]
+  unfurl newinstance [path to project] [manifest-template.yaml]
   
   Create new instance repo using "manifest-template.yaml" (defaults to the project's spec/manifest-template.yaml)
 
@@ -67,7 +67,7 @@ Python (2.7, 3.5, or 3.6); git; docker 13 or later
 
 ## Developing
 
-Clone https://github.com/onecommons/giterop
+Clone https://github.com/onecommons/unfurl
 
 To build documentation: Run `tox -e docs`.
 
@@ -81,7 +81,7 @@ Arguments after `--` are passed to the test runner, e.g. to run an individual te
 ## Getting Started
 
  1. create a repo
- 2. configure giterop
+ 2. configure unfurl
      1. kms setup: add credentials
      2. create manifest with root resource: configure using kms
      3. (optional) run bootstrap to create a secure root resource

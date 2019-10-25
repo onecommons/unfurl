@@ -3,12 +3,12 @@ import os
 import traceback
 from collections import MutableSequence
 from click.testing import CliRunner
-from giterop.__main__ import cli
-from giterop import __version__
-from giterop.configurator import Configurator
+from unfurl.__main__ import cli
+from unfurl import __version__
+from unfurl.configurator import Configurator
 
 manifest = """
-apiVersion: giterops/v1alpha1
+apiVersion: unfurls/v1alpha1
 kind: Manifest
 imports:
   local:
@@ -108,7 +108,7 @@ class CliTest(unittest.TestCase):
     runner = CliRunner()
     result = runner.invoke(cli, ['version'])
     self.assertEqual(result.exit_code, 0, result)
-    self.assertEqual(result.output.strip(), "giterop version %s" % __version__)
+    self.assertEqual(result.output.strip(), "unfurl version %s" % __version__)
 
   def test_badargs(self):
     runner = CliRunner()
@@ -135,7 +135,7 @@ class CliTest(unittest.TestCase):
     os.environ['GEO_TESTAPIKEY'] = 'secret'
     runner = CliRunner()
     with runner.isolated_filesystem() as tempDir:
-      with open('giterop.yaml', 'w') as local:
+      with open('unfurl.yaml', 'w') as local:
         local.write(localConfig)
       repoDir = 'git'
       os.mkdir(repoDir)

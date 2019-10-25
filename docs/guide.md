@@ -4,9 +4,9 @@ The manifest defines arbitrary and abstract representations of resources using l
 
 Git repository that contains YAML files that specifies how resources should be configured.
 
-GitErOp relies on other tools and services to actually do the work, they are encapsulated in a "Configurator" interface, which tries to impose the minimum requirements and semantics.
+Unfurl relies on other tools and services to actually do the work, they are encapsulated in a "Configurator" interface, which tries to impose the minimum requirements and semantics.
 
-Running GitErOp attempts to apply that specification and commits the results of that run. The exact versions of all external assets and tools utilized are recorded so playback can be fully reproducible.
+Running Unfurl attempts to apply that specification and commits the results of that run. The exact versions of all external assets and tools utilized are recorded so playback can be fully reproducible.
 
 Easily express dependencies and requirements between arbitrary high-level services in a consistent manner.
 
@@ -42,13 +42,13 @@ Use of attributes:
 
 ### Ansible
 
-GitErOp shares many similarities with Ansible; in fact it relies on Ansible as a library. You can think of it as a declarative wrapper around Ansible. Because it records the history of operations that were previously applied, it can much more efficiently apply incremental updates.
+Unfurl shares many similarities with Ansible; in fact it relies on Ansible as a library. You can think of it as a declarative wrapper around Ansible. Because it records the history of operations that were previously applied, it can much more efficiently apply incremental updates.
 
 ### Terraform
 
-Terraform's design shares many similarities to GitErOp but is more ambitious in that it attempts to calculate an update plan by generating a diff between the current specification and current state. This requires resource plugins to implement full CRUD semantics for managing resources and implement a fairly complex interface in Go.
+Terraform's design shares many similarities to Unfurl but is more ambitious in that it attempts to calculate an update plan by generating a diff between the current specification and current state. This requires resource plugins to implement full CRUD semantics for managing resources and implement a fairly complex interface in Go.
 
-Unlike Terraform, GitErOp maintains a history of configuration changes -- enabling it to support much simpler semantics for resources. This way they can be defined in a simple and ad hoc manner and using just YAML configuration DSL or through a simple Python API as opposed to relying on Go developer with domain expertise building a resource plugin.
+Unlike Terraform, Unfurl maintains a history of configuration changes -- enabling it to support much simpler semantics for resources. This way they can be defined in a simple and ad hoc manner and using just YAML configuration DSL or through a simple Python API as opposed to relying on Go developer with domain expertise building a resource plugin.
 
 ## Change algebra
 spec:

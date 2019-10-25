@@ -32,9 +32,9 @@ class ResourceConfigurator(AnsibleConfigurator):
         data={k: codecs.encode(str(v).encode(), 'base64').decode().strip() for k, v in data.items()})
 
   def getDefinition(self, task):
-    if task.target.template.isCompatibleType('giterop.nodes.K8sNamespace'):
+    if task.target.template.isCompatibleType('unfurl.nodes.K8sNamespace'):
       return dict(apiVersion='v1', kind='Namespace')
-    elif task.target.template.isCompatibleType('giterop.nodes.k8sSecretResource'):
+    elif task.target.template.isCompatibleType('unfurl.nodes.k8sSecretResource'):
       return self.makeSecret(task.target.attributes.get('data', {}))
     else:
       # XXX if definition is string: parse
@@ -43,7 +43,7 @@ class ResourceConfigurator(AnsibleConfigurator):
 
   def updateMetadata(self, definition, task):
     namespace = None
-    if task.target.parent.template.isCompatibleType('giterop.nodes.K8sNamespace'):
+    if task.target.parent.template.isCompatibleType('unfurl.nodes.K8sNamespace'):
       namespace = task.target.parent.attributes['name']
     md = definition.setdefault('metadata', {})
     if namespace and 'namespace' not in md:

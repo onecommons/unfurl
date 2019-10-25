@@ -9,26 +9,26 @@ import os
 import os.path
 # import six
 from .repo import Repo
-from .util import (GitErOpError)
+from .util import (UnfurlError)
 from .yamlloader import YamlConfig
 
 DefaultManifestName = 'manifest.yaml'
-DefaultLocalConfigName = 'giterop.yaml'
-DefaultHomeDirectory = '.giterop_home'
-HiddenMarkerName = '.giterop'
+DefaultLocalConfigName = 'unfurl.yaml'
+DefaultHomeDirectory = '.unfurl_home'
+HiddenMarkerName = '.unfurl'
 
 class Project(object):
   """
-  A GitErOp project folder is a folder that contains
+  A Unfurl project folder is a folder that contains
 
-  The spec and instance repo and an local configuration file (giterop.yaml)
+  The spec and instance repo and an local configuration file (unfurl.yaml)
 
   project/spec/.git # has template.yaml and manifest-template.yaml
          instances/current/.git # has manifest.yaml
           # subprojects are created by repository declarations in spec or instance
           subproject/spec/
                     instances/current
-          giterop.yaml # might create 'secret' or 'local' subprojects
+          unfurl.yaml # might create 'secret' or 'local' subprojects
           revisions/...
   """
   def __init__(self, path, localEnv):
@@ -57,11 +57,11 @@ class Project(object):
     fullPath = self.localConfig.getDefaultManifestPath()
     if fullPath:
       if not os.path.exists(fullPath):
-        raise GitErOpError("The default manifest found in %s does not exist: %s" % (self.localConfig.config.path, os.path.abspath(fullPath)))
+        raise UnfurlError("The default manifest found in %s does not exist: %s" % (self.localConfig.config.path, os.path.abspath(fullPath)))
     else:
       fullPath = os.path.join(self.getCurrentInstanceRepo(), DefaultManifestName)
       if not os.path.exists(fullPath):
-        raise GitErOpError("The default manifest does not exist: %s" % os.path.abspath(fullPath))
+        raise UnfurlError("The default manifest does not exist: %s" % os.path.abspath(fullPath))
     return fullPath
 
   def isPathInProject(self, path):
@@ -111,7 +111,7 @@ class LocalConfig(object):
   - list of instance manifests with their local configuration
   - the default local and secret instances
 
-giterop:
+unfurl:
   version:
 
 instances:
@@ -181,10 +181,10 @@ projects:
       if attributes is not None:
         if 'default' in attributes:
           if not 'default' in attributes.get('.interfaces', {}):
-            attributes.setdefault('.interfaces', {})['default'] = 'giterop.support.DelegateAttributes'
+            attributes.setdefault('.interfaces', {})['default'] = 'unfurl.support.DelegateAttributes'
         if 'inheritFrom' in attributes:
           if not 'inherit' in attributes.get('.interfaces', {}):
-            attributes.setdefault('.interfaces', {})['inherit'] = 'giterop.support.DelegateAttributes'
+            attributes.setdefault('.interfaces', {})['inherit'] = 'unfurl.support.DelegateAttributes'
           if attributes['inheritFrom'] == 'home' and self.parentConfig:
             parent = self.parentConfig.getLocalResource(manifestPath, localName, importSpec)
             localResource = Resource(localName, attributes)
@@ -222,7 +222,7 @@ class LocalEnv(object):
 
   def __init__(self, manifestPath=None, homepath=None):
     """
-    If manifestPath is None find the first .giterop or manifest.yaml
+    If manifestPath is None find the first .unfurl or manifest.yaml
     starting from the current directory.
     """
     # XXX need to save local config when changed
@@ -250,7 +250,7 @@ class LocalEnv(object):
   #  is a directory: either instance repo or a project
   def findManifestPath(self, manifestPath):
     if not os.path.exists(manifestPath):
-      raise GitErOpError("Manifest file does not exist: '%s'" % os.path.abspath(manifestPath))
+      raise UnfurlError("Manifest file does not exist: '%s'" % os.path.abspath(manifestPath))
 
     if os.path.isdir(manifestPath):
       test = os.path.join(manifestPath, DefaultManifestName)
@@ -261,8 +261,8 @@ class LocalEnv(object):
         if os.path.exists(test):
           return Project(test, self)
         else:
-          message = "Can't find a giterop manifest or project in folder '%s'" % manifestPath
-          raise GitErOpError(message)
+          message = "Can't find a unfurl manifest or project in folder '%s'" % manifestPath
+          raise UnfurlError(message)
     else:
       return manifestPath
 
@@ -292,12 +292,12 @@ class LocalEnv(object):
 
       current = os.path.dirname(current)
 
-    message = "Can't find a giterop repository in current directory (or any of the parent directories)"
-    raise GitErOpError(message)
+    message = "Can't find a unfurl repository in current directory (or any of the parent directories)"
+    raise UnfurlError(message)
 
   def findProject(self, testPath):
     """
-    Walk parents looking for giterop.yaml
+    Walk parents looking for unfurl.yaml
     """
     current = os.path.abspath(testPath)
     while current and current != os.sep:

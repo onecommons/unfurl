@@ -12,14 +12,14 @@ from itertools import chain
 from ansible.template import Templar
 from ansible.parsing.dataloader import DataLoader
 
-from .util import (GitErOpError, loadClass, toEnum)
+from .util import (UnfurlError, loadClass, toEnum)
 from .result import ResourceRef, ChangeAware
 #from .local import LocalEnv
 from .support import AttributeManager, Defaults, Status, Action, Priority
 from .tosca import CapabilitySpec, RelationshipSpec, NodeSpec, TopologySpec
 
 import logging
-logger = logging.getLogger('giterop')
+logger = logging.getLogger('unfurl')
 
 # CF 3.4.1 Node States p61
 
@@ -302,7 +302,7 @@ class Resource(NodeInstance):
   def __init__(self, name='', attributes=None, parent=None, template=None, status=None):
     if parent:
       if parent.root.findResource(name):
-        raise GitErOpError('can not create resource name "%s" is already in use' % name)
+        raise UnfurlError('can not create resource name "%s" is already in use' % name)
     self.resources = []
     self.capabilities = []
     self.requirements = []

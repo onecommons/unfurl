@@ -1,4 +1,4 @@
-"""Loads and saves a GitErOp manifest with the following format:
+"""Loads and saves a Unfurl manifest with the following format:
 
 .. code-block:: YAML
 
@@ -135,7 +135,7 @@ import numbers
 import os.path
 import itertools
 
-from .util import (GitErOpError, VERSION, toYamlText, restoreIncludes, patchDict)
+from .util import (UnfurlError, VERSION, toYamlText, restoreIncludes, patchDict)
 from .yamlloader import YamlConfig, loadFromRepo, load_yaml, yaml
 from .result import serializeValue
 from .support import ResourceChanges, Status, Priority, Action
@@ -148,13 +148,13 @@ from ruamel.yaml.comments import CommentedMap
 from codecs import open
 
 import logging
-logger = logging.getLogger('giterup')
+logger = logging.getLogger('unfurl')
 
 # XXX3 add as file to package data
 #schema=open(os.path.join(os.path.dirname(__file__), 'manifest-v1alpha1.json')).read()
 schema = {
   "$schema": "http://json-schema.org/draft-04/schema#",
-  "$id": "https://www.onecommons.org/schemas/giterop/v1alpha1.json",
+  "$id": "https://www.onecommons.org/schemas/unfurl/v1alpha1.json",
   "definitions": {
     "atomic": {
       "type": "object",
@@ -629,7 +629,7 @@ class YamlManifest(Manifest):
     try:
       self.manifest.dump(out)
     except:
-      raise GitErOpError("Error saving manifest %s" % self.manifest.path, True)
+      raise UnfurlError("Error saving manifest %s" % self.manifest.path, True)
 
   def commitJob(self, job):
     if job.planOnly:
@@ -675,7 +675,7 @@ class YamlManifest(Manifest):
       with open(fullPath, 'w') as f:
         f.write(output.getvalue())
     except:
-      raise GitErOpError("Error saving changelog %s" % self.changeLogPath, True)
+      raise UnfurlError("Error saving changelog %s" % self.changeLogPath, True)
 
   def loadImports(self, importsSpec):
     """
@@ -691,7 +691,7 @@ class YamlManifest(Manifest):
       resource = self.localEnv and self.localEnv.getLocalResource(name, value)
       if not resource:
         if 'file' not in value:
-          raise GitErOpError("Can not import '%s': no file specified" % (name))
+          raise UnfurlError("Can not import '%s': no file specified" % (name))
         # use tosca's loader instead, this can be an url into a repo
         # if repo is url to a git repo, find or create working dir
         repositories = self.tosca.template.tpl.get('repositories',{})
@@ -705,7 +705,7 @@ class YamlManifest(Manifest):
           value['inheritHack']._attributes['inheritFrom'] = resource
           resource = value.pop('inheritHack')
       if not resource:
-        raise GitErOpError("Can not import '%s': resource '%s' not found" % (name, rname))
+        raise UnfurlError("Can not import '%s': resource '%s' not found" % (name, rname))
       imports[name] = Import(resource, value)
     return imports
 

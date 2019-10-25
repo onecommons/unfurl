@@ -1,9 +1,9 @@
 import unittest
-from giterop.yamlmanifest import YamlManifest
-from giterop.job import Runner, JobOptions
-from giterop.support import Status
-from giterop.configurator import Configurator
-# from giterop.util import GitErOpError, GitErOpValidationError
+from unfurl.yamlmanifest import YamlManifest
+from unfurl.job import Runner, JobOptions
+from unfurl.support import Status
+from unfurl.configurator import Configurator
+# from unfurl.util import UnfurlError, UnfurlValidationError
 
 class SetAttributeConfigurator(Configurator):
   def run(self, task):
@@ -11,7 +11,7 @@ class SetAttributeConfigurator(Configurator):
     yield task.createResult(True, True, Status.ok)
 
 manifestDoc = '''
-apiVersion: giterops/v1alpha1
+apiVersion: unfurls/v1alpha1
 kind: Manifest
 spec:
   inputs:

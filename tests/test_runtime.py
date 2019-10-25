@@ -1,10 +1,10 @@
 import unittest
-from giterop.runtime import Status, Priority, Resource, OperationalInstance
-from giterop.job import JobOptions, Runner
-from giterop.configurator import Configurator, ConfigurationSpec
-from giterop.yamlmanifest import YamlManifest
-from giterop.yamlloader import YamlConfig
-from giterop.util import GitErOpError, GitErOpValidationError, expandDoc, restoreIncludes, lookupClass, VERSION, diffDicts, mergeDicts, patchDict
+from unfurl.runtime import Status, Priority, Resource, OperationalInstance
+from unfurl.job import JobOptions, Runner
+from unfurl.configurator import Configurator, ConfigurationSpec
+from unfurl.yamlmanifest import YamlManifest
+from unfurl.yamlloader import YamlConfig
+from unfurl.util import UnfurlError, UnfurlValidationError, expandDoc, restoreIncludes, lookupClass, VERSION, diffDicts, mergeDicts, patchDict
 from ruamel.yaml.comments import CommentedMap
 import traceback
 import six
@@ -106,7 +106,7 @@ class ExpandDocTest(unittest.TestCase):
     self.assertEqual(len(includes), 2)
 
     doc1['missing'] = {'+include-missing': None}
-    with self.assertRaises(GitErOpError) as err:
+    with self.assertRaises(UnfurlError) as err:
       includes, expanded = expandDoc(doc1, cls=CommentedMap)
 
   def test_recursion(self):
@@ -117,7 +117,7 @@ class ExpandDocTest(unittest.TestCase):
         }
       },
     }
-    with self.assertRaises(GitErOpError) as err:
+    with self.assertRaises(UnfurlError) as err:
       includes, expanded = expandDoc(doc)
     self.assertEqual(str(err.exception),
       '''recursive include "['test3']" in "('test3', 'a', 'recurse')"''')
@@ -234,7 +234,7 @@ class RunTest(unittest.TestCase):
 
   def test_template_inheritance(self):
     manifest = '''
-apiVersion: giterops/v1alpha1
+apiVersion: unfurls/v1alpha1
 kind: Manifest
 configurators:
   step1:
@@ -252,7 +252,7 @@ root:
       +templates/base:
       +templates/production:
 '''
-    with self.assertRaises(GitErOpError) as err:
+    with self.assertRaises(UnfurlError) as err:
       YamlManifest(manifest)
     self.assertIn('missing includes: [templates/production]', str(err.exception))
 
@@ -337,7 +337,7 @@ class FileTest(unittest.TestCase):
 
   def test_manifest_template(self):
     template = """
-apiVersion: giterops/v1alpha1
+apiVersion: unfurls/v1alpha1
 kind: Manifest
 spec:
   a: 1
@@ -350,7 +350,7 @@ status: {}
         f.write(template)
 
       instanceYaml = """
-apiVersion: giterops/v1alpha1
+apiVersion: unfurls/v1alpha1
 kind: Manifest
 +%include:
   file: template.yaml
@@ -447,7 +447,7 @@ spec:
       #assert importing.attributes['test']
       assert root.imports['test']
       self.assertEqual(importerResource.attributes['mapped1'], 'ok')
-      with self.assertRaises(GitErOpValidationError) as err:
+      with self.assertRaises(UnfurlValidationError) as err:
         importerResource.attributes['mapped2']
       self.assertIn('schema validation failed', str(err.exception))
       self.assertEqual(importerResource.attributes['mapped3'], 'default')
