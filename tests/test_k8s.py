@@ -59,12 +59,20 @@ class k8sTest(unittest.TestCase):
       pass
 
   def test_k8sConfig(self):
-    #  verify secret contents isn't saved in config
-    # [{'k8s': {'state': 'present', 'definition': {'apiVersion': 'v1', 'kind': 'Namespace', 'metadata': {'name': 'octest'}}, 'context': 'docker-for-desktop'}}]
     os.environ['TEST_SECRET'] = 'a secret'
     manifest = YamlManifest(manifestScript)
     job = Runner(manifest).run(JobOptions(add=True, startTime="time-to-test"))
     #print(job.summary())
-    #print(job.out.getvalue())
+    # verify secret contents isn't saved in config
+    self.assertIn("uri: '[[REDACTED]]'", job.out.getvalue())
+    self.assertNotIn('a secret', job.out.getvalue())
     assert not job.unexpectedAbort
     assert job.status == Status.ok, job.summary()
+
+  # def test_Delete(self):
+  #   manifest = YamlManifest(manifestScript)
+  #   job = Runner(manifest).run(JobOptions(remove=True, startTime="time-to-test"))
+  #   print(job.out.getvalue())
+  #   print(job.summary())
+  #   assert not job.unexpectedAbort
+  #   assert job.status == Status.ok, job.summary()
