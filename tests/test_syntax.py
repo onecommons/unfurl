@@ -2,39 +2,42 @@ import unittest
 from unfurl.yamlmanifest import YamlManifest
 from unfurl.util import UnfurlError, UnfurlValidationError
 
+
 class ManifestSyntaxTest(unittest.TestCase):
-  def test_hasVersion(self):
-    hasVersion = """
+    def test_hasVersion(self):
+        hasVersion = """
     apiVersion: unfurl/v1alpha1
     kind: Manifest
     spec: {}
     """
-    assert YamlManifest(hasVersion)
+        assert YamlManifest(hasVersion)
 
-  def test_validateVersion(self):
-    badVersion = """
+    def test_validateVersion(self):
+        badVersion = """
     apiVersion: 2
     kind: Manifest
     spec: {}
     """
-    with self.assertRaises(UnfurlError) as err:
-      YamlManifest(badVersion)
-    self.assertIn("2 is not one of [\'unfurl/v1alpha1\']", str(err.exception))
+        with self.assertRaises(UnfurlError) as err:
+            YamlManifest(badVersion)
+        self.assertIn("2 is not one of ['unfurl/v1alpha1']", str(err.exception))
 
-    missingVersion = """
+        missingVersion = """
     spec: {}
     """
-    with self.assertRaises(UnfurlError) as err:
-      YamlManifest(missingVersion)
-    self.assertIn("'apiVersion' is a required property", str(err.exception)) #, <ValidationError: "'kind' is a required property">]''')
+        with self.assertRaises(UnfurlError) as err:
+            YamlManifest(missingVersion)
+        self.assertIn(
+            "'apiVersion' is a required property", str(err.exception)
+        )  # , <ValidationError: "'kind' is a required property">]''')
 
-  @unittest.skip("TODO")
-  def test_validResourceNames(self):
-    #should only contain [a-z0-9]([a-z0-9\-]*[a-z0-9])?
-    pass
+    @unittest.skip("TODO")
+    def test_validResourceNames(self):
+        # should only contain [a-z0-9]([a-z0-9\-]*[a-z0-9])?
+        pass
 
-  def test_template_inheritance(self):
-    manifest = '''
+    def test_template_inheritance(self):
+        manifest = """
 apiVersion: unfurl/v1alpha1
 kind: Manifest
 templates:
@@ -43,12 +46,12 @@ templates:
       step1: {}
 spec:
     +templates/production:
-'''
-    with self.assertRaises(UnfurlError) as err:
-      YamlManifest(manifest)
-    self.assertIn('missing includes: [templates/production]', str(err.exception))
+"""
+        with self.assertRaises(UnfurlError) as err:
+            YamlManifest(manifest)
+        self.assertIn("missing includes: [templates/production]", str(err.exception))
 
-    manifest = '''
+        manifest = """
 apiVersion: unfurl/v1alpha1
 kind: Manifest
 
@@ -73,17 +76,17 @@ root:
       # overrides and additions from templates
       configurations:
         step1: {}
-'''
-    # XXX update yaml
-    #overrides base.step1 defination, doesn't add a component
-    # manifestObj = YamlManifest(manifest)
-    # assert len(manifestObj.rootResource.all['cloud3'].spec['configurations']) == 1, manifestObj.rootResource.all['cloud3'].spec['configurations']
+"""
+        # XXX update yaml
+        # overrides base.step1 defination, doesn't add a component
+        # manifestObj = YamlManifest(manifest)
+        # assert len(manifestObj.rootResource.all['cloud3'].spec['configurations']) == 1, manifestObj.rootResource.all['cloud3'].spec['configurations']
 
-  @unittest.skip("update syntax")
-  def test_override(self):
-    #component names have to be qualified to override
-    #duplicate names both run with distinct values
-    manifest = '''
+    @unittest.skip("update syntax")
+    def test_override(self):
+        # component names have to be qualified to override
+        # duplicate names both run with distinct values
+        manifest = """
 apiVersion: unfurl/v1alpha1
 kind: Manifest
 
@@ -117,16 +120,21 @@ root:
         step1:
           parameters:
             test: derived
-'''
-    configurations = YamlManifest(manifest).rootResource.all['cloud3'].spec['configurations']
-    self.assertEqual(list(configurations.values())[0].parameters, {
-      'test': 'derived',
-      # '+%': 'replaceProps'
-    })
+"""
+        configurations = (
+            YamlManifest(manifest).rootResource.all["cloud3"].spec["configurations"]
+        )
+        self.assertEqual(
+            list(configurations.values())[0].parameters,
+            {
+                "test": "derived",
+                # '+%': 'replaceProps'
+            },
+        )
 
-  @unittest.skip("update syntax")
-  def test_missingConfigurator(self):
-    manifest = '''
+    @unittest.skip("update syntax")
+    def test_missingConfigurator(self):
+        manifest = """
 apiVersion: unfurl/v1alpha1
 kind: Manifest
 
@@ -148,10 +156,14 @@ root:
       configurations:
         +templates/base/configurations:
 
-'''
-    with self.assertRaises(UnfurlValidationError) as err:
-      YamlManifest(manifest)
-    self.assertIn(str(err.exception.errors), '''[<ValidationError: "['step1', 'step2'] is not of type 'object'">]''')
+"""
+        with self.assertRaises(UnfurlValidationError) as err:
+            YamlManifest(manifest)
+        self.assertIn(
+            str(err.exception.errors),
+            """[<ValidationError: "['step1', 'step2'] is not of type 'object'">]""",
+        )
+
 
 #   def test_badparams(self):
 #     # don't match spec definition

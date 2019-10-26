@@ -47,32 +47,33 @@ spec:
                uri: "{{ lookup('env', 'TEST_SECRET') }}"
 """
 
+
 class k8sTest(unittest.TestCase):
-  def setUp(self):
-    # need to call this again on python 2.7:
-    unfurl.util.initializeAnsible()
-    try:
-      # Ansible generates tons of ResourceWarnings
-      warnings.simplefilter("ignore", ResourceWarning)
-    except:
-      # python 2.x doesn't have ResourceWarning
-      pass
+    def setUp(self):
+        # need to call this again on python 2.7:
+        unfurl.util.initializeAnsible()
+        try:
+            # Ansible generates tons of ResourceWarnings
+            warnings.simplefilter("ignore", ResourceWarning)
+        except:
+            # python 2.x doesn't have ResourceWarning
+            pass
 
-  def test_k8sConfig(self):
-    os.environ['TEST_SECRET'] = 'a secret'
-    manifest = YamlManifest(manifestScript)
-    job = Runner(manifest).run(JobOptions(add=True, startTime="time-to-test"))
-    #print(job.summary())
-    # verify secret contents isn't saved in config
-    self.assertIn("uri: '[[REDACTED]]'", job.out.getvalue())
-    self.assertNotIn('a secret', job.out.getvalue())
-    assert not job.unexpectedAbort
-    assert job.status == Status.ok, job.summary()
+    def test_k8sConfig(self):
+        os.environ["TEST_SECRET"] = "a secret"
+        manifest = YamlManifest(manifestScript)
+        job = Runner(manifest).run(JobOptions(add=True, startTime="time-to-test"))
+        # print(job.summary())
+        # verify secret contents isn't saved in config
+        self.assertIn("uri: '[[REDACTED]]'", job.out.getvalue())
+        self.assertNotIn("a secret", job.out.getvalue())
+        assert not job.unexpectedAbort
+        assert job.status == Status.ok, job.summary()
 
-  # def test_Delete(self):
-  #   manifest = YamlManifest(manifestScript)
-  #   job = Runner(manifest).run(JobOptions(remove=True, startTime="time-to-test"))
-  #   print(job.out.getvalue())
-  #   print(job.summary())
-  #   assert not job.unexpectedAbort
-  #   assert job.status == Status.ok, job.summary()
+    # def test_Delete(self):
+    #   manifest = YamlManifest(manifestScript)
+    #   job = Runner(manifest).run(JobOptions(remove=True, startTime="time-to-test"))
+    #   print(job.out.getvalue())
+    #   print(job.summary())
+    #   assert not job.unexpectedAbort
+    #   assert job.status == Status.ok, job.summary()

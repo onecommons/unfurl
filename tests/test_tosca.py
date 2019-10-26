@@ -3,14 +3,17 @@ from unfurl.yamlmanifest import YamlManifest
 from unfurl.job import Runner, JobOptions
 from unfurl.support import Status
 from unfurl.configurator import Configurator
+
 # from unfurl.util import UnfurlError, UnfurlValidationError
 
-class SetAttributeConfigurator(Configurator):
-  def run(self, task):
-    task.target.attributes['private_address'] = '10.0.0.1'
-    yield task.createResult(True, True, Status.ok)
 
-manifestDoc = '''
+class SetAttributeConfigurator(Configurator):
+    def run(self, task):
+        task.target.attributes["private_address"] = "10.0.0.1"
+        yield task.createResult(True, True, Status.ok)
+
+
+manifestDoc = """
 apiVersion: unfurl/v1alpha1
 kind: Manifest
 spec:
@@ -78,15 +81,18 @@ spec:
               implementation:
                 primary: SetAttributeConfigurator
                 timeout: 120
-'''
+"""
+
 
 class ToscaSyntaxTest(unittest.TestCase):
-  def test_inputAndOutputs(self):
-    manifest = YamlManifest(manifestDoc)
-    job = Runner(manifest).run(JobOptions(add=True, startTime="time-to-test"))
-    assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
-    assert manifest.getRootResource().findResource('my_server').attributes['test'], 'cpus: 2'
-    assert job.getOutputs()['server_ip'], '10.0.0.1'
-    assert job.status == Status.ok, job.summary()
-    # XXX verify redacted output
-    # print(job.out.getvalue())
+    def test_inputAndOutputs(self):
+        manifest = YamlManifest(manifestDoc)
+        job = Runner(manifest).run(JobOptions(add=True, startTime="time-to-test"))
+        assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
+        assert (
+            manifest.getRootResource().findResource("my_server").attributes["test"]
+        ), "cpus: 2"
+        assert job.getOutputs()["server_ip"], "10.0.0.1"
+        assert job.status == Status.ok, job.summary()
+        # XXX verify redacted output
+        # print(job.out.getvalue())
