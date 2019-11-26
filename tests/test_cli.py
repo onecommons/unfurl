@@ -147,7 +147,7 @@ class CliTest(unittest.TestCase):
                 f.write(manifest)
             result = runner.invoke(cli, ["-vvv", "deploy", "--jobexitcode", "degraded"])
             # uncomment this to see output:
-            print("result.output", result.exit_code, result.output)
+            # print("result.output", result.exit_code, result.output)
             assert not result.exception, "\n".join(
                 traceback.format_exception(*result.exc_info)
             )

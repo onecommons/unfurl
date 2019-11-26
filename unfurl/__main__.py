@@ -9,6 +9,8 @@ from __future__ import print_function
 from .yamlmanifest import runJob
 from .support import Status
 from . import __version__, initLogging
+from .init import createProject, cloneSpecToNewProject, createNewInstance
+from .localenv import LocalEnv
 import click
 import sys
 import os
@@ -92,6 +94,9 @@ jobControlOptions = option_group(
 @jobControlOptions
 @click.argument("cmdline", nargs=-1)
 def run(ctx, action, use=None, cmdline=None, **options):
+    """
+    run an ad-hoc command in the context of the given manifest
+    """
     options.update(ctx.obj)
     return _run(options.pop("manifest"), options)
 
@@ -159,6 +164,9 @@ jobFilterOptions = option_group(
 @jobFilterOptions
 @jobControlOptions
 def deploy(ctx, manifest=None, **options):
+    """
+    deploy the given manifest
+    """
     options.update(ctx.obj)
     return _run(manifest, options)
 
@@ -185,7 +193,6 @@ def init(ctx, projectdir, **options):
 unfurl init [project] # creates a unfurl project with new spec and instance repos
 """
     options.update(ctx.obj)
-    from .init import createProject
 
     if os.path.exists(projectdir):
         if not os.path.isdir(projectdir):
@@ -212,7 +219,6 @@ def newinstance(ctx, spec_repo_dir, new_instance_dir, *args, **options):
 Creates a new instance repository for the given specification repository.
 """
     options.update(ctx.obj)
-    from .init import createNewInstance
 
     repo, message = createNewInstance(spec_repo_dir, new_instance_dir)
     if repo:
@@ -234,7 +240,6 @@ def clone(ctx, spec_repo_dir, new_project_dir, **options):
 Create a new project by cloning the given specification repository and creating a new instance repository.
 """
     options.update(ctx.obj)
-    from .init import cloneSpecToNewProject
 
     projectConfigPath, message = cloneSpecToNewProject(spec_repo_dir, new_project_dir)
     if projectConfigPath:
@@ -253,8 +258,6 @@ def git(ctx, gitargs, dir="."):
     """
 unfurl git --dir=/path/to/start [gitoptions] [gitcmd] [gitcmdoptions]: Runs command on each project repository.
 """
-    from .localenv import LocalEnv
-
     localEnv = LocalEnv(dir)
     repos = localEnv.getRepos()
     status = 0

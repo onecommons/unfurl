@@ -53,6 +53,11 @@ class Project(object):
             )
 
         self.workingDirs = Repo.findGitWorkingDirs(self.projectRoot)
+        # the project repo if it exists manages the project config (unfurl.yaml)
+        if self.projectRoot in self.workingDirs:
+            self.projectRepo = self.workingDirs[self.projectRoot][1]
+        else:
+            self.projectRepo = Repo.findContainingRepo(self.projectRoot)
 
     def getRepos(self):
         return [repo for (gitUrl, repo) in self.workingDirs.values()]
@@ -136,6 +141,7 @@ instances:
     # default instance if there are multiple instances in that project
     # (only applicable when config is local to a project)
     default: true
+    inputs:
     local:
       file: path
       repository:
@@ -256,16 +262,30 @@ class LocalEnv(object):
         # XXX need to save local config when changed
         self.homeConfigPath = self.getHomeConfigPath(homepath)
         self.homeProject = Project(self.homeConfigPath, self)
-
+        self.manifestPath = None
         if manifestPath:
-            pathORproject = self.findManifestPath(manifestPath)
+            # if manifestPath does not exist check project config
+            if not os.path.exists(manifestPath):
+                pathORproject = self.findProject(os.path.dirname(manifestPath))
+                if pathORproject:
+                    # raise error is manifestPath isn't in the projectConfig
+                    # XXX createNewInstance
+                    self.manifestPath = pathORproject.createNewInstance(manifestPath)
+                else:
+                    raise UnfurlError(
+                        "Manifest file does not exist: '%s'"
+                        % os.path.abspath(manifestPath)
+                    )
+            else:
+                pathORproject = self.findManifestPath(manifestPath)
         else:
             # not specified: search current directory and parents for either a manifest or a project
             pathORproject = self.searchForManifestOrProject(".")
 
         if isinstance(pathORproject, Project):
             self.project = pathORproject
-            self.manifestPath = pathORproject.findDefaultInstanceManifest()
+            if not self.manifestPath:
+                self.manifestPath = pathORproject.findDefaultInstanceManifest()
         else:
             self.manifestPath = pathORproject
             self.project = self.findProject(os.path.dirname(pathORproject))
@@ -306,7 +326,7 @@ class LocalEnv(object):
         if self.project and instanceDir in self.project.workingDirs:
             return self.project.workingDirs[instanceDir][1]
         else:
-            return Repo.createGitRepoIfExists(instanceDir)
+            return Repo.findContainingRepo(instanceDir)
 
     def getRepos(self):
         if self.project:

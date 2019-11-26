@@ -37,6 +37,18 @@ class Repo(object):
     #   return SimpleRepo(url, dir)
 
     @staticmethod
+    def findContainingRepo(rootDir, gitDir=".git"):
+        """
+    Walk parents looking for a git repository.
+    """
+        current = os.path.abspath(rootDir)
+        while current and current != os.sep:
+            if is_git_dir(os.path.join(current, gitDir)):
+                return GitRepo(git.Repo(current))
+            current = os.path.dirname(current)
+        return None
+
+    @staticmethod
     def findGitWorkingDirs(rootDir, gitDir=".git"):
         workingDirs = {}
         for root, dirs, files in os.walk(rootDir):
@@ -45,12 +57,6 @@ class Repo(object):
                 repo = GitRepo(git.Repo(root))
                 workingDirs[root] = (repo.url, repo)
         return workingDirs
-
-    @staticmethod
-    def createGitRepoIfExists(rootDir, gitDir=".git"):
-        if is_git_dir(os.path.join(rootDir, gitDir)):
-            return GitRepo(git.Repo(rootDir))
-        return None
 
     def findPath(self, path, importLoader=None):
         base = self.workingDir
@@ -133,6 +139,15 @@ class GitRepo(Repo):
             self.workingDir,
         )
         return self.workingDir
+
+    def getInitialRevision(self):
+        firstCommit = next(self.repo.iter_commits("HEAD", max_parents=0))
+        return firstCommit.hexsha
+
+    def commitFiles(self, files, msg):
+        index = git.IndexFile.from_tree(self.repo, "HEAD")
+        index.add([os.path.abspath(f) for f in files])
+        return index.commit(msg)
 
     # XXX: def getDependentRepos()
     # XXX: def isDirty()

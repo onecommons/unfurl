@@ -463,10 +463,13 @@ class Job(ConfigChange):
         try:
             canRun = False
             reason = ""
-            dependencies = list(task.target.getOperationalDependencies())
-            missing = [
-                dep for dep in dependencies if not dep.operational and dep.required
-            ]
+            missing = []
+            skipDependencyCheck = False
+            if not skipDependencyCheck:
+                dependencies = list(task.target.getOperationalDependencies())
+                missing = [
+                    dep for dep in dependencies if not dep.operational and dep.required
+                ]
             if missing:
                 reason = "missing required dependencies: %s" % ",".join(
                     [dep.name for dep in missing]

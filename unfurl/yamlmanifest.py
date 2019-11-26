@@ -673,17 +673,16 @@ class YamlManifest(Manifest):
             return
 
         if self.repo:
-            self.repo.repo.index.add([self.manifest.path])
-            self.repo.repo.index.commit("Updating status for job %s" % job.changeId)
+            self.repo.commitFiles(
+                [self.manifest.path], "Updating status for job %s" % job.changeId
+            )
             jobRecord["endCommit"] = self.repo.revision
         if self.changeLogPath:
             self.saveChangeLog(jobRecord, changes)
             if self.repo:
-                self.repo.repo.index.add(
-                    [os.path.join(self.getBaseDir(), self.changeLogPath)]
-                )
-                self.repo.repo.index.commit(
-                    "Updating changelog for job %s" % job.changeId
+                self.repo.commitFiles(
+                    [os.path.join(self.getBaseDir(), self.changeLogPath)],
+                    "Updating changelog for job %s" % job.changeId,
                 )
                 logger.info("committed instance repo changes: %s", self.repo.revision)
 
