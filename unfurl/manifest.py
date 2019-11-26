@@ -284,7 +284,7 @@ class Manifest(AttributeManager):
     #   self.repoStatus.update({repo['url'] : repo['commit']
     #       for repo in repos.values() if repo.get('commit')})
 
-    def loadHook(self, yamlConfig, templatePath, baseDir):
+    def loadHook(self, yamlConfig, templatePath, baseDir, warnWhenNotFound=False):
         # self.updateRepoStatus(yamlConfig.config.get('status', {}).get('repositories',{}))
         repositories = (
             yamlConfig.config.get("spec", {}).get("tosca", {}).get("repositories", {})
@@ -305,7 +305,9 @@ class Manifest(AttributeManager):
             name = os.path.basename(templatePath)
             templatePath = dict(file=templatePath)
 
-        return loadFromRepo(name, templatePath, baseDir, repositories, self)
+        return loadFromRepo(
+            name, templatePath, baseDir, repositories, self, warnWhenNotFound
+        )
 
 
 class SnapShotManifest(Manifest):

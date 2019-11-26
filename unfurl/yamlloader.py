@@ -69,11 +69,15 @@ def load_yaml(path, isFile=True, importLoader=None):
         # XXX urls and files outside of a repo should be saved and commited to the repo the importLoader is in
         f = None
         try:
-            f = (
-                codecs.open(path, encoding="utf-8", errors="strict")
-                if isFile
-                else urllib.request.urlopen(path)
-            )
+            if isFile:
+                ignoreFileNotFound = importLoader and getattr(
+                    importLoader.tpl, "ignoreFileNotFound", None
+                )
+                if ignoreFileNotFound and not os.path.isfile(path):
+                    return None
+                f = codecs.open(path, encoding="utf-8", errors="strict")
+            else:
+                f = urllib.request.urlopen(path)
         except urllib.error.URLError as e:
             if hasattr(e, "reason"):
                 msg = _(
@@ -165,8 +169,10 @@ class YamlConfig(object):
                 msg = "Unable to parse yaml config"
             raise UnfurlError(msg, True)
 
-    def loadYaml(self, path, baseDir=None):
+    def loadYaml(self, path, baseDir=None, warnWhenNotFound=False):
         path = os.path.abspath(os.path.join(baseDir or self.getBaseDir(), path))
+        if warnWhenNotFound and not os.path.isfile(path):
+            return path, None
         with open(path, "r") as f:
             config = yaml.load(f)
         return path, config
@@ -183,7 +189,7 @@ class YamlConfig(object):
     def validate(self, config):
         return findSchemaErrors(config, self.schema)
 
-    def loadInclude(self, templatePath):
+    def loadInclude(self, templatePath, warnWhenNotFound=False):
         if templatePath == self.baseDirs[-1]:
             self.baseDirs.pop()
             return
@@ -192,7 +198,7 @@ class YamlConfig(object):
             value = templatePath.get("merge")
             if "file" not in templatePath:
                 raise UnfurlError(
-                    "file missing from document %%include: %s" % templatePath
+                    "`file` key missing from document %%include: %s" % templatePath
                 )
             key = templatePath["file"]
         else:
@@ -208,10 +214,19 @@ class YamlConfig(object):
         try:
             baseDir = self.baseDirs[-1]
             if self.loadHook:
-                path, template = self.loadHook(self, templatePath, baseDir)
+                path, template = self.loadHook(
+                    self, templatePath, baseDir, warnWhenNotFound
+                )
             else:
-                path, template = self.loadYaml(key, baseDir)
+                path, template = self.loadYaml(key, baseDir, warnWhenNotFound)
             newBaseDir = os.path.dirname(path)
+            if template is None:
+                if warnWhenNotFound:
+                    logger.warning(
+                        "document %%include %s does not exist (base: %s)"
+                        % (templatePath, baseDir)
+                    )
+                return value, template, newBaseDir
         except:
             raise UnfurlError(
                 "unable to load document %%include: %s (base: %s)"
@@ -225,7 +240,14 @@ class YamlConfig(object):
         return value, template, newBaseDir
 
 
-def loadFromRepo(import_name, import_uri_def, basePath, repositories, manifest):
+def loadFromRepo(
+    import_name,
+    import_uri_def,
+    basePath,
+    repositories,
+    manifest,
+    ignoreFileNotFound=False,
+):
     """
   Returns (url or fullpath, parsed yaml)
   """
@@ -233,6 +255,7 @@ def loadFromRepo(import_name, import_uri_def, basePath, repositories, manifest):
     context["base"] = basePath
     context["repositories"] = repositories
     context.manifest = manifest
+    context.ignoreFileNotFound = ignoreFileNotFound
     uridef = {k: v for k, v in import_uri_def.items() if k in ["file", "repository"]}
     # _load_import_template will invoke load_yaml above
     loader = toscaparser.imports.ImportsLoader(None, basePath, tpl=context)

@@ -263,14 +263,17 @@ def mergeDicts(b, a, cls=dict):
     return cp
 
 
-IncludeKey = "%include"
+def isIncludeKey(key):
+    return key and key.startswith("%include")
 
 
 def getTemplate(doc, key, value, path, cls):
     template = doc
     templatePath = None
-    if key == IncludeKey:
-        value, template, baseDir = doc.loadTemplate(value)
+    if isIncludeKey(key):
+        value, template, baseDir = doc.loadTemplate(value, key.endswith("?"))
+        if template is None:  # include wasn't not found and key ends with "?"
+            return doc
         cls = makeMapWithBase(baseDir)
     else:
         for segment in key.split("/"):
@@ -296,7 +299,7 @@ def getTemplate(doc, key, value, path, cls):
         ):  # raw means no further processing
             # if the include path starts with the path to the template
             # throw recursion error
-            if key != IncludeKey:
+            if not isIncludeKey(key):
                 prefix = list(
                     itertools.takewhile(lambda x: x[0] == x[1], zip(path, templatePath))
                 )
@@ -307,13 +310,13 @@ def getTemplate(doc, key, value, path, cls):
             includes = CommentedMap()
             template = expandDict(doc, path, includes, template, cls=cls)
     finally:
-        if key == IncludeKey:
+        if isIncludeKey(key):
             doc.loadTemplate(baseDir)  # pop baseDir
     return template
 
 
 def hasTemplate(doc, key, path, cls):
-    if key == IncludeKey:
+    if isIncludeKey(key):
         return hasattr(doc, "loadTemplate")
     template = doc
     for segment in key.split("/"):
@@ -561,7 +564,7 @@ def restoreIncludes(includes, originalDoc, changedDoc, cls=dict):
 
         mergedIncludes = {}
         for (includeKey, includeValue) in value:
-            if includeKey[1:] == IncludeKey:
+            if isIncludeKey(includeKey[1:]):
                 ref = None
                 continue
             stillHasTemplate = hasTemplate(changedDoc, includeKey[1:], key, cls)

@@ -357,16 +357,26 @@ apiVersion: unfurl/v1alpha1
 kind: Manifest
 +%include:
   file: template.yaml
++%include2:
+  file: template.yaml
++%include?: missing.yaml
++%include2?: missing.yaml
 spec:
   b: 3
       """
             manifest = YamlManifest(instanceYaml)
             assert manifest.manifest.expanded["spec"]["a"] == 1
             assert manifest.manifest.expanded["spec"]["b"] == 3
+            # XXX these shouldn't be in expanded:
+            # assert "+%include" not in manifest.manifest.expanded
+            # assert "+%include?" not in manifest.manifest.expanded
             output = six.StringIO()
             manifest.dump(output)
             config = YamlConfig(output.getvalue())
             assert config.config["+%include"] == {"file": "template.yaml"}
+            assert config.config["+%include2"] == {"file": "template.yaml"}
+            assert config.config["+%include?"] == "missing.yaml"
+            assert config.config["+%include2?"] == "missing.yaml"
             assert "a" not in config.config["spec"]
 
     def test_change(self):
