@@ -6,7 +6,7 @@
 ansible==2.7.13
 mitogen==0.2.7
 openshift
-click==6.7
+click==7.0
 enum34
 jsonschema
 subprocess32

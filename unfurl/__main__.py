@@ -77,9 +77,6 @@ jobControlOptions = option_group(
 # --replace
 # unfurl run foo:check 'terraform blah' # save lastChangeId so we can recreate history for the target
 # each command builds a config (unless replace ) --replace
-# unfurl add repo
-# unfurl add image
-# unfurl intervene # apply manual changes to status (create a change set and commit)
 @cli.command()
 @click.pass_context
 @click.argument("action", default="*:upgrade")
@@ -95,9 +92,10 @@ jobControlOptions = option_group(
 @click.argument("cmdline", nargs=-1)
 def run(ctx, action, use=None, cmdline=None, **options):
     """
-    run an ad-hoc command in the context of the given manifest
+    Run an ad-hoc command in the context of the given manifest
     """
     options.update(ctx.obj)
+    # XXX parse action and use, update manifest and job
     return _run(options.pop("manifest"), options)
 
 
@@ -165,13 +163,13 @@ jobFilterOptions = option_group(
 @jobControlOptions
 def deploy(ctx, manifest=None, **options):
     """
-    deploy the given manifest
+    Deploy the given manifest
     """
     options.update(ctx.obj)
     return _run(manifest, options)
 
 
-@cli.command()
+@cli.command(short_help="Print the given deployment plan")
 @click.pass_context
 @click.argument("manifest", default="", type=click.Path(exists=False))
 @jobFilterOptions
@@ -185,7 +183,7 @@ def plan(ctx, manifest=None, **options):
     return _run(manifest, options)
 
 
-@cli.command()
+@cli.command(short_help="Create a new unfurl project")
 @click.pass_context
 @click.argument("projectdir", default=".", type=click.Path(exists=False))
 def init(ctx, projectdir, **options):
@@ -206,7 +204,7 @@ unfurl init [project] # creates a unfurl project with new spec and instance repo
     click.echo("New Unfurl project created at %s" % projectPath)
 
 
-@cli.command()
+@cli.command(short_help="Create a new instance repository")
 @click.pass_context
 @click.argument(
     "spec_repo_dir", type=click.Path(exists=True)
@@ -227,7 +225,7 @@ Creates a new instance repository for the given specification repository.
         raise click.ClickException(message)
 
 
-@cli.command()
+@cli.command(short_help="Clone a project")
 @click.pass_context
 @click.argument(
     "spec_repo_dir", type=click.Path(exists=True)
@@ -248,7 +246,10 @@ Create a new project by cloning the given specification repository and creating 
         raise click.ClickException(message)
 
 
-@cli.command(context_settings={"ignore_unknown_options": True})
+@cli.command(
+    short_help="Run a git command across all repositories",
+    context_settings={"ignore_unknown_options": True},
+)
 @click.pass_context
 @click.option(
     "--dir", default=".", type=click.Path(exists=True), help="path to spec repository"
@@ -276,12 +277,25 @@ unfurl git --dir=/path/to/start [gitoptions] [gitcmd] [gitcmdoptions]: Runs comm
 
 @cli.command()
 def version():
+    "Print the current version"
     click.echo("unfurl version %s" % __version__)
 
 
-def printHelp():
-    ctx = cli.make_context("unfurl", [])
-    click.echo(cli.get_help(ctx))
+@cli.command()
+@click.pass_context
+@click.argument("cmd", nargs=1, default="")
+def help(ctx, cmd=""):
+    "Get help on a command"
+    if not cmd:
+        click.echo(cli.get_help(ctx.parent), color=ctx.color)
+        return
+
+    command = ctx.parent.command.commands.get(cmd)
+    if command:
+        ctx.info_name = cmd  # hack
+        click.echo(command.get_help(ctx), color=ctx.color)
+    else:
+        raise click.UsageError("no help found for unknown command '%s'" % cmd, ctx=ctx)
 
 
 def main():
@@ -289,10 +303,6 @@ def main():
     try:
         rv = cli(standalone_mode=False, obj=obj)
         sys.exit(rv or 0)
-    except click.UsageError as err:
-        click.echo("Error: %s" % err)
-        printHelp()
-        sys.exit(err.exit_code)
     except click.Abort:
         click.echo("Aborted!", file=sys.stderr)
         sys.exit(1)
