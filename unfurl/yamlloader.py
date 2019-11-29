@@ -9,7 +9,13 @@ from ruamel.yaml.comments import CommentedMap
 from ruamel.yaml.representer import RepresenterError
 
 from .util import sensitive_str, UnfurlError, UnfurlValidationError
-from .util import expandDoc, findSchemaErrors, makeMapWithBase
+from .util import (
+    expandDoc,
+    findSchemaErrors,
+    makeMapWithBase,
+    findAnchor,
+    _cacheAnchors,
+)
 from toscaparser.common.exception import ExceptionCollector
 from toscaparser.common.exception import URLException
 from toscaparser.utils.gettextutils import _
@@ -141,6 +147,7 @@ class YamlConfig(object):
             if not isinstance(self.config, CommentedMap):
                 raise UnfurlValidationError("invalid YAML document: %s" % self.config)
 
+            findAnchor(self.config, None)  # create _anchorCache
             self._cachedDocIncludes = {}
             # schema should include defaults but can't validate because it doesn't understand includes
             # but should work most of time
@@ -149,7 +156,7 @@ class YamlConfig(object):
 
             self.baseDirs = [self.getBaseDir()]
             self.includes, expandedConfig = expandDoc(
-                self.config, cls=makeMapWithBase(self.baseDirs[0])
+                self.config, cls=makeMapWithBase(self.config, self.baseDirs[0])
             )
             self.expanded = expandedConfig
             # print('expanded')
@@ -227,6 +234,7 @@ class YamlConfig(object):
                         % (templatePath, baseDir)
                     )
                 return value, template, newBaseDir
+            _cacheAnchors(self.config._anchorCache, template)
         except:
             raise UnfurlError(
                 "unable to load document %%include: %s (base: %s)"

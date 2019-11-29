@@ -6,7 +6,7 @@ import itertools
 from collections import Mapping, MutableSequence
 import os.path
 from jsonschema import Draft4Validator, validators
-from ruamel.yaml.comments import CommentedMap
+from ruamel.yaml.comments import CommentedMap, CommentedBase
 from ruamel.yaml.scalarstring import ScalarString, FoldedScalarString
 import logging
 
@@ -192,11 +192,15 @@ def toEnum(enum, value, default=None):
         return value
 
 
-def makeMapWithBase(baseDir):
+def makeMapWithBase(doc, baseDir):
     def factory(*args, **kws):
         map = CommentedMap(*args, **kws)
         map.baseDir = baseDir
-        map.mapCtor = makeMapWithBase(baseDir)
+        if hasattr(doc, "loadTemplate"):
+            map.loadTemplate = doc.loadTemplate
+        if hasattr(doc, "_anchorCache"):
+            map._anchorCache = doc._anchorCache
+        map.mapCtor = makeMapWithBase(doc, baseDir)
         return map
 
     return factory
@@ -263,6 +267,33 @@ def mergeDicts(b, a, cls=dict):
     return cp
 
 
+def _cacheAnchors(_anchorCache, obj):
+    anchor = obj.yaml_anchor()
+    if anchor and anchor.value:
+        _anchorCache[anchor.value] = obj
+        # By default, anchors are only emitted when it detects a reference t
+        # to an object previously seen, so force it to be emitted
+        anchor.always_dump = True
+
+    for value in obj.values() if isinstance(obj, dict) else obj:
+        if isinstance(value, CommentedBase):
+            _cacheAnchors(_anchorCache, value)
+
+
+def findAnchor(doc, anchorName):
+    if not isinstance(doc, CommentedMap):
+        return None
+
+    _anchorCache = getattr(doc, "_anchorCache", None)
+    if _anchorCache is None:
+        _anchorCache = {}
+        # recursively find anchors
+        _cacheAnchors(_anchorCache, doc)
+        doc._anchorCache = _anchorCache
+
+    return _anchorCache.get(anchorName)
+
+
 def isIncludeKey(key):
     return key and key.startswith("%include")
 
@@ -274,16 +305,27 @@ def getTemplate(doc, key, value, path, cls):
         value, template, baseDir = doc.loadTemplate(value, key.endswith("?"))
         if template is None:  # include wasn't not found and key ends with "?"
             return doc
-        cls = makeMapWithBase(baseDir)
+        cls = makeMapWithBase(doc, baseDir)
     else:
         for segment in key.split("/"):
-            # XXX raise error if .. not at start of key
-            if segment == "..":
-                if templatePath is None:
-                    templatePath = path[:-1]
-                else:
-                    templatePath = templatePath[:-1]
-                template = lookupPath(doc, templatePath, cls)
+            # XXX raise error if ../ sequence is not at the start of key
+            if segment:
+                if not segment.strip("."):  # segment is one or more '.'
+                    stop = None
+                    if len(segment) - 1:
+                        stop = (len(segment) - 1) * -1
+                    if templatePath is None:
+                        templatePath = list(path[:stop])
+                    else:
+                        templatePath = templatePath[:stop]
+                    template = lookupPath(doc, templatePath, cls)
+                    continue
+                elif segment[0] == "*":  # anchor reference
+                    template = findAnchor(doc, segment[1:])
+                    if template is None:
+                        raise UnfurlError("could not find anchor '%s'" % segment[1:])
+                    continue
+
             # XXX this check should allow array look up:
             if not isinstance(template, Mapping) or segment not in template:
                 raise UnfurlError('can not find "%s" in document' % key)
@@ -320,11 +362,21 @@ def hasTemplate(doc, key, path, cls):
         return hasattr(doc, "loadTemplate")
     template = doc
     for segment in key.split("/"):
-        if segment == "..":
-            path = path[:-1]
-            template = lookupPath(doc, path, cls)
         if not isinstance(template, Mapping):
             raise UnfurlError("included templates changed")
+        if segment:
+            if not segment.strip("."):
+                stop = None
+                if len(segment) - 1:
+                    stop = (len(segment) - 1) * -1
+                path = path[:stop]
+                template = lookupPath(doc, path, cls)
+                continue
+            elif segment[0] == "*":  # anchor reference
+                template = findAnchor(doc, segment[1:])
+                if template is None:
+                    return False
+                continue
         if segment not in template:
             return False
         template = template[segment]
@@ -409,6 +461,8 @@ def expandDoc(doc, current=None, cls=dict):
     if not isinstance(doc, Mapping) or not isinstance(current, Mapping):
         raise UnfurlError("top level element %s is not a dict" % doc)
     expanded = expandDict(doc, (), includes, current, cls)
+    if hasattr(doc, "_anchorCache"):
+        expanded._anchorCache = doc._anchorCache
     last = 0
     while True:
         missing = list(_findMissingIncludes(includes))
@@ -419,6 +473,8 @@ def expandDoc(doc, current=None, cls=dict):
         last = len(missing)
         includes = CommentedMap()
         expanded = expandDict(expanded, (), includes, current, cls)
+        if hasattr(doc, "_anchorCache"):
+            expanded._anchorCache = doc._anchorCache
 
 
 def expandList(doc, path, includes, value, cls=dict):

@@ -338,10 +338,13 @@ class FileTest(unittest.TestCase):
         task = list(job.workDone.values())[0]
         self.assertEqual(task.result.result, "foo.txt")
 
-    def test_manifest_template(self):
+    def test_template_includes(self):
         template = """
 apiVersion: unfurl/v1alpha1
 kind: Manifest
+dsl:
+  bar: &bar
+    c: 4
 spec:
   a: 1
   b: 2
@@ -355,6 +358,11 @@ status: {}
             instanceYaml = """
 apiVersion: unfurl/v1alpha1
 kind: Manifest
+dsl:
+  foo: &foo
+    d: 5
+  +./bar:
+  +./foo:
 +%include:
   file: template.yaml
 +%include2:
@@ -362,14 +370,23 @@ kind: Manifest
 +%include?: missing.yaml
 +%include2?: missing.yaml
 spec:
+  +*foo:
+  +*bar:
   b: 3
       """
             manifest = YamlManifest(instanceYaml)
+            assert manifest.manifest.expanded["dsl"]["c"] == 4
+            assert manifest.manifest.expanded["dsl"]["d"] == 5
             assert manifest.manifest.expanded["spec"]["a"] == 1
             assert manifest.manifest.expanded["spec"]["b"] == 3
+            assert manifest.manifest.expanded["spec"]["c"] == 4
+            assert manifest.manifest.expanded["spec"]["d"] == 5
             # XXX these shouldn't be in expanded:
             # assert "+%include" not in manifest.manifest.expanded
             # assert "+%include?" not in manifest.manifest.expanded
+            assert manifest.manifest.config["dsl"]["foo"].anchor.value == "foo"
+            assert manifest.manifest.config["dsl"]["foo"].anchor.always_dump
+
             output = six.StringIO()
             manifest.dump(output)
             config = YamlConfig(output.getvalue())
