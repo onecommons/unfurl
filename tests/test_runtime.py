@@ -194,12 +194,13 @@ class RunTest(unittest.TestCase):
         anInstance:
           # template: foo
           # or use shortcut
-          implementations:
-            create: test
-      implementations:
+          install: test
+      installers:
         test:
-          className:    TestSubtaskConfigurator
-          inputs: {}
+          implementations:
+           master:
+            className:    TestSubtaskConfigurator
+            inputs: {}
     """
             % VERSION
         )
@@ -316,14 +317,16 @@ class FileTest(unittest.TestCase):
           interfaces:
             Standard:
                 create: test
-      implementations:
+      installers:
         test:
-          className:    FileTestConfigurator
-          inputs:
-            path:
-              ref: file::path
-            contents:
-              ref: file::contents
+          implementations:
+            master:
+              className:    FileTestConfigurator
+              inputs:
+                path:
+                  ref: file::path
+                contents:
+                  ref: file::contents
     """
             % VERSION
         )

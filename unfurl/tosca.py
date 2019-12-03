@@ -57,6 +57,7 @@ def createDefaultTopology():
 
 class ToscaSpec(object):
     ConfiguratorType = "unfurl.nodes.Configurator"
+    InstallerType = "unfurl.nodes.Installer"
 
     def __init__(self, toscaDef, inputs=None, instances=None, path=None):
         # for key in tosca_ext_tpl:
@@ -81,16 +82,16 @@ class ToscaSpec(object):
             )
 
         self.nodeTemplates = {}
-        self.configurators = {}
+        self.installers = {}
         self.relationshipTemplates = {}
         if hasattr(self.template, "nodetemplates"):
             for template in self.template.nodetemplates:
                 nodeTemplate = NodeSpec(template)
-                if template.is_derived_from(self.ConfiguratorType):
+                if template.is_derived_from(self.InstallerType):
                     # XXX 'configurator-' is a hack
-                    self.configurators[
-                        template.name[len("configurator-") :]
-                        if template.name.startswith("configurator-")
+                    self.installers[
+                        template.name[len("installer-") :]
+                        if template.name.startswith("installer-")
                         else template.name
                     ] = nodeTemplate
                 self.nodeTemplates[template.name] = nodeTemplate
@@ -110,18 +111,18 @@ class ToscaSpec(object):
       spec:
             instances:
               test:
-                implementations:
-                  create: test
-            implementations:
+                install: test
+            installers:
               test:
-                className:    TestSubtaskConfigurator
-                inputs:
+                master:
+                  className:    TestConfigurator
+                  inputs:
 """
         node_templates = toscaDef.setdefault("topology_template", {}).setdefault(
             "node_templates", {}
         )
-        for name, impl in tpl.get("implementations", {}).items():
-            node_templates["configurator-" + name] = self.loadImplementation(impl)
+        for name, impl in tpl.get("installers", {}).items():
+            node_templates["installer-" + name] = self.loadImplementation(impl)
 
         for name, impl in tpl.get("instances", {}).items():
             if name not in node_templates and impl is not None:
@@ -129,21 +130,15 @@ class ToscaSpec(object):
 
     # load implementations
     #  create configurator template for each implementation
-    def loadImplementation(self, _impl):
-        impl = _impl.copy()
-        implementation = impl.pop("className")
-        return dict(
-            type=self.ConfiguratorType,
-            properties=impl,
-            interfaces={"Provides": {"run": {"implementation": implementation}}},
-        )
+    def loadImplementation(self, impl):
+        return dict(type=self.InstallerType, properties=impl)
 
     def loadInstance(self, impl):
         template = {"type": "tosca.nodes.Root"}  #'unfurl.nodes.Default'}
-        implementations = impl.get("implementations")
-        if implementations:
+        installer = impl.get("install")
+        if installer:
             template["interfaces"] = {
-                "Standard": dict(pair for pair in implementations.items())
+                "unfurl.interfaces.Install": {"install": installer}
             }
         return template
 

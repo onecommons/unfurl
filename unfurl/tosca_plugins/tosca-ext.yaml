@@ -1,5 +1,21 @@
 tosca_definitions_version: tosca_simple_unfurl_1_0_0
 node_types:
+  unfurl.nodes.Installer:
+    derived_from: tosca.nodes.Root
+    properties:
+      provides:
+        type: list
+        required: false
+      implementations:
+        type: map
+
+  unfurl.node.Installation:
+    derived_from: tosca.nodes.Root
+    properties:
+     installer:
+       type: string
+       description: name of Installer node template
+
   unfurl.nodes.Configurator:
     derived_from: tosca.nodes.Root
     interfaces:
@@ -115,7 +131,21 @@ node_types:
   unfurl.nodes.k8sSecretResource:
     derived_from: unfurl.nodes.K8sResource
 
+capability_types:
+  unfurl.capabilities.Installation:
+   derived_from: tosca.capabilities.Root
+   properties:
+     installer:
+       type: string
+       description: name of Installer node template
+
 interface_types:
+  unfurl.interfaces.Install:
+    derived_from: tosca.interfaces.Root
+    # no inputs needed: installer uses instance's properties and attributes
+    install:
+      description: implementation is installer node template
+
   unfurl.interfaces.Configurator:
     instantiate:
       description: Coming soon!
@@ -139,12 +169,3 @@ interface_types:
     step7:
     step8:
     step9:
-
-  unfurl.nodes.Configurator:
-    derived_from: tosca.nodes.Root
-    interfaces:
-      Provides:
-        type: unfurl.interfaces.Provides
-
-  unfurl.nodes.Default:
-    derived_from: tosca.nodes.Root

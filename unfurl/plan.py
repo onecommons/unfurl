@@ -2,7 +2,7 @@ import six
 from .runtime import Resource
 from .util import UnfurlError, lookupClass
 from .support import Status
-from .configurator import ConfigurationSpec
+from .configurator import ConfigurationSpec, getConfigSpecFromInstaller
 
 import logging
 
@@ -75,26 +75,15 @@ class Plan(object):
                 implementation = implementation.get("file")
         if not implementation or not isinstance(implementation, six.string_types):
             raise UnfurlError("invalid implementation spec %s" % implementation)
-        configuratorTemplate = self.tosca.configurators.get(implementation)
+        configuratorTemplate = self.tosca.installers.get(implementation)
+        action = iDef.name
         if configuratorTemplate:
-            attributes = configuratorTemplate.properties
-            kw = {
-                k: attributes[k]
-                for k in set(attributes) & set(ConfigurationSpec.getDefaults())
-            }
-            if "inputs" not in kw:
-                kw["inputs"] = iDef.inputs
-            if "className" not in kw:
-                kw["className"] = configuratorTemplate.getInterfaces()[0].implementation
-            return ConfigurationSpec(configuratorTemplate.name, iDef.name, **kw)
+            return getConfigSpecFromInstaller(configuratorTemplate, action, iDef.inputs)
         else:
             try:
                 lookupClass(implementation)
                 return ConfigurationSpec(
-                    implementation,
-                    iDef.name,
-                    className=implementation,
-                    inputs=iDef.inputs,
+                    implementation, action, className=implementation, inputs=iDef.inputs
                 )
             except UnfurlError:
                 # assume its executable file, create a ShellConfigurator
@@ -105,7 +94,7 @@ class Plan(object):
     def findImplementation(self, interfaceType, operation, template):
         for iDef in template.getInterfaces():
             if iDef.type == interfaceType and iDef.name == operation:
-                return self.getConfigurationSpecFromInterface(iDef)
+                return iDef
         return None
 
     def includeTask(self, template, resource, oldTemplate):
@@ -219,6 +208,7 @@ Returns:
                 t
                 for t in self.tosca.nodeTemplates.values()
                 if not t.isCompatibleType(self.tosca.ConfiguratorType)
+                and not t.isCompatibleType(self.tosca.InstallerType)
             ]
         )
 
@@ -258,7 +248,7 @@ Returns:
                 else:
                     logger.debug(
                         "skipping task for %s:%s", resource.name, template.name
-                    ),
+                    )
 
             if not found and (opts.add or opts.all):
                 reason = "add"
@@ -269,6 +259,13 @@ Returns:
                 yield self.generateConfiguration(
                     operation, resource, reason, opts.useConfigurator
                 )
+
+            # XXX? retrieve from resource.capabilities
+            # for configSpec, oldConfigSpec in getConfigurations(
+            #     resource, operation
+            # ):  # XXX
+            #     if self.includeTask(configSpec, resource, oldConfigSpec):
+            #         yield (configSpec, resource, reason or operation)
 
         if opts.revertObsolete:  # XXX expose option in cli (as --prune ?)
             for instance in self.root.getOperationalDependencies():
@@ -289,14 +286,47 @@ Returns:
         self, action, resource, reason=None, cmdLine=None, useConfigurator=None
     ):
         # XXX update joboptions, useConfigurator
+        reason = ""
         if cmdLine:
             configSpec = self.createShellConfigurator(cmdLine, action)
         else:
-            configSpec = self.findImplementation("Standard", action, resource.template)
+            configSpec = None
+            # if the resource is an Installation
+            # XXX implement Installation capability
+            installerTemplateName = resource.attributes.get("installer")
+            if not installerTemplateName:
+                iDef = self.findImplementation(
+                    "unfurl.interfaces.Install", "install", resource.template
+                )
+                if iDef:
+                    installerTemplateName = iDef.implementation
+                else:
+                    reason = "could not find installer property or install interface"
+
+            if installerTemplateName:
+                installerTemplate = self.tosca.installers.get(installerTemplateName)
+                if installerTemplate:
+                    # XXX what if capability?
+                    configSpec = getConfigSpecFromInstaller(
+                        installerTemplate, action, resource.attributes
+                    )
+                else:
+                    reason = (
+                        "could not find Installer template %s" % installerTemplateName
+                    )
+            else:
+                iDef = self.findImplementation("Standard", action, resource.template)
+                if iDef:
+                    configSpec = self.getConfigurationSpecFromInterface(iDef)
+                else:
+                    reason = (
+                        "no installer template and could not find Standard interface %s"
+                    )
+
         if not configSpec:
             raise UnfurlError(
-                'unable to find an implementation to "%s" "%s" on ""%s"'
-                % (action, resource.template.name, resource.template.name)
+                'unable to find an implementation to "%s" "%s" on ""%s": %s'
+                % (action, resource.template.name, resource.template.name, reason)
             )
         logger.debug(
             "creating configuration %s with %s to run for %s: %s",

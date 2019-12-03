@@ -7,13 +7,12 @@ from .util import (
     lookupClass,
     validateSchema,
     findSchemaErrors,
+    UnfurlError,
     UnfurlTaskError,
     toEnum,
     UnfurlAddingResourceError,
 )
 from .eval import Ref, mapValue, RefContext
-from .runtime import NodeInstance
-
 from ruamel.yaml import YAML
 
 yaml = YAML()
@@ -35,6 +34,7 @@ class ConfigurationSpec(object):
             inputSchema=None,
             preConditions=None,
             postConditions=None,
+            installer=None,
         )
 
     def __init__(
@@ -49,6 +49,7 @@ class ConfigurationSpec(object):
         inputSchema=None,
         preConditions=None,
         postConditions=None,
+        installer=None,
     ):
         assert name and className, "missing required arguments"
         self.name = name
@@ -268,8 +269,20 @@ class TaskView(object):
             configSpec = yaml.load(configSpec)
         return self.manifest.loadConfigSpec(name, configSpec)
 
+    def _findConfigSpec(self, configSpecName):
+        if self.configSpec.installer:
+            # XXX need a way to pass different inputs
+            inputs = self.configSpec.inputs
+            return getConfigSpecFromInstaller(
+                self.configSpec.installer, configSpecName, inputs
+            )
+        return None
+
     def createSubTask(self, configSpec, resource=None, persist=False, required=False):
         from .job import TaskRequest
+
+        if isinstance(configSpec, six.string_types):
+            configSpec = self._findConfigSpec(configSpec)  # XXX
 
         # XXX:
         # if persist or required:
@@ -310,6 +323,8 @@ class TaskView(object):
         status:
           readyState: ok
     """
+        # XXX if template isn't specified deduce from provides and template keys
+        # XXX allow nodetype instead of template
         from .manifest import Manifest
         from .job import JobRequest
 
@@ -455,3 +470,33 @@ class Dependency(ChangeAware):
             return True
 
         return False
+
+
+def getConfigSpecFromInstaller(configuratorTemplate, action, inputs):
+    implementations = configuratorTemplate.properties["implementations"]
+    attributes = implementations.get("master", implementations.get(action))
+    # allow aliases
+    for i in range(len(implementations)):  # avoid looping endlessly
+        if not isinstance(attributes, six.string_types):
+            break
+        attributes = implementations.get(attributes)
+
+    if not isinstance(attributes, dict):
+        raise UnfurlError(
+            "can not find an implementation for %s in installer %s"
+            % (action, configuratorTemplate.name)
+        )
+
+    # merge in defaults
+    defaults = implementations.get("defaults")
+    if defaults:
+        defaults.update(attributes)
+        attributes = defaults
+
+    kw = {
+        k: attributes[k] for k in set(attributes) & set(ConfigurationSpec.getDefaults())
+    }
+    if "inputs" not in kw:
+        kw["inputs"] = inputs
+    kw["installer"] = configuratorTemplate
+    return ConfigurationSpec(configuratorTemplate.name, action, **kw)

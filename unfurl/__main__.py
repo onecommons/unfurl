@@ -132,7 +132,7 @@ def _run(manifest, options):
 
 
 jobFilterOptions = option_group(
-    click.option("--template", help="template to target"),
+    click.option("--template", help="TOSCA template to target"),
     click.option(
         "--add", default=True, is_flag=True, help="run newly added configurations"
     ),
@@ -173,14 +173,17 @@ def deploy(ctx, manifest=None, **options):
     return _run(manifest, options)
 
 
+# XXX add discover and destroy commands
+
+
 @cli.command(short_help="Print the given deployment plan")
 @click.pass_context
 @click.argument("manifest", default="", type=click.Path(exists=False))
 @jobFilterOptions
-@jobControlOptions
-@click.option("--query")
-@click.option("--trace", default=0)
+@click.option("--query", help="Run the given expression")
+@click.option("--trace", default=0, help="set the query's trace level")
 def plan(ctx, manifest=None, **options):
+    "Print the given deployment plan"
     options.update(ctx.obj)
     options["planOnly"] = True
     # XXX show status and task to run including preview of generated templates, cmds to run etc.

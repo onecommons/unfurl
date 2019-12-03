@@ -31,45 +31,39 @@ manifest = """
 apiVersion: unfurl/v1alpha1
 kind: Manifest
 spec:
- implementations:
+ installers:
   test:
-    apiVersion: unfurl/v1alpha1
-    className: TestConfigurator
-    majorVersion: 0
-    preConditions:
-      properties:
-        meetsTheRequirement:
-          type: string
-      required: ['meetsTheRequirement']
+    implementations:
+      master:
+        apiVersion: unfurl/v1alpha1
+        className: TestConfigurator
+        majorVersion: 0
+        preConditions:
+          properties:
+            meetsTheRequirement:
+              type: string
+          required: ['meetsTheRequirement']
  instances:
     test1:
         attributes:
           meetsTheRequirement: "copy"
-        implementations:
-          create: test
+        install: test
     test2:
         attributes:
           meetsTheRequirement: false
-        implementations:
-          create: test
+        install: test
     test3:
         +spec/instances/test1:
-        implementations:
-          create:
-            implementation:
-              primary: test
-            inputs:
-              resourceName: added1
-              addresources: true
+        properties:
+          resourceName: added1
+          addresources: true
+        install: test
     test4:
         +spec/instances/test3:
-        implementations:
-          create:
-            implementation:
-              primary: test
-            inputs:
-              resourceName: added2
-              yieldresources: true
+        properties:
+          resourceName: added2
+          yieldresources: true
+        install: test
 """
 
 

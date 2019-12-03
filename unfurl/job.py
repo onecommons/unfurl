@@ -95,11 +95,21 @@ class ConfigTask(ConfigChange, TaskView, AttributeManager):
 
     priority = property(**priority())
 
+    fallbacks = {"create": "add", "add": "update"}
+
     def startRun(self):
-        if self.dryRun:
-            self.generator = self.configurator.dryRun(self)
-        else:
-            self.generator = self.configurator.run(self)
+        generator = getattr(self.configurator, "run" + self.configSpec.action, None)
+        fallback = self.configSpec.action
+        while not generator:
+            fallback = self.fallbacks.get(fallback)
+            if not fallback:
+                break
+            generator = getattr(self.configurator, "run" + fallback, None)
+        if not generator:
+            generator = self.configurator.run
+
+        # XXX remove dryRun
+        self.generator = generator(self)
         assert isinstance(self.generator, types.GeneratorType)
 
     def send(self, change):
@@ -337,6 +347,14 @@ class Job(ConfigChange):
     def createTask(self, configSpec, target, parentId=None, reason=None):
         # XXX2 if 'via'/runsOn set, create remote task instead
         task = ConfigTask(self, configSpec, target, parentId, reason=reason)
+        # if configSpec.hasBatchConfigurator():
+        # search targets parents for a batchConfigurator
+        # XXX how to associate a batchConfigurator with a resource and when is its task created?
+        # batchConfigurator tasks more like a job because they have multiple changeids
+        #  batchConfiguratorJob = findBatchConfigurator(configSpec, target)
+        #  batchConfiguratorJob.add(task)
+        #  return None
+
         return task
 
     def filterConfig(self, config, target):
@@ -364,6 +382,7 @@ class Job(ConfigChange):
                     filterReason,
                 )
                 continue
+
             if self.runner.isConfigAlreadyHandled(configSpec):
                 # configuration may have premptively run while executing another task
                 logger.debug(
@@ -575,7 +594,7 @@ class Job(ConfigChange):
                     result.configSpec, result.target, self.changeId
                 )
                 self.runner.addWork(subtask)
-                change = self.runTask(subtask)  # returns a configuration
+                change = self.runTask(subtask)  # returns a ConfiguratorResult
             elif isinstance(result, JobRequest):
                 job = self.runJobRequest(result)
                 change = job
