@@ -197,8 +197,8 @@ class RunTest(unittest.TestCase):
           install: test
       installers:
         test:
-          implementations:
-           master:
+          operations:
+           default:
             className:    TestSubtaskConfigurator
             inputs: {}
     """
@@ -319,8 +319,8 @@ class FileTest(unittest.TestCase):
                 create: test
       installers:
         test:
-          implementations:
-            master:
+          operations:
+            default:
               className:    FileTestConfigurator
               inputs:
                 path:

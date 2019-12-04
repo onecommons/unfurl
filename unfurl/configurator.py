@@ -21,6 +21,20 @@ import logging
 
 logger = logging.getLogger("unfurl")
 
+
+class ConfigOp(object):
+    """
+The operations defined in unfurl.interfaces.Configure
+    """
+
+    @staticmethod
+    def toStandardOp(op):
+        return dict(add="create", update="config", remove="delete").get(op)
+
+
+for op in "add update remove discover check".split():
+    setattr(ConfigOp, op, op)
+
 # we want ConfigurationSpec to be standalone and easily serializable
 class ConfigurationSpec(object):
     @classmethod
@@ -40,7 +54,7 @@ class ConfigurationSpec(object):
     def __init__(
         self,
         name,
-        action,
+        operation,
         className=None,
         majorVersion=0,
         minorVersion="",
@@ -53,7 +67,7 @@ class ConfigurationSpec(object):
     ):
         assert name and className, "missing required arguments"
         self.name = name
-        self.action = action
+        self.operation = operation
         self.className = className
         self.majorVersion = majorVersion
         self.minorVersion = minorVersion
@@ -62,6 +76,7 @@ class ConfigurationSpec(object):
         self.inputSchema = inputSchema or {}
         self.preConditions = preConditions
         self.postConditions = postConditions
+        self.installer = installer
 
     def findInvalidateInputs(self, inputs):
         return findSchemaErrors(serializeValue(inputs), self.inputSchema)
@@ -92,6 +107,7 @@ class ConfigurationSpec(object):
         # XXX3 add unit tests
         return (
             self.name == other.name
+            and self.operation == other.operation
             and self.className == other.className
             and self.majorVersion == other.majorVersion
             and self.minorVersion == other.minorVersion
@@ -152,12 +168,15 @@ class Configurator(object):
     def __init__(self, configurationSpec):
         self.configSpec = configurationSpec
 
+    def getGenerator(self, task):
+        return self.run(task)
+
     # yields a JobRequest, TaskRequest or a ConfiguratorResult
     def run(self, task):
         yield task.createResult(False, False)
 
-    def dryRun(self, task):
-        yield task.createResult(False, False)
+    def canDryRun(self, task):
+        return False
 
     def cantRun(self, task):
         """
@@ -274,7 +293,7 @@ class TaskView(object):
             # XXX need a way to pass different inputs
             inputs = self.configSpec.inputs
             return getConfigSpecFromInstaller(
-                self.configSpec.installer, configSpecName, inputs
+                self.configSpec.installer, configSpecName, inputs, useDefault=False
             )
         return None
 
@@ -282,7 +301,9 @@ class TaskView(object):
         from .job import TaskRequest
 
         if isinstance(configSpec, six.string_types):
-            configSpec = self._findConfigSpec(configSpec)  # XXX
+            configSpec = self._findConfigSpec(configSpec)
+            if not configSpec:
+                return None
 
         # XXX:
         # if persist or required:
@@ -472,14 +493,24 @@ class Dependency(ChangeAware):
         return False
 
 
-def getConfigSpecFromInstaller(configuratorTemplate, action, inputs):
-    implementations = configuratorTemplate.properties["implementations"]
-    attributes = implementations.get("master", implementations.get(action))
-    # allow aliases
-    for i in range(len(implementations)):  # avoid looping endlessly
+def getConfigSpecFromInstaller(configuratorTemplate, action, inputs, useDefault=True):
+    operations = configuratorTemplate.properties["operations"]
+    attributes = None
+    if action in operations:
+        # if key exist but value is None, operation explicitly not supported
+        attributes = operations[action]
+        if not attributes:
+            return None
+    elif useDefault:
+        attributes = operations.get("default")
+    if not attributes:
+        return None
+
+    # allow keys to be aliased:
+    for i in range(len(operations)):  # avoid looping endlessly
         if not isinstance(attributes, six.string_types):
             break
-        attributes = implementations.get(attributes)
+        attributes = operations.get(attributes)
 
     if not isinstance(attributes, dict):
         raise UnfurlError(
@@ -488,15 +519,16 @@ def getConfigSpecFromInstaller(configuratorTemplate, action, inputs):
         )
 
     # merge in defaults
-    defaults = implementations.get("defaults")
+    defaults = operations.get("shared")
     if defaults:
-        defaults.update(attributes)
-        attributes = defaults
+        attributes = dict(defaults, **attributes)
 
     kw = {
         k: attributes[k] for k in set(attributes) & set(ConfigurationSpec.getDefaults())
     }
     if "inputs" not in kw:
         kw["inputs"] = inputs
+    else:
+        kw["inputs"].update(inputs)
     kw["installer"] = configuratorTemplate
     return ConfigurationSpec(configuratorTemplate.name, action, **kw)

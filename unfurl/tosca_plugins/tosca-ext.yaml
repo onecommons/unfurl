@@ -6,8 +6,13 @@ node_types:
       provides:
         type: list
         required: false
-      implementations:
+      operations:
         type: map
+        description: >
+         Value is are config spec properties (see "configurationSpec" in the JSON schema for the manifest).
+         Keys that match <interface.operation> or <action> will be instantiated
+         values in "shared" will be merged into the other configurations
+         and "default" will be used if the operation isn't present.
 
   unfurl.node.Installation:
     derived_from: tosca.nodes.Root
@@ -15,12 +20,6 @@ node_types:
      installer:
        type: string
        description: name of Installer node template
-
-  unfurl.nodes.Configurator:
-    derived_from: tosca.nodes.Root
-    interfaces:
-      Provides:
-        type: unfurl.interfaces.Provides
 
   unfurl.nodes.Default:
     derived_from: tosca.nodes.Root
@@ -146,26 +145,15 @@ interface_types:
     install:
       description: implementation is installer node template
 
-  unfurl.interfaces.Configurator:
-    instantiate:
+  unfurl.interfaces.Configure:
+    derived_from: tosca.interfaces.Root
+    add:
       description: Coming soon!
-    revert:
+    update:
+      description: Coming soon!
+    remove:
       description: Coming soon!
     discover:
       description: Coming soon!
-
-  unfurl.interfaces.Provides:
-    run:
+    check:
       description: Coming soon!
-    step1:
-      description: Coming soon!
-    step2:
-      description: Coming soon!
-    step3:
-      description: Coming soon!
-    step4:
-    step5:
-    step6:
-    step7:
-    step8:
-    step9:

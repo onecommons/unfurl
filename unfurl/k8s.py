@@ -1,6 +1,6 @@
 import codecs
 from .util import sensitive_str
-from .configurator import Configurator  # , Status
+from .configurator import Configurator, ConfigOp  # , Status
 from .ansibleconfigurator import AnsibleConfigurator
 import json
 from ansible.module_utils.k8s.common import K8sAnsibleMixin
@@ -21,6 +21,12 @@ class ClusterConfigurator(Configurator):
 
 
 class ResourceConfigurator(AnsibleConfigurator):
+    def getGenerator(self, task):
+        if task.dryRun:
+            return self.dryRun(task)
+        else:
+            return self.run(task)
+
     def dryRun(self, task):
         # XXX don't use print()
         print("generating playbook")
@@ -70,7 +76,7 @@ class ResourceConfigurator(AnsibleConfigurator):
     def findPlaybook(self, task):
         definition = self.getDefinition(task)
         self.updateMetadata(definition, task)
-        state = "absent" if task.configSpec.action == "delete" else "present"
+        state = "absent" if task.configSpec.operation == ConfigOp.remove else "present"
         connection = task.inputs.get("connection") or {}
         moduleSpec = dict(state=state, definition=definition, **connection)
         return [dict(k8s=moduleSpec)]

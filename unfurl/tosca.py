@@ -114,9 +114,10 @@ class ToscaSpec(object):
                 install: test
             installers:
               test:
-                master:
-                  className:    TestConfigurator
-                  inputs:
+                operations:
+                  default:
+                    className:    TestConfigurator
+                    inputs:
 """
         node_templates = toscaDef.setdefault("topology_template", {}).setdefault(
             "node_templates", {}

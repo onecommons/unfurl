@@ -2,7 +2,8 @@ import six
 from .runtime import Resource
 from .util import UnfurlError, lookupClass
 from .support import Status
-from .configurator import ConfigurationSpec, getConfigSpecFromInstaller
+from .result import serializeValue
+from .configurator import ConfigurationSpec, getConfigSpecFromInstaller, ConfigOp
 
 import logging
 
@@ -11,10 +12,11 @@ logger = logging.getLogger("unfurl")
 
 class Plan(object):
     """
-  create:  template or unapplied resource
-  upgrade: resource
-  delete:  resource
+  add:  template or unapplied resource
+  update: resource
+  remove:  resource
   check:   resource
+  discover: resource
 
   options:
   --append with create to avoid error if exists
@@ -239,9 +241,9 @@ Returns:
                 if include:
                     reason, template = include
                     if resource.status.notapplied or resource.status.notpresent:
-                        operation = "create"
+                        operation = ConfigOp.add
                     else:
-                        operation = "configure"
+                        operation = ConfigOp.update
                     yield self.generateConfiguration(
                         operation, resource, reason, opts.useConfigurator
                     )
@@ -252,7 +254,7 @@ Returns:
 
             if not found and (opts.add or opts.all):
                 reason = "add"
-                operation = "create"
+                operation = ConfigOp.add
                 # XXX create NodeInstance instead to include relationships
                 resource = self.createResource(template)
                 visited.add(id(resource))
@@ -279,14 +281,16 @@ Returns:
                         if not include:
                             continue
                         reason, config = include
-                        yield self.generateConfiguration("delete", resource, reason)
+                        yield self.generateConfiguration(
+                            ConfigOp.remove, resource, reason
+                        )
         # #XXX opts.create, opts.append, opts.cmdline, opts.useConfigurator
 
     def generateConfiguration(
         self, action, resource, reason=None, cmdLine=None, useConfigurator=None
     ):
         # XXX update joboptions, useConfigurator
-        reason = ""
+        notfoundmsg = ""
         if cmdLine:
             configSpec = self.createShellConfigurator(cmdLine, action)
         else:
@@ -301,25 +305,31 @@ Returns:
                 if iDef:
                     installerTemplateName = iDef.implementation
                 else:
-                    reason = "could not find installer property or install interface"
+                    notfoundmsg = (
+                        "could not find installer property or install interface"
+                    )
 
             if installerTemplateName:
                 installerTemplate = self.tosca.installers.get(installerTemplateName)
                 if installerTemplate:
-                    # XXX what if capability?
+                    # XXX what if it's a capability?
                     configSpec = getConfigSpecFromInstaller(
-                        installerTemplate, action, resource.attributes
+                        installerTemplate, action, serializeValue(resource.attributes)
                     )
                 else:
-                    reason = (
+                    notfoundmsg = (
                         "could not find Installer template %s" % installerTemplateName
                     )
             else:
-                iDef = self.findImplementation("Standard", action, resource.template)
+                # XXX doesn't really support these operations see 5.8.4 tosca.interfaces.node.lifecycle.Standard
+                # XXX what about discover and check?
+                iDef = self.findImplementation(
+                    "Standard", ConfigOp.toStandardOp(action), resource.template
+                )
                 if iDef:
                     configSpec = self.getConfigurationSpecFromInterface(iDef)
                 else:
-                    reason = (
+                    notfoundmsg = (
                         "no installer template and could not find Standard interface %s"
                     )
 

@@ -95,21 +95,8 @@ class ConfigTask(ConfigChange, TaskView, AttributeManager):
 
     priority = property(**priority())
 
-    fallbacks = {"create": "add", "add": "update"}
-
     def startRun(self):
-        generator = getattr(self.configurator, "run" + self.configSpec.action, None)
-        fallback = self.configSpec.action
-        while not generator:
-            fallback = self.fallbacks.get(fallback)
-            if not fallback:
-                break
-            generator = getattr(self.configurator, "run" + fallback, None)
-        if not generator:
-            generator = self.configurator.run
-
-        # XXX remove dryRun
-        self.generator = generator(self)
+        self.generator = self.configurator.getGenerator(self)
         assert isinstance(self.generator, types.GeneratorType)
 
     def send(self, change):
@@ -263,7 +250,7 @@ class ConfigTask(ConfigChange, TaskView, AttributeManager):
             "Run {action} on resource {rname} (type {rtype}, status {rstatus}) "
             + "using configurator {cname}, priority {priority}, reason: {reason}"
         ).format(
-            action=self.configSpec.action,
+            action=self.configSpec.operation,
             rname=rname,
             rtype=self.target.template.type,
             rstatus=self.target.status.name,
@@ -325,6 +312,8 @@ class Job(ConfigChange):
     """
   runs ConfigTasks and Jobs
   """
+
+    MAX_NESTED_SUBTASKS = 100
 
     def __init__(self, runner, rootResource, plan, jobOptions):
         super(Job, self).__init__(Status.ok)
@@ -455,6 +444,8 @@ class Job(ConfigChange):
     """
         try:
             priority = task.configurator.shouldRun(task)
+            if task.dryRun and not task.configurator.canDryRun(task):
+                return False
         except Exception:
             # unexpected error don't run this
             UnfurlTaskError(task, "shouldRun failed unexpectedly", True)
@@ -566,7 +557,7 @@ class Job(ConfigChange):
 
         return evalForFunc(query, RefContext(self.rootResource, trace=trace))
 
-    def runTask(self, task):
+    def runTask(self, task, depth=0):
         """
     During each task run:
     * Notification of metadata changes that reflect changes made to resources
@@ -590,11 +581,16 @@ class Job(ConfigChange):
                 # assume the worst
                 return task.finished(ConfiguratorResult(True, True, Status.error))
             if isinstance(result, TaskRequest):
-                subtask = self.createTask(
-                    result.configSpec, result.target, self.changeId
-                )
-                self.runner.addWork(subtask)
-                change = self.runTask(subtask)  # returns a ConfiguratorResult
+                if depth >= self.MAX_NESTED_SUBTASKS:
+                    UnfurlTaskError(task, "too many subtasks spawned", True)
+                    change = task.finished(ConfiguratorResult(True, True, Status.error))
+                else:
+                    subtask = self.createTask(
+                        result.configSpec, result.target, self.changeId
+                    )
+                    self.runner.addWork(subtask)
+                    # returns the subtask with result
+                    change = self.runTask(subtask, depth + 1)
             elif isinstance(result, JobRequest):
                 job = self.runJobRequest(result)
                 change = job
@@ -620,7 +616,7 @@ class Runner(object):
         key = "%s:%s:%s:%s" % (
             task.target.name,
             task.configSpec.name,
-            task.configSpec.action,
+            task.configSpec.operation,
             task.changeId,
         )
         self.currentJob.workDone[key] = task

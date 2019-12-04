@@ -183,7 +183,7 @@ class Manifest(AttributeManager):
     def loadConfigSpec(self, configName, spec):
         return ConfigurationSpec(
             configName,
-            spec["action"],
+            spec["operation"],
             spec["className"],
             spec.get("majorVersion"),
             spec.get("minorVersion", ""),

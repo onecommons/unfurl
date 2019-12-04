@@ -1,0 +1,84 @@
+apiVersion: unfurl/v1alpha1
+kind: Manifest
+spec:
+  tosca:
+    node_types:
+      unfurl.nodes.HelmRelease:
+        derived_from: tosca.nodes.Root
+        requirements:
+          - host:
+              node: unfurl.nodes.K8sNamespace
+              relationship: tosca.relationships.HostedOn
+        properties:
+          chart:
+            type: string
+          release-name:
+            type: string
+        interfaces:
+          unfurl.interfaces.Install:
+            type: unfurl.interfaces.Install
+            install: helm-installer
+
+    topology_template:
+      node_templates:
+        helm-installer:
+          type: unfurl.nodes.Installer
+          properties:
+            operations:
+              shared:
+                apiVersion: unfurl/v1alpha1
+                className: DummyShellConfigurator
+                majorVersion: 0
+                timeout: 9999
+              default:
+                apiVersion: unfurl/v1alpha1
+                className: HelmConfigurator
+                majorVersion: 0
+              instantiate:
+                inputs:
+                 command: foo
+              delete:
+                command: helm remove RELEASE_NAME
+              discover:
+                command: helm get manifest RELEASE_NAME
+                resultTemplate: >
+                  {%for doc in output | yaml %}
+                    {%if doc['kind']|defined %}
+                    name: doc['spec']['name']
+                    parent: .self
+                    nodeType: unfurl.nodes.K8sResource # or secret if doc[kind] is secret
+                    attributes:
+                      apiResource:
+                        doc
+                    # status: if doc[status][...]
+                    {%endif%}
+                  {% endfor %}
+
+        stagingCluster:
+         type: unfurl.nodes.K8sCluster
+         properties:
+            connection:
+              context: docker-for-desktop
+
+        defaultNamespace:
+         type: unfurl.nodes.K8sNamespace
+         requirements:
+           - host: stagingCluster
+         properties:
+           name: default
+
+        helm-gitlab-staging:
+          type: unfurl.nodes.HelmRelease
+          requirements:
+            - host: defaultNamespace
+          properties:
+            chart: gitlab/gitlab
+            release-name: foo
+            flags:
+             repo: https://charts.gitlab.io/
+            values:
+              certmanager-issuer.email: admin@onecommons.org
+              global:
+                hosts:
+                  domain:
+                     eval: ::homedomain

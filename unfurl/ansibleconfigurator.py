@@ -76,9 +76,8 @@ class AnsibleConfigurator(Configurator):
         super(AnsibleConfigurator, self).__init__(configSpec)
         self._cleanupRoutines = []
 
-    def dryRun(self, task):
-        for result in self.run(task):
-            yield result
+    def canDryRun(self, task):
+        return True
 
     def getInventory(self, task):
         return task.inputs.get("inventory")

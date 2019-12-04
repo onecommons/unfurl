@@ -33,8 +33,8 @@ kind: Manifest
 spec:
  installers:
   test:
-    implementations:
-      master:
+    operations:
+      default:
         apiVersion: unfurl/v1alpha1
         className: TestConfigurator
         majorVersion: 0
