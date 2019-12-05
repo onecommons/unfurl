@@ -209,7 +209,7 @@ class TaskView(object):
         self.target = target
         self.reason = reason
         # XXX refcontext should include TARGET HOST etc.
-        self.inputs = mapValue(self.configSpec.inputs, target)
+        self._inputs = None
         # private:
         self._manifest = manifest
         self.messages = []
@@ -217,6 +217,12 @@ class TaskView(object):
         self._dependenciesChanged = False
         self.dependencies = dependencies or {}
         self._resourceChanges = ResourceChanges()
+
+    @property
+    def inputs(self):
+        if self._inputs is None:
+            self._inputs = mapValue(self.configSpec.inputs, self.target)
+        return self._inputs
 
     def addMessage(self, message):
         self.messages.append(message)
@@ -526,9 +532,10 @@ def getConfigSpecFromInstaller(configuratorTemplate, action, inputs, useDefault=
     kw = {
         k: attributes[k] for k in set(attributes) & set(ConfigurationSpec.getDefaults())
     }
-    if "inputs" not in kw:
-        kw["inputs"] = inputs
-    else:
-        kw["inputs"].update(inputs)
+    if inputs:
+        if "inputs" not in kw:
+            kw["inputs"] = inputs
+        else:
+            kw["inputs"].update(inputs)
     kw["installer"] = configuratorTemplate
     return ConfigurationSpec(configuratorTemplate.name, action, **kw)

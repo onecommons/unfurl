@@ -336,7 +336,7 @@ Returns:
         if not configSpec:
             raise UnfurlError(
                 'unable to find an implementation to "%s" "%s" on ""%s": %s'
-                % (action, resource.template.name, resource.template.name, reason)
+                % (action, resource.template.name, resource.template.name, notfoundmsg)
             )
         logger.debug(
             "creating configuration %s with %s to run for %s: %s",

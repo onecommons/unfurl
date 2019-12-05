@@ -455,7 +455,7 @@ def saveTask(task):
         output["target"] = task.target.key
     saveStatus(task, output)
     output["implementation"] = saveConfigSpec(task.configSpec)
-    if task.inputs:
+    if task._inputs:  # only serialize if inputs were already successfully instantiated
         output["inputs"] = serializeValue(task.inputs)
     changes = saveResourceChanges(task._resourceChanges)
     if changes:

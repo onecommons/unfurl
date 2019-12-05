@@ -63,6 +63,7 @@ class ConfigTask(ConfigChange, TaskView, AttributeManager):
         self.startTime = job.startTime or datetime.datetime.now()
         self.errors = []
         self.dryRun = job.dryRun
+        self._configurator = None
         self.generator = None
         self.job = job
         self.changeList = []
@@ -74,7 +75,6 @@ class ConfigTask(ConfigChange, TaskView, AttributeManager):
         self.target.root.attributeManager = self
 
         # XXX set self.configSpec.target.readyState = 'pending'
-        self.configurator = self.configSpec.create()
 
     def priority():
         doc = "The priority property."
@@ -94,6 +94,12 @@ class ConfigTask(ConfigChange, TaskView, AttributeManager):
         return locals()
 
     priority = property(**priority())
+
+    @property
+    def configurator(self):
+        if self._configurator is None:
+            self._configurator = self.configSpec.create()
+        return self._configurator
 
     def startRun(self):
         self.generator = self.configurator.getGenerator(self)
@@ -336,6 +342,12 @@ class Job(ConfigChange):
     def createTask(self, configSpec, target, parentId=None, reason=None):
         # XXX2 if 'via'/runsOn set, create remote task instead
         task = ConfigTask(self, configSpec, target, parentId, reason=reason)
+        try:
+            task.inputs
+            task.configurator
+        except Exception:
+            UnfurlTaskError(task, "unable to create task", True)
+
         # if configSpec.hasBatchConfigurator():
         # search targets parents for a batchConfigurator
         # XXX how to associate a batchConfigurator with a resource and when is its task created?
@@ -443,9 +455,10 @@ class Job(ConfigChange):
     Checked at runtime right before each task is run
     """
         try:
-            priority = task.configurator.shouldRun(task)
-            if task.dryRun and not task.configurator.canDryRun(task):
-                return False
+            if task._configurator:
+                priority = task.configurator.shouldRun(task)
+            else:
+                priority = task.priority
         except Exception:
             # unexpected error don't run this
             UnfurlTaskError(task, "shouldRun failed unexpectedly", True)
@@ -470,9 +483,17 @@ class Job(ConfigChange):
     * check pre-conditions to see if it can be run
     * check task if it can be run
     """
+        canRun = False
+        reason = ""
         try:
-            canRun = False
-            reason = ""
+            if task.errors:
+                canRun = False
+                reason = "could not create task"
+                return
+            if task.dryRun and not task.configurator.canDryRun(task):
+                canRun = False
+                reason = "dry run not supported"
+                return
             missing = []
             skipDependencyCheck = False
             if not skipDependencyCheck:
@@ -502,12 +523,12 @@ class Job(ConfigChange):
             UnfurlTaskError(task, "cantRun failed unexpectedly", True)
             reason = "unexpected exception in cantRun"
             canRun = False
-
-        if canRun:
-            return False
-        else:
-            logger.info("could not run task %s: %s", task, reason)
-            return "could not run: " + reason
+        finally:
+            if canRun:
+                return False
+            else:
+                logger.info("could not run task %s: %s", task, reason)
+                return "could not run: " + reason
 
     def shouldAbort(self, task):
         return False  # XXX3
@@ -566,7 +587,6 @@ class Job(ConfigChange):
     * Requests a resource with requested metadata, if it doesn't exist, a task is run to make it so
     (e.g. add a dns entry, install a package).
     """
-        # XXX3 recursion or loop detection
         errors = self.cantRunTask(task)
         if errors:
             return task.finished(ConfiguratorResult(False, False, result=errors))
