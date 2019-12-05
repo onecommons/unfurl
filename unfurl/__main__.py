@@ -68,6 +68,12 @@ jobControlOptions = option_group(
         help="Do not modify anything, just do a dry run.",
     ),
     click.option(
+        "--commit",
+        default=True,
+        is_flag=True,
+        help="Commit modified files to the instance repository. (Default: True)",
+    ),
+    click.option(
         "--jobexitcode",
         type=click.Choice(["error", "degraded", "never"]),
         default="never",

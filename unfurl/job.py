@@ -299,13 +299,14 @@ class JobOptions(object):
         all=False,  # (re)run all configurations
         verify=False,  # XXX3 discover first and set status if it differs from expected state
         readonly=False,  # only run configurations that won't alter the system
-        dryrun=False,  # XXX2
+        dryrun=False,
         planOnly=False,
         requiredOnly=False,
         revertObsolete=False,  # revert
         append=None,
         replace=None,
         cmdline=None,
+        commit=True,
     )
 
     def __init__(self, **kw):

@@ -101,19 +101,20 @@ def _createRepo(repotype, gitDir, gitUri=None):
 
 def writeServiceTemplate(projectdir, repo):
     serviceTemplatePath = os.path.join(projectdir, "service-template.yaml")
+    relPathToSpecRepo = os.path.relpath(repo.workingDir, os.path.abspath(projectdir))
     with open(serviceTemplatePath, "w") as f:
         f.write(
             """\
 tosca_definitions_version: %s
 repositories:
   spec:
-    url: file:.
+    url: file:%s
     metadata:
       initial-commit: %s
 topology_template:
   node_templates:
 """
-            % (TOSCA_VERSION, repo.getInitialRevision())
+            % (TOSCA_VERSION, relPathToSpecRepo, repo.getInitialRevision())
         )
     return serviceTemplatePath
 

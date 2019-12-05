@@ -5,6 +5,7 @@ from click.testing import CliRunner
 from unfurl.__main__ import cli
 from unfurl import __version__
 from git import Repo
+from unfurl.configurator import Configurator, Status
 
 
 def createUnrelatedRepo(gitDir):
@@ -18,6 +19,29 @@ def createUnrelatedRepo(gitDir):
     repo.index.add([filename])
     repo.index.commit("Initial Commit")
     return repo
+
+
+class AConfigurator(Configurator):
+    def run(self, task):
+        assert not self.cantRun(task)
+        yield task.createResult(True, True, Status.ok)
+
+
+manifestContent = """\
+  apiVersion: unfurl/v1alpha1
+  kind: Manifest
+  spec:
+    tosca:
+      +%include: service-template.yaml
+      topology_template:
+        node_templates:
+              my_server:
+                type: tosca.nodes.Compute
+                interfaces:
+                 Standard:
+                  create: AConfigurator
+  status: {}
+  """
 
 
 class SharedGitRepoTest(unittest.TestCase):
@@ -51,3 +75,14 @@ class SharedGitRepoTest(unittest.TestCase):
                 set(repo.head.commit.stats.files.keys()),
                 {"deploy_dir/" + f for f in expectedFiles},
             )
+
+            with open("deploy_dir/manifest.yaml", "w") as f:
+                f.write(manifestContent)
+
+            args = ["-vvv", "deploy", "deploy_dir", "--jobexitcode", "degraded"]
+            result = runner.invoke(cli, args)
+            # print("result.output", result.exit_code, result.output)
+            assert not result.exception, "\n".join(
+                traceback.format_exception(*result.exc_info)
+            )
+            self.assertEqual(result.exit_code, 0, result)

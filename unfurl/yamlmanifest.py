@@ -479,6 +479,7 @@ def saveTask(task):
 class YamlManifest(Manifest):
     def __init__(self, manifest=None, path=None, validate=True, localEnv=None):
         assert not (localEnv and (manifest or path))  # invalid combination of args
+        # localEnv and repo are needed by loadHook before base class initialized
         self.localEnv = localEnv
         self.repo = localEnv and localEnv.instanceRepo
         self.manifest = YamlConfig(
@@ -658,6 +659,17 @@ class YamlManifest(Manifest):
         except:
             raise UnfurlError("Error saving manifest %s" % self.manifest.path, True)
 
+    def hasWritableRepo(self):
+        if self.repo:
+            repos = self._getRepositories(self.manifest.expanded)
+            repoSpec = repos.get("instance", repos.get("spec"))
+            if repoSpec:
+                initialCommit = repoSpec and repoSpec.get("metadata", {}).get(
+                    "initial-commit"
+                )
+                return initialCommit == self.repo.getInitialRevision()
+        return False
+
     def commitJob(self, job):
         if job.planOnly:
             return
@@ -672,19 +684,26 @@ class YamlManifest(Manifest):
         if job.dryRun:
             return
 
-        if self.repo:
+        doCommit = job.commit and self.hasWritableRepo()
+        if doCommit:
             self.repo.commitFiles(
                 [self.manifest.path], "Updating status for job %s" % job.changeId
             )
             jobRecord["endCommit"] = self.repo.revision
         if self.changeLogPath:
             self.saveChangeLog(jobRecord, changes)
-            if self.repo:
+            if doCommit:
                 self.repo.commitFiles(
                     [os.path.join(self.getBaseDir(), self.changeLogPath)],
                     "Updating changelog for job %s" % job.changeId,
                 )
-                logger.info("committed instance repo changes: %s", self.repo.revision)
+        if doCommit:
+            logger.info("committed instance repo changes: %s", self.repo.revision)
+        elif job.commit and self.repo:
+            logger.info(
+                "couldn't commit, the current repository with initial revision %s was not specified",
+                self.repo.getInitialRevision(),
+            )
 
     def saveChangeLog(self, jobRecord, newChanges):
         """

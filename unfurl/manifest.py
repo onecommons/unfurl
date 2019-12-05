@@ -284,11 +284,13 @@ class Manifest(AttributeManager):
     #   self.repoStatus.update({repo['url'] : repo['commit']
     #       for repo in repos.values() if repo.get('commit')})
 
+    @staticmethod
+    def _getRepositories(tpl):
+        return tpl.get("spec", {}).get("tosca", {}).get("repositories", {})
+
     def loadHook(self, yamlConfig, templatePath, baseDir, warnWhenNotFound=False):
         # self.updateRepoStatus(yamlConfig.config.get('status', {}).get('repositories',{}))
-        repositories = (
-            yamlConfig.config.get("spec", {}).get("tosca", {}).get("repositories", {})
-        )
+        repositories = self._getRepositories(yamlConfig.config)
 
         if isinstance(templatePath, dict):
             templatePath = templatePath.copy()
