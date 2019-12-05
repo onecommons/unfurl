@@ -1,5 +1,6 @@
 import unittest
 import os
+import json
 from unfurl.result import ResultsList, serializeValue
 from unfurl.eval import Ref, mapValue, RefContext
 from unfurl.support import applyTemplate
@@ -301,3 +302,14 @@ class EvalTest(unittest.TestCase):
         )  # note: tox doesn't pass on environment variables so we need to set one now
         query = {"eval": {"lookup": {"env": "TEST_ENV"}}}
         self.assertEqual(mapValue(query, resource), "testEnv")
+
+    def test_tempfile(self):
+        resource = self._getTestResource()
+        value = {"a": 1}
+        template = dict(
+            eval={"template": "{{ valuesfile }}"},
+            vars={"valuesfile": {"eval": {"tempfile": value}}},
+        )
+        result = mapValue(template, resource)
+        with open(result) as tp:
+            self.assertEqual(tp.read(), json.dumps(value))

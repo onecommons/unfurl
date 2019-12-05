@@ -1,9 +1,5 @@
 import collections
-import json
-import tempfile
-import sys
-from ruamel.yaml import YAML
-from unfurl.util import ansibleDisplay, ansibleDummyCli, assertForm
+from unfurl.util import ansibleDisplay, ansibleDummyCli, assertForm, saveToTempfile
 from unfurl.configurator import Configurator, Status
 import ansible.constants as C
 from ansible.cli.playbook import PlaybookCLI
@@ -13,8 +9,6 @@ from ansible.module_utils import six
 import logging
 
 logger = logging.getLogger("unfurl")
-
-yaml = YAML()
 
 # input parameters:
 #  playbook
@@ -88,17 +82,6 @@ class AnsibleConfigurator(Configurator):
         # XXX if user set inventory create a folder to merge:
         # https://allandenot.com/devops/2015/01/16/ansible-with-multiple-inventory-files.html
 
-    def _saveToTempfile(self, obj, suffix=".yml"):
-        tp = tempfile.NamedTemporaryFile("w+t", suffix=suffix)
-        self._cleanupRoutines.append(lambda: tp.close())
-        if suffix.endswith(".json"):
-            json.dump(obj, tp)
-        elif suffix.endswith(".yml") or suffix.endswith(".yaml"):
-            yaml.dump(obj, tp)
-        else:
-            tp.write(obj)
-        return tp.name
-
     def _cleanup(self):
         for func in self._cleanupRoutines:
             try:
@@ -133,7 +116,7 @@ class AnsibleConfigurator(Configurator):
         if isinstance(playbook, six.string_types):
             return playbook
         playbook = self._makePlayBook(playbook)
-        return self._saveToTempfile(playbook, "-playbook.yml")
+        return saveToTempfile(playbook, "-playbook.yml").name
 
     def getPlaybookArgs(self, task):
         args = task.inputs.get("playbookArgs", [])

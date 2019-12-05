@@ -20,6 +20,7 @@ from .util import (
     UnfurlValidationError,
     assertForm,
     sensitive_str,
+    saveToTempfile,
 )
 from ansible.template import Templar
 from ansible.parsing.dataloader import DataLoader
@@ -77,6 +78,37 @@ class File(ExternalValue):
 
 
 setEvalFunc("file", lambda arg, ctx: File(mapValue(arg, ctx), ctx.baseDir))
+
+
+class TempFile(ExternalValue):
+    """
+  Represents a local file.
+  get() returns the given file path (usually relative)
+  """
+
+    def __init__(self, obj, suffix=""):
+        tp = saveToTempfile(obj, suffix)
+        super(TempFile, self).__init__("tempfile", tp.name)
+        self.tp = tp
+
+    def resolveKey(self, name=None, currentResource=None):
+        """
+    path # absolute path
+    contents # file contents (None if it doesn't exist)
+    """
+        if not name:
+            return self.get()
+
+        if name == "path":
+            return self.tp.name
+        elif name == "contents":
+            with open(self.tp.name, "r") as f:
+                return f.read()
+        else:
+            raise KeyError(name)
+
+
+setEvalFunc("tempfile", lambda args, ctx: TempFile(args))
 
 # XXX need an api check if an object was marked sensitive
 # _secrets = weakref.WeakValueDictionary()

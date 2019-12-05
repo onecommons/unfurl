@@ -3,11 +3,16 @@ import optparse
 import six
 import traceback
 import itertools
+import tempfile
+import atexit
+import json
+
 from collections import Mapping, MutableSequence
 import os.path
 from jsonschema import Draft4Validator, validators
 from ruamel.yaml.comments import CommentedMap, CommentedBase
 from ruamel.yaml.scalarstring import ScalarString, FoldedScalarString
+from ruamel.yaml import YAML
 import logging
 
 logger = logging.getLogger("unfurl")
@@ -190,6 +195,21 @@ def toEnum(enum, value, default=None):
         return default
     else:
         return value
+
+
+def saveToTempfile(obj, suffix=""):
+    tp = tempfile.NamedTemporaryFile("w+t", suffix=suffix, delete=False)
+    atexit.register(lambda: os.unlink(tp.name))
+    try:
+        if suffix.endswith(".yml") or suffix.endswith(".yaml"):
+            YAML().dump(obj, tp)
+        elif suffix.endswith(".json") or not isinstance(obj, six.string_types):
+            json.dump(obj, tp)
+        else:
+            tp.write(obj)
+    finally:
+        tp.close()
+    return tp
 
 
 def makeMapWithBase(doc, baseDir):
