@@ -88,12 +88,7 @@ class ToscaSpec(object):
             for template in self.template.nodetemplates:
                 nodeTemplate = NodeSpec(template)
                 if template.is_derived_from(self.InstallerType):
-                    # XXX 'configurator-' is a hack
-                    self.installers[
-                        template.name[len("installer-") :]
-                        if template.name.startswith("installer-")
-                        else template.name
-                    ] = nodeTemplate
+                    self.installers[template.name] = nodeTemplate
                 self.nodeTemplates[template.name] = nodeTemplate
         self.topology = TopologySpec(self.template.topology_template, inputs)
 
@@ -123,24 +118,23 @@ class ToscaSpec(object):
             "node_templates", {}
         )
         for name, impl in tpl.get("installers", {}).items():
-            node_templates["installer-" + name] = self.loadImplementation(impl)
+            if name not in node_templates:
+                node_templates[name] = dict(type=self.InstallerType, properties=impl)
+            else:
+                raise UnfurlValidationError(
+                    'can not add installer "%s", there is already a node template with that name'
+                    % name
+                )
 
         for name, impl in tpl.get("instances", {}).items():
             if name not in node_templates and impl is not None:
                 node_templates[name] = self.loadInstance(impl)
 
-    # load implementations
-    #  create configurator template for each implementation
-    def loadImplementation(self, impl):
-        return dict(type=self.InstallerType, properties=impl)
-
     def loadInstance(self, impl):
-        template = {"type": "tosca.nodes.Root"}  #'unfurl.nodes.Default'}
+        template = {"type": "unfurl.nodes.Default"}
         installer = impl.get("install")
         if installer:
-            template["interfaces"] = {
-                "unfurl.interfaces.Install": {"install": installer}
-            }
+            template["requirements"] = [{"install": installer}]
         return template
 
 
@@ -194,6 +188,11 @@ class NodeSpec(EntitySpec):
         if not template:
             template = _defaultTopology.nodetemplates[0]
         EntitySpec.__init__(self, template)
+
+    def getRequirements(self, name):
+        return [
+            req[name] for req in self.toscaEntityTemplate.requirements if name in req
+        ]
 
 
 class RelationshipSpec(EntitySpec):

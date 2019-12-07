@@ -86,3 +86,5 @@ Arguments after `--` are passed to the test runner, e.g. to run an individual te
      2. create manifest with root resource: configure using kms
      3. (optional) run bootstrap to create a secure root resource
  3. start creating your manifest
+
+ [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)

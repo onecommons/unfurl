@@ -63,10 +63,16 @@ class Plan(object):
             inputs=params,
         )
 
-    def getConfigurationSpecFromInterface(self, iDef):
+    def getConfigurationSpecFromInterface(self, iDef, action, installerName=None):
         """implementation can either be a named artifact (including a python configurator class),
       configurator node template, or a file path"""
-        implementation = iDef.implementation
+        if iDef:
+            implementation = iDef.implementation
+            inputs = iDef.inputs
+        else:
+            implementation = installerName
+            inputs = None
+
         timeout = None
         if isinstance(implementation, dict):
             timeout = implementation.get("timeout")
@@ -75,29 +81,36 @@ class Plan(object):
                 # it's an artifact definition
                 # XXX retrieve from repository if defined
                 implementation = implementation.get("file")
-        if not implementation or not isinstance(implementation, six.string_types):
-            raise UnfurlError("invalid implementation spec %s" % implementation)
+
+        if not implementation:
+            implementation = installerName
+
         configuratorTemplate = self.tosca.installers.get(implementation)
-        action = iDef.name
         if configuratorTemplate:
-            return getConfigSpecFromInstaller(configuratorTemplate, action, iDef.inputs)
+            return getConfigSpecFromInstaller(configuratorTemplate, action, inputs)
         else:
+            if implementation == installerName:
+                return None  # installer wasn't specified or wasn't found
             try:
                 lookupClass(implementation)
                 return ConfigurationSpec(
-                    implementation, action, className=implementation, inputs=iDef.inputs
+                    implementation, action, className=implementation, inputs=inputs
                 )
             except UnfurlError:
                 # assume its executable file, create a ShellConfigurator
                 return self.createShellConfigurator(
-                    [implementation], iDef.name, iDef.inputs, timeout=timeout
+                    [implementation], action, inputs, timeout=timeout
                 )
 
-    def findImplementation(self, interfaceType, operation, template):
+    def findImplementation(self, interface, operation, template):
+        default = None
         for iDef in template.getInterfaces():
-            if iDef.type == interfaceType and iDef.name == operation:
-                return iDef
-        return None
+            if iDef.iname == interface:
+                if iDef.name == operation:
+                    return iDef
+                if iDef.name == "default":
+                    default = iDef
+        return default
 
     def includeTask(self, template, resource, oldTemplate):
         """ Returns whether or not the config should be included in the current job.
@@ -292,51 +305,48 @@ Returns:
         # XXX update joboptions, useConfigurator
         notfoundmsg = ""
         if cmdLine:
+            # build a configuration that runs the given command
             configSpec = self.createShellConfigurator(cmdLine, action)
         else:
+            # get configuration from the resources Install or Standard interface
             configSpec = None
-            # if the resource is an Installation
-            # XXX implement Installation capability
-            installerTemplateName = resource.attributes.get("installer")
-            if not installerTemplateName:
-                iDef = self.findImplementation(
-                    "unfurl.interfaces.Install", "install", resource.template
-                )
-                if iDef:
-                    installerTemplateName = iDef.implementation
-                else:
-                    notfoundmsg = (
-                        "could not find installer property or install interface"
-                    )
-
-            if installerTemplateName:
-                installerTemplate = self.tosca.installers.get(installerTemplateName)
-                if installerTemplate:
-                    # XXX what if it's a capability?
-                    configSpec = getConfigSpecFromInstaller(
-                        installerTemplate, action, serializeValue(resource.attributes)
-                    )
-                else:
-                    notfoundmsg = (
-                        "could not find Installer template %s" % installerTemplateName
-                    )
+            requirements = resource.template.getRequirements("install")
+            if requirements:
+                installer = requirements[0]
+                if isinstance(installer, dict):
+                    installer = installer.get("node")
             else:
+                installer = None
+
+            iDef = self.findImplementation("Install", action, resource.template)
+            if not iDef:
                 # XXX doesn't really support these operations see 5.8.4 tosca.interfaces.node.lifecycle.Standard
                 # XXX what about discover and check?
                 iDef = self.findImplementation(
                     "Standard", ConfigOp.toStandardOp(action), resource.template
                 )
-                if iDef:
-                    configSpec = self.getConfigurationSpecFromInterface(iDef)
-                else:
-                    notfoundmsg = (
-                        "no installer template and could not find Standard interface %s"
-                    )
+                if not iDef:
+                    if not installer:
+                        notfoundmsg = "no interface or installer specified"
+                    elif installer not in self.tosca.installers:
+                        notfoundmsg = "installer %s not found" % installer
+
+            if not notfoundmsg:
+                configSpec = self.getConfigurationSpecFromInterface(
+                    iDef, action, installer
+                )
+                if not configSpec:
+                    if not iDef or iDef.name == "default":
+                        notfoundmsg = (
+                            "operation not supported by installer %s" % installer
+                        )
+                    else:
+                        notfoundmsg = "not specified on interface %s" % iDef.type
 
         if not configSpec:
             raise UnfurlError(
-                'unable to find an implementation to "%s" "%s" on ""%s": %s'
-                % (action, resource.template.name, resource.template.name, notfoundmsg)
+                'unable to find an implementation for operation "%s" on node "%s": %s'
+                % (action, resource.template.name, notfoundmsg)
             )
         logger.debug(
             "creating configuration %s with %s to run for %s: %s",

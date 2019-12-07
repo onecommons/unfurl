@@ -2,28 +2,48 @@ apiVersion: unfurl/v1alpha1
 kind: Manifest
 spec:
   tosca:
+    # unfurl.relationships.InstalledBy used for implementation if no implementation is specified
     node_types:
       unfurl.nodes.HelmRelease:
-        derived_from: tosca.nodes.Root
+        derived_from: unfurl.nodes.Installation
         requirements:
-          - host:
-              node: unfurl.nodes.K8sNamespace
-              relationship: tosca.relationships.HostedOn
+        - host:
+            node: unfurl.nodes.K8sNamespace
+            relationship: tosca.relationships.HostedOn
+        - install:
+            node: unfurl.nodes.Installer
+            relationship: unfurl.relationships.InstalledBy
         properties:
           chart:
             type: string
           release-name:
             type: string
         interfaces:
-          unfurl.interfaces.Install:
-            type: unfurl.interfaces.Install
-            install: helm-installer
+          Install:
+            type: unfurl.interfaces.install.Helm
+            inputs:
+              chart: {get_property: ['SELF', 'chart']}
+              release-name: {get_property: ['SELF', 'release-name']}
+
+    interface_types:
+      unfurl.interfaces.install.Helm:
+        derived_from: unfurl.interfaces.Install
+        inputs:
+          chart:
+            type: string
+          release-name:
+            type: string
+          flags:
+            type: list
+            required: false
 
     topology_template:
       node_templates:
         helm-installer:
           type: unfurl.nodes.Installer
           properties:
+            implements:
+              - unfurl.interfaces.install.Helm
             operations:
               shared:
                 apiVersion: unfurl/v1alpha1
@@ -36,49 +56,74 @@ spec:
                 majorVersion: 0
               instantiate:
                 inputs:
-                 command: foo
+                  helmcmd: install
+                  command:
+                   q:
+                    eval:
+                      template: |
+                        helm {{helmcmd}} {{inputs.chart}} {{release-name}}
+                          # XXX namespace= .::namespace,
+                          # {%if .kubecontext, --kubecontext}} {%if .kubeconfig
+                          {%if dryrun%}--dry-run{%endif%}
+                          --values {{ valuesfile }}
+                          {%if verbose%}--debug{%endif%}
+                          {%if timeout%}--timeout {{timeout}}{%endif%}
+                          {%for flag in inputs.flags%}
+                            --{{flag}} "{{flags[flag]}}"
+                          {%endfor%}
+                      vars:
+                        valuesfile:
+                          eval:
+                            tempfile: .::inputs::values
               delete:
-                command: helm remove RELEASE_NAME
+                inputs:
+                  command: helm remove RELEASE_NAME
               discover:
-                command: helm get manifest RELEASE_NAME
-                resultTemplate: >
-                  {%for doc in output | yaml %}
-                    {%if doc['kind']|defined %}
-                    name: doc['spec']['name']
-                    parent: .self
-                    nodeType: unfurl.nodes.K8sResource # or secret if doc[kind] is secret
-                    attributes:
-                      apiResource:
-                        doc
-                    # status: if doc[status][...]
-                    {%endif%}
-                  {% endfor %}
+                inputs:
+                  command: helm get manifest RELEASE_NAME
+                  resultTemplate: >
+                    {%for doc in output | yaml %}
+                      {%if doc['kind']|defined %}
+                      name: doc['spec']['name']
+                      parent: .self
+                      nodeType: unfurl.nodes.K8sResource # or secret if doc[kind] is
+                    secret
+                      attributes:
+                        apiResource:
+                          doc
+                      # status: if doc[status][...]
+                      {%endif%}
+                    {% endfor %}
+
+        gitlab-release:
+          type: unfurl.nodes.HelmRelease
+          requirements:
+            - host:    defaultNamespace
+            - install: helm-installer
+          properties:
+            chart: gitlab/gitlab
+            release-name: foo
+          interfaces:
+            Install:
+              inputs:
+                flags:
+                  - repo: https://charts.gitlab.io/
+                values:
+                  certmanager-issuer.email: admin@onecommons.org
+                  global:
+                    hosts:
+                      domain:
+                        eval: ::homedomain
 
         stagingCluster:
-         type: unfurl.nodes.K8sCluster
-         properties:
+          type: unfurl.nodes.K8sCluster
+          properties:
             connection:
               context: docker-for-desktop
 
         defaultNamespace:
-         type: unfurl.nodes.K8sNamespace
-         requirements:
-           - host: stagingCluster
-         properties:
-           name: default
-
-        helm-gitlab-staging:
-          type: unfurl.nodes.HelmRelease
+          type: unfurl.nodes.K8sNamespace
           requirements:
-            - host: defaultNamespace
+          - host: stagingCluster
           properties:
-            chart: gitlab/gitlab
-            release-name: foo
-            flags:
-             repo: https://charts.gitlab.io/
-            values:
-              certmanager-issuer.email: admin@onecommons.org
-              global:
-                hosts:
-                  domain:
-                     eval: ::homedomain
+            name: default

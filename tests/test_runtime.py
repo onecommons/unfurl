@@ -316,9 +316,9 @@ class FileTest(unittest.TestCase):
                 file: foo.txt
           interfaces:
             Standard:
-                create: test
+                create: test-installer
       installers:
-        test:
+        test-installer:
           operations:
             default:
               className:    FileTestConfigurator

@@ -7,6 +7,8 @@ from unfurl.configurator import Configurator
 
 class HelmConfigurator(Configurator):
     def run(self, task):
+        assert task.inputs["chart"] == "gitlab/gitlab"
+        assert task.inputs["flags"] == [{"repo": "https://charts.gitlab.io/"}]
         subtaskRequest = task.createSubTask("instantiate")
         assert subtaskRequest
         assert (
@@ -14,11 +16,14 @@ class HelmConfigurator(Configurator):
             and subtaskRequest.configSpec.className == "DummyShellConfigurator"
         ), subtaskRequest.configSpec.className
         subtask = yield subtaskRequest
+        assert subtask.inputs["helmcmd"] == "install"
+        assert subtask.inputs["chart"] == "gitlab/gitlab"
         assert subtask.status == subtask.status.ok, subtask.status.name
         assert subtask.result.modified, subtask.result
-        subtaskRequest2 = task.createSubTask("discover")
-        subtask2 = yield subtaskRequest2
-        assert subtask2.status == Status.ok, subtask2.status.name
+
+        # subtaskRequest2 = task.createSubTask("discover")
+        # subtask2 = yield subtaskRequest2
+        # assert subtask2.status == Status.ok, subtask2.status.name
         yield subtask.result
 
 
@@ -31,7 +36,7 @@ class RunTest(unittest.TestCase):
     def test_manifest(self):
         manifest = YamlManifest(path=__file__ + "/../examples/helm-manifest.yaml")
         runner = Runner(manifest)
-        self.assertEqual(runner.lastChangeId, 0)
+        self.assertEqual(runner.lastChangeId, 0, "expected new manifest")
         output = six.StringIO()
         job = runner.run(JobOptions(add=True, out=output, startTime="test"))
         assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
