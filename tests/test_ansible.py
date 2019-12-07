@@ -2,7 +2,7 @@ import unfurl.util
 import unittest
 from unfurl.yamlmanifest import YamlManifest
 from unfurl.job import Runner, JobOptions
-from unfurl.ansibleconfigurator import runPlaybooks
+from unfurl.configurators.ansible import runPlaybooks
 from unfurl.runtime import Status
 import os
 import os.path
@@ -62,7 +62,7 @@ apiVersion: unfurl/v1alpha1
 kind: Manifest
 configurations:
   create:
-    implementation: unfurl.ansibleconfigurator.AnsibleConfigurator
+    implementation: unfurl.configurators.ansible.AnsibleConfigurator
     inputs:
       playbook:
         q:

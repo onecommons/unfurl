@@ -1,6 +1,7 @@
+from __future__ import absolute_import
 import collections
-from unfurl.util import ansibleDisplay, ansibleDummyCli, assertForm, saveToTempfile
-from unfurl.configurator import Configurator, Status
+from ..util import ansibleDisplay, ansibleDummyCli, assertForm, saveToTempfile
+from ..configurator import Configurator, Status
 import ansible.constants as C
 from ansible.cli.playbook import PlaybookCLI
 from ansible.plugins.callback.default import CallbackModule

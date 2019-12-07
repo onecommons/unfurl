@@ -1,7 +1,8 @@
+from __future__ import absolute_import
 import codecs
-from .util import sensitive_str
-from .configurator import Configurator, ConfigOp  # , Status
-from .ansibleconfigurator import AnsibleConfigurator
+from ..util import sensitive_str
+from ..configurator import Configurator, ConfigOp  # , Status
+from .ansible import AnsibleConfigurator
 import json
 from ansible.module_utils.k8s.common import K8sAnsibleMixin
 

@@ -10,7 +10,7 @@ apiVersion: unfurl/v1alpha1
 kind: Manifest
 configurations:
   create:
-    implementation: unfurl.shellconfigurator.ShellConfigurator
+    implementation: unfurl.configurators.shell.ShellConfigurator
     inputs:
      command: "echo 'helloworld'"
      timeout: 9999

@@ -16,7 +16,7 @@ inputs:
 # XXX add support for a stdin parameter
 # (that's a reason to make config inputs lazy too)
 
-from unfurl.configurator import Configurator, Status
+from ..configurator import Configurator, Status
 import os
 
 # import os.path

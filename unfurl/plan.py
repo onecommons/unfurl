@@ -64,7 +64,7 @@ class Plan(object):
         return ConfigurationSpec(
             "cmdline",
             action,
-            className="unfurl.shellconfigurator.ShellConfigurator",
+            className="unfurl.configurators.shell.Configurator",
             inputs=params,
         )
 

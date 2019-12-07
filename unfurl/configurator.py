@@ -522,7 +522,7 @@ def getConfigSpecArgsFromImplementation(implementation, inputs=None):
             kw["className"] = implementation
         except UnfurlError:
             # assume its executable file, create a ShellConfigurator
-            kw["className"] = "unfurl.shellconfigurator.ShellConfigurator"
+            kw["className"] = "unfurl.configurators.shell.ShellConfigurator"
             shellArgs = dict(command=[implementation], timeout=timeout)
             if inputs:
                 shellArgs.update(inputs)

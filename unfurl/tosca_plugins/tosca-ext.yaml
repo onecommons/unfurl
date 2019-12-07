@@ -60,29 +60,29 @@ node_types:
         inputs:
           connection: {get_property: ['SELF', 'connection']}
         create:
-          unfurl.k8s.ClusterConfigurator
+          unfurl.configurators.k8s.ClusterConfigurator
         configure:
-          unfurl.k8s.ClusterConfigurator
+          unfurl.configurators.k8s.ClusterConfigurator
 
-  unfurl.nodes.DockerImage:
-    derived_from: tosca.nodes.Root
-    # usage: ::image::repoDigest::0
-    properties:
-      name:
-        type: string
-      tag:
-        type: string
-        default: 'latest'
-    attributes:
-       repoDigests:
-        type: list
-    interfaces:
-      Standard:
-        create:
-          # need to check hasChanged() if tag isn't a digest
-          unfurl.k8s.ImageConfigurator
-        configure:
-          unfurl.k8s.ImageConfigurator
+  # unfurl.nodes.DockerImage:
+  #   derived_from: tosca.nodes.Root
+  #   # usage: ::image::repoDigest::0
+  #   properties:
+  #     name:
+  #       type: string
+  #     tag:
+  #       type: string
+  #       default: 'latest'
+  #   attributes:
+  #      repoDigests:
+  #       type: list
+  #   interfaces:
+  #     Standard:
+  #       create:
+  #         # need to check hasChanged() if tag isn't a digest
+  #         unfurl.configurators.k8s.ImageConfigurator
+  #       configure:
+  #         unfurl.configurators.k8s.ImageConfigurator
 
   unfurl.nodes.K8sRawResource:
     derived_from: tosca.nodes.Root
@@ -107,11 +107,11 @@ node_types:
         inputs:
           connection: {get_property: ['HOST', 'connection']}
         create:
-          unfurl.k8s.ResourceConfigurator
+          unfurl.configurators.k8s.ResourceConfigurator
         configure:
-          unfurl.k8s.ResourceConfigurator
+          unfurl.configurators.k8s.ResourceConfigurator
         delete:
-          unfurl.k8s.ResourceConfigurator
+          unfurl.configurators.k8s.ResourceConfigurator
 
   unfurl.nodes.K8sNamespace:
     derived_from: unfurl.nodes.K8sRawResource
