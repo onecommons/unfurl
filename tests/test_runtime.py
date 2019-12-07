@@ -199,7 +199,7 @@ class RunTest(unittest.TestCase):
         test:
           operations:
            default:
-            className:    TestSubtaskConfigurator
+            implementation:    TestSubtaskConfigurator
             inputs: {}
     """
             % VERSION
@@ -321,7 +321,7 @@ class FileTest(unittest.TestCase):
         test-installer:
           operations:
             default:
-              className:    FileTestConfigurator
+              implementation:    FileTestConfigurator
               inputs:
                 path:
                   ref: file::path

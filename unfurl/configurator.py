@@ -499,6 +499,38 @@ class Dependency(ChangeAware):
         return False
 
 
+def getConfigSpecArgsFromImplementation(implementation, inputs=None):
+    timeout = None
+    kw = dict(inputs=inputs)
+    configSpecArgs = ConfigurationSpec.getDefaults()
+    if isinstance(implementation, dict):
+        for name, value in implementation.items():
+            if name == "timeout":
+                timeout = value
+            elif name == "primary":
+                implementation = value
+                if isinstance(implementation, dict):
+                    # it's an artifact definition
+                    # XXX retrieve from repository if defined
+                    implementation = implementation.get("file")
+            elif name in configSpecArgs:
+                kw[name] = value
+
+    if "className" not in kw:
+        try:
+            lookupClass(implementation)
+            kw["className"] = implementation
+        except UnfurlError:
+            # assume its executable file, create a ShellConfigurator
+            kw["className"] = "unfurl.shellconfigurator.ShellConfigurator"
+            shellArgs = dict(command=[implementation], timeout=timeout)
+            if inputs:
+                shellArgs.update(inputs)
+            kw["inputs"] = shellArgs
+
+    return kw
+
+
 def getConfigSpecFromInstaller(configuratorTemplate, action, inputs, useDefault=True):
     operations = configuratorTemplate.properties["operations"]
     attributes = None
@@ -519,23 +551,20 @@ def getConfigSpecFromInstaller(configuratorTemplate, action, inputs, useDefault=
         attributes = operations.get(attributes)
 
     if not isinstance(attributes, dict):
-        raise UnfurlError(
-            "can not find an implementation for %s in installer %s"
-            % (action, configuratorTemplate.name)
-        )
+        return None
 
     # merge in defaults
     defaults = operations.get("shared")
     if defaults:
         attributes = dict(defaults, **attributes)
+    if "implementation" not in attributes:
+        return None
 
-    kw = {
-        k: attributes[k] for k in set(attributes) & set(ConfigurationSpec.getDefaults())
-    }
+    installerInputs = attributes.get("inputs", {})
     if inputs:
-        if "inputs" not in kw:
-            kw["inputs"] = inputs
-        else:
-            kw["inputs"].update(inputs)
+        installerInputs = dict(installerInputs, **inputs)
+    kw = getConfigSpecArgsFromImplementation(
+        attributes["implementation"], installerInputs
+    )
     kw["installer"] = configuratorTemplate
     return ConfigurationSpec(configuratorTemplate.name, action, **kw)

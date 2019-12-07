@@ -111,7 +111,7 @@ class ToscaSpec(object):
               test:
                 operations:
                   default:
-                    className:    TestConfigurator
+                    implementation: TestConfigurator
                     inputs:
 """
         node_templates = toscaDef.setdefault("topology_template", {}).setdefault(

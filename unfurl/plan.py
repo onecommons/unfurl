@@ -3,7 +3,12 @@ from .runtime import Resource
 from .util import UnfurlError, lookupClass
 from .support import Status
 from .result import serializeValue
-from .configurator import ConfigurationSpec, getConfigSpecFromInstaller, ConfigOp
+from .configurator import (
+    ConfigurationSpec,
+    getConfigSpecFromInstaller,
+    ConfigOp,
+    getConfigSpecArgsFromImplementation,
+)
 
 import logging
 
@@ -67,40 +72,23 @@ class Plan(object):
         """implementation can either be a named artifact (including a python configurator class),
       configurator node template, or a file path"""
         if iDef:
-            implementation = iDef.implementation
+            implementation = iDef.implementation or installerName
             inputs = iDef.inputs
         else:
             implementation = installerName
             inputs = None
 
-        timeout = None
-        if isinstance(implementation, dict):
-            timeout = implementation.get("timeout")
-            implementation = implementation.get("primary")
-            if isinstance(implementation, dict):
-                # it's an artifact definition
-                # XXX retrieve from repository if defined
-                implementation = implementation.get("file")
+        if isinstance(implementation, six.string_types):
+            configuratorTemplate = self.tosca.installers.get(implementation)
+            if configuratorTemplate:
+                return getConfigSpecFromInstaller(configuratorTemplate, action, inputs)
 
-        if not implementation:
-            implementation = installerName
+        if implementation == installerName:
+            return None  # installer wasn't specified or wasn't found
 
-        configuratorTemplate = self.tosca.installers.get(implementation)
-        if configuratorTemplate:
-            return getConfigSpecFromInstaller(configuratorTemplate, action, inputs)
-        else:
-            if implementation == installerName:
-                return None  # installer wasn't specified or wasn't found
-            try:
-                lookupClass(implementation)
-                return ConfigurationSpec(
-                    implementation, action, className=implementation, inputs=inputs
-                )
-            except UnfurlError:
-                # assume its executable file, create a ShellConfigurator
-                return self.createShellConfigurator(
-                    [implementation], action, inputs, timeout=timeout
-                )
+        kw = getConfigSpecArgsFromImplementation(implementation, inputs)
+        name = iDef and iDef.iname or implementation
+        return ConfigurationSpec(name, action, **kw)
 
     def findImplementation(self, interface, operation, template):
         default = None

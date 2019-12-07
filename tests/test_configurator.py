@@ -35,14 +35,14 @@ spec:
   test:
     operations:
       default:
-        apiVersion: unfurl/v1alpha1
-        className: TestConfigurator
-        majorVersion: 0
-        preConditions:
-          properties:
-            meetsTheRequirement:
-              type: string
-          required: ['meetsTheRequirement']
+        implementation:
+          className: TestConfigurator
+          majorVersion: 0
+          preConditions:
+            properties:
+              meetsTheRequirement:
+                type: string
+            required: ['meetsTheRequirement']
  instances:
     test1:
         attributes:

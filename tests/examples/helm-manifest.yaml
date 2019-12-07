@@ -46,14 +46,11 @@ spec:
               - unfurl.interfaces.install.Helm
             operations:
               shared:
-                apiVersion: unfurl/v1alpha1
-                className: DummyShellConfigurator
-                majorVersion: 0
-                timeout: 9999
+                implementation:
+                  primary: DummyShellConfigurator
+                  timeout: 9999
               default:
-                apiVersion: unfurl/v1alpha1
-                className: HelmConfigurator
-                majorVersion: 0
+                implementation: HelmConfigurator
               instantiate:
                 inputs:
                   helmcmd: install

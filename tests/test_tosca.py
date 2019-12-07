@@ -75,9 +75,6 @@ spec:
            Standard:
             create:
               inputs:
-                inputs:
-                priority:
-                inputSchema:
               implementation:
                 primary: SetAttributeConfigurator
                 timeout: 120
