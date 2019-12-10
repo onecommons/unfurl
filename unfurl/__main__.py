@@ -82,27 +82,32 @@ jobControlOptions = option_group(
 )
 
 
-# unfurl run foo:create -- terraform blah
-# --append
-# --replace
-# unfurl run foo:check 'terraform blah' # save lastChangeId so we can recreate history for the target
-# each command builds a config (unless replace ) --replace
-@cli.command()
+@cli.command(short_help="Record and run an ad-hoc command")
 @click.pass_context
 @click.argument("action", default="*:upgrade")
-@click.argument("use", nargs=1, default="")  # use:configurator
+@click.argument("resource_name", nargs=1, default="root")  # use:configurator
 @click.option("--manifest", default="", type=click.Path(exists=False))
 @click.option(
-    "--append", default=True, is_flag=True, help="add this command to the previous"
+    "--append", default=False, is_flag=True, help="add this command to the previous"
 )
 @click.option(
-    "--replace", default=True, is_flag=True, help="replace the previous command"
+    "--replace", default=False, is_flag=True, help="replace the previous command"
 )
 @jobControlOptions
 @click.argument("cmdline", nargs=-1)
-def run(ctx, action, use=None, cmdline=None, **options):
+def run(ctx, action, resource_name="root", cmdline=None, **options):
     """
     Run an ad-hoc command in the context of the given manifest
+
+    [resource name] [action] [--save] -- command line
+
+    Add command to the given resource's installer and then deploys it.
+
+    If resource name is omitted use the root installer.
+
+    Example:
+    > unfurl run add -- helm install blah --kubecontext {{inputs.kubecontext}}
+
     """
     options.update(ctx.obj)
     # XXX parse action and use, update manifest and job

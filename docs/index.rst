@@ -1,11 +1,14 @@
+.. Shinx cheatsheet: http://openalea.gforge.inria.fr/doc/openalea/doc/_build/html/source/sphinx/rest_syntax.html
+
 Welcome to Unfurl's documentation!
 ===================================
 
 .. toctree::
-   :maxdepth: 2
+   :maxdepth: 1
    :caption: Contents:
 
    README.md
+   cli.rst
    guide.md
    api.rst
 

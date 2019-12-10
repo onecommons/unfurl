@@ -9,6 +9,14 @@ Manifest
 .. automodule:: unfurl.manifest
   :members:
 
+.. automodule:: unfurl.yamlmanifest
+  :members:
+
+Configurators
+-------------
+.. automodule:: unfurl.configurator
+  :members:
+
 Runtime
 -------
 .. automodule:: unfurl.runtime
