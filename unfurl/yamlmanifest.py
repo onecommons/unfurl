@@ -127,13 +127,14 @@
       resource3/child1: +%delete
     messages: []
 """
-
+from __future__ import absolute_import
 import six
 import sys
 import collections
 import numbers
 import os.path
 import itertools
+import json
 
 from .util import UnfurlError, VERSION, toYamlText, restoreIncludes, patchDict
 from .yamlloader import YamlConfig, loadFromRepo, load_yaml, yaml
@@ -151,214 +152,9 @@ import logging
 
 logger = logging.getLogger("unfurl")
 
-# XXX3 add as file to package data
-# schema=open(os.path.join(os.path.dirname(__file__), 'manifest-v1alpha1.json')).read()
-schema = {
-    "$schema": "http://json-schema.org/draft-04/schema#",
-    "$id": "https://www.onecommons.org/schemas/unfurl/v1alpha1.json",
-    "definitions": {
-        "atomic": {
-            "type": "object",
-            "properties": {
-                # XXX
-                # "+%": {
-                #   "default": "replaceProps"
-                # }
-            },
-        },
-        "namedObjects": {
-            "type": "object",
-            "propertyNames": {"pattern": r"^[A-Za-z_][A-Za-z0-9_\-]*$"},
-        },
-        "secret": {
-            "type": "object",
-            "properties": {
-                "ref": {
-                    "type": "object",
-                    "properties": {
-                        "secret": {
-                            "type": "string",
-                            "pattern": r"^[A-Za-z_][A-Za-z0-9_\-]*$",
-                        }
-                    },
-                    "required": ["secret"],
-                }
-            },
-            "required": ["ref"],
-        },
-        "attributes": {
-            "allOf": [
-                {"$ref": "#/definitions/namedObjects"},
-                {"$ref": "#/definitions/atomic"},
-            ],
-            "default": {},
-        },
-        "resource": {
-            "type": "object",
-            "allOf": [
-                {"$ref": "#/definitions/status"},
-                {
-                    "properties": {
-                        "template": {"type": "string"},
-                        "attributes": {
-                            "$ref": "#/definitions/attributes",
-                            "default": {},
-                        },
-                        "resources": {
-                            "allOf": [
-                                {"$ref": "#/definitions/namedObjects"},
-                                {
-                                    "additionalProperties": {
-                                        "$ref": "#/definitions/resource"
-                                    }
-                                },
-                            ],
-                            "default": {},
-                        },
-                    }
-                },
-            ],
-        },
-        "configurationSpec": {
-            "type": "object",
-            "properties": {
-                "className": {"type": "string"},
-                "majorVersion": {"anyOf": [{"type": "string"}, {"type": "number"}]},
-                "minorVersion": {"type": "string"},
-                "intent": {"enum": list(Action.__members__)},
-                "inputs": {"$ref": "#/definitions/attributes", "default": {}},
-                "preconditions": {"$ref": "#/definitions/schema", "default": {}},
-                # "provides": {
-                #   "type": "object",
-                #   "properties": {
-                #     ".self": {
-                #       "$ref": "#/definitions/resource/properties/spec" #excepting "configurations"
-                #      },
-                #     ".configurations": {
-                #       "allOf": [
-                #         { "$ref": "#/definitions/namedObjects" },
-                #         # {"additionalProperties": { "$ref": "#/definitions/configurationSpec" }}
-                #       ],
-                #       'default': {}
-                #     },
-                #   },
-                #   # "additionalProperties": { "$ref": "#/definitions/resource/properties/spec" },
-                #   'default': {}
-                # },
-            },
-            "required": ["className"],
-        },
-        "configurationStatus": {
-            "type": "object",
-            "allOf": [
-                {"$ref": "#/definitions/status"},
-                {
-                    "properties": {
-                        "action": {"enum": list(Action.__members__)},
-                        "inputs": {"$ref": "#/definitions/attributes", "default": {}},
-                        "modifications": {
-                            "allOf": [
-                                {"$ref": "#/definitions/namedObjects"},
-                                {
-                                    "additionalProperties": {
-                                        "$ref": "#/definitions/namedObjects"
-                                    }
-                                },
-                            ],
-                            "default": {},
-                        },
-                        "dependencies": {
-                            "type": "array",
-                            "items": {
-                                "type": "object",
-                                "properties": {
-                                    "name": {"type": "string"},
-                                    "ref": {"type": "string"},
-                                    "expected": {},
-                                    "schema": {"$ref": "#/definitions/schema"},
-                                    "required": {"type": "boolean"},
-                                },
-                            },
-                        },
-                    }
-                },
-            ],
-        },
-        "status": {
-            "type": "object",
-            "properties": {
-                "readyState": {
-                    "type": "object",
-                    "properties": {
-                        "effective": {"enum": list(Status.__members__)},
-                        "local": {"enum": list(Status.__members__)},
-                    },
-                },
-                "priority": {"enum": list(Priority.__members__)},
-                "lastStateChange": {"$ref": "#/definitions/changeId"},
-                "lastConfigChange": {"$ref": "#/definitions/changeId"},
-            },
-            "additionalProperties": True,
-        },
-        "changeId": {"type": "number"},
-        "schema": {"type": "object"},
-    },
-    # end definitions
-    "type": "object",
-    "properties": {
-        "apiVersion": {"enum": [VERSION]},
-        "kind": {"enum": ["Manifest"]},
-        "spec": {"type": "object"},
-        "status": {
-            "type": "object",
-            "allOf": [
-                {
-                    "properties": {
-                        "topology": {"type": "string"},
-                        "inputs": {"$ref": "#/definitions/attributes"},
-                        "outputs": {"$ref": "#/definitions/attributes"},
-                        "instances": {
-                            "allOf": [
-                                {"$ref": "#/definitions/namedObjects"},
-                                {
-                                    "additionalProperties": {
-                                        "$ref": "#/definitions/resource"
-                                    }
-                                },
-                            ]
-                        },
-                    }
-                },
-                {"$ref": "#/definitions/status"},
-            ],
-            "default": {},
-        },
-        "changes": {
-            "type": "array",
-            "additionalItems": {
-                "type": "object",
-                "allOf": [
-                    {"$ref": "#/definitions/status"},
-                    {"$ref": "#/definitions/configurationStatus"},
-                    {
-                        "properties": {
-                            "parentId": {"$ref": "#/definitions/changeId"},
-                            "commitId": {"type": "string"},
-                            "startTime": {"type": "string"},
-                            "implementation": {
-                                "$ref": "#/definitions/configurationSpec"
-                            },
-                        },
-                        "required": ["changeId"],
-                    },
-                ],
-            },
-        },
-    },
-    "required": ["apiVersion", "kind", "spec"],
-}
-
 Import = collections.namedtuple("Import", ["resource", "spec"])
+
+_basepath = os.path.abspath(os.path.dirname(__file__))
 
 
 def saveConfigSpec(spec):
@@ -397,6 +193,7 @@ def saveDependency(dep):
 def saveResourceChanges(changes):
     d = CommentedMap()
     for k, v in changes.items():
+        # k is the resource key
         d[k] = v[ResourceChanges.attributesIndex] or {}
         if v[ResourceChanges.statusIndex] is not None:
             d[k][".status"] = v[ResourceChanges.statusIndex].name
@@ -475,7 +272,11 @@ def saveTask(task):
     return output
 
 
-# +./ +../ +/
+def getSchema():
+    with open(os.path.join(_basepath, "manifest-schema.json")) as fp:
+        return json.load(fp)
+
+
 class YamlManifest(Manifest):
     def __init__(self, manifest=None, path=None, validate=True, localEnv=None):
         assert not (localEnv and (manifest or path))  # invalid combination of args
@@ -486,7 +287,7 @@ class YamlManifest(Manifest):
             manifest,
             path or localEnv and localEnv.manifestPath,
             validate,
-            schema,
+            getSchema(),
             self.loadHook,
         )
         manifest = self.manifest.expanded

@@ -20,7 +20,8 @@ class ManifestSyntaxTest(unittest.TestCase):
     """
         with self.assertRaises(UnfurlError) as err:
             YamlManifest(badVersion)
-        self.assertIn("2 is not one of ['unfurl/v1alpha1']", str(err.exception))
+        self.assertIn("2 is not one of [", str(err.exception))
+        self.assertIn("'unfurl/v1alpha1']", str(err.exception))
 
         missingVersion = """
     spec: {}
