@@ -58,7 +58,7 @@ spec:
                    q:
                     eval:
                       template: |
-                        helm {{helmcmd}} {{inputs.chart}} {{release-name}}
+                        helm {{helmcmd}} {{release-name}} {{inputs.chart}} 
                           # XXX namespace= .::namespace,
                           # {%if .kubecontext, --kubecontext}} {%if .kubeconfig
                           {%if dryrun%}--dry-run{%endif%}
@@ -72,9 +72,11 @@ spec:
                         valuesfile:
                           eval:
                             tempfile: .::inputs::values
+              update:
+                  helm upgrade [RELEASE] [CHART] [flags]
               delete:
                 inputs:
-                  command: helm remove RELEASE_NAME
+                  command: helm uninstall RELEASE_NAME
               discover:
                 inputs:
                   command: helm get manifest RELEASE_NAME

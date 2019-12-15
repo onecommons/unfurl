@@ -159,14 +159,12 @@ class AnsibleConfigurator(Configurator):
                 status = Status.ok
 
             logger.debug(
-                "runplaybook status %s results %s",
+                "runplaybook status %s changed %s results %s ",
                 status,
+                results.changed,
                 results.results[0]._check_key("result"),
             )
 
-            applied = len(results.resultsByStatus.ok) + len(
-                results.resultsByStatus.failed
-            )
             # XXX if more then one task??
             result = (
                 results.results
@@ -178,9 +176,15 @@ class AnsibleConfigurator(Configurator):
             if result and status == Status.ok or status == Status.degraded:
                 # this can update resources so don't do it on error
                 self._processResult(task, result)
-            yield task.createResult(
-                applied > 0, results.changed > 0, status, result=result
-            )
+
+            if results.changed > 0:
+                if any(r.is_failed() and r.is_changed() for r in results.results):
+                    modified = Status.error
+                else:
+                    modified = True
+            else:
+                modified = False
+            yield task.done(status == Status.ok, modified, result=result)
         finally:
             self._cleanup()
 

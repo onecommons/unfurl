@@ -29,7 +29,7 @@ class HelmConfigurator(Configurator):
 
 class DummyShellConfigurator(Configurator):
     def run(self, task):
-        yield task.createResult(True, True, Status.ok)
+        yield task.done(True, Status.ok)
 
 
 class RunTest(unittest.TestCase):

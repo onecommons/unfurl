@@ -213,7 +213,8 @@ def createMonoRepoProject(projectdir, repo):
     )
     localInclude = "+%include?: " + localConfigFilename
     projectConfigPath = writeProjectConfig(projectdir, localInclude=localInclude)
-    gitIgnorePath = _writeFile(projectdir, ".gitignore", localConfigFilename)
+    gitIgnoreContent = """%s\nlocal\n""" % localConfigFilename
+    gitIgnorePath = _writeFile(projectdir, ".gitignore", gitIgnoreContent)
     serviceTemplatePath = writeServiceTemplate(projectdir, repo)
     # write manifest
     manifestContent = """\

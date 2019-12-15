@@ -10,7 +10,7 @@ from unfurl.configurator import Configurator
 class SetAttributeConfigurator(Configurator):
     def run(self, task):
         task.target.attributes["private_address"] = "10.0.0.1"
-        yield task.createResult(True, True, Status.ok)
+        yield task.done(True, Status.ok)
 
 
 manifestDoc = """

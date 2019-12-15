@@ -32,7 +32,7 @@ logger = logging.getLogger("unfurl")
 # XXX3 doc: notpresent is a positive assertion of non-existence while notapplied just indicates non-liveness
 # notapplied is therefore the default initial state
 Status = IntEnum(
-    "Status", "ok degraded stopped error pending notapplied notpresent", module=__name__
+    "Status", "ok degraded stopped error pending notpresent notapplied", module=__name__
 )
 
 # ignore may must
@@ -406,6 +406,12 @@ class ResourceChanges(collections.OrderedDict):
     addedIndex = 1
     attributesIndex = 2
 
+    def getAttributeChanges(self, key):
+        record = self.get(key)
+        if record:
+            return record[self.attributesIndex]
+        return {}
+
     def sync(self, resource):
         """ Update self to only include changes that are still live"""
         for k, v in list(self.items()):
@@ -450,6 +456,10 @@ class ResourceChanges(collections.OrderedDict):
         if resource:
             self.sync(resource)
 
+    def rollback(self, resource):
+        # XXX need to actually rollback
+        self.clear()
+
 
 class AttributeManager(object):
     """
@@ -469,6 +479,11 @@ class AttributeManager(object):
     def __init__(self):
         self.attributes = {}
         self.statuses = {}
+
+    def getStatus(self, resource):
+        if resource.key not in self.statuses:
+            return resource._localStatus, resource._localStatus
+        return self.statuses[resource.key]
 
     def setStatus(self, resource, newvalue):
         assert newvalue is None or isinstance(newvalue, Status)

@@ -24,7 +24,7 @@ class TestConfigurator(Configurator):
                 job = yield jobrequest
                 assert job, jobrequest
 
-        yield task.createResult(True, True, Status.ok)
+        yield task.done(True)
 
 
 manifest = """
@@ -115,7 +115,7 @@ class ConfiguratorTest(unittest.TestCase):
         # check that the modifications were recorded
         self.assertEqual(
             runner.manifest.manifest.config["changes"][0]["changes"],
-            {"::test1": {"copyOfMeetsTheRequirement": "copy", ".status": "ok"}},
+            {"::test1": {"copyOfMeetsTheRequirement": "copy"}},
         )
 
         test2 = runner.manifest.getRootResource().findResource("test2")
@@ -136,6 +136,7 @@ class ConfiguratorTest(unittest.TestCase):
         # XXX better error reporting
         # self.assertEqual(str(run2.problems), "can't run required configuration: resource test2 doesn't meet requirement")
 
+        # print(run2.out.getvalue())
         # don't re-run the failed configurations so nothing will have changed
         jobOptions2.repair = "none"
         self.verifyRoundtrip(run2.out.getvalue(), jobOptions2)

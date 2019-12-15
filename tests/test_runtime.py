@@ -27,7 +27,7 @@ from click.testing import CliRunner
 class SimpleConfigurator(Configurator):
     def run(self, task):
         assert not self.cantRun(task)
-        yield task.createResult(True, True, Status.ok)
+        yield task.done(True, Status.ok)
 
 
 simpleConfigSpec = ConfigurationSpec("subtask", "instantiate", "SimpleConfigurator", 0)
@@ -39,7 +39,7 @@ class TestSubtaskConfigurator(Configurator):
         configuration = yield task.createSubTask(simpleConfigSpec)
         assert configuration.status == Status.ok, configuration.status
         # print ("running TestSubtaskConfigurator")
-        yield task.createResult(True, True, Status.ok)
+        yield task.done(True, Status.ok)
 
 
 class ExpandDocTest(unittest.TestCase):
@@ -158,15 +158,19 @@ class OperationalInstanceTest(unittest.TestCase):
 
         aggregateError = OperationalInstance(Status.notapplied)
         aggregateError.dependencies = [ignoredError, requiredError]
-        self.assertEqual(aggregateError.status, Status.error)
+        self.assertEqual(aggregateError.status, Status.notapplied)
 
         aggregateError = OperationalInstance(Status.notapplied)
         aggregateError.dependencies = [OperationalInstance("ok", "optional")]
-        self.assertEqual(aggregateError.status, Status.ok)
+        self.assertEqual(aggregateError.status, Status.notapplied)
 
         aggregateError = OperationalInstance(Status.notapplied)
         aggregateError.dependencies = []
         self.assertEqual(aggregateError.status, Status.notapplied)
+
+        aggregateError = OperationalInstance(Status.ok)
+        aggregateError.dependencies = []
+        self.assertEqual(aggregateError.status, Status.ok)
 
 
 class RunTest(unittest.TestCase):
@@ -297,7 +301,7 @@ class FileTestConfigurator(Configurator):
         assert filevalue._attributes[0].external.type == "file"
 
         value = task.query({"ref": {"file": "foo.txt"}})
-        yield task.createResult(True, True, Status.ok, result=value)
+        yield task.done(True, Status.ok, result=value)
 
 
 class FileTest(unittest.TestCase):
@@ -415,7 +419,7 @@ class ImportTestConfigurator(Configurator):
         assert not self.cantRun(task)
         assert task.target.attributes["test"]
         assert task.target.attributes["mapped1"]
-        yield task.createResult(True, True, Status.ok)
+        yield task.done(True, Status.ok)
 
 
 class ImportTest(unittest.TestCase):

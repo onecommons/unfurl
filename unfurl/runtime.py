@@ -69,16 +69,41 @@ class Operational(ChangeAware):
 
     @property
     def status(self):
+        """
+        Return the effective status, considering first the local readyState and
+        then the aggregate status' of its dependencies (see `aggregateStatus()`
+        and `getOperationalDependencies()`).
+
+        If the localStatus is non-operational, that takes precedence.
+        Otherwise the localStatus is compared with its aggregate dependent status
+        and worser value is choosen.
+        """
         if self.manualOverideStatus is not None:
             status = self.manualOverideStatus
             if status >= Status.error:
                 return status
         else:
             status = self.localStatus
-            if status == Status.error or status == Status.notpresent:
-                return status
 
-        return self.aggregateStatus(self.getOperationalDependencies(), status)
+        if not status:
+            # treat like Status.notapplied
+            return Status.notapplied
+
+        if status >= Status.stopped:
+            # return stopped, error, pending, or notpresent, notapplied
+            return status
+
+        dependentStatus = self.aggregateStatus(self.getOperationalDependencies())
+        if not status:
+            return dependentStatus
+        if dependentStatus == Status.notapplied:
+            # note if localStatus is a no op (status purely determined by dependents)
+            # localStatus should be set to ok
+            # then ok + notapplied = ok, which makes sense, since it has no dependendents
+            return status  # return local status (which maybe notapplied)
+        else:
+            # local status is ok, degraded
+            return max(status, dependentStatus)
 
     @property
     def required(self):
@@ -110,7 +135,16 @@ class Operational(ChangeAware):
         return self.lastChange > changeset.changeId
 
     @staticmethod
-    def aggregateStatus(statuses, defaultStatus=Status.notapplied):
+    def aggregateStatus(statuses, parentStatus=Status.notapplied):
+        """
+        Returns: ok, degraded, pending, notapplied
+
+        If there are no instances, return notapplied
+        If any required are not operational, return pending or error
+        If any other are not operational or degraded, return degraded
+        Otherwise return ok.
+        (Instances with priority set to "ignore" are ignored.)
+        """
         # error if a configuration is required and not operational
         # error if a non-configuration managed child resource is required and not operational
         # degraded if non-required configurations and resources are not operational
@@ -118,24 +152,27 @@ class Operational(ChangeAware):
         # ok otherwise
 
         # any required is pending then aggregate is pending
-        # any other are pending only set pending if aggregate is ok
-        aggregate = defaultStatus if defaultStatus else Status.notapplied
+        # otherwise just set to degraded
+        # start at either ok, degraded or notapplied
+        aggregate = (
+            Status.notapplied
+        )  # defaultStatus if defaultStatus is not None else Status.notapplied
         for status in statuses:
             assert isinstance(status, Operational), status
+            if aggregate == Status.notapplied:
+                aggregate = Status.ok
             if status.priority == Priority.ignore:
                 continue
-            elif status.required:
-                if not status.operational:
+            elif status.required and not status.operational:
+                if status.status == Status.pending:
+                    aggregate = Status.pending
+                else:
                     aggregate = Status.error
                     break
-                elif status.status == Status.degraded:
-                    aggregate = Status.degraded
-            elif status.status == Status.pending and aggregate <= Status.pending:
-                aggregate = Status.pending
-            elif not status.operational:
-                aggregate = Status.degraded
-            elif aggregate == Status.notapplied:
-                aggregate = Status.ok
+            else:
+                if aggregate <= Status.degraded:
+                    if status.status >= Status.degraded:
+                        aggregate = Status.degraded
         return aggregate
 
 

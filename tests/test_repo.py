@@ -24,7 +24,7 @@ def createUnrelatedRepo(gitDir):
 class AConfigurator(Configurator):
     def run(self, task):
         assert not self.cantRun(task)
-        yield task.createResult(True, True, Status.ok)
+        yield task.done(True, Status.ok)
 
 
 manifestContent = """\

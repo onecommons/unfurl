@@ -126,6 +126,10 @@ class GitRepo(Repo):
     def show(self, path, commitId):
         if os.path.abspath(path) and self.workingDir:
             path = path[len(self.workingDir) :]
+        # XXX this won't work if path is in a submodule
+        # if in path startswith a submodule: git log -1 -p [commitid] --  [submodule]
+        # submoduleCommit = re."\+Subproject commit (.+)".group(1)
+        # return self.repo.submodules[submodule].git.show(submoduleCommit+':'+path[len(submodule)+1:])
         return self.repo.git.show(commitId + ":" + path)
 
     def checkout(self, revision=""):

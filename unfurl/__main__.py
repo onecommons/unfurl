@@ -77,7 +77,7 @@ jobControlOptions = option_group(
         "--jobexitcode",
         type=click.Choice(["error", "degraded", "never"]),
         default="never",
-        help="Set exitcode if job status is not ok.",
+        help="Set exit code to 1 if job status is not ok.",
     ),
 )
 

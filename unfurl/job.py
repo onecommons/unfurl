@@ -10,8 +10,8 @@ import types
 from .support import Status, Priority, AttributeManager
 from .result import serializeValue, ChangeRecord
 from .util import UnfurlError, UnfurlTaskError, mergeDicts, ansibleDisplay, toEnum
-from .runtime import OperationalInstance
-from .configurator import TaskView, ConfiguratorResult
+from .runtime import OperationalInstance, Operational
+from .configurator import TaskView, ConfiguratorResult, ConfigOp
 from .plan import Plan
 
 import logging
@@ -68,6 +68,8 @@ class ConfigTask(ConfigChange, TaskView, AttributeManager):
         self.job = job
         self.changeList = []
         self.result = None
+        self.outputs = None
+        # self._completedSubTasks = []
 
         # set the attribute manager on the root resource
         # XXX refcontext in attributeManager should define $TARGET $HOST etc.
@@ -107,6 +109,8 @@ class ConfigTask(ConfigChange, TaskView, AttributeManager):
 
     def send(self, change):
         result = None
+        # if isinstance(change, ConfigTask):
+        #     self._completedSubTasks.append(change)
         try:
             result = self.generator.send(change)
         finally:
@@ -117,59 +121,61 @@ class ConfigTask(ConfigChange, TaskView, AttributeManager):
     def start(self):
         self.startRun()
 
-    def _setConfigStatus(self, config, result):
-        statusChanged = config.localStatus != result.readyState
-        if result.configChanged is None:
-            # not set so try to deduce
-            if self.reason in ["config changed", "all"]:
-                configChanged = (
-                    statusChanged or self.changeList or self.dependenciesChanged
-                )
-            else:  # be conservative, assume the worse
-                configChanged = True
-        else:
-            # setting result.configChanged will override change detection
-            configChanged = result.configChanged
-
-        if configChanged:
-            config._lastConfigChange = self.changeId
-        if statusChanged:
-            config.localStatus = result.readyState
-        logger.debug(
-            "task %s statusChanged: %s configChanged %s",
-            self,
-            statusChanged and config.localStatus,
-            configChanged and config._lastConfigChange,
-        )
-
-    def processResult(self, result):
+    def _getDefaultReadyState(self):
+        """default status update for operation:
+          create/config => ok,
+          delete => not present, otherwise no change
         """
-    Update the target instance with the result.
-
-    `result.applied` indicates this configuration is active
-    (essentially, the owner of the instance's configuration)
-    `result.modified` indicates if a "physical" change to this system was made.
-     (All combinations of these two are permissible -- modified and not applied
-     means changes were made to the system that couldn't be undone.
-    """
-        instance = self.target
-        if result.modified:
-            instance._lastStateChange = self.changeId
-
-        if result.applied:
-            assert (
-                result.readyState and result.readyState != Status.notapplied
-            ), result.readyState
-            self._setConfigStatus(instance, result)
+        if self.configSpec.operation in [
+            ConfigOp.add,
+            ConfigOp.create,
+            ConfigOp.update,
+            ConfigOp.configure,
+            ConfigOp.discover,
+        ]:
+            return Status.ok
+        elif self.configSpec.operation in [ConfigOp.remove, ConfigOp.delete]:
+            return Status.notpresent
         else:
-            if instance._lastConfigChange is None:
-                # if this has never been set before, record this to indicate we tried
-                instance._lastConfigChange = self.changeId
-            # configurator wasn't able to apply so leave the instance state as is
-            # except in the case where explicitly set another status
-            # e.g. if it left the instance in an error state
-            if result.readyState and result.readyState != Status.notapplied:
-                instance.localStatus = result.readyState
+            return None
+
+    def _updateStatus(self, result):
+        """
+        Update the instances status with the result of the operation.
+        If status wasn't explicitly but the operation changed the instance's configuration
+        or state, choose a status based on the type of operation.
+        """
+        if result.success and not result.readyState:
+            if (
+                result.modified
+                or self.target.status == Status.notapplied  # new instance
+                or self._resourceChanges.getAttributeChanges(self.target.key)
+            ):
+                result.readyState = self._getDefaultReadyState()
+
+        if result.readyState:
+            self.target.localStatus = result.readyState
+
+    def _updateLastChange(self, result):
+        """
+      If the target's configuration or state has changed, set the instance's lastChange
+      state to this tasks' changeid.
+      """
+        if self.target.lastChange is None:
+            # hacky but always save _lastConfigChange the first time to
+            # distinguish this from a brand new resource
+            self.target._lastConfigChange = self.changeId
+        if not result.applied:
+            return
+
+        # XXX if instance property values changed, set lastConfigChange
+        oldStatus, newStatus = self.getStatus(self.target)
+        if newStatus and oldStatus != newStatus:
+            self.target._lastConfigChange = self.changeId
+        if result.modified or self._resourceChanges.getAttributeChanges(
+            self.target.key
+        ):
+            self.target._lastStateChange = self.changeId
 
     def finished(self, result):
         assert result
@@ -177,26 +183,35 @@ class ConfigTask(ConfigChange, TaskView, AttributeManager):
             self.generator.close()
             self.generator = None
 
+        self.outputs = result.outputs
+
         # don't set the changeId until we're finish so that we have a higher changeid
         # than nested tasks and jobs that ran (avoids spurious config changed tasks)
         self.changeId = self.job.runner.incrementChangeId()
         # XXX2 if attributes changed validate using attributesSchema
         # XXX2 Check that configuration provided the metadata that it declared (check postCondition)
-        self.processResult(result)
-        resource = self.target
 
-        if (result.applied or result.modified) and self.changeList:
+        if self.changeList:
             # merge changes together (will be saved with changeset)
             changes = self.changeList
             accum = changes.pop(0)
             while changes:
                 accum = mergeDicts(accum, changes.pop(0))
 
-            self._resourceChanges.updateChanges(accum, self.statuses, resource)
-
+            self._resourceChanges.updateChanges(accum, self.statuses, self.target)
+            if not result.applied:
+                self._resourceChanges.rollback(self.target)
+        # now that resourceChanges finalized:
+        self._updateStatus(result)
+        self._updateLastChange(result)
         self.result = result
-        if result.readyState:
-            self.localStatus = result.readyState
+        if result.success is None:
+            # XXX require success flag to be set and remove this hack
+            self.localStatus = (
+                Status.error if result.readyState == Status.error else Status.ok
+            )
+        else:
+            self.localStatus = Status.ok if result.success else Status.error
         return self
 
     def commitChanges(self):
@@ -214,7 +229,8 @@ class ConfigTask(ConfigChange, TaskView, AttributeManager):
     """
         # XXX this is really a "reconfiguration" operation, which can be distinct from 'configure'
         _parameters = None
-        if self.lastConfigChange:  # XXX this is never set
+        if self.lastConfigChange:
+            # XXX this is currently target.lastConfigChange, not the lastConfigChange of this operation
             changeset = self._manifest.loadConfigChange(self.lastConfigChange)
             _parameters = changeset.inputs
         if not _parameters:
@@ -590,7 +606,9 @@ class Job(ConfigChange):
     """
         errors = self.cantRunTask(task)
         if errors:
-            return task.finished(ConfiguratorResult(False, False, result=errors))
+            return task.finished(
+                ConfiguratorResult(False, False, success=False, result=errors)
+            )
 
         task.start()
         change = None
@@ -600,11 +618,15 @@ class Job(ConfigChange):
             except Exception:
                 UnfurlTaskError(task, "configurator.run failed", True)
                 # assume the worst
-                return task.finished(ConfiguratorResult(True, True, Status.error))
+                return task.finished(
+                    ConfiguratorResult(True, True, Status.error, success=False)
+                )
             if isinstance(result, TaskRequest):
                 if depth >= self.MAX_NESTED_SUBTASKS:
                     UnfurlTaskError(task, "too many subtasks spawned", True)
-                    change = task.finished(ConfiguratorResult(True, True, Status.error))
+                    change = task.finished(
+                        ConfiguratorResult(True, True, Status.error, success=False)
+                    )
                 else:
                     subtask = self.createTask(
                         result.configSpec, result.target, self.changeId
@@ -623,7 +645,9 @@ class Job(ConfigChange):
                 return retVal
             else:
                 UnfurlTaskError(task, "unexpected result from configurator", True)
-                return task.finished(ConfiguratorResult(True, True, Status.error))
+                return task.finished(
+                    ConfiguratorResult(True, True, Status.error, success=False)
+                )
 
 
 class Runner(object):

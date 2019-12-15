@@ -132,4 +132,5 @@ class ShellConfigurator(Configurator):
         shell = params.get("shell", isinstance(cmd, six.string_types))
         result = self.runProcess(cmd, shell=shell, timeout=params.get("timeout"))
         status = self.handleResult(task, result, params.get("resultTemplate"))
-        yield task.createResult(True, True, status, result=result.__dict__)
+        modified = True  # XXX
+        yield task.done(status == Status.ok, modified, result=result.__dict__)

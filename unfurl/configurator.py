@@ -13,6 +13,7 @@ from .util import (
     UnfurlAddingResourceError,
 )
 from .eval import Ref, mapValue, RefContext
+from .runtime import Operational
 from ruamel.yaml import YAML
 
 yaml = YAML()
@@ -29,10 +30,13 @@ The operations defined in unfurl.interfaces.Configure
 
     @staticmethod
     def toStandardOp(op):
-        return dict(add="create", update="config", remove="delete").get(op)
+        return dict(add="create", update="configure", remove="delete").get(op)
 
 
 for op in "add update remove discover check".split():
+    setattr(ConfigOp, op, op)
+
+for op in "create configure start stop delete".split():
     setattr(ConfigOp, op, op)
 
 # we want ConfigurationSpec to be standalone and easily serializable
@@ -132,13 +136,22 @@ class ConfiguratorResult(object):
   """
 
     def __init__(
-        self, applied, modified, readyState=None, configChanged=None, result=None
+        self,
+        applied,
+        modified,
+        status=None,
+        configChanged=None,
+        result=None,
+        success=None,
+        outputs=None,
     ):
         self.applied = applied
         self.modified = modified
-        self.readyState = readyState
+        self.readyState = status
         self.configChanged = configChanged
         self.result = result
+        self.success = success
+        self.outputs = outputs
 
     def __str__(self):
         result = "" if self.result is None else str(self.result)
@@ -149,10 +162,10 @@ class ConfiguratorResult(object):
                     filter(
                         None,
                         [
+                            self.success and "success",
                             self.applied and "applied",
                             self.modified and "modified",
                             self.readyState and self.readyState.name,
-                            self.configChanged and "config",
                         ],
                     )
                 )
@@ -176,6 +189,10 @@ class Configurator(object):
         yield task.createResult(False, False)
 
     def canDryRun(self, task):
+        """
+        Called when dry run call.
+        If a configurator supports dry-run it should return True here and make sure it checks whether `task.dryRun` in run.
+        """
         return False
 
     def cantRun(self, task):
@@ -230,16 +247,50 @@ class TaskView(object):
     def findResource(self, name):
         return self._manifest.getRootResource().findResource(name)
 
-    def createResult(
-        self, applied, modified, readyState=None, configChanged=None, result=None
-    ):
-        readyState = toEnum(Status, readyState)
-        if applied and (not readyState or readyState == Status.notapplied):
-            raise UnfurlTaskError(
-                self, "need to set readyState if configuration was applied"
-            )
+    # XXX
+    # def pending(self, modified=None, sleep=100, waitFor=None, outputs=None):
+    #     """
+    #     >>> yield task.pending(60)
+    #
+    #     set modified to True to advise that target has already been modified
+    #
+    #     outputs to share operation outputs so far
+    #     """
 
-        return ConfiguratorResult(applied, modified, readyState, configChanged, result)
+    def done(self, success, modified=None, status=None, result=None, outputs=None):
+        """
+        `run()` should call this method and yield its return value before terminating.
+
+        >>> yield task.done(True)
+
+        `success`  indicates if this operation completed without an error.
+        `modified` indicates that the physical instance was modified by this operation.
+        `status`   should be set if the operation changed the operational status of the target instance.
+                   If not specified, the runtime will updated the instance status as needed, based
+                   the operation preformed and observed changes to the instance (attributes changed).
+        `result`   A dictionary that will be serialized as YAML into the changelog, can contain any useful data about these operation.
+        `outputs`  Operation outputs, as specified in the toplogy template.
+        """
+        if isinstance(modified, Status):
+            status = modified
+            modified = True
+
+        if success:
+            return ConfiguratorResult(
+                True, modified, status, result=result, success=success, outputs=outputs
+            )
+        elif modified:
+            if not status:
+                status = Status.error if self.required else Status.degraded
+            return ConfiguratorResult(
+                True, True, status, result=result, success=success
+            )
+        else:
+            if status != Status.notapplied:
+                status = None
+            return ConfiguratorResult(
+                False, False, None, result=result, success=success
+            )
 
     # updates can be marked as dependencies (changes to dependencies changed) or required (error if changed)
     # configuration has cumulative set of changes made it to resources
@@ -563,6 +614,7 @@ def getConfigSpecFromInstaller(configuratorTemplate, action, inputs, useDefault=
     installerInputs = attributes.get("inputs", {})
     if inputs:
         installerInputs = dict(installerInputs, **inputs)
+
     kw = getConfigSpecArgsFromImplementation(
         attributes["implementation"], installerInputs
     )

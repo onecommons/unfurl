@@ -1,7 +1,7 @@
 from __future__ import absolute_import
 import codecs
 from ..util import sensitive_str
-from ..configurator import Configurator, ConfigOp  # , Status
+from ..configurator import Configurator, ConfigOp, Status
 from .ansible import AnsibleConfigurator
 import json
 from ansible.module_utils.k8s.common import K8sAnsibleMixin
@@ -18,7 +18,11 @@ class ClusterConfigurator(Configurator):
         task.target.attributes["apiServer"] = self._getHost(
             task.inputs.get("connection", {})
         )
-        yield task.createResult(True, False, "ok")
+        # we aren't modifying this cluster but we do want to assert that its ok
+        yield task.done(True, False, Status.ok)
+        # so set the status now
+        # task.target.localStatus = Status.ok
+        # yield task.done(True, False)
 
 
 class ResourceConfigurator(AnsibleConfigurator):
@@ -34,7 +38,7 @@ class ResourceConfigurator(AnsibleConfigurator):
         # print(self.findPlaybook(task))
         # print(self.findPlaybook(task))
         print(json.dumps(self.findPlaybook(task), indent=4))
-        yield task.createResult(False, False)
+        yield task.done(True)
 
     def makeSecret(self, data):
         # base64 adds trailing \n so strip it out

@@ -95,7 +95,7 @@ class CliTestConfigurator(Configurator):
         assert attrs._attributes["aListOfItems"].external.type == "sensitive"
         # XXX this should be marked as secret so it should serializes as "[REDACTED]"
         # attrs['copyofAListOfItems'] = attrs['aListOfItems']
-        yield task.createResult(True, False, "ok")
+        yield task.done(True, False)
 
 
 class CliTest(unittest.TestCase):
