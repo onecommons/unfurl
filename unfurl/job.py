@@ -7,6 +7,7 @@ Each task tracks and records its modifications to the system's state
 import collections
 import datetime
 import types
+import six
 from .support import Status, Priority, AttributeManager
 from .result import serializeValue, ChangeRecord
 from .util import UnfurlError, UnfurlTaskError, mergeDicts, ansibleDisplay, toEnum
@@ -45,6 +46,49 @@ class JobRequest(object):
     def __init__(self, resources, errors):
         self.resources = resources
         self.errors = errors
+
+
+class JobOptions(object):
+    """
+  Options available to select which tasks are run, e.g. read-only
+
+  does the config apply to the action?
+  is it out of date?
+  is it in a ok state?
+  """
+
+    defaults = dict(
+        parentJob=None,
+        startTime=None,
+        out=None,
+        verbose=0,
+        resource=None,
+        resources=None,
+        template=None,
+        useConfigurator=False,
+        # default options:
+        add=True,  # add new templates
+        update=True,  # run configurations that whose spec has changed but don't require a major version change
+        repair="error",  # or 'degraded' or "notapplied" or "none", run configurations that are not operational and/or degraded
+        upgrade=False,  # run configurations with major version changes or whose spec has changed
+        all=False,  # (re)run all configurations
+        verify=False,  # XXX3 discover first and set status if it differs from expected state
+        readonly=False,  # only run configurations that won't alter the system
+        dryrun=False,
+        planOnly=False,
+        requiredOnly=False,
+        revertObsolete=False,  # revert
+        append=None,
+        replace=None,
+        cmdline=None,
+        commit=True,
+        workflow="deploy",
+    )
+
+    def __init__(self, **kw):
+        options = self.defaults.copy()
+        options.update(kw)
+        self.__dict__.update(options)
 
 
 class ConfigTask(ConfigChange, TaskView, AttributeManager):
@@ -289,48 +333,6 @@ class ConfigTask(ConfigChange, TaskView, AttributeManager):
         )
 
 
-class JobOptions(object):
-    """
-  Options available to select which tasks are run, e.g. read-only
-
-  does the config apply to the action?
-  is it out of date?
-  is it in a ok state?
-  """
-
-    defaults = dict(
-        parentJob=None,
-        startTime=None,
-        out=None,
-        verbose=0,
-        resource=None,
-        resources=None,
-        template=None,
-        useConfigurator=False,
-        # default options:
-        add=True,  # add new templates
-        update=True,  # run configurations that whose spec has changed but don't require a major version change
-        repair="error",  # or 'degraded' or "notapplied" or "none", run configurations that are not operational and/or degraded
-        upgrade=False,  # run configurations with major version changes or whose spec has changed
-        all=False,  # (re)run all configurations
-        verify=False,  # XXX3 discover first and set status if it differs from expected state
-        readonly=False,  # only run configurations that won't alter the system
-        dryrun=False,
-        planOnly=False,
-        requiredOnly=False,
-        revertObsolete=False,  # revert
-        append=None,
-        replace=None,
-        cmdline=None,
-        commit=True,
-    )
-
-    def __init__(self, **kw):
-        options = self.defaults.copy()
-        options.update(kw)
-        self.__dict__.update(options)
-
-
 class Job(ConfigChange):
     """
   runs ConfigTasks and Jobs
@@ -390,6 +392,15 @@ class Job(ConfigChange):
     def getCandidateTasks(self):
         # XXX plan might call job.runJobRequest(configuratorJob) before yielding
         for (configSpec, target, reason) in self.plan.executePlan():
+            if configSpec.name == "#error":
+                # placeholder configspec for errors: has an error message instead of className
+                # create a task so we can record this failure like other task failures
+                errorTask = ConfigTask(self, configSpec, target, reason=reason)
+                # the task won't run if we associate an exception with it:
+                UnfurlTaskError(errorTask, configSpec.className, True)
+                yield errorTask
+                continue
+
             configSpecName = configSpec.name
             configSpec, filterReason = self.filterConfig(configSpec, target)
             if not configSpec:
@@ -401,7 +412,7 @@ class Job(ConfigChange):
                 )
                 continue
 
-            if self.runner.isConfigAlreadyHandled(configSpec):
+            if self.runner.isConfigAlreadyHandled(configSpec, target):
                 # configuration may have premptively run while executing another task
                 logger.debug(
                     "configspec %s for target %s already handled",
@@ -550,6 +561,15 @@ class Job(ConfigChange):
     def shouldAbort(self, task):
         return False  # XXX3
 
+    def jsonSummary(self):
+        return dict(
+            outputs=serializeValue(self.getOutputs()),
+            job=dict(
+                id=self.changeId, status=self.status.name, tasks=len(self.workDone)
+            ),
+            tasks=[[name, task.status.name] for (name, task) in self.workDone.items()],
+        )
+
     def summary(self):
         outputString = ""
         outputs = self.getOutputs()
@@ -566,18 +586,24 @@ class Job(ConfigChange):
                 outputString,
             )
 
-        def format(name, task):
+        def format(i, name, task):
             required = "[required]" if task.required else ""
-            return "%s: %s:%s: %s" % (
+            return "%d. %s: %s:%s: %s" % (
+                i,
                 name,
                 required,
                 task.status.name,
                 task.result or "skipped",
             )
 
-        line1 = "Job %s completed: %s. Tasks:\n    " % (self.changeId, self.status.name)
+        line1 = "Job %s completed: %s. %d Tasks:\n    " % (
+            self.changeId,
+            self.status.name,
+            len(self.workDone),
+        )
         tasks = "\n    ".join(
-            format(name, task) for name, task in self.workDone.items()
+            format(i + 1, name, task)
+            for i, (name, task) in enumerate(self.workDone.items())
         )
         return line1 + tasks + outputString
 
@@ -667,7 +693,7 @@ class Runner(object):
         self.currentJob.workDone[key] = task
         task.job.workDone[key] = task
 
-    def isConfigAlreadyHandled(self, configSpec):
+    def isConfigAlreadyHandled(self, configSpec, target):
         return False  # XXX
         # return configSpec.name in self.currentJob.workDone
 
@@ -677,7 +703,10 @@ class Runner(object):
     """
         root = self.manifest.getRootResource()
         assert self.manifest.tosca
-        plan = Plan(root, self.manifest.tosca, joboptions)
+        WorkflowPlan = Plan.getPlanClassForWorkflow(joboptions.workflow)
+        if not WorkflowPlan:
+            raise UnfurlError("unknown workflow: %s" % joboptions.workflow)
+        plan = WorkflowPlan(root, self.manifest.tosca, joboptions)
         return Job(self, root, plan, joboptions)
 
     def incrementChangeId(self):

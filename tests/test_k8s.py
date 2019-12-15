@@ -70,10 +70,11 @@ class k8sTest(unittest.TestCase):
         assert not job.unexpectedAbort
         assert job.status == Status.ok, job.summary()
 
-    # def test_Delete(self):
-    #   manifest = YamlManifest(manifestScript)
-    #   job = Runner(manifest).run(JobOptions(remove=True, startTime="time-to-test"))
-    #   print(job.out.getvalue())
-    #   print(job.summary())
-    #   assert not job.unexpectedAbort
-    #   assert job.status == Status.ok, job.summary()
+        manifest = YamlManifest(job.out.getvalue())
+        job2 = Runner(manifest).run(
+            JobOptions(workflow="undeploy", startTime="time-to-test")
+        )
+        results = job2.jsonSummary()
+        assert not job2.unexpectedAbort
+        assert job2.status == Status.ok, job2.summary()
+        assert len(results["tasks"]) == 3, results

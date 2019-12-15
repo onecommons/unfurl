@@ -29,6 +29,10 @@ class Plan(object):
   use:configurator use that configurator
   """
 
+    @staticmethod
+    def getPlanClassForWorkflow(workflow):
+        return dict(deploy=DeployPlan, undeploy=UndeployPlan).get(workflow)
+
     rootConfigurator = None  # XXX3
 
     def __init__(self, root, toscaSpec, jobOptions):
@@ -36,6 +40,13 @@ class Plan(object):
         self.root = root
         self.tosca = toscaSpec
         assert self.tosca
+        if jobOptions.template:
+            filterTemplate = self.tosca.getTemplate(jobOptions.template)
+            if not filterTemplate:
+                raise UnfurlError("specified template not found %s" % filterTemplate)
+            self.filterTemplate = filterTemplate
+        else:
+            self.filterTemplate = None
 
     def findResourcesFromTemplate(self, nodeTemplate):
         for resource in self.root.getSelfAndDescendents():
@@ -100,6 +111,83 @@ class Plan(object):
                     default = iDef
         return default
 
+    def generateConfiguration(
+        self, action, resource, reason=None, cmdLine=None, useConfigurator=None
+    ):
+        # XXX update joboptions, useConfigurator
+        notfoundmsg = ""
+        if cmdLine:
+            # build a configuration that runs the given command
+            configSpec = self.createShellConfigurator(cmdLine, action)
+        else:
+            # get configuration from the resources Install or Standard interface
+            configSpec = None
+            requirements = resource.template.getRequirements("install")
+            if requirements:
+                installer = requirements[0]
+                if isinstance(installer, dict):
+                    installer = installer.get("node")
+            else:
+                installer = None
+
+            iDef = self.findImplementation("Install", action, resource.template)
+            if not iDef:
+                # XXX doesn't really support these operations see 5.8.4 tosca.interfaces.node.lifecycle.Standard
+                # XXX what about discover and check?
+                iDef = self.findImplementation(
+                    "Standard", ConfigOp.toStandardOp(action), resource.template
+                )
+                if not iDef:
+                    if not installer:
+                        notfoundmsg = "no interface or installer specified"
+                    elif installer not in self.tosca.installers:
+                        notfoundmsg = "installer %s not found" % installer
+
+            if not notfoundmsg:
+                configSpec = self.getConfigurationSpecFromInterface(
+                    iDef, action, installer
+                )
+                if not configSpec:
+                    if not iDef or iDef.name == "default":
+                        notfoundmsg = (
+                            "operation not supported by installer %s" % installer
+                        )
+                    else:
+                        notfoundmsg = "not specified on interface %s" % iDef.type
+
+        if not configSpec:
+            errorMsg = (
+                'unable to find an implementation for operation "%s" on node "%s": %s'
+                % (action, resource.template.name, notfoundmsg)
+            )
+            configSpec = ConfigurationSpec("#error", action, className=errorMsg)
+            return (configSpec, resource, reason or action)
+        logger.debug(
+            "creating configuration %s with %s to run for %s: %s",
+            configSpec.name,
+            configSpec.inputs,
+            resource.name,
+            reason or action,
+        )
+        return (configSpec, resource, reason or action)
+
+    def generateDeleteConfigurations(self, visited):
+        for instance in self.root.getOperationalDependencies():
+            # reverse to teardown leaf nodes first
+            for resource in reversed(instance.descendents):
+                if id(resource) not in visited:
+                    logger.debug(
+                        "checking for tasks for removing resource %s", resource.name
+                    )
+                    # it's an orphaned config
+                    include = self.includeTask(None, resource, resource.template)
+                    if not include:
+                        continue
+                    reason, config = include
+                    yield self.generateConfiguration(ConfigOp.remove, resource, reason)
+
+
+class DeployPlan(Plan):
     def includeTask(self, template, resource, oldTemplate):
         """ Returns whether or not the config should be included in the current job.
 
@@ -215,19 +303,12 @@ Returns:
             ]
         )
 
-        if opts.template:
-            filterTemplate = self.tosca.getTemplate(opts.template)
-            if not filterTemplate:
-                raise UnfurlError("specified template not found %s" % filterTemplate)
-        else:
-            filterTemplate = None
-
         # order by ancestors
         templates = list(
             orderTemplates(
                 self.tosca.template.topology_template.graph,
                 {t.name: t for t in templates},
-                filterTemplate and filterTemplate.name,
+                self.filterTemplate and self.filterTemplate.name,
             )
         )
 
@@ -271,79 +352,24 @@ Returns:
             #         yield (configSpec, resource, reason or operation)
 
         if opts.revertObsolete:  # XXX expose option in cli (as --prune ?)
-            for instance in self.root.getOperationalDependencies():
-                for resource in instance.getSelfAndDescendents():
-                    if id(resource) not in visited:
-                        logger.debug(
-                            "checking for tasks for orphaned resource %s", resource.name
-                        )
-                        # it's an orphaned config
-                        include = self.includeTask(None, resource, resource.template)
-                        if not include:
-                            continue
-                        reason, config = include
-                        yield self.generateConfiguration(
-                            ConfigOp.remove, resource, reason
-                        )
+            for configTuple in self.generateDeleteConfigurations(visited):
+                yield configTuple
         # #XXX opts.create, opts.append, opts.cmdline, opts.useConfigurator
 
-    def generateConfiguration(
-        self, action, resource, reason=None, cmdLine=None, useConfigurator=None
-    ):
-        # XXX update joboptions, useConfigurator
-        notfoundmsg = ""
-        if cmdLine:
-            # build a configuration that runs the given command
-            configSpec = self.createShellConfigurator(cmdLine, action)
-        else:
-            # get configuration from the resources Install or Standard interface
-            configSpec = None
-            requirements = resource.template.getRequirements("install")
-            if requirements:
-                installer = requirements[0]
-                if isinstance(installer, dict):
-                    installer = installer.get("node")
-            else:
-                installer = None
 
-            iDef = self.findImplementation("Install", action, resource.template)
-            if not iDef:
-                # XXX doesn't really support these operations see 5.8.4 tosca.interfaces.node.lifecycle.Standard
-                # XXX what about discover and check?
-                iDef = self.findImplementation(
-                    "Standard", ConfigOp.toStandardOp(action), resource.template
-                )
-                if not iDef:
-                    if not installer:
-                        notfoundmsg = "no interface or installer specified"
-                    elif installer not in self.tosca.installers:
-                        notfoundmsg = "installer %s not found" % installer
+class UndeployPlan(Plan):
+    def executePlan(self):
+        """
+    yields configSpec, target, reason
+    """
+        skipResources = set()
+        for configTuple in self.generateDeleteConfigurations(skipResources):
+            yield configTuple
 
-            if not notfoundmsg:
-                configSpec = self.getConfigurationSpecFromInterface(
-                    iDef, action, installer
-                )
-                if not configSpec:
-                    if not iDef or iDef.name == "default":
-                        notfoundmsg = (
-                            "operation not supported by installer %s" % installer
-                        )
-                    else:
-                        notfoundmsg = "not specified on interface %s" % iDef.type
-
-        if not configSpec:
-            raise UnfurlError(
-                'unable to find an implementation for operation "%s" on node "%s": %s'
-                % (action, resource.template.name, notfoundmsg)
-            )
-        logger.debug(
-            "creating configuration %s with %s to run for %s: %s",
-            configSpec.name,
-            configSpec.inputs,
-            resource.name,
-            reason or action,
-        )
-        return (configSpec, resource, reason or action)
+    def includeTask(self, newTemplate, resource, oldTemplate):
+        if self.filterTemplate and resource.template == self.filterTemplate:
+            return None
+        return "remove", oldTemplate
 
 
 def orderTemplates(graph, templates, filter=None):

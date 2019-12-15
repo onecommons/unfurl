@@ -111,10 +111,12 @@ def run(ctx, action, resource_name="root", cmdline=None, **options):
     """
     options.update(ctx.obj)
     # XXX parse action and use, update manifest and job
-    return _run(options.pop("manifest"), options)
+    return _run(options.pop("manifest"), options, ctx)
 
 
-def _run(manifest, options):
+def _run(manifest, options, ctx=None):
+    if ctx:
+        options["workflow"] = ctx.info_name
     job = runJob(manifest, options)
     if not job:
         click.echo("Unable to create job")
@@ -142,8 +144,12 @@ def _run(manifest, options):
         return 0
 
 
-jobFilterOptions = option_group(
+commonJobFilterOptions = option_group(
     click.option("--template", help="TOSCA template to target"),
+    click.option("--resource", help="resource name to target"),
+)
+
+deployFilterOptions = option_group(
     click.option(
         "--add", default=True, is_flag=True, help="run newly added configurations"
     ),
@@ -174,25 +180,52 @@ jobFilterOptions = option_group(
 @cli.command()
 @click.pass_context
 @click.argument("manifest", default="", type=click.Path(exists=False))
-@jobFilterOptions
+@commonJobFilterOptions
+@deployFilterOptions
 @jobControlOptions
 def deploy(ctx, manifest=None, **options):
     """
     Deploy the given manifest
     """
     options.update(ctx.obj)
-    return _run(manifest, options)
+    return _run(manifest, options, ctx)
 
 
-# XXX add discover and destroy commands
+# XXX
+# @cli.command(short_help="run the discover workflow")
+# @click.pass_context
+# @click.argument("manifest", default="", type=click.Path(exists=False))
+# @commonJobFilterOptions
+# @jobControlOptions
+# def discover(ctx, manifest=None, **options):
+#     """
+#     Update configuration by probing live instances associated with the manifest
+#     """
+#     options.update(ctx.obj)
+#     return _run(manifest, options, ctx)
+
+
+@cli.command()
+@click.pass_context
+@click.argument("manifest", default="", type=click.Path(exists=False))
+@commonJobFilterOptions
+@jobControlOptions
+def undeploy(ctx, manifest=None, **options):
+    """
+    Deploy the given manifest
+    """
+    options.update(ctx.obj)
+    return _run(manifest, options, ctx)
 
 
 @cli.command(short_help="Print the given deployment plan")
 @click.pass_context
 @click.argument("manifest", default="", type=click.Path(exists=False))
-@jobFilterOptions
+@commonJobFilterOptions
+@deployFilterOptions
 @click.option("--query", help="Run the given expression")
 @click.option("--trace", default=0, help="set the query's trace level")
+@click.option("--workflow", default="deploy", help="plan workflow (default: deploy)")
 def plan(ctx, manifest=None, **options):
     "Print the given deployment plan"
     options.update(ctx.obj)

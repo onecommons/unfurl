@@ -144,6 +144,7 @@ class ConfiguratorResult(object):
         result=None,
         success=None,
         outputs=None,
+        exception=None,
     ):
         self.applied = applied
         self.modified = modified
@@ -152,6 +153,7 @@ class ConfiguratorResult(object):
         self.result = result
         self.success = success
         self.outputs = outputs
+        self.exception = None
 
     def __str__(self):
         result = "" if self.result is None else str(self.result)
@@ -163,7 +165,6 @@ class ConfiguratorResult(object):
                         None,
                         [
                             self.success and "success",
-                            self.applied and "applied",
                             self.modified and "modified",
                             self.readyState and self.readyState.name,
                         ],
@@ -171,7 +172,7 @@ class ConfiguratorResult(object):
                 )
                 or "none"
             )
-            + " "
+            + "\n   "
             + result
         )
 
@@ -257,7 +258,15 @@ class TaskView(object):
     #     outputs to share operation outputs so far
     #     """
 
-    def done(self, success, modified=None, status=None, result=None, outputs=None):
+    def done(
+        self,
+        success,
+        modified=None,
+        status=None,
+        result=None,
+        outputs=None,
+        captureException=None,
+    ):
         """
         `run()` should call this method and yield its return value before terminating.
 
@@ -275,22 +284,20 @@ class TaskView(object):
             status = modified
             modified = True
 
+        kw = dict(result=result, success=success, outputs=outputs)
+        if captureException is not None:
+            kw["exception"] = UnfurlTaskError(self, captureException, True)
+
         if success:
-            return ConfiguratorResult(
-                True, modified, status, result=result, success=success, outputs=outputs
-            )
+            return ConfiguratorResult(True, modified, status, **kw)
         elif modified:
             if not status:
                 status = Status.error if self.required else Status.degraded
-            return ConfiguratorResult(
-                True, True, status, result=result, success=success
-            )
+            return ConfiguratorResult(True, True, status, **kw)
         else:
             if status != Status.notapplied:
                 status = None
-            return ConfiguratorResult(
-                False, False, None, result=result, success=success
-            )
+            return ConfiguratorResult(False, False, None, **kw)
 
     # updates can be marked as dependencies (changes to dependencies changed) or required (error if changed)
     # configuration has cumulative set of changes made it to resources

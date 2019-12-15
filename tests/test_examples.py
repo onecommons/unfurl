@@ -54,3 +54,10 @@ class RunTest(unittest.TestCase):
         assert len(job2.workDone) == 0, job2.workDone
         self.maxDiff = None
         self.assertEqual(output.getvalue(), output2.getvalue())
+
+        output3 = six.StringIO()
+        manifest3 = YamlManifest(output2.getvalue())
+        job3 = Runner(manifest3).run(
+            JobOptions(workflow="undeploy", out=output3, startTime="test")
+        )
+        assert len(job3.workDone) == 4, job3.jsonSummary()

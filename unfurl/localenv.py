@@ -347,7 +347,7 @@ class LocalEnv(object):
 
             current = os.path.dirname(current)
 
-        message = "Can't find a unfurl repository in current directory (or any of the parent directories)"
+        message = "Can't find an Unfurl manifest or repository in current directory (or any of the parent directories)"
         raise UnfurlError(message)
 
     def findProject(self, testPath):

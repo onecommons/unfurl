@@ -570,9 +570,9 @@ def runJob(manifestPath=None, _opts=None):
     opts = JobOptions(**_opts)
     path = localEnv.manifestPath
     if opts.planOnly:
-        logger.info("creating plan for %s", path)
+        logger.info("creating %s plan for %s", opts.workflow, path)
     else:
-        logger.info("running job for %s", path)
+        logger.info("running %s job for %s", opts.workflow, path)
 
     logger.info("loading manifest at %s", path)
     try:

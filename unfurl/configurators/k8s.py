@@ -15,14 +15,22 @@ class ClusterConfigurator(Configurator):
 
     def run(self, task):
         # just test the connection
-        task.target.attributes["apiServer"] = self._getHost(
-            task.inputs.get("connection", {})
-        )
-        # we aren't modifying this cluster but we do want to assert that its ok
-        yield task.done(True, False, Status.ok)
-        # so set the status now
-        # task.target.localStatus = Status.ok
-        # yield task.done(True, False)
+        if task.configSpec.operation in ["Standard:delete", "remove"]:
+            # we don't really delete the cluster, just mark this connection notapplied
+            yield task.done(True, False, Status.notapplied)
+            return
+
+        connectionConfig = task.inputs.get("connection", {})
+        try:
+            task.target.attributes["apiServer"] = self._getHost(connectionConfig)
+        except:
+            yield task.done(
+                False,
+                captureException="error while trying to establish connection to cluster",
+            )
+        else:
+            # we aren't modifying this cluster but we do want to assert that its ok
+            yield task.done(True, False, Status.ok)
 
 
 class ResourceConfigurator(AnsibleConfigurator):
