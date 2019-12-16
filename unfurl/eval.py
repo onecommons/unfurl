@@ -128,11 +128,24 @@ class RefContext(object):
         self.referenced.addReference(ref, result)
 
     def resolveVar(self, key):
-        value = self.vars[key[1:]]
+        return self._resolveVar(key[1:]).resolved
+
+    def _resolveVar(self, key):
+        value = self.vars[key]
         if isinstance(value, Result):
-            return value.resolved
-        else:
             return value
+        else:
+            # lazily resolve maps and lists to avoid circular references
+            val = Results._mapValue(value, self)
+            if not isinstance(val, Result):
+                val = Result(val)
+            self.vars[key] = val
+            return val
+
+    def resolveReference(self, key):
+        val = self._resolveVar(key)
+        self.addReference(key, val)
+        return val.resolved
 
 
 class Expr(object):
@@ -503,9 +516,7 @@ def evalRef(val, ctx, top=False):
 
     # functions and ResultsMap assume resolveOne semantics
     if top:
-        varctx = ctx.copy()
-        varctx.vars = {}  # var context can't have itself as its vars
-        vars = _mapValue(ctx.vars, varctx, wantList="result")
+        vars = ctx.vars.copy()
         vars["start"] = ctx.currentResource
         ctx = ctx.copy(ctx.currentResource, vars, wantList=False)
 
@@ -522,7 +533,10 @@ def evalRef(val, ctx, top=False):
                     )
                 val = func(args, ctx)
                 if key == "q":
-                    return [Result(val)]
+                    if isinstance(val, Result):
+                        return [val]
+                    else:
+                        return [Result(val)]
                 break
     elif isinstance(val, six.string_types):
         if isTemplate(val, ctx):

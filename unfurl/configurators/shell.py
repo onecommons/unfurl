@@ -14,7 +14,6 @@ inputs:
 # at least expose config parameters
 # see also 13.3.1 Shell scripts p 328
 # XXX add support for a stdin parameter
-# (that's a reason to make config inputs lazy too)
 
 from ..configurator import Configurator, Status
 import os

@@ -1,7 +1,7 @@
 import six
 import collections
 from .support import Status, Defaults, ResourceChanges
-from .result import serializeValue, ChangeAware, Results
+from .result import serializeValue, ChangeAware, Results, ResultsMap
 from .util import (
     AutoRegisterClass,
     lookupClass,
@@ -239,7 +239,16 @@ class TaskView(object):
     @property
     def inputs(self):
         if self._inputs is None:
-            self._inputs = mapValue(self.configSpec.inputs, self.target)
+            """
+            command: {{ inputs.param }}
+            """
+            # expose inputs lazily to allow self-referencee
+            vars = dict(inputs=self.configSpec.inputs)
+            # verbose = jobOptions.verbose
+            # expose configname, env, operation, verbosity, timeout, dryrun, changeid, outputs
+            self._inputs = ResultsMap(
+                self.configSpec.inputs, RefContext(self.target, vars)
+            )
         return self._inputs
 
     def addMessage(self, message):

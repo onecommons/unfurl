@@ -12,13 +12,16 @@ configurations:
   create:
     implementation: unfurl.configurators.shell.ShellConfigurator
     inputs:
-     command: "echo 'helloworld'"
-     timeout: 9999
-     resultTemplate:
-        q: |
-           - name: .self
-             attributes:
-               stdout: "{{ stdout | trim }}"
+       # test that self-references works in jinja2 templates
+       command: "echo '{{inputs.foo}}'"
+       timeout: 9999
+       foo: helloworld
+       resultTemplate:
+         # we need to quote this because it needs to be evaluated after the operation runs
+          q: |
+             - name: .self
+               attributes:
+                 stdout: "{{ stdout | trim }}"
 spec:
   node_templates:
     test1:

@@ -147,11 +147,9 @@ def isTemplate(val, ctx):
 class _VarTrackerDict(dict):
     def __getitem__(self, key):
         val = super(_VarTrackerDict, self).__getitem__(key)
-        if isinstance(val, Result):
-            self.ctx.referenced.addReference(key, val)
-            return val.resolved
-        else:
-            self.ctx.referenced.addReference(key, Result(val))
+        try:
+            return self.ctx.resolveReference(key)
+        except KeyError:
             return val
 
 
@@ -174,9 +172,9 @@ def applyTemplate(value, ctx):
     # replaces current vars
     # don't use setter to avoid isinstance(dict) check
     ctx.templar._available_variables = vars
-    index = ctx.referenced.start()
 
     oldvalue = value
+    index = ctx.referenced.start()
     # set referenced to track references (set by Ref.resolve)
     # need a way to turn on and off
     try:
