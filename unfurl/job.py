@@ -8,6 +8,7 @@ import collections
 import datetime
 import types
 import six
+import itertools
 from .support import Status, Priority, AttributeManager
 from .result import serializeValue, ChangeRecord
 from .util import UnfurlError, UnfurlTaskError, mergeDicts, ansibleDisplay, toEnum
@@ -89,6 +90,15 @@ class JobOptions(object):
         options = self.defaults.copy()
         options.update(kw)
         self.__dict__.update(options)
+        self.userConfig = kw
+
+    def getUserSettings(self):
+        # only include settings different from the defaults
+        return {
+            k: self.userConfig[k]
+            for k in set(self.userConfig) & set(self.defaults)
+            if k != "out" and self.userConfig[k] != self.defaults[k]
+        }
 
 
 class ConfigTask(ConfigChange, TaskView, AttributeManager):
@@ -313,8 +323,8 @@ class ConfigTask(ConfigChange, TaskView, AttributeManager):
         else:
             cname = self.configSpec.name
         return (
-            "Run {action} on resource {rname} (type {rtype}, status {rstatus}) "
-            + "using configurator {cname}, priority {priority}, reason: {reason}"
+            "{action} on resource {rname} (type {rtype}, status {rstatus}) "
+            + "using configurator {cname}, priority: {priority}, reason: {reason}"
         ).format(
             action=self.configSpec.operation,
             rname=rname,
@@ -322,7 +332,7 @@ class ConfigTask(ConfigChange, TaskView, AttributeManager):
             rstatus=self.target.status.name,
             cname=cname,
             priority=self.priority.name,
-            reason=self.reason,
+            reason=self.reason or "",
         )
 
     def __repr__(self):
@@ -431,7 +441,7 @@ class Job(ConfigChange):
 
             if self.jobOptions.planOnly:
                 if not self.cantRunTask(task):
-                    logger.info(task.summary())
+                    logger.info("Run " + task.summary())
             else:
                 logger.info("Running task %s", task)
                 self.runTask(task)
@@ -570,6 +580,14 @@ class Job(ConfigChange):
             tasks=[[name, task.status.name] for (name, task) in self.workDone.items()],
         )
 
+    def stats(self):
+        tasks = self.workDone.values()
+        tasks = sorted(tasks, key=lambda t: t.status)
+        stats = dict(total=len(tasks), ok=0, error=0)
+        for k, g in itertools.groupby(tasks, lambda t: t.status):
+            stats[k.name] = len(list(g))
+        return stats
+
     def summary(self):
         outputString = ""
         outputs = self.getOutputs()
@@ -587,19 +605,15 @@ class Job(ConfigChange):
             )
 
         def format(i, name, task):
-            required = "[required]" if task.required else ""
-            return "%d. %s: %s:%s: %s" % (
-                i,
-                name,
-                required,
-                task.status.name,
-                task.result or "skipped",
-            )
+            return "%d. %s; %s" % (i, task.summary(), task.result or "skipped")
 
-        line1 = "Job %s completed: %s. %d Tasks:\n    " % (
+        stats = self.stats()
+        line1 = "Job %s completed: %s. %d tasks (%d ok, %d failed):\n    " % (
             self.changeId,
             self.status.name,
-            len(self.workDone),
+            stats["total"],
+            stats["ok"],
+            stats["error"],
         )
         tasks = "\n    ".join(
             format(i + 1, name, task)

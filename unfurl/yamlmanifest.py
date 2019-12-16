@@ -405,6 +405,12 @@ class YamlManifest(Manifest):
         output = CommentedMap()
         output["jobId"] = job.changeId
         output["startTime"] = job.startTime
+        options = job.jobOptions.getUserSettings()
+        output["workflow"] = options.pop("workflow", "deploy")
+        output["options"] = options
+        output["summary"] = "{total} tasks ({ok} ok, {error} failed)".format(
+            **job.stats()
+        )
         if self.currentCommitId:
             output["startCommit"] = self.currentCommitId
         output["specDigest"] = self.specDigest
