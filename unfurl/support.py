@@ -38,13 +38,10 @@ Status = IntEnum(
 # ignore may must
 Priority = IntEnum("Priority", "ignore optional required", module=__name__)
 
-# omit discover exist
-Action = IntEnum("Action", "discover instantiate revert", module=__name__)
-
 
 class Defaults(object):
     shouldRun = Priority.required
-    intent = Action.instantiate
+    workflow = "deploy"
 
 
 class File(ExternalValue):
@@ -154,6 +151,8 @@ class _VarTrackerDict(dict):
 
 
 def applyTemplate(value, ctx):
+    if not isinstance(value, six.string_types):
+        raise UnfurlError("ansible template must be a string")
     # implementation notes:
     #   see https://github.com/ansible/ansible/test/units/template/test_templar.py
     #   dataLoader is only used by _lookup and to set _basedir (else ./)
@@ -180,7 +179,9 @@ def applyTemplate(value, ctx):
     try:
         # strip whitespace so jinija native types resolve even with extra whitespace
         # disable caching so we don't need to worry about the value of a cached var changing
-        value = ctx.templar.template(value.strip(), cache=False)
+        value = ctx.templar.template(
+            value.strip(), cache=False, fail_on_undefined=False
+        )
         if value != oldvalue:
             ctx.trace("processed template:", value)
             for result in ctx.referenced.getReferencedResults(index):

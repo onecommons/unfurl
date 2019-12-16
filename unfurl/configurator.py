@@ -1,5 +1,7 @@
 import six
 import collections
+import re
+import os
 from .support import Status, Defaults, ResourceChanges
 from .result import serializeValue, ChangeAware, Results, ResultsMap
 from .util import (
@@ -9,11 +11,9 @@ from .util import (
     findSchemaErrors,
     UnfurlError,
     UnfurlTaskError,
-    toEnum,
     UnfurlAddingResourceError,
 )
 from .eval import Ref, mapValue, RefContext
-from .runtime import Operational
 from ruamel.yaml import YAML
 
 yaml = YAML()
@@ -39,6 +39,50 @@ for op in "add update remove discover check".split():
 for op in "create configure start stop delete".split():
     setattr(ConfigOp, op, op)
 
+
+class Environment(object):
+    def __init__(self, vars=None, isolate=False, passvars=None, addinputs=False, **kw):
+        """
+        environment:
+          isolate: true
+          addinputs: true
+          passvars:
+            - ANSIBLE_VERBOSITY
+            - UNFURL_LOGGING
+            - ANDROID_*
+          vars:
+            FOO: "{{}}"
+      """
+        self.vars = vars or {}
+        self.isolate = isolate
+        self.passvars = passvars
+        self.addinputs = addinputs
+
+    # XXX add default passvars:
+    # see https://tox.readthedocs.io/en/latest/config.html#tox-environment-settings list of default passenv
+    # also SSH_AUTH_SOCK for ssh_agent
+    def getSystemVars(self):
+        # this need to execute on the operation_host the task is running on!
+        if self.isolate:
+            if self.passvars:  # XXX support glob, support UNFURL_PASSENV
+                env = {k: v for k, v in os.environ.items() if k in self.passvars}
+            else:
+                env = {}
+        else:
+            env = os.environ.copy()
+        return env
+
+    def __eq__(self, other):
+        if not isinstance(other, Environment):
+            return False
+        return (
+            self.vars == other.vars
+            and self.isolate == other.isolate
+            and self.passvars == other.passvars
+            and self.addinputs == other.addinputs
+        )
+
+
 # we want ConfigurationSpec to be standalone and easily serializable
 class ConfigurationSpec(object):
     @classmethod
@@ -47,7 +91,9 @@ class ConfigurationSpec(object):
             className=None,
             majorVersion=0,
             minorVersion="",
-            intent=Defaults.intent,
+            workflow=Defaults.workflow,
+            timeout=None,
+            environment=None,
             inputs=None,
             inputSchema=None,
             preConditions=None,
@@ -62,7 +108,9 @@ class ConfigurationSpec(object):
         className=None,
         majorVersion=0,
         minorVersion="",
-        intent=Defaults.intent,
+        workflow=Defaults.workflow,
+        timeout=None,
+        environment=None,
         inputs=None,
         inputSchema=None,
         preConditions=None,
@@ -75,14 +123,18 @@ class ConfigurationSpec(object):
         self.className = className
         self.majorVersion = majorVersion
         self.minorVersion = minorVersion
-        self.intent = intent
+        self.workflow = workflow
+        self.timeout = timeout
+        self.environment = Environment(**(environment or {}))
         self.inputs = inputs or {}
-        self.inputSchema = inputSchema or {}
+        self.inputSchema = inputSchema
         self.preConditions = preConditions
         self.postConditions = postConditions
         self.installer = installer
 
     def findInvalidateInputs(self, inputs):
+        if not self.inputSchema:
+            return []
         return findSchemaErrors(serializeValue(inputs), self.inputSchema)
 
     # XXX same for postConditions
@@ -115,7 +167,9 @@ class ConfigurationSpec(object):
             and self.className == other.className
             and self.majorVersion == other.majorVersion
             and self.minorVersion == other.minorVersion
-            and self.intent == other.intent
+            and self.workflow == other.workflow
+            and self.timeout == other.timeout
+            and self.environment == other.environment
             and self.inputs == other.inputs
             and self.inputSchema == self.inputSchema
             and self.preConditions == other.preConditions
@@ -227,8 +281,9 @@ class TaskView(object):
         self.target = target
         self.reason = reason
         # XXX refcontext should include TARGET HOST etc.
-        self._inputs = None
         # private:
+        self._inputs = None
+        self._environ = None
         self._manifest = manifest
         self.messages = []
         self._addedResources = []
@@ -238,18 +293,50 @@ class TaskView(object):
 
     @property
     def inputs(self):
+        """
+        Exposes inputs and task settings as expression variables, so they can be accessed like:
+
+        eval: $inputs::param
+
+        or in jinja2 templates:
+
+        {{ inputs.param }}
+        """
         if self._inputs is None:
-            """
-            command: {{ inputs.param }}
-            """
+            # XXX should ConfigTask be full ResourceRef so we can have live view of status etc.?
+            # this way we could enable resumable pending tasks (could save state in operation results)
+            inputs = self.configSpec.inputs.copy()
+            vars = dict(inputs=inputs, task=self.getSettings())
             # expose inputs lazily to allow self-referencee
-            vars = dict(inputs=self.configSpec.inputs)
-            # verbose = jobOptions.verbose
-            # expose configname, env, operation, verbosity, timeout, dryrun, changeid, outputs
-            self._inputs = ResultsMap(
-                self.configSpec.inputs, RefContext(self.target, vars)
-            )
+            self._inputs = ResultsMap(inputs, RefContext(self.target, vars))
         return self._inputs
+
+    @property
+    def environ(self):
+        if self._environ is None:
+            env = self.configSpec.environment.getSystemVars()
+            specvars = serializeValue(
+                mapValue(self.configSpec.environment.vars, self.inputs.context),
+                resolveExternal=True,
+            )
+            if self.configSpec.environment.addinputs:
+                env.update(serializeValue(self.inputs), resolveExternal=True)
+            # XXX validate that all vars are bytes or string (json serialize if not?)
+            env.update(specvars)
+            self._environ = env
+
+        return self._environ
+
+    def getSettings(self):
+        return dict(
+            verbose=self.verbose,
+            name=self.configSpec.name,
+            dryRun=self.dryRun,
+            workflow=self.configSpec.workflow,
+            operation=self.configSpec.operation,
+            timeout=self.configSpec.timeout,
+            target=self.target.name,
+        )
 
     def addMessage(self, message):
         self.messages.append(message)
@@ -567,14 +654,11 @@ class Dependency(ChangeAware):
 
 
 def getConfigSpecArgsFromImplementation(implementation, inputs=None):
-    timeout = None
     kw = dict(inputs=inputs)
     configSpecArgs = ConfigurationSpec.getDefaults()
     if isinstance(implementation, dict):
         for name, value in implementation.items():
-            if name == "timeout":
-                timeout = value
-            elif name == "primary":
+            if name == "primary":
                 implementation = value
                 if isinstance(implementation, dict):
                     # it's an artifact definition
@@ -588,9 +672,14 @@ def getConfigSpecArgsFromImplementation(implementation, inputs=None):
             lookupClass(implementation)
             kw["className"] = implementation
         except UnfurlError:
-            # assume its executable file, create a ShellConfigurator
+            # assume its a command line, create a ShellConfigurator
             kw["className"] = "unfurl.configurators.shell.ShellConfigurator"
-            shellArgs = dict(command=[implementation], timeout=timeout)
+            shell = inputs and inputs.get("shell")
+            if shell is False or re.match(r"[\w-.]+\Z", implementation):
+                # don't use the shell
+                shellArgs = dict(command=[implementation])
+            else:
+                shellArgs = dict(command=implementation)
             if inputs:
                 shellArgs.update(inputs)
             kw["inputs"] = shellArgs

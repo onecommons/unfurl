@@ -43,8 +43,7 @@ spec:
             vars:
               aLocalDict:
                eval:
-                # XXX test with secret instead (need to propagate secretness)
-                secret: aDict
+                 secret: aDict
             # trace: 1
       interfaces:
         Standard:

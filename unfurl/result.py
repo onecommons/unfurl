@@ -130,13 +130,14 @@ class Result(ChangeAware):
             self.external = None
 
     def asRef(self, options=None):
+        options = options or {}
         if self.external:
-            ref = self.external.asRef()
-            if self.select:
+            ref = self.external.asRef(options)
+            if self.select and not options.get("resolveExternal"):
                 ref["foreach"] = "." + "::".join(self.select)
             return ref
         else:
-            val = serializeValue(self.resolved, **(options or {}))
+            val = serializeValue(self.resolved, **options)
             return val
 
     def hasDiff(self):

@@ -5,14 +5,7 @@ import json
 from ruamel.yaml.comments import CommentedMap
 from .tosca import ToscaSpec, TOSCA_VERSION
 
-from .support import (
-    ResourceChanges,
-    AttributeManager,
-    Status,
-    Priority,
-    Action,
-    Defaults,
-)
+from .support import ResourceChanges, AttributeManager, Status, Priority, Defaults
 from .runtime import OperationalInstance, Resource, Capability, Relationship
 from .util import UnfurlError, toEnum
 from .configurator import Dependency, ConfigurationSpec
@@ -187,7 +180,7 @@ class Manifest(AttributeManager):
             spec["className"],
             spec.get("majorVersion"),
             spec.get("minorVersion", ""),
-            intent=toEnum(Action, spec.get("intent", Defaults.intent)),
+            workflow=spec.get("workflow", Defaults.workflow),
             inputs=spec.get("inputs"),
             inputSchema=spec.get("inputSchema"),
             preConditions=spec.get("preConditions"),

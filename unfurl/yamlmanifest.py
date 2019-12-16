@@ -41,7 +41,7 @@
       name1:
         className
         version
-        intent
+        operation
         inputs:
   status:
     topology: repo:topology_template:revision
@@ -136,10 +136,10 @@ import os.path
 import itertools
 import json
 
-from .util import UnfurlError, VERSION, toYamlText, restoreIncludes, patchDict
+from .util import UnfurlError, toYamlText, restoreIncludes, patchDict
 from .yamlloader import YamlConfig, loadFromRepo, load_yaml, yaml
 from .result import serializeValue
-from .support import ResourceChanges, Status, Priority, Action
+from .support import ResourceChanges, Status, Defaults
 from .localenv import LocalEnv
 from .job import JobOptions, Runner
 from .manifest import Manifest, ChangeRecordAttributes
@@ -158,7 +158,7 @@ _basepath = os.path.abspath(os.path.dirname(__file__))
 
 
 def saveConfigSpec(spec):
-    saved = CommentedMap([("intent", spec.intent.name), ("className", spec.className)])
+    saved = CommentedMap([("operation", spec.operation), ("className", spec.className)])
     if spec.majorVersion:
         saved["majorVersion"] = spec.majorVersion
     if spec.minorVersion:
@@ -406,7 +406,7 @@ class YamlManifest(Manifest):
         output["jobId"] = job.changeId
         output["startTime"] = job.startTime
         options = job.jobOptions.getUserSettings()
-        output["workflow"] = options.pop("workflow", "deploy")
+        output["workflow"] = options.pop("workflow", Defaults.workflow)
         output["options"] = options
         output["summary"] = "{total} tasks ({ok} ok, {error} failed)".format(
             **job.stats()

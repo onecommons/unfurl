@@ -16,14 +16,14 @@ spec:
         properties:
           chart:
             type: string
-          release-name:
+          release_name:
             type: string
         interfaces:
           Install:
             type: unfurl.interfaces.install.Helm
             inputs:
               chart: {get_property: ['SELF', 'chart']}
-              release-name: {get_property: ['SELF', 'release-name']}
+              release_name: {get_property: ['SELF', 'release_name']}
 
     interface_types:
       unfurl.interfaces.install.Helm:
@@ -49,29 +49,40 @@ spec:
                 implementation:
                   primary: DummyShellConfigurator
                   timeout: 9999
+                  operation_host: ORCHESTRATOR # SELF or HOST or resource name
+                  environment:
+                    isolate: true
+                    addinputs: true
+                    passvars:
+                      - ANSIBLE_VERBOSITY
+                      - UNFURL_LOGGING
+                      - ANDROID_*
+                    vars:
+                      FOO: "{{}}"
               default:
                 implementation: HelmConfigurator
               instantiate:
                 inputs:
                   helmcmd: install
                   command:
-                   q:
                     eval:
                       template: |
-                        helm {{helmcmd}} {{release-name}} {{inputs.chart}} 
+                        helm {{inputs.helmcmd}} {{inputs.release_name}} {{inputs.chart}}
                           # XXX namespace= .::namespace,
                           # {%if .kubecontext, --kubecontext}} {%if .kubeconfig
-                          {%if dryrun%}--dry-run{%endif%}
+                          {%if task.dryrun%}--dry-run{%endif%}
                           --values {{ valuesfile }}
-                          {%if verbose%}--debug{%endif%}
-                          {%if timeout%}--timeout {{timeout}}{%endif%}
-                          {%for flag in inputs.flags%}
-                            --{{flag}} "{{flags[flag]}}"
+                          {%if task.verbose%}--debug{%endif%}
+                          {%if task.timeout%}--timeout {{task.timeout}}{%endif%}
+                          {%if inputs.flags%}
+                          {%for flag, value in inputs.flags.items() %}
+                            --{{flag}} "{{value}}"
                           {%endfor%}
+                          {%endif%}
                       vars:
                         valuesfile:
                           eval:
-                            tempfile: .::inputs::values
+                            tempfile: $inputs::values
               update:
                   helm upgrade [RELEASE] [CHART] [flags]
               delete:
@@ -82,8 +93,8 @@ spec:
                   command: helm get manifest RELEASE_NAME
                   resultTemplate: >
                     {%for doc in output | yaml %}
-                      {%if doc['kind']|defined %}
-                      name: doc['spec']['name']
+                      {%if doc.kind|defined %}
+                      name: doc.spec.name
                       parent: .self
                       nodeType: unfurl.nodes.K8sResource # or secret if doc[kind] is
                     secret

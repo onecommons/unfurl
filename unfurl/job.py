@@ -7,12 +7,11 @@ Each task tracks and records its modifications to the system's state
 import collections
 import datetime
 import types
-import six
 import itertools
-from .support import Status, Priority, AttributeManager
+from .support import Status, Priority, Defaults, AttributeManager
 from .result import serializeValue, ChangeRecord
 from .util import UnfurlError, UnfurlTaskError, mergeDicts, ansibleDisplay, toEnum
-from .runtime import OperationalInstance, Operational
+from .runtime import OperationalInstance
 from .configurator import TaskView, ConfiguratorResult, ConfigOp
 from .plan import Plan
 
@@ -83,7 +82,7 @@ class JobOptions(object):
         replace=None,
         cmdline=None,
         commit=True,
-        workflow="deploy",
+        workflow=Defaults.workflow,
     )
 
     def __init__(self, **kw):
@@ -117,6 +116,7 @@ class ConfigTask(ConfigChange, TaskView, AttributeManager):
         self.startTime = job.startTime or datetime.datetime.now()
         self.errors = []
         self.dryRun = job.dryRun
+        self.verbose = job.verbose
         self._configurator = None
         self.generator = None
         self.job = job
@@ -389,7 +389,7 @@ class Job(ConfigChange):
 
     def filterConfig(self, config, target):
         opts = self.jobOptions
-        if opts.readonly and config.intent != "discover":
+        if opts.readonly and config.workflow != "discover":
             return None, "read only"
         if opts.requiredOnly and not config.required:
             return None, "required"

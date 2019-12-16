@@ -177,16 +177,13 @@ class RunTest(unittest.TestCase):
     """
   XXX:
   test status: report last state, report config changes, report plan
-  test read-ony/discover
+  test discover
   test failing configurations with abort, continue, revert (both capable of reverting and not)
   test incomplete runs
   test unexpected errors, terminations
   test locking
   test required metadata on resources
   """
-
-    # XXX3 test case: a failed configuration with intent=revert should stay in configurations as error
-    # XXX3 test: hide configurations that are both notpresent and revert / skip
 
     def test_manifest(self):
         simple = (

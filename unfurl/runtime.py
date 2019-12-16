@@ -16,7 +16,7 @@ from .util import UnfurlError, loadClass, toEnum
 from .result import ResourceRef, ChangeAware
 
 # from .local import LocalEnv
-from .support import AttributeManager, Defaults, Status, Action, Priority
+from .support import AttributeManager, Defaults, Status, Priority
 from .tosca import CapabilitySpec, RelationshipSpec, NodeSpec, TopologySpec
 
 import logging
@@ -24,9 +24,6 @@ import logging
 logger = logging.getLogger("unfurl")
 
 # CF 3.4.1 Node States p61
-
-S = Status
-A = Action
 
 
 class Operational(ChangeAware):

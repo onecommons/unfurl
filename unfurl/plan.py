@@ -69,7 +69,7 @@ class Plan(object):
         return Resource(template.name, template=template, parent=parent)
 
     def createShellConfigurator(self, cmdLine, action, inputs=None, timeout=None):
-        params = dict(command=cmdLine, timeout=timeout)
+        params = dict(command=cmdLine)
         if inputs:
             params.update(inputs)
         return ConfigurationSpec(
@@ -77,6 +77,7 @@ class Plan(object):
             action,
             className="unfurl.configurators.shell.Configurator",
             inputs=params,
+            timeout=timeout,
         )
 
     def getConfigurationSpecFromInterface(self, iDef, action, installerName=None):

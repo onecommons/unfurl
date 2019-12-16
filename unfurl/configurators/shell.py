@@ -3,16 +3,18 @@ inputs:
  command: "--switch {{ '.::foo' | ref }}"
  timeout: 9999
  resultTemplate:
-  # cmd, stdout, stderr
-  ref:
+  q: # cmd, stdout, stderr
+   ref:
     file:
       ./handleResult.tpl
-  select: contents
+  foreach: contents
 """
 
-# support tosca 4.2 Environment Variable Conventions (p 153)
+
+# support tosca 4.2 Environment Variable Conventions (p 178)
 # at least expose config parameters
 # see also 13.3.1 Shell scripts p 328
+
 # XXX add support for a stdin parameter
 
 from ..configurator import Configurator, Status
@@ -48,7 +50,7 @@ except ImportError:
 # XXX set environment vars
 # XXX we should know if cmd if not os.access(implementation, os.X):
 class ShellConfigurator(Configurator):
-    def runProcess(self, cmd, shell=False, timeout=None):
+    def runProcess(self, cmd, shell=False, timeout=None, env=None):
         """
     Returns an object with the following attributes:
 
@@ -68,6 +70,7 @@ class ShellConfigurator(Configurator):
             completed = subprocess.run(
                 cmd,
                 shell=shell,
+                env=env,
                 timeout=timeout,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
@@ -86,7 +89,8 @@ class ShellConfigurator(Configurator):
             completed.error = None
             return completed
         except subprocess.TimeoutExpired as err:
-            completed.timeout = timeout
+            err.cmd = cmdStr
+            err.timeout = timeout
             err.returncode = None
             err.error = None
             return err
@@ -102,9 +106,9 @@ class ShellConfigurator(Configurator):
     def handleResult(self, task, result, resultTemplate=None):
         status = Status.error if result.error or result.returncode else Status.ok
         if status == Status.error:
-            logger.warning("shell task failed %s", result)
+            logger.warning('shell task "%s" failed: %s', result.cmd, result)
         else:
-            logger.info("ran shell task %s", result)
+            logger.info('ran shell task "%s" success: %s', result.cmd, result)
 
         if status != Status.error and resultTemplate:
             results = task.query(
@@ -129,7 +133,9 @@ class ShellConfigurator(Configurator):
         cmd = params["command"]
         # default for shell: True if command is a string otherwise False
         shell = params.get("shell", isinstance(cmd, six.string_types))
-        result = self.runProcess(cmd, shell=shell, timeout=params.get("timeout"))
+        result = self.runProcess(
+            cmd, shell=shell, timeout=task.configSpec.timeout, env=task.environ
+        )
         status = self.handleResult(task, result, params.get("resultTemplate"))
         modified = True  # XXX
         yield task.done(status == Status.ok, modified, result=result.__dict__)

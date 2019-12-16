@@ -80,7 +80,7 @@
                 "className": {"type": "string"},
                 "majorVersion": {"anyOf": [{"type": "string"}, {"type": "number"}]},
                 "minorVersion": {"type": "string"},
-                "intent": {"$ref": "#/definitions/action"},
+                "workflow": {"type": "string"},
                 "inputs": {"$ref": "#/definitions/attributes", "default": {}},
                 "preconditions": {"$ref": "#/definitions/schema", "default": {}}
             },

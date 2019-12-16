@@ -47,7 +47,7 @@ class RunTest(unittest.TestCase):
         job2 = Runner(manifest2).run(
             JobOptions(add=True, out=output2, startTime="test")
         )
-        # print('2', output2.getvalue())
+        # print("2", output2.getvalue())
         assert not job2.unexpectedAbort, job2.unexpectedAbort.getStackTrace()
 
         # should not find any tasks to run

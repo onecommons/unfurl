@@ -10,14 +10,19 @@ apiVersion: unfurl/v1alpha1
 kind: Manifest
 configurations:
   create:
-    implementation: unfurl.configurators.shell.ShellConfigurator
+    implementation:
+      className: unfurl.configurators.shell.ShellConfigurator
+      environment:
+        vars:
+          FOO: "{{inputs.foo}}"
     inputs:
        # test that self-references works in jinja2 templates
-       command: "echo '{{inputs.foo}}'"
+       command: "echo ${{inputs.envvar}}"
        timeout: 9999
-       foo: helloworld
+       foo:     helloworld
+       envvar:  FOO
        resultTemplate:
-         # we need to quote this because it needs to be evaluated after the operation runs
+         # we need to quote this because it needs to be evaluated after the operation run
           q: |
              - name: .self
                attributes:
