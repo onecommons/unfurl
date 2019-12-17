@@ -16,6 +16,7 @@ import os.path
 from . import __version__
 from .tosca import TOSCA_VERSION
 from .repo import Repo, GitRepo
+from .util import UnfurlError
 
 
 def _writeFile(dir, filename, content):
@@ -239,11 +240,18 @@ def createMonoRepoProject(projectdir, repo):
     return projectConfigPath
 
 
-def createProject(projectdir, home=None):
+def createProject(projectdir, home=None, mono=False, existing=False, **kw):
+    if existing:
+        repo = Repo.findContainingRepo(projectdir)
+        if not repo:
+            raise UnfurlError("Could not find an existing repository")
+    else:
+        repo = None
     newHome = createHome(home)
-    currentRepo = Repo.findContainingRepo(projectdir)
-    if currentRepo:
-        return newHome, createMonoRepoProject(projectdir, currentRepo)
+    if mono or existing:
+        if not repo:
+            repo = _createRepo("mono", projectdir)
+        return newHome, createMonoRepoProject(projectdir, repo)
     else:
         return newHome, createMultiRepoProject(projectdir)
 

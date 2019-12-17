@@ -84,8 +84,8 @@ jobControlOptions = option_group(
 
 @cli.command(short_help="Record and run an ad-hoc command")
 @click.pass_context
-@click.argument("action", default="*:upgrade")
-@click.argument("resource_name", nargs=1, default="root")  # use:configurator
+# @click.argument("action", default="*:upgrade")
+@click.argument("instance", nargs=1, default="root")  # use:configurator
 @click.option("--manifest", default="", type=click.Path(exists=False))
 @click.option(
     "--append", default=False, is_flag=True, help="add this command to the previous"
@@ -95,21 +95,23 @@ jobControlOptions = option_group(
 )
 @jobControlOptions
 @click.argument("cmdline", nargs=-1)
-def run(ctx, action, resource_name="root", cmdline=None, **options):
+def run(ctx, instance="root", cmdline=None, **options):
     """
     Run an ad-hoc command in the context of the given manifest
 
-    [resource name] [action] [--save] -- command line
+    [instance name]  [--save] -- command line
 
     Add command to the given resource's installer and then deploys it.
 
     If resource name is omitted use the root installer.
 
     Example:
-    > unfurl run add -- helm install blah --kubecontext {{inputs.kubecontext}}
+    > unfurl run -- helm install blah --kubecontext {{inputs.kubecontext}}
 
     """
     options.update(ctx.obj)
+    options["instance"] = instance
+    options["cmdline"] = cmdline
     # XXX parse action and use, update manifest and job
     return _run(options.pop("manifest"), options, ctx)
 
@@ -237,6 +239,18 @@ def plan(ctx, manifest=None, **options):
 @cli.command(short_help="Create a new unfurl project")
 @click.pass_context
 @click.argument("projectdir", default=".", type=click.Path(exists=False))
+@click.option(
+    "--mono",
+    default=False,
+    is_flag=True,
+    help="Create a one repository for both spec and instances.",
+)
+@click.option(
+    "--existing",
+    default=False,
+    is_flag=True,
+    help="Add project to nearest existing repository.",
+)
 def init(ctx, projectdir, **options):
     """
 unfurl init [project] # creates a unfurl project with new spec and instance repos
@@ -249,7 +263,7 @@ unfurl init [project] # creates a unfurl project with new spec and instance repo
         elif os.listdir(projectdir):
             raise click.ClickException(projectdir + " is not empty")
 
-    homePath, projectPath = createProject(projectdir, options["home"])
+    homePath, projectPath = createProject(projectdir, **options)
     if homePath:
         click.echo("unfurl home created at %s" % homePath)
     click.echo("New Unfurl project created at %s" % projectPath)
