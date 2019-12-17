@@ -408,9 +408,7 @@ class YamlManifest(Manifest):
         options = job.jobOptions.getUserSettings()
         output["workflow"] = options.pop("workflow", Defaults.workflow)
         output["options"] = options
-        output["summary"] = "{total} tasks ({ok} ok, {error} failed)".format(
-            **job.stats()
-        )
+        output["summary"] = job.stats(asMessage=True)
         if self.currentCommitId:
             output["startCommit"] = self.currentCommitId
         output["specDigest"] = self.specDigest

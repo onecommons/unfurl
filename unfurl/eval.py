@@ -83,7 +83,13 @@ class _Tracker(object):
 
 class RefContext(object):
     def __init__(
-        self, currentResource, vars=None, wantList=False, resolveExternal=False, trace=0
+        self,
+        currentResource,
+        vars=None,
+        wantList=False,
+        resolveExternal=False,
+        trace=0,
+        strict=False,
     ):
         self.vars = vars or {}
         # the original context:
@@ -95,17 +101,19 @@ class RefContext(object):
         self.wantList = wantList
         self.resolveExternal = resolveExternal
         self._trace = trace
+        self.strict = strict
         self.baseDir = currentResource.root.baseDir
         self.templar = currentResource.templar
         self.referenced = _Tracker()
 
-    def copy(self, resource=None, vars=None, wantList=None, trace=0):
+    def copy(self, resource=None, vars=None, wantList=None, trace=0, strict=None):
         copy = RefContext(
             resource or self.currentResource,
             self.vars,
             self.wantList,
             self.resolveExternal,
             max(self._trace, trace),
+            self.strict if strict is None else strict,
         )
         if not isinstance(copy.currentResource, ResourceRef) and isinstance(
             self._lastResource, ResourceRef
@@ -302,14 +310,16 @@ class Ref(object):
             self.vars.update(vars)
         self.source = exp
 
-    def resolve(self, ctx, wantList=True):
+    def resolve(self, ctx, wantList=True, strict=False):
         """
     If wantList=True (default) returns a ResultList of matches
     Note that values in the list can be a list or None
     If wantList=False return `resolveOne` semantics
     If wantList='result' return a Result
     """
-        ctx = ctx.copy(vars=self.vars, wantList=wantList, trace=self.trace)
+        ctx = ctx.copy(
+            vars=self.vars, wantList=wantList, trace=self.trace, strict=strict
+        )
         ctx.trace("Ref.resolve(wantList=%s) start" % wantList, self.source)
         results = evalRef(self.source, ctx, True)
         ctx.trace("Ref.resolve(wantList=%s) evalRef" % wantList, self.source, results)
@@ -335,7 +345,7 @@ class Ref(object):
                 else:
                     return list(results)
 
-    def resolveOne(self, ctx):
+    def resolveOne(self, ctx, strict=False):
         """
     If no match return None
     If more than one match return a list of matches
@@ -345,7 +355,7 @@ class Ref(object):
     or between single match that is a list and a list of matches
     use resolve() which always returns a (possible empty) of matches
     """
-        return self.resolve(ctx, False)
+        return self.resolve(ctx, False, strict)
 
     @staticmethod
     def isRef(value):

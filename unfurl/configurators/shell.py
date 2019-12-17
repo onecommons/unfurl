@@ -106,9 +106,9 @@ class ShellConfigurator(Configurator):
     def handleResult(self, task, result, resultTemplate=None):
         status = Status.error if result.error or result.returncode else Status.ok
         if status == Status.error:
-            logger.warning('shell task "%s" failed: %s', result.cmd, result)
+            logger.warning('shell task "%s" failed', result.cmd)
         else:
-            logger.info('ran shell task "%s" success: %s', result.cmd, result)
+            logger.info('ran shell task "%s" success', result.cmd)
 
         if status != Status.error and resultTemplate:
             results = task.query(
@@ -116,6 +116,8 @@ class ShellConfigurator(Configurator):
             )
             if results and results.strip():
                 task.updateResources(results)
+            if task.errors:
+                return Status.error
         return status
 
     def cantRun(self, task):
@@ -129,7 +131,6 @@ class ShellConfigurator(Configurator):
 
     def run(self, task):
         params = task.inputs
-        assert not self.cantRun(task)
         cmd = params["command"]
         # default for shell: True if command is a string otherwise False
         shell = params.get("shell", isinstance(cmd, six.string_types))
@@ -137,5 +138,4 @@ class ShellConfigurator(Configurator):
             cmd, shell=shell, timeout=task.configSpec.timeout, env=task.environ
         )
         status = self.handleResult(task, result, params.get("resultTemplate"))
-        modified = True  # XXX
-        yield task.done(status == Status.ok, modified, result=result.__dict__)
+        yield task.done(status == Status.ok, status=status, result=result.__dict__)

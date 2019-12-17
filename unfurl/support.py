@@ -152,7 +152,12 @@ class _VarTrackerDict(dict):
 
 def applyTemplate(value, ctx):
     if not isinstance(value, six.string_types):
-        raise UnfurlError("ansible template must be a string")
+        msg = "Error rendering template: source must be a string, not %s" % type(value)
+        if ctx.strict:
+            raise UnfurlError(msg)
+        else:
+            return "<<%s>>" % msg
+
     # implementation notes:
     #   see https://github.com/ansible/ansible/test/units/template/test_templar.py
     #   dataLoader is only used by _lookup and to set _basedir (else ./)
@@ -163,6 +168,10 @@ def applyTemplate(value, ctx):
             loader.set_basedir(ctx.baseDir)
         templar = Templar(loader)
         ctx.templar = templar
+
+    ctx.templar.environment.trim_blocks = False
+    # ctx.templar.environment.lstrip_blocks = False
+    fail_on_undefined = True
 
     vars = _VarTrackerDict(__unfurl=ctx)
     vars.update(ctx.vars)
@@ -179,17 +188,25 @@ def applyTemplate(value, ctx):
     try:
         # strip whitespace so jinija native types resolve even with extra whitespace
         # disable caching so we don't need to worry about the value of a cached var changing
-        value = ctx.templar.template(
-            value.strip(), cache=False, fail_on_undefined=False
-        )
-        if value != oldvalue:
-            ctx.trace("processed template:", value)
-            for result in ctx.referenced.getReferencedResults(index):
-                if isSensitive(result.external or result.resolved):
-                    ctx.trace("setting template result as sensitive")
-                    return SensitiveValue(
-                        value
-                    )  # mark the template result as sensitive
+        try:
+            value = ctx.templar.template(
+                value.strip(), cache=False, fail_on_undefined=fail_on_undefined
+            )
+        except Exception as e:
+            value = "<<Error rendering template: %s>>" % str(e)
+            if ctx.strict:
+                raise UnfurlError(value)
+            else:
+                logger.warning(value, exc_info=True)
+        else:
+            if value != oldvalue:
+                ctx.trace("successfully processed template:", value)
+                for result in ctx.referenced.getReferencedResults(index):
+                    if isSensitive(result.external or result.resolved):
+                        ctx.trace("setting template result as sensitive")
+                        return SensitiveValue(
+                            value
+                        )  # mark the template result as sensitive
     finally:
         ctx.referenced.stop()
     return value

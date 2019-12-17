@@ -62,8 +62,8 @@ class JobOptions(object):
         startTime=None,
         out=None,
         verbose=0,
-        resource=None,
-        resources=None,
+        instance=None,
+        instances=None,
         template=None,
         useConfigurator=False,
         # default options:
@@ -87,6 +87,7 @@ class JobOptions(object):
 
     def __init__(self, **kw):
         options = self.defaults.copy()
+        options["instance"] = kw.get("resource")  # old option name
         options.update(kw)
         self.__dict__.update(options)
         self.userConfig = kw
@@ -108,7 +109,7 @@ class ConfigTask(ConfigChange, TaskView, AttributeManager):
   """
 
     def __init__(self, job, configSpec, target, parentId=None, reason=None):
-        ConfigChange.__init__(self, lastConfigChange=target.lastConfigChange)
+        ConfigChange.__init__(self)
         TaskView.__init__(self, job.runner.manifest, configSpec, target, reason)
         AttributeManager.__init__(self)
         self.parentId = parentId or job.changeId
@@ -259,13 +260,16 @@ class ConfigTask(ConfigChange, TaskView, AttributeManager):
         self._updateStatus(result)
         self._updateLastChange(result)
         self.result = result
-        if result.success is None:
-            # XXX require success flag to be set and remove this hack
-            self.localStatus = (
-                Status.error if result.readyState == Status.error else Status.ok
-            )
+        if result.applied:
+            if result.success is None:
+                # XXX require success flag to be set and remove this hack
+                self.localStatus = (
+                    Status.error if result.readyState == Status.error else Status.ok
+                )
+            else:
+                self.localStatus = Status.ok if result.success else Status.error
         else:
-            self.localStatus = Status.ok if result.success else Status.error
+            self.localStatus = Status.notapplied
         return self
 
     def commitChanges(self):
@@ -281,10 +285,8 @@ class ConfigTask(ConfigChange, TaskView, AttributeManager):
         """
     Evaluate configuration spec's inputs and compare with the current inputs' values
     """
-        # XXX this is really a "reconfiguration" operation, which can be distinct from 'configure'
         _parameters = None
-        if self.lastConfigChange:
-            # XXX this is currently target.lastConfigChange, not the lastConfigChange of this operation
+        if self.lastConfigChange:  # XXX this isn't set right now
             changeset = self._manifest.loadConfigChange(self.lastConfigChange)
             _parameters = changeset.inputs
         if not _parameters:
@@ -323,7 +325,7 @@ class ConfigTask(ConfigChange, TaskView, AttributeManager):
         else:
             cname = self.configSpec.name
         return (
-            "{action} on resource {rname} (type {rtype}, status {rstatus}) "
+            "{action} on instance {rname} (type {rtype}, status {rstatus}) "
             + "using configurator {cname}, priority: {priority}, reason: {reason}"
         ).format(
             action=self.configSpec.operation,
@@ -393,10 +395,10 @@ class Job(ConfigChange):
             return None, "read only"
         if opts.requiredOnly and not config.required:
             return None, "required"
-        if opts.resource and target.name != opts.resource:
-            return None, "resource"
-        if opts.resources and target.name not in opts.resources:
-            return None, "resources"
+        if opts.instance and target.name != opts.instance:
+            return None, "instance"
+        if opts.instances and target.name not in opts.instances:
+            return None, "instances"
         return config, None
 
     def getCandidateTasks(self):
@@ -580,12 +582,20 @@ class Job(ConfigChange):
             tasks=[[name, task.status.name] for (name, task) in self.workDone.items()],
         )
 
-    def stats(self):
+    def stats(self, asMessage=False):
         tasks = self.workDone.values()
-        tasks = sorted(tasks, key=lambda t: t.status)
-        stats = dict(total=len(tasks), ok=0, error=0)
-        for k, g in itertools.groupby(tasks, lambda t: t.status):
-            stats[k.name] = len(list(g))
+        tasks = sorted(tasks, key=lambda t: t._localStatus)
+        stats = dict(total=len(tasks), ok=0, error=0, notapplied=0, skipped=0)
+        for k, g in itertools.groupby(tasks, lambda t: t._localStatus):
+            if not k:
+                stats["skipped"] = len(list(g))
+            else:
+                stats[k.name] = len(list(g))
+        stats["changed"] = len([t for t in tasks if t.result and t.result.modified])
+        if asMessage:
+            return "{total} tasks ({changed} changed, {ok} ok, {error} failed, {notapplied} notapplied, {skipped} skipped)".format(
+                **stats
+            )
         return stats
 
     def summary(self):
@@ -607,13 +617,10 @@ class Job(ConfigChange):
         def format(i, name, task):
             return "%d. %s; %s" % (i, task.summary(), task.result or "skipped")
 
-        stats = self.stats()
-        line1 = "Job %s completed: %s. %d tasks (%d ok, %d failed):\n    " % (
+        line1 = "Job %s completed: %s. %s:\n    " % (
             self.changeId,
             self.status.name,
-            stats["total"],
-            stats["ok"],
-            stats["error"],
+            self.stats(asMessage=True),
         )
         tasks = "\n    ".join(
             format(i + 1, name, task)

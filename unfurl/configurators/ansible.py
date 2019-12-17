@@ -27,6 +27,8 @@ def ansibleResults(result, extraKeys=()):
     # XXX map ansible facts and user set variables, needed for result templates
     # https://docs.ansible.com/ansible/latest/user_guide/playbooks_variables.html#variables-discovered-from-systems-facts
     """
+  Returns a dictionary containing at least:
+
   stderr
   stdout
   returncode (None if the process didn't complete)
@@ -184,7 +186,9 @@ class AnsibleConfigurator(Configurator):
                     modified = True
             else:
                 modified = False
-            yield task.done(status == Status.ok, modified, result=result)
+            yield task.done(
+                status == Status.ok and not task.errors, modified, result=result
+            )
         finally:
             self._cleanup()
 

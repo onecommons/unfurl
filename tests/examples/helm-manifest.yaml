@@ -31,7 +31,7 @@ spec:
         inputs:
           chart:
             type: string
-          release-name:
+          release_name:
             type: string
           flags:
             type: list
@@ -66,18 +66,18 @@ spec:
                   helmcmd: install
                   command:
                     eval:
-                      template: |
+                      template: >
                         helm {{inputs.helmcmd}} {{inputs.release_name}} {{inputs.chart}}
-                          # XXX namespace= .::namespace,
-                          # {%if .kubecontext, --kubecontext}} {%if .kubeconfig
+                          --namespace {{".namespace" | ref}}
+                          {%if .kubecontext %} --kubecontext {{ }} {%endif%}
                           {%if task.dryrun%}--dry-run{%endif%}
                           --values {{ valuesfile }}
-                          {%if task.verbose%}--debug{%endif%}
-                          {%if task.timeout%}--timeout {{task.timeout}}{%endif%}
-                          {%if inputs.flags%}
-                          {%for flag, value in inputs.flags.items() %}
-                            --{{flag}} "{{value}}"
-                          {%endfor%}
+                          {%if task.verbose %}--debug{%endif%}
+                          {%if task.timeout %}--timeout {{task.timeout}}{%endif%}
+                          {%if inputs.flags %}
+                            {%for flag, value in inputs.flags.items() %}
+                              --{{flag}} "{{value | quote }}"
+                            {%endfor%}
                           {%endif%}
                       vars:
                         valuesfile:
@@ -90,18 +90,36 @@ spec:
                   command: helm uninstall RELEASE_NAME
               discover:
                 inputs:
-                  command: helm get manifest RELEASE_NAME
-                  resultTemplate: >
-                    {%for doc in output | yaml %}
-                      {%if doc.kind|defined %}
-                      name: doc.spec.name
-                      parent: .self
-                      nodeType: unfurl.nodes.K8sResource # or secret if doc[kind] is
-                    secret
-                      attributes:
-                        apiResource:
-                          doc
-                      # status: if doc[status][...]
+                  command: helm status -o json {{inputs.release_name}}
+                  resultTemplate: |
+                    {% set json = output | from_json %}
+                    {%for doc in json.manifest | from_yaml_all %}
+                      {%if doc.kind is defined %}
+                      - name: {{doc.kind}}.{{doc.spec.metadata.namespace }}.{{ doc.spec.metadata.name }}
+                        template:
+                          {%if doc.kind == 'Secret' %}
+                          type: unfurl.nodes.k8sSecretResource
+                          {% else %}
+                          type: unfurl.nodes.K8sResource
+                          {% endif %}
+                          requirements:
+                            host:
+                              {%if doc.spec.metadata.namespace is defined %}
+                              node_filter:
+                                type: unfurl.nodes.K8sNamespace
+                                properties:
+                                  name: {{doc.spec.metadata.namespace}}
+                              {% else %}
+                                HOST
+                              {%endif%}
+                        attributes:
+                          {%if doc.spec.metadata.namespace is defined %}
+                          namespace: {{doc.spec.metadata.namespace }}
+                          {% endif %}
+                          apiResource:
+                    {{ doc | to_yaml | indent(10, true) }}
+                        status:
+                          readyState: ok
                       {%endif%}
                     {% endfor %}
 
@@ -112,7 +130,7 @@ spec:
             - install: helm-installer
           properties:
             chart: gitlab/gitlab
-            release-name: foo
+            release_name: foo
           interfaces:
             Install:
               inputs:

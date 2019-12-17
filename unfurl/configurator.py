@@ -210,7 +210,7 @@ class ConfiguratorResult(object):
         self.exception = None
 
     def __str__(self):
-        result = "" if self.result is None else str(self.result)
+        result = "" if self.result is None else str(self.result)[:240] + "..."
         return (
             "changes: "
             + (
@@ -407,11 +407,16 @@ class TaskView(object):
         required=False,
         wantList=False,
         resolveExternal=True,
+        strict=True,
     ):
-        # XXX refcontext should include TARGET HOST etc.
-        result = Ref(query).resolve(
-            RefContext(self.target, resolveExternal=resolveExternal), wantList
-        )
+        # XXX refcontext should include TARGET HOST etc
+        # XXX pass resolveExternal to context?
+        try:
+            result = Ref(query).resolve(self.inputs.context, wantList, strict)
+        except:
+            UnfurlTaskError(self, "error evaluating query", True)
+            return None
+
         if dependency:
             self.addDependency(
                 query, result, name=name, required=required, wantList=wantList
@@ -443,10 +448,10 @@ class TaskView(object):
             self.dependenciesChanged = True
         return old
 
-    def createConfigurationSpec(self, name, configSpec):
-        if isinstance(configSpec, six.string_types):
-            configSpec = yaml.load(configSpec)
-        return self.manifest.loadConfigSpec(name, configSpec)
+    # def createConfigurationSpec(self, name, configSpec):
+    #     if isinstance(configSpec, six.string_types):
+    #         configSpec = yaml.load(configSpec)
+    #     return self._manifest.loadConfigSpec(name, configSpec)
 
     def _findConfigSpec(self, configSpecName):
         if self.configSpec.installer:
@@ -505,12 +510,15 @@ class TaskView(object):
           readyState: ok
     """
         # XXX if template isn't specified deduce from provides and template keys
-        # XXX allow nodetype instead of template
         from .manifest import Manifest
         from .job import JobRequest
 
         if isinstance(resources, six.string_types):
-            resources = yaml.load(resources)
+            try:
+                resources = yaml.load(resources)
+            except:
+                UnfurlTaskError(self, "unable to parse as YAML: %s" % resources, True)
+                return None
 
         errors = []
         newResources = []
@@ -545,14 +553,16 @@ class TaskView(object):
                     logger.info("updating resources %s", existingResource.name)
                     continue
 
-                resource = self.manifest.loadResource(
+                resource = self._manifest.loadResource(
                     rname, resourceSpec, parent=self.target.root
                 )
 
                 if resource.required or resourceSpec.get("dependent"):
                     self.addDependency(resource, required=resource.required)
             except:
-                errors.append(UnfurlAddingResourceError(self, originalResourceSpec))
+                errors.append(
+                    UnfurlAddingResourceError(self, originalResourceSpec, True)
+                )
             else:
                 newResourceSpecs.append(originalResourceSpec)
                 newResources.append(resource)
@@ -675,7 +685,7 @@ def getConfigSpecArgsFromImplementation(implementation, inputs=None):
             # assume its a command line, create a ShellConfigurator
             kw["className"] = "unfurl.configurators.shell.ShellConfigurator"
             shell = inputs and inputs.get("shell")
-            if shell is False or re.match(r"[\w-.]+\Z", implementation):
+            if shell is False or re.match(r"[\w.-]+\Z", implementation):
                 # don't use the shell
                 shellArgs = dict(command=[implementation])
             else:

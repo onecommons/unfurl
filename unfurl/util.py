@@ -83,11 +83,11 @@ VERSION = "unfurl/v1alpha1"  # api version
 class UnfurlError(Exception):
     def __init__(self, message, saveStack=False, log=False):
         if saveStack:
-            (type, value, traceback) = sys.exc_info()
+            (etype, value, traceback) = sys.exc_info()
             if value:
-                message += ": " + str(value)
+                message = str(message) + ": " + str(value)
         super(UnfurlError, self).__init__(message)
-        self.stackInfo = (type, value, traceback) if saveStack and value else None
+        self.stackInfo = (etype, value, traceback) if saveStack and value else None
         if log:
             logger.error(message, exc_info=True)
 
@@ -111,12 +111,12 @@ class UnfurlTaskError(UnfurlError):
 
 
 class UnfurlAddingResourceError(UnfurlTaskError):
-    def __init__(self, task, resourceSpec):
+    def __init__(self, task, resourceSpec, log=False):
         resourcename = isinstance(resourceSpec, Mapping) and resourceSpec.get(
             "name", ""
         )
         message = "error creating resource %s" % resourcename
-        super(UnfurlTaskError, self).__init__(task, message)
+        super(UnfurlAddingResourceError, self).__init__(task, message, log)
         self.resourceSpec = resourceSpec
 
 

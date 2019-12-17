@@ -36,7 +36,7 @@ yaml.representer.add_representer(None, represent_undefined)
 
 
 def represent_sensitive(dumper, data):
-    return dumper.represent_scalar(u"tag:yaml.org,2002:str", "[[REDACTED]]")
+    return dumper.represent_scalar(u"tag:yaml.org,2002:str", "<<REDACTED>>")
 
 
 yaml.representer.add_representer(sensitive_str, represent_sensitive)

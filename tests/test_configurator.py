@@ -86,9 +86,9 @@ class ConfiguratorTest(unittest.TestCase):
         # missing = runner.manifest.spec[0].findInvalidPreconditions(test1)
         # assert not missing, missing
 
-        run1 = runner.run(JobOptions(resource="test1"))
-        assert len(run1.workDone) == 1, run1.workDone
+        run1 = runner.run(JobOptions(instance="test1"))
         assert not run1.unexpectedAbort, run1.unexpectedAbort.getStackTrace()
+        assert len(run1.workDone) == 1, run1.jobOptions.summary()
 
     def test_preConditions(self):
         """test that the configuration only runs if the resource meets the requirements"""

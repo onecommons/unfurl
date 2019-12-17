@@ -65,7 +65,7 @@ class k8sTest(unittest.TestCase):
         job = Runner(manifest).run(JobOptions(add=True, startTime="time-to-test"))
         # print(job.summary())
         # verify secret contents isn't saved in config
-        self.assertIn("uri: '[[REDACTED]]'", job.out.getvalue())
+        self.assertIn("uri: <<REDACTED>>", job.out.getvalue())
         self.assertNotIn("a secret", job.out.getvalue())
         assert not job.unexpectedAbort
         assert job.status == Status.ok, job.summary()

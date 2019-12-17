@@ -31,7 +31,9 @@ class Plan(object):
 
     @staticmethod
     def getPlanClassForWorkflow(workflow):
-        return dict(deploy=DeployPlan, undeploy=UndeployPlan).get(workflow)
+        return dict(deploy=DeployPlan, undeploy=UndeployPlan, run=RunNowPlan).get(
+            workflow
+        )
 
     rootConfigurator = None  # XXX3
 
@@ -121,15 +123,18 @@ class Plan(object):
             # build a configuration that runs the given command
             configSpec = self.createShellConfigurator(cmdLine, action)
         else:
-            # get configuration from the resources Install or Standard interface
-            configSpec = None
-            requirements = resource.template.getRequirements("install")
-            if requirements:
-                installer = requirements[0]
-                if isinstance(installer, dict):
-                    installer = installer.get("node")
+            if useConfigurator:
+                installer = useConfigurator
             else:
-                installer = None
+                # get configuration from the resources Install or Standard interface
+                configSpec = None
+                requirements = resource.template.getRequirements("install")
+                if requirements:
+                    installer = requirements[0]
+                    if isinstance(installer, dict):
+                        installer = installer.get("node")
+                else:
+                    installer = None
 
             iDef = self.findImplementation("Install", action, resource.template)
             if not iDef:
@@ -371,6 +376,13 @@ class UndeployPlan(Plan):
         if self.filterTemplate and resource.template == self.filterTemplate:
             return None
         return "remove", oldTemplate
+
+
+class RunNowPlan(Plan):
+    def executePlan(self):
+        resource = self.root.findResource(self.jobOptions.instance or "root")
+        if resource:
+            yield self.generateConfiguration("run", resource, useConfigurator="run")
 
 
 def orderTemplates(graph, templates, filter=None):

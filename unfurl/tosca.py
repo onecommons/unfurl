@@ -60,10 +60,15 @@ class ToscaSpec(object):
     InstallerType = "unfurl.nodes.Installer"
 
     def __init__(self, toscaDef, inputs=None, instances=None, path=None):
-        # for key in tosca_ext_tpl:
-        toscaDef.setdefault(
-            "topology_template", dict(node_templates={}, relationship_templates={})
-        )
+        topology_tpl = toscaDef.get("topology_template")
+        if not topology_tpl:
+            toscaDef["topology_template"] = dict(
+                node_templates={}, relationship_templates={}
+            )
+        else:
+            for section in ["node_templates", "relationship_templates"]:
+                if not topology_tpl.get(section):
+                    topology_tpl[section] = {}
 
         if instances:
             self.loadInstances(toscaDef, instances)
@@ -114,9 +119,7 @@ class ToscaSpec(object):
                     implementation: TestConfigurator
                     inputs:
 """
-        node_templates = toscaDef.setdefault("topology_template", {}).setdefault(
-            "node_templates", {}
-        )
+        node_templates = toscaDef["topology_template"]["node_templates"]
         for name, impl in tpl.get("installers", {}).items():
             if name not in node_templates:
                 node_templates[name] = dict(type=self.InstallerType, properties=impl)
@@ -131,7 +134,10 @@ class ToscaSpec(object):
                 node_templates[name] = self.loadInstance(impl)
 
     def loadInstance(self, impl):
-        template = {"type": "unfurl.nodes.Default"}
+        template = {
+            "type": impl.get("type", "unfurl.nodes.Default"),
+            "properties": impl.get("properties", {}),
+        }
         installer = impl.get("install")
         if installer:
             template["requirements"] = [{"install": installer}]
@@ -219,6 +225,10 @@ class TopologySpec(EntitySpec):
         self.outputs = {output.name: output.value for output in template.outputs}
         self.properties = {}
         self.defaultAttributes = {}
+
+    def getInterfaces(self):
+        # doesn't have any interfaces
+        return []
 
 
 # capabilities.Capability isn't an EntityTemplate but duck types with it
