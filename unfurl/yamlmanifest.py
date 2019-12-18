@@ -303,7 +303,8 @@ class YamlManifest(Manifest):
                 changelog = load_yaml(fullPath)
                 changes = changelog.get("changes", [])
             else:
-                logger.warning("missing changelog: %s", fullPath)
+                if status:
+                    logger.warning("missing changelog: %s", fullPath)
                 changes = manifest.get("changes", [])
         else:
             changes = manifest.get("changes", [])

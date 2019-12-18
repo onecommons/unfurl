@@ -13,7 +13,7 @@ from .result import serializeValue, ChangeRecord
 from .util import UnfurlError, UnfurlTaskError, mergeDicts, ansibleDisplay, toEnum
 from .runtime import OperationalInstance
 from .configurator import TaskView, ConfiguratorResult, ConfigOp
-from .plan import Plan
+from .plan import Plan, DeployPlan
 
 import logging
 
@@ -227,9 +227,7 @@ class ConfigTask(ConfigChange, TaskView, AttributeManager):
         oldStatus, newStatus = self.getStatus(self.target)
         if newStatus and oldStatus != newStatus:
             self.target._lastConfigChange = self.changeId
-        if result.modified or self._resourceChanges.getAttributeChanges(
-            self.target.key
-        ):
+        if result.modified:
             self.target._lastStateChange = self.changeId
 
     def finished(self, result):
@@ -253,13 +251,16 @@ class ConfigTask(ConfigChange, TaskView, AttributeManager):
             while changes:
                 accum = mergeDicts(accum, changes.pop(0))
 
-            self._resourceChanges.updateChanges(accum, self.statuses, self.target)
-            if not result.applied:
-                self._resourceChanges.rollback(self.target)
+            self._resourceChanges.updateChanges(accum, self.statuses, self.target, self.changeId)
+            # XXX implement:
+            #if not result.applied:
+            #    self._resourceChanges.rollback(self.target)
+
         # now that resourceChanges finalized:
         self._updateStatus(result)
         self._updateLastChange(result)
         self.result = result
+        # XXX distinguish between ran but failed and not applied vs. canRun failed
         if result.applied:
             if result.success is None:
                 # XXX require success flag to be set and remove this hack
@@ -483,8 +484,8 @@ class Job(ConfigChange):
     def runJobRequest(self, jobRequest):
         self.jobRequestQueue.remove(jobRequest)
         resourceNames = [r.name for r in jobRequest.resources]
-        jobOptions = JobOptions(parentJob=self, repair="none", resources=resourceNames)
-        plan = Plan(self.rootResource.root, self.runner.manifest.tosca, jobOptions)
+        jobOptions = JobOptions(parentJob=self, repair="none", all=True, instances=resourceNames)
+        plan = DeployPlan(self.rootResource.root, self.runner.manifest.tosca, jobOptions)
         childJob = Job(self.runner, self.rootResource.root, plan, jobOptions)
         assert childJob.parentJob is self
         childJob.run()

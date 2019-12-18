@@ -428,7 +428,7 @@ class ResourceChanges(collections.OrderedDict):
             return record[self.attributesIndex]
         return {}
 
-    def sync(self, resource):
+    def sync(self, resource, changeId=None):
         """ Update self to only include changes that are still live"""
         for k, v in list(self.items()):
             current = Ref(k).resolveOne(RefContext(resource))
@@ -440,6 +440,9 @@ class ResourceChanges(collections.OrderedDict):
                     )
                 if v[self.statusIndex] != current._localStatus:
                     v[self.statusIndex] = None
+
+                if changeId and (v[0] or v[1] or v[2]):
+                   current._lastConfigChange = changeId
             else:
                 del self[k]
 
@@ -466,11 +469,11 @@ class ResourceChanges(collections.OrderedDict):
         for resource in resources:
             self["::" + resource["name"]] = [None, resource, None]
 
-    def updateChanges(self, changes, statuses, resource):
+    def updateChanges(self, changes, statuses, resource, changeId=None):
         self.addChanges(changes)
         self.addStatuses(statuses)
         if resource:
-            self.sync(resource)
+            self.sync(resource, changeId)
 
     def rollback(self, resource):
         # XXX need to actually rollback

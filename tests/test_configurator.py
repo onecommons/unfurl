@@ -11,7 +11,7 @@ class TestConfigurator(Configurator):
         assert not self.cantRun(task)
         attributes = task.target.attributes
         attributes["copyOfMeetsTheRequirement"] = attributes["meetsTheRequirement"]
-        params = task.inputs
+        params = attributes
         if params.get("addresources"):
             shouldYield = params.get("yieldresources")
             resourceSpec = {"name": params["resourceName"], "template": "test1"}
@@ -19,7 +19,8 @@ class TestConfigurator(Configurator):
                 resourceSpec["dependent"] = True
 
             updateSpec = dict(name=".self", status=dict(attributes={"newAttribute": 1}))
-            jobrequest = task.addResources([resourceSpec, updateSpec])
+            task.logger.info("updateResources: %s", [resourceSpec, updateSpec])
+            jobrequest = task.updateResources([resourceSpec, updateSpec])
             if shouldYield:
                 job = yield jobrequest
                 assert job, jobrequest
@@ -141,7 +142,6 @@ class ConfiguratorTest(unittest.TestCase):
         jobOptions2.repair = "none"
         self.verifyRoundtrip(run2.out.getvalue(), jobOptions2)
 
-    @unittest.skip("fix adding resources api")
     def test_addingResources(self):
         runner = Runner(YamlManifest(manifest))
         jobOptions = JobOptions(
@@ -151,20 +151,18 @@ class ConfiguratorTest(unittest.TestCase):
         assert not run.unexpectedAbort, run.unexpectedAbort.getStackTrace()
         # self.assertEqual(list(run.workDone.keys()), [('test3', 'test'), ('added1', 'config1')])
 
-        # verify added1
+        #print('config', run.out.getvalue())
+
+        changes = runner.manifest.manifest.config["changes"][0]["changes"]
         added = {".added": {"name": "added1", "template": "test1"}}
-        modifications = lookupPath(
-            runner.manifest.manifest.config, "changes.test.modifications".split(".")
-        )
-        self.assertEqual(modifications["added1"], added)
         self.assertEqual(
-            runner.manifest.manifest.config["changes"][0]["changes"]["added1"], added
+            changes["::added1"], added
         )
 
         # verify modified
         self.assertEqual(
-            modifications["test3"],
-            {"copyOfMeetsTheRequirement": "copy", "newAttribute": 1},
+            changes["::test3"],
+            {"copyOfMeetsTheRequirement": "copy"},
         )
 
         # print('test3', run.out.getvalue())
@@ -177,16 +175,17 @@ class ConfiguratorTest(unittest.TestCase):
         run = runner.run(jobOptions)
         assert not run.unexpectedAbort, run.unexpectedAbort.getStackTrace()
         self.assertEqual(
-            list(run.workDone.keys()), [("test4", "test"), ("added2", "config1")]
+            list(run.workDone.keys()), ['test4:test:add:5', 'added2:test:add:6']
         )
         # print('test4', run.out.getvalue())
 
+        # XXX
         # verify dependencies added
-        dependencies = lookupPath(
-            runner.manifest.manifest.config,
-            "root.resources.test4.status.configurations.test.dependencies".split("."),
-        )
-        self.assertEqual(dependencies, [{"ref": "::added2"}])
+        # dependencies = lookupPath(
+        #     runner.manifest.manifest.config,
+        #     "root.resources.test4.status.configurations.test.dependencies".split("."),
+        # )
+        # self.assertEqual(dependencies, [{"ref": "::added2"}])
 
         jobOptions.repair = "none"
         self.verifyRoundtrip(run.out.getvalue(), jobOptions)
