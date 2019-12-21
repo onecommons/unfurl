@@ -6,6 +6,7 @@ import itertools
 import tempfile
 import atexit
 import json
+import re
 
 from collections import Mapping, MutableSequence
 import os.path
@@ -227,35 +228,38 @@ def makeMapWithBase(doc, baseDir):
 
 
 # XXX?? because json keys are strings allow number keys to merge with lists
-# values: merge, replace, delete, renamekey
-mergeStrategyKey = "+%"
-#
+mergeStrategyKey = "+%"  # values : merge, error, delete, # XXX: replace, renamekey
+
+# b is the merge patch, a is original dict
 def mergeDicts(b, a, cls=dict):
     """
   Returns a new dict (or cls) that recursively merges b into a.
   b is base, a overrides.
 
-  A superset of JSON merge patch (https://tools.ietf.org/html/rfc7386)
+  Similar to https://yaml.org/type/merge.html but does a recursive merge
   """
     cp = cls()
     skip = []
     for key, val in a.items():
         if key == mergeStrategyKey:
             continue
-        if isinstance(val, Mapping):
+        if key != mergeStrategyKey and isinstance(val, Mapping):
             strategy = val.get(mergeStrategyKey)
             if key in b:
                 bval = b[key]
                 if isinstance(bval, Mapping):
+                    # merge strategy of a overrides b
                     if not strategy:
-                        strategy = bval.get(mergeStrategyKey, "merge")
-                        cls = getattr(bval, "mapCtor", cls)
-                        cp[key] = mergeDicts(bval, val, cls)
-                        continue
+                        strategy = bval.get(mergeStrategyKey) or "merge"
+                        if strategy == "merge":
+                            cls = getattr(bval, "mapCtor", cls)
+                            cp[key] = mergeDicts(bval, val, cls)
+                            continue
                     if strategy == "error":
                         raise UnfurlError(
                             "merging %s is not allowed, +%: error was set" % key
                         )
+                # otherwise we ignore bval because key is already in a
             if strategy == "delete":
                 skip.append(key)
                 continue
@@ -279,6 +283,7 @@ def mergeDicts(b, a, cls=dict):
         # otherwise a replaces b
         cp[key] = val
 
+    # add new keys
     for key, val in b.items():
         if key == mergeStrategyKey:
             continue
@@ -318,6 +323,24 @@ def isIncludeKey(key):
     return key and key.startswith("%include")
 
 
+def _jsonPointerUnescape(s):
+    return s.replace("~1", "/").replace("~0", "~")
+
+
+_RE_INVALID_JSONPOINTER_ESCAPE = re.compile("(~[^01]|~$)")
+
+
+def _jsonPointerValidate(pointer):
+    invalid_escape = _RE_INVALID_JSONPOINTER_ESCAPE.search(pointer)
+    if invalid_escape:
+        raise UnfurlError(
+            "Found invalid escape {} in JSON pointer {}".format(
+                invalid_escape.group(), pointer
+            )
+        )
+    return None
+
+
 def getTemplate(doc, key, value, path, cls):
     template = doc
     templatePath = None
@@ -327,6 +350,7 @@ def getTemplate(doc, key, value, path, cls):
             return doc
         cls = makeMapWithBase(doc, baseDir)
     else:
+        _jsonPointerValidate(key)
         for segment in key.split("/"):
             # XXX raise error if ../ sequence is not at the start of key
             if segment:
@@ -346,14 +370,16 @@ def getTemplate(doc, key, value, path, cls):
                         raise UnfurlError("could not find anchor '%s'" % segment[1:])
                     continue
 
-            # XXX this check should allow array look up:
+            segment = _jsonPointerUnescape(segment)
+            # XXX this check should allow array look up (fix hasTemplate too)
             if not isinstance(template, Mapping) or segment not in template:
                 raise UnfurlError('can not find "%s" in document' % key)
             if templatePath is not None:
                 templatePath.append(segment)
             template = template[segment]
+
         if templatePath is None:
-            templatePath = key.split("/")
+            templatePath = [_jsonPointerUnescape(part) for part in key.split("/")]
 
     try:
         if value != "raw" and isinstance(
@@ -380,6 +406,8 @@ def getTemplate(doc, key, value, path, cls):
 def hasTemplate(doc, key, path, cls):
     if isIncludeKey(key):
         return hasattr(doc, "loadTemplate")
+
+    _jsonPointerValidate(key)
     template = doc
     for segment in key.split("/"):
         if not isinstance(template, Mapping):
@@ -399,7 +427,7 @@ def hasTemplate(doc, key, path, cls):
                 continue
         if segment not in template:
             return False
-        template = template[segment]
+        template = template[_jsonPointerUnescape(segment)]
     return True
 
 
@@ -415,9 +443,9 @@ class _MissingInclude(object):
 def expandDict(doc, path, includes, current, cls=dict):
     """
   Return a copy of `doc` that expands include directives.
-  Include directives look like "+path.to.value"
+  Include directives look like "+path/to/value"
   When appearing as a key in a map it will merge the result with the current dictionary.
-  When appearing as a string or map in a list it will insert the result in the list;
+  When appearing in a list it will insert the result in the list;
   if result is also a list, each item will be inserted separately.
   (If you don't want that behavior just wrap include in another list, e.g "[+list1]")
   """
@@ -428,7 +456,6 @@ def expandDict(doc, path, includes, current, cls=dict):
     for (key, value) in current.items():
         if key.startswith("+"):
             if key == mergeStrategyKey:
-                # cleaner want to skip copying key if not inside a template
                 cp[key] = value
                 continue
             foundTemplate = hasTemplate(doc, key[1:], path, cls)
@@ -441,7 +468,7 @@ def expandDict(doc, path, includes, current, cls=dict):
             if isinstance(template, Mapping):
                 templates.append(template)
             else:
-                if len(current) > 1:
+                if len(current) > 1:  # XXX include merge directive keys in count
                     raise UnfurlError("can not merge non-map value %s" % template)
                 else:
                     return template  # current dict is replaced with a value
@@ -474,6 +501,15 @@ def _findMissingIncludes(includes):
                 yield i
 
 
+def _deleteDeletedKeys(expanded):
+    for key, value in expanded.items():
+        if isinstance(value, Mapping):
+            if value.get(mergeStrategyKey) == "delete":
+                del expanded[key]
+            else:
+                _deleteDeletedKeys(value)
+
+
 def expandDoc(doc, current=None, cls=dict):
     includes = CommentedMap()
     if current is None:
@@ -487,6 +523,8 @@ def expandDoc(doc, current=None, cls=dict):
     while True:
         missing = list(_findMissingIncludes(includes))
         if len(missing) == 0:
+            # remove any stray keys with delete merge directive
+            _deleteDeletedKeys(expanded)
             return includes, expanded
         if len(missing) == last:  # no progress
             raise UnfurlError("missing includes: %s" % missing)
@@ -499,20 +537,9 @@ def expandDoc(doc, current=None, cls=dict):
 
 def expandList(doc, path, includes, value, cls=dict):
     for i, item in enumerate(value):
-        if isinstance(item, six.string_types):
-            if item.startswith("+"):
-                includes.setdefault(path + (i,), []).append((item, None))
-                template = getTemplate(doc, item[1:], None, path, cls)
-                if isinstance(template, MutableSequence):
-                    for i in template:
-                        yield i
-                else:
-                    yield template
-            elif item.startswith("q+"):
-                yield item[1:]
-            else:
-                yield item
-        elif isinstance(item, Mapping):
+        if isinstance(item, Mapping):
+            if item.get(mergeStrategyKey) == "delete":
+                continue
             newitem = expandDict(doc, path + (i,), includes, item, cls)
             if isinstance(newitem, MutableSequence):
                 for i in newitem:

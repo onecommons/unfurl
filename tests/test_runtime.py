@@ -51,12 +51,12 @@ class ExpandDocTest(unittest.TestCase):
         "test1": CommentedMap(
             [("+t2", None), ("a", {"+t1": None}), ("d", {"+t3": None}), ("e", "e")]
         ),
-        "test2": [1, "+t1", "+t4", {"+t4": None}],
+        "test2": [1, {"+t4": ""}, "+t4", {"+t4": None}],
     }
 
     expected = {
         "test1": {"a": {"b": 2}, "c": "c", "d": "val", "e": "e"},
-        "test2": [1, {"b": 2}, "a", "b", "a", "b"],
+        "test2": [1, "a", "b", "+t4", "a", "b"],
     }
 
     def test_expandDoc(self):
@@ -67,15 +67,17 @@ class ExpandDocTest(unittest.TestCase):
                 ("test1",): [("+t2", None)],
                 ("test1", "a"): [("+t1", None)],
                 ("test1", "d"): [("+t3", None)],
-                ("test2", 1): [("+t1", None)],
-                ("test2", 2): [("+t4", None)],
+                ("test2", 1): [("+t4", "")],
                 ("test2", 3): [("+t4", None)],
             },
         )
         self.assertEqual(expanded["test1"], self.expected["test1"])
         self.assertEqual(expanded["test2"], self.expected["test2"])
         restoreIncludes(includes, self.doc, expanded, CommentedMap)
+        # restoreInclude should make expanded look like self.doc
         self.assertEqual(expanded["test1"], self.doc["test1"])
+        # XXX restoring lists not implemented:
+        # self.assertEqual(expanded["test2"], self.doc["test2"])
 
     def test_diff(self):
         expectedOld = {"a": 1, "b": {"b1": 1, "b2": 1}, "d": 1}
@@ -110,14 +112,12 @@ class ExpandDocTest(unittest.TestCase):
             '''recursive include "['test3']" in "('test3', 'a', 'recurse')"''',
         )
 
-        # XXX fix ../
-        # doc2 = {
-        #   "test4": {
-        #     "+../test4": None,
-        #     "child": {}
-        #   }
-        # }
-        # includes, expanded = expandDoc(doc2)
+        doc2 = {"test4": {"+../test4": None, "child": {}}}
+        with self.assertRaises(UnfurlError) as err:
+            includes, expanded = expandDoc(doc2)
+        self.assertEqual(
+            str(err.exception), '''recursive include "['test4']" in "('test4',)"'''
+        )
 
 
 class JobTest(unittest.TestCase):
