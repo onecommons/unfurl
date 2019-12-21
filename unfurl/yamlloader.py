@@ -200,7 +200,7 @@ class YamlConfig(object):
             value = templatePath.get("merge")
             if "file" not in templatePath:
                 raise UnfurlError(
-                    "`file` key missing from document %%include: %s" % templatePath
+                    "`file` key missing from document include: %s" % templatePath
                 )
             key = templatePath["file"]
         else:
@@ -225,14 +225,14 @@ class YamlConfig(object):
             if template is None:
                 if warnWhenNotFound:
                     logger.warning(
-                        "document %%include %s does not exist (base: %s)"
+                        "document include %s does not exist (base: %s)"
                         % (templatePath, baseDir)
                     )
                 return value, template, newBaseDir
             _cacheAnchors(self.config._anchorCache, template)
         except:
             raise UnfurlError(
-                "unable to load document %%include: %s (base: %s)"
+                "unable to load document include: %s (base: %s)"
                 % (templatePath, baseDir),
                 True,
                 True,

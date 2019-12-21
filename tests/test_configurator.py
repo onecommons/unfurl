@@ -54,13 +54,13 @@ spec:
           meetsTheRequirement: false
         install: test
     test3:
-        +spec/instances/test1:
+        +/spec/instances/test1:
         properties:
           resourceName: added1
           addresources: true
         install: test
     test4:
-        +spec/instances/test3:
+        +/spec/instances/test3:
         properties:
           resourceName: added2
           yieldresources: true

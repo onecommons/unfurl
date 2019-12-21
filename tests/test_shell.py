@@ -33,7 +33,7 @@ spec:
       type: tosca.nodes.Root
       interfaces:
         Standard:
-          +configurations:
+          +/configurations:
 """
 
 

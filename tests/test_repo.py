@@ -32,7 +32,7 @@ manifestContent = """\
   kind: Manifest
   spec:
     tosca:
-      +%include: service-template.yaml
+      +include: service-template.yaml
       topology_template:
         node_templates:
               my_server:

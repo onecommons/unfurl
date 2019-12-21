@@ -113,7 +113,7 @@ repositories:
     metadata:
       initial-commit: %s
 topology_template:
-  node_templates:
+  node_templates: {}
 """
             % (TOSCA_VERSION, relPathToSpecRepo, repo.getInitialRevision())
         )
@@ -131,9 +131,8 @@ def createSpecRepo(gitDir):
   kind: Manifest
   spec:
     tosca:
-      +%include: service-template.yaml
-  status: {}
-      """
+      +include: service-template.yaml
+"""
         )
     repo.repo.index.add(["service-template.yaml", "manifest-template.yaml"])
     repo.repo.index.commit("Default specification repository boilerplate")
@@ -151,7 +150,7 @@ def createInstanceRepo(gitDir, specRepo):
 apiVersion: unfurl/v1alpha1
 kind: Manifest
 # merge in manifest-template.yaml from spec repo
-+%%include:
++include:
   file: manifest-template.yaml
   repository: spec
 spec:
@@ -199,7 +198,6 @@ def createMonoRepoProject(projectdir, repo):
     unfurl.local.example.yaml
     .gitignore
     manifest.yaml
-    manifest-template.yaml
 
     Returns the absolute path to unfurl.yaml
     """
@@ -212,7 +210,7 @@ def createMonoRepoProject(projectdir, repo):
     exampleLocalConfigPath = writeProjectConfig(
         projectdir, "unfurl.local.example.yaml", localInclude=localContent
     )
-    localInclude = "+%include?: " + localConfigFilename
+    localInclude = "+?include: " + localConfigFilename
     projectConfigPath = writeProjectConfig(projectdir, localInclude=localInclude)
     gitIgnoreContent = """%s\nlocal\n""" % localConfigFilename
     gitIgnorePath = _writeFile(projectdir, ".gitignore", gitIgnoreContent)
@@ -223,7 +221,7 @@ def createMonoRepoProject(projectdir, repo):
   kind: Manifest
   spec:
     tosca:
-      +%include: service-template.yaml
+      +include: service-template.yaml
   status: {}
     """
     manifestPath = _writeFile(projectdir, "manifest.yaml", manifestContent)
@@ -299,3 +297,7 @@ def cloneSpecToNewProject(sourceDir, projectDir):
     specRepo = sourceRepo.clone(os.path.join(fullProjectDir, "spec"))
     createInstanceRepo(os.path.join(projectDir, "instances", "current"), specRepo)
     return projectConfigPath, "New project created at %s" % fullProjectDir
+
+
+# def cloneInstanceLocal():
+# delete status, changes, latestChange, set changeLog

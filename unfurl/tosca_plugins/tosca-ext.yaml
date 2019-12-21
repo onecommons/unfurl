@@ -138,7 +138,7 @@ node_types:
     attributes:
       namespace:
         type: string
-        default: {get_property: ['HOST', 'name']}
+        default: {get_property: [HOST, name]}
 
   unfurl.nodes.k8sSecretResource:
     derived_from: unfurl.nodes.K8sResource

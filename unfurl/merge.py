@@ -1,6 +1,6 @@
 import itertools
 import re
-from collections import Mapping, MutableSequence
+from collections import Mapping, MutableSequence, namedtuple
 
 from ruamel.yaml.comments import CommentedMap, CommentedBase
 
@@ -38,7 +38,7 @@ def mergeDicts(b, a, cls=dict):
     for key, val in a.items():
         if key == mergeStrategyKey:
             continue
-        if key != mergeStrategyKey and isinstance(val, Mapping):
+        if isinstance(val, Mapping):
             strategy = val.get(mergeStrategyKey)
             if key in b:
                 bval = b[key]
@@ -46,10 +46,12 @@ def mergeDicts(b, a, cls=dict):
                     # merge strategy of a overrides b
                     if not strategy:
                         strategy = bval.get(mergeStrategyKey) or "merge"
-                        if strategy == "merge":
-                            cls = getattr(bval, "mapCtor", cls)
-                            cp[key] = mergeDicts(bval, val, cls)
+                    if strategy == "merge":
+                        if not val:  # empty map, treat as missing key
                             continue
+                        cls = getattr(bval, "mapCtor", cls)
+                        cp[key] = mergeDicts(bval, val, cls)
+                        continue
                     if strategy == "error":
                         raise UnfurlError(
                             "merging %s is not allowed, +%: error was set" % key
@@ -83,6 +85,7 @@ def mergeDicts(b, a, cls=dict):
         if key == mergeStrategyKey:
             continue
         if key not in cp and key not in skip:
+            # note: val is shared not copied
             cp[key] = val
     return cp
 
@@ -114,10 +117,6 @@ def findAnchor(doc, anchorName):
     return _anchorCache.get(anchorName)
 
 
-def isIncludeKey(key):
-    return key and key.startswith("%include")
-
-
 def _jsonPointerUnescape(s):
     return s.replace("~1", "/").replace("~0", "~")
 
@@ -139,91 +138,87 @@ def _jsonPointerValidate(pointer):
 def getTemplate(doc, key, value, path, cls):
     template = doc
     templatePath = None
-    if isIncludeKey(key):
-        value, template, baseDir = doc.loadTemplate(value, key.endswith("?"))
-        if template is None:  # include wasn't not found and key ends with "?"
+    if key.include:
+        value, template, baseDir = doc.loadTemplate(value, key.maybe)
+        if template is None:  # include wasn't not found and key.maybe
             return doc
         cls = makeMapWithBase(doc, baseDir)
+        # fileKey = key._replace(include=None)
+        # template = getTemplate(template, fileKey, "raw", (), cls)
     else:
-        _jsonPointerValidate(key)
-        for segment in key.split("/"):
-            # XXX raise error if ../ sequence is not at the start of key
-            if segment:
-                if not segment.strip("."):  # segment is one or more '.'
-                    stop = None
-                    if len(segment) - 1:
-                        stop = (len(segment) - 1) * -1
-                    if templatePath is None:
-                        templatePath = list(path[:stop])
-                    else:
-                        templatePath = templatePath[:stop]
-                    template = lookupPath(doc, templatePath, cls)
-                    continue
-                elif segment[0] == "*":  # anchor reference
-                    template = findAnchor(doc, segment[1:])
-                    if template is None:
-                        raise UnfurlError("could not find anchor '%s'" % segment[1:])
-                    continue
-
-            segment = _jsonPointerUnescape(segment)
-            # XXX this check should allow array look up (fix hasTemplate too)
-            if not isinstance(template, Mapping) or segment not in template:
-                raise UnfurlError('can not find "%s" in document' % key)
-            if templatePath is not None:
-                templatePath.append(segment)
-            template = template[segment]
-
+        result = _findTemplate(doc, key, path, cls, not key.maybe)
+        if result is None:
+            return doc
+        template, templatePath = result
         if templatePath is None:
-            templatePath = [_jsonPointerUnescape(part) for part in key.split("/")]
+            templatePath = key.pointer
 
     try:
         if value != "raw" and isinstance(
             template, Mapping
         ):  # raw means no further processing
+
             # if the include path starts with the path to the template
             # throw recursion error
-            if not isIncludeKey(key):
+            if not key.include and not key.anchor:
                 prefix = list(
                     itertools.takewhile(lambda x: x[0] == x[1], zip(path, templatePath))
                 )
                 if len(prefix) == len(templatePath):
                     raise UnfurlError(
-                        'recursive include "%s" in "%s"' % (templatePath, path)
+                        'recursive include "%s" in "%s" when including %s'
+                        % (templatePath, path, key.key)
                     )
             includes = CommentedMap()
             template = expandDict(doc, path, includes, template, cls=cls)
     finally:
-        if isIncludeKey(key):
+        if key.include:
             doc.loadTemplate(baseDir)  # pop baseDir
     return template
 
 
-def hasTemplate(doc, key, path, cls):
-    if isIncludeKey(key):
-        return hasattr(doc, "loadTemplate")
-
-    _jsonPointerValidate(key)
+def _findTemplate(doc, key, path, cls, fail):
     template = doc
-    for segment in key.split("/"):
-        if not isinstance(template, Mapping):
-            raise UnfurlError("included templates changed")
-        if segment:
-            if not segment.strip("."):
-                stop = None
-                if len(segment) - 1:
-                    stop = (len(segment) - 1) * -1
-                path = path[:stop]
-                template = lookupPath(doc, path, cls)
-                continue
-            elif segment[0] == "*":  # anchor reference
-                template = findAnchor(doc, segment[1:])
-                if template is None:
-                    return False
-                continue
-        if segment not in template:
-            return False
-        template = template[_jsonPointerUnescape(segment)]
-    return True
+    templatePath = None
+    if key.anchor:
+        template = findAnchor(doc, key.anchor)
+        if template is None:
+            if not fail:
+                return None
+            else:
+                raise UnfurlError("could not find anchor '%s'" % key.anchor)
+        # XXX we don't know the path to the anchor so we can't support relative paths also
+    elif key.relative:
+        stop = None
+        if key.relative - 1:
+            stop = (key.relative - 1) * -1
+        if templatePath is None:
+            templatePath = list(path[:stop])
+        else:
+            templatePath = templatePath[:stop]
+        template = lookupPath(doc, templatePath, cls)
+        if template is None:
+            if not fail:
+                return None
+            else:
+                raise UnfurlError("could relative path '%s'" % ("." * key.relative))
+    for index, segment in enumerate(key.pointer):
+        if not isinstance(template, Mapping) or segment not in template:
+            if not fail:
+                return None
+            raise UnfurlError(
+                'can not find "%s" in document' % key.pointer[: index + 1].join("/")
+            )
+        if templatePath is not None:
+            templatePath.append(segment)
+        template = template[segment]
+    return template, templatePath
+
+
+def hasTemplate(doc, key, path, cls):
+    if key.include:
+        return hasattr(doc, "loadTemplate")
+    return _findTemplate(doc, key, path, cls, False) is not None
 
 
 class _MissingInclude(object):
@@ -232,7 +227,42 @@ class _MissingInclude(object):
         self.value = value
 
     def __repr__(self):
-        return self.key
+        return self.key.key
+
+
+RE_FIRST = re.compile(r"([?]?)(include\d*)?([*]\S+)?([.]+$)?")
+
+MergeKey = namedtuple("MergeKey", "key, maybe, include, anchor, relative, pointer")
+
+
+def parseMergeKey(key):
+    """
+  +[maybe]?[include]?[anchor]?[relative]?[jsonpointer]?
+
+  [include] = "include"[number?]
+  [anchor] = "*"[anchorname]
+  relative = '.'+
+  """
+    original = key
+    key = key[1:]
+    _jsonPointerValidate(key)
+    parts = [_jsonPointerUnescape(part) for part in key.split("/")]
+    first = parts.pop(0)
+    maybe, include, anchor, relative = RE_FIRST.match(first).groups()
+    if anchor:
+        # relative will be included in anchor
+        relative = len(anchor.rstrip(".")) - len(anchor)
+        anchor = anchor[1:]  # exclude '*''
+    elif relative:
+        relative = len(relative)
+    else:
+        relative = 0
+    if not (maybe or include or anchor or relative):
+        if first:  # first wasn't empty and didn't match
+            return None
+        elif not parts:
+            return None  # first was empty and pointer portion was too
+    return MergeKey(original, not not maybe, include, anchor, relative, tuple(parts))
 
 
 def expandDict(doc, path, includes, current, cls=dict):
@@ -253,13 +283,17 @@ def expandDict(doc, path, includes, current, cls=dict):
             if key == mergeStrategyKey:
                 cp[key] = value
                 continue
-            foundTemplate = hasTemplate(doc, key[1:], path, cls)
-            if not foundTemplate:
-                includes.setdefault(path, []).append(_MissingInclude(key[1:], value))
+            mergeKey = parseMergeKey(key)
+            if not mergeKey:
                 cp[key] = value
                 continue
-            includes.setdefault(path, []).append((key, value))
-            template = getTemplate(doc, key[1:], value, path, cls)
+            foundTemplate = hasTemplate(doc, mergeKey, path, cls)
+            if not foundTemplate:
+                includes.setdefault(path, []).append(_MissingInclude(mergeKey, value))
+                cp[key] = value
+                continue
+            includes.setdefault(path, []).append((mergeKey, value))
+            template = getTemplate(doc, mergeKey, value, path, cls)
             if isinstance(template, Mapping):
                 templates.append(template)
             else:
@@ -267,8 +301,8 @@ def expandDict(doc, path, includes, current, cls=dict):
                     raise UnfurlError("can not merge non-map value %s" % template)
                 else:
                     return template  # current dict is replaced with a value
-        elif key.startswith("q+"):
-            cp[key[2:]] = value
+        # elif key.startswith("q+"):
+        #    cp[key[2:]] = value
         elif isinstance(value, Mapping):
             cp[key] = expandDict(doc, path + (key,), includes, value, cls)
         elif isinstance(value, list):
@@ -435,11 +469,18 @@ def replacePath(doc, key, value, cls=dict):
     ref[last] = value
 
 
-def addTemplate(changedDoc, path, template):
-    current = changedDoc
-    key = path.split("/")
-    path = key[:-1]
-    last = key[-1]
+def addTemplate(changedDoc, path, mergeKey, template, cls):
+    # if includeKey.anchor: #???
+    if mergeKey.relative:
+        if mergeKey.relative > 1:
+            path = path[: (mergeKey.relative - 1) * -1]
+        current = lookupPath(changedDoc, path, cls)
+    else:
+        current = changedDoc
+
+    assert mergeKey.pointer
+    path = mergeKey.pointer[:-1]
+    last = mergeKey.pointer[-1]
     for segment in path:
         current = current.setdefault(segment, {})
     current[last] = template
@@ -462,29 +503,27 @@ def restoreIncludes(includes, originalDoc, changedDoc, cls=dict):
 
         mergedIncludes = {}
         for (includeKey, includeValue) in value:
-            if isIncludeKey(includeKey[1:]):
+            if includeKey.include:
                 ref = None
                 continue
-            stillHasTemplate = hasTemplate(changedDoc, includeKey[1:], key, cls)
+            stillHasTemplate = hasTemplate(changedDoc, includeKey, key, cls)
             if stillHasTemplate:
-                template = getTemplate(
-                    changedDoc, includeKey[1:], includeValue, key, cls
-                )
+                template = getTemplate(changedDoc, includeKey, includeValue, key, cls)
             else:
-                if hasTemplate(originalDoc, includeKey[1:], key, cls):
+                if hasTemplate(originalDoc, includeKey, key, cls):
                     template = getTemplate(
-                        originalDoc, includeKey[1:], includeValue, key, cls
+                        originalDoc, includeKey, includeValue, key, cls
                     )
                 else:
                     template = getTemplate(
-                        expandedOriginalDoc, includeKey[1:], includeValue, key, cls
+                        expandedOriginalDoc, includeKey, includeValue, key, cls
                     )
 
             if not isinstance(ref, Mapping):
                 # XXX3 if isinstance(ref, list) lists not yet implemented
                 if ref == template:
                     # ref still resolves to the template's value so replace it with the include
-                    replacePath(changedDoc, key, {includeKey: includeValue}, cls)
+                    replacePath(changedDoc, key, {includeKey.key: includeValue}, cls)
                 # ref isn't a map anymore so can't include a template
                 break
 
@@ -493,19 +532,17 @@ def restoreIncludes(includes, originalDoc, changedDoc, cls=dict):
                 continue
             else:
                 mergedIncludes = mergeDicts(mergedIncludes, template, cls)
-                ref[includeKey] = includeValue
+                ref[includeKey.key] = includeValue
 
             if not stillHasTemplate:
                 if includeValue != "raw":
-                    if hasTemplate(originalDoc, includeKey[1:], key, cls):
-                        template = getTemplate(
-                            originalDoc, includeKey[1:], "raw", key, cls
-                        )
+                    if hasTemplate(originalDoc, includeKey, key, cls):
+                        template = getTemplate(originalDoc, includeKey, "raw", key, cls)
                     else:
                         template = getTemplate(
-                            expandedOriginalDoc, includeKey[1:], "raw", key, cls
+                            expandedOriginalDoc, includeKey, "raw", key, cls
                         )
-                addTemplate(changedDoc, includeKey[1:], template)
+                addTemplate(changedDoc, key, includeKey, template, cls)
 
         if isinstance(ref, Mapping):
             diff = diffDicts(mergedIncludes, ref, cls)

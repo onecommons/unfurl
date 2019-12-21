@@ -46,11 +46,11 @@ templates:
     configurations:
       step1: {}
 spec:
-    +templates/production:
+    +/templates/production:
 """
         with self.assertRaises(UnfurlError) as err:
             YamlManifest(manifest)
-        self.assertIn("missing includes: [templates/production]", str(err.exception))
+        self.assertIn("missing includes: [+/templates/production]", str(err.exception))
 
         manifest = """
 apiVersion: unfurl/v1alpha1
@@ -73,7 +73,7 @@ root:
  resources:
   cloud3:
     spec:
-      +templates/base:
+      +/templates/base:
       # overrides and additions from templates
       configurations:
         step1: {}

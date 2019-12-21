@@ -5,7 +5,14 @@ from unfurl.configurator import Configurator, ConfigurationSpec
 from unfurl.yamlmanifest import YamlManifest
 from unfurl.yamlloader import YamlConfig
 from unfurl.util import UnfurlError, UnfurlValidationError, lookupClass, VERSION
-from unfurl.merge import expandDoc, restoreIncludes, diffDicts, mergeDicts, patchDict
+from unfurl.merge import (
+    expandDoc,
+    restoreIncludes,
+    diffDicts,
+    mergeDicts,
+    patchDict,
+    parseMergeKey,
+)
 from ruamel.yaml.comments import CommentedMap
 import traceback
 import six
@@ -40,9 +47,9 @@ class ExpandDocTest(unittest.TestCase):
         "t3": "val",
         "t4": ["a", "b"],
         "test1": CommentedMap(
-            [("+t2", None), ("a", {"+t1": None}), ("d", {"+t3": None}), ("e", "e")]
+            [("+/t2", None), ("a", {"+/t1": None}), ("d", {"+/t3": None}), ("e", "e")]
         ),
-        "test2": [1, {"+t4": ""}, "+t4", {"+t4": None}],
+        "test2": [1, {"+/t4": ""}, "+t4", {"+/t4": None}],
     }
 
     expected = {
@@ -55,11 +62,11 @@ class ExpandDocTest(unittest.TestCase):
         self.assertEqual(
             includes,
             {
-                ("test1",): [("+t2", None)],
-                ("test1", "a"): [("+t1", None)],
-                ("test1", "d"): [("+t3", None)],
-                ("test2", 1): [("+t4", "")],
-                ("test2", 3): [("+t4", None)],
+                ("test1",): [(parseMergeKey("+/t2"), None)],
+                ("test1", "a"): [(parseMergeKey("+/t1"), None)],
+                ("test1", "d"): [(parseMergeKey("+/t3"), None)],
+                ("test2", 1): [(parseMergeKey("+/t4"), "")],
+                ("test2", 3): [(parseMergeKey("+/t4"), None)],
             },
         )
         self.assertEqual(expanded["test1"], self.expected["test1"])
@@ -84,30 +91,31 @@ class ExpandDocTest(unittest.TestCase):
 
     def test_missingInclude(self):
         doc1 = CommentedMap(
-            [("+a/c", None), ("a", {"+b": None}), ("b", {"c": {"d": 1}})]
+            [("+/a/c", None), ("a", {"+/b": None}), ("b", {"c": {"d": 1}})]
         )
         includes, expanded = expandDoc(doc1, cls=CommentedMap)
         self.assertEqual(expanded, {"d": 1, "a": {"c": {"d": 1}}, "b": {"c": {"d": 1}}})
         self.assertEqual(len(includes), 2)
 
-        doc1["missing"] = {"+include-missing": None}
+        doc1["missing"] = {"+/include-missing": None}
         with self.assertRaises(UnfurlError) as err:
             includes, expanded = expandDoc(doc1, cls=CommentedMap)
 
     def test_recursion(self):
-        doc = {"test3": {"a": {"recurse": {"+test3": None}}}}
+        doc = {"test3": {"a": {"recurse": {"+/test3": None}}}}
         with self.assertRaises(UnfurlError) as err:
             includes, expanded = expandDoc(doc)
         self.assertEqual(
             str(err.exception),
-            '''recursive include "['test3']" in "('test3', 'a', 'recurse')"''',
+            """recursive include "('test3',)" in "('test3', 'a', 'recurse')" when including +/test3""",
         )
 
         doc2 = {"test4": {"+../test4": None, "child": {}}}
         with self.assertRaises(UnfurlError) as err:
             includes, expanded = expandDoc(doc2)
         self.assertEqual(
-            str(err.exception), '''recursive include "['test4']" in "('test4',)"'''
+            str(err.exception),
+            """recursive include "['test4']" in "('test4',)" when including +../test4""",
         )
 
 
@@ -233,16 +241,16 @@ templates:
   base:
     configurations:
       step1:
-        +configurators/step1:
+        +/configurators/step1:
 root:
   resources:
     cloud3: #key is resource name
-      +templates/base:
-      +templates/production:
+      +/templates/base:
+      +/templates/production:
 """
         with self.assertRaises(UnfurlError) as err:
             YamlManifest(manifest)
-        self.assertIn("missing includes: [templates/production]", str(err.exception))
+        self.assertIn("missing includes: [+/templates/production]", str(err.exception))
 
 
 class TestInterface:
@@ -358,17 +366,18 @@ dsl:
     d: 5
   +./bar:
   +./foo:
-+%include:
++include:
   file: template.yaml
-+%include2:
++include2:
   file: template.yaml
-+%include?: missing.yaml
-+%include2?: missing.yaml
++?include: missing.yaml
++?include2: missing.yaml
 spec:
   +*foo:
   +*bar:
   b: 3
       """
+
             manifest = YamlManifest(instanceYaml)
             assert manifest.manifest.expanded["dsl"]["c"] == 4
             assert manifest.manifest.expanded["dsl"]["d"] == 5
@@ -377,18 +386,18 @@ spec:
             assert manifest.manifest.expanded["spec"]["c"] == 4
             assert manifest.manifest.expanded["spec"]["d"] == 5
             # XXX these shouldn't be in expanded:
-            # assert "+%include" not in manifest.manifest.expanded
-            # assert "+%include?" not in manifest.manifest.expanded
+            # assert "+include" not in manifest.manifest.expanded
+            # assert "+?include" not in manifest.manifest.expanded
             assert manifest.manifest.config["dsl"]["foo"].anchor.value == "foo"
             assert manifest.manifest.config["dsl"]["foo"].anchor.always_dump
 
             output = six.StringIO()
             manifest.dump(output)
             config = YamlConfig(output.getvalue())
-            assert config.config["+%include"] == {"file": "template.yaml"}
-            assert config.config["+%include2"] == {"file": "template.yaml"}
-            assert config.config["+%include?"] == "missing.yaml"
-            assert config.config["+%include2?"] == "missing.yaml"
+            assert config.config["+include"] == {"file": "template.yaml"}
+            assert config.config["+include2"] == {"file": "template.yaml"}
+            assert config.config["+?include"] == "missing.yaml"
+            assert config.config["+?include2"] == "missing.yaml"
             assert "a" not in config.config["spec"]
 
     def test_change(self):
