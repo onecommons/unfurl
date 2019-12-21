@@ -136,7 +136,8 @@ import os.path
 import itertools
 import json
 
-from .util import UnfurlError, toYamlText, restoreIncludes, patchDict
+from .util import UnfurlError, toYamlText
+from .merge import restoreIncludes, patchDict
 from .yamlloader import YamlConfig, loadFromRepo, load_yaml, yaml
 from .result import serializeValue
 from .support import ResourceChanges, Status, Defaults

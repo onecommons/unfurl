@@ -2,7 +2,7 @@ import unittest
 from unfurl.yamlmanifest import YamlManifest
 from unfurl.job import Runner, JobOptions
 from unfurl.configurator import Configurator, Status
-from unfurl.util import lookupPath
+from unfurl.merge import lookupPath
 import datetime
 
 manifest = """

@@ -4,17 +4,8 @@ from unfurl.job import JobOptions, Runner
 from unfurl.configurator import Configurator, ConfigurationSpec
 from unfurl.yamlmanifest import YamlManifest
 from unfurl.yamlloader import YamlConfig
-from unfurl.util import (
-    UnfurlError,
-    UnfurlValidationError,
-    expandDoc,
-    restoreIncludes,
-    lookupClass,
-    VERSION,
-    diffDicts,
-    mergeDicts,
-    patchDict,
-)
+from unfurl.util import UnfurlError, UnfurlValidationError, lookupClass, VERSION
+from unfurl.merge import expandDoc, restoreIncludes, diffDicts, mergeDicts, patchDict
 from ruamel.yaml.comments import CommentedMap
 import traceback
 import six

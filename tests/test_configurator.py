@@ -2,7 +2,7 @@ import unittest
 from unfurl.yamlmanifest import YamlManifest
 from unfurl.job import Runner, JobOptions, Status
 from unfurl.configurator import Configurator
-from unfurl.util import lookupPath
+from unfurl.merge import lookupPath
 import datetime
 
 
@@ -151,19 +151,14 @@ class ConfiguratorTest(unittest.TestCase):
         assert not run.unexpectedAbort, run.unexpectedAbort.getStackTrace()
         # self.assertEqual(list(run.workDone.keys()), [('test3', 'test'), ('added1', 'config1')])
 
-        #print('config', run.out.getvalue())
+        # print('config', run.out.getvalue())
 
         changes = runner.manifest.manifest.config["changes"][0]["changes"]
         added = {".added": {"name": "added1", "template": "test1"}}
-        self.assertEqual(
-            changes["::added1"], added
-        )
+        self.assertEqual(changes["::added1"], added)
 
         # verify modified
-        self.assertEqual(
-            changes["::test3"],
-            {"copyOfMeetsTheRequirement": "copy"},
-        )
+        self.assertEqual(changes["::test3"], {"copyOfMeetsTheRequirement": "copy"})
 
         # print('test3', run.out.getvalue())
         jobOptions.repair = "none"
@@ -175,7 +170,7 @@ class ConfiguratorTest(unittest.TestCase):
         run = runner.run(jobOptions)
         assert not run.unexpectedAbort, run.unexpectedAbort.getStackTrace()
         self.assertEqual(
-            list(run.workDone.keys()), ['test4:test:add:5', 'added2:test:add:6']
+            list(run.workDone.keys()), ["test4:test:add:5", "added2:test:add:6"]
         )
         # print('test4', run.out.getvalue())
 

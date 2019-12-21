@@ -8,14 +8,9 @@ from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap
 from ruamel.yaml.representer import RepresenterError
 
-from .util import sensitive_str, UnfurlError, UnfurlValidationError
-from .util import (
-    expandDoc,
-    findSchemaErrors,
-    makeMapWithBase,
-    findAnchor,
-    _cacheAnchors,
-)
+from .util import sensitive_str, UnfurlError, UnfurlValidationError, findSchemaErrors
+from .merge import expandDoc, makeMapWithBase, findAnchor, _cacheAnchors
+
 from toscaparser.common.exception import ExceptionCollector
 from toscaparser.common.exception import URLException
 from toscaparser.utils.gettextutils import _

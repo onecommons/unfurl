@@ -12,8 +12,6 @@ from enum import IntEnum
 from .eval import RefContext, setEvalFunc, Ref, mapValue
 from .result import ResultsMap, Result, ExternalValue, serializeValue
 from .util import (
-    intersectDict,
-    mergeDicts,
     ChainMap,
     findSchemaErrors,
     UnfurlError,
@@ -22,6 +20,7 @@ from .util import (
     sensitive_str,
     saveToTempfile,
 )
+from .merge import intersectDict, mergeDicts
 from ansible.template import Templar
 from ansible.parsing.dataloader import DataLoader
 
@@ -442,7 +441,7 @@ class ResourceChanges(collections.OrderedDict):
                     v[self.statusIndex] = None
 
                 if changeId and (v[0] or v[1] or v[2]):
-                   current._lastConfigChange = changeId
+                    current._lastConfigChange = changeId
             else:
                 del self[k]
 

@@ -10,7 +10,8 @@ import types
 import itertools
 from .support import Status, Priority, Defaults, AttributeManager
 from .result import serializeValue, ChangeRecord
-from .util import UnfurlError, UnfurlTaskError, mergeDicts, ansibleDisplay, toEnum
+from .util import UnfurlError, UnfurlTaskError, ansibleDisplay, toEnum
+from .merge import mergeDicts
 from .runtime import OperationalInstance
 from .configurator import TaskView, ConfiguratorResult, ConfigOp
 from .plan import Plan, DeployPlan
@@ -251,9 +252,11 @@ class ConfigTask(ConfigChange, TaskView, AttributeManager):
             while changes:
                 accum = mergeDicts(accum, changes.pop(0))
 
-            self._resourceChanges.updateChanges(accum, self.statuses, self.target, self.changeId)
+            self._resourceChanges.updateChanges(
+                accum, self.statuses, self.target, self.changeId
+            )
             # XXX implement:
-            #if not result.applied:
+            # if not result.applied:
             #    self._resourceChanges.rollback(self.target)
 
         # now that resourceChanges finalized:
@@ -484,8 +487,12 @@ class Job(ConfigChange):
     def runJobRequest(self, jobRequest):
         self.jobRequestQueue.remove(jobRequest)
         resourceNames = [r.name for r in jobRequest.resources]
-        jobOptions = JobOptions(parentJob=self, repair="none", all=True, instances=resourceNames)
-        plan = DeployPlan(self.rootResource.root, self.runner.manifest.tosca, jobOptions)
+        jobOptions = JobOptions(
+            parentJob=self, repair="none", all=True, instances=resourceNames
+        )
+        plan = DeployPlan(
+            self.rootResource.root, self.runner.manifest.tosca, jobOptions
+        )
         childJob = Job(self.runner, self.rootResource.root, plan, jobOptions)
         assert childJob.parentJob is self
         childJob.run()

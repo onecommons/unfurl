@@ -1,5 +1,5 @@
 from collections import Mapping, MutableSequence, MutableMapping
-from .util import diffDicts
+from .merge import diffDicts
 
 
 def serializeValue(value, **kw):

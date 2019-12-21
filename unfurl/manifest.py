@@ -213,6 +213,7 @@ class Manifest(AttributeManager):
         templateName = status.get("template", name)
         template = self.loadTemplate(templateName)
         if template is None:
+            # not defined in the current model any more, try to retrieve the old version
             if operational.lastConfigChange:
                 changerecord = self._getLastChange(operational)
                 template = self.loadTemplate(templateName, changerecord)
