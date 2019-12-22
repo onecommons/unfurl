@@ -9,7 +9,7 @@ import json
 
 from collections import Mapping
 import os.path
-from jsonschema import Draft4Validator, validators
+from jsonschema import Draft4Validator, validators, RefResolver
 from ruamel.yaml.scalarstring import ScalarString, FoldedScalarString
 from ruamel.yaml import YAML
 import logging
@@ -45,7 +45,7 @@ class AnsibleDummyCli(object):
 ansibleDummyCli = AnsibleDummyCli()
 from ansible.utils import display
 
-display.logger = logging.getLogger("ansible")
+display.logger = logging.getLogger("unfurl.ansible")
 
 
 class AnsibleDisplay(display.Display):
@@ -242,21 +242,22 @@ def extend_with_default(validator_class):
 DefaultValidatingLatestDraftValidator = extend_with_default(Draft4Validator)
 
 
-def validateSchema(obj, schema):
+def validateSchema(obj, schema, baseUri=None):
     return not findSchemaErrors(obj, schema)
 
 
-def findSchemaErrors(obj, schema):
+def findSchemaErrors(obj, schema, baseUri=None):
     # XXX2 have option that includes definitions from manifest's schema
-    validator = DefaultValidatingLatestDraftValidator(schema)
+    if baseUri is not None:
+        resolver = RefResolver(base_uri=baseUri, referrer=schema)
+    else:
+        resolver = None
+    validator = DefaultValidatingLatestDraftValidator(schema, resolver=resolver)
     errors = list(validator.iter_errors(obj))
     if not errors:
         return None
-    message = "\n".join(e.message for e in errors)
+    message = "\n".join(e.message for e in errors[:1])
     return message, errors
-
-
-# RefResolver.from_schema(schema)
 
 
 class ChainMap(Mapping):

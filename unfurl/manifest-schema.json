@@ -1,232 +1,256 @@
 {
-    "$schema": "http://json-schema.org/draft-04/schema#",
-    "$id": "https://www.onecommons.org/schemas/unfurl/v1alpha1.json",
-    "definitions": {
-        "action": {
-          "title": "hmm",
-          "enum": ["discover", "instantiate", "revert"],
-          "$$target": "#/definitions/action"
-        },
-        "readyState": {
-          "enum": ["ok", "degraded", "stopped", "error", "pending", "notpresent", "notapplied"],
-          "title": "hmm",
-          "$$target": "#/definitions/readyState"
-        },
-        "atomic": {
-            "type": "object",
-            "properties": {},
-            "$$target": "#/definitions/atomic"
-        },
-        "namedObjects": {
-            "type": "object",
-            "propertyNames": {"pattern": "^[A-Za-z_][A-Za-z0-9_\\-]*$"},
-            "$$target": "#/definitions/namedObjects"
-        },
-        "secret": {
-            "type": "object",
-            "properties": {
-                "ref": {
-                    "type": "object",
-                    "properties": {
-                        "secret": {
-                            "type": "string",
-                            "pattern": "^[A-Za-z_][A-Za-z0-9_\\-]*$"
-                        }
-                    },
-                    "required": ["secret"]
-                }
-            },
-            "required": ["ref"],
-            "$$target": "#/definitions/secret"
-        },
-        "attributes": {
-            "allOf": [
-                {"$ref": "#/definitions/namedObjects"},
-                {"$ref": "#/definitions/atomic"}
-            ],
-            "default": {},
-            "$$target": "#/definitions/namedObjects"
-        },
-        "resource": {
-            "type": "object",
-            "allOf": [
-                {"$ref": "#/definitions/status"},
-                {
-                    "properties": {
-                        "template": {"type": "string"},
-                        "attributes": {
-                            "$ref": "#/definitions/attributes",
-                            "default": {}
-                        },
-                        "resources": {
-                            "allOf": [
-                                {"$ref": "#/definitions/namedObjects"},
-                                {
-                                    "additionalProperties": {
-                                        "$ref": "#/definitions/resource"
-                                    }
-                                }
-                            ],
-                            "default": {}
-                        }
-                    }
-                }
-            ],
-            "$$target": "#/definitions/resource"
-        },
-        "configurationSpec": {
-            "type": "object",
-            "properties": {
-                "className": {"type": "string"},
-                "majorVersion": {"anyOf": [{"type": "string"}, {"type": "number"}]},
-                "minorVersion": {"type": "string"},
-                "workflow": {"type": "string"},
-                "inputs": {"$ref": "#/definitions/attributes", "default": {}},
-                "preconditions": {"$ref": "#/definitions/schema", "default": {}}
-            },
-            "required": ["className"]
-        },
-        "configurationStatus": {
-            "type": "object",
-            "allOf": [
-                {"$ref": "#/definitions/status"},
-                {
-                    "properties": {
-                        "action": {"$ref": "#/definitions/action"},
-                        "inputs": {"$ref": "#/definitions/attributes", "default": {}},
-                        "modifications": {
-                            "allOf": [
-                                {"$ref": "#/definitions/namedObjects"},
-                                {
-                                    "additionalProperties": {
-                                        "$ref": "#/definitions/namedObjects"
-                                    }
-                                }
-                            ],
-                            "default": {}
-                        },
-                        "dependencies": {
-                            "type": "array",
-                            "items": {
-                                "type": "object",
-                                "properties": {
-                                    "name": {"type": "string"},
-                                    "ref": {"type": "string"},
-                                    "expected": {},
-                                    "schema": {"$ref": "#/definitions/schema"},
-                                    "required": {"type": "boolean"}
-                                }
-                            }
-                        }
-                    }
-                }
-            ]
-        },
-        "status": {
-            "type": "object",
-            "properties": {
-                "readyState": {
-                    "type": "object",
-                    "properties": {
-                        "effective": {"$ref": "#/definitions/readyState"},
-                        "local": {"$ref": "#/definitions/readyState"}
-                    }
-                },
-                "priority": {"enum": ["ignore", "optional", "required"]},
-                "lastStateChange": {"$ref": "#/definitions/changeId"},
-                "lastConfigChange": {"$ref": "#/definitions/changeId"}
-            },
-            "additionalProperties": true
-        },
-        "changeId": {
-          "type": "number",
-          "$$target": "#/definitions/changeId"
-        },
-        "schema": {
-          "type": "object",
-          "$$target": "#/definitions/schema"
-        }
+  "$schema": "http://json-schema.org/draft-06/schema#",
+  "$id": "https://www.onecommons.org/schemas/unfurl/manifest-v1alpha1.json",
+  "definitions": {
+    "action": {
+      "title": "the workflow",
+      "enum": ["discover", "instantiate", "revert"],
+      "$$target": "#/definitions/action"
     },
-    "title": "manifest",
-    "type": "object",
-    "properties": {
-        "apiVersion": {"enum": ["unfurl/v1alpha1"]},
-        "kind": {"enum": ["Manifest"]},
-        "spec": {
+    "readyState": {
+      "title": "readyState",
+      "description": "The operations status, see ",
+      "enum": [
+        "ok",
+        "degraded",
+        "stopped",
+        "error",
+        "pending",
+        "notpresent",
+        "notapplied"
+      ],
+      "$$target": "#/definitions/readyState"
+    },
+    "atomic": {
+      "type": "object",
+      "properties": {},
+      "$$target": "#/definitions/atomic"
+    },
+    "namedObjects": {
+      "title": "namedObject",
+      "type": "object",
+      "description": "constrains the objects property names",
+      "propertyNames": { "pattern": "^[A-Za-z_][A-Za-z0-9_\\-]*$" },
+      "$$target": "#/definitions/namedObjects"
+    },
+    "secret": {
+      "type": "object",
+      "properties": {
+        "ref": {
           "type": "object",
-          "anyOf": [
-            {"oneOf": [{
-              "properties": {
+          "properties": {
+            "secret": {
+              "type": "string",
+              "pattern": "^[A-Za-z_][A-Za-z0-9_\\-]*$"
+            }
+          },
+          "required": ["secret"]
+        }
+      },
+      "required": ["ref"],
+      "$$target": "#/definitions/secret"
+    },
+    "attributes": {
+      "allOf": [
+        { "$ref": "#/definitions/namedObjects" },
+        { "$ref": "#/definitions/atomic" }
+      ],
+      "default": {},
+      "$$target": "#/definitions/attributes"
+    },
+    "schema": {
+      "type": "object",
+      "$$target": "#/definitions/schema"
+    },
+    "resource": {
+      "title": "Instance",
+      "type": "object",
+      "allOf": [
+        {
+          "properties": {
+            "template": { "type": "string" },
+            "attributes": {
+              "$ref": "#/definitions/attributes",
+              "default": {}
+            },
+            "resources": {
+              "allOf": [
+                { "$ref": "#/definitions/namedObjects" },
+                {
+                  "additionalProperties": {
+                    "$ref": "#/definitions/resource"
+                  }
+                }
+              ],
+              "default": {}
+            }
+          }
+        },
+        { "$ref": "#/definitions/status" }
+      ],
+      "$$target": "#/definitions/resource"
+    },
+    "status": {
+      "$$target": "#/definitions/status",
+      "type": "object",
+      "properties": {
+        "readyState": {
+          "type": "object",
+          "properties": {
+            "effective": { "$ref": "#/definitions/readyState" },
+            "local": { "$ref": "#/definitions/readyState" }
+          }
+        },
+        "priority": { "enum": ["ignore", "optional", "required"] },
+        "lastStateChange": { "$ref": "#/definitions/changeId" },
+        "lastConfigChange": { "$ref": "#/definitions/changeId" }
+      },
+      "additionalProperties": true
+    },
+    "changeId": {
+      "type": "number",
+      "$$target": "#/definitions/changeId"
+    },
+    "configurationSpec": {
+      "type": "object",
+      "properties": {
+        "className": { "type": "string" },
+        "majorVersion": {
+          "anyOf": [{ "type": "string" }, { "type": "number" }]
+        },
+        "minorVersion": { "type": "string" },
+        "workflow": { "type": "string" },
+        "inputs": { "$ref": "#/definitions/attributes", "default": {} },
+        "preconditions": { "$ref": "#/definitions/schema", "default": {} }
+      },
+      "required": ["className"],
+      "$$target": "#/definitions/configurationSpec"
+    },
+    "configurationStatus": {
+      "$$target": "#/definitions/configurationStatus",
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/definitions/status" },
+        {
+          "properties": {
+            "action": { "$ref": "#/definitions/action" },
+            "inputs": { "$ref": "#/definitions/attributes", "default": {} },
+            "modifications": {
+              "allOf": [
+                { "$ref": "#/definitions/namedObjects" },
+                {
+                  "additionalProperties": {
+                    "$ref": "#/definitions/namedObjects"
+                  }
+                }
+              ],
+              "default": {}
+            },
+            "dependencies": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": { "type": "string" },
+                  "ref": { "type": "string" },
+                  "expected": {},
+                  "schema": { "$ref": "#/definitions/schema" },
+                  "required": { "type": "boolean" }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "changes": {
+      "$$target": ["#/definitions/changes", "./manifest-schema.json#/definitions/changes"],
+      "type": "array",
+      "additionalItems": {
+        "type": "object",
+        "allOf": [
+          { "$ref": "#/definitions/status" },
+          { "$ref": "#/definitions/configurationStatus" },
+          {
+            "properties": {
+              "parentId": { "$ref": "#/definitions/changeId" },
+              "commitId": { "type": "string" },
+              "startTime": { "type": "string" },
+              "implementation": {
+                "$ref": "#/definitions/configurationSpec"
+              }
+            },
+            "required": ["changeId"]
+          }
+        ]
+      }
+    }
+  },
+  "title": "manifest",
+  "type": "object",
+  "properties": {
+      "apiVersion": { "enum": ["unfurl/v1alpha1"] },
+      "kind": { "enum": ["Manifest"] },
+      "spec": {
+        "type": "object",
+        "anyOf": [
+          {
+            "oneOf": [
+              {
+                "properties": {
                   "tosca": {
                     "type": "object"
                   }
-              }},
-              {"properties": {
-                "node_templates": {
+                }
+              },
+              {
+                "properties": {
+                  "node_templates": {
                     "type": "object"
                   }
-              }}]
-            },
-            {
-              "properties": {
-                "instances": {"$ref": "#/definitions/namedObjects"}
+                }
               }
-            },
-            {
-              "properties": {
-                "installers": {"$ref": "#/definitions/namedObjects"}
-              }
+            ]
+          },
+          {
+            "properties": {
+              "instances": { "$ref": "#/definitions/namedObjects" }
             }
-          ]
-        },
-        "status": {
-            "type": "object",
-            "allOf": [
-                {
-                    "properties": {
-                        "topology": {"type": "string"},
-                        "inputs": {"$ref": "#/definitions/attributes"},
-                        "outputs": {"$ref": "#/definitions/attributes"},
-                        "instances": {
-                            "allOf": [
-                                {"$ref": "#/definitions/namedObjects"},
-                                {
-                                    "additionalProperties": {
-                                        "$ref": "#/definitions/resource"
-                                    }
-                                }
-                            ]
-                        }
-                    }
-                },
-                {"$ref": "#/definitions/status"}
-            ],
-            "default": {}
-        },
-        "changeLog": {
-          "type": "string"
-        },
-        "changes": {
-            "type": "array",
-            "additionalItems": {
-                "type": "object",
+          },
+          {
+            "properties": {
+              "installers": { "$ref": "#/definitions/namedObjects" }
+            }
+          }
+        ]
+      },
+      "status": {
+        "type": "object",
+        "allOf": [
+          {
+            "properties": {
+              "topology": { "type": "string" },
+              "inputs": { "$ref": "#/definitions/attributes" },
+              "outputs": { "$ref": "#/definitions/attributes" },
+              "instances": {
                 "allOf": [
-                    {"$ref": "#/definitions/status"},
-                    {"$ref": "#/definitions/configurationStatus"},
-                    {
-                        "properties": {
-                            "parentId": {"$ref": "#/definitions/changeId"},
-                            "commitId": {"type": "string"},
-                            "startTime": {"type": "string"},
-                            "implementation": {
-                                "$ref": "#/definitions/configurationSpec"
-                            }
-                        },
-                        "required": ["changeId"]
+                  { "$ref": "#/definitions/namedObjects" },
+                  {
+                    "additionalProperties": {
+                      "$ref": "#/definitions/resource"
                     }
+                  }
                 ]
+              }
             }
-        }
-    },
-    "required": ["apiVersion", "kind", "spec"]
+          },
+          { "$ref": "#/definitions/status" }
+        ],
+        "default": {}
+      },
+      "latestChange": { "type": "object"},
+      "changeLog": {"type": "string"},
+      "changes": {"$ref": "#/definitions/changes"}
+  },
+  "required": ["apiVersion", "kind", "spec"]
 }

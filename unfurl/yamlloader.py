@@ -1,8 +1,15 @@
 import os.path
 import sys
-import six
 import codecs
+import json
+import six
 from six.moves import urllib
+
+try:
+    from urlparse import urljoin  # Python2
+except ImportError:
+    from urllib.parse import urljoin  # Python3
+pathname2url = urllib.request.pathname2url
 
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap
@@ -125,6 +132,7 @@ class YamlConfig(object):
         self, config=None, path=None, validate=True, schema=None, loadHook=None
     ):
         try:
+            self.path = None
             self.schema = schema
             if path:
                 self.path = os.path.abspath(path)
@@ -195,7 +203,17 @@ class YamlConfig(object):
         yaml.dump(self.config, out)
 
     def validate(self, config):
-        return findSchemaErrors(config, self.schema)
+        if isinstance(self.schema, six.string_types):
+            # assume its a file path
+            path = self.schema
+            with open(path) as fp:
+                self.schema = json.load(fp)
+        else:
+            path = None
+        baseUri = None
+        if path:
+            baseUri = urljoin("file:", pathname2url(path))
+        return findSchemaErrors(config, self.schema, baseUri)
 
     def loadInclude(self, templatePath, warnWhenNotFound=False):
         if templatePath == self.baseDirs[-1]:

@@ -84,48 +84,49 @@
       effective: error
       local: ok
 
-# in changes.yaml:
-  - jobId: 1
-    startCommit:
-    endCommit: ''
-    startTime:
-    specDigest:
-    tasksRun:
-    readyState:
-      effective: error
-      local: ok
-  - changeId: 2
-    startTime
-    parentId: 1 # allows execution plan order to be reconstructed
-    previousId # XXX last time this configuration ran
-    target
-    readyState
-    priority
-    resource
-    config
-    action
-    implementation:
-      type: resource | artifact | class
-      key: repo:key#commitid | className:version
-    inputs
-    dependencies:
-      - ref: ::resource1::key[~$val]
-        expected: "value"
-      - name: named1
-        ref: .configurations::foo[.operational]
-        required: true
-        schema:
-          type: array
-    changes:
-      resource1:
-        .added: # set if added resource
-        .status: # set when adding or removing
-        foo: bar
-      resource2:
-        .spec:
-        .status: notpresent
-      resource3/child1: +%delete
-    messages: []
+  # in changes.yaml:
+  changes:
+    - jobId: 1
+      startCommit:
+      endCommit: ''
+      startTime:
+      specDigest:
+      tasksRun:
+      readyState:
+        effective: error
+        local: ok
+    - changeId: 2
+      startTime
+      parentId: 1 # allows execution plan order to be reconstructed
+      previousId # XXX last time this configuration ran
+      target
+      readyState
+      priority
+      resource
+      config
+      action
+      implementation:
+        type: resource | artifact | class
+        key: repo:key#commitid | className:version
+      inputs
+      dependencies:
+        - ref: ::resource1::key[~$val]
+          expected: "value"
+        - name: named1
+          ref: .configurations::foo[.operational]
+          required: true
+          schema:
+            type: array
+      changes:
+        resource1:
+          .added: # set if added resource
+          .status: # set when adding or removing
+          foo: bar
+        resource2:
+          .spec:
+          .status: notpresent
+        resource3/child1: +%delete
+      messages: []
 """
 from __future__ import absolute_import
 import six
@@ -134,11 +135,10 @@ import collections
 import numbers
 import os.path
 import itertools
-import json
 
 from .util import UnfurlError, toYamlText
 from .merge import restoreIncludes, patchDict
-from .yamlloader import YamlConfig, load_yaml, yaml
+from .yamlloader import YamlConfig, yaml
 from .result import serializeValue
 from .support import ResourceChanges, Status, Defaults
 from .localenv import LocalEnv
@@ -273,11 +273,6 @@ def saveTask(task):
     return output
 
 
-def getSchema():
-    with open(os.path.join(_basepath, "manifest-schema.json")) as fp:
-        return json.load(fp)
-
-
 class YamlManifest(Manifest):
     def __init__(self, manifest=None, path=None, validate=True, localEnv=None):
         assert not (localEnv and (manifest or path))  # invalid combination of args
@@ -288,7 +283,7 @@ class YamlManifest(Manifest):
             manifest,
             path or localEnv and localEnv.manifestPath,
             validate,
-            getSchema(),
+            os.path.join(_basepath, "manifest-schema.json"),
             self.loadYamlInclude,
         )
         manifest = self.manifest.expanded
@@ -301,8 +296,13 @@ class YamlManifest(Manifest):
         if self.changeLogPath:
             fullPath = os.path.join(self.getBaseDir(), self.changeLogPath)
             if os.path.exists(fullPath):
-                changelog = load_yaml(fullPath)
-                changes = changelog.get("changes", [])
+                changelog = YamlConfig(
+                    None,
+                    fullPath,
+                    validate,
+                    os.path.join(_basepath, "changelog-schema.json"),
+                )
+                changes = changelog.config.get("changes", [])
             else:
                 if status:
                     logger.warning("missing changelog: %s", fullPath)
