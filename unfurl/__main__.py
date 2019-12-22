@@ -135,7 +135,8 @@ def _run(manifest, options, ctx=None):
             click.echo(result)
 
     if not job or (
-        options["jobexitcode"] != "never"
+        "jobexitcode" in options
+        and options["jobexitcode"] != "never"
         and Status[options["jobexitcode"]] <= job.status
     ):
         if options.get("standalone_mode") is False:

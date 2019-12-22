@@ -332,10 +332,11 @@ class ExternalResource(ExternalValue):
         if schema:
             messages = findSchemaErrors(serializeValue(obj), schema)
             if messages:
+                (message, schemaErrors) = messages
                 raise UnfurlValidationError(
                     "schema validation failed for attribute '%s': %s"
-                    % (name, messages[1]),
-                    messages[1],
+                    % (name, schemaErrors),
+                    schemaErrors,
                 )
 
     def _getSchema(self, name):

@@ -592,9 +592,10 @@ class Job(ConfigChange):
 
     def stats(self, asMessage=False):
         tasks = self.workDone.values()
-        tasks = sorted(tasks, key=lambda t: t._localStatus)
+        key = lambda t: t._localStatus or Status.notapplied
+        tasks = sorted(tasks, key=key)
         stats = dict(total=len(tasks), ok=0, error=0, notapplied=0, skipped=0)
-        for k, g in itertools.groupby(tasks, lambda t: t._localStatus):
+        for k, g in itertools.groupby(tasks, key):
             if not k:
                 stats["skipped"] = len(list(g))
             else:

@@ -20,7 +20,7 @@ yaml = YAML()
 
 import logging
 
-logger = logging.getLogger("unfurl")
+logger = logging.getLogger("unfurl.task")
 
 
 class ConfigOp(object):
@@ -554,18 +554,20 @@ class TaskView(object):
                     logger.info("updating resources %s", existingResource.name)
                     continue
 
-                pname = resourceSpec.get('parent')
-                if pname in ['.self', 'SELF']:
-                  resourceSpec['parent'] = self.target.name
-                elif pname == 'HOST':
-                  resourceSpec['parent'] = self.target.parent.name if self.target.parent else 'root'
+                pname = resourceSpec.get("parent")
+                if pname in [".self", "SELF"]:
+                    resourceSpec["parent"] = self.target.name
+                elif pname == "HOST":
+                    resourceSpec["parent"] = (
+                        self.target.parent.name if self.target.parent else "root"
+                    )
 
                 resource = self._manifest.loadResource(
                     rname, resourceSpec, parent=self.target.root
                 )
 
                 # XXX wrong... these need to be operational instances
-                #if resource.required or resourceSpec.get("dependent"):
+                # if resource.required or resourceSpec.get("dependent"):
                 #    self.addDependency(resource, required=resource.required)
             except:
                 errors.append(
