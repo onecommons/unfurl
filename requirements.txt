@@ -8,7 +8,7 @@ mitogen==0.2.7
 openshift
 click==7.0
 enum34
-jsonschema
+jsonschema[format_nongpl]
 subprocess32
 ruamel.yaml>=0.15.37
 gitpython

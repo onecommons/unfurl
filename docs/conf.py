@@ -26,7 +26,7 @@ extensions = [
     "sphinx.ext.napoleon",
     "sphinx.ext.githubpages",
     "sphinx_click.ext",
-    "sphinx-jsonschema"
+    "sphinx-jsonschema",
 ]
 
 # Add any paths that contain templates here, relative to this directory.
@@ -39,12 +39,20 @@ exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
 
 
 # -- Options for HTML output -------------------------------------------------
+# see https://github.com/myyasuda/sphinxbootstrap4theme#html-theme-options
 
 # The theme to use for HTML and HTML Help pages.  See the documentation for
 # a list of builtin themes.
-#
-html_theme = "alabaster"
+html_theme_options = {
+    "show_sidebar": False,
+    # "sidebar_fixed": False
+}
 
+# html_theme = "alabaster"
+html_theme = "sphinxbootstrap4theme"
+import sphinxbootstrap4theme
+
+html_theme_path = [sphinxbootstrap4theme.get_path()]
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,
 # so a file named "default.css" will overwrite the builtin "default.css".
