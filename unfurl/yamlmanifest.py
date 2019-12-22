@@ -138,7 +138,7 @@ import json
 
 from .util import UnfurlError, toYamlText
 from .merge import restoreIncludes, patchDict
-from .yamlloader import YamlConfig, loadFromRepo, load_yaml, yaml
+from .yamlloader import YamlConfig, load_yaml, yaml
 from .result import serializeValue
 from .support import ResourceChanges, Status, Defaults
 from .localenv import LocalEnv
@@ -289,7 +289,7 @@ class YamlManifest(Manifest):
             path or localEnv and localEnv.manifestPath,
             validate,
             getSchema(),
-            self.loadHook,
+            self.loadYamlInclude,
         )
         manifest = self.manifest.expanded
         spec = manifest.get("spec", {})
@@ -546,16 +546,15 @@ class YamlManifest(Manifest):
         for name, value in importsSpec.items():
             resource = self.localEnv and self.localEnv.getLocalResource(name, value)
             if not resource:
+                # load the manifest for the imported resource
                 if "file" not in value:
                     raise UnfurlError("Can not import '%s': no file specified" % (name))
+
                 # use tosca's loader instead, this can be an url into a repo
                 # if repo is url to a git repo, find or create working dir
-                repositories = self.tosca.template.tpl.get("repositories", {})
                 # load an instance repo
                 importDef = value.copy()
-                path, yamlDict = loadFromRepo(
-                    name, importDef, self.getBaseDir(), repositories, self
-                )
+                path, yamlDict = self.loadFromRepo(name, importDef, self.getBaseDir())
                 imported = YamlManifest(yamlDict, path=path)
                 rname = value.get("resource", "root")
                 resource = imported.getRootResource().findResource(rname)

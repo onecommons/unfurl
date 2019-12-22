@@ -10,7 +10,7 @@ from .runtime import OperationalInstance, Resource, Capability, Relationship
 from .util import UnfurlError, toEnum
 from .configurator import Dependency, ConfigurationSpec
 from .repo import RevisionManager, findGitRepo
-from .yamlloader import YamlConfig, loadFromRepo
+from .yamlloader import YamlConfig, loadToscaImport
 from .job import ConfigChange
 
 import logging
@@ -235,6 +235,7 @@ class Manifest(AttributeManager):
         return resource
 
     def findRepoFromGitUrl(self, path, isFile=True, importLoader=None, willUse=False):
+        # XXX this doesn't use the tosca template's repositories at all
         repoURL, filePath, revision = findGitRepo(path, isFile, importLoader)
         if not repoURL or not self.localEnv:
             return None, None, None, None
@@ -254,6 +255,7 @@ class Manifest(AttributeManager):
     Check if the file path is inside a folder that is managed by a repository.
     If the revision is pinned and doesn't match the repo, it might be bare
     """
+        # XXX this doesn't use the tosca template's repositories at all
         candidate = None
         if self.repo:  # our own repo gets first crack
             filePath, revision, bare = self.repo.findPath(path, importLoader)
@@ -283,7 +285,11 @@ class Manifest(AttributeManager):
     def _getRepositories(tpl):
         return tpl.get("spec", {}).get("tosca", {}).get("repositories", {})
 
-    def loadHook(self, yamlConfig, templatePath, baseDir, warnWhenNotFound=False):
+    def loadYamlInclude(
+        self, yamlConfig, templatePath, baseDir, warnWhenNotFound=False
+    ):
+        "This is can called while the YAML is loading YAML so the YAML config maybe incomplete"
+
         # self.updateRepoStatus(yamlConfig.config.get('status', {}).get('repositories',{}))
         repositories = self._getRepositories(yamlConfig.config)
 
@@ -302,9 +308,34 @@ class Manifest(AttributeManager):
             name = os.path.basename(templatePath)
             templatePath = dict(file=templatePath)
 
-        return loadFromRepo(
-            name, templatePath, baseDir, repositories, self, warnWhenNotFound
+        return self.loadFromRepo(
+            name, templatePath, baseDir, repositories, warnWhenNotFound
         )
+
+    def loadFromRepo(
+        self,
+        import_name,
+        import_uri_def,
+        basePath,
+        repositories=None,
+        ignoreFileNotFound=False,
+    ):
+        """
+        Construct a dummy TOSCA import so we can invoke its URL resolution mechanism
+        Returns (url or fullpath, parsed yaml)
+        """
+        context = CommentedMap(import_uri_def.items())
+        context["base"] = basePath
+        if repositories is None:
+            context["repositories"] = self.tosca.template.tpl.get("repositories", {})
+        else:
+            context["repositories"] = repositories
+        context.manifest = self
+        context.ignoreFileNotFound = ignoreFileNotFound
+        uridef = {
+            k: v for k, v in import_uri_def.items() if k in ["file", "repository"]
+        }
+        return loadToscaImport(basePath, context, import_name, uridef)
 
 
 class SnapShotManifest(Manifest):
@@ -313,7 +344,9 @@ class SnapShotManifest(Manifest):
         oldManifest = manifest.repo.show(manifest.path, commitId)
         self.repo = manifest.repo
         self.localEnv = manifest.localEnv
-        self.manifest = YamlConfig(oldManifest, manifest.path, loadHook=self.loadHook)
+        self.manifest = YamlConfig(
+            oldManifest, manifest.path, loadHook=self.loadYamlInclude
+        )
         expanded = self.manifest.expanded
         spec = expanded.get("spec", {})
         super(SnapShotManifest, self).__init__(spec, self.manifest.path, self.localEnv)

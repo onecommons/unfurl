@@ -114,6 +114,12 @@ import toscaparser.imports
 toscaparser.imports.YAML_LOADER = load_yaml
 
 
+def loadToscaImport(basePath, context, import_name, uridef):
+    # _load_import_template will invoke load_yaml above
+    loader = toscaparser.imports.ImportsLoader(None, basePath, tpl=context)
+    return loader._load_import_template(import_name, uridef)
+
+
 class YamlConfig(object):
     def __init__(
         self, config=None, path=None, validate=True, schema=None, loadHook=None
@@ -241,25 +247,3 @@ class YamlConfig(object):
 
         self._cachedDocIncludes[key] = [path, template]
         return value, template, newBaseDir
-
-
-def loadFromRepo(
-    import_name,
-    import_uri_def,
-    basePath,
-    repositories,
-    manifest,
-    ignoreFileNotFound=False,
-):
-    """
-  Returns (url or fullpath, parsed yaml)
-  """
-    context = CommentedMap(import_uri_def.items())
-    context["base"] = basePath
-    context["repositories"] = repositories
-    context.manifest = manifest
-    context.ignoreFileNotFound = ignoreFileNotFound
-    uridef = {k: v for k, v in import_uri_def.items() if k in ["file", "repository"]}
-    # _load_import_template will invoke load_yaml above
-    loader = toscaparser.imports.ImportsLoader(None, basePath, tpl=context)
-    return loader._load_import_template(import_name, uridef)
