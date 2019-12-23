@@ -1,0 +1,19 @@
+tosca_definitions_version: tosca_simple_unfurl_1_0_0
+imports:
+  # test fragment resolution
+  - local-template.yaml#/types/A
+
+repositories:
+  spec:
+    url: file:.
+node_types:
+  test.nodes.types:
+    derived_from: tosca.nodes.Root
+    artifacts:
+      my_file_artifact: ../my_apps_files/operation_artifact.txt
+topology_template:
+  node_templates:
+    nodeTest:
+      type: test.nodes.types
+      artifacts:
+        another: foo.txt

@@ -1,0 +1,12 @@
+types:
+  A:
+    tosca_definitions_version: tosca_simple_unfurl_1_0_0
+    node_types:
+      A.nodes.types:
+        derived_from: tosca.nodes.Root
+        artifacts:
+          my_file_artifact: ../my_apps_files/operation_artifact.txt
+    # topology_template:
+    #   node_templates:
+    #     nodeTest2:
+    #       type: test.nodes.types

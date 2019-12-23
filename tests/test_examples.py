@@ -34,7 +34,8 @@ class DummyShellConfigurator(Configurator):
 
 class RunTest(unittest.TestCase):
     def test_manifest(self):
-        manifest = YamlManifest(path=__file__ + "/../examples/helm-manifest.yaml")
+        path=__file__ + "/../examples/helm-manifest.yaml"
+        manifest = YamlManifest(path=path)
         runner = Runner(manifest)
         self.assertEqual(runner.lastChangeId, 0, "expected new manifest")
         output = six.StringIO()

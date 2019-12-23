@@ -93,3 +93,16 @@ class ToscaSyntaxTest(unittest.TestCase):
         assert job.status == Status.ok, job.summary()
         # XXX verify redacted output
         # print(job.out.getvalue())
+
+    def test_import(self):
+      """
+      Tests nested imports and url fragment resolution.
+      """
+      manifest = YamlManifest(path=__file__ + "/../examples/testimport-manifest.yaml")
+      self.assertEqual(2, manifest.tosca.template.nested_tosca_tpls_with_topology.keys())
+
+      # XXX
+      # import a service template from another repo
+      # with a python configurator class artifact that is used as an implementation
+      # (python class loader adds to sys path)
+      # artifacts defined on p84 and p125 in 1.3 spec, python artifact type on 208
