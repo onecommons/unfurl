@@ -1,6 +1,6 @@
 import itertools
 import re
-from collections import Mapping, MutableSequence, namedtuple
+from collections import Mapping, MutableSequence, namedtuple, Sequence
 
 from ruamel.yaml.comments import CommentedMap, CommentedBase
 
@@ -203,15 +203,23 @@ def _findTemplate(doc, key, path, cls, fail):
             else:
                 raise UnfurlError("could relative path '%s'" % ("." * key.relative))
     for index, segment in enumerate(key.pointer):
-        if not isinstance(template, Mapping) or segment not in template:
+        if isinstance(template, Sequence):
+            # Array indexes should be turned into integers
+            try:
+                segment = int(segment)
+            except ValueError:
+                pass
+        try:
+            template = template[segment]
+        except (TypeError, LookupError):
             if not fail:
                 return None
             raise UnfurlError(
                 'can not find "%s" in document' % key.pointer[: index + 1].join("/")
             )
+
         if templatePath is not None:
             templatePath.append(segment)
-        template = template[segment]
     return template, templatePath
 
 
@@ -456,9 +464,15 @@ def intersectDict(old, new, cls=dict):
 def lookupPath(doc, path, cls=dict):
     template = doc
     for segment in path:
-        if not isinstance(template, Mapping) or segment not in template:
+        if isinstance(template, Sequence):
+            try:
+                segment = int(segment)
+            except ValueError:
+                return None
+        try:
+            template = template[segment]
+        except (TypeError, LookupError):
             return None
-        template = template[segment]
     return template
 
 

@@ -10,6 +10,7 @@ try:
 except ImportError:
     from urllib.parse import urljoin  # Python3
 pathname2url = urllib.request.pathname2url
+from jsonschema import RefResolver
 
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap
@@ -44,9 +45,10 @@ def represent_sensitive(dumper, data):
 yaml.representer.add_representer(sensitive_str, represent_sensitive)
 
 
-def load_yaml(path, isFile=True, importLoader=None):
+def load_yaml(path, isFile=True, importLoader=None, fragment = None):
     try:
         originalPath = path
+        logger.debug("attempting to load YAML %s: %s", "file" if isFile else "url", path)
         bare = False
         manifest = importLoader and getattr(importLoader.tpl, "manifest", None)
         # check if this path is into a git repo
@@ -102,7 +104,11 @@ def load_yaml(path, isFile=True, importLoader=None):
                 return
         except Exception as e:
             raise
-        return yaml.load(f.read())
+        doc = yaml.load(f.read())
+        if fragment:
+            return RefResolver.resolve_fragment(None, doc, fragment)
+        else:
+          return doc
     except:
         if bare:
             msg = "Could not retrieve %s from repo (originally %s)" % (
@@ -253,6 +259,8 @@ class YamlConfig(object):
                         % (templatePath, baseDir)
                     )
                 return value, template, newBaseDir
+            elif isinstance(template, CommentedMap):
+                template.baseDir = newBaseDir
             _cacheAnchors(self.config._anchorCache, template)
         except:
             raise UnfurlError(
