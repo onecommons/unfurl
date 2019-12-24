@@ -99,7 +99,7 @@ class ToscaSyntaxTest(unittest.TestCase):
       Tests nested imports and url fragment resolution.
       """
       manifest = YamlManifest(path=__file__ + "/../examples/testimport-manifest.yaml")
-      self.assertEqual(2, manifest.tosca.template.nested_tosca_tpls_with_topology.keys())
+      self.assertEqual(2, manifest.tosca.template.nested_tosca_tpls.keys())
 
       # XXX
       # import a service template from another repo

@@ -66,7 +66,7 @@ class Manifest(AttributeManager):
         for tpl in [
             spec,
             t.topology_template.custom_defs,
-            t.nested_tosca_tpls_with_topology,
+            t.nested_tosca_tpls,
         ]:
             m.update(json.dumps(tpl, sort_keys=True).encode("utf-8"))
         return m.hexdigest()
@@ -288,7 +288,7 @@ class Manifest(AttributeManager):
     def loadYamlInclude(
         self, yamlConfig, templatePath, baseDir, warnWhenNotFound=False
     ):
-        "This is can called while the YAML is loading YAML so the YAML config maybe incomplete"
+        "This is called while the YAML config is loading so setup is incomplete"
 
         # self.updateRepoStatus(yamlConfig.config.get('status', {}).get('repositories',{}))
         repositories = self._getRepositories(yamlConfig.config)
