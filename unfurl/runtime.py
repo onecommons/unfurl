@@ -86,8 +86,8 @@ class Operational(ChangeAware):
             # treat like Status.notapplied
             return Status.notapplied
 
-        if status >= Status.stopped:
-            # return stopped, error, pending, or notpresent, notapplied
+        if status >= Status.error:
+            # return error, pending, or notpresent, notapplied
             return status
 
         dependentStatus = self.aggregateStatus(self.getOperationalDependencies())

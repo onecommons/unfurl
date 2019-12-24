@@ -13,7 +13,6 @@
       "enum": [
         "ok",
         "degraded",
-        "stopped",
         "error",
         "pending",
         "notpresent",
