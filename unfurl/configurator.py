@@ -7,6 +7,7 @@ from .result import serializeValue, ChangeAware, Results, ResultsMap
 from .util import (
     AutoRegisterClass,
     lookupClass,
+    loadModule,
     validateSchema,
     findSchemaErrors,
     UnfurlError,
@@ -459,7 +460,11 @@ class TaskView(object):
             # XXX need a way to pass different inputs
             inputs = self.configSpec.inputs
             return getConfigSpecFromInstaller(
-                self.configSpec.installer, configSpecName, inputs, useDefault=False
+                self.configSpec.installer,
+                configSpecName,
+                inputs,
+                self._manifest.tosca,
+                useDefault=False,
             )
         return None
 
@@ -673,24 +678,32 @@ class Dependency(ChangeAware):
         return False
 
 
-def getConfigSpecArgsFromImplementation(implementation, inputs=None):
+def getConfigSpecArgsFromImplementation(implementation, inputs, tosca):
     kw = dict(inputs=inputs)
     configSpecArgs = ConfigurationSpec.getDefaults()
+    artifact = None
     if isinstance(implementation, dict):
         for name, value in implementation.items():
             if name == "primary":
                 implementation = value
                 if isinstance(implementation, dict):
+                    artifact = implementation
                     # it's an artifact definition
-                    # XXX retrieve from repository if defined
                     implementation = implementation.get("file")
             elif name in configSpecArgs:
                 kw[name] = value
 
     if "className" not in kw:
         try:
-            lookupClass(implementation)
-            kw["className"] = implementation
+            if "#" in implementation:
+                if artifact is None:
+                    artifact = dict(file=implementation)
+                path, fragment = tosca.resolveArtifactPath(artifact)
+                mod = loadModule(path)
+                kw["className"] = mod.__name__ + "." + fragment
+            else:
+                lookupClass(implementation)
+                kw["className"] = implementation
         except UnfurlError:
             # assume its a command line, create a ShellConfigurator
             kw["className"] = "unfurl.configurators.shell.ShellConfigurator"
@@ -707,7 +720,9 @@ def getConfigSpecArgsFromImplementation(implementation, inputs=None):
     return kw
 
 
-def getConfigSpecFromInstaller(configuratorTemplate, action, inputs, useDefault=True):
+def getConfigSpecFromInstaller(
+    configuratorTemplate, action, inputs, tosca, useDefault=True
+):
     operations = configuratorTemplate.properties["operations"]
     attributes = None
     if action in operations:
@@ -741,7 +756,7 @@ def getConfigSpecFromInstaller(configuratorTemplate, action, inputs, useDefault=
         installerInputs = dict(installerInputs, **inputs)
 
     kw = getConfigSpecArgsFromImplementation(
-        attributes["implementation"], installerInputs
+        attributes["implementation"], installerInputs, tosca
     )
     kw["installer"] = configuratorTemplate
     return ConfigurationSpec(configuratorTemplate.name, action, **kw)

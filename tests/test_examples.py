@@ -34,11 +34,11 @@ class DummyShellConfigurator(Configurator):
 
 class RunTest(unittest.TestCase):
     def test_manifest(self):
-        path=__file__ + "/../examples/helm-manifest.yaml"
+        path = __file__ + "/../examples/helm-manifest.yaml"
         manifest = YamlManifest(path=path)
         runner = Runner(manifest)
         self.assertEqual(runner.lastChangeId, 0, "expected new manifest")
-        output = six.StringIO()
+        output = six.StringIO() # so we don't save the file
         job = runner.run(JobOptions(add=True, out=output, startTime="test"))
         assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
 

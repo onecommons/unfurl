@@ -1,8 +1,7 @@
 import six
 from .runtime import Resource
-from .util import UnfurlError, lookupClass
+from .util import UnfurlError
 from .support import Status
-from .result import serializeValue
 from .configurator import (
     ConfigurationSpec,
     getConfigSpecFromInstaller,
@@ -95,12 +94,14 @@ class Plan(object):
         if isinstance(implementation, six.string_types):
             configuratorTemplate = self.tosca.installers.get(implementation)
             if configuratorTemplate:
-                return getConfigSpecFromInstaller(configuratorTemplate, action, inputs)
+                return getConfigSpecFromInstaller(
+                    configuratorTemplate, action, inputs, self.tosca
+                )
 
         if implementation == installerName:
             return None  # installer wasn't specified or wasn't found
 
-        kw = getConfigSpecArgsFromImplementation(implementation, inputs)
+        kw = getConfigSpecArgsFromImplementation(implementation, inputs, self.tosca)
         name = iDef and iDef.iname or implementation
         return ConfigurationSpec(name, action, **kw)
 

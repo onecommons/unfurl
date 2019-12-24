@@ -3,8 +3,7 @@ from unfurl.yamlmanifest import YamlManifest
 from unfurl.job import Runner, JobOptions
 from unfurl.support import Status
 from unfurl.configurator import Configurator
-
-# from unfurl.util import UnfurlError, UnfurlValidationError
+import six
 
 
 class SetAttributeConfigurator(Configurator):
@@ -95,14 +94,16 @@ class ToscaSyntaxTest(unittest.TestCase):
         # print(job.out.getvalue())
 
     def test_import(self):
-      """
+        """
       Tests nested imports and url fragment resolution.
       """
-      manifest = YamlManifest(path=__file__ + "/../examples/testimport-manifest.yaml")
-      self.assertEqual(2, manifest.tosca.template.nested_tosca_tpls.keys())
+        manifest = YamlManifest(path=__file__ + "/../examples/testimport-manifest.yaml")
+        self.assertEqual(2, len(manifest.tosca.template.nested_tosca_tpls.keys()))
 
-      # XXX
-      # import a service template from another repo
-      # with a python configurator class artifact that is used as an implementation
-      # (python class loader adds to sys path)
-      # artifacts defined on p84 and p125 in 1.3 spec, python artifact type on 208
+        runner = Runner(manifest)
+        output = six.StringIO()
+        job = runner.run(JobOptions(add=True, out=output, startTime="test"))
+        self.assertEqual(job.status.name, "ok")
+        self.assertEqual(job.stats()['ok'], 1)
+        self.assertEqual(job.getOutputs()['aOutput'], 'set')
+        assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()

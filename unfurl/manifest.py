@@ -296,25 +296,22 @@ class Manifest(AttributeManager):
         if isinstance(templatePath, dict):
             templatePath = templatePath.copy()
             path = templatePath["file"]
-            name = os.path.basename(path)
             repo = templatePath.get("repository")
             if isinstance(repo, dict):
                 # a full repository spec maybe part of the include
-                reponame = repo.pop("name", name)
+                reponame = repo.pop("name", os.path.basename(path))
                 # replace spec with just its name
                 templatePath["repository"] = reponame
                 repositories[reponame] = repo
         else:
-            name = os.path.basename(templatePath)
             templatePath = dict(file=templatePath)
 
         return self.loadFromRepo(
-            name, templatePath, baseDir, repositories, warnWhenNotFound
+            templatePath, baseDir, repositories, warnWhenNotFound
         )
 
     def loadFromRepo(
         self,
-        import_name,
         import_uri_def,
         basePath,
         repositories=None,
@@ -335,7 +332,7 @@ class Manifest(AttributeManager):
         uridef = {
             k: v for k, v in import_uri_def.items() if k in ["file", "repository"]
         }
-        return loadToscaImport(basePath, context, import_name, uridef)
+        return loadToscaImport(basePath, context, uridef)
 
 
 class SnapShotManifest(Manifest):

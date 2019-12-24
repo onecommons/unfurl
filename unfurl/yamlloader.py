@@ -45,77 +45,80 @@ def represent_sensitive(dumper, data):
 yaml.representer.add_representer(sensitive_str, represent_sensitive)
 
 
-def load_yaml(path, isFile=True, importLoader=None, fragment = None):
-    try:
-        originalPath = path
-        logger.debug("attempting to load YAML %s: %s", "file" if isFile else "url", path)
-        bare = False
-        manifest = importLoader and getattr(importLoader.tpl, "manifest", None)
-        # check if this path is into a git repo
-        if manifest:
-            repo, filePath, revision, bare = manifest.findRepoFromGitUrl(
-                path, isFile, importLoader, True
-            )
-            if repo:  # it's a git repo
-                if bare:
-                    return yaml.load(repo.show(filePath, revision))
-                # find the project that the loading file is in
-                # tracks which commit was used, returns a workingDir
-                workingDir = repo.checkout(revision)
-                path = os.path.join(workingDir, filePath)
-                isFile = True
-            else:
-                # if it's a file, check if it's only in the repo
-                if isFile:
-                    repo, filePath, revision, bare = manifest.findPathInRepos(
-                        path, importLoader, True
-                    )
-                    if repo:
-                        if bare:
-                            return yaml.load(repo.show(filePath, revision))
-                        else:
-                            path = os.path.join(repo.workingDir, filePath)
-
-        # XXX urls and files outside of a repo should be saved and commited to the repo the importLoader is in
-        f = None
-        try:
-            if isFile:
-                ignoreFileNotFound = importLoader and getattr(
-                    importLoader.tpl, "ignoreFileNotFound", None
-                )
-                if ignoreFileNotFound and not os.path.isfile(path):
-                    return None
-                f = codecs.open(path, encoding="utf-8", errors="strict")
-            else:
-                f = urllib.request.urlopen(path)
-        except urllib.error.URLError as e:
-            if hasattr(e, "reason"):
-                msg = _(
-                    'Failed to reach server "%(path)s". Reason is: ' "%(reason)s."
-                ) % {"path": path, "reason": e.reason}
-                ExceptionCollector.appendException(URLException(what=msg))
-                return
-            elif hasattr(e, "code"):
-                msg = _(
-                    'The server "%(path)s" couldn\'t fulfill the request. '
-                    'Error code: "%(code)s".'
-                ) % {"path": path, "code": e.code}
-                ExceptionCollector.appendException(URLException(what=msg))
-                return
-        except Exception as e:
-            raise
-        doc = yaml.load(f.read())
-        if fragment:
-            return RefResolver.resolve_fragment(None, doc, fragment)
-        else:
-          return doc
-    except:
+def resolveIfInRepository(manifest, path, isFile=True, importLoader=None):
+    # XXX urls and files outside of a repo should be saved and commited to the repo the importLoader is in
+    # check if this path is into a git repo
+    repo, filePath, revision, bare = manifest.findRepoFromGitUrl(
+        path, isFile, importLoader, True
+    )
+    if repo:  # it's a git repo
         if bare:
-            msg = "Could not retrieve %s from repo (originally %s)" % (
-                filePath,
-                originalPath,
+            return filePath, six.StringIO(repo.show(filePath, revision))
+        # find the project that the loading file is in
+        # tracks which commit was used, returns a workingDir
+        workingDir = repo.checkout(revision)
+        path = os.path.join(workingDir, filePath)
+        isFile = True
+    else:
+        # if it's a file path, check if in one of our repos
+        if isFile:
+            repo, filePath, revision, bare = manifest.findPathInRepos(
+                path, importLoader, True
             )
-        elif path != originalPath:
+            if repo:
+                if bare:
+                    return filePath, six.StringIO(repo.show(filePath, revision))
+                else:
+                    path = os.path.join(repo.workingDir, filePath)
+    return path, None
+
+_refResolver = RefResolver('', None)
+def load_yaml(path, isFile=True, importLoader=None, fragment=None):
+    try:
+        logger.debug(
+            "attempting to load YAML %s: %s", "file" if isFile else "url", path
+        )
+        originalPath = path
+        f = None
+        manifest = importLoader and getattr(importLoader.tpl, "manifest", None)
+        if manifest:
+            path, f = resolveIfInRepository(manifest, path, isFile, importLoader)
+
+        if not f:
+            try:
+                if isFile:
+                    ignoreFileNotFound = importLoader and getattr(
+                        importLoader.tpl, "ignoreFileNotFound", None
+                    )
+                    if ignoreFileNotFound and not os.path.isfile(path):
+                        return None
+                    f = codecs.open(path, encoding="utf-8", errors="strict")
+                else:
+                    f = urllib.request.urlopen(path)
+            except urllib.error.URLError as e:
+                if hasattr(e, "reason"):
+                    msg = _(
+                        'Failed to reach server "%(path)s". Reason is: ' "%(reason)s."
+                    ) % {"path": path, "reason": e.reason}
+                    ExceptionCollector.appendException(URLException(what=msg))
+                    return
+                elif hasattr(e, "code"):
+                    msg = _(
+                        'The server "%(path)s" couldn\'t fulfill the request. '
+                        'Error code: "%(code)s".'
+                    ) % {"path": path, "code": e.code}
+                    ExceptionCollector.appendException(URLException(what=msg))
+                    return
+            except Exception as e:
+                raise
+        with f:
+            doc = yaml.load(f.read())
+        if fragment:
+            return _refResolver.resolve_fragment(doc, fragment)
+        else:
+            return doc
+    except:
+        if path != originalPath:
             msg = 'Could not load "%s" (originally "%s")' % (path, originalPath)
         else:
             msg = 'Could not load "%s"' % path
@@ -127,10 +130,21 @@ import toscaparser.imports
 toscaparser.imports.YAML_LOADER = load_yaml
 
 
-def loadToscaImport(basePath, context, import_name, uridef):
+def loadToscaImport(basePath, context, uridef):
     # _load_import_template will invoke load_yaml above
     loader = toscaparser.imports.ImportsLoader(None, basePath, tpl=context)
-    return loader._load_import_template(import_name, uridef)
+    return loader._load_import_template(None, uridef)
+
+
+def resolvePathToToscaImport(basePath, context, uridef):
+    loader = toscaparser.imports.ImportsLoader(None, basePath, tpl=context)
+    path, isFile, fragment = loader._resolve_import_template(None, uridef)
+    manifest = getattr(loader.tpl, "manifest", None)
+    if manifest:
+        newpath, f = resolveIfInRepository(manifest, path, isFile, loader)
+        return path if f else newpath, fragment
+    else:
+        return path, fragment
 
 
 class YamlConfig(object):

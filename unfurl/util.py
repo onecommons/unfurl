@@ -6,6 +6,7 @@ import itertools
 import tempfile
 import atexit
 import json
+import re
 
 from collections import Mapping
 import os.path
@@ -155,6 +156,41 @@ class AutoRegisterClass(type):
         cls = type.__new__(mcls, name, bases, dct)
         registerClass(VERSION, name, cls)
         return cls
+
+
+import warnings
+
+try:
+    import importlib.util
+
+    imp = None
+except ImportError:
+    import imp
+from ansible.module_utils._text import to_bytes, to_native  # BSD licensed
+
+
+def loadModule(path, full_name=None):
+    if full_name is None:
+        full_name = re.sub(r"\W", "_", path)  # generate a name from the path
+    if full_name in sys.modules:
+        return sys.modules[full_name]
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        if imp is None:
+            spec = importlib.util.spec_from_file_location(
+                to_native(full_name), to_native(path)
+            )
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            sys.modules[full_name] = module
+        else:
+            with open(to_bytes(path), "rb") as module_file:
+                # to_native is used here because imp.load_source's path is for tracebacks and python's traceback formatting uses native strings
+                module = imp.load_source(
+                    to_native(full_name), to_native(path), module_file
+                )
+    return module
 
 
 def loadClass(klass, defaultModule="__main__"):

@@ -3,158 +3,16 @@ kind: Manifest
 spec:
   tosca:
     imports:
-      - file: spec/service-template.yaml
-        namespace_prefix: A
-    # unfurl.relationships.InstalledBy used for implementation if no implementation is specified
-    node_types:
-      unfurl.nodes.HelmRelease:
-        derived_from: unfurl.nodes.Installation
-        requirements:
-        - host:
-            node: unfurl.nodes.K8sNamespace
-            relationship: tosca.relationships.HostedOn
-        - install:
-            node: unfurl.nodes.Installer
-            relationship: unfurl.relationships.InstalledBy
-        properties:
-          chart:
-            type: string
-          release_name:
-            type: string
-        interfaces:
-          Install:
-            type: unfurl.interfaces.install.Helm
-            inputs:
-              chart: {get_property: ['SELF', 'chart']}
-              release_name: {get_property: ['SELF', 'release_name']}
-
-    interface_types:
-      unfurl.interfaces.install.Helm:
-        derived_from: unfurl.interfaces.Install
-        inputs:
-          chart:
-            type: string
-          release_name:
-            type: string
-          flags:
-            type: list
-            required: false
-
+    - file: spec/service-template.yaml
+      namespace_prefix: A
     topology_template:
+      outputs:
+        aOutput:
+          value: {eval: ::testPrefix::anAttribute}
       node_templates:
-        helm-installer:
-          type: unfurl.nodes.Installer
-          properties:
-            implements:
-              - unfurl.interfaces.install.Helm
-            operations:
-              shared:
-                implementation:
-                  primary: DummyShellConfigurator
-                  timeout: 9999
-                  operation_host: ORCHESTRATOR # SELF or HOST or resource name
-                  environment:
-                    isolate: true
-                    addinputs: true
-                    passvars:
-                      - ANSIBLE_VERBOSITY
-                      - UNFURL_LOGGING
-                      - ANDROID_*
-                    vars:
-                      FOO: "{{}}"
-              default:
-                implementation: HelmConfigurator
-              instantiate:
-                inputs:
-                  helmcmd: install
-                  command:
-                    eval:
-                      template: >
-                        helm {{inputs.helmcmd}} {{inputs.release_name}} {{inputs.chart}}
-                          --namespace {{"namespace" | ref}}
-                          {%if kubecontext %} --kubecontext {{kubecontext}} {%endif%}
-                          {%if task.dryrun%}--dry-run{%endif%}
-                          --values {{ valuesfile }}
-                          {%if task.verbose %}--debug{%endif%}
-                          {%if task.timeout %}--timeout {{task.timeout}}{%endif%}
-                          {%if inputs.flags %}
-                            {%for flag, value in inputs.flags.items() %}
-                              --{{flag}} "{{value | quote }}"
-                            {%endfor%}
-                          {%endif%}
-                      vars:
-                        valuesfile:
-                          eval:
-                            tempfile: $inputs::values
-              update:
-                  helm upgrade [RELEASE] [CHART] [flags]
-              delete:
-                inputs:
-                  command: helm uninstall RELEASE_NAME
-              discover:
-                inputs:
-                  command: helm status -o json {{inputs.release_name}}
-                  resultTemplate: |
-                    {% set json = output | from_json %}
-                    {%for doc in json.manifest | from_yaml_all %}
-                      {%if doc.kind is defined %}
-                      - name: {{doc.kind}}.{{doc.spec.metadata.namespace }}.{{ doc.spec.metadata.name }}
-                        template:
-                          {%if doc.kind == 'Secret' %}
-                          type: unfurl.nodes.k8sSecretResource
-                          {% else %}
-                          type: unfurl.nodes.K8sResource
-                          {% endif %}
-                          requirements:
-                            host:
-                              {%if doc.spec.metadata.namespace is defined %}
-                              node_filter:
-                                type: unfurl.nodes.K8sNamespace
-                                properties:
-                                  name: {{doc.spec.metadata.namespace}}
-                              {% else %}
-                                HOST
-                              {%endif%}
-                        attributes:
-                          {%if doc.spec.metadata.namespace is defined %}
-                          namespace: {{doc.spec.metadata.namespace }}
-                          {% endif %}
-                          apiResource:
-                    {{ doc | to_yaml | indent(10, true) }}
-                        status:
-                          readyState: ok
-                      {%endif%}
-                    {% endfor %}
-
-        gitlab-release:
-          type: unfurl.nodes.HelmRelease
-          requirements:
-            - host:    defaultNamespace
-            - install: helm-installer
-          properties:
-            chart: gitlab/gitlab
-            release_name: foo
+        testPrefix:
+          type: A.Test
           interfaces:
-            Install:
-              inputs:
-                flags:
-                  - repo: https://charts.gitlab.io/
-                values:
-                  certmanager-issuer.email: admin@onecommons.org
-                  global:
-                    hosts:
-                      domain:
-                        eval: ::homedomain
-
-        stagingCluster:
-          type: unfurl.nodes.K8sCluster
-          properties:
-            connection:
-              context: docker-for-desktop
-
-        defaultNamespace:
-          type: unfurl.nodes.K8sNamespace
-          requirements:
-          - host: stagingCluster
-          properties:
-            name: default
+            Standard:
+              create:
+                implementation: spec/configurators.py#LocallyDefinedConfigurator

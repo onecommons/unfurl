@@ -554,7 +554,7 @@ class YamlManifest(Manifest):
                 # if repo is url to a git repo, find or create working dir
                 # load an instance repo
                 importDef = value.copy()
-                path, yamlDict = self.loadFromRepo(name, importDef, self.getBaseDir())
+                path, yamlDict = self.loadFromRepo(importDef, self.getBaseDir())
                 imported = YamlManifest(yamlDict, path=path)
                 rname = value.get("resource", "root")
                 resource = imported.getRootResource().findResource(rname)

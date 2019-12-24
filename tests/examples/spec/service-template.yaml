@@ -7,13 +7,13 @@ repositories:
   spec:
     url: file:.
 node_types:
-  test.nodes.types:
+  Test:
     derived_from: tosca.nodes.Root
     artifacts:
       my_file_artifact: ../my_apps_files/operation_artifact.txt
 topology_template:
   node_templates:
     nodeTest:
-      type: test.nodes.types
+      type: Test
       artifacts:
         another: foo.txt

@@ -11,6 +11,7 @@ Differences with TOSCA 1.1:
 from .tosca_plugins import TOSCA_VERSION
 from .util import UnfurlValidationError
 from .eval import Ref
+from .yamlloader import resolvePathToToscaImport
 from toscaparser.tosca_template import ToscaTemplate
 
 # from toscaparser.topology_template import TopologyTemplate
@@ -96,6 +97,10 @@ class ToscaSpec(object):
                     self.installers[template.name] = nodeTemplate
                 self.nodeTemplates[template.name] = nodeTemplate
         self.topology = TopologySpec(self.template.topology_template, inputs)
+
+    def resolveArtifactPath(self, artifact_tpl, path=None):
+        return resolvePathToToscaImport(path or self.template.path,
+                          self.template.tpl, artifact_tpl)
 
     def getTemplate(self, name):
         if name == "#topology":
