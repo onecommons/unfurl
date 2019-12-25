@@ -1,6 +1,6 @@
 import six
 from .runtime import Resource
-from .util import UnfurlError
+from .util import UnfurlError, Generate
 from .support import Status
 from .configurator import (
     ConfigurationSpec,
@@ -38,6 +38,7 @@ class Plan(object):
 
     def __init__(self, root, toscaSpec, jobOptions):
         self.jobOptions = jobOptions
+        self.workflow = jobOptions.workflow
         self.root = root
         self.tosca = toscaSpec
         assert self.tosca
@@ -108,12 +109,23 @@ class Plan(object):
     def findImplementation(self, interface, operation, template):
         default = None
         for iDef in template.getInterfaces():
-            if iDef.iname == interface:
+            if iDef.iname == interface or iDef.type == interface:
                 if iDef.name == operation:
                     return iDef
                 if iDef.name == "default":
                     default = iDef
         return default
+
+    @staticmethod
+    def _missingConfigSpec(action, resource, notfoundmsg):
+        errorMsg = (
+            'unable to find an implementation for operation "%s" on node "%s": %s'
+            % (action, resource.template.name, notfoundmsg)
+        )
+        return ConfigurationSpec("#error", action, className=errorMsg)
+
+    def defaultWorkflow(self, action, resource, reason=None):
+        yield self.generateConfiguration(action, resource, reason)
 
     def generateConfiguration(
         self, action, resource, reason=None, cmdLine=None, useConfigurator=None
@@ -163,11 +175,7 @@ class Plan(object):
                         notfoundmsg = "not specified on interface %s" % iDef.type
 
         if not configSpec:
-            errorMsg = (
-                'unable to find an implementation for operation "%s" on node "%s": %s'
-                % (action, resource.template.name, notfoundmsg)
-            )
-            configSpec = ConfigurationSpec("#error", action, className=errorMsg)
+            configSpec = self._missingConfigSpec(action, resource, notfoundmsg)
             return (configSpec, resource, reason or action)
         logger.debug(
             "creating configuration %s with %s to run for %s: %s",
@@ -191,7 +199,104 @@ class Plan(object):
                     if not include:
                         continue
                     reason, config = include
-                    yield self.generateConfiguration(ConfigOp.remove, resource, reason)
+                    gen = Generate(
+                        self._generateConfigurations(ConfigOp.remove, resource, reason)
+                    )
+                    while gen():
+                        gen.result = yield gen.next
+
+    def _generateConfigurations(self, operation, resource, reason):
+        # check if this workflow has been delegated to one explicitly declared
+        configGenerator = self.executeWorkflow(self.workflow, resource)
+        if not configGenerator:
+            configGenerator = self.defaultWorkflow(operation, resource, reason)
+        gen = Generate(configGenerator)
+        while gen():
+            gen.result = yield gen.next
+
+    def executeWorkflow(self, workflowName, resource):
+        workflow = self.tosca.getWorkflow(workflowName)
+        if not workflow:
+            return None
+        if workflow.filter(resource):  # check precondition
+            return None
+        steps = [
+            step
+            for step in workflow.initialSteps()
+            if resource.template.isCompatibleTarget(step.target)
+        ]
+        if not steps:
+            return None
+        try:
+            # push resource._workflow_inputs
+            return self.executeSteps(workflow, steps, resource)
+        finally:
+            pass  # pop _workflow_inputs
+
+    def executeSteps(self, workflow, steps, resource):
+        queue = steps[:]
+        while queue:
+            step = queue.pop()
+            if workflow.filterStep(step, resource):
+                continue
+            stepGenerator = self.executeStep(step, resource)
+            result = None
+            try:
+                while True:
+                    task = stepGenerator.send(result)
+                    if isinstance(task, list):  # more steps
+                        queue.extend([workflow.getStep(stepName) for stepName in task])
+                        break
+                    else:
+                        result = yield task
+            except StopIteration:
+                pass
+
+    def executeStep(self, step, resource):
+        logging.debug("executing step %s for %s", step.name, resource.name)
+        for activity in step.activities:
+            if activity.type == "inline":
+                # XXX inputs
+                workflowGenerator = self.executeWorkflow(activity.inline, resource)
+                if not workflowGenerator:
+                    continue
+                wresult = None
+                try:
+                    while True:
+                        task = workflowGenerator.send(wresult)
+                        wresult = yield task
+                except StopIteration:
+                    result = wresult
+            elif activity.type == "call_operation":
+                interface, sep, action = activity.call_operation.rpartition(".")
+                iDef = self.findImplementation(interface, action, resource.template)
+                if iDef:
+                    # merge inputs
+                    if activity.inputs:
+                        inputs = dict(iDef.inputs, **activity.inputs)
+                    else:
+                        inputs = iDef.inputs
+                    kw = getConfigSpecArgsFromImplementation(
+                        iDef.implementation, inputs, self.tosca
+                    )
+                    name = "step:" + step.name + ":call:" + activity.call_operation
+                    configSpec = ConfigurationSpec(name, action, **kw)
+                else:
+                    configSpec = self._missingConfigSpec(
+                        action, resource, "unknown call_operation"
+                    )
+                result = yield (configSpec, resource, action)
+            elif activity.type == "set_state":
+                # call setState on last task run
+                self.setState(result, activity.set_state)  # XXX
+            # elif activity is delegate: #XXX
+            #    yield JobRequest
+
+            if not result or not result.result.success:
+                yield step.on_failure
+                break
+        else:
+            yield step.on_success
 
 
 class DeployPlan(Plan):
@@ -333,9 +438,11 @@ Returns:
                         operation = ConfigOp.add
                     else:
                         operation = ConfigOp.update
-                    yield self.generateConfiguration(
-                        operation, resource, reason, opts.useConfigurator
+                    gen = Generate(
+                        self._generateConfigurations(operation, resource, reason)
                     )
+                    while gen():
+                        gen.result = yield gen.next
                 else:
                     logger.debug(
                         "skipping task for %s:%s", resource.name, template.name
@@ -347,9 +454,11 @@ Returns:
                 # XXX create NodeInstance instead to include relationships
                 resource = self.createResource(template)
                 visited.add(id(resource))
-                yield self.generateConfiguration(
-                    operation, resource, reason, opts.useConfigurator
+                gen = Generate(
+                    self._generateConfigurations(operation, resource, reason)
                 )
+                while gen():
+                    gen.result = yield gen.next
 
             # XXX? retrieve from resource.capabilities
             # for configSpec, oldConfigSpec in getConfigurations(
@@ -377,6 +486,37 @@ class UndeployPlan(Plan):
         if self.filterTemplate and resource.template == self.filterTemplate:
             return None
         return "remove", oldTemplate
+
+
+class WorkflowPlan(Plan):
+    def executePlan(self):
+        """
+    yields configSpec, target, reason
+    """
+        workflow = self.tosca.getWorkflow(self.jobOptions.workflow)
+        for step in workflow.initialSteps():
+            if self.filterTemplate and not self.filterTemplate.isCompatibleTarget(
+                step.target
+            ):
+                continue
+            if self.tosca.isTypeName(step.target):
+                templates = self.tosca.findMatchingTemplates(step.target)
+            else:
+                template = self.tosca.findTemplate(step.target)
+                if not template:
+                    continue
+                templates = [template]
+
+            for template in templates:
+                for resource in self.findResourcesFromTemplate(template):
+                    gen = self.executeSteps(workflow, [step], resource)
+                    result = None
+                    try:
+                        while True:
+                            configuration = gen.send(result)
+                            result = yield configuration
+                    except StopIteration:
+                        pass
 
 
 class RunNowPlan(Plan):

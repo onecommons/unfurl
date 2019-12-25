@@ -104,6 +104,22 @@ class ToscaSyntaxTest(unittest.TestCase):
         output = six.StringIO()
         job = runner.run(JobOptions(add=True, out=output, startTime="test"))
         self.assertEqual(job.status.name, "ok")
-        self.assertEqual(job.stats()['ok'], 1)
-        self.assertEqual(job.getOutputs()['aOutput'], 'set')
+        self.assertEqual(job.stats()["ok"], 1)
+        self.assertEqual(job.getOutputs()["aOutput"], "set")
         assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
+
+    def test_workflows(self):
+        manifest = YamlManifest(
+            path=__file__ + "/../examples/test-workflow-manifest.yaml"
+        )
+
+        runner = Runner(manifest)
+        output = six.StringIO()
+        job = runner.run(
+            JobOptions(add=True, planOnly=True, out=output, startTime="test")
+        )
+        # print(job.summary())
+        assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
+        self.assertEqual(job.status.name, "ok")
+        self.assertEqual(job.stats()["ok"], 4)
+        self.assertEqual(job.stats()["changed"], 4)

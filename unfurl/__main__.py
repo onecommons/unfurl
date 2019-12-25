@@ -149,7 +149,7 @@ def _run(manifest, options, ctx=None):
 
 commonJobFilterOptions = option_group(
     click.option("--template", help="TOSCA template to target"),
-    click.option("--resource", help="resource name to target"),
+    click.option("--instance", help="instance name to target"),
 )
 
 deployFilterOptions = option_group(

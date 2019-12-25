@@ -13,6 +13,7 @@ from .util import UnfurlValidationError
 from .eval import Ref
 from .yamlloader import resolvePathToToscaImport
 from toscaparser.tosca_template import ToscaTemplate
+from toscaparser.elements.entity_type import EntityType
 
 # from toscaparser.topology_template import TopologyTemplate
 from toscaparser.elements.capabilitytype import CapabilityTypeDef
@@ -97,15 +98,34 @@ class ToscaSpec(object):
                     self.installers[template.name] = nodeTemplate
                 self.nodeTemplates[template.name] = nodeTemplate
         self.topology = TopologySpec(self.template.topology_template, inputs)
+        self._workflows = {
+            name: Workflow(wf)
+            for name, wf in self.template.topology_template.workflows.items()
+        }
 
     def resolveArtifactPath(self, artifact_tpl, path=None):
-        return resolvePathToToscaImport(path or self.template.path,
-                          self.template.tpl, artifact_tpl)
+        return resolvePathToToscaImport(
+            path or self.template.path, self.template.tpl, artifact_tpl
+        )
 
     def getTemplate(self, name):
         if name == "#topology":
             return self.topology
         return self.nodeTemplates.get(name, self.relationshipTemplates.get(name))
+
+    def isTypeName(self, typeName):
+        return (
+            typeName in self.template.topology_template.custom_defs
+            or typeName in EntityType.TOSCA_DEF
+        )
+
+    def findMatchingTemplates(self, typeName):
+        for template in self.nodeTemplates:
+            if template.isCompatibleType(typeName):
+                yield template
+
+    def getWorkflow(self, workflow):
+        return self._workflows.get(workflow)
 
     def loadInstances(self, toscaDef, tpl):
         """
@@ -262,3 +282,25 @@ class CapabilitySpec(EntitySpec):
     def getInterfaces(self):
         # capabilities don't have their own interfaces
         return self.nodeTemplate.interfaces
+
+
+class Workflow(object):
+    def __init__(self, workflow):
+        self.workflow = workflow
+
+    def initialSteps(self):
+        preceeding = set()
+        for step in self.workflow.steps.values():
+            preceeding.update(step.on_success + step.on_failure)
+        return [
+            step for step in self.workflow.steps.values() if step.name not in preceeding
+        ]
+
+    def getStep(self, stepName):
+        return self.workflow.steps.get(stepName)
+
+    def filterStep(self, step, resource):
+        return False
+
+    def filter(self, resource):
+        return False

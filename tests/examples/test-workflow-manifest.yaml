@@ -1,0 +1,97 @@
+apiVersion: unfurl/v1alpha1
+kind: Manifest
+spec:
+  tosca:
+    # unfurl.relationships.InstalledBy used for implementation if no implementation is specified
+    node_types:
+      unfurl.nodes.HelmRelease:
+        derived_from: unfurl.nodes.Installation
+        requirements:
+        - host:
+            node: unfurl.nodes.K8sNamespace
+            relationship: tosca.relationships.HostedOn
+        properties:
+          chart:
+            type: string
+          release-name:
+            type: string
+        interfaces:
+          Install:
+            type: unfurl.interfaces.install.Helm
+            inputs:
+              chart: {get_property: ['SELF', 'chart']}
+              release-name: {get_property: ['SELF', 'release-name']}
+            operations:
+              execute: echo "{{inputs.helmcmd}}"
+              discover: echo "discover helm"
+
+    interface_types:
+      unfurl.interfaces.install.Helm:
+        derived_from: unfurl.interfaces.Install
+        inputs:
+          chart:
+            type: string
+          release-name:
+            type: string
+          flags:
+            type: list
+            required: false
+
+    topology_template:
+      workflows:
+        deploy:
+          steps:
+            helm:
+              target: unfurl.nodes.HelmRelease
+              activities:
+                 - call_operation:
+                      operation: unfurl.interfaces.install.Helm.execute
+                      inputs:
+                        helmcmd: '{{ "update" if task.reason == "update" else "install"}}'
+                 - inline: discover
+        undeploy:
+          steps:
+            helm:
+              target: unfurl.nodes.HelmRelease
+              activities:
+                 - call_operation: unfurl.interfaces.install.Helm.remove
+                 - inline: discover
+        discover:
+          steps:
+            helm:
+              target: unfurl.nodes.HelmRelease
+              activities:
+                 - call_operation: unfurl.interfaces.install.Helm.discover
+
+      node_templates:
+        gitlab-release:
+          type: unfurl.nodes.HelmRelease
+          requirements:
+            - host:    defaultNamespace
+          properties:
+            chart: gitlab/gitlab
+            release-name: foo
+          interfaces:
+            Install:
+              inputs:
+                flags:
+                  - repo: https://charts.gitlab.io/
+                values:
+                  certmanager-issuer.email: admin@onecommons.org
+                  global:
+                    hosts:
+                      domain:
+                        eval: ::homedomain
+
+        stagingCluster:
+          type: unfurl.nodes.K8sCluster
+          properties:
+            connection:
+              context: docker-for-desktop
+
+        defaultNamespace:
+          type: unfurl.nodes.K8sNamespace
+          requirements:
+          - host: stagingCluster
+          properties:
+            name: default

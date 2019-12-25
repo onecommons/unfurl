@@ -329,3 +329,26 @@ class ChainMap(Mapping):
 
     def __repr__(self):
         return "ChainMap(%r)" % (self._maps,)
+
+
+class Generate(object):
+    """
+        Roughly equivalent to "yield from" but works in Python < 3.3
+
+        Usage:
+
+        >>  gen = Generate(generator())
+        >>  while gen():
+        >>    gen.result = yield gen.next
+    """
+
+    def __init__(self, generator):
+        self.generator = generator
+        self.result = None
+
+    def __call__(self):
+        try:
+            self.next = self.generator.send(self.result)
+            return True
+        except StopIteration:
+            return False

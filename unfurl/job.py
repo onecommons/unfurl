@@ -407,53 +407,77 @@ class Job(ConfigChange):
 
     def getCandidateTasks(self):
         # XXX plan might call job.runJobRequest(configuratorJob) before yielding
-        for (configSpec, target, reason) in self.plan.executePlan():
-            if configSpec.name == "#error":
-                # placeholder configspec for errors: has an error message instead of className
-                # create a task so we can record this failure like other task failures
-                errorTask = ConfigTask(self, configSpec, target, reason=reason)
-                # the task won't run if we associate an exception with it:
-                UnfurlTaskError(errorTask, configSpec.className, True)
-                yield errorTask
-                continue
+        planGen = self.plan.executePlan()
+        result = None
+        try:
+            while True:
+                (configSpec, target, reason) = planGen.send(result)
+                if configSpec.name == "#error":
+                    # placeholder configspec for errors: has an error message instead of className
+                    # create a task so we can record this failure like other task failures
+                    errorTask = ConfigTask(self, configSpec, target, reason=reason)
+                    # the task won't run if we associate an exception with it:
+                    UnfurlTaskError(errorTask, configSpec.className, True)
+                    result = yield errorTask
+                    continue
 
-            configSpecName = configSpec.name
-            configSpec, filterReason = self.filterConfig(configSpec, target)
-            if not configSpec:
-                logger.debug(
-                    "skipping configspec %s for %s: doesn't match %s filter",
-                    configSpecName,
-                    target.name,
-                    filterReason,
-                )
-                continue
+                configSpecName = configSpec.name
+                configSpec, filterReason = self.filterConfig(configSpec, target)
+                if not configSpec:
+                    logger.debug(
+                        "skipping configspec %s for %s: doesn't match %s filter",
+                        configSpecName,
+                        target.name,
+                        filterReason,
+                    )
+                    result = None  # treat as filtered step
+                    continue
 
-            if self.runner.isConfigAlreadyHandled(configSpec, target):
-                # configuration may have premptively run while executing another task
-                logger.debug(
-                    "configspec %s for target %s already handled",
-                    configSpecName,
-                    target.name,
-                )
-                continue
+                oldResult = self.runner.isConfigAlreadyHandled(configSpec, target)
+                if oldResult:
+                    # configuration may have premptively run while executing another task
+                    logger.debug(
+                        "configspec %s for target %s already handled",
+                        configSpecName,
+                        target.name,
+                    )
+                    result = oldResult
+                    continue
 
-            yield self.createTask(configSpec, target, reason=reason)
+                result = yield self.createTask(configSpec, target, reason=reason)
+        except StopIteration:
+            pass
 
     def run(self):
-        for task in self.getCandidateTasks():
-            self.runner.addWork(task)
-            if not self.shouldRunTask(task):
-                continue
+        taskGen = self.getCandidateTasks()
+        result = None
+        try:
+            while True:
+                task = taskGen.send(result)
+                self.runner.addWork(task)
+                if not self.shouldRunTask(task):
+                    result = None  # treat as filtered step
+                    continue
 
-            if self.jobOptions.planOnly:
-                if not self.cantRunTask(task):
-                    logger.info("Run " + task.summary())
-            else:
-                logger.info("Running task %s", task)
-                self.runTask(task)
+                if self.jobOptions.planOnly:
+                    if not self.cantRunTask(task):
+                        # pretend run was sucessful
+                        logger.info("Run " + task.summary())
+                        result = task.finished(
+                            ConfiguratorResult(True, True, Status.ok, success=True)
+                        )
+                    else:
+                        result = task.finished(
+                            ConfiguratorResult(False, False, success=False)
+                        )
+                else:
+                    logger.info("Running task %s", task)
+                    result = self.runTask(task)
 
-            if self.shouldAbort(task):
-                return self.rootResource
+                if self.shouldAbort(task):
+                    return self.rootResource
+        except StopIteration:
+            pass
 
         # the only jobs left will be those that were added to resources already iterated over
         # and were not yielding inside runTask
@@ -724,7 +748,7 @@ class Runner(object):
         task.job.workDone[key] = task
 
     def isConfigAlreadyHandled(self, configSpec, target):
-        return False  # XXX
+        return None  # XXX
         # return configSpec.name in self.currentJob.workDone
 
     def createJob(self, joboptions):
