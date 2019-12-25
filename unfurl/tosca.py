@@ -14,8 +14,7 @@ from .eval import Ref
 from .yamlloader import resolvePathToToscaImport
 from toscaparser.tosca_template import ToscaTemplate
 from toscaparser.elements.entity_type import EntityType
-
-# from toscaparser.topology_template import TopologyTemplate
+import toscaparser.workflow
 from toscaparser.elements.capabilitytype import CapabilityTypeDef
 from toscaparser.common.exception import ExceptionCollector, ValidationError
 import logging
@@ -98,10 +97,32 @@ class ToscaSpec(object):
                     self.installers[template.name] = nodeTemplate
                 self.nodeTemplates[template.name] = nodeTemplate
         self.topology = TopologySpec(self.template.topology_template, inputs)
-        self._workflows = {
-            name: Workflow(wf)
-            for name, wf in self.template.topology_template.workflows.items()
+        self.load_workflows()
+
+    def load_workflows(self):
+        # we want to let different types defining standard workflows like deploy
+        # so we need support importing workflows
+        workflows = {
+            name: [Workflow(w)]
+            for name, w in self.template.topology_template.workflows.items()
         }
+        for import_tpl in self.template.nested_tosca_tpls.values():
+            importedWorkflows = import_tpl.get("topology_template", {}).get("workflows")
+            if importedWorkflows:
+                for name, val in importedWorkflows.items():
+                    workflows.setdefault(name, []).append(
+                        Workflow(toscaparser.workflow.Workflow(name, val))
+                    )
+
+        self._workflows = workflows
+
+    def getWorkflow(self, workflow):
+        # XXX need api to get all the workflows with the same name
+        wfs = self._workflows.get(workflow)
+        if wfs:
+            return wfs[0]
+        else:
+            return None
 
     def resolveArtifactPath(self, artifact_tpl, path=None):
         return resolvePathToToscaImport(
@@ -123,9 +144,6 @@ class ToscaSpec(object):
         for template in self.nodeTemplates:
             if template.isCompatibleType(typeName):
                 yield template
-
-    def getWorkflow(self, workflow):
-        return self._workflows.get(workflow)
 
     def loadInstances(self, toscaDef, tpl):
         """

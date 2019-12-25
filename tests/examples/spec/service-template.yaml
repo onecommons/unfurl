@@ -17,3 +17,27 @@ topology_template:
       type: Test
       artifacts:
         another: foo.txt
+  workflows:
+      deploy:
+        steps:
+          helm:
+            target: unfurl.nodes.HelmRelease
+            activities:
+               - call_operation:
+                    operation: unfurl.interfaces.install.Helm.execute
+                    inputs:
+                      helmcmd: '{{ "update" if task.reason == "update" else "install"}}'
+               - inline: discover
+      undeploy:
+        steps:
+          helm:
+            target: unfurl.nodes.HelmRelease
+            activities:
+               - call_operation: unfurl.interfaces.install.Helm.remove
+               - inline: discover
+      discover:
+        steps:
+          helm:
+            target: unfurl.nodes.HelmRelease
+            activities:
+               - call_operation: unfurl.interfaces.install.Helm.discover

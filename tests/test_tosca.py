@@ -112,6 +112,8 @@ class ToscaSyntaxTest(unittest.TestCase):
         manifest = YamlManifest(
             path=__file__ + "/../examples/test-workflow-manifest.yaml"
         )
+        # print(manifest.tosca.template.nested_tosca_tpls)
+        self.assertEqual(len(manifest.tosca._workflows), 3)
 
         runner = Runner(manifest)
         output = six.StringIO()

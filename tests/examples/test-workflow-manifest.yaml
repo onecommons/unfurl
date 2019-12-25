@@ -2,6 +2,8 @@ apiVersion: unfurl/v1alpha1
 kind: Manifest
 spec:
   tosca:
+    imports:
+    - file: spec/service-template.yaml    
     # unfurl.relationships.InstalledBy used for implementation if no implementation is specified
     node_types:
       unfurl.nodes.HelmRelease:
@@ -38,30 +40,6 @@ spec:
             required: false
 
     topology_template:
-      workflows:
-        deploy:
-          steps:
-            helm:
-              target: unfurl.nodes.HelmRelease
-              activities:
-                 - call_operation:
-                      operation: unfurl.interfaces.install.Helm.execute
-                      inputs:
-                        helmcmd: '{{ "update" if task.reason == "update" else "install"}}'
-                 - inline: discover
-        undeploy:
-          steps:
-            helm:
-              target: unfurl.nodes.HelmRelease
-              activities:
-                 - call_operation: unfurl.interfaces.install.Helm.remove
-                 - inline: discover
-        discover:
-          steps:
-            helm:
-              target: unfurl.nodes.HelmRelease
-              activities:
-                 - call_operation: unfurl.interfaces.install.Helm.discover
 
       node_templates:
         gitlab-release:
