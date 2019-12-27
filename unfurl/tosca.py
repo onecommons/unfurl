@@ -268,6 +268,7 @@ class TopologySpec(EntitySpec):
         self.outputs = {output.name: output.value for output in template.outputs}
         self.properties = {}
         self.defaultAttributes = {}
+        self.attributeDefs = {}
 
     def getInterfaces(self):
         # doesn't have any interfaces

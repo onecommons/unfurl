@@ -80,8 +80,11 @@ class AnsibleConfigurator(Configurator):
         return task.inputs.get("inventory")
         # add groups for tosca HOST, ORCHESTRATOR, TARGET, SELF keywords
         # XXX cache and reuse file
+        # don't worry about warnings in log, see:
         # https://github.com/ansible/ansible/issues/33132#issuecomment-346575458
-        # return self._saveToTempfile(inventory, '-inventory.ini')
+        # https://github.com/ansible/ansible/issues/33132#issuecomment-363908285
+        # https://github.com/ansible/ansible/issues/48859
+        # return saveToTempfile(inventory, '-inventory.ini').name
         # XXX if user set inventory create a folder to merge:
         # https://allandenot.com/devops/2015/01/16/ansible-with-multiple-inventory-files.html
 

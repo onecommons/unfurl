@@ -36,7 +36,9 @@ Status = IntEnum(
 
 # see "3.4.1 Node States" p74
 NodeState = IntEnum(
-    "NodeState", "initial creating created configuring configured starting started stopping deleting error", module=__name__
+    "NodeState",
+    "initial creating created configuring configured starting started stopping deleting error",
+    module=__name__,
 )
 
 # ignore may must
@@ -109,7 +111,9 @@ class TempFile(ExternalValue):
             raise KeyError(name)
 
 
-setEvalFunc("tempfile", lambda args, ctx: TempFile(args))
+setEvalFunc(
+    "tempfile", lambda arg, ctx: TempFile(mapValue(arg, ctx), ctx.kw.get("suffix", ""))
+)
 
 # XXX need an api check if an object was marked sensitive
 # _secrets = weakref.WeakValueDictionary()

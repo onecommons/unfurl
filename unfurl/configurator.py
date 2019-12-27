@@ -308,7 +308,12 @@ class TaskView(object):
             # XXX should ConfigTask be full ResourceRef so we can have live view of status etc.?
             # this way we could enable resumable pending tasks (could save state in operation results)
             inputs = self.configSpec.inputs.copy()
-            vars = dict(inputs=inputs, task=self.getSettings())
+            vars = dict(
+                inputs=inputs,
+                task=self.getSettings(),
+                SELF=self.target.attributes,
+                HOST=(self.target.parent or self.target).attributes,
+            )
             # expose inputs lazily to allow self-referencee
             self._inputs = ResultsMap(inputs, RefContext(self.target, vars))
         return self._inputs
@@ -333,11 +338,12 @@ class TaskView(object):
         return dict(
             verbose=self.verbose,
             name=self.configSpec.name,
-            dryRun=self.dryRun,
+            dryrun=self.dryRun,
             workflow=self.configSpec.workflow,
             operation=self.configSpec.operation,
             timeout=self.configSpec.timeout,
             target=self.target.name,
+            reason="TODO",
         )
 
     def addMessage(self, message):

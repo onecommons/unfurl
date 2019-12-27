@@ -537,9 +537,16 @@ def evalRef(val, ctx, top=False):
                 args = val[key]
                 ctx.kw = val
                 ctx.currentFunc = key
-                if key != "foreach" and "foreach" in val:
+                if "var" in val:
+                    unexpected = "var"
+                elif key != "foreach" and "foreach" in val:
+                    unexpected = "foreach"
+                else:
+                    unexpected = False
+                if unexpected:
                     raise UnfurlError(
-                        "unexpected 'foreach' found, did you intend it for the parent?"
+                        "unexpected '%s' found, did you intend it for the parent?"
+                        % unexpected
                     )
                 val = func(args, ctx)
                 if key == "q":

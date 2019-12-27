@@ -52,4 +52,4 @@ def initLogging(level, logfile=None):
 
 _logEnv = os.getenv("UNFURL_LOGGING")
 if _logEnv is not None:
-    initLogging(_logEnv)
+    initLogging(_logEnv.upper())

@@ -215,7 +215,7 @@ def deploy(ctx, manifest=None, **options):
 @jobControlOptions
 def undeploy(ctx, manifest=None, **options):
     """
-    Deploy the given manifest
+    Destroy what was deployed.
     """
     options.update(ctx.obj)
     return _run(manifest, options, ctx)
@@ -260,9 +260,13 @@ unfurl init [project] # creates a unfurl project with new spec and instance repo
 
     if os.path.exists(projectdir):
         if not os.path.isdir(projectdir):
-            raise click.ClickException(projectdir + ": file already exists")
+            raise click.ClickException(
+                'Can not create project in "' + projectdir + '": file already exists'
+            )
         elif os.listdir(projectdir):
-            raise click.ClickException(projectdir + " is not empty")
+            raise click.ClickException(
+                'Can not create project in "' + projectdir + '": folder is not empty'
+            )
 
     homePath, projectPath = createProject(projectdir, **options)
     if homePath:
@@ -370,18 +374,18 @@ def main():
         rv = cli(standalone_mode=False, obj=obj)
         sys.exit(rv or 0)
     except click.Abort:
-        click.echo("Aborted!", file=sys.stderr)
+        click.secho("Aborted!", fg="red", err=True)
         sys.exit(1)
     except click.ClickException as e:
         if obj.get("verbose"):
             traceback.print_exc(file=sys.stderr)
-        e.show()
+        click.secho("Error: %s" % e.format_message(), fg="red", err=True)
         sys.exit(e.exit_code)
     except Exception as err:
         if obj.get("verbose"):
             traceback.print_exc(file=sys.stderr)
         else:
-            click.echo("Exiting with error: " + str(err), file=sys.stderr)
+            click.secho("Exiting with error: " + str(err), fg="red", err=True)
         sys.exit(1)
 
 
