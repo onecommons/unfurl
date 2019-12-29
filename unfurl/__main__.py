@@ -178,6 +178,12 @@ deployFilterOptions = option_group(
     click.option(
         "--all", default=False, is_flag=True, help="(re)run all configurations"
     ),
+    click.option(
+        "--prune",
+        default=False,
+        is_flag=True,
+        help="delete instances that are no longer used",
+    ),
 )
 
 

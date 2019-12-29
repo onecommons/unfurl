@@ -180,30 +180,24 @@ class ConfigurationSpec(object):
 
 class ConfiguratorResult(object):
     """
-  If applied is True,
-  the current pending configuration is set to the effective, active one
-  and the previous configuration is no longer in effect.
-
   Modified indicates whether the underlying state of configuration,
   was changed i.e. the physically altered the system this configuration represents.
 
-  Readystate reports the Status of the current configuration.
+  status reports the Status of the current configuration.
   """
 
     def __init__(
         self,
-        applied,
+        success,
         modified,
         status=None,
         configChanged=None,
         result=None,
-        success=None,
         outputs=None,
         exception=None,
     ):
-        self.applied = applied
         self.modified = modified
-        self.readyState = status
+        self.status = status
         self.configChanged = configChanged
         self.result = result
         self.success = success
@@ -221,7 +215,7 @@ class ConfiguratorResult(object):
                         [
                             self.success and "success",
                             self.modified and "modified",
-                            self.readyState and self.readyState.name,
+                            self.status is not None and self.status.name,
                         ],
                     )
                 )
@@ -401,7 +395,7 @@ class TaskView(object):
             status = modified
             modified = True
 
-        kw = dict(result=result, success=success, outputs=outputs)
+        kw = dict(result=result, outputs=outputs)
         if captureException is not None:
             kw["exception"] = UnfurlTaskError(self, captureException, True)
 
@@ -410,9 +404,9 @@ class TaskView(object):
         elif modified:
             if not status:
                 status = Status.error if self.required else Status.degraded
-            return ConfiguratorResult(True, True, status, **kw)
+            return ConfiguratorResult(False, True, status, **kw)
         else:
-            return ConfiguratorResult(False, False, None, **kw)
+            return ConfiguratorResult(False, modified, None, **kw)
 
     # updates can be marked as dependencies (changes to dependencies changed) or required (error if changed)
     # configuration has cumulative set of changes made it to resources

@@ -78,7 +78,7 @@ class JobOptions(object):
         dryrun=False,
         planOnly=False,
         requiredOnly=False,
-        revertObsolete=False,  # revert
+        prune=False,
         append=None,
         replace=None,
         cmdline=None,
@@ -131,8 +131,6 @@ class ConfigTask(ConfigChange, TaskView, AttributeManager):
         # XXX refcontext in attributeManager should define $TARGET $HOST etc.
         # self.configuratorResource.root.attributeManager = self
         self.target.root.attributeManager = self
-
-        # XXX set self.configSpec.target.readyState = 'pending'
 
     def priority():
         doc = "The priority property."
@@ -201,16 +199,16 @@ class ConfigTask(ConfigChange, TaskView, AttributeManager):
         If status wasn't explicitly set but the operation changed the instance's configuration
         or state, choose a status based on the type of operation.
         """
-        if result.success and not result.readyState:
+        if result.success and result.status is None:
             if (
                 result.modified
-                or not self.target.status  # new instance # XXX ??
+                or not self.target.lastChange  # new instance # XXX ??
                 or self._resourceChanges.getAttributeChanges(self.target.key)
             ):
-                result.readyState = self._getDefaultReadyState()
+                result.status = self._getDefaultReadyState()
 
-        if result.readyState:
-            self.target.localStatus = result.readyState
+        if result.status is not None:
+            self.target.localStatus = result.status
 
     def _updateLastChange(self, result):
         """
@@ -221,7 +219,7 @@ class ConfigTask(ConfigChange, TaskView, AttributeManager):
             # hacky but always save _lastConfigChange the first time to
             # distinguish this from a brand new resource
             self.target._lastConfigChange = self.changeId
-        if not result.applied:
+        if not result.success and result.modified == False:
             return
 
         # XXX if instance property values changed, set lastConfigChange
@@ -263,17 +261,7 @@ class ConfigTask(ConfigChange, TaskView, AttributeManager):
         self._updateStatus(result)
         self._updateLastChange(result)
         self.result = result
-        # XXX distinguish between ran but failed and not applied vs. canRun failed
-        if result.applied:
-            if result.success is None:
-                # XXX require success flag to be set and remove this hack
-                self.localStatus = (
-                    Status.error if result.readyState == Status.error else Status.ok
-                )
-            else:
-                self.localStatus = Status.ok if result.success else Status.error
-        # else:
-        #    self.localStatus = Status.notapplied
+        self.localStatus = Status.ok if result.success else Status.error
         return self
 
     def commitChanges(self):
@@ -464,12 +452,10 @@ class Job(ConfigChange):
                         # pretend run was sucessful
                         logger.info("Run " + task.summary())
                         result = task.finished(
-                            ConfiguratorResult(True, True, Status.ok, success=True)
+                            ConfiguratorResult(True, True, Status.ok)
                         )
                     else:
-                        result = task.finished(
-                            ConfiguratorResult(False, False, success=False)
-                        )
+                        result = task.finished(ConfiguratorResult(False, False))
                 else:
                     logger.info("Running task %s", task)
                     result = self.runTask(task)
@@ -686,9 +672,7 @@ class Job(ConfigChange):
     """
         errors = self.cantRunTask(task)
         if errors:
-            return task.finished(
-                ConfiguratorResult(False, False, success=False, result=errors)
-            )
+            return task.finished(ConfiguratorResult(False, False, result=errors))
 
         task.start()
         change = None
@@ -697,16 +681,11 @@ class Job(ConfigChange):
                 result = task.send(change)
             except Exception:
                 UnfurlTaskError(task, "configurator.run failed", True)
-                # assume the worst
-                return task.finished(
-                    ConfiguratorResult(True, True, Status.error, success=False)
-                )
+                return task.finished(ConfiguratorResult(False, None, Status.error))
             if isinstance(result, TaskRequest):
                 if depth >= self.MAX_NESTED_SUBTASKS:
                     UnfurlTaskError(task, "too many subtasks spawned", True)
-                    change = task.finished(
-                        ConfiguratorResult(True, True, Status.error, success=False)
-                    )
+                    change = task.finished(ConfiguratorResult(False, None))
                 else:
                     subtask = self.createTask(
                         result.configSpec, result.target, self.changeId
@@ -725,9 +704,7 @@ class Job(ConfigChange):
                 return retVal
             else:
                 UnfurlTaskError(task, "unexpected result from configurator", True)
-                return task.finished(
-                    ConfiguratorResult(True, True, Status.error, success=False)
-                )
+                return task.finished(ConfiguratorResult(False, None, Status.error))
 
 
 class Runner(object):

@@ -30,13 +30,8 @@ class Operational(ChangeAware):
     """
   This is an abstract base class for Jobs, Resources, and Configurations all have a Status associated with them
   and all use the same algorithm to compute their status from their dependent resouces, tasks, and configurations
-
-  # operational: boolean: ok or degraded
-  # status: ok, degraded, error, notpresent
-  # degraded: non-fatal errors or didn't provide required attributes or if couldnt upgrade
   """
 
-    # XXX3 rename Status to ReadyState, add setter on status instead of setting localStatus?
     # XXX3 add repairable, messages?
 
     # core properties to override

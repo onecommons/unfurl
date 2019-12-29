@@ -187,19 +187,14 @@ class Plan(object):
         )
         return (configSpec, resource, reason or action)
 
-    def generateDeleteConfigurations(self, visited):
+    def generateDeleteConfigurations(self, include):
         for instance in self.root.getOperationalDependencies():
             # reverse to teardown leaf nodes first
             for resource in reversed(instance.descendents):
-                if id(resource) not in visited:
-                    logger.debug(
-                        "checking for tasks for removing resource %s", resource.name
-                    )
+                reason = include(resource)
+                if reason:
+                    logger.debug("removing instance", resource.name)
                     # it's an orphaned config
-                    include = self.includeTask(None, resource, resource.template)
-                    if not include:
-                        continue
-                    reason, config = include
                     gen = Generate(
                         self._generateConfigurations(ConfigOp.remove, resource, reason)
                     )
@@ -304,7 +299,7 @@ class DeployPlan(Plan):
     def includeTask(self, template, resource, oldTemplate):
         """Returns whether or not the config should be included in the current job.
 
-        Reasons include: "all", "add", "upgrade", "update", "re-add", 'purge',
+        Reasons include: "all", "add", "upgrade", "update", "re-add", 'prune',
         'missing', "config changed", "failed to apply", "degraded", "error".
 
         Args:
@@ -320,17 +315,13 @@ class DeployPlan(Plan):
         assert resource
         if jobOptions.all and template:
             return "all", template
+
         if (
             template and not resource.lastConfigChange and jobOptions.add
         ):  # XXX if status == unknown return 'check'
             return "add", template
 
-        if not template:
-            if jobOptions.revertObsolete:
-                return "purge", oldTemplate
-            if jobOptions.all and resource.status != Status.notpresent:
-                return "all", oldTemplate
-        elif template != oldTemplate:
+        if template != oldTemplate:
             # the user changed the configuration:
             if jobOptions.upgrade:
                 return "upgrade", template
@@ -478,10 +469,10 @@ class DeployPlan(Plan):
             #     if self.includeTask(configSpec, resource, oldConfigSpec):
             #         yield (configSpec, resource, reason or operation)
 
-        if opts.revertObsolete:  # XXX expose option in cli (as --prune ?)
-            for configTuple in self.generateDeleteConfigurations(visited):
+        if opts.prune:
+            check = lambda resource: "prune" if id(resource) not in visited else False
+            for configTuple in self.generateDeleteConfigurations(check):
                 yield configTuple
-        # #XXX opts.create, opts.append, opts.cmdline, opts.useConfigurator
 
 
 class UndeployPlan(Plan):
@@ -489,14 +480,13 @@ class UndeployPlan(Plan):
         """
     yields configSpec, target, reason
     """
-        skipResources = set()
-        for configTuple in self.generateDeleteConfigurations(skipResources):
+        for configTuple in self.generateDeleteConfigurations(self.includeForDeletion):
             yield configTuple
 
-    def includeTask(self, newTemplate, resource, oldTemplate):
-        if self.filterTemplate and resource.template == self.filterTemplate:
+    def includeForDeletion(self, resource):
+        if self.filterTemplate and resource.template != self.filterTemplate:
             return None
-        return "remove", oldTemplate
+        return "undeploy"
 
 
 class WorkflowPlan(Plan):
