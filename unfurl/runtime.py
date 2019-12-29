@@ -46,7 +46,7 @@ class Operational(ChangeAware):
 
     @property
     def localStatus(self):
-        return Status.notapplied
+        return Status.unknown
 
     def getOperationalDependencies(self):
         return ()
@@ -83,21 +83,18 @@ class Operational(ChangeAware):
             status = self.localStatus
 
         if not status:
-            # treat like Status.notapplied
-            return Status.notapplied
+            return Status.unknown
 
         if status >= Status.error:
-            # return error, pending, or notpresent, notapplied
+            # return error, pending, or notpresent
             return status
 
         dependentStatus = self.aggregateStatus(self.getOperationalDependencies())
-        if not status:
-            return dependentStatus
-        if dependentStatus == Status.notapplied:
+        if dependentStatus is None:
             # note if localStatus is a no op (status purely determined by dependents)
-            # localStatus should be set to ok
-            # then ok + notapplied = ok, which makes sense, since it has no dependendents
-            return status  # return local status (which maybe notapplied)
+            # it should be set to ok
+            # then ok + None = ok, which makes sense, since it has no dependendents
+            return status  # return local status
         else:
             # local status is ok, degraded
             return max(status, dependentStatus)
@@ -105,6 +102,11 @@ class Operational(ChangeAware):
     @property
     def required(self):
         return self.priority == Priority.required
+
+    # `lastConfigChange` indicated the last configuration change applied to the instance.
+    # `lastStateChange` is last observed change to the internal state of the instance. This may be reflected in attributes of the instance or completely opaque to the service template's model.
+
+    # The computed attribute `lastChange` is whichever of the above two attributes are more recent.
 
     @property
     def lastStateChange(self):
@@ -132,11 +134,11 @@ class Operational(ChangeAware):
         return self.lastChange > changeset.changeId
 
     @staticmethod
-    def aggregateStatus(statuses, parentStatus=Status.notapplied):
+    def aggregateStatus(statuses):
         """
-        Returns: ok, degraded, pending, notapplied
+        Returns: ok, degraded, pending or None
 
-        If there are no instances, return notapplied
+        If there are no instances, return None
         If any required are not operational, return pending or error
         If any other are not operational or degraded, return degraded
         Otherwise return ok.
@@ -150,13 +152,10 @@ class Operational(ChangeAware):
 
         # any required is pending then aggregate is pending
         # otherwise just set to degraded
-        # start at either ok, degraded or notapplied
-        aggregate = (
-            Status.notapplied
-        )  # defaultStatus if defaultStatus is not None else Status.notapplied
+        aggregate = None
         for status in statuses:
             assert isinstance(status, Operational), status
-            if aggregate == Status.notapplied:
+            if aggregate is None:
                 aggregate = Status.ok
             if status.priority == Priority.ignore:
                 continue
@@ -168,7 +167,7 @@ class Operational(ChangeAware):
                     break
             else:
                 if aggregate <= Status.degraded:
-                    if status.status >= Status.degraded:
+                    if not status.operational or status.status == Status.degraded:
                         aggregate = Status.degraded
         return aggregate
 

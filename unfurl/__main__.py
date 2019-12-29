@@ -152,6 +152,7 @@ commonJobFilterOptions = option_group(
     click.option("--instance", help="instance name to target"),
 )
 
+# XXX update help text sans "configurations"
 deployFilterOptions = option_group(
     click.option(
         "--add", default=True, is_flag=True, help="run newly added configurations"
@@ -164,7 +165,7 @@ deployFilterOptions = option_group(
     ),
     click.option(
         "--repair",
-        type=click.Choice(["error", "degraded", "notapplied", "none"]),
+        type=click.Choice(["error", "degraded", "missing", "none"]),
         default="error",
         help="re-run configurations that are in an error or degraded state",
     ),

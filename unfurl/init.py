@@ -130,7 +130,7 @@ def createSpecRepo(gitDir):
   apiVersion: unfurl/v1alpha1
   kind: Manifest
   spec:
-    tosca:
+    service_template:
       +include: service-template.yaml
 """
         )

@@ -242,12 +242,26 @@ class Configurator(object):
 
     # yields a JobRequest, TaskRequest or a ConfiguratorResult
     def run(self, task):
+        """
+        This should perform the operation specified in the :class:`ConfigurationSpec`
+        on the :obj:`task.target`.
+
+        Args:
+            task (:obj:`TaskView`) The task current running.
+
+        Yields:
+            Should yield either a :class:`JobRequest`, :class:`TaskRequest`
+            or a :class:`ConfiguratorResult` done
+        """
         yield task.createResult(False, False)
 
     def canDryRun(self, task):
         """
         Called when dry run call.
         If a configurator supports dry-run it should return True here and make sure it checks whether `task.dryRun` in run.
+
+        Args:
+            task (:obj:`TaskView`) The task current running.
         """
         return False
 
@@ -272,8 +286,7 @@ class Configurator(object):
 
 
 class TaskView(object):
-    """
-  The interface presented to configurators.
+    """The interface presented to configurators.
   """
 
     def __init__(self, manifest, configSpec, target, reason=None, dependencies=None):
@@ -399,8 +412,6 @@ class TaskView(object):
                 status = Status.error if self.required else Status.degraded
             return ConfiguratorResult(True, True, status, **kw)
         else:
-            if status != Status.notapplied:
-                status = None
             return ConfiguratorResult(False, False, None, **kw)
 
     # updates can be marked as dependencies (changes to dependencies changed) or required (error if changed)
@@ -505,21 +516,30 @@ class TaskView(object):
     # # XXX how can we explicitly associate relations with target resources etc.?
     # # through capability attributes and dependencies/relationship attributes
     def updateResources(self, resources):
-        """
-    Either a list or string that is parsed as YAML
-    Operational state indicates if it current exists or not
-    Will instantiate a new job, yield the return value to run that job right away
+        """Notifies Unfurl new or changed resources made while the configurator was running.
 
-    .. code-block:: YAML
+        Operational state indicates if the resource currently exists or not.
+        This will queue a new child job if needed.
 
-      - name:
-        template: # name of node template
-        priority: required
-        dependent: boolean
-        parent:
-        attributes:
-        status:
-          readyState: ok
+        .. code-block:: YAML
+
+          - name:     aNewResource
+            template: aNodeTemplate
+            parent:   HOST
+            attributes:
+               anAttribute: aValue
+            status:
+                readyState: ok
+          - name:     SELF
+            attributes:
+                anAttribute: aNewValue
+
+        Args:
+          resources (list or str): Either a list or string that is parsed as YAML.
+
+        Returns:
+          :class:`JobRequest`: To run the job based on the supplied spec
+              immediately, yield the returned JobRequest.
     """
         # XXX if template isn't specified deduce from provides and template keys
         from .manifest import Manifest
@@ -539,7 +559,7 @@ class TaskView(object):
             originalResourceSpec = resourceSpec
             try:
                 rname = resourceSpec["name"]
-                if rname == ".self":
+                if rname == ".self" or rname == "SELF":
                     existingResource = self.target
                 else:
                     existingResource = self.findResource(rname)
@@ -601,15 +621,18 @@ class TaskView(object):
 
 
 class Dependency(ChangeAware):
-    """
-  Represents a runtime dependency for a configuration.
+    """Represents a runtime dependency for a configuration.
 
-  Dependencies are used to determine if a configuration needs re-run as follows:
 
-  * They are dynamically created when evaluating and comparing the configuration spec's attributes with the previous
-    values
+    Dependencies are used to determine if a configuration needs re-run as follows:
 
-  * Persistent dependencies can be created when the configurator invoke these apis: `createConfiguration`, `addResources`, `query`, `addDependency`
+  * Tosca `DependsOn`
+
+    * They are dynamically created when evaluating and comparing the
+      configuration spec's attributes with the previous values
+
+    * Persistent dependencies can be created when the configurator
+      invokes these apis: `createSubTask`, `updateResources`, `query`, `addDependency`
   """
 
     def __init__(

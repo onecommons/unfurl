@@ -38,6 +38,8 @@ class Manifest(AttributeManager):
         self.path = path
 
     def loadSpec(self, spec, path):
+        if "service_template" in spec:
+            toscaDef = spec["service_template"]
         if "tosca" in spec:
             toscaDef = spec["tosca"]
         elif "node_templates" in spec:
@@ -63,11 +65,7 @@ class Manifest(AttributeManager):
     def getSpecDigest(self, spec):
         m = hashlib.sha1()  # use same digest function as git
         t = self.tosca.template
-        for tpl in [
-            spec,
-            t.topology_template.custom_defs,
-            t.nested_tosca_tpls,
-        ]:
+        for tpl in [spec, t.topology_template.custom_defs, t.nested_tosca_tpls]:
             m.update(json.dumps(tpl, sort_keys=True).encode("utf-8"))
         return m.hexdigest()
 
@@ -306,16 +304,10 @@ class Manifest(AttributeManager):
         else:
             templatePath = dict(file=templatePath)
 
-        return self.loadFromRepo(
-            templatePath, baseDir, repositories, warnWhenNotFound
-        )
+        return self.loadFromRepo(templatePath, baseDir, repositories, warnWhenNotFound)
 
     def loadFromRepo(
-        self,
-        import_uri_def,
-        basePath,
-        repositories=None,
-        ignoreFileNotFound=False,
+        self, import_uri_def, basePath, repositories=None, ignoreFileNotFound=False
     ):
         """
         Construct a dummy TOSCA import so we can invoke its URL resolution mechanism

@@ -28,10 +28,8 @@ import logging
 
 logger = logging.getLogger("unfurl")
 
-# XXX3 doc: notpresent is a positive assertion of non-existence while notapplied just indicates non-liveness
-# notapplied is therefore the default initial state
 Status = IntEnum(
-    "Status", "ok degraded error pending notpresent notapplied", module=__name__
+    "Status", "unknown ok degraded error pending notpresent", start=0, module=__name__
 )
 
 # see "3.4.1 Node States" p74

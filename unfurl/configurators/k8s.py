@@ -15,9 +15,9 @@ class ClusterConfigurator(Configurator):
 
     def run(self, task):
         # just test the connection
-        if task.configSpec.operation in ["Standard:delete", "remove"]:
-            # we don't really delete the cluster, just mark this connection notapplied
-            yield task.done(True, False, Status.notapplied)
+        if task.configSpec.workflow == "undeploy":
+            # we don't really delete the cluster, just mark this connection unknown
+            yield task.done(True, False, Status.unknown)
             return
 
         connectionConfig = task.inputs.get("connection", {})

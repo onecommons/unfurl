@@ -29,7 +29,7 @@
      required:
 
   spec:
-    tosca:
+    service_template:
       # <tosca service template>
     inputs:
     instances:
@@ -206,7 +206,7 @@ def saveResourceChanges(changes):
 def saveStatus(operational, status=None):
     if status is None:
         status = CommentedMap()
-    if not operational.lastChange and operational.status == Status.notapplied:
+    if not operational.lastChange and not operational.status:
         # skip status
         return status
 

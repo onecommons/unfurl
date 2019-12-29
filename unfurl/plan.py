@@ -65,10 +65,11 @@ class Plan(object):
 
     def createResource(self, template):
         # XXX create capabilities and requirements too?
-        # XXX if requirement with HostedOn relationshio, target is the parent not root
+        # XXX if requirement with HostedOn relationship, target is the parent not root
         parent = self.findParentResource(template)
         assert parent, "parent should have already been created"
-        return Resource(template.name, template=template, parent=parent)
+        # Set the initial status of new resources to "pending" instead of defaulting to "unknown"
+        return Resource(template.name, None, parent, template, Status.pending)
 
     def createShellConfigurator(self, cmdLine, action, inputs=None, timeout=None):
         params = dict(command=cmdLine)
@@ -301,39 +302,34 @@ class Plan(object):
 
 class DeployPlan(Plan):
     def includeTask(self, template, resource, oldTemplate):
-        """ Returns whether or not the config should be included in the current job.
+        """Returns whether or not the config should be included in the current job.
 
-Reasons include: "all", "add", "upgrade", "update", "re-add", 'revert obsolete',
-'never applied', "config changed", "failed to apply", "degraded", "error".
+        Reasons include: "all", "add", "upgrade", "update", "re-add", 'purge',
+        'missing', "config changed", "failed to apply", "degraded", "error".
 
-Args:
-    config (ConfigurationSpec): The :class:`ConfigurationSpec` candidate
-    lastChange (Configuration): The :class:`Configuration` representing the that last time
-      the given :class:`ConfigurationSpec` was applied or `None`
+        Args:
+            config (ConfigurationSpec): The :class:`ConfigurationSpec` candidate
+            lastChange (Configuration): The :class:`Configuration` representing the that last time
+              the given :class:`ConfigurationSpec` was applied or `None`
 
-Returns:
-    (str, ConfigurationSpec): Returns a pair with reason why the task was included
-      and the :class:`ConfigurationSpec` to run or `None` if it shound't be included.
+        Returns:
+            (str, ConfigurationSpec): Returns a pair with reason why the task was included
+              and the :class:`ConfigurationSpec` to run or `None` if it shound't be included.
     """
         jobOptions = self.jobOptions
         assert resource
         if jobOptions.all and template:
             return "all", template
         if (
-            template
-            and resource.status == Status.notapplied
-            and not resource.lastConfigChange
-            and jobOptions.add
-        ):
+            template and not resource.lastConfigChange and jobOptions.add
+        ):  # XXX if status == unknown return 'check'
             return "add", template
 
         if not template:
             if jobOptions.revertObsolete:
-                return "revert obsolete", oldTemplate
-            if jobOptions.all:
+                return "purge", oldTemplate
+            if jobOptions.all and resource.status != Status.notpresent:
                 return "all", oldTemplate
-            if resource.status == Status.notapplied and jobOptions.add:
-                return "never applied", oldTemplate
         elif template != oldTemplate:
             # the user changed the configuration:
             if jobOptions.upgrade:
@@ -354,26 +350,23 @@ Returns:
 
     def checkForRepair(self, instance, lastTemplate):
         jobOptions = self.jobOptions
-
         assert instance
-        # spec = lastChange.configurationSpec
-
         if jobOptions.repair == "none":
             return None
         status = instance.status
-        if status == Status.notapplied and instance.required:
-            status = Status.error  # treat as error
 
         # repair should only apply to configurations that are active and in need of repair
-        # XXX2 what about pending??
-        if status not in [Status.degraded, Status.error, Status.notapplied]:
-            return None
-
-        if status == Status.notapplied:
-            if jobOptions.repair == "notapplied":
-                return "failed to apply", lastTemplate
+        if status in [Status.unknown, Status.pending]:
+            if instance.required:
+                status = Status.error  # treat as error
+            elif jobOptions.repair == "missing":
+                return "missing", lastTemplate
             else:
                 return None
+
+        if status not in [Status.degraded, Status.error]:
+            return None
+
         if jobOptions.repair == "degraded":
             assert status > Status.ok, status
             return "degraded", lastTemplate  # repair this
@@ -386,6 +379,18 @@ Returns:
                 instance.status,
             )
             return "error", lastTemplate  # repair this
+
+    def defaultWorkflow(self, action, resource, reason=None):
+        # 5.8.5.2 Invocation Conventions p. 228
+        # call create
+        # for each dependent: call pre_configure_target
+        # for each dependency: call pre_configure_source
+        # call configure
+        # for each dependent: call post_configure_target
+        # for each dependency: call post_configure_source
+        # call start
+
+        yield self.generateConfiguration(action, resource, reason)
 
     def executePlan(self):
         """
@@ -434,7 +439,12 @@ Returns:
                 include = self.includeTask(template, resource, resource.template)
                 if include:
                     reason, template = include
-                    if resource.status.notapplied or resource.status.notpresent:
+                    # XXX ConfigOp
+                    if resource.status in [
+                        Status.unknown,
+                        Status.notpresent,
+                        Status.pending,
+                    ]:
                         operation = ConfigOp.add
                     else:
                         operation = ConfigOp.update
@@ -452,6 +462,7 @@ Returns:
                 reason = "add"
                 operation = ConfigOp.add
                 # XXX create NodeInstance instead to include relationships
+                # XXX initial status pending or unknown depending on joboption.check
                 resource = self.createResource(template)
                 visited.add(id(resource))
                 gen = Generate(

@@ -155,17 +155,17 @@ class OperationalInstanceTest(unittest.TestCase):
         aggregateError.dependencies = [ignoredError, requiredError]
         self.assertEqual(aggregateError.status, Status.error)
 
-        aggregateError = OperationalInstance(Status.notapplied)
+        aggregateError = OperationalInstance(Status.unknown)
         aggregateError.dependencies = [ignoredError, requiredError]
-        self.assertEqual(aggregateError.status, Status.notapplied)
+        self.assertEqual(aggregateError.status, Status.unknown)
 
-        aggregateError = OperationalInstance(Status.notapplied)
-        aggregateError.dependencies = [OperationalInstance("ok", "optional")]
-        self.assertEqual(aggregateError.status, Status.notapplied)
+        aggregateError = OperationalInstance(Status.ok)
+        aggregateError.dependencies = [OperationalInstance("unknown", "optional")]
+        self.assertEqual(aggregateError.status, Status.degraded)
 
-        aggregateError = OperationalInstance(Status.notapplied)
+        aggregateError = OperationalInstance(Status.unknown)
         aggregateError.dependencies = []
-        self.assertEqual(aggregateError.status, Status.notapplied)
+        self.assertEqual(aggregateError.status, Status.unknown)
 
         aggregateError = OperationalInstance(Status.ok)
         aggregateError.dependencies = []

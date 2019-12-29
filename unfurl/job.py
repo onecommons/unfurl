@@ -70,7 +70,7 @@ class JobOptions(object):
         # default options:
         add=True,  # add new templates
         update=True,  # run configurations that whose spec has changed but don't require a major version change
-        repair="error",  # or 'degraded' or "notapplied" or "none", run configurations that are not operational and/or degraded
+        repair="error",  # or 'degraded' or "missing" or "none", run configurations that are not operational and/or degraded
         upgrade=False,  # run configurations with major version changes or whose spec has changed
         all=False,  # (re)run all configurations
         verify=False,  # XXX3 discover first and set status if it differs from expected state
@@ -198,13 +198,13 @@ class ConfigTask(ConfigChange, TaskView, AttributeManager):
     def _updateStatus(self, result):
         """
         Update the instances status with the result of the operation.
-        If status wasn't explicitly but the operation changed the instance's configuration
+        If status wasn't explicitly set but the operation changed the instance's configuration
         or state, choose a status based on the type of operation.
         """
         if result.success and not result.readyState:
             if (
                 result.modified
-                or self.target.status == Status.notapplied  # new instance
+                or not self.target.status  # new instance # XXX ??
                 or self._resourceChanges.getAttributeChanges(self.target.key)
             ):
                 result.readyState = self._getDefaultReadyState()
@@ -272,8 +272,8 @@ class ConfigTask(ConfigChange, TaskView, AttributeManager):
                 )
             else:
                 self.localStatus = Status.ok if result.success else Status.error
-        else:
-            self.localStatus = Status.notapplied
+        # else:
+        #    self.localStatus = Status.notapplied
         return self
 
     def commitChanges(self):
@@ -616,9 +616,9 @@ class Job(ConfigChange):
 
     def stats(self, asMessage=False):
         tasks = self.workDone.values()
-        key = lambda t: t._localStatus or Status.notapplied
+        key = lambda t: t._localStatus or Status.unknown
         tasks = sorted(tasks, key=key)
-        stats = dict(total=len(tasks), ok=0, error=0, notapplied=0, skipped=0)
+        stats = dict(total=len(tasks), ok=0, error=0, unknown=0, skipped=0)
         for k, g in itertools.groupby(tasks, key):
             if not k:
                 stats["skipped"] = len(list(g))
@@ -626,7 +626,7 @@ class Job(ConfigChange):
                 stats[k.name] = len(list(g))
         stats["changed"] = len([t for t in tasks if t.result and t.result.modified])
         if asMessage:
-            return "{total} tasks ({changed} changed, {ok} ok, {error} failed, {notapplied} notapplied, {skipped} skipped)".format(
+            return "{total} tasks ({changed} changed, {ok} ok, {error} failed, {unknown} unknown, {skipped} skipped)".format(
                 **stats
             )
         return stats

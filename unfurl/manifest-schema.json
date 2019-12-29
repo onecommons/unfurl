@@ -11,12 +11,12 @@
       "title": "readyState",
       "description": "The operations status, see ",
       "enum": [
+        "unknown",
         "ok",
         "degraded",
         "error",
         "pending",
-        "notpresent",
-        "notapplied"
+        "notpresent"
       ],
       "$$target": "#/definitions/readyState"
     },
