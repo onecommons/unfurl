@@ -8,8 +8,8 @@ from unfurl.configurator import Configurator
 class HelmConfigurator(Configurator):
     def run(self, task):
         assert task.inputs["chart"] == "gitlab/gitlab"
-        assert task.inputs["flags"] == [{"repo": "https://charts.gitlab.io/"}]
-        subtaskRequest = task.createSubTask("instantiate")
+        assert task.inputs["flags"] == {"repo": "https://charts.gitlab.io/"}
+        subtaskRequest = task.createSubTask("Install.subtaskOperation")
         assert subtaskRequest
         assert (
             subtaskRequest.configSpec
@@ -38,7 +38,7 @@ class RunTest(unittest.TestCase):
         manifest = YamlManifest(path=path)
         runner = Runner(manifest)
         self.assertEqual(runner.lastChangeId, 0, "expected new manifest")
-        output = six.StringIO() # so we don't save the file
+        output = six.StringIO()  # so we don't save the file
         job = runner.run(JobOptions(add=True, out=output, startTime="test"))
         assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
 

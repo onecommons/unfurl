@@ -1,7 +1,7 @@
 from __future__ import absolute_import
 import codecs
 from ..util import sensitive_str
-from ..configurator import Configurator, ConfigOp, Status
+from ..configurator import Configurator, Status
 from .ansible import AnsibleConfigurator
 import json
 from ansible.module_utils.k8s.common import K8sAnsibleMixin
@@ -14,8 +14,8 @@ class ClusterConfigurator(Configurator):
         return client.configuration.host
 
     def run(self, task):
-        # just test the connection
-        if task.configSpec.workflow == "undeploy":
+        # this just tests the connection
+        if task.configSpec.operation == "Standard.delete":
             # we don't really delete the cluster, just mark this connection unknown
             yield task.done(True, False, Status.unknown)
             return
@@ -89,7 +89,8 @@ class ResourceConfigurator(AnsibleConfigurator):
     def findPlaybook(self, task):
         definition = self.getDefinition(task)
         self.updateMetadata(definition, task)
-        state = "absent" if task.configSpec.operation == ConfigOp.remove else "present"
+        delete = task.configSpec.operation == "Standard.delete"
+        state = "absent" if delete else "present"
         connection = task.inputs.get("connection") or {}
         moduleSpec = dict(state=state, definition=definition, **connection)
         return [dict(k8s=moduleSpec)]

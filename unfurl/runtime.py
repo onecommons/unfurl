@@ -7,7 +7,6 @@ which describes its capabilities, relationships and available interfaces for con
 """
 import six
 import collections
-from itertools import chain
 
 from ansible.template import Templar
 from ansible.parsing.dataloader import DataLoader
@@ -16,7 +15,7 @@ from .util import UnfurlError, loadClass, toEnum
 from .result import ResourceRef, ChangeAware
 
 # from .local import LocalEnv
-from .support import AttributeManager, Defaults, Status, Priority
+from .support import AttributeManager, Defaults, Status, Priority, NodeState
 from .tosca import CapabilitySpec, RelationshipSpec, NodeSpec, TopologySpec
 
 import logging
@@ -42,6 +41,10 @@ class Operational(ChangeAware):
     @property
     def localStatus(self):
         return Status.unknown
+
+    @property
+    def state(self):
+        return NodeState.initial
 
     def getOperationalDependencies(self):
         return ()
@@ -175,6 +178,7 @@ class OperationalInstance(Operational):
         manualOveride=None,
         lastStateChange=None,
         lastConfigChange=None,
+        state=None,
     ):
         if isinstance(status, OperationalInstance):
             self._localStatus = status._localStatus
@@ -182,6 +186,7 @@ class OperationalInstance(Operational):
             self._priority = status._priority
             self._lastStateChange = status._lastStateChange
             self._lastConfigChange = status._lastConfigChange
+            self._state = status._state
             self.dependencies = status.dependencies
         else:
             self._localStatus = toEnum(Status, status)
@@ -189,6 +194,7 @@ class OperationalInstance(Operational):
             self._priority = toEnum(Priority, priority)
             self._lastStateChange = lastStateChange
             self._lastConfigChange = lastConfigChange
+            self._state = state
             self.dependencies = []
         # self.repairable = False # XXX3
         # self.messages = [] # XXX3
@@ -251,6 +257,19 @@ class OperationalInstance(Operational):
     @property
     def lastConfigChange(self):
         return self._lastConfigChange
+
+    def state():
+        doc = "The state property."
+
+        def fget(self):
+            return self._state
+
+        def fset(self, value):
+            self._state = toEnum(NodeState, value)
+
+        return locals()
+
+    state = property(**state())
 
 
 class _ChildResources(collections.Mapping):

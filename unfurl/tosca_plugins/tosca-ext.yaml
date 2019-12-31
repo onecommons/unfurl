@@ -23,11 +23,12 @@ node_types:
 
   unfurl.nodes.Installation:
     derived_from: tosca.nodes.Root
-    requirements:
-      - install:
-          capability: unfurl.capabilities.Installer
-          node: unfurl.nodes.Installer
-          relationship: unfurl.relationships.InstalledBy
+    # this isn't necessarily required:
+    # requirements:
+    #   - install:
+    #       capability: unfurl.capabilities.Installer
+    #       node: unfurl.nodes.Installer
+    #       relationship: unfurl.relationships.InstalledBy
     interfaces:
       Install:
         type: unfurl.interfaces.Install
@@ -59,8 +60,6 @@ node_types:
       Standard:
         inputs:
           connection: {get_property: ['SELF', 'connection']}
-        create:
-          unfurl.configurators.k8s.ClusterConfigurator
         configure:
           unfurl.configurators.k8s.ClusterConfigurator
         delete:
@@ -108,8 +107,6 @@ node_types:
       Standard:
         inputs:
           connection: {get_property: ['HOST', 'connection']}
-        create:
-          unfurl.configurators.k8s.ResourceConfigurator
         configure:
           unfurl.configurators.k8s.ResourceConfigurator
         delete:
@@ -158,12 +155,6 @@ relationship_types:
 interface_types:
   unfurl.interfaces.Install:
     derived_from: tosca.interfaces.Root
-    add:
-      description: Coming soon!
-    update:
-      description: Coming soon!
-    remove:
-      description: Coming soon!
     discover:
       description: Coming soon!
     check:

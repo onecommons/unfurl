@@ -10,9 +10,6 @@ spec:
         - host:
             node: unfurl.nodes.K8sNamespace
             relationship: tosca.relationships.HostedOn
-        - install:
-            node: unfurl.nodes.Installer
-            relationship: unfurl.relationships.InstalledBy
         properties:
           chart:
             type: string
@@ -24,44 +21,12 @@ spec:
             inputs:
               chart: {get_property: ['SELF', 'chart']}
               release_name: {get_property: ['SELF', 'release_name']}
-
-    interface_types:
-      unfurl.interfaces.install.Helm:
-        derived_from: unfurl.interfaces.Install
-        inputs:
-          chart:
-            type: string
-          release_name:
-            type: string
-          flags:
-            type: list
-            required: false
-
-    topology_template:
-      node_templates:
-        helm-installer:
-          type: unfurl.nodes.Installer
-          properties:
-            implements:
-              - unfurl.interfaces.install.Helm
             operations:
-              shared:
+              subtaskOperation:
                 implementation:
                   primary: DummyShellConfigurator
-                  timeout: 9999
-                  operation_host: ORCHESTRATOR # SELF or HOST or resource name
-                  environment:
-                    isolate: true
-                    addinputs: true
-                    passvars:
-                      - ANSIBLE_VERBOSITY
-                      - UNFURL_LOGGING
-                      - ANDROID_*
-                    vars:
-                      FOO: "{{}}"
-              default:
+              execute:
                 implementation: HelmConfigurator
-              instantiate:
                 inputs:
                   helmcmd: install
                   command:
@@ -69,7 +34,7 @@ spec:
                       template: >
                         helm {{inputs.helmcmd}} {{inputs.release_name}} {{inputs.chart}}
                           --namespace {{"namespace" | ref}}
-                          {%if kubecontext %} --kubecontext {{kubecontext}} {%endif%}
+                          {%if HOST.kubecontext is defined %} --kubecontext {{HOST.kubecontext}} {%endif%}
                           {%if task.dryrun%}--dry-run{%endif%}
                           --values {{ valuesfile }}
                           {%if task.verbose %}--debug{%endif%}
@@ -79,16 +44,12 @@ spec:
                               --{{flag}} "{{value | quote }}"
                             {%endfor%}
                           {%endif%}
-                      vars:
-                        valuesfile:
-                          eval:
-                            tempfile: $inputs::values
-              update:
-                  helm upgrade [RELEASE] [CHART] [flags]
-              delete:
-                inputs:
-                  command: helm uninstall RELEASE_NAME
+                    vars:
+                      valuesfile:
+                        eval:
+                          tempfile: $inputs::values
               discover:
+                implementation: DummyShellConfigurator
                 inputs:
                   command: helm status -o json {{inputs.release_name}}
                   resultTemplate: |
@@ -123,11 +84,50 @@ spec:
                       {%endif%}
                     {% endfor %}
 
+    interface_types:
+      unfurl.interfaces.install.Helm:
+        derived_from: unfurl.interfaces.Install
+        inputs:
+          chart:
+            type: string
+          release_name:
+            type: string
+          flags:
+            type: map
+            required: false
+
+    topology_template:
+      workflows:
+        deploy:
+          steps:
+            helm:
+              target: unfurl.nodes.HelmRelease
+              activities:
+                 - call_operation:
+                      operation: unfurl.interfaces.install.Helm.execute
+                      inputs:
+                        # XXX helmcmd: '{{ "update" if target.exists else "install"}}'
+                        helmcmd: install
+                 - inline: check
+        undeploy:
+          steps:
+            helm:
+              target: unfurl.nodes.HelmRelease
+              activities:
+                 - call_operation: unfurl.interfaces.install.Helm.remove
+                 - inline: check
+        check:
+          steps:
+            helm:
+              target: unfurl.nodes.HelmRelease
+              activities:
+                 - call_operation: unfurl.interfaces.install.Helm.discover
+
+      node_templates:
         gitlab-release:
           type: unfurl.nodes.HelmRelease
           requirements:
             - host:    defaultNamespace
-            - install: helm-installer
           properties:
             chart: gitlab/gitlab
             release_name: foo
@@ -135,7 +135,7 @@ spec:
             Install:
               inputs:
                 flags:
-                  - repo: https://charts.gitlab.io/
+                  repo: https://charts.gitlab.io/
                 values:
                   certmanager-issuer.email: admin@onecommons.org
                   global:

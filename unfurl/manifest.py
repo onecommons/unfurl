@@ -5,7 +5,7 @@ import json
 from ruamel.yaml.comments import CommentedMap
 from .tosca import ToscaSpec, TOSCA_VERSION
 
-from .support import ResourceChanges, AttributeManager, Status, Priority, Defaults
+from .support import ResourceChanges, AttributeManager, Status, Priority, NodeState
 from .runtime import OperationalInstance, Resource, Capability, Relationship
 from .util import UnfurlError, toEnum
 from .configurator import Dependency, ConfigurationSpec
@@ -110,6 +110,7 @@ class Manifest(AttributeManager):
             instance._localStatus = toEnum(Status, readyState)
         else:
             instance._localStatus = toEnum(Status, readyState.get("local"))
+            instance._state = toEnum(NodeState, readyState.get("state"))
 
         return instance
 
@@ -169,22 +170,23 @@ class Manifest(AttributeManager):
         # implementation: repo:key#commitid | className:version
         return configChange
 
+    # XXX only used by commented out Taskview.createConfigurationSpec()
     # find config spec from potentially old version of the tosca template
     # get template then get node template name
     # but we shouldn't need this, except maybe to revert?
-    def loadConfigSpec(self, configName, spec):
-        return ConfigurationSpec(
-            configName,
-            spec["operation"],
-            spec["className"],
-            spec.get("majorVersion"),
-            spec.get("minorVersion", ""),
-            workflow=spec.get("workflow", Defaults.workflow),
-            inputs=spec.get("inputs"),
-            inputSchema=spec.get("inputSchema"),
-            preConditions=spec.get("preConditions"),
-            postConditions=spec.get("postConditions"),
-        )
+    # def loadConfigSpec(self, configName, spec):
+    #     return ConfigurationSpec(
+    #         configName,
+    #         spec["operation"],
+    #         spec["className"],
+    #         spec.get("majorVersion"),
+    #         spec.get("minorVersion", ""),
+    #         workflow=spec.get("workflow", Defaults.workflow),
+    #         inputs=spec.get("inputs"),
+    #         inputSchema=spec.get("inputSchema"),
+    #         preConditions=spec.get("preConditions"),
+    #         postConditions=spec.get("postConditions"),
+    #     )
 
     def loadResource(self, rname, resourceSpec, parent=None):
         # if parent property is set it overrides the parent argument
@@ -237,7 +239,7 @@ class Manifest(AttributeManager):
         repoURL, filePath, revision = findGitRepo(path, isFile, importLoader)
         if not repoURL or not self.localEnv:
             return None, None, None, None
-        explicitRevision = revision
+        # explicitRevision = revision
         basePath = importLoader.path  # XXX check if dir or not
         # if not explicitRevision:
         #   revision = self.repoStatus.get(repoURL)

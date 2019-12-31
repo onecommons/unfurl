@@ -2,10 +2,11 @@
   "$schema": "http://json-schema.org/draft-06/schema#",
   "$id": "https://www.onecommons.org/schemas/unfurl/manifest-v1alpha1.json",
   "definitions": {
-    "action": {
-      "title": "the workflow",
-      "enum": ["discover", "instantiate", "revert"],
-      "$$target": "#/definitions/action"
+    "state": {
+      "title": "the operational state of the instance",
+      "enum": ["initial", "creating", "created", "configuring", "configured",
+               "starting", "started", "stopping", "deleting", "error"],
+      "$$target": "#/definitions/state"
     },
     "readyState": {
       "title": "readyState",
@@ -97,7 +98,8 @@
           "type": "object",
           "properties": {
             "effective": { "$ref": "#/definitions/readyState" },
-            "local": { "$ref": "#/definitions/readyState" }
+            "local": { "$ref": "#/definitions/readyState" },
+            "state": { "$ref": "#/definitions/state" }
           }
         },
         "priority": { "enum": ["ignore", "optional", "required"] },
@@ -134,7 +136,7 @@
           "properties": {
             "action": { "$ref": "#/definitions/action" },
             "inputs": { "$ref": "#/definitions/attributes", "default": {} },
-            "modifications": {
+            "changes": {
               "allOf": [
                 { "$ref": "#/definitions/namedObjects" },
                 {

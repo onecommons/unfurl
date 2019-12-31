@@ -13,7 +13,7 @@ from .result import serializeValue, ChangeRecord
 from .util import UnfurlError, UnfurlTaskError, ansibleDisplay, toEnum
 from .merge import mergeDicts
 from .runtime import OperationalInstance
-from .configurator import TaskView, ConfiguratorResult, ConfigOp
+from .configurator import TaskView, ConfiguratorResult, TaskRequest, JobRequest
 from .plan import Plan, DeployPlan
 
 import logging
@@ -33,20 +33,6 @@ class ConfigChange(OperationalInstance, ChangeRecord):
     def __init__(self, status=None, **kw):
         OperationalInstance.__init__(self, status, **kw)
         ChangeRecord.__init__(self)
-
-
-class TaskRequest(object):
-    def __init__(self, configSpec, resource, persist, required):
-        self.configSpec = configSpec
-        self.target = resource
-        self.persist = persist
-        self.required = required
-
-
-class JobRequest(object):
-    def __init__(self, resources, errors):
-        self.resources = resources
-        self.errors = errors
 
 
 class JobOptions(object):
@@ -175,40 +161,25 @@ class ConfigTask(ConfigChange, TaskView, AttributeManager):
     def start(self):
         self.startRun()
 
-    def _getDefaultReadyState(self):
-        """default status update for operation:
-          create/config => ok,
-          delete => not present, otherwise no change
-        """
-        if self.configSpec.operation in [
-            ConfigOp.add,
-            ConfigOp.create,
-            ConfigOp.update,
-            ConfigOp.configure,
-            ConfigOp.discover,
-        ]:
-            return Status.ok
-        elif self.configSpec.operation in [ConfigOp.remove, ConfigOp.delete]:
-            return Status.notpresent
-        else:
-            return None
-
     def _updateStatus(self, result):
         """
         Update the instances status with the result of the operation.
         If status wasn't explicitly set but the operation changed the instance's configuration
         or state, choose a status based on the type of operation.
         """
-        if result.success and result.status is None:
-            if (
-                result.modified
-                or not self.target.lastChange  # new instance # XXX ??
-                or self._resourceChanges.getAttributeChanges(self.target.key)
-            ):
-                result.status = self._getDefaultReadyState()
 
         if result.status is not None:
+            # status was explicitly set
             self.target.localStatus = result.status
+        elif not result.success:
+            # if any task failed and (maybe) modified, target.status will be set to error or unknown
+            if result.modified:
+                self.target.localStatus = (
+                    Status.error if self.required else Status.degraded
+                )
+            elif result.modified is None:
+                self.target.localStatus = Status.unknown
+            # otherwise doesn't modify target status
 
     def _updateLastChange(self, result):
         """
@@ -219,14 +190,9 @@ class ConfigTask(ConfigChange, TaskView, AttributeManager):
             # hacky but always save _lastConfigChange the first time to
             # distinguish this from a brand new resource
             self.target._lastConfigChange = self.changeId
-        if not result.success and result.modified == False:
-            return
-
-        # XXX if instance property values changed, set lastConfigChange
-        oldStatus, newStatus = self.getStatus(self.target)
-        if newStatus and oldStatus != newStatus:
-            self.target._lastConfigChange = self.changeId
-        if result.modified:
+        if result.modified or self._resourceChanges.getAttributeChanges(
+            self.target.key
+        ):
             self.target._lastStateChange = self.changeId
 
     def finished(self, result):
@@ -399,40 +365,45 @@ class Job(ConfigChange):
         result = None
         try:
             while True:
-                (configSpec, target, reason) = planGen.send(result)
-                if configSpec.name == "#error":
+                req = planGen.send(result)
+                configSpec = req.configSpec
+                if req.error:
                     # placeholder configspec for errors: has an error message instead of className
                     # create a task so we can record this failure like other task failures
-                    errorTask = ConfigTask(self, configSpec, target, reason=reason)
+                    errorTask = ConfigTask(
+                        self, configSpec, req.target, reason=req.reason
+                    )
                     # the task won't run if we associate an exception with it:
                     UnfurlTaskError(errorTask, configSpec.className, True)
                     result = yield errorTask
                     continue
 
                 configSpecName = configSpec.name
-                configSpec, filterReason = self.filterConfig(configSpec, target)
+                configSpec, filterReason = self.filterConfig(configSpec, req.target)
                 if not configSpec:
                     logger.debug(
                         "skipping configspec %s for %s: doesn't match %s filter",
                         configSpecName,
-                        target.name,
+                        req.target.name,
                         filterReason,
                     )
                     result = None  # treat as filtered step
                     continue
 
-                oldResult = self.runner.isConfigAlreadyHandled(configSpec, target)
+                oldResult = self.runner.isConfigAlreadyHandled(configSpec, req.target)
                 if oldResult:
                     # configuration may have premptively run while executing another task
                     logger.debug(
                         "configspec %s for target %s already handled",
                         configSpecName,
-                        target.name,
+                        req.target.name,
                     )
                     result = oldResult
                     continue
 
-                result = yield self.createTask(configSpec, target, reason=reason)
+                result = yield self.createTask(
+                    configSpec, req.target, reason=req.reason
+                )
         except StopIteration:
             pass
 

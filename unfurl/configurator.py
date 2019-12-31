@@ -24,21 +24,20 @@ import logging
 logger = logging.getLogger("unfurl.task")
 
 
-class ConfigOp(object):
-    """
-The operations defined in unfurl.interfaces.Configure
-    """
+class TaskRequest(object):
+    def __init__(self, configSpec, resource, reason, persist=False, required=None):
+        self.configSpec = configSpec
+        self.target = resource
+        self.reason = reason
+        self.persist = persist
+        self.required = required
+        self.error = configSpec.name == "#error"
 
-    @staticmethod
-    def toStandardOp(op):
-        return dict(add="create", update="configure", remove="delete").get(op)
 
-
-for op in "add update remove discover check".split():
-    setattr(ConfigOp, op, op)
-
-for op in "create configure start stop delete".split():
-    setattr(ConfigOp, op, op)
+class JobRequest(object):
+    def __init__(self, resources, errors):
+        self.resources = resources
+        self.errors = errors
 
 
 class Environment(object):
@@ -99,7 +98,6 @@ class ConfigurationSpec(object):
             inputSchema=None,
             preConditions=None,
             postConditions=None,
-            installer=None,
         )
 
     def __init__(
@@ -116,7 +114,6 @@ class ConfigurationSpec(object):
         inputSchema=None,
         preConditions=None,
         postConditions=None,
-        installer=None,
     ):
         assert name and className, "missing required arguments"
         self.name = name
@@ -131,7 +128,6 @@ class ConfigurationSpec(object):
         self.inputSchema = inputSchema
         self.preConditions = preConditions
         self.postConditions = postConditions
-        self.installer = installer
 
     def findInvalidateInputs(self, inputs):
         if not self.inputSchema:
@@ -350,7 +346,7 @@ class TaskView(object):
             operation=self.configSpec.operation,
             timeout=self.configSpec.timeout,
             target=self.target.name,
-            reason="TODO",
+            reason=self.reason,
         )
 
     def addMessage(self, message):
@@ -399,14 +395,7 @@ class TaskView(object):
         if captureException is not None:
             kw["exception"] = UnfurlTaskError(self, captureException, True)
 
-        if success:
-            return ConfiguratorResult(True, modified, status, **kw)
-        elif modified:
-            if not status:
-                status = Status.error if self.required else Status.degraded
-            return ConfiguratorResult(False, True, status, **kw)
-        else:
-            return ConfiguratorResult(False, modified, None, **kw)
+        return ConfiguratorResult(success, modified, status, **kw)
 
     # updates can be marked as dependencies (changes to dependencies changed) or required (error if changed)
     # configuration has cumulative set of changes made it to resources
@@ -466,47 +455,36 @@ class TaskView(object):
     #         configSpec = yaml.load(configSpec)
     #     return self._manifest.loadConfigSpec(name, configSpec)
 
-    def _findConfigSpec(self, configSpecName):
-        if self.configSpec.installer:
-            # XXX need a way to pass different inputs
-            inputs = self.configSpec.inputs
-            return getConfigSpecFromInstaller(
-                self.configSpec.installer,
-                configSpecName,
-                inputs,
-                self._manifest.tosca,
-                useDefault=False,
-            )
-        return None
-
     def createSubTask(self, configSpec, resource=None, persist=False, required=False):
-        from .job import TaskRequest
+        if resource is None:
+            resource = self.target
 
         if isinstance(configSpec, six.string_types):
-            configSpec = self._findConfigSpec(configSpec)
-            if not configSpec:
+            operation = configSpec
+            # XXX add option to pass different inputs
+            taskRequest = self.job.plan.generateConfiguration(
+                operation,
+                resource,
+                "for subtask: " + self.configSpec.name,
+                self.configSpec.inputs,
+            )
+            if taskRequest.error:
                 return None
+            else:
+                taskRequest.persist = persist
+                taskRequest.required = required
+                return taskRequest
 
         # XXX:
+        # # Configurations created by subtasks are transient insofar as the are not part of the spec,
+        # # but they are recorded as part of the resource's configuration state.
+        # # Marking as persistent or required will create a dependency on the new configuration.
         # if persist or required:
         #  expr = "::%s::.configurations::%s" % (configSpec.target, configSpec.name)
         #  self.addDependency(expr, required=required)
 
-        if resource is None:
-            resource = self.target
-        return TaskRequest(configSpec, resource, persist, required)
+        return TaskRequest(configSpec, resource, "subtask", persist, required)
 
-    # # XXX how???
-    # # Configurations created by subtasks are transient insofar as the are not part of the spec,
-    # # but they are recorded as part of the resource's configuration state.
-    # # Marking as persistent or required will create a dependency on the new configuration.
-    # # XXX3 have a way to update spec attributes to trigger config updates e.g. add dns entries via attributes on a dns
-    # def createSubTask(self, configSpec, persist=False, required=False):
-    #   if persist or required:
-    #     expr = "::%s::.configurations::%s" % (configSpec.target, configSpec.name)
-    #     self.addDependency(expr, required=required)
-    #   return TaskRequest(configSpec, persist, required)
-    #
     # # XXX how can we explicitly associate relations with target resources etc.?
     # # through capability attributes and dependencies/relationship attributes
     def updateResources(self, resources):
@@ -537,7 +515,6 @@ class TaskView(object):
     """
         # XXX if template isn't specified deduce from provides and template keys
         from .manifest import Manifest
-        from .job import JobRequest
 
         if isinstance(resources, six.string_types):
             try:
@@ -741,45 +718,3 @@ def getConfigSpecArgsFromImplementation(implementation, inputs, tosca):
             kw["inputs"] = shellArgs
 
     return kw
-
-
-def getConfigSpecFromInstaller(
-    configuratorTemplate, action, inputs, tosca, useDefault=True
-):
-    operations = configuratorTemplate.properties["operations"]
-    attributes = None
-    if action in operations:
-        # if key exist but value is None, operation explicitly not supported
-        attributes = operations[action]
-        if not attributes:
-            return None
-    elif useDefault:
-        attributes = operations.get("default")
-    if not attributes:
-        return None
-
-    # allow keys to be aliased:
-    for i in range(len(operations)):  # avoid looping endlessly
-        if not isinstance(attributes, six.string_types):
-            break
-        attributes = operations.get(attributes)
-
-    if not isinstance(attributes, dict):
-        return None
-
-    # merge in defaults
-    defaults = operations.get("shared")
-    if defaults:
-        attributes = dict(defaults, **attributes)
-    if "implementation" not in attributes:
-        return None
-
-    installerInputs = attributes.get("inputs", {})
-    if inputs:
-        installerInputs = dict(installerInputs, **inputs)
-
-    kw = getConfigSpecArgsFromImplementation(
-        attributes["implementation"], installerInputs, tosca
-    )
-    kw["installer"] = configuratorTemplate
-    return ConfigurationSpec(configuratorTemplate.name, action, **kw)

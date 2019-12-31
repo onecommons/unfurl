@@ -32,39 +32,36 @@ manifest = """
 apiVersion: unfurl/v1alpha1
 kind: Manifest
 spec:
- installers:
-  test:
-    operations:
-      default:
-        implementation:
-          className: TestConfigurator
-          majorVersion: 0
-          preConditions:
-            properties:
-              meetsTheRequirement:
-                type: string
-            required: ['meetsTheRequirement']
  instances:
     test1:
         attributes:
           meetsTheRequirement: "copy"
-        install: test
+        interfaces:
+          Standard:
+            operations:
+              configure:
+                implementation:
+                  className: TestConfigurator
+                  majorVersion: 0
+                  preConditions:
+                    properties:
+                      meetsTheRequirement:
+                        type: string
+                    required: ['meetsTheRequirement']
     test2:
         attributes:
           meetsTheRequirement: false
-        install: test
+        +/spec/instances/test1:
     test3:
         +/spec/instances/test1:
         properties:
           resourceName: added1
           addresources: true
-        install: test
     test4:
         +/spec/instances/test3:
         properties:
           resourceName: added2
           yieldresources: true
-        install: test
 """
 
 
@@ -89,7 +86,7 @@ class ConfiguratorTest(unittest.TestCase):
 
         run1 = runner.run(JobOptions(instance="test1"))
         assert not run1.unexpectedAbort, run1.unexpectedAbort.getStackTrace()
-        assert len(run1.workDone) == 1, run1.jobOptions.summary()
+        assert len(run1.workDone) == 1, run1.summary()
 
     def test_preConditions(self):
         """test that the configuration only runs if the resource meets the requirements"""
@@ -170,7 +167,11 @@ class ConfiguratorTest(unittest.TestCase):
         run = runner.run(jobOptions)
         assert not run.unexpectedAbort, run.unexpectedAbort.getStackTrace()
         self.assertEqual(
-            list(run.workDone.keys()), ["test4:test:add:5", "added2:test:add:6"]
+            list(run.workDone.keys()),
+            [
+                "test4:for add: Standard.configure:configure:5",
+                "added2:for all: Standard.configure:configure:6",
+            ],
         )
         # print('test4', run.out.getvalue())
 

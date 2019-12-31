@@ -174,17 +174,15 @@ class ToscaSpec(object):
 
         for name, impl in tpl.get("instances", {}).items():
             if name not in node_templates and impl is not None:
-                node_templates[name] = self.loadInstance(impl)
+                node_templates[name] = self.loadInstance(impl.copy())
 
     def loadInstance(self, impl):
-        template = {
-            "type": impl.get("type", "unfurl.nodes.Default"),
-            "properties": impl.get("properties", {}),
-        }
-        installer = impl.get("install")
+        if "type" not in impl:
+            impl["type"] = "unfurl.nodes.Default"
+        installer = impl.pop("install", None)
         if installer:
-            template["requirements"] = [{"install": installer}]
-        return template
+            impl["requirements"] = [{"install": installer}]
+        return impl
 
 
 _defaultTopology = createDefaultTopology()

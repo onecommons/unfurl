@@ -417,7 +417,7 @@ class ResourceChanges(collections.OrderedDict):
   Records changes made by configurations.
   Serialized as the "modifications" properties
 
-  modifications:
+  changes:
     resource1:
       attribute1: newvalue
       attribute2: %delete # if deleted

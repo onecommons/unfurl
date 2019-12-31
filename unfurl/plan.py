@@ -1,12 +1,10 @@
-import six
 from .runtime import Resource
 from .util import UnfurlError, Generate
-from .support import Status
+from .support import Status, NodeState
 from .configurator import (
     ConfigurationSpec,
-    getConfigSpecFromInstaller,
-    ConfigOp,
     getConfigSpecArgsFromImplementation,
+    TaskRequest,
 )
 
 import logging
@@ -21,11 +19,6 @@ class Plan(object):
   remove:  resource
   check:   resource
   discover: resource
-
-  options:
-  --append with create to avoid error if exists
-  in the future, should run with previous command on this resource or template
-  use:configurator use that configurator
   """
 
     @staticmethod
@@ -33,8 +26,6 @@ class Plan(object):
         return dict(deploy=DeployPlan, undeploy=UndeployPlan, run=RunNowPlan).get(
             workflow
         )
-
-    rootConfigurator = None  # XXX3
 
     def __init__(self, root, toscaSpec, jobOptions):
         self.jobOptions = jobOptions
@@ -71,42 +62,6 @@ class Plan(object):
         # Set the initial status of new resources to "pending" instead of defaulting to "unknown"
         return Resource(template.name, None, parent, template, Status.pending)
 
-    def createShellConfigurator(self, cmdLine, action, inputs=None, timeout=None):
-        params = dict(command=cmdLine)
-        if inputs:
-            params.update(inputs)
-        return ConfigurationSpec(
-            "cmdline",
-            action,
-            className="unfurl.configurators.shell.Configurator",
-            inputs=params,
-            timeout=timeout,
-        )
-
-    def getConfigurationSpecFromInterface(self, iDef, action, installerName=None):
-        """implementation can either be a named artifact (including a python configurator class),
-      configurator node template, or a file path"""
-        if iDef:
-            implementation = iDef.implementation or installerName
-            inputs = iDef.inputs
-        else:
-            implementation = installerName
-            inputs = None
-
-        if isinstance(implementation, six.string_types):
-            configuratorTemplate = self.tosca.installers.get(implementation)
-            if configuratorTemplate:
-                return getConfigSpecFromInstaller(
-                    configuratorTemplate, action, inputs, self.tosca
-                )
-
-        if implementation == installerName:
-            return None  # installer wasn't specified or wasn't found
-
-        kw = getConfigSpecArgsFromImplementation(implementation, inputs, self.tosca)
-        name = iDef and iDef.iname or implementation
-        return ConfigurationSpec(name, action, **kw)
-
     def findImplementation(self, interface, operation, template):
         default = None
         for iDef in template.getInterfaces():
@@ -117,67 +72,90 @@ class Plan(object):
                     default = iDef
         return default
 
-    @staticmethod
-    def _missingConfigSpec(action, resource, notfoundmsg):
-        errorMsg = (
-            'unable to find an implementation for operation "%s" on node "%s": %s'
-            % (action, resource.template.name, notfoundmsg)
-        )
-        return ConfigurationSpec("#error", action, className=errorMsg)
+    def executeDefaultDeploy(self, resource, reason=None, inputs=None):
+        # 5.8.5.2 Invocation Conventions p. 228
+        # call create
+        # for each dependent: call pre_configure_target
+        # for each dependency: call pre_configure_source
+        # call configure
+        # for each dependent: call post_configure_target
+        # for each dependency: call post_configure_source
+        # call start
+        ran = False
+        if resource.status in [Status.unknown, Status.notpresent, Status.pending]:
+            req = self.generateConfiguration(
+                "Standard.create", resource, reason, inputs
+            )
+            if not req.error:
+                resource.state = NodeState.creating
+                task = yield req
+                if task:
+                    ran = True
+                    if task.result.success and resource.state == NodeState.creating:
+                        # task succeeded but didn't update nodestate
+                        resource.state = NodeState.created
 
-    def defaultWorkflow(self, action, resource, reason=None):
-        yield self.generateConfiguration(action, resource, reason)
+        if resource.state == NodeState.created:
+            req = self.generateConfiguration(
+                "Standard.configure", resource, reason, inputs
+            )
+            if not req.error:
+                resource.state = NodeState.configuring
+                task = yield req
+                if task:
+                    ran = True
+                    if task.result.success and resource.state == NodeState.configuring:
+                        # task succeeded but didn't update nodestate
+                        resource.state = NodeState.configured
 
-    def generateConfiguration(
-        self, action, resource, reason=None, cmdLine=None, useConfigurator=None
-    ):
-        # XXX update joboptions, useConfigurator
-        notfoundmsg = ""
-        if cmdLine:
-            # build a configuration that runs the given command
-            configSpec = self.createShellConfigurator(cmdLine, action)
-        else:
-            if useConfigurator:
-                installer = useConfigurator
+        if resource.state == "configured":
+            req = self.generateConfiguration("Standard.start", resource, reason, inputs)
+            if not req.error:
+                resource.state = NodeState.starting
+                task = yield req
+                if task:
+                    ran = True
+                    if task.result.success and resource.state == NodeState.starting:
+                        # task succeeded but didn't update nodestate
+                        resource.state = NodeState.started
+
+        if not ran:
+            # if none were selected, run configure (eg. if resource is in a error state)
+            yield self.generateConfiguration(
+                "Standard.configure", resource, reason, inputs
+            )
+
+    def executeDefaultUndeploy(self, resource, reason=None, inputs=None):
+        req = self.generateConfiguration("Standard.delete", resource, reason, inputs)
+        if not req.error:
+            resource.state = NodeState.deleting
+        yield req
+        # Note: there is no NodeState.deleted and Status.notpresent set by TaskConfig.finished()
+
+    def generateConfiguration(self, operation, resource, reason=None, inputs=None):
+        """implementation can either be a named artifact (including a python configurator class),
+        configurator node template, or a file path"""
+        interface, sep, action = operation.rpartition(".")
+        iDef = self.findImplementation(interface, action, resource.template)
+        if iDef and iDef.name != "default":
+            # merge inputs
+            if inputs:
+                inputs = dict(iDef.inputs, **inputs)
             else:
-                # get configuration from the resources Install or Standard interface
-                configSpec = None
-                requirements = resource.template.getRequirements("install")
-                if requirements:
-                    installer = requirements[0]
-                    if isinstance(installer, dict):
-                        installer = installer.get("node")
-                else:
-                    installer = None
+                inputs = iDef.inputs
+            kw = getConfigSpecArgsFromImplementation(
+                iDef.implementation, inputs, self.tosca
+            )
+            name = "for %s: %s.%s" % (reason, interface, action)
+            configSpec = ConfigurationSpec(name, action, **kw)
+        else:
+            errorMsg = (
+                'unable to find an implementation for operation "%s" on node "%s"'
+                % (action, resource.template.name)
+            )
+            configSpec = ConfigurationSpec("#error", action, className=errorMsg)
+            reason = "error"
 
-            iDef = self.findImplementation("Install", action, resource.template)
-            if not iDef:
-                # XXX doesn't really support these operations see 5.8.4 tosca.interfaces.node.lifecycle.Standard
-                # XXX what about discover and check?
-                iDef = self.findImplementation(
-                    "Standard", ConfigOp.toStandardOp(action), resource.template
-                )
-                if not iDef:
-                    if not installer:
-                        notfoundmsg = "no interface or installer specified"
-                    elif installer not in self.tosca.installers:
-                        notfoundmsg = "installer %s not found" % installer
-
-            if not notfoundmsg:
-                configSpec = self.getConfigurationSpecFromInterface(
-                    iDef, action, installer
-                )
-                if not configSpec:
-                    if not iDef or iDef.name == "default":
-                        notfoundmsg = (
-                            "operation not supported by installer %s" % installer
-                        )
-                    else:
-                        notfoundmsg = "not specified on interface %s" % iDef.type
-
-        if not configSpec:
-            configSpec = self._missingConfigSpec(action, resource, notfoundmsg)
-            return (configSpec, resource, reason or action)
         logger.debug(
             "creating configuration %s with %s to run for %s: %s",
             configSpec.name,
@@ -185,30 +163,75 @@ class Plan(object):
             resource.name,
             reason or action,
         )
-        return (configSpec, resource, reason or action)
+        return TaskRequest(configSpec, resource, reason or action)
 
     def generateDeleteConfigurations(self, include):
         for instance in self.root.getOperationalDependencies():
             # reverse to teardown leaf nodes first
             for resource in reversed(instance.descendents):
-                reason = include(resource)
-                if reason:
-                    logger.debug("removing instance", resource.name)
-                    # it's an orphaned config
-                    gen = Generate(
-                        self._generateConfigurations(ConfigOp.remove, resource, reason)
-                    )
-                    while gen():
-                        gen.result = yield gen.next
+                # if resource exists (or unknown)
+                if resource.status not in [Status.notpresent, Status.pending]:
+                    reason = include(resource)
+                    if reason:
+                        logger.debug("removing instance %s", resource.name)
+                        # it's an orphaned config
+                        gen = Generate(
+                            self._generateConfigurations(resource, reason, "undeploy")
+                        )
+                        while gen():
+                            gen.result = yield gen.next
 
-    def _generateConfigurations(self, operation, resource, reason):
+    def _getDefaultGenerator(self, workflow, resource, reason=None, inputs=None):
+        if workflow == "deploy":
+            return self.executeDefaultDeploy(resource, reason, inputs)
+        elif workflow == "undeploy":
+            return self.executeDefaultUndeploy(resource, reason, inputs)
+        # elif workflow == 'check'
+        return None
+
+    @staticmethod
+    def getSuccessStatus(workflow):
+        if workflow == "deploy":
+            return Status.ok
+        elif workflow == "undeploy":
+            return Status.notpresent
+        return None
+
+    def _generateConfigurations(self, resource, reason, workflow=None):
+        workflow = workflow or self.workflow
         # check if this workflow has been delegated to one explicitly declared
-        configGenerator = self.executeWorkflow(self.workflow, resource)
+        configGenerator = self.executeWorkflow(workflow, resource)
         if not configGenerator:
-            configGenerator = self.defaultWorkflow(operation, resource, reason)
+            configGenerator = self._getDefaultGenerator(workflow, resource, reason)
+            if not configGenerator:
+                raise UnfurlError("can not get default for workflow " + workflow)
+
+        oldStatus = resource.localStatus
+        successes = 0
+        failures = 0
+        successStatus = self.getSuccessStatus(workflow)
         gen = Generate(configGenerator)
         while gen():
             gen.result = yield gen.next
+            task = gen.result
+            if not task:  # this was skipped (not shouldRun() or filtered step)
+                continue
+            if task.configSpec.workflow == workflow and task.target is resource:
+                if task.result.success:
+                    successes += 1
+                    # if task explicitly set the status use that
+                    if task.result.status is not None:
+                        successStatus = task.result.status
+                else:
+                    failures += 1
+
+        # note: in ConfigTask.finished():
+        # if any task failed and (maybe) modified, target.localStatus will be set to error or unknown
+        # if any task succeeded and modified, target.lastStateChange will be set, but not localStatus
+        if successStatus is not None and successes and not failures:
+            resource.localStatus = successStatus
+            if oldStatus != successStatus:
+                resource._lastConfigChange = task.changeId
 
     def executeWorkflow(self, workflowName, resource):
         workflow = self.tosca.getWorkflow(workflowName)
@@ -250,43 +273,37 @@ class Plan(object):
 
     def executeStep(self, step, resource):
         logging.debug("executing step %s for %s", step.name, resource.name)
+        result = None
         for activity in step.activities:
             if activity.type == "inline":
                 # XXX inputs
                 workflowGenerator = self.executeWorkflow(activity.inline, resource)
                 if not workflowGenerator:
                     continue
-                wresult = None
-                try:
-                    while True:
-                        task = workflowGenerator.send(wresult)
-                        wresult = yield task
-                except StopIteration:
-                    result = wresult
+                gen = Generate(workflowGenerator)
+                while gen():
+                    gen.result = yield gen.next
+                if gen.result:
+                    result = gen.result
             elif activity.type == "call_operation":
-                interface, sep, action = activity.call_operation.rpartition(".")
-                iDef = self.findImplementation(interface, action, resource.template)
-                if iDef:
-                    # merge inputs
-                    if activity.inputs:
-                        inputs = dict(iDef.inputs, **activity.inputs)
-                    else:
-                        inputs = iDef.inputs
-                    kw = getConfigSpecArgsFromImplementation(
-                        iDef.implementation, inputs, self.tosca
-                    )
-                    name = "step:" + step.name + ":call:" + activity.call_operation
-                    configSpec = ConfigurationSpec(name, action, **kw)
-                else:
-                    configSpec = self._missingConfigSpec(
-                        action, resource, "unknown call_operation"
-                    )
-                result = yield (configSpec, resource, action)
+                result = yield self.generateConfiguration(
+                    activity.call_operation,
+                    resource,
+                    "step:" + step.name,
+                    activity.inputs,
+                )
             elif activity.type == "set_state":
-                # call setState on last task run
-                self.setState(result, activity.set_state)  # XXX
-            # elif activity is delegate: #XXX
-            #    yield JobRequest
+                resource.state = activity.set_state
+            elif activity.type == "delegate":
+                # XXX inputs
+                configGenerator = self._getDefaultGenerator(activity.delegate, resource)
+                if not configGenerator:
+                    continue
+                gen = Generate(configGenerator)
+                while gen():
+                    gen.result = yield gen.next
+                if gen.result:
+                    result = gen.result
 
             if not result or not result.result.success:
                 yield step.on_failure
@@ -296,7 +313,7 @@ class Plan(object):
 
 
 class DeployPlan(Plan):
-    def includeTask(self, template, resource, oldTemplate):
+    def includeTask(self, template, resource):
         """Returns whether or not the config should be included in the current job.
 
         Reasons include: "all", "add", "upgrade", "update", "re-add", 'prune',
@@ -311,37 +328,35 @@ class DeployPlan(Plan):
             (str, ConfigurationSpec): Returns a pair with reason why the task was included
               and the :class:`ConfigurationSpec` to run or `None` if it shound't be included.
     """
+        assert template
         jobOptions = self.jobOptions
-        assert resource
-        if jobOptions.all and template:
+        oldTemplate = resource.template
+        if jobOptions.all:
             return "all", template
 
-        if (
-            template and not resource.lastConfigChange and jobOptions.add
-        ):  # XXX if status == unknown return 'check'
+        if jobOptions.add and not resource.lastConfigChange:
+            # add if it's a new resource
             return "add", template
 
+        # if the specification changed:
         if template != oldTemplate:
-            # the user changed the configuration:
             if jobOptions.upgrade:
                 return "upgrade", template
-            if resource.status == Status.notpresent and jobOptions.add:
-                # this case is essentially a re-added config, so re-run it
-                return "re-add", template
             if jobOptions.update:
-                # apply the new configuration unless it will trigger a major version change
-                if False:  # XXX if isMinorDifference(template, oldTemplate)
+                # only apply the new configuration if doesn't result in a major version change
+                if True:  # XXX if isMinorDifference(template, oldTemplate)
                     return "update", template
 
         # there isn't a new config to run, see if the last applied config needs to be re-run
         # XXX: if (jobOptions.upgrade or jobOptions.update or jobOptions.all):
         #  if (configTask.hasInputsChanged() or configTask.hasDependenciesChanged()) and
         #    return 'config changed', configTask.configSpec
-        return self.checkForRepair(resource, oldTemplate)
+        return self.checkForRepair(resource)
 
-    def checkForRepair(self, instance, lastTemplate):
+    def checkForRepair(self, instance):
         jobOptions = self.jobOptions
         assert instance
+        lastTemplate = instance.template
         if jobOptions.repair == "none":
             return None
         status = instance.status
@@ -371,17 +386,20 @@ class DeployPlan(Plan):
             )
             return "error", lastTemplate  # repair this
 
-    def defaultWorkflow(self, action, resource, reason=None):
-        # 5.8.5.2 Invocation Conventions p. 228
-        # call create
-        # for each dependent: call pre_configure_target
-        # for each dependency: call pre_configure_source
-        # call configure
-        # for each dependent: call post_configure_target
-        # for each dependency: call post_configure_source
-        # call start
+    def _generateConfigurations(self, resource, reason, workflow=None):
+        if resource.status == Status.unknown:
+            configGenerator = self.executeWorkflow("check", resource)
+            if configGenerator:
+                gen = Generate(configGenerator)
+                while gen():
+                    gen.result = yield gen.next
 
-        yield self.generateConfiguration(action, resource, reason)
+        configGenerator = super(DeployPlan, self)._generateConfigurations(
+            resource, reason, workflow
+        )
+        gen = Generate(configGenerator)
+        while gen():
+            gen.result = yield gen.next
 
     def executePlan(self):
         """
@@ -427,21 +445,10 @@ class DeployPlan(Plan):
             for resource in self.findResourcesFromTemplate(template):
                 found = True
                 visited.add(id(resource))
-                include = self.includeTask(template, resource, resource.template)
+                include = self.includeTask(template, resource)
                 if include:
                     reason, template = include
-                    # XXX ConfigOp
-                    if resource.status in [
-                        Status.unknown,
-                        Status.notpresent,
-                        Status.pending,
-                    ]:
-                        operation = ConfigOp.add
-                    else:
-                        operation = ConfigOp.update
-                    gen = Generate(
-                        self._generateConfigurations(operation, resource, reason)
-                    )
+                    gen = Generate(self._generateConfigurations(resource, reason))
                     while gen():
                         gen.result = yield gen.next
                 else:
@@ -451,14 +458,11 @@ class DeployPlan(Plan):
 
             if not found and (opts.add or opts.all):
                 reason = "add"
-                operation = ConfigOp.add
                 # XXX create NodeInstance instead to include relationships
                 # XXX initial status pending or unknown depending on joboption.check
                 resource = self.createResource(template)
                 visited.add(id(resource))
-                gen = Generate(
-                    self._generateConfigurations(operation, resource, reason)
-                )
+                gen = Generate(self._generateConfigurations(resource, reason))
                 while gen():
                     gen.result = yield gen.next
 
@@ -471,8 +475,8 @@ class DeployPlan(Plan):
 
         if opts.prune:
             check = lambda resource: "prune" if id(resource) not in visited else False
-            for configTuple in self.generateDeleteConfigurations(check):
-                yield configTuple
+            for taskRequest in self.generateDeleteConfigurations(check):
+                yield taskRequest
 
 
 class UndeployPlan(Plan):
@@ -480,8 +484,8 @@ class UndeployPlan(Plan):
         """
     yields configSpec, target, reason
     """
-        for configTuple in self.generateDeleteConfigurations(self.includeForDeletion):
-            yield configTuple
+        for taskRequest in self.generateDeleteConfigurations(self.includeForDeletion):
+            yield taskRequest
 
     def includeForDeletion(self, resource):
         if self.filterTemplate and resource.template != self.filterTemplate:
@@ -524,7 +528,7 @@ class RunNowPlan(Plan):
     def executePlan(self):
         resource = self.root.findResource(self.jobOptions.instance or "root")
         if resource:
-            yield self.generateConfiguration("run", resource, useConfigurator="run")
+            yield self.generateConfiguration("Install.run", resource, "run")
 
 
 def orderTemplates(graph, templates, filter=None):

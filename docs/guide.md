@@ -34,19 +34,13 @@ Operations
 
 Workflows: The weaving process generates the workflow
 
-### Unfurl Model
+### Unfurl specific
 
-manifest
-
-Operational Instances:
+Manifest
 
 Resources:
 
 Configurators: A software driver that implements an operation. Shell, Ansible, Terraform or they can Kubernetes.
-
-Installers: A node template that declares a mapping of operations to configurators. As first-class node templates they can be instantiated and configured themselves, enabling the local client environment to be managed as well.
-
-Installations: Installation can create and update many as a side effect of its operation and only the important ones need to be reified. Installations also provide a 
 
 Ref expressions
 
@@ -58,7 +52,7 @@ ConfigChange: a persistent record of the changes made by a task.
 
 Changelog
 
-Secrets: An object that represents a secret value. Secrets are stored in a separate configuration file outside of version control or retrieved from a KSM such as Hashicorp Vault. Sensitive values and objects tainted by sensitive values are always redacted when written out. 
+Secrets: An object that represents a secret value. Secrets are stored in a separate configuration file outside of version control or retrieved from a KMS such as Hashicorp Vault. Sensitive values and objects tainted by sensitive values are always redacted when written out. 
 
 Local values: Values and configurations settings that are dependent on the local environment and therefore should be saved separately from a shared repository or deployment history, for example, proxy settings. Delineating these helps enable a reproducible infrastructure.
 
@@ -93,7 +87,7 @@ the desired status (either "OK" or "NotPresent"). If its status is `Unknown`,
 
 If it succeeds, the target instance status will be set to either `OK` or `NotPresent`
 for `deploy` and `undeploy` respectively. If it fails, the status will depend on if the instance was modified by the operation.
-If they have, the status is set to error; if they didn't report whether they did or not, it is set to `Unknown`. Otherwise, the status won't be changed.
+If it has been, the status is set to error; if the operation didn't report whether it did or not, it is set to `Unknown`. Otherwise, the status won't be changed.
 
 _ 1: or to Degraded, depending the priority of the task.
 

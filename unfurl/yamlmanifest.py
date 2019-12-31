@@ -213,6 +213,8 @@ def saveStatus(operational, status=None):
     readyState = CommentedMap([("effective", operational.status.name)])
     if operational.localStatus is not None:
         readyState["local"] = operational.localStatus.name
+    if operational.state is not None:
+        readyState["state"] = operational.state.name
     status["readyState"] = readyState
     if operational.priority:  # and operational.priority != Defaults.shouldRun:
         status["priority"] = operational.priority.name
