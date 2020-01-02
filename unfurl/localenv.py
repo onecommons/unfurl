@@ -148,7 +148,7 @@ instances:
       resource: root
       # or:
       attributes:
-        #XXX: inheritFrom:
+        inheritFrom:
     secret:
 
 defaults: # used if the manifest isn't defined above
@@ -164,7 +164,7 @@ projects:
 
     def __init__(self, path=None, parentConfig=None):
         defaultConfig = {}
-        # XXX define schema and validate
+        # XXX define json schema and validate
         self.config = YamlConfig(defaultConfig, path=path)
         self.manifests = self.config.config.get("instances", [])
         self.defaults = self.config.config.get("defaults", {})
@@ -266,16 +266,15 @@ class LocalEnv(object):
         if manifestPath:
             # if manifestPath does not exist check project config
             if not os.path.exists(manifestPath):
-                pathORproject = self.findProject(os.path.dirname(manifestPath))
-                if pathORproject:
-                    # raise error is manifestPath isn't in the projectConfig
-                    # XXX createNewInstance
-                    self.manifestPath = pathORproject.createNewInstance(manifestPath)
-                else:
-                    raise UnfurlError(
-                        "Manifest file does not exist: '%s'"
-                        % os.path.abspath(manifestPath)
-                    )
+                # XXX check if the manifest is named in the project config
+                # pathORproject = self.findProject(os.path.dirname(manifestPath))
+                #if pathORproject:
+                #    self.manifestPath = pathORproject.getInstance(manifestPath)
+                #else:
+                raise UnfurlError(
+                    "Manifest file does not exist: '%s'"
+                    % os.path.abspath(manifestPath)
+                )
             else:
                 pathORproject = self.findManifestPath(manifestPath)
         else:

@@ -291,7 +291,7 @@ class Results(object):
             return Ref(val).resolve(context, wantList="result")
         elif isinstance(val, Mapping):
             return ResultsMap(val, context)
-        elif isinstance(val, (list, tuple)):
+        elif isinstance(val, list):
             return ResultsList(val, context)
         else:
             # at this point, just evaluates templates in strings or returns val

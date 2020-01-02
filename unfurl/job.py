@@ -274,7 +274,7 @@ class ConfigTask(ConfigChange, TaskView, AttributeManager):
 
     def summary(self):
         if self.target.name != self.target.template.name:
-            rname = "%s (%s)" % (self.target.name != self.target.template.name)
+            rname = "%s (%s)" % (self.target.name, self.target.template.name)
         else:
             rname = self.target.name
 
@@ -407,7 +407,12 @@ class Job(ConfigChange):
         except StopIteration:
             pass
 
+    def validateJobOptions(self):
+        if self.jobOptions.instance and not self.rootResource.findResource(self.jobOptions.instance):
+           logger.warning('selected instance not found: "%s"', self.jobOptions.instance)
+
     def run(self):
+        self.validateJobOptions()
         taskGen = self.getCandidateTasks()
         result = None
         try:

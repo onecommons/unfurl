@@ -154,7 +154,7 @@ kind: Manifest
   file: manifest-template.yaml
   repository: spec
 spec:
-  tosca:
+  service_template:
     repositories:
       spec:
         url: file:%s

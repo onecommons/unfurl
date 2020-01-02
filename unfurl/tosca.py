@@ -259,6 +259,7 @@ class TopologySpec(EntitySpec):
 
         self.toscaEntityTemplate = template
         self.name = "#topology"
+        self.type = "#topology"
         self.inputs = {
             input.name: inputs.get(input.name, input.default)
             for input in template.inputs

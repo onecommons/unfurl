@@ -16,6 +16,8 @@ spec:
           release_name:
             type: string
         interfaces:
+          Standard:
+            delete: DummyShellConfigurator
           Install:
             type: unfurl.interfaces.install.Helm
             inputs:
@@ -114,8 +116,7 @@ spec:
             helm:
               target: unfurl.nodes.HelmRelease
               activities:
-                 - call_operation: unfurl.interfaces.install.Helm.remove
-                 - inline: check
+                 - delegate: undeploy
         check:
           steps:
             helm:

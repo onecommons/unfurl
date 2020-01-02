@@ -25,6 +25,9 @@ logger = logging.getLogger("unfurl.task")
 
 
 class TaskRequest(object):
+    """
+    Yield this to run a child task. (see :ref:`unfurl.configurator.TaskView.createSubTask`)
+    """
     def __init__(self, configSpec, resource, reason, persist=False, required=None):
         self.configSpec = configSpec
         self.target = resource
@@ -35,6 +38,9 @@ class TaskRequest(object):
 
 
 class JobRequest(object):
+    """
+    Yield this to run a child job.
+    """
     def __init__(self, resources, errors):
         self.resources = resources
         self.errors = errors
@@ -237,13 +243,13 @@ class Configurator(object):
         on the :obj:`task.target`.
 
         Args:
-            task (:obj:`TaskView`) The task current running.
+            task (:class:`TaskView`) The task current running.
 
         Yields:
             Should yield either a :class:`JobRequest`, :class:`TaskRequest`
-            or a :class:`ConfiguratorResult` done
+            or a :class:`ConfiguratorResult` when done
         """
-        yield task.createResult(False, False)
+        yield task.done(False)
 
     def canDryRun(self, task):
         """
@@ -374,18 +380,22 @@ class TaskView(object):
         outputs=None,
         captureException=None,
     ):
-        """
-        `run()` should call this method and yield its return value before terminating.
+        """`run()` should call this method and yield its return value before terminating.
 
         >>> yield task.done(True)
 
-        `success`  indicates if this operation completed without an error.
-        `modified` indicates that the physical instance was modified by this operation.
-        `status`   should be set if the operation changed the operational status of the target instance.
+        Args:
+
+          success (bool):  indicates if this operation completed without an error.
+          modified (bool): (optional) indicates whether the physical instance was modified by this operation.
+          status (Status): (optional) should be set if the operation changed the operational status of the target instance.
                    If not specified, the runtime will updated the instance status as needed, based
                    the operation preformed and observed changes to the instance (attributes changed).
-        `result`   A dictionary that will be serialized as YAML into the changelog, can contain any useful data about these operation.
-        `outputs`  Operation outputs, as specified in the toplogy template.
+          result (dict):  (optional) A dictionary that will be serialized as YAML into the changelog, can contain any useful data about these operation.
+          outputs (dict): (optional) Operation outputs, as specified in the toplogy template.
+
+        Returns:
+              :class:`ConfiguratorResult`
         """
         if isinstance(modified, Status):
             status = modified
@@ -455,12 +465,20 @@ class TaskView(object):
     #         configSpec = yaml.load(configSpec)
     #     return self._manifest.loadConfigSpec(name, configSpec)
 
-    def createSubTask(self, configSpec, resource=None, persist=False, required=False):
+    def createSubTask(self, operation, resource=None, persist=False, required=False):
+        """Create a subtask that will be executed if yielded by `run()`
+
+           Args:
+             operation (str): The operation call (like `interface.operation`)
+             resource (:class:`Resource`) The current target if missing.
+
+           Returns:
+              :class:`TaskRequest`
+        """
         if resource is None:
             resource = self.target
 
-        if isinstance(configSpec, six.string_types):
-            operation = configSpec
+        if isinstance(operation, six.string_types):
             # XXX add option to pass different inputs
             taskRequest = self.job.plan.generateConfiguration(
                 operation,
@@ -483,7 +501,8 @@ class TaskView(object):
         #  expr = "::%s::.configurations::%s" % (configSpec.target, configSpec.name)
         #  self.addDependency(expr, required=required)
 
-        return TaskRequest(configSpec, resource, "subtask", persist, required)
+        # operation should be a ConfigurationSpec
+        return TaskRequest(operation, resource, "subtask", persist, required)
 
     # # XXX how can we explicitly associate relations with target resources etc.?
     # # through capability attributes and dependencies/relationship attributes

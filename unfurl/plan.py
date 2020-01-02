@@ -526,10 +526,23 @@ class WorkflowPlan(Plan):
 
 
 class RunNowPlan(Plan):
+    def createShellConfigurator(self, cmdLine, action, inputs=None, timeout=None):
+            params = dict(command=cmdLine)
+            if inputs:
+                params.update(inputs)
+            return ConfigurationSpec(
+                "cmdline",
+                action,
+                className="unfurl.configurators.shell.ShellConfigurator",
+                inputs=params,
+                timeout=timeout,
+            )
+
     def executePlan(self):
         resource = self.root.findResource(self.jobOptions.instance or "root")
         if resource:
-            yield self.generateConfiguration("Install.run", resource, "run")
+            configSpec = self.createShellConfigurator(self.jobOptions.cmdline, "run")
+            yield TaskRequest(configSpec, resource, "run")
 
 
 def orderTemplates(graph, templates, filter=None):

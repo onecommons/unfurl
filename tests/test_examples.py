@@ -61,4 +61,4 @@ class RunTest(unittest.TestCase):
         job3 = Runner(manifest3).run(
             JobOptions(workflow="undeploy", out=output3, startTime="test")
         )
-        assert len(job3.workDone) == 4, job3.jsonSummary()
+        assert len(job3.workDone) == 3, job3.jsonSummary()

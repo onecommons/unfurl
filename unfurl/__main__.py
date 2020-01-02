@@ -81,32 +81,31 @@ jobControlOptions = option_group(
     ),
 )
 
+commonJobFilterOptions = option_group(
+    click.option("--template", help="TOSCA template to target"),
+    click.option("--instance", help="instance name to target"),
+)
 
 @cli.command(short_help="Record and run an ad-hoc command")
 @click.pass_context
 # @click.argument("action", default="*:upgrade")
-@click.argument("instance", nargs=1, default="root")  # use:configurator
 @click.option("--manifest", default="", type=click.Path(exists=False))
-@click.option(
-    "--append", default=False, is_flag=True, help="add this command to the previous"
-)
-@click.option(
-    "--replace", default=False, is_flag=True, help="replace the previous command"
-)
+# XXX:
+# @click.option(
+#     "--append", default=False, is_flag=True, help="add this command to the previous"
+# )
+# @click.option(
+#     "--replace", default=False, is_flag=True, help="replace the previous command"
+# )
 @jobControlOptions
+@commonJobFilterOptions
 @click.argument("cmdline", nargs=-1)
 def run(ctx, instance="root", cmdline=None, **options):
     """
-    Run an ad-hoc command in the context of the given manifest
+    Run an ad-hoc command in the context of the given manifest.
+    Use "--" to separate the given command line, for example:
 
-    [instance name]  [--save] -- command line
-
-    Add command to the given resource's installer and then deploys it.
-
-    If resource name is omitted use the root installer.
-
-    Example:
-    > unfurl run -- helm install blah --kubecontext {{inputs.kubecontext}}
+    > unfurl run -- echo 'hello!'
 
     """
     options.update(ctx.obj)
@@ -145,12 +144,6 @@ def _run(manifest, options, ctx=None):
             sys.exit(1)
     else:
         return 0
-
-
-commonJobFilterOptions = option_group(
-    click.option("--template", help="TOSCA template to target"),
-    click.option("--instance", help="instance name to target"),
-)
 
 # XXX update help text sans "configurations"
 deployFilterOptions = option_group(

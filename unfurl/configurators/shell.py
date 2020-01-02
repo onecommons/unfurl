@@ -61,8 +61,8 @@ class ShellConfigurator(Configurator):
     returncode (None if the process didn't complete)
     error if an exception was raised
     """
-        if isinstance(cmd, list):
-            cmdStr = " ".cmd.join(cmd)
+        if not isinstance(cmd, six.string_types):
+            cmdStr = " ".join(cmd)
         else:
             cmdStr = cmd
 
@@ -106,9 +106,9 @@ class ShellConfigurator(Configurator):
     def handleResult(self, task, result, resultTemplate=None):
         status = Status.error if result.error or result.returncode else Status.ok
         if status == Status.error:
-            logger.warning('shell task "%s" failed', result.cmd)
+            logger.warning('shell task run failure: %s', result.cmd)
         else:
-            logger.info('ran shell task "%s" success', result.cmd)
+            logger.info('shell task run success: %s', result.cmd)
 
         if status != Status.error and resultTemplate:
             results = task.query(

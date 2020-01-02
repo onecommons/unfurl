@@ -128,6 +128,14 @@ class CliTest(unittest.TestCase):
             # XXX log handler is writing to the CliRunner's output stream
             self.assertEqual(result.output.strip(), "Unable to create job")
 
+            result = runner.invoke(cli, ["run", '--manifest', 'missing.yaml'])
+            assert 'Manifest file does not exist' in str(result.exception)
+
+            with open("manifest2.yaml", "w") as f:
+                f.write(manifest)
+            result = runner.invoke(cli, ["run", '--manifest', 'manifest2.yaml', '--', 'echo', "ok"])
+            assert r"'stdout': 'ok\n'" in result.output, result.output
+
     def test_localConfig(self):
         # test loading the default manifest declared in the local config
         # test locals and secrets:
