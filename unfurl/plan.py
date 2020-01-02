@@ -256,7 +256,8 @@ class Plan(object):
         queue = steps[:]
         while queue:
             step = queue.pop()
-            if workflow.filterStep(step, resource):
+            if not workflow.matchStepFilter(step.name, resource):
+                logger.debug('step did not match filter %s with %s', step.name, resource.name)
                 continue
             stepGenerator = self.executeStep(step, resource)
             result = None

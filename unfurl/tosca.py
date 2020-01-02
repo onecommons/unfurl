@@ -316,8 +316,13 @@ class Workflow(object):
     def getStep(self, stepName):
         return self.workflow.steps.get(stepName)
 
-    def filterStep(self, step, resource):
-        return False
+    def matchStepFilter(self, step, resource):
+        step = self.getStep(step)
+        if step:
+            return all(
+                filter.evaluate(resource.attributes) for filter in step.filter
+            )
+        return None
 
     def filter(self, resource):
         return False

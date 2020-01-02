@@ -20,6 +20,13 @@ topology_template:
   workflows:
       deploy:
         steps:
+          shouldbeSkipped:
+            target: unfurl.nodes.HelmRelease
+            filter:
+              - and:
+                - missingAttribute: [{equal: foo}]
+            activities:
+              - call_operation: unfurl.interfaces.install.Helm.execute
           helm:
             target: unfurl.nodes.HelmRelease
             activities:

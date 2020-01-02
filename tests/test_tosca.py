@@ -3,6 +3,7 @@ from unfurl.yamlmanifest import YamlManifest
 from unfurl.job import Runner, JobOptions
 from unfurl.support import Status
 from unfurl.configurator import Configurator
+from unfurl.util import sensitive_str
 import six
 
 
@@ -40,7 +41,7 @@ spec:
         server_ip:
           description: The private IP address of the provisioned server.
           # equivalent to { get_attribute: [ my_server, private_address ] }
-          value: {eval: "::my_server::private_address"}
+          value: {eval: "::testSensitive::private_address"}
       node_templates:
         testSensitive:
           type: testy.nodes.aNodeType
@@ -88,10 +89,11 @@ class ToscaSyntaxTest(unittest.TestCase):
         assert (
             manifest.getRootResource().findResource("my_server").attributes["test"]
         ), "cpus: 2"
-        assert job.getOutputs()["server_ip"], "10.0.0.1"
+        outputIp = job.getOutputs()["server_ip"]
+        assert outputIp, "10.0.0.1"
+        assert isinstance(outputIp, sensitive_str)
+        assert "server_ip: <<REDACTED>>" in job.out.getvalue()
         assert job.status == Status.ok, job.summary()
-        # XXX verify redacted output
-        # print(job.out.getvalue())
 
     def test_import(self):
         """
