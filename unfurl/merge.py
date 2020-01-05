@@ -1,5 +1,6 @@
 import itertools
 import re
+import six
 from collections import Mapping, MutableSequence, namedtuple, Sequence
 
 from ruamel.yaml.comments import CommentedMap, CommentedBase
@@ -7,15 +8,26 @@ from ruamel.yaml.comments import CommentedMap, CommentedBase
 from .util import UnfurlError
 
 
+def _mapCtor(self):
+    if hasattr(self, "baseDir"):
+        return makeMapWithBase(self, self.baseDir)
+    return CommentedMap
+
+
+CommentedMap.mapCtor = property(_mapCtor)
+
+
 def makeMapWithBase(doc, baseDir):
+    loadTemplate = getattr(doc, "loadTemplate", None)
+    _anchorCache = getattr(doc, "_anchorCache", None)
+
     def factory(*args, **kws):
         map = CommentedMap(*args, **kws)
         map.baseDir = baseDir
-        if hasattr(doc, "loadTemplate"):
-            map.loadTemplate = doc.loadTemplate
-        if hasattr(doc, "_anchorCache"):
-            map._anchorCache = doc._anchorCache
-        map.mapCtor = makeMapWithBase(doc, baseDir)
+        if loadTemplate:
+            map.loadTemplate = loadTemplate
+        if _anchorCache is not None:
+            map._anchorCache = _anchorCache
         return map
 
     return factory
@@ -287,6 +299,9 @@ def expandDict(doc, path, includes, current, cls=dict):
     templates = []
     assert isinstance(current, Mapping), current
     for (key, value) in current.items():
+        if not isinstance(key, six.string_types):
+            cp[key] = value
+            continue
         if key.startswith("+"):
             if key == mergeStrategyKey:
                 cp[key] = value

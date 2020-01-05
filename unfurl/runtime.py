@@ -502,6 +502,13 @@ class Resource(NodeInstance):
     def __repr__(self):
         return "Resource('%s')" % self.name
 
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        # Remove the unpicklable entries.
+        if state.get("_templar"):
+            del state["_templar"]
+        return state
+
 
 class TopologyResource(Resource):
     templateType = TopologySpec
