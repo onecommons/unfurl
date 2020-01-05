@@ -40,7 +40,7 @@ class Manifest(AttributeManager):
     def loadSpec(self, spec, path):
         if "service_template" in spec:
             toscaDef = spec["service_template"]
-        if "tosca" in spec:
+        elif "tosca" in spec:
             toscaDef = spec["tosca"]
         elif "node_templates" in spec:
             # allow node_templates shortcut

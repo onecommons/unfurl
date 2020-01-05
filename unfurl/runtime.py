@@ -288,6 +288,7 @@ class _ChildResources(collections.Mapping):
 
 class NodeInstance(OperationalInstance, ResourceRef):
     attributeManager = None
+    createdOn = None
 
     def __init__(
         self, name="", attributes=None, parent=None, template=None, status=None
@@ -379,7 +380,6 @@ class Resource(NodeInstance):
   """
 
     baseDir = ""
-    createdOn = None
     templateType = NodeSpec
     parentRelation = "resources"
     # createdFrom = None
@@ -406,6 +406,19 @@ class Resource(NodeInstance):
         # preload
         self.getInterface("inherit")
         self.getInterface("default")
+
+    def getCapabilities(self, name):
+        capabilities = [
+            capability for capability in self.capabilities if capability.name == name
+        ]
+        if capabilities:
+            return capabilities
+        else:
+            capabilityTemplate = self.template.getCapability(name)
+            if capabilityTemplate:
+                # will be added to self.capabilities
+                return [Capability(name, parent=self, template=capabilityTemplate)]
+        return []
 
     def _resolve(self, key):
         # might return a Result

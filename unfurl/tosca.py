@@ -15,7 +15,6 @@ from .yamlloader import resolvePathToToscaImport
 from toscaparser.tosca_template import ToscaTemplate
 from toscaparser.elements.entity_type import EntityType
 import toscaparser.workflow
-from toscaparser.elements.capabilitytype import CapabilityTypeDef
 from toscaparser.common.exception import ExceptionCollector, ValidationError
 import logging
 
@@ -132,6 +131,10 @@ class ToscaSpec(object):
     def getTemplate(self, name):
         if name == "#topology":
             return self.topology
+        if "#c#" in name:
+            nodeName, capability = name.split("#c#")
+            nodeTemplate = self.nodeTemplates.get(nodeName)
+            return nodeTemplate.getCapability(capability)
         return self.nodeTemplates.get(name, self.relationshipTemplates.get(name))
 
     def isTypeName(self, typeName):
@@ -214,6 +217,10 @@ class EntitySpec(object):
     def getInterfaces(self):
         return self.toscaEntityTemplate.interfaces
 
+    def getGroups(self):
+        # XXX return the groups this entity is in
+        return []
+
     def isCompatibleTarget(self, targetStr):
         if self.name == targetStr:
             return True
@@ -235,11 +242,21 @@ class NodeSpec(EntitySpec):
         if not template:
             template = _defaultTopology.nodetemplates[0]
         EntitySpec.__init__(self, template)
+        self._capabilities = None
 
-    def getRequirements(self, name):
-        return [
-            req[name] for req in self.toscaEntityTemplate.requirements if name in req
-        ]
+    # XXX
+    # def getRequirements(self, name):
+    #     return [
+    #         RelationshipSpec(req) for req in self.toscaEntityTemplate.requirements if name in req
+    #     ]
+
+    def getCapability(self, name):
+        if self._capabilities is None:
+            self._capabilities = {
+                c.name: CapabilitySpec(self.toscaEntityTemplate, c)
+                for c in self.toscaEntityTemplate.get_capabilities_objects()
+            }
+        return self._capabilities.get(name)
 
 
 class RelationshipSpec(EntitySpec):
@@ -248,6 +265,11 @@ class RelationshipSpec(EntitySpec):
         if not template:
             template = _defaultTopology.relationship_templates[0]
         EntitySpec.__init__(self, template)
+
+
+# XXX
+# class GroupSpec(EntitySpec):
+#  getNodeTemplates() getInstances(), getChildren()
 
 
 class TopologySpec(EntitySpec):
@@ -274,32 +296,24 @@ class TopologySpec(EntitySpec):
         return []
 
 
-# capabilities.Capability isn't an EntityTemplate but duck types with it
 class CapabilitySpec(EntitySpec):
-    def __init__(self, name=None, nodeTemplate=None):
+    def __init__(self, nodeTemplate=None, capability=None):
         if not nodeTemplate:
-            self.nodeTemplate = _defaultTopology.nodetemplates[0]
-            cap = self.nodeTemplate.get_capabilities_objects()[0]
-            name = "feature"
+            self.parentTemplate = _defaultTopology.nodetemplates[0]
+            capability = self.parentTemplate.get_capabilities_objects()[0]
         else:
-            self.nodeTemplate = nodeTemplate
-            cap = nodeTemplate.get_capabilities()[name]
-        self.type = nodeTemplate.type_definition.get_capabilities().get(
-            name, CapabilityTypeDef(name, "tosca.capabilities.Node", nodeTemplate.type)
-        )
-        EntitySpec.__init__(self, cap)
-
-    def isCompatibleTarget(self, targetStr):
-        if self.name == targetStr:
-            return True
-        return self.type.is_derived_from(targetStr)
-
-    def isCompatibleType(self, typeStr):
-        return self.type.is_derived_from(typeStr)
+            self.parentTemplate = nodeTemplate
+        # capabilities.Capability isn't an EntityTemplate but duck types with it
+        EntitySpec.__init__(self, capability)
 
     def getInterfaces(self):
         # capabilities don't have their own interfaces
-        return self.nodeTemplate.interfaces
+        return self.parentTemplate.interfaces
+
+    def getUri(self):
+        # capabilities aren't standalone templates
+        # this is demanagled by getTemplate()
+        return self.parentTemplate.name + "#c#" + self.name
 
 
 class Workflow(object):
@@ -320,9 +334,7 @@ class Workflow(object):
     def matchStepFilter(self, step, resource):
         step = self.getStep(step)
         if step:
-            return all(
-                filter.evaluate(resource.attributes) for filter in step.filter
-            )
+            return all(filter.evaluate(resource.attributes) for filter in step.filter)
         return None
 
     def filter(self, resource):
