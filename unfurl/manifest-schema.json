@@ -134,7 +134,6 @@
         { "$ref": "#/definitions/status" },
         {
           "properties": {
-            "action": { "$ref": "#/definitions/action" },
             "inputs": { "$ref": "#/definitions/attributes", "default": {} },
             "changes": {
               "allOf": [

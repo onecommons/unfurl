@@ -1,5 +1,7 @@
 .. Shinx cheatsheet: http://openalea.gforge.inria.fr/doc/openalea/doc/_build/html/source/sphinx/rest_syntax.html
 
+.. image:: unfurl_logo.svg
+
 Welcome to Unfurl's documentation!
 ===================================
 

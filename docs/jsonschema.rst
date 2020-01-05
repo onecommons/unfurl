@@ -41,7 +41,7 @@ Enums and Simple Types
 
 .. jsonschema:: manifest-schema.json#/definitions/readyState
 
-.. jsonschema:: manifest-schema.json#/definitions/action
+.. jsonschema:: manifest-schema.json#/definitions/state
 
 .. jsonschema:: manifest-schema.json#/definitions/changeId
 

@@ -67,6 +67,7 @@ class JsonSchema(Directive):
                 file_or_url = os.path.join(dname, file_or_url)
             with open(file_or_url) as file:
                 self.schema = self.ordered_load(file, yaml.SafeLoader)
+            self.state.document.settings.env.note_dependency(file_or_url)
 
     def _load_internal(self, text):
         if text is None or len(text) == 0:

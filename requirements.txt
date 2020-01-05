@@ -3,24 +3,16 @@
 # For an analysis of "install_requires" vs pip's requirements files see
 # https://packaging.python.org/en/latest/requirements.html
 
-ansible==2.7.13
-mitogen==0.2.7
-openshift
-click==7.0
-enum34
-jsonschema[format_nongpl]
+ansible==2.7.13 # gpl 3
+mitogen==0.2.7 # BSD 3-clause
+openshift # Apache 2.0
+click==7.0 # BSD 3-clause
+click-log  # MIT
+jsonschema[format_nongpl] # MIT
+ruamel.yaml>=0.15.37 # MIT
+gitpython # BSD
+-r tosca-parser/requirements.txt # Apache 2.0
+# for python 2 compatibility:
+six
 subprocess32
-ruamel.yaml>=0.15.37
-gitpython
--r tosca-parser/requirements.txt
-click-log
-
-# soon:
-#required by openshift-ansible:
-#    "pyOpenSSL",
-#    "netaddr",
-#    "httplib2",
-#    "passlib",
-# boto==2.34.0
-# shade==1.24.0
-# passlib==1.6.5
+enum34
