@@ -1,10 +1,9 @@
-# WARNING: Under heavy construction!
+## Unfurl
 
-## What is Unfurl?
+Unfurl is a tool that works with Git to record and deploy changes to your DevOps infrastructure. 
+It tracks configuration changes, keeping a history of exactly how you did it and what the results are, so you can easily repair or recreate what you did later. 
 
-At its most ambitious, Unfurl aims to be a decentralized package manager for the Internet, enabling you to easily deploy and integrate live services.
-
-More simply, it is a tool that works with Git to record and deploy changes to your DevOps infrastructure. Unfurl transforms a Git repo into a reproducible history of deployed services.
+Unfurl integrates with the deployment tools you are already using, like Ansible, Terraform and Helm, organizing their usage into shareable abstractions that ease migrations to new environments as well as share and reuse your work.
 
 ## Goals
 
@@ -59,17 +58,25 @@ More simply, it is a tool that works with Git to record and deploy changes to yo
 
 ## Installation
 
+`pip install unfurl`
+
 ### Requirements
 
-Python (2.7, 3.5, or 3.6); git; docker 13 or later
-
-### From source
+Python (2.7, 3.5, or 3.7); git
 
 ## Developing
 
 Clone https://github.com/onecommons/unfurl
 
 To build documentation: Run `tox -e docs`.
+
+To build a distribution package run:
+
+`python setup.py sdist bdist_wheel`
+
+You can now install this package with pip, for example:
+
+`pip install ../dist/unfurl-0.0.1.dev183-py2.py3-none-any.whl`
 
 ### Running unit tests
 
@@ -86,5 +93,3 @@ Arguments after `--` are passed to the test runner, e.g. to run an individual te
      2. create manifest with root resource: configure using kms
      3. (optional) run bootstrap to create a secure root resource
  3. start creating your manifest
-
- [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)

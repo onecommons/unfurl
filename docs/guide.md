@@ -1,12 +1,14 @@
 ## Introduction
 
-Unfurl coordinates deployment of heterogenous configuration management and build tools and records the results in a git repository.
+Unfurl coordinates the deployment of disparate configuration management and build tools and records the results in a git repository.
 
 Unfurl lets you mix and match both declarative and imperative approaches in the same project, and both carefully designed, fine-grained type system or course-grained objects can live alongside ad-hoc metadata and dynamically generated configuration.
 
 The core of an Unfurl project is a YAML manifest file that includes both a specification of the intended outcome and the status of the current live instances. The specification is defined using the TOSCA 1.2 OASIS standard ("Topology and Orchestration Specification for Cloud Applications") and the status is presented as an hierarchy of the operational status and attributes of live resources created, modified or observed by deploying and managing the project. 
 
-Unfurl maintains change log recording a history of the operations and changes that were applied to them. 
+Unfurl maintains change log recording a history of the operations and changes that were applied to them.
+
+![diagram](diagram1.svg)
 
 ## Conceptual model and glossary
 
@@ -96,7 +98,8 @@ _ 1: or to Degraded, depending the priority of the task.
 The actual work is done by `operations` and as they are executed the `node state` of the target instance is updated.
 Nodes states include: `initial`, `creating`, `created`, `configuring`, `configured`, 
 `starting`, `started`, `stopping`, `deleting`, and `error`. 
-See section 3.4.1, p74 of the TOSCA 1.3 Spec. for a complete definitions.
+See
+[TOSCA 1.3, §3.4.1](https://docs.oasis-open.org/tosca/TOSCA-Simple-Profile-YAML/v1.3/cos01/TOSCA-Simple-Profile-YAML-v1.3-cos01.html#_Toc454457724) for a complete definitions
 
 Each `task` in a `job` corresponds to an operation that was executed and is assigned a 
 `changeid`. Each task is recorded in the job's `changelog` as a `ConfigChange`, 
