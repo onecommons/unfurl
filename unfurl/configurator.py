@@ -28,6 +28,7 @@ class TaskRequest(object):
     """
     Yield this to run a child task. (see :ref:`unfurl.configurator.TaskView.createSubTask`)
     """
+
     def __init__(self, configSpec, resource, reason, persist=False, required=None):
         self.configSpec = configSpec
         self.target = resource
@@ -41,6 +42,7 @@ class JobRequest(object):
     """
     Yield this to run a child job.
     """
+
     def __init__(self, resources, errors):
         self.resources = resources
         self.errors = errors
@@ -99,6 +101,7 @@ class ConfigurationSpec(object):
             minorVersion="",
             workflow=Defaults.workflow,
             timeout=None,
+            operation_host=None,
             environment=None,
             inputs=None,
             inputSchema=None,
@@ -115,6 +118,7 @@ class ConfigurationSpec(object):
         minorVersion="",
         workflow=Defaults.workflow,
         timeout=None,
+        operation_host=None,
         environment=None,
         inputs=None,
         inputSchema=None,
@@ -129,6 +133,7 @@ class ConfigurationSpec(object):
         self.minorVersion = minorVersion
         self.workflow = workflow
         self.timeout = timeout
+        self.operationHost = operation_host
         self.environment = Environment(**(environment or {}))
         self.inputs = inputs or {}
         self.inputSchema = inputSchema
@@ -291,7 +296,9 @@ class TaskView(object):
         self.target = target
         self.reason = reason
         self.logger = logger
-        # XXX refcontext should include TARGET HOST etc.
+        self.errors = []
+        host = self._findOperationHost(target, configSpec.operationHost)
+        self.operationHost = host
         # private:
         self._inputs = None
         self._environ = None
@@ -354,6 +361,20 @@ class TaskView(object):
             target=self.target.name,
             reason=self.reason,
         )
+
+    def _findOperationHost(self, target, operation_host):
+        # SELF, HOST, ORCHESTRATOR, SOURCE, TARGET
+        if not operation_host or operation_host in ["localhost", "ORCHESTRATOR"]:
+            return None
+        if operation_host == "SELF":
+            return target
+        if operation_host == "HOST":
+            return target.parent
+        # XXX SOURCE, TARGET
+        host = target.root.findResource(operation_host)
+        if host:
+            return host
+        raise UnfurlTaskError(self, "can not find operation_host: %s" % operation_host)
 
     def addMessage(self, message):
         self.messages.append(message)

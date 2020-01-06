@@ -36,7 +36,9 @@ class Plan(object):
         if jobOptions.template:
             filterTemplate = self.tosca.getTemplate(jobOptions.template)
             if not filterTemplate:
-                raise UnfurlError("specified template not found %s" % filterTemplate)
+                raise UnfurlError(
+                    "specified template not found: %s" % jobOptions.template
+                )
             self.filterTemplate = filterTemplate
         else:
             self.filterTemplate = None
@@ -257,7 +259,9 @@ class Plan(object):
         while queue:
             step = queue.pop()
             if not workflow.matchStepFilter(step.name, resource):
-                logger.debug('step did not match filter %s with %s', step.name, resource.name)
+                logger.debug(
+                    "step did not match filter %s with %s", step.name, resource.name
+                )
                 continue
             stepGenerator = self.executeStep(step, resource)
             result = None
@@ -526,22 +530,49 @@ class WorkflowPlan(Plan):
 
 
 class RunNowPlan(Plan):
-    def createShellConfigurator(self, cmdLine, action, inputs=None, timeout=None):
-            params = dict(command=cmdLine)
-            if inputs:
-                params.update(inputs)
-            return ConfigurationSpec(
-                "cmdline",
-                action,
-                className="unfurl.configurators.shell.ShellConfigurator",
-                inputs=params,
-                timeout=timeout,
-            )
+    def _createConfigurator(self, args, action, inputs=None, timeout=None):
+        if args.get("module") or args.get("host"):
+            className = "unfurl.configurators.ansible.AnsibleConfigurator"
+            module = args.get("module") or 'command'
+            module_args = " ".join(args["cmdline"])
+            params = dict(playbook=[{module: module_args}])
+        else:
+            className = "unfurl.configurators.shell.ShellConfigurator"
+            params = dict(command=args["cmdline"])
+
+        if inputs:
+            params.update(inputs)
+
+        return ConfigurationSpec(
+            "cmdline",
+            action,
+            className=className,
+            inputs=params,
+            operation_host=args.get("host"),
+            timeout=timeout,
+        )
 
     def executePlan(self):
-        resource = self.root.findResource(self.jobOptions.instance or "root")
-        if resource:
-            configSpec = self.createShellConfigurator(self.jobOptions.cmdline, "run")
+        instanceFilter = self.jobOptions.instance
+        if instanceFilter:
+            resource = self.root.findResource(instanceFilter)
+            if not resource:
+                # see if there's a template with the same name and create the resource
+                template = self.tosca.getTemplate(instanceFilter)
+                if template:
+                    resource = self.createResource(template)
+                else:
+                    raise UnfurlError(
+                        "specified instance not found: %s" % instanceFilter
+                    )
+            resources = [resource]
+        else:
+            resources = list(self.root.getOperationalDependencies())
+            if not resources:
+              resources = [self.root]
+
+        for resource in resources:
+            configSpec = self._createConfigurator(self.jobOptions.userConfig, "run")
             yield TaskRequest(configSpec, resource, "run")
 
 

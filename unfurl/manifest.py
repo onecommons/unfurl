@@ -86,7 +86,10 @@ class Manifest(AttributeManager):
 
     def loadTemplate(self, name, lastChange=None):
         if lastChange:
-            return self.revisions.getRevision(lastChange).tosca.getTemplate(name)
+            try:
+              return self.revisions.getRevision(lastChange).tosca.getTemplate(name)
+            except:
+              return None
         else:
             return self.tosca.getTemplate(name)
 

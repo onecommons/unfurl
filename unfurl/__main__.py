@@ -86,6 +86,7 @@ commonJobFilterOptions = option_group(
     click.option("--instance", help="instance name to target"),
 )
 
+
 @cli.command(short_help="Record and run an ad-hoc command")
 @click.pass_context
 # @click.argument("action", default="*:upgrade")
@@ -99,7 +100,9 @@ commonJobFilterOptions = option_group(
 # )
 @jobControlOptions
 @commonJobFilterOptions
-@click.argument("cmdline", nargs=-1)
+@click.option("--host", help="host to run the command on")
+@click.option("-m", "--module", help="ansible module to run (default: command)")
+@click.argument("cmdline", nargs=-1, type=click.UNPROCESSED)
 def run(ctx, instance="root", cmdline=None, **options):
     """
     Run an ad-hoc command in the context of the given manifest.
@@ -107,11 +110,13 @@ def run(ctx, instance="root", cmdline=None, **options):
 
     > unfurl run -- echo 'hello!'
 
+    If --host or --module is set, the ansible configurator will be used. e.g.:
+
+    > unfurl run --host=example.com -- echo 'hello!'
     """
     options.update(ctx.obj)
     options["instance"] = instance
     options["cmdline"] = cmdline
-    # XXX parse action and use, update manifest and job
     return _run(options.pop("manifest"), options, ctx)
 
 
@@ -144,6 +149,7 @@ def _run(manifest, options, ctx=None):
             sys.exit(1)
     else:
         return 0
+
 
 # XXX update help text sans "configurations"
 deployFilterOptions = option_group(

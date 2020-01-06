@@ -67,7 +67,6 @@ class JobOptions(object):
         prune=False,
         append=None,
         replace=None,
-        cmdline=None,
         commit=True,
         workflow=Defaults.workflow,
     )
@@ -102,7 +101,6 @@ class ConfigTask(ConfigChange, TaskView, AttributeManager):
         self.parentId = parentId or job.changeId
         self.changeId = self.parentId
         self.startTime = job.startTime or datetime.datetime.now()
-        self.errors = []
         self.dryRun = job.dryRun
         self.verbose = job.verbose
         self._configurator = None
@@ -329,7 +327,7 @@ class Job(ConfigChange):
         self.workDone = collections.OrderedDict()
 
     def createTask(self, configSpec, target, parentId=None, reason=None):
-        # XXX2 if 'via'/runsOn set, create remote task instead
+        # XXX2 if operation_host set, create remote task instead
         task = ConfigTask(self, configSpec, target, parentId, reason=reason)
         try:
             task.inputs
@@ -408,8 +406,12 @@ class Job(ConfigChange):
             pass
 
     def validateJobOptions(self):
-        if self.jobOptions.instance and not self.rootResource.findResource(self.jobOptions.instance):
-           logger.warning('selected instance not found: "%s"', self.jobOptions.instance)
+        if self.jobOptions.instance and not self.rootResource.findResource(
+            self.jobOptions.instance
+        ):
+            logger.warning(
+                'selected instance not found: "%s"', self.jobOptions.instance
+            )
 
     def run(self):
         self.validateJobOptions()

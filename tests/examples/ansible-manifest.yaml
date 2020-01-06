@@ -1,0 +1,33 @@
+apiVersion: unfurl/v1alpha1
+kind: Manifest
+spec:
+  service_template:
+    dsl_definitions:
+      example-with-endpoint: &example-with-endpoint
+        type: tosca:Compute
+        capabilities:
+          endpoint:
+            type: unfurl.capabilities.Endpoint.SSH
+            properties:
+              # this is ansible's default behaviour:
+              # host: {get_property: [SELF, tosca_name]}
+              credential:
+                user: ubuntu
+                token_type: private_key_file
+                token: ~/.ssh/example-key.pem
+              hostvars:
+                ansible_pipelining: yes
+                # override connection type for mock unit testing:
+                ansible_connection: local
+    node_types:
+    topology_template:
+      node_templates:
+        www.example.com: *example-with-endpoint
+        staging.example.com: *example-with-endpoint
+      groups:
+        example_group:
+          type: unfurl.groups.AnsibleInventoryGroup
+          members: [www.example.com, staging.example.com]
+          properties:
+            hostvars:
+              var_for_ansible_playbook: test

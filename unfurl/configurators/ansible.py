@@ -2,11 +2,11 @@ from __future__ import absolute_import
 import collections
 from ..util import ansibleDisplay, ansibleDummyCli, assertForm, saveToTempfile
 from ..configurator import Configurator, Status
+from ..result import serializeValue
 import ansible.constants as C
 from ansible.cli.playbook import PlaybookCLI
 from ansible.plugins.callback.default import CallbackModule
 from ansible.module_utils import six
-
 import logging
 
 logger = logging.getLogger("unfurl")
@@ -16,8 +16,7 @@ logger = logging.getLogger("unfurl")
 #  playbookArgs
 #  extraVars
 #  inventory
-#  returnValues
-#  XXX environVars
+#  facts (list of ansible facts to extract from ansible results)
 def ansibleResults(result, extraKeys=()):
     # result is per-task ansible.executor.task_result.TaskResult
     # https://github.com/ansible/ansible/blob/devel/lib/ansible/executor/task_result.py
@@ -76,17 +75,77 @@ class AnsibleConfigurator(Configurator):
     def canDryRun(self, task):
         return True
 
+    def _makeInventoryFromGroup(self, group):
+        hosts = {}
+        vars = {}
+        children = {}
+        for member in group.memberInstances:
+            hosts[member.name] = self._getHostVars(member)
+        for child in group.memberGroups:
+            if child.isCompatibleType("unfurl.groups.AnsibleInventoryGroup"):
+                children[child] = self._makeInventoryFromGroup(child)
+        for prop, value in group.properties.items():
+            vars[prop] = value
+        return dict(hosts=hosts, vars=vars, children=children)
+
+    def _getHostVars(self, node):
+        # return ansible_connection, ansible_host, ansible_user, ansible_port
+        connections = node.getCapabilities("endpoint")
+        for connection in connections:
+            if connection.template.isCompatibleType(
+                "unfurl.capabilities.Endpoint.Ansible"
+            ):
+                break
+        else:
+            return {}
+        props = connection.attributes
+        hostVars = {
+            "ansible_" + name: props[name]
+            for name in ("port", "host", "connection")
+            if name in props
+        }
+        creds = connection.attributes.get("credential")
+        if creds:
+            if "user" in creds:
+                hostVars["ansible_user"] = creds["user"]
+                # e.g token_type is password or private_key_file:
+                hostVars["ansible_" + creds["token_type"]] = creds["token"]
+                if "keys" in creds:
+                    hostVars.update(creds["keys"])
+        hostVars.update(props.get("hostvars", {}))
+        if "ansible_host" not in hostVars and hostVars.get("ip_address"):
+            hostVars["ansible_host"] = hostVars["ip_address"]
+        return hostVars
+
+    def _makeInventory(self, host, allVars):
+        hosts = {host.name: self._getHostVars(host)}
+        children = {
+            group.name: self._makeInventoryFromGroup(group)
+            for group in host.template.getGroups()
+            if group.isCompatibleType("unfurl.groups.AnsibleInventoryGroup")
+        }
+        # allVars is inventory vars shared by all hosts
+        return dict(all=dict(hosts=hosts, vars=allVars, children=children))
+
     def getInventory(self, task):
-        return task.inputs.get("inventory")
-        # add groups for tosca HOST, ORCHESTRATOR, TARGET, SELF keywords
+        inventory = task.inputs.get("inventory")
+        if inventory and isinstance(inventory, six.string_types):
+            # XXX if user set inventory file we can create a folder to merge them
+            # https://allandenot.com/devops/2015/01/16/ansible-with-multiple-inventory-files.html
+            return inventory  # assume its a file path
+
+        if not inventory:
+            # XXX merge inventory
+            host = task.operationHost
+            if not host:
+                return inventory  # default to localhost if not inventory
+            inventory = self._makeInventory(host, inventory or {})
         # XXX cache and reuse file
-        # don't worry about warnings in log, see:
+        return saveToTempfile(inventory, "-inventory.yaml").name
+        # don't worry about the warnings in log, see:
         # https://github.com/ansible/ansible/issues/33132#issuecomment-346575458
         # https://github.com/ansible/ansible/issues/33132#issuecomment-363908285
         # https://github.com/ansible/ansible/issues/48859
-        # return saveToTempfile(inventory, '-inventory.ini').name
-        # XXX if user set inventory create a folder to merge:
-        # https://allandenot.com/devops/2015/01/16/ansible-with-multiple-inventory-files.html
 
     def _cleanup(self):
         for func in self._cleanupRoutines:
@@ -106,11 +165,12 @@ class AnsibleConfigurator(Configurator):
     """
         return {}
 
-    def _makePlayBook(self, playbook):
+    def _makePlayBook(self, playbook, task):
         assertForm(playbook, collections.MutableSequence)
         # XXX use host group instead of localhost depending on operation_host
+        hosts = task.operationHost and task.operationHost.name or "localhost"
         if playbook and not "hosts" in playbook[0]:
-            return [dict(hosts="localhost", gather_facts=False, tasks=playbook)]
+            return [dict(hosts=hosts, gather_facts=False, tasks=playbook)]
         else:
             return playbook
 
@@ -120,9 +180,13 @@ class AnsibleConfigurator(Configurator):
     def getPlaybook(self, task):
         playbook = self.findPlaybook(task)
         if isinstance(playbook, six.string_types):
+            # assume it's file path
             return playbook
-        playbook = self._makePlayBook(playbook)
-        return saveToTempfile(playbook, "-playbook.yml").name
+        playbook = self._makePlayBook(playbook, task)
+        envvars = task.environ
+        for play in playbook:
+            play["environment"] = envvars
+        return saveToTempfile(serializeValue(playbook), "-playbook.yml").name
 
     def getPlaybookArgs(self, task):
         args = task.inputs.get("playbookArgs", [])
@@ -142,7 +206,7 @@ class AnsibleConfigurator(Configurator):
                 task.updateResources(results)
 
     def getResultKeys(self, task, results):
-        return task.inputs.get("returnValues", [])
+        return task.inputs.get("facts", [])
 
     def run(self, task):
         try:

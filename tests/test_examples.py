@@ -62,3 +62,24 @@ class RunTest(unittest.TestCase):
             JobOptions(workflow="undeploy", out=output3, startTime="test")
         )
         assert len(job3.workDone) == 3, job3.jsonSummary()
+
+    def test_ansible(self):
+        """
+        Run ansible command on a (mock) remote instance.
+        """
+        path = __file__ + "/../examples/ansible-manifest.yaml"
+        manifest = YamlManifest(path=path)
+        runner = Runner(manifest)
+
+        output = six.StringIO()  # so we don't save the file
+        job = runner.run(
+            JobOptions(
+                workflow="run",
+                host="www.example.com",
+                instance="www.example.com",
+                cmdline=["echo", "foo"],
+                out=output,
+            )
+        )
+        assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
+        assert list(job.workDone.values())[0].result.result["stdout"] == "foo"

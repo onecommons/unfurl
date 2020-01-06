@@ -232,9 +232,10 @@ def toEnum(enum, value, default=None):
         return value
 
 
-def saveToTempfile(obj, suffix=""):
+def saveToTempfile(obj, suffix="", delete=True):
     tp = tempfile.NamedTemporaryFile("w+t", suffix=suffix, delete=False)
-    atexit.register(lambda: os.unlink(tp.name))
+    if delete:
+        atexit.register(lambda: os.unlink(tp.name))
     try:
         if suffix.endswith(".yml") or suffix.endswith(".yaml"):
             YAML().dump(obj, tp)

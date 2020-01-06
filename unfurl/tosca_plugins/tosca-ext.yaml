@@ -23,18 +23,20 @@ node_types:
 
   unfurl.nodes.Installation:
     derived_from: tosca.nodes.Root
-    # this isn't necessarily required:
-    # requirements:
-    #   - install:
-    #       capability: unfurl.capabilities.Installer
-    #       node: unfurl.nodes.Installer
-    #       relationship: unfurl.relationships.InstalledBy
+
+    requirements:
+      - install:
+          capability: unfurl.capabilities.Installer
+          node: unfurl.nodes.Installer
+          relationship: unfurl.relationships.InstalledBy
+          occurrences: [0, 1] # it isn't necessarily required
     interfaces:
       Install:
         type: unfurl.interfaces.Install
 
   unfurl.nodes.Default:
     derived_from: unfurl.nodes.Installation
+    description: "Used if pre-existing instances are declared with no TOSCA template"
 
   unfurl.nodes.K8sCluster:
     derived_from: tosca.nodes.Root
@@ -144,6 +146,50 @@ capability_types:
   unfurl.capabilities.Installer:
    derived_from: tosca.capabilities.Root
 
+  unfurl.capabilities.Endpoint.Ansible:
+    derived_from: tosca.capabilities.Endpoint.Admin
+    description: Capability to connect to Ansible
+    properties:
+      connection:
+        description: The connection type (sets "ansible_connection")
+        type: string
+        default: local
+      port:
+        type: tosca:PortDef
+        description: sets "ansible_port"
+        required: false
+      host:
+        type: string
+        description: sets "ansible_host"
+        required: false
+      credential:
+        description: Its "user" property sets "ansible_user", add properties like "ssh_private_key_file" to "keys"
+        type: tosca.datatypes.Credential
+        required: false
+        metadata:
+            sensitive: true
+      hostvars:
+        type: map
+        required: false
+        description: >
+          Passed to ansible as host vars
+          See https://docs.ansible.com/ansible/latest/user_guide/intro_inventory.html#connecting-to-hosts-behavioral-inventory-parameters
+
+  unfurl.capabilities.Endpoint.SSH:
+    derived_from: unfurl.capabilities.Endpoint.Ansible
+    description: Capability to connect to the host via SSH
+    properties:
+      protocol:
+        type: string
+        value: ssh
+        default: ssh
+      connection:
+        type: string
+        default: ssh
+      port:
+        type: tosca:PortDef
+        default: 22
+
 relationship_types:
   unfurl.relationships.InstalledBy:
    derived_from: tosca.relationships.Root
@@ -155,7 +201,18 @@ relationship_types:
 interface_types:
   unfurl.interfaces.Install:
     derived_from: tosca.interfaces.Root
-    discover:
-      description: Coming soon!
     check:
-      description: Coming soon!
+      description: Checks and sets the status and attributes of SELF
+    discover:
+      description: Discovers current state of the current instance and (possibly) related instances, updates the spec as needed.
+
+group_types:
+  unfurl.groups.AnsibleInventoryGroup:
+    derived_from: tosca.groups.Root
+    description: Use this to place hosts in Ansible inventory groups
+    properties:
+      hostvars:
+        description: Ansible hostvars for members of this group
+        type: map
+        default: {}
+    members: [ tosca.nodes.Compute, unfurl.groups.ansibleInventoryGroup]
