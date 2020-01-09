@@ -19,6 +19,10 @@ topology_template:
         another: foo.txt
   workflows:
       deploy:
+        preconditions: # should be true
+          - target: gitlab-release
+            condition:
+              - release-name: [{equal: foo}]
         steps:
           shouldbeSkipped:
             target: unfurl.nodes.HelmRelease

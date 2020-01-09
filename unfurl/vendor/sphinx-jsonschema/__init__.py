@@ -12,6 +12,8 @@
     :copyright: Copyright 2017, Leo Noordergraaf
     :licence: GPL v3, see LICENCE for details.
 """
+# modifications to https://github.com/lnoor/sphinx-jsonschema/commit/cdd5ea14ed2bc66bcc9bc8af593797b4676bd248
+# - note external files as build dependency
 
 import os.path
 import json

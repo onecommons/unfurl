@@ -239,7 +239,7 @@ class Plan(object):
         workflow = self.tosca.getWorkflow(workflowName)
         if not workflow:
             return None
-        if workflow.filter(resource):  # check precondition
+        if not workflow.matchPreconditions(resource):  # check precondition
             return None
         steps = [
             step

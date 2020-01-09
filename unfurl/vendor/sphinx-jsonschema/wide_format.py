@@ -10,10 +10,11 @@
     :licence: GPL v3, see LICENCE for details.
 """
 
-# modifications from https://github.com/lnoor/sphinx-jsonschema/commit/cdd5ea14ed2bc66bcc9bc8af593797b4676bd248
+# modifications to https://github.com/lnoor/sphinx-jsonschema/commit/cdd5ea14ed2bc66bcc9bc8af593797b4676bd248
 # - don't render definitions
-# - call _objectype() id 'properties' or additionalProperties in schema:
-# support for propertyNames
+# - call _objectype() if 'properties' or 'additionalProperties' in schema
+# - support for propertyNames
+# - better rendering of default values
 
 from sys import version_info
 import string

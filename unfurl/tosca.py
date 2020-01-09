@@ -331,11 +331,19 @@ class Workflow(object):
     def getStep(self, stepName):
         return self.workflow.steps.get(stepName)
 
-    def matchStepFilter(self, step, resource):
-        step = self.getStep(step)
+    def matchStepFilter(self, stepName, resource):
+        step = self.getStep(stepName)
         if step:
             return all(filter.evaluate(resource.attributes) for filter in step.filter)
         return None
 
-    def filter(self, resource):
-        return False
+    def matchPreconditions(self, resource):
+        for precondition in self.workflow.preconditions:
+            target = resource.root.findResource(precondition.target)
+            #XXX if precondition.target_relationship
+            if not target:
+                # XXX target can be a group
+                return False
+            if not all(filter.evaluate(target.attributes) for filter in precondition.condition):
+                return False
+        return True
