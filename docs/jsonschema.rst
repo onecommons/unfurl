@@ -16,7 +16,7 @@ instance and status components
 
 Instance
 ---------
-.. jsonschema:: manifest-schema.json#/definitions/resource
+.. jsonschema:: manifest-schema.json#/definitions/instance
 
 
 status

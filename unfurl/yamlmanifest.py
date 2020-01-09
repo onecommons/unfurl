@@ -370,9 +370,9 @@ class YamlManifest(Manifest):
             status["capabilities"] = CommentedMap(
                 map(self.saveEntityInstance, resource.capabilities)
             )
-        if resource.resources:
-            status["resources"] = CommentedMap(
-                map(lambda r: self.saveResource(r, workDone), resource.resources)
+        if resource.instances:
+            status["instances"] = CommentedMap(
+                map(lambda r: self.saveResource(r, workDone), resource.instances)
             )
         return (name, status)
 

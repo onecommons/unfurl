@@ -232,7 +232,7 @@ class Manifest(AttributeManager):
         for key, val in status.get("requirements", {}).items():
             self._createEntityInstance(Relationship, key, val, resource)
 
-        for key, val in status.get("resources", {}).items():
+        for key, val in status.get("instances", {}).items():
             self._createEntityInstance(NodeInstance, key, val, resource)
 
         return resource

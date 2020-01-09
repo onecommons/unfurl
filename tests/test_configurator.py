@@ -179,7 +179,7 @@ class ConfiguratorTest(unittest.TestCase):
         # verify dependencies added
         # dependencies = lookupPath(
         #     runner.manifest.manifest.config,
-        #     "root.resources.test4.status.configurations.test.dependencies".split("."),
+        #     "root.instances.test4.status.configurations.test.dependencies".split("."),
         # )
         # self.assertEqual(dependencies, [{"ref": "::added2"}])
 

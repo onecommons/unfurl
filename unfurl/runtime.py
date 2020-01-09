@@ -381,7 +381,7 @@ class NodeInstance(EntityInstance):
 
     baseDir = ""
     templateType = NodeSpec
-    parentRelation = "resources"
+    parentRelation = "instances"
     # createdFrom = None
 
     # spec is a NodeTemplate
@@ -393,7 +393,7 @@ class NodeInstance(EntityInstance):
                 raise UnfurlError(
                     'can not create resource name "%s" is already in use' % name
                 )
-        self.resources = []
+        self.instances = []
         self.capabilities = []
         self.requirements = []
         EntityInstance.__init__(self, name, attributes, parent, template, status)
@@ -453,7 +453,7 @@ class NodeInstance(EntityInstance):
     def getSelfAndDescendents(self):
         "Recursive descendent including self"
         yield self
-        for r in self.resources:
+        for r in self.instances:
             for descendent in r.getSelfAndDescendents():
                 yield descendent
 
@@ -464,7 +464,7 @@ class NodeInstance(EntityInstance):
     def findResource(self, resourceid):
         if self.name == resourceid:
             return self
-        for r in self.resources:
+        for r in self.instances:
             child = r.findResource(resourceid)
             if child:
                 return child
@@ -534,6 +534,6 @@ class TopologyInstance(NodeInstance):
         self.outputs = NodeInstance("outputs", template.outputs, self)
 
     def getOperationalDependencies(self):
-        for instance in self.resources:
+        for instance in self.instances:
             if instance.name not in ["inputs", "outputs"]:
                 yield instance

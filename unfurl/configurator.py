@@ -44,7 +44,7 @@ class JobRequest(object):
     """
 
     def __init__(self, resources, errors):
-        self.resources = resources
+        self.instances = resources
         self.errors = errors
 
 

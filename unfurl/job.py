@@ -474,7 +474,7 @@ class Job(ConfigChange):
 
     def runJobRequest(self, jobRequest):
         self.jobRequestQueue.remove(jobRequest)
-        resourceNames = [r.name for r in jobRequest.resources]
+        resourceNames = [r.name for r in jobRequest.instances]
         jobOptions = JobOptions(
             parentJob=self, repair="none", all=True, instances=resourceNames
         )

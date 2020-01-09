@@ -62,7 +62,7 @@
       "type": "object",
       "$$target": "#/definitions/schema"
     },
-    "resource": {
+    "instance": {
       "title": "Instance",
       "type": "object",
       "allOf": [
@@ -73,12 +73,12 @@
               "$ref": "#/definitions/attributes",
               "default": {}
             },
-            "resources": {
+            "instances": {
               "allOf": [
                 { "$ref": "#/definitions/namedObjects" },
                 {
                   "additionalProperties": {
-                    "$ref": "#/definitions/resource"
+                    "$ref": "#/definitions/instance"
                   }
                 }
               ],
@@ -88,7 +88,7 @@
         },
         { "$ref": "#/definitions/status" }
       ],
-      "$$target": "#/definitions/resource"
+      "$$target": "#/definitions/instance"
     },
     "status": {
       "$$target": "#/definitions/status",
@@ -237,7 +237,7 @@
                   { "$ref": "#/definitions/namedObjects" },
                   {
                     "additionalProperties": {
-                      "$ref": "#/definitions/resource"
+                      "$ref": "#/definitions/instance"
                     }
                   }
                 ]
