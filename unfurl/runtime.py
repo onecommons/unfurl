@@ -286,7 +286,7 @@ class _ChildResources(collections.Mapping):
         return len(tuple(self))
 
 
-class NodeInstance(OperationalInstance, ResourceRef):
+class EntityInstance(OperationalInstance, ResourceRef):
     attributeManager = None
     createdOn = None
 
@@ -351,14 +351,14 @@ class NodeInstance(OperationalInstance, ResourceRef):
 
 # both have occurrences
 # only need to configure capabilities as required by a relationship
-class Capability(NodeInstance):
+class Capability(EntityInstance):
     # 3.7.2 Capability definition p. 97
     # 3.8.1 Capability assignment p. 114
     parentRelation = "capabilities"
     templateType = CapabilitySpec
 
 
-class Relationship(NodeInstance):
+class Relationship(EntityInstance):
     # 3.7.3 Requirements definition p. 99
     # 3.8.2 Requirements assignment p. 115
     parentRelation = "requirements"
@@ -371,7 +371,7 @@ class Relationship(NodeInstance):
             yield self.target
 
 
-class Resource(NodeInstance):
+class NodeInstance(EntityInstance):
     """
       capabilities:
       name:
@@ -396,13 +396,13 @@ class Resource(NodeInstance):
         self.resources = []
         self.capabilities = []
         self.requirements = []
-        NodeInstance.__init__(self, name, attributes, parent, template, status)
+        EntityInstance.__init__(self, name, attributes, parent, template, status)
 
         if self.root is self:
             self._all = _ChildResources(self)
             self._templar = Templar(DataLoader())
 
-        self._interfaces = {}  # XXX2 exclude when pickling
+        self._interfaces = {}
         # preload
         self.getInterface("inherit")
         self.getInterface("default")
@@ -505,7 +505,7 @@ class Resource(NodeInstance):
     def __eq__(self, other):
         if self is other:
             return True
-        if not isinstance(other, Resource):
+        if not isinstance(other, NodeInstance):
             return False
         if not self.lastChange:
             # only support equality if resource has a changeid
@@ -513,24 +513,25 @@ class Resource(NodeInstance):
         return self.name == other.name and self.lastChange == other.lastChange
 
     def __repr__(self):
-        return "Resource('%s')" % self.name
+        return "NodeInstance('%s')" % self.name
 
     def __getstate__(self):
         state = self.__dict__.copy()
         # Remove the unpicklable entries.
         if state.get("_templar"):
             del state["_templar"]
+        state['_interfaces'] = None
         return state
 
 
-class TopologyResource(Resource):
+class TopologyInstance(NodeInstance):
     templateType = TopologySpec
 
     def __init__(self, template, status=None):
-        Resource.__init__(self, "root", template=template, status=status)
+        NodeInstance.__init__(self, "root", template=template, status=status)
         # add these as special child resources so they can be accessed like "::inputs::foo"
-        self.inputs = Resource("inputs", template.inputs, self)
-        self.outputs = Resource("outputs", template.outputs, self)
+        self.inputs = NodeInstance("inputs", template.inputs, self)
+        self.outputs = NodeInstance("outputs", template.outputs, self)
 
     def getOperationalDependencies(self):
         for instance in self.resources:

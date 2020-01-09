@@ -144,7 +144,7 @@ from .support import ResourceChanges, Status, Defaults
 from .localenv import LocalEnv
 from .job import JobOptions, Runner
 from .manifest import Manifest, ChangeRecordAttributes
-from .runtime import TopologyResource, Resource
+from .runtime import TopologyInstance, NodeInstance
 
 from ruamel.yaml.comments import CommentedMap
 from codecs import open
@@ -320,7 +320,7 @@ class YamlManifest(Manifest):
         )
         lastChangeId = self.changeSets and max(self.changeSets.keys()) or 0
 
-        rootResource = self.createTopologyResource(status)
+        rootResource = self.createTopologyInstance(status)
         for name, instance in spec.get("instances", {}).items():
             if not rootResource.findResource(name):
                 # XXX like Plan.createResource() parent should be hostedOn target if defined
@@ -338,7 +338,7 @@ class YamlManifest(Manifest):
     def getBaseDir(self):
         return self.manifest.getBaseDir()
 
-    def createTopologyResource(self, status):
+    def createTopologyInstance(self, status):
         """
     If an instance of the toplogy is recorded in status, load it,
     otherwise create a new resource using the the topology as its template
@@ -346,12 +346,12 @@ class YamlManifest(Manifest):
         # XXX use the substitution_mapping (3.8.12) represent the resource
         template = self.tosca.topology
         operational = self.loadStatus(status)
-        root = TopologyResource(template, operational)
+        root = TopologyInstance(template, operational)
         for key, val in status.get("instances", {}).items():
-            self._createNodeInstance(Resource, key, val, root)
+            self._createEntityInstance(NodeInstance, key, val, root)
         return root
 
-    def saveNodeInstance(self, resource):
+    def saveEntityInstance(self, resource):
         status = CommentedMap()
         status["template"] = resource.template.getUri()
 
@@ -365,10 +365,10 @@ class YamlManifest(Manifest):
         return (resource.name, status)
 
     def saveResource(self, resource, workDone):
-        name, status = self.saveNodeInstance(resource)
+        name, status = self.saveEntityInstance(resource)
         if resource.capabilities:
             status["capabilities"] = CommentedMap(
-                map(self.saveNodeInstance, resource.capabilities)
+                map(self.saveEntityInstance, resource.capabilities)
             )
         if resource.resources:
             status["resources"] = CommentedMap(

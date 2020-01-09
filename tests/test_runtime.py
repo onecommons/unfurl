@@ -1,5 +1,5 @@
 import unittest
-from unfurl.runtime import Status, Priority, Resource, OperationalInstance
+from unfurl.runtime import Status, Priority, NodeInstance, OperationalInstance
 from unfurl.job import JobOptions, Runner
 from unfurl.configurator import Configurator, ConfigurationSpec
 from unfurl.yamlmanifest import YamlManifest
@@ -125,7 +125,7 @@ class JobTest(unittest.TestCase):
 
     # XXX rewrite
     # def test_runner(self):
-    #   rootResource = Resource('root')
+    #   rootResource = NodeInstance('root')
     #   configurationSpec = ConfigurationSpec('test', 'instantiate', 'TestSubtaskConfigurator', 0)
     #   specs = [configurationSpec]
     #   runner = Runner(Manifest(rootResource, specs))
@@ -266,7 +266,7 @@ class InterfaceTest(unittest.TestCase):
   """
 
     def test_interface(self):
-        r = Resource("test")
+        r = NodeInstance("test")
         r.addInterface(TestInterface)
         className = __name__ + ".TestInterface"
         self.assertEqual(r.attributes[".interfaces"], {className: className})

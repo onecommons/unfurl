@@ -6,7 +6,7 @@ from ruamel.yaml.comments import CommentedMap
 from .tosca import ToscaSpec, TOSCA_VERSION
 
 from .support import ResourceChanges, AttributeManager, Status, Priority, NodeState
-from .runtime import OperationalInstance, Resource, Capability, Relationship
+from .runtime import OperationalInstance, NodeInstance, Capability, Relationship
 from .util import UnfurlError, toEnum
 from .configurator import Dependency, ConfigurationSpec
 from .repo import RevisionManager, findGitRepo
@@ -199,7 +199,7 @@ class Manifest(AttributeManager):
             if parent is None:
                 raise UnfurlError("can not find parent resource %s" % pname)
 
-        resource = self._createNodeInstance(Resource, rname, resourceSpec, parent)
+        resource = self._createEntityInstance(NodeInstance, rname, resourceSpec, parent)
         return resource
 
     def _getLastChange(self, operational):
@@ -211,7 +211,7 @@ class Manifest(AttributeManager):
             return self.changeSets[parentId]
         return changerecord
 
-    def _createNodeInstance(self, ctor, name, status, parent):
+    def _createEntityInstance(self, ctor, name, status, parent):
         operational = self.loadStatus(status)
         templateName = status.get("template", name)
         template = self.loadTemplate(templateName)
@@ -227,13 +227,13 @@ class Manifest(AttributeManager):
         resource = ctor(name, status.get("attributes"), parent, template, operational)
 
         for key, val in status.get("capabilities", {}).items():
-            self._createNodeInstance(Capability, key, val, resource)
+            self._createEntityInstance(Capability, key, val, resource)
 
         for key, val in status.get("requirements", {}).items():
-            self._createNodeInstance(Relationship, key, val, resource)
+            self._createEntityInstance(Relationship, key, val, resource)
 
         for key, val in status.get("resources", {}).items():
-            self._createNodeInstance(Resource, key, val, resource)
+            self._createEntityInstance(NodeInstance, key, val, resource)
 
         return resource
 

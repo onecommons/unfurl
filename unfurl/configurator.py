@@ -491,7 +491,7 @@ class TaskView(object):
 
            Args:
              operation (str): The operation call (like `interface.operation`)
-             resource (:class:`Resource`) The current target if missing.
+             resource (:class:`NodeInstance`) The current target if missing.
 
            Returns:
               :class:`TaskRequest`

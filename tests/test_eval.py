@@ -4,7 +4,7 @@ import json
 from unfurl.result import ResultsList, serializeValue
 from unfurl.eval import Ref, mapValue, RefContext
 from unfurl.support import applyTemplate
-from unfurl.runtime import Resource
+from unfurl.runtime import NodeInstance
 from ruamel.yaml.comments import CommentedMap
 
 
@@ -48,7 +48,7 @@ class EvalTest(unittest.TestCase):
         }
         if more:
             resourceDef.update(more)
-        resource = Resource("test", attributes=resourceDef)
+        resource = NodeInstance("test", attributes=resourceDef)
         assert resource.attributes["x"] == resourceDef["x"]
         assert resource.attributes["a"] == "test"
         assert resource.attributes["s"] is resource
@@ -158,7 +158,6 @@ class EvalTest(unittest.TestCase):
         resource = self._getTestResource()
         test1 = {"ref": ".", "foreach": {"value": {"content": {"ref": "b"}}}}
         expected0 = {"content": [1, 2, 3]}
-        expected = {"UmVzb3VyY2UoJ3Rlc3QnKQ==": expected0}
         result0 = Ref(test1).resolveOne(RefContext(resource, trace=0))
         self.assertEqual(expected0, result0)
         # resolve has same result as resolveOne
@@ -168,7 +167,8 @@ class EvalTest(unittest.TestCase):
         # test that template strings work
         test1["foreach"]["key"] = "{{ item | ref | b64encode}}"
         result1 = Ref(test1).resolveOne(RefContext(resource))
-        self.assertEqual(expected, result1)
+        expected = {"Tm9kZUluc3RhbmNlKCd0ZXN0Jyk=": expected0}
+        self.assertEqual(expected, result1, result1)
         result2 = Ref(test1).resolve(RefContext(resource))
         self.assertEqual([expected], result2)
 
@@ -180,7 +180,7 @@ class EvalTest(unittest.TestCase):
         self.assertEqual(src, mapValue(serialized, resource))
 
     def test_jinjaTemplate(self):
-        resource = Resource("test", attributes=dict(a1="hello"))
+        resource = NodeInstance("test", attributes=dict(a1="hello"))
         ctx = RefContext(resource, {"foo": "hello"})
 
         self.assertEqual(applyTemplate(" {{ foo }} ", ctx), "hello")
@@ -228,7 +228,7 @@ class EvalTest(unittest.TestCase):
         resourceDef = {
             "a": dict(b={"ref": "a::c"}, c={"e": 1}, d=["2", {"ref": "a::d::0"}])
         }
-        resource = Resource("test", attributes=resourceDef)
+        resource = NodeInstance("test", attributes=resourceDef)
         assert not not resource.attributes
         self.assertEqual(len(resource.attributes), 1)
 
@@ -273,10 +273,10 @@ class EvalTest(unittest.TestCase):
         self.assertEqual(result, resource)
 
     def test_nodeTraversal1(self):
-        root = Resource(
+        root = NodeInstance(
             "r2", {"a": [dict(ref="::r1::a"), dict(ref="b")], "b": "r2"}  #'r1'  #'r2'
         )
-        child = Resource("r1", {"a": dict(ref="b"), "b": "r1"}, root)
+        child = NodeInstance("r1", {"a": dict(ref="b"), "b": "r1"}, root)
         ctx = RefContext(root)
         x = [{"a": [{"c": 1}, {"c": 2}]}]
         assert x == ResultsList(x, ctx)
@@ -285,8 +285,8 @@ class EvalTest(unittest.TestCase):
         self.assertEqual(Ref("a").resolve(RefContext(root)), [["r1", "r2"]])
 
     def test_nodeTraversal2(self):
-        root = Resource("root", {"a": [{"ref": "::child"}, {"b": 2}]})
-        child = Resource("child", {"b": 1}, root)
+        root = NodeInstance("root", {"a": [{"ref": "::child"}, {"b": 2}]})
+        child = NodeInstance("child", {"b": 1}, root)
         self.assertEqual(Ref(".ancestors").resolve(RefContext(child)), [[child, root]])
         # self.assertEqual(Ref('a::b').resolve(RefContext(root)), [1])
         self.assertEqual(Ref("a").resolve(RefContext(child)), [[child, {"b": 2}]])

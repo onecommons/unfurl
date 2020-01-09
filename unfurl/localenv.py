@@ -189,7 +189,7 @@ projects:
         """
     localName is either 'local' or 'secret'
     """
-        from .runtime import Resource
+        from .runtime import NodeInstance
 
         localRepo = None
         for spec in self.manifests:
@@ -219,14 +219,14 @@ projects:
                         parent = self.parentConfig.getLocalResource(
                             manifestPath, localName, importSpec
                         )
-                        localResource = Resource(localName, attributes)
+                        localResource = NodeInstance(localName, attributes)
                         if parent:
                             localResource._attributes["inheritFrom"] = parent
                             return localResource
                         else:
                             importSpec["inheritHack"] = localResource
                             return None
-                repoResource = Resource(localName, attributes)
+                repoResource = NodeInstance(localName, attributes)
                 repoResource.baseDir = self.config.getBaseDir()
                 return repoResource
             else:
@@ -241,7 +241,7 @@ projects:
                 return None
 
         # none found, return empty resource
-        return Resource(localName)
+        return NodeInstance(localName)
 
 
 class LocalEnv(object):

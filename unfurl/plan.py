@@ -1,4 +1,4 @@
-from .runtime import Resource
+from .runtime import NodeInstance
 from .util import UnfurlError, Generate
 from .support import Status, NodeState
 from .configurator import (
@@ -62,7 +62,7 @@ class Plan(object):
         parent = self.findParentResource(template)
         assert parent, "parent should have already been created"
         # Set the initial status of new resources to "pending" instead of defaulting to "unknown"
-        return Resource(template.name, None, parent, template, Status.pending)
+        return NodeInstance(template.name, None, parent, template, Status.pending)
 
     def findImplementation(self, interface, operation, template):
         default = None
@@ -76,13 +76,7 @@ class Plan(object):
 
     def executeDefaultDeploy(self, resource, reason=None, inputs=None):
         # 5.8.5.2 Invocation Conventions p. 228
-        # call create
-        # for each dependent: call pre_configure_target
-        # for each dependency: call pre_configure_source
-        # call configure
-        # for each dependent: call post_configure_target
-        # for each dependency: call post_configure_source
-        # call start
+        # 7.2 eclarative workflows p.249
         ran = False
         if resource.status in [Status.unknown, Status.notpresent, Status.pending]:
             req = self.generateConfiguration(
@@ -98,9 +92,13 @@ class Plan(object):
                         resource.state = NodeState.created
 
         if resource.state == NodeState.created:
+        # for each dependency: call pre_configure_source
+        # for each dependent: call pre_configure_target
             req = self.generateConfiguration(
                 "Standard.configure", resource, reason, inputs
             )
+        # for each dependent: call post_configure_target
+        # for each dependency: call post_configure_source
             if not req.error:
                 resource.state = NodeState.configuring
                 task = yield req
@@ -126,6 +124,8 @@ class Plan(object):
             yield self.generateConfiguration(
                 "Standard.configure", resource, reason, inputs
             )
+
+        # add_source add_target
 
     def executeDefaultUndeploy(self, resource, reason=None, inputs=None):
         req = self.generateConfiguration("Standard.delete", resource, reason, inputs)
@@ -463,7 +463,7 @@ class DeployPlan(Plan):
 
             if not found and (opts.add or opts.all):
                 reason = "add"
-                # XXX create NodeInstance instead to include relationships
+                # XXX create EntityInstance instead to include relationships
                 # XXX initial status pending or unknown depending on joboption.check
                 resource = self.createResource(template)
                 visited.add(id(resource))
@@ -594,6 +594,7 @@ def orderTemplates(graph, templates, filter=None):
 
 def getAncestorTemplates(source):
     for target, relation in source.related.items():
+        # tosca.relationships.DependsOn
         if relation.type == "tosca.relationships.HostedOn":
             for ancestor in getAncestorTemplates(target):
                 yield ancestor
