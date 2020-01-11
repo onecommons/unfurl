@@ -346,6 +346,7 @@ class Generate(object):
     def __init__(self, generator):
         self.generator = generator
         self.result = None
+        self.next = None
 
     def __call__(self):
         try:

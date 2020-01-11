@@ -43,16 +43,16 @@ class Plan(object):
         else:
             self.filterTemplate = None
 
-    def findResourcesFromTemplate(self, nodeTemplate):
+    def findResourcesFromTemplateName(self, name):
         for resource in self.root.getSelfAndDescendents():
-            if resource.template.name == nodeTemplate.name:
+            if resource.template.name == name:
                 yield resource
 
     def findParentResource(self, source):
         parentTemplate = findParentTemplate(source.toscaEntityTemplate)
         if not parentTemplate:
             return self.root
-        for parent in self.findResourcesFromTemplate(parentTemplate):
+        for parent in self.findResourcesFromTemplateName(parentTemplate.name):
             # XXX need to evaluate matches
             return parent
 
@@ -74,65 +74,145 @@ class Plan(object):
                     default = iDef
         return default
 
+    def _runOperation(self, startState, op, resource, reason=None, inputs=None):
+        ran = False
+        req = self.generateConfiguration(op, resource, reason, inputs)
+        if not req.error:
+            resource.state = startState
+            task = yield req
+            if task:
+                ran = True
+                if task.result.success and resource.state == startState:
+                    # task succeeded but didn't update nodestate
+                    resource.state = NodeState(resource.state + 1)
+        yield ran
+
+    def _executeDefaultConfigure(self, resource, reason=None, inputs=None):
+        # 5.8.5.4 Node-Relationship configuration sequence p. 229
+        # Depending on which side (i.e., source or target) of a relationship a node is on, the orchestrator will:
+        # Invoke either the pre_configure_source or pre_configure_target operation as supplied by the relationship on the node.
+
+        targetConfigOps = resource.template.getCapabilityInterfaces()
+        # test for targetConfigOps to avoid creating unnecessary instances
+        if targetConfigOps:
+            for capability in resource.capabilities:
+                # Operation to pre-configure the target endpoint.
+                for relationship in capability.relationships:
+                    # we're the target, source may not have been created yet
+                    # XXX if not relationship.source create the instance
+                    gen = self._runOperation(
+                        NodeState.configuring,
+                        "Configure.pre_configure_target",
+                        relationship,
+                        reason,
+                    )
+                    req = gen.send(None)
+                    if req:
+                        gen.send((yield req))
+
+        # we're the source, target has already started
+        sourceConfigOps = resource.template.getRequirementInterfaces()
+        if sourceConfigOps:
+            if resource.template.getRequirementInterfaces():
+                # Operation to pre-configure the target endpoint
+                for relationship in resource.requirements:
+                    gen = self._runOperation(
+                        NodeState.configuring,
+                        "Configure.pre_configure_source",
+                        relationship,
+                        reason,
+                    )
+                    req = gen.send(None)
+                    if req:
+                        gen.send((yield req))
+
+        gen = self._runOperation(
+            NodeState.configuring, "Standard.configure", resource, reason, inputs
+        )
+        req = gen.send(None)
+        if req:
+            gen.send((yield req))
+
+        if sourceConfigOps:
+            for requirement in resource.requirements:
+                gen = self._runOperation(
+                    NodeState.configuring,
+                    "Configure.post_configure_source",
+                    requirement,
+                    reason,
+                )
+                req = gen.send(None)
+                if req:
+                    gen.send((yield req))
+
+        if targetConfigOps:
+            for capability in resource.capabilities:
+                # we're the target, source may not have been created yet
+                # Operation to post-configure the target endpoint.
+                for relationship in capability.relationships:
+                    # XXX if not relationship.source create the instance
+                    gen = self._runOperation(
+                        NodeState.configuring,
+                        "Configure.post_configure_target",
+                        relationship,
+                        reason,
+                    )
+                    req = gen.send(None)
+                    if req:
+                        gen.send((yield req))
+
     def executeDefaultDeploy(self, resource, reason=None, inputs=None):
         # 5.8.5.2 Invocation Conventions p. 228
-        # 7.2 eclarative workflows p.249
+        # 7.2 Declarative workflows p.249
         ran = False
-        if resource.status in [Status.unknown, Status.notpresent, Status.pending]:
-            req = self.generateConfiguration(
-                "Standard.create", resource, reason, inputs
+        missing = resource.status in [Status.unknown, Status.notpresent, Status.pending]
+        if missing:
+            gen = self._runOperation(
+                NodeState.creating, "Standard.create", resource, reason, inputs
             )
-            if not req.error:
-                resource.state = NodeState.creating
-                task = yield req
-                if task:
-                    ran = True
-                    if task.result.success and resource.state == NodeState.creating:
-                        # task succeeded but didn't update nodestate
-                        resource.state = NodeState.created
+            req = gen.send(None)
+            if req and gen.send((yield req)):
+                ran = True
 
         if resource.state == NodeState.created:
-        # for each dependency: call pre_configure_source
-        # for each dependent: call pre_configure_target
-            req = self.generateConfiguration(
-                "Standard.configure", resource, reason, inputs
-            )
-        # for each dependent: call post_configure_target
-        # for each dependency: call post_configure_source
-            if not req.error:
-                resource.state = NodeState.configuring
-                task = yield req
-                if task:
-                    ran = True
-                    if task.result.success and resource.state == NodeState.configuring:
-                        # task succeeded but didn't update nodestate
-                        resource.state = NodeState.configured
+            gen = Generate(self._executeDefaultConfigure(resource, reason, inputs))
+            while gen():
+                gen.result = yield gen.next
+            if gen.next:
+                ran = True
+            # XXX if the resource had already existed, call target_changed
+            # "Operation to notify source some property or attribute of the target changed"
+            # if not missing:
+            #   for requirement in requirements:
+            #     call target_changed
 
         if resource.state == "configured":
-            req = self.generateConfiguration("Standard.start", resource, reason, inputs)
-            if not req.error:
-                resource.state = NodeState.starting
-                task = yield req
-                if task:
-                    ran = True
-                    if task.result.success and resource.state == NodeState.starting:
-                        # task succeeded but didn't update nodestate
-                        resource.state = NodeState.started
+            gen = self._runOperation(
+                NodeState.starting, "Standard.start", resource, reason, inputs
+            )
+            req = gen.send(None)
+            if req and gen.send((yield req)):
+                ran = True
 
         if not ran:
             # if none were selected, run configure (eg. if resource is in a error state)
-            yield self.generateConfiguration(
-                "Standard.configure", resource, reason, inputs
-            )
+            gen = Generate(self._executeDefaultConfigure(resource, reason, inputs))
+            while gen():
+                gen.result = yield gen.next
 
-        # add_source add_target
+        # XXX these are only called when adding instances
+        # add_source: Operation to notify the target node of a source node which is now available via a relationship.
+        # add_target: Operation to notify source some property or attribute of the target changed
 
     def executeDefaultUndeploy(self, resource, reason=None, inputs=None):
+        # XXX remove_target: Operation called on source when a target instance is removed
+        # (but only called if add_target had been called)
+
         req = self.generateConfiguration("Standard.delete", resource, reason, inputs)
         if not req.error:
             resource.state = NodeState.deleting
         yield req
-        # Note: there is no NodeState.deleted and Status.notpresent set by TaskConfig.finished()
+        # Note: there is no NodeState.deleted and Status.notpresent is set by TaskConfig.finished()
 
     def generateConfiguration(self, operation, resource, reason=None, inputs=None):
         """implementation can either be a named artifact (including a python configurator class),
@@ -150,21 +230,22 @@ class Plan(object):
             )
             name = "for %s: %s.%s" % (reason, interface, action)
             configSpec = ConfigurationSpec(name, action, **kw)
+            logger.debug(
+                "creating configuration %s with %s to run for %s: %s",
+                configSpec.name,
+                configSpec.inputs,
+                resource.name,
+                reason or action,
+            )
         else:
             errorMsg = (
                 'unable to find an implementation for operation "%s" on node "%s"'
                 % (action, resource.template.name)
             )
             configSpec = ConfigurationSpec("#error", action, className=errorMsg)
+            logger.debug(errorMsg)
             reason = "error"
 
-        logger.debug(
-            "creating configuration %s with %s to run for %s: %s",
-            configSpec.name,
-            configSpec.inputs,
-            resource.name,
-            reason or action,
-        )
         return TaskRequest(configSpec, resource, reason or action)
 
     def generateDeleteConfigurations(self, include):
@@ -437,7 +518,6 @@ class DeployPlan(Plan):
         # order by ancestors
         templates = list(
             orderTemplates(
-                self.tosca.template.topology_template.graph,
                 {t.name: t for t in templates},
                 self.filterTemplate and self.filterTemplate.name,
             )
@@ -447,7 +527,7 @@ class DeployPlan(Plan):
         visited = set()
         for template in templates:
             found = False
-            for resource in self.findResourcesFromTemplate(template):
+            for resource in self.findResourcesFromTemplateName(template.name):
                 found = True
                 visited.add(id(resource))
                 include = self.includeTask(template, resource)
@@ -463,20 +543,12 @@ class DeployPlan(Plan):
 
             if not found and (opts.add or opts.all):
                 reason = "add"
-                # XXX create EntityInstance instead to include relationships
                 # XXX initial status pending or unknown depending on joboption.check
                 resource = self.createResource(template)
                 visited.add(id(resource))
                 gen = Generate(self._generateConfigurations(resource, reason))
                 while gen():
                     gen.result = yield gen.next
-
-            # XXX? retrieve from resource.capabilities
-            # for configSpec, oldConfigSpec in getConfigurations(
-            #     resource, operation
-            # ):  # XXX
-            #     if self.includeTask(configSpec, resource, oldConfigSpec):
-            #         yield (configSpec, resource, reason or operation)
 
         if opts.prune:
             check = lambda resource: "prune" if id(resource) not in visited else False
@@ -518,7 +590,7 @@ class WorkflowPlan(Plan):
                 templates = [template]
 
             for template in templates:
-                for resource in self.findResourcesFromTemplate(template):
+                for resource in self.findResourcesFromTemplateName(template.name):
                     gen = self.executeSteps(workflow, [step], resource)
                     result = None
                     try:
@@ -533,7 +605,7 @@ class RunNowPlan(Plan):
     def _createConfigurator(self, args, action, inputs=None, timeout=None):
         if args.get("module") or args.get("host"):
             className = "unfurl.configurators.ansible.AnsibleConfigurator"
-            module = args.get("module") or 'command'
+            module = args.get("module") or "command"
             module_args = " ".join(args["cmdline"])
             params = dict(playbook=[{module: module_args}])
         else:
@@ -569,21 +641,21 @@ class RunNowPlan(Plan):
         else:
             resources = list(self.root.getOperationalDependencies())
             if not resources:
-              resources = [self.root]
+                resources = [self.root]
 
         for resource in resources:
             configSpec = self._createConfigurator(self.jobOptions.userConfig, "run")
             yield TaskRequest(configSpec, resource, "run")
 
 
-def orderTemplates(graph, templates, filter=None):
+def orderTemplates(templates, filter=None):
     seen = set()
-    for source in graph:
+    for source in templates.values():
         if filter and source.name != filter:
             continue
         if source in seen:
             continue
-        for ancestor in getAncestorTemplates(source):
+        for ancestor in getAncestorTemplates(source.toscaEntityTemplate):
             if ancestor in seen:
                 continue
             seen.add(ancestor)
@@ -593,9 +665,10 @@ def orderTemplates(graph, templates, filter=None):
 
 
 def getAncestorTemplates(source):
-    for target, relation in source.related.items():
+    # RelationshipType: NodeTemplate
+    for rel, target in source.relationships.items():
         # tosca.relationships.DependsOn
-        if relation.type == "tosca.relationships.HostedOn":
+        if rel.type == "tosca.relationships.HostedOn":
             for ancestor in getAncestorTemplates(target):
                 yield ancestor
             break
@@ -603,9 +676,9 @@ def getAncestorTemplates(source):
 
 
 def findParentTemplate(source):
-    for target, relation in source.related.items():
+    for relation, nodetpl in source.relationships.items():
         if relation.type == "tosca.relationships.HostedOn":
-            return target
+            return nodetpl
         return None
 
 

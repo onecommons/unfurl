@@ -307,6 +307,11 @@ class EntityInstance(OperationalInstance, ResourceRef):
         self.attributes[key]  # force resolve
         return self.attributes._attributes[key]
 
+    def find(self, expr):
+        from .eval import Ref, RefContext
+
+        return Ref(expr).resolveOne(RefContext(self))
+
     def localStatus():
         doc = "The localStatus property."
 
@@ -325,17 +330,28 @@ class EntityInstance(OperationalInstance, ResourceRef):
 
     localStatus = property(**localStatus())
 
+    def getOperationalDependencies(self):
+        if self.parent and self.parent is not self.root:
+            yield self.parent
+
     @property
     def key(self):
-        return "%s::.%s::%s" % (self.parent.key, self.parentRelation, self.name)
+        return "%s::.%s::%s" % (self.parent.key, self.parentRelation[1:], self.name)
 
     def asRef(self, options=None):
         return {"ref": self.key}
 
     @property
+    def tosca_id(self):
+        return self.key
+
+    @property
+    def tosca_name(self):
+        return self.template.name
+
+    @property
     def attributes(self):
-        """
-    attributes should be live values but _attributes will be serialized value
+        """attributes are live values but _attributes will be the serialized value
     """
         if not self.root.attributeManager:
             if not self.attributeManager:
@@ -351,51 +367,82 @@ class EntityInstance(OperationalInstance, ResourceRef):
 
 # both have occurrences
 # only need to configure capabilities as required by a relationship
-class Capability(EntityInstance):
+class CapabilityInstance(EntityInstance):
     # 3.7.2 Capability definition p. 97
     # 3.8.1 Capability assignment p. 114
-    parentRelation = "capabilities"
+    parentRelation = "_capabilities"
     templateType = CapabilitySpec
+    _relationships = None
+
+    @property
+    def relationships(self):
+        # create relationship instances from the corresponding relationship templates
+        if self._relationships is None:
+            self._relationships = []
+            for template in self.template.relationships:
+                # template will be a RelationshipSpec
+                assert template.source
+                # the constructor will add itself to _relationships
+                rel = RelationshipInstance(
+                    template.name, parent=self, template=template.requirement
+                )
+                # find the node instance that uses this requirement
+                sourceNode = self.root.findResource(template.source.name)
+                if sourceNode:
+                    rel.source = sourceNode
+
+        return self._relationships
+
+    @property
+    def key(self):
+        return "%s::.%s::[.name=%s]" % (self.parent.key, "capabilities", self.name)
 
 
-class Relationship(EntityInstance):
+class RelationshipInstance(EntityInstance):
     # 3.7.3 Requirements definition p. 99
     # 3.8.2 Requirements assignment p. 115
-    parentRelation = "requirements"
+    parentRelation = "_relationships"
     templateType = RelationshipSpec
-    target = None  # XXX
+    source = None
 
-    # XXX add a target attribute
-    def getOperationalDependencies(self):
-        if self.target:
-            yield self.target
+    def __init__(
+        self, name="", attributes=None, parent=None, template=None, status=None
+    ):
+        EntityInstance.__init__(self, name, attributes, parent, template, status)
+
+    @property
+    def target(self):
+        # parent is a capability, return it's parent (a Node)
+        return self.parent.parent if self.parent else None
+
+    @property
+    def key(self):
+        if self.source:
+            return "%s::.%s::[.name=%s]" % (self.source.key, "requirements", self.name)
+        else:
+            return "%s::.%s::[.name=%s]" % (self.parent.key, "relationships", self.name)
 
 
 class NodeInstance(EntityInstance):
-    """
-      capabilities:
-      name:
-      attributes
-      dependencies: #includes requirements
-  """
-
     baseDir = ""
     templateType = NodeSpec
     parentRelation = "instances"
-    # createdFrom = None
 
-    # spec is a NodeTemplate
     def __init__(
         self, name="", attributes=None, parent=None, template=None, status=None
     ):
         if parent:
+            # only node instances have unique names
             if parent.root.findResource(name):
                 raise UnfurlError(
-                    'can not create resource name "%s" is already in use' % name
+                    'can not create node instance "%s", its name is already in use'
+                    % name
                 )
+
+        # next two maybe initialized either by Manifest.createNodeInstance or by its property
+        self._capabilities = None
+        self._requirements = None
         self.instances = []
-        self.capabilities = []
-        self.requirements = []
         EntityInstance.__init__(self, name, attributes, parent, template, status)
 
         if self.root is self:
@@ -407,18 +454,66 @@ class NodeInstance(EntityInstance):
         self.getInterface("inherit")
         self.getInterface("default")
 
+    @property
+    def requirements(self):
+        if self._requirements is None:
+
+            def findRelationship(name, template):
+                assert template.relationship  # template is a RequirementSpec
+                relationship = template.relationship
+                assert relationship and relationship.capability and relationship.target
+                # find the Capability instance that corresponds to this relationship template's capability
+                targetNodeInstance = self.root.findResource(relationship.target.name)
+                assert targetNodeInstance, (
+                    "target instance %s should have been already created"
+                    % relationship.target.name
+                )
+                # calling getCapabilities() will create any needed capability instances
+                capabilities = targetNodeInstance.getCapabilities(
+                    relationship.capability.name
+                )
+                if capabilities:  # they should have already been created
+                    # invoking the relationships property will create any needed relationship instances
+                    for relInstance in capabilities[0].relationships:
+                        if relInstance.source:
+                            if relInstance.source is self:
+                                return relInstance
+                        else:
+                            if relInstance.template.source == self.template:
+                                # this instance didn't exist when relInstance was created, assign source now
+                                relInstance.source = self
+                                return relInstance
+
+                raise UnfurlError(
+                    'can not find relation instance for requirement "%s" on node "%s"'
+                    % (name, self.name)
+                )
+
+            self._requirements = [
+                findRelationship(k, v) for (k, v) in self.template.requirements.items()
+            ]
+
+        return self._requirements
+
+    @property
+    def capabilities(self):
+        if self._capabilities is None:
+            self._capabilities = []
+            for name, template in self.template.capabilities.items():
+                # if capabilities:
+                #    # append index to name if multiple Capabilities exist for that name
+                #    name += str(len(capabilities))
+                # the new instance will be added to _capabilities
+                CapabilityInstance(template.name, parent=self, template=template)
+
+        return self._capabilities
+
     def getCapabilities(self, name):
-        capabilities = [
-            capability for capability in self.capabilities if capability.name == name
+        return [
+            capability
+            for capability in self.capabilities
+            if capability.template.name == name
         ]
-        if capabilities:
-            return capabilities
-        else:
-            capabilityTemplate = self.template.getCapability(name)
-            if capabilityTemplate:
-                # will be added to self.capabilities
-                return [Capability(name, parent=self, template=capabilityTemplate)]
-        return []
 
     def _resolve(self, key):
         # might return a Result
@@ -445,8 +540,9 @@ class NodeInstance(EntityInstance):
 
     def getOperationalDependencies(self):
         # XXX
-        # for instance in chain(self.capabilities, self.requirements):
+        # for instance in self.requirements:
         #  yield instance
+        # else:
         if self.parent and self.parent is not self.root:
             yield self.parent
 
@@ -520,7 +616,7 @@ class NodeInstance(EntityInstance):
         # Remove the unpicklable entries.
         if state.get("_templar"):
             del state["_templar"]
-        state['_interfaces'] = None
+        state["_interfaces"] = None
         return state
 
 

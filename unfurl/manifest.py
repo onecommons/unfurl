@@ -6,7 +6,12 @@ from ruamel.yaml.comments import CommentedMap
 from .tosca import ToscaSpec, TOSCA_VERSION
 
 from .support import ResourceChanges, AttributeManager, Status, Priority, NodeState
-from .runtime import OperationalInstance, NodeInstance, Capability, Relationship
+from .runtime import (
+    OperationalInstance,
+    NodeInstance,
+    CapabilityInstance,
+    RelationshipInstance,
+)
 from .util import UnfurlError, toEnum
 from .configurator import Dependency, ConfigurationSpec
 from .repo import RevisionManager, findGitRepo
@@ -87,9 +92,9 @@ class Manifest(AttributeManager):
     def loadTemplate(self, name, lastChange=None):
         if lastChange:
             try:
-              return self.revisions.getRevision(lastChange).tosca.getTemplate(name)
+                return self.revisions.getRevision(lastChange).tosca.getTemplate(name)
             except:
-              return None
+                return None
         else:
             return self.tosca.getTemplate(name)
 
@@ -191,15 +196,40 @@ class Manifest(AttributeManager):
     #         postConditions=spec.get("postConditions"),
     #     )
 
-    def loadResource(self, rname, resourceSpec, parent=None):
+    def createNodeInstance(self, rname, resourceSpec, parent=None):
         # if parent property is set it overrides the parent argument
         pname = resourceSpec.get("parent")
         if pname:
             parent = self.getRootResource().findResource(pname)
             if parent is None:
-                raise UnfurlError("can not find parent resource %s" % pname)
+                raise UnfurlError("can not find parent instance %s" % pname)
 
         resource = self._createEntityInstance(NodeInstance, rname, resourceSpec, parent)
+
+        resource._capabilities = []
+        for key, val in resourceSpec.get("capabilities", {}).items():
+            self._createEntityInstance(CapabilityInstance, key, val, resource)
+
+        resource._requirements = []
+        for key, val in resourceSpec.get("requirements", {}).items():
+            # parent will be the capability, should have already been created
+            capabilityId = val.get("capability")
+            if not capabilityId:
+                raise UnfurlError("requirement is missing capability %s" % key)
+            capability = capabilityId and self.getRootResource().find(capabilityId)
+            if not capability or not isinstance(capability, CapabilityInstance):
+                raise UnfurlError("can not find capability %s" % capabilityId)
+            if capability._relationships is None:
+                capability._relationships = []
+            requirement = self._createEntityInstance(
+                RelationshipInstance, key, val, capability
+            )
+            requirement.source = resource
+            resource.requirements.append(requirement)
+
+        for key, val in resourceSpec.get("instances", {}).items():
+            self.createNodeInstance(key, val, resource)
+
         return resource
 
     def _getLastChange(self, operational):
@@ -224,18 +254,7 @@ class Manifest(AttributeManager):
             raise UnfurlError("missing resource template %s" % templateName)
         logger.debug("template %s: %s", templateName, template)
 
-        resource = ctor(name, status.get("attributes"), parent, template, operational)
-
-        for key, val in status.get("capabilities", {}).items():
-            self._createEntityInstance(Capability, key, val, resource)
-
-        for key, val in status.get("requirements", {}).items():
-            self._createEntityInstance(Relationship, key, val, resource)
-
-        for key, val in status.get("instances", {}).items():
-            self._createEntityInstance(NodeInstance, key, val, resource)
-
-        return resource
+        return ctor(name, status.get("attributes"), parent, template, operational)
 
     def findRepoFromGitUrl(self, path, isFile=True, importLoader=None, willUse=False):
         # XXX this doesn't use the tosca template's repositories at all
@@ -330,6 +349,15 @@ class Manifest(AttributeManager):
             k: v for k, v in import_uri_def.items() if k in ["file", "repository"]
         }
         return loadToscaImport(basePath, context, uridef)
+
+    def statusSummary(self):
+        def summary(instance, indent):
+            print(" " * indent, instance)
+            indent += 4
+            for child in instance.instances:
+                summary(child, indent)
+
+        summary(self.rootResource, 0)
 
 
 class SnapShotManifest(Manifest):

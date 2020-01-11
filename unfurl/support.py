@@ -203,7 +203,8 @@ def applyTemplate(value, ctx):
             if ctx.strict:
                 raise UnfurlError(value)
             else:
-                logger.warning(value, exc_info=True)
+                logger.warning(value[2:100]+'... see debug log for full report')
+                logger.debug(value, exc_info=True)
         else:
             if value != oldvalue:
                 ctx.trace("successfully processed template:", value)

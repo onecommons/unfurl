@@ -321,10 +321,11 @@ class YamlManifest(Manifest):
         lastChangeId = self.changeSets and max(self.changeSets.keys()) or 0
 
         rootResource = self.createTopologyInstance(status)
+        # create an new instances declared in the spec:
         for name, instance in spec.get("instances", {}).items():
             if not rootResource.findResource(name):
                 # XXX like Plan.createResource() parent should be hostedOn target if defined
-                self.loadResource(name, instance or {}, parent=rootResource)
+                self.createNodeInstance(name, instance or {}, rootResource)
 
         importsSpec = manifest.get("imports", {})
         if localEnv:
@@ -347,8 +348,10 @@ class YamlManifest(Manifest):
         template = self.tosca.topology
         operational = self.loadStatus(status)
         root = TopologyInstance(template, operational)
+        # need to set it before createNodeInstance() is called
+        self.rootResource = root
         for key, val in status.get("instances", {}).items():
-            self._createEntityInstance(NodeInstance, key, val, root)
+            self.createNodeInstance(key, val, root)
         return root
 
     def saveEntityInstance(self, resource):
@@ -362,18 +365,31 @@ class YamlManifest(Manifest):
         saveStatus(resource, status)
         if resource.createdOn:  # will be a ChangeRecord
             status["createdOn"] = resource.createdOn.changeId
+
         return (resource.name, status)
+
+    def saveRequirement(self, resource):
+        name, status = self.saveEntityInstance(resource)
+        status["capability"] = resource.parent.key
+        return (name, status)
 
     def saveResource(self, resource, workDone):
         name, status = self.saveEntityInstance(resource)
-        if resource.capabilities:
+        if resource._capabilities:
             status["capabilities"] = CommentedMap(
                 map(self.saveEntityInstance, resource.capabilities)
             )
+
+        if resource._requirements:
+            status["requirements"] = CommentedMap(
+                map(self.saveRequirement, resource.requirements)
+            )
+
         if resource.instances:
             status["instances"] = CommentedMap(
                 map(lambda r: self.saveResource(r, workDone), resource.instances)
             )
+
         return (name, status)
 
     def saveRootResource(self, workDone):

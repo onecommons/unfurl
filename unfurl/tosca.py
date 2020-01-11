@@ -52,7 +52,7 @@ def createDefaultTopology():
             relationship_templates={"_default": {"type": "tosca.relationships.Root"}},
         ),
     )
-    return ToscaTemplate(yaml_dict_tpl=tpl).topology_template
+    return ToscaTemplate(yaml_dict_tpl=tpl)
 
 
 class ToscaSpec(object):
@@ -60,41 +60,50 @@ class ToscaSpec(object):
     InstallerType = "unfurl.nodes.Installer"
 
     def __init__(self, toscaDef, inputs=None, instances=None, path=None):
-        topology_tpl = toscaDef.get("topology_template")
-        if not topology_tpl:
-            toscaDef["topology_template"] = dict(
-                node_templates={}, relationship_templates={}
-            )
+        if isinstance(toscaDef, ToscaTemplate):
+            self.template = toscaDef
         else:
-            for section in ["node_templates", "relationship_templates"]:
-                if not topology_tpl.get(section):
-                    topology_tpl[section] = {}
+            topology_tpl = toscaDef.get("topology_template")
+            if not topology_tpl:
+                toscaDef["topology_template"] = dict(
+                    node_templates={}, relationship_templates={}
+                )
+            else:
+                for section in ["node_templates", "relationship_templates"]:
+                    if not topology_tpl.get(section):
+                        topology_tpl[section] = {}
 
-        if instances:
-            self.loadInstances(toscaDef, instances)
+            if instances:
+                self.loadInstances(toscaDef, instances)
 
-        logger.info("Validating TOSCA template at %s", path)
-        try:
-            # need to set a path for the import loader
-            self.template = ToscaTemplate(
-                path=path, parsed_params=inputs, yaml_dict_tpl=toscaDef
-            )
-        except ValidationError:
-            message = "\n".join(ExceptionCollector.getExceptionsReport(False))
-            raise UnfurlValidationError(
-                "TOSCA validation failed for %s: \n%s" % (path, message),
-                ExceptionCollector.getExceptions(),
-            )
+            logger.info("Validating TOSCA template at %s", path)
+            try:
+                # need to set a path for the import loader
+                self.template = ToscaTemplate(
+                    path=path, parsed_params=inputs, yaml_dict_tpl=toscaDef
+                )
+            except ValidationError:
+                message = "\n".join(ExceptionCollector.getExceptionsReport(False))
+                raise UnfurlValidationError(
+                    "TOSCA validation failed for %s: \n%s" % (path, message),
+                    ExceptionCollector.getExceptions(),
+                )
 
         self.nodeTemplates = {}
         self.installers = {}
         self.relationshipTemplates = {}
         if hasattr(self.template, "nodetemplates"):
             for template in self.template.nodetemplates:
-                nodeTemplate = NodeSpec(template)
+                nodeTemplate = NodeSpec(template, self)
                 if template.is_derived_from(self.InstallerType):
                     self.installers[template.name] = nodeTemplate
                 self.nodeTemplates[template.name] = nodeTemplate
+
+            # user-declared RelationshipTemplates, source and target will be None
+            for template in self.template.relationship_templates:
+                relTemplate = RelationshipSpec(template)
+                self.relationshipTemplates[template.name] = relTemplate
+
         self.topology = TopologySpec(self.template.topology_template, inputs)
         self.load_workflows()
 
@@ -131,11 +140,23 @@ class ToscaSpec(object):
     def getTemplate(self, name):
         if name == "#topology":
             return self.topology
-        if "#c#" in name:
+        elif "#c#" in name:
             nodeName, capability = name.split("#c#")
             nodeTemplate = self.nodeTemplates.get(nodeName)
+            if not nodeTemplate:
+                return None
             return nodeTemplate.getCapability(capability)
-        return self.nodeTemplates.get(name, self.relationshipTemplates.get(name))
+        elif "#r#" in name:
+            nodeName, requirement = name.split("#r#")
+            if nodeName:
+                nodeTemplate = self.nodeTemplates.get(nodeName)
+                if not nodeTemplate:
+                    return None
+                return nodeTemplate.getRequirement(requirement)
+            else:
+                return self.relationshipTemplates.get(name)
+        else:
+            return self.nodeTemplates.get(name)
 
     def isTypeName(self, typeName):
         return (
@@ -233,38 +254,196 @@ class EntitySpec(object):
         return self.name  # XXX
 
     def __repr__(self):
-        return "EntitySpec('%s')" % self.name
+        return "%s('%s')" % (self.__class__.__name__, self.name)
 
 
 class NodeSpec(EntitySpec):
     # has attributes: tosca_id, tosca_name, state, (3.4.1 Node States p.61)
-    def __init__(self, template=None):
+    def __init__(self, template=None, spec=None):
         if not template:
-            template = _defaultTopology.nodetemplates[0]
+            template = _defaultTopology.topology_template.nodetemplates[0]
+            self.spec = ToscaSpec(_defaultTopology)
+        else:
+            assert spec
+            self.spec = spec
         EntitySpec.__init__(self, template)
         self._capabilities = None
+        self._requirements = None
+        self._relationships = None
 
-    # XXX
-    # def getRequirements(self, name):
-    #     return [
-    #         RelationshipSpec(req) for req in self.toscaEntityTemplate.requirements if name in req
-    #     ]
+    @property
+    def requirements(self):
+        if self._requirements is None:
+            self._requirements = {}
+            nodeTemplate = self.toscaEntityTemplate
+            for req, targetNode in zip(
+                nodeTemplate.requirements, nodeTemplate.relationships.values()
+            ):
+                name, values = list(req.items())[0]
+                reqSpec = RequirementSpec(name, values, self)
+                nodeSpec = self.spec.getTemplate(targetNode.name)
+                assert nodeSpec
+                nodeSpec.addRelationship(reqSpec)
+                self._requirements[name] = reqSpec
+        return self._requirements
 
-    def getCapability(self, name):
+    def getRequirement(self, name):
+        return self.requirements.get(name)
+
+    @property
+    def relationships(self):
+        """
+        returns a list of RelationshipSpecs that are targeting this node template.
+        """
+        for r in self.toscaEntityTemplate.relationship_tpl:
+            assert r.source
+            # calling requirement property will ensure the RelationshipSpec is property linked
+            self.spec.getTemplate(r.source.name).requirements
+        return self._getRelationshipSpecs()
+
+    def _getRelationshipSpecs(self):
+        if self._relationships is None:
+            # relationship_tpl is a list of RelationshipTemplates that target the node
+            self._relationships = [
+                RelationshipSpec(r) for r in self.toscaEntityTemplate.relationship_tpl
+            ]
+        return self._relationships
+
+    def getCapabilityInterfaces(self):
+      idefs = [r.getInterfaces() for r in self._getRelationshipSpecs()]
+      return [i for elem in idefs for i in elem if i.name != 'default']
+
+    def getRequirementInterfaces(self):
+      idefs = [r.getInterfaces() for r in self.requirements.values()]
+      return [i for elem in idefs for i in elem if i.name != 'default']
+
+    @property
+    def capabilities(self):
         if self._capabilities is None:
             self._capabilities = {
-                c.name: CapabilitySpec(self.toscaEntityTemplate, c)
+                c.name: CapabilitySpec(self, c)
                 for c in self.toscaEntityTemplate.get_capabilities_objects()
             }
-        return self._capabilities.get(name)
+        return self._capabilities
+
+    def getCapability(self, name):
+        return self.capabilities.get(name)
+
+    def addRelationship(self, reqSpec):
+        # find the relationship for this requirement:
+        for relSpec in self._getRelationshipSpecs():
+            # the RelationshipTemplate should have had the source node assigned by the tosca parser
+            # XXX this won't distinguish between more than one relationship between the same two nodes
+            # to fix this have the RelationshipTemplate remember the name of the requirement
+            if (
+                relSpec.toscaEntityTemplate.source
+                is reqSpec.parentNode.toscaEntityTemplate
+            ):
+                assert not reqSpec.relationship or reqSpec.relationship is relSpec
+                reqSpec.relationship = relSpec
+                assert not relSpec.requirement or relSpec.requirement is reqSpec
+                relSpec.requirement = reqSpec
+                break
+        else:
+            raise UnfurlValidationError(
+                "relationship not found for requirement %s" % reqSpec.name
+            )
+
+        # figure out which capability the relationship targets:
+        for capability in self.capabilities.values():
+            if reqSpec.isCapable(capability):
+                assert reqSpec.relationship
+                assert (
+                    not reqSpec.relationship.capability
+                    or reqSpec.relationship.capability is capability
+                )
+                reqSpec.relationship.capability = capability
+                break
+        else:
+            raise UnfurlValidationError(
+                "capability not found for requirement %s" % reqSpec.name
+            )
 
 
 class RelationshipSpec(EntitySpec):
-    # has attributes: tosca_id, tosca_name
-    def __init__(self, template=None):
+    def __init__(self, template=None, capability=None, requirement=None):
+        # template is a RelationshipTemplate
+        # It is a full-fledged entity with a name, type, properties, attributes, interfaces, and metadata.
+        # its RelationshipType has valid_target_types (and (hackish) capability_name)
         if not template:
-            template = _defaultTopology.relationship_templates[0]
+            template = _defaultTopology.topology_template.relationship_templates[0]
         EntitySpec.__init__(self, template)
+        self.requirement = requirement
+        self.capability = capability
+
+    @property
+    def source(self):
+        return self.requirement.parentNode if self.requirement else None
+
+    @property
+    def target(self):
+        return self.capability.parentNode if self.capability else None
+
+    def getUri(self):
+        return "#r#" + self.name
+
+
+class RequirementSpec(object):
+    """
+    A Requirement shares a Relationship with a Capability.
+    """
+
+    def __init__(self, name, req, parent):
+        self.parentNode = parent
+        self.source = parent
+        self.name = name
+        self.req = req
+        self.relationship = None
+        # req may specify:
+        # capability (definition name or type name), node (template name or type name), and node_filter,
+        # relationship (template name or type name or inline relationship template)
+        # occurrences
+
+    def getUri(self):
+        return self.parentNode.name + "#r#" + self.name
+
+    def getInterfaces(self):
+        return self.relationship.getInterfaces() if self.relationship else []
+
+    def isCapable(self, capability):
+        # XXX consider self.req.name, capability, node_filter
+        if self.relationship:
+            t = self.relationship.toscaEntityTemplate.type_definition
+            return (
+                t.capability_name == capability.name
+                or capability.type in t.valid_target_types
+            )
+        return False
+
+
+class CapabilitySpec(EntitySpec):
+    def __init__(self, parent=None, capability=None):
+        if not parent:
+            parent = NodeSpec()
+            capability = parent.toscaEntityTemplate.get_capabilities_objects()[0]
+        self.parentNode = parent
+        assert capability
+        # capabilities.Capability isn't an EntityTemplate but duck types with it
+        EntitySpec.__init__(self, capability)
+        self._relationships = None
+
+    def getInterfaces(self):
+        # capabilities don't have their own interfaces
+        return self.parentNode.interfaces
+
+    def getUri(self):
+        # capabilities aren't standalone templates
+        # this is demanagled by getTemplate()
+        return self.parentNode.name + "#c#" + self.name
+
+    @property
+    def relationships(self):
+        return [r for r in self.parentNode.relationships if r.capability is self]
 
 
 # XXX
@@ -276,7 +455,7 @@ class TopologySpec(EntitySpec):
     # has attributes: tosca_id, tosca_name, state, (3.4.1 Node States p.61)
     def __init__(self, template=None, inputs=None):
         if not template:
-            template = _defaultTopology
+            template = _defaultTopology.topology_template
         inputs = inputs or {}
 
         self.toscaEntityTemplate = template
@@ -294,26 +473,6 @@ class TopologySpec(EntitySpec):
     def getInterfaces(self):
         # doesn't have any interfaces
         return []
-
-
-class CapabilitySpec(EntitySpec):
-    def __init__(self, nodeTemplate=None, capability=None):
-        if not nodeTemplate:
-            self.parentTemplate = _defaultTopology.nodetemplates[0]
-            capability = self.parentTemplate.get_capabilities_objects()[0]
-        else:
-            self.parentTemplate = nodeTemplate
-        # capabilities.Capability isn't an EntityTemplate but duck types with it
-        EntitySpec.__init__(self, capability)
-
-    def getInterfaces(self):
-        # capabilities don't have their own interfaces
-        return self.parentTemplate.interfaces
-
-    def getUri(self):
-        # capabilities aren't standalone templates
-        # this is demanagled by getTemplate()
-        return self.parentTemplate.name + "#c#" + self.name
 
 
 class Workflow(object):
@@ -340,10 +499,12 @@ class Workflow(object):
     def matchPreconditions(self, resource):
         for precondition in self.workflow.preconditions:
             target = resource.root.findResource(precondition.target)
-            #XXX if precondition.target_relationship
+            # XXX if precondition.target_relationship
             if not target:
                 # XXX target can be a group
                 return False
-            if not all(filter.evaluate(target.attributes) for filter in precondition.condition):
+            if not all(
+                filter.evaluate(target.attributes) for filter in precondition.condition
+            ):
                 return False
         return True

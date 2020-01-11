@@ -604,7 +604,7 @@ class TaskView(object):
                         self.target.parent.name if self.target.parent else "root"
                     )
 
-                resource = self._manifest.loadResource(
+                resource = self._manifest.createNodeInstance(
                     rname, resourceSpec, parent=self.target.root
                 )
 
