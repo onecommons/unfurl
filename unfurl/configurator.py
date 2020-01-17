@@ -15,6 +15,7 @@ from .util import (
     UnfurlAddingResourceError,
 )
 from .eval import Ref, mapValue, RefContext
+from .runtime import RelationshipInstance
 from ruamel.yaml import YAML
 
 yaml = YAML()
@@ -321,15 +322,22 @@ class TaskView(object):
         {{ inputs.param }}
         """
         if self._inputs is None:
-            # XXX should ConfigTask be full ResourceRef so we can have live view of status etc.?
-            # this way we could enable resumable pending tasks (could save state in operation results)
             inputs = self.configSpec.inputs.copy()
+            relationship = isinstance(self.target, RelationshipInstance)
+            if relationship:
+                target = self.target.target
+            else:
+                target = self.target
+            HOST = (target.parent or target).attributes
             vars = dict(
                 inputs=inputs,
                 task=self.getSettings(),
                 SELF=self.target.attributes,
-                HOST=(self.target.parent or self.target).attributes,
+                HOST=HOST,
             )
+            if relationship:
+                vars["SOURCE"] = self.target.source.attributes
+                vars["TARGET"] = target.attributes
             # expose inputs lazily to allow self-referencee
             self._inputs = ResultsMap(inputs, RefContext(self.target, vars))
         return self._inputs
@@ -342,8 +350,35 @@ class TaskView(object):
                 mapValue(self.configSpec.environment.vars, self.inputs.context),
                 resolveExternal=True,
             )
+            targets = []
+            if isinstance(self.target, RelationshipInstance):
+                targets = [
+                    c.tosca_id
+                    for c in self.target.target.getCapabilities(
+                        self.target.capability.template.name
+                    )
+                ]
+                env.update(
+                    dict(
+                        TARGETS=",".join(targets),
+                        TARGET=self.target.target.tosca_id,
+                        SOURCES=",".join(
+                            [
+                                r.tosca_id
+                                for r in self.target.source.getRequirements(
+                                    self.target.requirement.template.name
+                                )
+                            ]
+                        ),
+                        SOURCE=self.target.source.tosca_id,
+                    )
+                )
             if self.configSpec.environment.addinputs:
-                env.update(serializeValue(self.inputs), resolveExternal=True)
+                inputVars = serializeValue(self.inputs)
+                env.update(inputVars, resolveExternal=True)
+                for t in targets:
+                    env.update({t + "_" + k: v for k, v in inputVars.items()})
+
             # XXX validate that all vars are bytes or string (json serialize if not?)
             env.update(specvars)
             self._environ = env
@@ -370,7 +405,10 @@ class TaskView(object):
             return target
         if operation_host == "HOST":
             return target.parent
-        # XXX SOURCE, TARGET
+        if operation_host == "SOURCE":
+            return target.source
+        if operation_host == "TARGET":
+            return target.target
         host = target.root.findResource(operation_host)
         if host:
             return host
