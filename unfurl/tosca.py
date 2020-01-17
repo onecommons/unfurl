@@ -11,11 +11,14 @@ Differences with TOSCA 1.1:
 from .tosca_plugins import TOSCA_VERSION
 from .util import UnfurlValidationError
 from .eval import Ref
-from .yamlloader import resolvePathToToscaImport
+from .yamlloader import resolveIfInRepository
 from toscaparser.tosca_template import ToscaTemplate
 from toscaparser.elements.entity_type import EntityType
 import toscaparser.workflow
+import toscaparser.imports
+import toscaparser.artifacts
 from toscaparser.common.exception import ExceptionCollector, ValidationError
+import six
 import logging
 
 logger = logging.getLogger("unfurl")
@@ -131,11 +134,6 @@ class ToscaSpec(object):
             return wfs[0]
         else:
             return None
-
-    def resolveArtifactPath(self, artifact_tpl, path=None):
-        return resolvePathToToscaImport(
-            path or self.template.path, self.template.tpl, artifact_tpl
-        )
 
     def getTemplate(self, name):
         if name == "#topology":
@@ -256,6 +254,9 @@ class EntitySpec(object):
     def __repr__(self):
         return "%s('%s')" % (self.__class__.__name__, self.name)
 
+    def getArtifact(self, name):
+        return None
+
 
 class NodeSpec(EntitySpec):
     # has attributes: tosca_id, tosca_name, state, (3.4.1 Node States p.61)
@@ -270,6 +271,9 @@ class NodeSpec(EntitySpec):
         self._capabilities = None
         self._requirements = None
         self._relationships = None
+
+    def getArtifact(self, name):
+        return self.toscaEntityTemplate.artifacts.get(name)
 
     @property
     def requirements(self):
@@ -310,12 +314,12 @@ class NodeSpec(EntitySpec):
         return self._relationships
 
     def getCapabilityInterfaces(self):
-      idefs = [r.getInterfaces() for r in self._getRelationshipSpecs()]
-      return [i for elem in idefs for i in elem if i.name != 'default']
+        idefs = [r.getInterfaces() for r in self._getRelationshipSpecs()]
+        return [i for elem in idefs for i in elem if i.name != "default"]
 
     def getRequirementInterfaces(self):
-      idefs = [r.getInterfaces() for r in self.requirements.values()]
-      return [i for elem in idefs for i in elem if i.name != 'default']
+        idefs = [r.getInterfaces() for r in self.requirements.values()]
+        return [i for elem in idefs for i in elem if i.name != "default"]
 
     @property
     def capabilities(self):
@@ -394,15 +398,18 @@ class RequirementSpec(object):
     """
 
     def __init__(self, name, req, parent):
-        self.parentNode = parent
-        self.source = parent
+        self.source = self.parentNode = parent  # NodeSpec
+        self.spec = parent.spec
         self.name = name
-        self.req = req
+        self.requirements_tpl = req
         self.relationship = None
-        # req may specify:
+        # requirements_tpl may specify:
         # capability (definition name or type name), node (template name or type name), and node_filter,
         # relationship (template name or type name or inline relationship template)
         # occurrences
+
+    def getArtifact(self, name):
+        return self.parentNode.getArtifact(name)
 
     def getUri(self):
         return self.parentNode.name + "#r#" + self.name
@@ -411,7 +418,7 @@ class RequirementSpec(object):
         return self.relationship.getInterfaces() if self.relationship else []
 
     def isCapable(self, capability):
-        # XXX consider self.req.name, capability, node_filter
+        # XXX consider self.requirements_tpl.name, capability, node_filter
         if self.relationship:
             t = self.relationship.toscaEntityTemplate.type_definition
             return (
@@ -427,10 +434,14 @@ class CapabilitySpec(EntitySpec):
             parent = NodeSpec()
             capability = parent.toscaEntityTemplate.get_capabilities_objects()[0]
         self.parentNode = parent
+        self.spec = parent.spec
         assert capability
         # capabilities.Capability isn't an EntityTemplate but duck types with it
         EntitySpec.__init__(self, capability)
         self._relationships = None
+
+    def getArtifact(self, name):
+        return self.parentNode.getArtifact(name)
 
     def getInterfaces(self):
         # capabilities don't have their own interfaces
@@ -508,3 +519,50 @@ class Workflow(object):
             ):
                 return False
         return True
+
+
+class Artifact(object):
+    def __init__(self, artifact_tpl, template=None, spec=None, path=None):
+        self.spec = template.spec if template else spec
+        custom_defs = (
+            self.spec and self.spec.template.topology_template.custom_defs or {}
+        )
+        if isinstance(artifact_tpl, six.string_types):
+            artifact = template and template.getArtifact(artifact_tpl)
+            if not artifact:
+                artifact = toscaparser.artifacts.Artifact(
+                    artifact_tpl, dict(file=artifact_tpl), custom_defs, path
+                )
+        else:
+            # inline artifact
+            artifact = toscaparser.artifacts.Artifact(
+                artifact_tpl["file"], artifact_tpl, custom_defs, path
+            )
+        self.artifact = artifact
+        self.baseDir = (
+            artifact._source or (self.spec and self.spec.template.path) or None
+        )
+
+    @property
+    def file(self):
+        return self.artifact.file
+
+    def getPath(self):
+        """
+      returns path, fragment
+      """
+        loader = toscaparser.imports.ImportsLoader(
+            None, self.baseDir, tpl=self.spec.template.tpl if self.spec else None
+        )
+        path, isFile, fragment = loader._resolve_import_template(
+            None, self.asImportSpec()
+        )
+        manifest = getattr(loader.tpl, "manifest", None)
+        if manifest:
+            newpath, f = resolveIfInRepository(manifest, path, isFile, loader)
+            return path if f else newpath, fragment
+        else:
+            return path, fragment
+
+    def asImportSpec(self):
+        return dict(file=self.file, repository=self.artifact.repository)

@@ -11,10 +11,7 @@ inputs:
 """
 
 
-# support tosca 4.2 Environment Variable Conventions (p 178)
-# at least expose config parameters
-# see also 13.3.1 Shell scripts p 328
-
+# see also 13.4.1 Shell scripts p 360
 # XXX add support for a stdin parameter
 
 from ..configurator import Configurator, Status
@@ -106,9 +103,9 @@ class ShellConfigurator(Configurator):
     def handleResult(self, task, result, resultTemplate=None):
         status = Status.error if result.error or result.returncode else Status.ok
         if status == Status.error:
-            logger.warning('shell task run failure: %s', result.cmd)
+            logger.warning("shell task run failure: %s", result.cmd)
         else:
-            logger.info('shell task run success: %s', result.cmd)
+            logger.info("shell task run success: %s", result.cmd)
 
         if status != Status.error and resultTemplate:
             results = task.query(

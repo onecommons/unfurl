@@ -16,6 +16,7 @@ from .util import (
 )
 from .eval import Ref, mapValue, RefContext
 from .runtime import RelationshipInstance
+from .tosca import Artifact
 from ruamel.yaml import YAML
 
 yaml = YAML()
@@ -108,6 +109,8 @@ class ConfigurationSpec(object):
             inputSchema=None,
             preConditions=None,
             postConditions=None,
+            primary=None,
+            dependencies=None,
         )
 
     def __init__(
@@ -125,6 +128,8 @@ class ConfigurationSpec(object):
         inputSchema=None,
         preConditions=None,
         postConditions=None,
+        primary=None,
+        dependencies=None,
     ):
         assert name and className, "missing required arguments"
         self.name = name
@@ -756,33 +761,41 @@ class Dependency(ChangeAware):
         return False
 
 
-def getConfigSpecArgsFromImplementation(implementation, inputs, tosca):
+def getConfigSpecArgsFromImplementation(iDef, inputs, template):
+    implementation = iDef.implementation
     kw = dict(inputs=inputs)
     configSpecArgs = ConfigurationSpec.getDefaults()
     artifact = None
     if isinstance(implementation, dict):
         for name, value in implementation.items():
             if name == "primary":
-                implementation = value
-                if isinstance(implementation, dict):
-                    artifact = implementation
-                    # it's an artifact definition
-                    implementation = implementation.get("file")
+                artifact = Artifact(value, template, path=iDef.source)
+            elif name == "dependencies":
+                kw[name] = [
+                    Artifact(artifactTpl, template, path=iDef.source)
+                    for artifactTpl in value
+                ]
             elif name in configSpecArgs:
                 kw[name] = value
 
+    else:
+        artifact = Artifact(implementation, template, path=iDef.source)
+    kw["primary"] = artifact
+
     if "className" not in kw:
+        if not artifact:  # malformed implementation
+            return None
+        implementation = artifact.file
         try:
             if "#" in implementation:
-                if artifact is None:
-                    artifact = dict(file=implementation)
-                path, fragment = tosca.resolveArtifactPath(artifact)
+                path, fragment = artifact.getPath()
                 mod = loadModule(path)
                 kw["className"] = mod.__name__ + "." + fragment
             else:
                 lookupClass(implementation)
                 kw["className"] = implementation
         except UnfurlError:
+            # is it a shell script or a command line?
             # assume its a command line, create a ShellConfigurator
             kw["className"] = "unfurl.configurators.shell.ShellConfigurator"
             shell = inputs and inputs.get("shell")

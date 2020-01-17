@@ -495,6 +495,9 @@ class NodeInstance(EntityInstance):
 
         return self._requirements
 
+    def getRequirements(self, name):
+        return [r for r in self.requirements if r.template.name == name]
+
     @property
     def capabilities(self):
         if self._capabilities is None:

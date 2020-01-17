@@ -130,21 +130,10 @@ import toscaparser.imports
 toscaparser.imports.YAML_LOADER = load_yaml
 
 
-def loadToscaImport(basePath, context, uridef):
+def loadYamlFromArtifact(basePath, context, artifact):
     # _load_import_template will invoke load_yaml above
     loader = toscaparser.imports.ImportsLoader(None, basePath, tpl=context)
-    return loader._load_import_template(None, uridef)
-
-
-def resolvePathToToscaImport(basePath, context, uridef):
-    loader = toscaparser.imports.ImportsLoader(None, basePath, tpl=context)
-    path, isFile, fragment = loader._resolve_import_template(None, uridef)
-    manifest = getattr(loader.tpl, "manifest", None)
-    if manifest:
-        newpath, f = resolveIfInRepository(manifest, path, isFile, loader)
-        return path if f else newpath, fragment
-    else:
-        return path, fragment
+    return loader._load_import_template(None, artifact.asImportSpec())
 
 
 class YamlConfig(object):

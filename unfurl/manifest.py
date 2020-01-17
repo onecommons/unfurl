@@ -3,7 +3,7 @@ import os.path
 import hashlib
 import json
 from ruamel.yaml.comments import CommentedMap
-from .tosca import ToscaSpec, TOSCA_VERSION
+from .tosca import ToscaSpec, TOSCA_VERSION, Artifact
 
 from .support import ResourceChanges, AttributeManager, Status, Priority, NodeState
 from .runtime import (
@@ -15,7 +15,7 @@ from .runtime import (
 from .util import UnfurlError, toEnum
 from .configurator import Dependency, ConfigurationSpec
 from .repo import RevisionManager, findGitRepo
-from .yamlloader import YamlConfig, loadToscaImport
+from .yamlloader import YamlConfig, loadYamlFromArtifact
 from .job import ConfigChange
 
 import logging
@@ -325,30 +325,28 @@ class Manifest(AttributeManager):
                 # replace spec with just its name
                 templatePath["repository"] = reponame
                 repositories[reponame] = repo
+            artifact = Artifact(templatePath, path=baseDir)
         else:
-            templatePath = dict(file=templatePath)
+            artifact = Artifact(dict(file=templatePath), path=baseDir)
 
-        return self.loadFromRepo(templatePath, baseDir, repositories, warnWhenNotFound)
+        return self.loadFromRepo(artifact, baseDir, repositories, warnWhenNotFound)
 
     def loadFromRepo(
-        self, import_uri_def, basePath, repositories=None, ignoreFileNotFound=False
+        self, artifact, basePath, repositories=None, ignoreFileNotFound=False
     ):
         """
         Construct a dummy TOSCA import so we can invoke its URL resolution mechanism
         Returns (url or fullpath, parsed yaml)
         """
-        context = CommentedMap(import_uri_def.items())
-        context["base"] = basePath
+        context = CommentedMap()
+        context["base"] = basePath # unused
         if repositories is None:
             context["repositories"] = self.tosca.template.tpl.get("repositories", {})
         else:
             context["repositories"] = repositories
         context.manifest = self
         context.ignoreFileNotFound = ignoreFileNotFound
-        uridef = {
-            k: v for k, v in import_uri_def.items() if k in ["file", "repository"]
-        }
-        return loadToscaImport(basePath, context, uridef)
+        return loadYamlFromArtifact(basePath, context, artifact)
 
     def statusSummary(self):
         def summary(instance, indent):

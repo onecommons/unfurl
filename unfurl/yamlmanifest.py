@@ -140,11 +140,12 @@ from .util import UnfurlError, toYamlText
 from .merge import restoreIncludes, patchDict
 from .yamlloader import YamlConfig, yaml
 from .result import serializeValue
-from .support import ResourceChanges, Status, Defaults
+from .support import ResourceChanges, Defaults
 from .localenv import LocalEnv
 from .job import JobOptions, Runner
 from .manifest import Manifest, ChangeRecordAttributes
-from .runtime import TopologyInstance, NodeInstance
+from .tosca import Artifact
+from .runtime import TopologyInstance
 
 from ruamel.yaml.comments import CommentedMap
 from codecs import open
@@ -565,14 +566,15 @@ class YamlManifest(Manifest):
             resource = self.localEnv and self.localEnv.getLocalResource(name, value)
             if not resource:
                 # load the manifest for the imported resource
-                if "file" not in value:
+                file = value.get('file')
+                if not file:
                     raise UnfurlError("Can not import '%s': no file specified" % (name))
 
                 # use tosca's loader instead, this can be an url into a repo
                 # if repo is url to a git repo, find or create working dir
                 # load an instance repo
-                importDef = value.copy()
-                path, yamlDict = self.loadFromRepo(importDef, self.getBaseDir())
+                artifact = Artifact(dict(file=file, repository=value.get('repository')))
+                path, yamlDict = self.loadFromRepo(artifact, self.getBaseDir())
                 imported = YamlManifest(yamlDict, path=path)
                 rname = value.get("resource", "root")
                 resource = imported.getRootResource().findResource(rname)

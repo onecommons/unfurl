@@ -225,9 +225,11 @@ class Plan(object):
                 inputs = dict(iDef.inputs, **inputs)
             else:
                 inputs = iDef.inputs
-            kw = getConfigSpecArgsFromImplementation(
-                iDef.implementation, inputs, self.tosca
-            )
+            kw = getConfigSpecArgsFromImplementation(iDef, inputs, resource.template)
+        else:
+            kw = None
+
+        if kw:
             name = "for %s: %s.%s" % (reason, interface, action)
             configSpec = ConfigurationSpec(name, action, **kw)
             logger.debug(
@@ -325,6 +327,8 @@ class Plan(object):
         steps = [
             step
             for step in workflow.initialSteps()
+            # XXX check target_relationship too
+            # XXX target can be a group name too
             if resource.template.isCompatibleTarget(step.target)
         ]
         if not steps:
@@ -372,6 +376,9 @@ class Plan(object):
                 if gen.result:
                     result = gen.result
             elif activity.type == "call_operation":
+                # XXX need to pass operation_host (see 3.6.27 Workflow step definition p188)
+                # if target is a group can be value can be node_type or node template name
+                # if its a node_type select nodes matching the group
                 result = yield self.generateConfiguration(
                     activity.call_operation,
                     resource,
