@@ -1,10 +1,10 @@
-.. https://sphinx-click.readthedocs.io/en/latest/
+.. see https://sphinx-click.readthedocs.io/en/latest/
 
 Command line usage
 ===================================
 
 .. contents::
-   :local: 
+   :local:
 
 .. click:: unfurl.__main__:cli
   :prog: unfurl

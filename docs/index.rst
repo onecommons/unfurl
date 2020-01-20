@@ -10,10 +10,15 @@ Welcome to Unfurl's documentation!
    :caption: Contents:
 
    README.md
+
    cli.rst
+
    guide.md
+
    api.rst
+
    jsonschema.rst
+
 
 Indices and tables
 ==================
