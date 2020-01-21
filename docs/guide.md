@@ -10,7 +10,7 @@ Unfurl maintains change log recording a history of the operations and changes th
 
 ![diagram](diagram1.svg)
 
-## Comparisons to other tools
+## Unfurl vs. ...
 
 ### Ansible
 
@@ -18,20 +18,17 @@ Unfurl shares many similarities with Ansible; in fact it relies on Ansible as a 
 
 ### Terraform
 
-Terraform still requires separate configuration for each cloud provider, TOSCA provides a type system that abstract topologies.
-Deep integration with git and external repositories significantly different approach to sharing, integration and composability. Terraform support is limited to sharing configuration outputs and state files provided through its proprietary extensions, Terraform Cloud and Terraform Enterprise. 
+Terraform's design shares many similarities to Unfurl but Terraform is more complex in that it attempts to calculate an update plan by generating a diff between the current specification and current state. This requires resource plugins to implement full CRUD semantics for managing resources and implement a fairly complex interface in Go. Unlike Terraform, Unfurl maintains a history of configuration changes -- enabling it to support much simpler semantics for updating resources. This way resources can be defined in a simple and ad hoc manner, either through YAML configuration or a relatively simple Python API as opposed to the significant domain expertise need to build a Terraform resource plugin.
 
-Terraform's design shares many similarities to Unfurl but Terraform is more ambitious in that it attempts to calculate an update plan by generating a diff between the current specification and current state. This requires resource plugins to implement full CRUD semantics for managing resources and implement a fairly complex interface in Go.
+Both Unfurl and Terraform can be thought of as cloud provider agnostic but unlike Terraform -- which requires separate configuration for each cloud provider -- Unfurl lets you write specifications that can be applied without change because TOSCA provides a type system that enables abstract topologies.
 
-Unlike Terraform, Unfurl maintains a history of configuration changes -- enabling it to support much simpler semantics for resources. This way they can be defined in a simple and ad hoc manner and using just YAML configuration DSL or through a simple Python API as opposed to relying on Go developer with domain expertise building a resource plugin.
+Unfurl's deep integration with git and external repositories provides significantly different approach to sharing, integration and composability. Terraform support for sharing configuration outputs and state files is limited to its proprietary extensions, Terraform Cloud and Terraform Enterprise. 
 
 ### TOSCA Orchestrators (e.g. Cloudify, Ystia Orchestrator)
 
-See https://wiki.oasis-open.org/tosca/TOSCA-implementations
+Unlike other [TOSCA Orchestrators](https://wiki.oasis-open.org/tosca/TOSCA-implementations), Unfurl doesn't require a server component and more generally isn't intended to manage very large infrastructure deployments -- instead the expectation would be that Unfurl coordinates the setup and configuration of a dynamic orchestrator (mostly likely Kubernetes).
 
-Unlike other TOSCA Orchestrators, Unfurl doesn't require server component and more generally isn't intended to manage very large infrastructure deployments -- instead the expectation would be that Unfurl coordinates the setup and configuration of a dynamic orchestrator (mostly likely Kubernetes).
-
-## Conceptual model and glossary
+## Unfurl Concepts
 
 ### From the TOSCA Specification:
 

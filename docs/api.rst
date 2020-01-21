@@ -19,7 +19,7 @@ Expression syntax
      test    : var | ([^$[]:?])+
      var     : "$" name
 
-Unfurl's API
+Python API
 ===================================
 
 .. automodule:: unfurl

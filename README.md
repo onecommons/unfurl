@@ -58,3 +58,7 @@ You can use `tox` to run the unit tests inside the supported python environments
 Install tox `pip install tox` and then run `tox` in source root. To install the dependencies you may need header files installed by the following OS packages: `python-dev`, `libcrypt-dev`, `openssl-dev`. (Note: if installation of a dependency fails, reinvoke `tox` with `-r` to recreate the test environment.)
 
 Arguments after `--` are passed to the test runner, e.g. to run an individual test: `tox -- -p test_runtime.py`.
+
+## Learn more
+
+Check out the rest of Unfurl's documentation [here](https://www.onecommons.org/unfurl/guide.html) 
