@@ -1,7 +1,7 @@
 apiVersion: unfurl/v1alpha1
 kind: Manifest
 spec:
-  tosca:
+  service_template:
     imports:
     - file: spec/service-template.yaml
       namespace_prefix: A

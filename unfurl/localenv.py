@@ -126,9 +126,9 @@ class Project(object):
 
 class LocalConfig(object):
     """
-  The local configuration.
+  The local configuration. Provides the environment that manifests run in:
+  instances imported from other ensembles, inputs, environment variables, secrets and local configuration.
 
-  - a list of top-level projects
   - list of instance manifests with their local configuration
   - the default local and secret instances
 
@@ -145,7 +145,7 @@ instances:
     local:
       file: path
       repository:
-      resource: root
+      instance: root
       # or:
       attributes:
         inheritFrom:
@@ -154,13 +154,14 @@ instances:
 defaults: # used if the manifest isn't defined above
  local:
  secret:
-
-projects:
-  - path:
-    default: True
-    instance: instances/current
-    spec: spec
 """
+
+    # XXX add list of projects to config
+    # projects:
+    #   - path:
+    #     default: True
+    #     instance: instances/current
+    #     spec: spec
 
     def __init__(self, path=None, parentConfig=None):
         defaultConfig = {}
@@ -268,12 +269,11 @@ class LocalEnv(object):
             if not os.path.exists(manifestPath):
                 # XXX check if the manifest is named in the project config
                 # pathORproject = self.findProject(os.path.dirname(manifestPath))
-                #if pathORproject:
+                # if pathORproject:
                 #    self.manifestPath = pathORproject.getInstance(manifestPath)
-                #else:
+                # else:
                 raise UnfurlError(
-                    "Manifest file does not exist: '%s'"
-                    % os.path.abspath(manifestPath)
+                    "Manifest file does not exist: '%s'" % os.path.abspath(manifestPath)
                 )
             else:
                 pathORproject = self.findManifestPath(manifestPath)

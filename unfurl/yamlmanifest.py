@@ -11,14 +11,14 @@
       resource: name # default is root
       attributes: # queries into manifest
       properties: # expected JSON schema for attributes
-    # locals and secrets are special cases that must be defined in local config
-    locals:
+    # local and secret are special cases that must be defined in the local config
+    local:
      properties:
        name1:
          type: string
          default
      required:
-    secrets:
+    secret:
      properties:
        name1:
          type: string
@@ -566,17 +566,17 @@ class YamlManifest(Manifest):
             resource = self.localEnv and self.localEnv.getLocalResource(name, value)
             if not resource:
                 # load the manifest for the imported resource
-                file = value.get('file')
+                file = value.get("file")
                 if not file:
                     raise UnfurlError("Can not import '%s': no file specified" % (name))
 
                 # use tosca's loader instead, this can be an url into a repo
                 # if repo is url to a git repo, find or create working dir
                 # load an instance repo
-                artifact = Artifact(dict(file=file, repository=value.get('repository')))
+                artifact = Artifact(dict(file=file, repository=value.get("repository")))
                 path, yamlDict = self.loadFromRepo(artifact, self.getBaseDir())
                 imported = YamlManifest(yamlDict, path=path)
-                rname = value.get("resource", "root")
+                rname = value.get("instance", "root")
                 resource = imported.getRootResource().findResource(rname)
                 if "inheritHack" in value:
                     value["inheritHack"]._attributes["inheritFrom"] = resource

@@ -440,7 +440,7 @@ kind: Manifest
 imports:
   test:
     file: foreignmanifest.yaml
-    resource: foreign # default is root
+    instance: foreign # default is root
     # attributes: # queries into resource
     properties: # expected schema for attributes
       prop2:

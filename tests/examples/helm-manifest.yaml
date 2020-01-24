@@ -1,7 +1,7 @@
 apiVersion: unfurl/v1alpha1
 kind: Manifest
 spec:
-  tosca:
+  service_template:
     # unfurl.relationships.InstalledBy used for implementation if no implementation is specified
     node_types:
       unfurl.nodes.HelmRelease:

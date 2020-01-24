@@ -769,17 +769,17 @@ def getConfigSpecArgsFromImplementation(iDef, inputs, template):
     if isinstance(implementation, dict):
         for name, value in implementation.items():
             if name == "primary":
-                artifact = Artifact(value, template, path=iDef.source)
+                artifact = Artifact(value, template, path=iDef._source)
             elif name == "dependencies":
                 kw[name] = [
-                    Artifact(artifactTpl, template, path=iDef.source)
+                    Artifact(artifactTpl, template, path=iDef._source)
                     for artifactTpl in value
                 ]
             elif name in configSpecArgs:
                 kw[name] = value
 
     else:
-        artifact = Artifact(implementation, template, path=iDef.source)
+        artifact = Artifact(implementation, template, path=iDef._source)
     kw["primary"] = artifact
 
     if "className" not in kw:

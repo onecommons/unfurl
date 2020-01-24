@@ -395,6 +395,7 @@ class CapabilityInstance(EntityInstance):
 
     @property
     def key(self):
+        # XXX implement something like _ChildResources to enable ::name instead of [.name]
         return "%s::.%s::[.name=%s]" % (self.parent.key, "capabilities", self.name)
 
 
@@ -417,6 +418,7 @@ class RelationshipInstance(EntityInstance):
 
     @property
     def key(self):
+        # XXX implement something like _ChildResources to enable ::name instead of [.name]
         if self.source:
             return "%s::.%s::[.name=%s]" % (self.source.key, "requirements", self.name)
         else:

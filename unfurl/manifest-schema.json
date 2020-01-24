@@ -62,6 +62,18 @@
       "type": "object",
       "$$target": "#/definitions/schema"
     },
+    "import": {
+      "title": "Import",
+      "$$target": "#/definitions/import",
+      "type": "object",
+      "properties": {
+        "file": {"type": "string"},
+        "repository": {"type": "string"},
+        "instance": {"type": "string"},
+        "inputs": { "$ref": "#/definitions/attributes"},
+        "attributes": { "$ref": "#/definitions/attributes"}
+        }
+    },
     "instance": {
       "title": "Instance",
       "type": "object",
@@ -191,6 +203,16 @@
   "properties": {
       "apiVersion": { "enum": ["unfurl/v1alpha1"] },
       "kind": { "enum": ["Manifest"] },
+      "imports": {
+        "allOf": [
+          { "$ref": "#/definitions/namedObjects" },
+          {
+            "additionalProperties": {
+              "$ref": "#/definitions/import"
+            }
+          }
+        ]
+      },
       "spec": {
         "type": "object",
         "anyOf": [
@@ -198,7 +220,7 @@
             "oneOf": [
               {
                 "properties": {
-                  "tosca": {
+                  "service_template": {
                     "type": "object"
                   }
                 }
@@ -214,12 +236,12 @@
           },
           {
             "properties": {
-              "instances": { "$ref": "#/definitions/namedObjects" }
+              "inputs": { "$ref": "#/definitions/attributes" }
             }
           },
           {
             "properties": {
-              "installers": { "$ref": "#/definitions/namedObjects" }
+              "instances": { "$ref": "#/definitions/namedObjects" }
             }
           }
         ]
