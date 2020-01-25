@@ -77,7 +77,7 @@ def initializeAnsible():
 
 initializeAnsible()
 
-VERSION = "unfurl/v1alpha1"  # api version
+VERSION = "unfurl/v1alpha1"  # XXX rename to api_version, to distinguish from __version__ and TOSCA_VERSION
 
 
 class UnfurlError(Exception):

@@ -203,7 +203,7 @@ def applyTemplate(value, ctx):
             if ctx.strict:
                 raise UnfurlError(value)
             else:
-                logger.warning(value[2:100]+'... see debug log for full report')
+                logger.warning(value[2:100] + "... see debug log for full report")
                 logger.debug(value, exc_info=True)
         else:
             if value != oldvalue:
@@ -324,6 +324,24 @@ def getImport(arg, ctx):
 
 
 setEvalFunc("external", getImport)
+
+
+class Imports(collections.OrderedDict):
+    Import = collections.namedtuple("Import", ["resource", "spec"])
+
+    def setShadow(self, key, instance):
+        instance.shadow = self[key].resource
+        self[key] = instance
+
+    def __setitem__(self, key, value):
+        if isinstance(value, tuple):
+            value = self.Import(*value)
+        else:
+            if key in self:
+                value = self[key]._replace(resource=value)
+            else:
+                value = self.Import(value, {})
+        return super(Imports, self).__setitem__(key, value)
 
 
 class ExternalResource(ExternalValue):

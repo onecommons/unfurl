@@ -140,7 +140,7 @@ from .util import UnfurlError, toYamlText
 from .merge import restoreIncludes, patchDict
 from .yamlloader import YamlConfig, yaml
 from .result import serializeValue
-from .support import ResourceChanges, Defaults
+from .support import ResourceChanges, Defaults, Imports
 from .localenv import LocalEnv
 from .job import JobOptions, Runner
 from .manifest import Manifest, ChangeRecordAttributes
@@ -153,8 +153,6 @@ from codecs import open
 import logging
 
 logger = logging.getLogger("unfurl")
-
-Import = collections.namedtuple("Import", ["resource", "spec"])
 
 _basepath = os.path.abspath(os.path.dirname(__file__))
 
@@ -216,9 +214,9 @@ def saveStatus(operational, status=None):
         readyState["local"] = operational.localStatus.name
     if operational.state is not None:
         readyState["state"] = operational.state.name
-    status["readyState"] = readyState
     if operational.priority:  # and operational.priority != Defaults.shouldRun:
         status["priority"] = operational.priority.name
+    status["readyState"] = readyState
     if operational.lastStateChange:
         status["lastStateChange"] = operational.lastStateChange
     if operational.lastConfigChange:
@@ -321,6 +319,12 @@ class YamlManifest(Manifest):
         )
         lastChangeId = self.changeSets and max(self.changeSets.keys()) or 0
 
+        importsSpec = manifest.get("imports", {})
+        if localEnv:
+            importsSpec.setdefault("local", {})
+            importsSpec.setdefault("secret", {})
+        self.imports = self.loadImports(importsSpec)
+
         rootResource = self.createTopologyInstance(status)
         # create an new instances declared in the spec:
         for name, instance in spec.get("instances", {}).items():
@@ -328,11 +332,7 @@ class YamlManifest(Manifest):
                 # XXX like Plan.createResource() parent should be hostedOn target if defined
                 self.createNodeInstance(name, instance or {}, rootResource)
 
-        importsSpec = manifest.get("imports", {})
-        if localEnv:
-            importsSpec.setdefault("local", {})
-            importsSpec.setdefault("secret", {})
-        rootResource.imports = self.loadImports(importsSpec)
+        rootResource.imports = self.imports
         rootResource.setBaseDir(self.getBaseDir())
 
         self._ready(rootResource, lastChangeId)
@@ -363,9 +363,12 @@ class YamlManifest(Manifest):
         # particularly, because these will get loaded in later runs and mask any spec properties with the same name
         if resource._attributes:
             status["attributes"] = resource._attributes
+        if resource.shadow:
+            # name will be the same as the import name
+            status["imported"] = resource.name
         saveStatus(resource, status)
         if resource.createdOn:  # will be a ChangeRecord
-            status["createdOn"] = resource.createdOn.changeId
+            status["createdOn"] = resource.createdOn.changeI
 
         return (resource.name, status)
 
@@ -561,7 +564,8 @@ class YamlManifest(Manifest):
       attributes: # queries into resource
       properties: # expected schema for attributes
     """
-        imports = {}
+        imports = Imports()
+        imported = {}
         for name, value in importsSpec.items():
             resource = self.localEnv and self.localEnv.getLocalResource(name, value)
             if not resource:
@@ -569,23 +573,29 @@ class YamlManifest(Manifest):
                 file = value.get("file")
                 if not file:
                     raise UnfurlError("Can not import '%s': no file specified" % (name))
+                location = dict(file=file, repository=value.get("repository"))
+                key = tuple(location.values())
+                importedManifest = imported.get(key)
+                if not importedManifest:
+                    # if location resolves to an url to a git repo
+                    # loadFromRepo will find or create a working dir
+                    path, yamlDict = self.loadFromRepo(
+                        Artifact(location), self.getBaseDir()
+                    )
+                    importedManifest = YamlManifest(yamlDict, path=path)
+                    imported[key] = importedManifest
 
-                # use tosca's loader instead, this can be an url into a repo
-                # if repo is url to a git repo, find or create working dir
-                # load an instance repo
-                artifact = Artifact(dict(file=file, repository=value.get("repository")))
-                path, yamlDict = self.loadFromRepo(artifact, self.getBaseDir())
-                imported = YamlManifest(yamlDict, path=path)
                 rname = value.get("instance", "root")
-                resource = imported.getRootResource().findResource(rname)
-                if "inheritHack" in value:
+                resource = importedManifest.getRootResource().findResource(rname)
+                if "inheritHack" in value:  # set by getLocalResource() above
                     value["inheritHack"]._attributes["inheritFrom"] = resource
                     resource = value.pop("inheritHack")
+
             if not resource:
                 raise UnfurlError(
                     "Can not import '%s': resource '%s' not found" % (name, rname)
                 )
-            imports[name] = Import(resource, value)
+            imports[name] = (resource, value)
         return imports
 
 

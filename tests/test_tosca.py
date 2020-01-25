@@ -1,10 +1,12 @@
 import unittest
 from unfurl.yamlmanifest import YamlManifest
+from unfurl.localenv import LocalEnv
 from unfurl.job import Runner, JobOptions
 from unfurl.support import Status
 from unfurl.configurator import Configurator
-from unfurl.util import sensitive_str
+from unfurl.util import sensitive_str, VERSION
 import six
+from click.testing import CliRunner
 
 
 class SetAttributeConfigurator(Configurator):
@@ -127,3 +129,80 @@ class ToscaSyntaxTest(unittest.TestCase):
         self.assertEqual(job.status.name, "ok")
         self.assertEqual(job.stats()["ok"], 4)
         self.assertEqual(job.stats()["changed"], 4)
+
+
+class AbstractTemplateTest(unittest.TestCase):
+    def test_import(self):
+        foreign = (
+            """
+    apiVersion: %s
+    kind: Manifest
+    spec:
+      service_template:
+        node_types:
+          test.nodes.AbstractTest:
+            derived_from: tosca.nodes.Root
+            interfaces:
+               Install:
+                 check:
+                   implementation: SetAttributeConfigurator
+      instances:
+        anInstance:
+         type: test.nodes.AbstractTest
+    """
+            % VERSION
+        )
+
+        # import a node from a external manifest and have an abstract node template select it
+        # check will be run on it each time
+        mainManifest = (
+            """
+apiVersion: %s
+kind: Manifest
+imports:
+ foreign:
+    file:  foreignmanifest.yaml
+    instance: anInstance
+spec:
+  service_template:
+    imports:
+      - foreignmanifest.yaml#/spec/service_template
+    topology_template:
+      outputs:
+        server_ip:
+          value: {eval: "::foreign::private_address"}
+      node_templates:
+        abstract:
+          type: test.nodes.AbstractTest
+          directives:
+             - select
+  """
+            % VERSION
+        )
+
+        runner = CliRunner()
+        with runner.isolated_filesystem():
+            with open("foreignmanifest.yaml", "w") as f:
+                f.write(foreign)
+
+            with open("manifest.yaml", "w") as f:
+                f.write(mainManifest)
+
+            manifest = YamlManifest(localEnv=LocalEnv("manifest.yaml"))
+            job = Runner(manifest).run(JobOptions(add=True, startTime="time-to-test"))
+            # print(output.getvalue())
+            assert job.status == Status.ok, job.summary()
+            self.assertEqual(
+                job.jsonSummary()["tasks"], [["foreign:Install.check:check:1", "ok"]]
+            )
+            self.assertEqual(job.getOutputs()["server_ip"], "10.0.0.1")
+
+            # reload
+            manifest2 = YamlManifest(localEnv=LocalEnv("manifest.yaml"))
+            # test that restored manifest create a shadow instance for the foreign instance
+            imported = manifest2.imports["foreign"].resource
+            assert imported
+            assert imported.shadow
+            self.assertIs(imported.root, manifest2.getRootResource())
+            self.assertEqual(imported.attributes["private_address"], "10.0.0.1")
+            self.assertIsNot(imported.shadow.root, manifest2.getRootResource())

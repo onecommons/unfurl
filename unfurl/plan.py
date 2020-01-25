@@ -43,6 +43,52 @@ class Plan(object):
         else:
             self.filterTemplate = None
 
+    def findShadowInstance(self, template, match):
+        for name, value in self.root.imports.items():
+            external = value.resource
+            if getattr(external.template, match) == getattr(template, match):
+                if external.shadow and external.root is self.root:
+                    # shadowed instance already created
+                    return external
+                else:
+                    return self.createShadowInstance(external, name)
+        return None
+
+    def createShadowInstance(self, external, importName=None):
+        if not importName and external.name in self.root.imports:
+            raise UnfurlError(
+                'Can not add external resource "%s" to imports, name already used'
+                % external.name
+            )
+        name = importName or external.name
+
+        if external.parent and external.parent is not external.root:
+            # assumes one-to-one correspondence instance and template
+            parent = self.findShadowInstance(external.parent.template, "name")
+            if not parent:  # parent wasn't in imports, add it now
+                parent = self.createShadowInstance(external.parent)
+        else:
+            parent = self.root
+
+        shadowInstance = external.__class__(
+            name, external.attributes, parent, external.template
+        )
+        shadowInstance.shadow = external
+        self.root.imports[name] = shadowInstance
+        return shadowInstance
+
+    def findResourcesFromTemplate(self, template):
+        if template.abstract == "select":
+            # XXX also match node_filter if present
+            shadowInstance = self.findShadowInstance(template, "type")
+            if shadowInstance:
+                yield shadowInstance
+            # XXX also yield newly created parents that needed to be checked?
+        else:
+            for resource in self.root.getSelfAndDescendents():
+                if resource.template.name == template.name:
+                    yield resource
+
     def findResourcesFromTemplateName(self, name):
         for resource in self.root.getSelfAndDescendents():
             if resource.template.name == name:
@@ -56,13 +102,13 @@ class Plan(object):
             # XXX need to evaluate matches
             return parent
 
-    def createResource(self, template):
+    def createResource(self, template, status=Status.pending):
         # XXX create capabilities and requirements too?
         # XXX if requirement with HostedOn relationship, target is the parent not root
         parent = self.findParentResource(template)
         assert parent, "parent should have already been created"
-        # Set the initial status of new resources to "pending" instead of defaulting to "unknown"
-        return NodeInstance(template.name, None, parent, template, Status.pending)
+        # Set the initial status of new resources to status instead of defaulting to "unknown"
+        return NodeInstance(template.name, None, parent, template, status)
 
     def findImplementation(self, interface, operation, template):
         default = None
@@ -214,6 +260,11 @@ class Plan(object):
         yield req
         # Note: there is no NodeState.deleted and Status.notpresent is set by TaskConfig.finished()
 
+    def executeDefaultCheck(self, resource, reason=None, inputs=None):
+        req = self.generateConfiguration("Install.check", resource, reason, inputs)
+        if not req.error:
+            yield req
+
     def generateConfiguration(self, operation, resource, reason=None, inputs=None):
         """implementation can either be a named artifact (including a python configurator class),
         configurator node template, or a file path"""
@@ -230,7 +281,10 @@ class Plan(object):
             kw = None
 
         if kw:
-            name = "for %s: %s.%s" % (reason, interface, action)
+            if reason:
+                name = "for %s: %s.%s" % (reason, interface, action)
+            else:
+                name = "%s.%s" % (interface, action)
             configSpec = ConfigurationSpec(name, action, **kw)
             logger.debug(
                 "creating configuration %s with %s to run for %s: %s",
@@ -421,7 +475,10 @@ class DeployPlan(Plan):
             (str, ConfigurationSpec): Returns a pair with reason why the task was included
               and the :class:`ConfigurationSpec` to run or `None` if it shound't be included.
     """
-        assert template
+        assert template and resource
+        if resource.shadow:
+            # external resources are readonly, just check them
+            return "check", template
         jobOptions = self.jobOptions
         oldTemplate = resource.template
         if jobOptions.all:
@@ -480,12 +537,16 @@ class DeployPlan(Plan):
             return "error", lastTemplate  # repair this
 
     def _generateConfigurations(self, resource, reason, workflow=None):
-        if resource.status == Status.unknown:
+        if resource.status == Status.unknown or reason == "check":
             configGenerator = self.executeWorkflow("check", resource)
+            if not configGenerator:
+                configGenerator = self.executeDefaultCheck(resource)
             if configGenerator:
                 gen = Generate(configGenerator)
                 while gen():
                     gen.result = yield gen.next
+        if reason == "check":
+            return  # we're done
 
         configGenerator = super(DeployPlan, self)._generateConfigurations(
             resource, reason, workflow
@@ -534,7 +595,7 @@ class DeployPlan(Plan):
         visited = set()
         for template in templates:
             found = False
-            for resource in self.findResourcesFromTemplateName(template.name):
+            for resource in self.findResourcesFromTemplate(template):
                 found = True
                 visited.add(id(resource))
                 include = self.includeTask(template, resource)
@@ -597,7 +658,7 @@ class WorkflowPlan(Plan):
                 templates = [template]
 
             for template in templates:
-                for resource in self.findResourcesFromTemplateName(template.name):
+                for resource in self.findResourcesFromTemplate(template):
                     gen = self.executeSteps(workflow, [step], resource)
                     result = None
                     try:
@@ -674,7 +735,7 @@ def orderTemplates(templates, filter=None):
 def getAncestorTemplates(source):
     # RelationshipType: NodeTemplate
     for rel, target in source.relationships.items():
-        # tosca.relationships.DependsOn
+        # XXX tosca.relationships.DependsOn
         if rel.type == "tosca.relationships.HostedOn":
             for ancestor in getAncestorTemplates(target):
                 yield ancestor
@@ -684,6 +745,7 @@ def getAncestorTemplates(source):
 
 def findParentTemplate(source):
     for relation, nodetpl in source.relationships.items():
+        # XXX tosca.relationships.DependsOn
         if relation.type == "tosca.relationships.HostedOn":
             return nodetpl
         return None

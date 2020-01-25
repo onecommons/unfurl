@@ -257,6 +257,10 @@ class EntitySpec(object):
     def getArtifact(self, name):
         return None
 
+    @property
+    def abstract(self):
+        return None
+
 
 class NodeSpec(EntitySpec):
     # has attributes: tosca_id, tosca_name, state, (3.4.1 Node States p.61)
@@ -367,6 +371,13 @@ class NodeSpec(EntitySpec):
             raise UnfurlValidationError(
                 "capability not found for requirement %s" % reqSpec.name
             )
+
+    @property
+    def abstract(self):
+        for name in ("select", "substitute"):
+            if name in self.toscaEntityTemplate.directives:
+                return name
+        return None
 
 
 class RelationshipSpec(EntitySpec):

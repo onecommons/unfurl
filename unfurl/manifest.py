@@ -244,7 +244,14 @@ class Manifest(AttributeManager):
     def _createEntityInstance(self, ctor, name, status, parent):
         operational = self.loadStatus(status)
         templateName = status.get("template", name)
-        template = self.loadTemplate(templateName)
+        imported = status.get("imported")
+        if imported:
+            if imported not in self.imports:
+                raise UnfurlError("missing import %s" % imported)
+            anImport = self.imports[imported]
+            template = anImport.resource.template
+        else:
+            template = self.loadTemplate(templateName)
         if template is None:
             # not defined in the current model any more, try to retrieve the old version
             if operational.lastConfigChange:
@@ -253,8 +260,11 @@ class Manifest(AttributeManager):
         if template is None:
             raise UnfurlError("missing resource template %s" % templateName)
         logger.debug("template %s: %s", templateName, template)
-
-        return ctor(name, status.get("attributes"), parent, template, operational)
+        instance = ctor(name, status.get("attributes"), parent, template, operational)
+        imported = status.get("imported")
+        if imported:
+            self.imports.setShadow(imported, instance)
+        return instance
 
     def findRepoFromGitUrl(self, path, isFile=True, importLoader=None, willUse=False):
         # XXX this doesn't use the tosca template's repositories at all
@@ -339,7 +349,7 @@ class Manifest(AttributeManager):
         Returns (url or fullpath, parsed yaml)
         """
         context = CommentedMap()
-        context["base"] = basePath # unused
+        context["base"] = basePath  # unused
         if repositories is None:
             context["repositories"] = self.tosca.template.tpl.get("repositories", {})
         else:

@@ -16,7 +16,7 @@ node_types:
       implements:
         type: list
         default:
-          - unfurl.interfaces.install
+          - unfurl.interfaces.Install
       operations:
         type: map
         description: >

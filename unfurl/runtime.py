@@ -289,6 +289,7 @@ class _ChildResources(collections.Mapping):
 class EntityInstance(OperationalInstance, ResourceRef):
     attributeManager = None
     createdOn = None
+    shadow = None
 
     def __init__(
         self, name="", attributes=None, parent=None, template=None, status=None
