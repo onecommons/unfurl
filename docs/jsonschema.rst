@@ -1,26 +1,24 @@
 JSON Schema
 ===========
 
-Manifest
---------
+Files
+-----
+
 .. jsonschema:: manifest-schema.json
 
 
-Changelog
----------
+.. jsonschema:: unfurl-schema.json
+
+
 .. jsonschema:: changelog-schema.json
 
 
-instance and status components
-------------------------------
-
-Instance
+Sections
 ---------
+
 .. jsonschema:: manifest-schema.json#/definitions/instance
 
-
-status
---------
+.. jsonschema:: manifest-schema.json#/definitions/import
 
 .. jsonschema:: manifest-schema.json#/definitions/status
 
@@ -28,8 +26,7 @@ status
 
 .. jsonschema:: manifest-schema.json#/definitions/configurationSpec
 
-changes
--------
+
 .. jsonschema:: manifest-schema.json#/definitions/changes
 
 
@@ -37,7 +34,7 @@ Definitions
 -----------
 
 Enums and Simple Types
-----------------------
+~~~~~~~~~~~~~~~~~~~~~~
 
 .. jsonschema:: manifest-schema.json#/definitions/readyState
 
@@ -46,13 +43,13 @@ Enums and Simple Types
 .. jsonschema:: manifest-schema.json#/definitions/changeId
 
 
-Generic Helper Types
----------------------
+Reusable helper definitions
+~~~~~~~~~~~~~~~~~~~~-------
+
+.. jsonschema:: manifest-schema.json#/definitions/attributes
 
 .. jsonschema:: manifest-schema.json#/definitions/atomic
 
 .. jsonschema:: manifest-schema.json#/definitions/namedObjects
-
-.. jsonschema:: manifest-schema.json#/definitions/attributes
 
 .. jsonschema:: manifest-schema.json#/definitions/schema

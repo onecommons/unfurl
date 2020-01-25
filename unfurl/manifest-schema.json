@@ -1,27 +1,34 @@
 {
   "$schema": "http://json-schema.org/draft-06/schema#",
   "$id": "https://www.onecommons.org/schemas/unfurl/manifest-v1alpha1.json",
+  "title": "manifest.yaml",
   "definitions": {
     "state": {
-      "title": "the operational state of the instance",
-      "enum": ["initial", "creating", "created", "configuring", "configured",
-               "starting", "started", "stopping", "deleting", "error"],
+      "title": "state",
+      "description": "the operational state of the instance",
+      "enum": [
+        "initial",
+        "creating",
+        "created",
+        "configuring",
+        "configured",
+        "starting",
+        "started",
+        "stopping",
+        "deleting",
+        "error"
+      ],
       "$$target": "#/definitions/state"
     },
     "readyState": {
       "title": "readyState",
-      "description": "The operations status, see ",
-      "enum": [
-        "unknown",
-        "ok",
-        "degraded",
-        "error",
-        "pending",
-        "notpresent"
-      ],
+      "description": "The operational status of the instance",
+      "enum": ["unknown", "ok", "degraded", "error", "pending", "notpresent"],
       "$$target": "#/definitions/readyState"
     },
     "atomic": {
+      "title": "atomic",
+      "description": "indicates these properties must be set all at once or replaced",
       "type": "object",
       "properties": {},
       "$$target": "#/definitions/atomic"
@@ -51,28 +58,32 @@
       "$$target": "#/definitions/secret"
     },
     "attributes": {
-      "allOf": [
-        { "$ref": "#/definitions/namedObjects" },
-        { "$ref": "#/definitions/atomic" }
-      ],
+      "title": "attributes",
+      "$ref": "#/definitions/namedObjects",
       "default": {},
       "$$target": "#/definitions/attributes"
     },
     "schema": {
+      "title": "schema",
+      "description": "a JSON Schema definition",
       "type": "object",
       "$$target": "#/definitions/schema"
     },
     "import": {
       "title": "Import",
-      "$$target": "#/definitions/import",
+      "description": "Declare an instance imported from another manifest.",
+      "$$target": [
+        "#/definitions/import",
+        "./manifest-schema.json#/definitions/import"
+      ],
       "type": "object",
       "properties": {
-        "file": {"type": "string"},
-        "repository": {"type": "string"},
-        "instance": {"type": "string"},
-        "inputs": { "$ref": "#/definitions/attributes"},
-        "attributes": { "$ref": "#/definitions/attributes"}
-        }
+        "file": { "type": "string" },
+        "repository": { "type": "string" },
+        "instance": { "type": "string" },
+        "properties": { "$ref": "#/definitions/attributes" },
+        "attributes": { "$ref": "#/definitions/attributes" }
+      }
     },
     "instance": {
       "title": "Instance",
@@ -103,6 +114,7 @@
       "$$target": "#/definitions/instance"
     },
     "status": {
+      "title": "status",
       "$$target": "#/definitions/status",
       "type": "object",
       "properties": {
@@ -121,10 +133,12 @@
       "additionalProperties": true
     },
     "changeId": {
+      "title": "changeId",
       "type": "number",
       "$$target": "#/definitions/changeId"
     },
     "configurationSpec": {
+      "title": "configuration spec",
       "type": "object",
       "properties": {
         "className": { "type": "string" },
@@ -140,6 +154,7 @@
       "$$target": "#/definitions/configurationSpec"
     },
     "configurationStatus": {
+      "title": "configuration status",
       "$$target": "#/definitions/configurationStatus",
       "type": "object",
       "allOf": [
@@ -176,7 +191,12 @@
       ]
     },
     "changes": {
-      "$$target": ["#/definitions/changes", "./manifest-schema.json#/definitions/changes"],
+      "title": "Change",
+      "description": "change log entry",
+      "$$target": [
+        "#/definitions/changes",
+        "./manifest-schema.json#/definitions/changes"
+      ],
       "type": "array",
       "additionalItems": {
         "type": "object",
@@ -198,81 +218,81 @@
       }
     }
   },
-  "title": "manifest",
   "type": "object",
   "properties": {
-      "apiVersion": { "enum": ["unfurl/v1alpha1"] },
-      "kind": { "enum": ["Manifest"] },
-      "imports": {
-        "allOf": [
-          { "$ref": "#/definitions/namedObjects" },
-          {
-            "additionalProperties": {
-              "$ref": "#/definitions/import"
-            }
+    "apiVersion": { "enum": ["unfurl/v1alpha1"] },
+    "kind": { "enum": ["Manifest"] },
+    "imports": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/definitions/namedObjects" },
+        {
+          "additionalProperties": {
+            "$ref": "#/definitions/import"
           }
-        ]
-      },
-      "spec": {
-        "type": "object",
-        "anyOf": [
-          {
-            "oneOf": [
-              {
-                "properties": {
-                  "service_template": {
-                    "type": "object"
-                  }
-                }
-              },
-              {
-                "properties": {
-                  "node_templates": {
-                    "type": "object"
-                  }
+        }
+      ]
+    },
+    "spec": {
+      "type": "object",
+      "anyOf": [
+        {
+          "oneOf": [
+            {
+              "properties": {
+                "service_template": {
+                  "type": "object"
                 }
               }
-            ]
-          },
-          {
-            "properties": {
-              "inputs": { "$ref": "#/definitions/attributes" }
-            }
-          },
-          {
-            "properties": {
-              "instances": { "$ref": "#/definitions/namedObjects" }
-            }
-          }
-        ]
-      },
-      "status": {
-        "type": "object",
-        "allOf": [
-          {
-            "properties": {
-              "topology": { "type": "string" },
-              "inputs": { "$ref": "#/definitions/attributes" },
-              "outputs": { "$ref": "#/definitions/attributes" },
-              "instances": {
-                "allOf": [
-                  { "$ref": "#/definitions/namedObjects" },
-                  {
-                    "additionalProperties": {
-                      "$ref": "#/definitions/instance"
-                    }
-                  }
-                ]
+            },
+            {
+              "properties": {
+                "node_templates": {
+                  "type": "object"
+                }
               }
             }
-          },
-          { "$ref": "#/definitions/status" }
-        ],
-        "default": {}
-      },
-      "latestChange": { "type": "object"},
-      "changeLog": {"type": "string"},
-      "changes": {"$ref": "#/definitions/changes"}
+          ]
+        },
+        {
+          "properties": {
+            "inputs": { "$ref": "#/definitions/attributes" }
+          }
+        },
+        {
+          "properties": {
+            "instances": { "$ref": "#/definitions/namedObjects" }
+          }
+        }
+      ]
+    },
+    "status": {
+      "type": "object",
+      "allOf": [
+        {
+          "properties": {
+            "topology": { "type": "string" },
+            "inputs": { "$ref": "#/definitions/attributes" },
+            "outputs": { "$ref": "#/definitions/attributes" },
+            "instances": {
+              "allOf": [
+                { "$ref": "#/definitions/namedObjects" },
+                {
+                  "additionalProperties": {
+                    "$ref": "#/definitions/instance"
+                  }
+                }
+              ]
+            }
+          }
+        },
+        { "$ref": "#/definitions/status" }
+      ],
+      "default": {}
+    },
+    "latestChange": { "type": "object" },
+    "changeLog": { "type": "string" },
+    "changes": { "$ref": "#/definitions/changes" }
   },
   "required": ["apiVersion", "kind", "spec"]
 }

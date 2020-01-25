@@ -55,6 +55,8 @@ spec:
 """
 
 localConfig = """
+unfurl:
+ version: 1.0
 defaults: #used if manifest isnt found in `manifests` list below
  secret:
   attributes:
@@ -65,9 +67,9 @@ defaults: #used if manifest isnt found in `manifests` list below
       q: # quote
         eval:
           lookup:
-            env: "GEO_{{ key | upper }}"
+            env: "UNFURL_{{ key | upper }}"
 
-instances:
+manifests:
   - file: git/default-manifest.yaml
     local:
       attributes:
@@ -154,7 +156,7 @@ class CliTest(unittest.TestCase):
         #    declared attributes and default lookup
         #    inherited from default (inheritFrom)
         #    verify secret contents isn't saved in config
-        os.environ["GEO_TESTAPIKEY"] = "secret"
+        os.environ["UNFURL_TESTAPIKEY"] = "secret"
         runner = CliRunner()
         with runner.isolated_filesystem() as tempDir:
             with open("unfurl.yaml", "w") as local:

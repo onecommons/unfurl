@@ -38,7 +38,7 @@ def writeProjectConfig(
 unfurl:
   version: %s
 %s
-instances:
+manifests:
   - file: %s
     default: true
 

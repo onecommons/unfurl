@@ -12,6 +12,7 @@ import os.path
 from .repo import Repo
 from .util import UnfurlError
 from .yamlloader import YamlConfig
+from . import __version__
 
 DefaultManifestName = "manifest.yaml"
 DefaultLocalConfigName = "unfurl.yaml"
@@ -124,6 +125,9 @@ class Project(object):
         return repo
 
 
+_basepath = os.path.abspath(os.path.dirname(__file__))
+
+
 class LocalConfig(object):
     """
   The local configuration. Provides the environment that manifests run in:
@@ -135,13 +139,13 @@ class LocalConfig(object):
 unfurl:
   version:
 
-instances:
+manifests:
   - file:
     repository:
     # default instance if there are multiple instances in that project
     # (only applicable when config is local to a project)
-    default: true
-    inputs:
+    default: True
+    environment:
     local:
       file: path
       repository:
@@ -163,11 +167,14 @@ defaults: # used if the manifest isn't defined above
     #     instance: instances/current
     #     spec: spec
 
-    def __init__(self, path=None, parentConfig=None):
-        defaultConfig = {}
-        # XXX define json schema and validate
-        self.config = YamlConfig(defaultConfig, path=path)
-        self.manifests = self.config.config.get("instances", [])
+    def __init__(self, path=None, parentConfig=None, validate=True):
+        defaultConfig = {"unfurl": dict(version=__version__)}
+        self.config = YamlConfig(
+            defaultConfig, path, validate, os.path.join(_basepath, "unfurl-schema.json")
+        )
+        self.manifests = self.config.config.get(
+            "manifests", self.config.config.get("instances", [])  # backward compat
+        )
         self.defaults = self.config.config.get("defaults", {})
         self.parentConfig = parentConfig
 
