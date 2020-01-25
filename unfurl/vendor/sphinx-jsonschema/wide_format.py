@@ -15,6 +15,7 @@
 # - call _objectype() if 'properties' or 'additionalProperties' in schema
 # - support for propertyNames
 # - better rendering of default values
+# - support for const
 
 from sys import version_info
 import string
@@ -246,6 +247,15 @@ class WideFormat(object):
                 )
             )
             del schema["enum"]
+
+        if "const" in schema:
+            rows.append(
+                self._line(
+                    self._cell("const"),
+                    self._cell('"%s"' % schema["const"]),
+                )
+            )
+            del schema["const"]
 
         if "examples" in schema:
             rows.extend(self._examples(schema["examples"]))
