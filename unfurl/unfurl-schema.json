@@ -8,9 +8,9 @@
     "unfurl": {
       "type": "object",
       "properties": {
-        "version": {"oneOf": [{"type": "string"},  {"type": "number"}]},
-        "required": ["version"]
-      }
+        "version": { "$ref": "./manifest-schema.json#/definitions/version" }
+      },
+      "required": ["version"]
     },
     "manifests": {
       "type": "array",

@@ -74,7 +74,7 @@
           # ...
   repositories
   changeLog: changes.yaml
-  latestChanges:
+  latestChange:
     jobId: 1
     startCommit: ''
     startTime:
@@ -143,7 +143,7 @@ from .result import serializeValue
 from .support import ResourceChanges, Defaults, Imports
 from .localenv import LocalEnv
 from .job import JobOptions, Runner
-from .manifest import Manifest, ChangeRecordAttributes
+from .manifest import Manifest
 from .tosca import Artifact
 from .runtime import TopologyInstance
 
@@ -225,12 +225,6 @@ def saveStatus(operational, status=None):
     return status
 
 
-def saveConfigChange(configChange):
-    items = [(k, getattr(configChange, k)) for k in ChangeRecordAttributes]
-    items.extend(saveStatus(configChange).items())
-    return CommentedMap(items)  # CommentedMap so order is preserved in yaml output
-
-
 def saveResult(value):
     if isinstance(value, collections.Mapping):
         return CommentedMap((key, saveResult(v)) for key, v in value.items())
@@ -244,8 +238,20 @@ def saveResult(value):
 
 def saveTask(task):
     """
-  convert dictionary suitable for serializing as yaml
+Convert dictionary suitable for serializing as yaml
   or creating a Changeset.
+
+.. code-block:: YAML
+
+  changeId:
+  parentId:
+  target:
+  implementation:
+  inputs:
+  changes:
+  dependencies:
+  messages:
+  result:  # an object or "skipped"
   """
     output = CommentedMap()
     output["changeId"] = task.changeId
@@ -417,18 +423,21 @@ class YamlManifest(Manifest):
 
     def saveJobRecord(self, job):
         """
-    jobId: 1 # should be last that ran, instead of first?
-    startCommit: '' #commitId when job began
+  .. code-block:: YAML
+
+    jobId: 1
+    startCommit: # commit when job began
     startTime:
+    workflow:
+    options: # job options set by the user
+    summary:
     specDigest:
-    lastChangeId:
-    readyState:
-      effective: error
-      local: ok
+    lastChangeId: # the changeid of the job's last task
+    endCommit:   # commit updating status (only appears in changelog file)
     """
         output = CommentedMap()
         output["jobId"] = job.changeId
-        output["startTime"] = job.startTime
+        output["startTime"] = str(job.startTime)
         options = job.jobOptions.getUserSettings()
         output["workflow"] = options.pop("workflow", Defaults.workflow)
         output["options"] = options

@@ -64,11 +64,9 @@ class ResourceRef(object):
 
 
 class ChangeRecord(object):
-    def __init__(self, changeId=0, parentId=None, commitId="", startTime=""):
+    def __init__(self, changeId=0, parentId=None):
         self.changeId = changeId
         self.parentId = parentId
-        self.commitId = commitId
-        self.startTime = startTime
 
 
 class ChangeAware(object):

@@ -13,7 +13,7 @@ from .runtime import (
     RelationshipInstance,
 )
 from .util import UnfurlError, toEnum
-from .configurator import Dependency, ConfigurationSpec
+from .configurator import Dependency
 from .repo import RevisionManager, findGitRepo
 from .yamlloader import YamlConfig, loadYamlFromArtifact
 from .job import ConfigChange
@@ -21,10 +21,6 @@ from .job import ConfigChange
 import logging
 
 logger = logging.getLogger("unfurl")
-
-ChangeRecordAttributes = CommentedMap(
-    [("changeId", 0), ("parentId", None), ("commitId", ""), ("startTime", "")]
-)
 
 
 class Manifest(AttributeManager):
@@ -45,7 +41,7 @@ class Manifest(AttributeManager):
     def loadSpec(self, spec, path):
         if "service_template" in spec:
             toscaDef = spec["service_template"]
-        elif "tosca" in spec:
+        elif "tosca" in spec:  # backward compat
             toscaDef = spec["tosca"]
         elif "node_templates" in spec:
             # allow node_templates shortcut
@@ -145,8 +141,8 @@ class Manifest(AttributeManager):
 
         configChange = ConfigChange()
         Manifest.loadStatus(changeSet, configChange)
-        for (k, v) in ChangeRecordAttributes.items():
-            setattr(self, k, changeSet.get(k, v))
+        configChange.changeId = changeSet.get("changeId", 0)
+        configChange.parentId = changeSet.get("parentId")
 
         configChange.inputs = changeSet.get("inputs")
 
@@ -178,11 +174,12 @@ class Manifest(AttributeManager):
         # implementation: repo:key#commitid | className:version
         return configChange
 
-    # XXX only used by commented out Taskview.createConfigurationSpec()
-    # find config spec from potentially old version of the tosca template
-    # get template then get node template name
-    # but we shouldn't need this, except maybe to revert?
+    # XXX this is only used by commented out Taskview.createConfigurationSpec()
     # def loadConfigSpec(self, configName, spec):
+    #  # XXX need to update configurationSpec in json schema:
+    #  #"workflow": { "type": "string" },
+    #  #"inputs": { "$ref": "#/definitions/attributes", "default": {} },
+    #  #"preconditions": { "$ref": "#/definitions/schema", "default": {} }
     #     return ConfigurationSpec(
     #         configName,
     #         spec["operation"],

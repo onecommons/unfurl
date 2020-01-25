@@ -8,7 +8,7 @@ mitogen==0.2.7 # BSD 3-clause
 openshift # Apache 2.0
 click==7.0 # BSD 3-clause
 click-log  # MIT
-jsonschema[format_nongpl] # MIT
+jsonschema[format_nongpl]==3.2 # MIT
 ruamel.yaml>=0.15.37 # MIT
 gitpython # BSD
 -r tosca-parser/requirements.txt # Apache 2.0

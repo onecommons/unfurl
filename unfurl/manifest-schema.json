@@ -30,13 +30,12 @@
       "title": "atomic",
       "description": "indicates these properties must be set all at once or replaced",
       "type": "object",
-      "properties": {},
       "$$target": "#/definitions/atomic"
     },
     "namedObjects": {
       "title": "namedObject",
       "type": "object",
-      "description": "constrains the objects property names",
+      "description": "constrains how properties are named",
       "propertyNames": { "pattern": "^[A-Za-z_][A-Za-z0-9_\\-]*$" },
       "$$target": "#/definitions/namedObjects"
     },
@@ -96,25 +95,30 @@
               "$ref": "#/definitions/attributes",
               "default": {}
             },
-            "instances": {
-              "allOf": [
-                { "$ref": "#/definitions/namedObjects" },
-                {
-                  "additionalProperties": {
-                    "$ref": "#/definitions/instance"
-                  }
-                }
-              ],
-              "default": {}
-            }
+            "instances": { "$ref": "#/definitions/instances" },
+            "capabilities": { "$ref": "#/definitions/instances" },
+            "requirements": { "$ref": "#/definitions/instances" },
+            "imported": { "type": "string" }
           }
         },
         { "$ref": "#/definitions/status" }
       ],
       "$$target": "#/definitions/instance"
     },
+    "instances": {
+      "title": "instances",
+      "$$target": "#/definitions/instances",
+      "allOf": [
+        { "$ref": "#/definitions/namedObjects" },
+        {
+          "additionalProperties": {
+            "$ref": "#/definitions/instance"
+          }
+        }
+      ]
+    },
     "status": {
-      "title": "status",
+      "title": "Status",
       "$$target": "#/definitions/status",
       "type": "object",
       "properties": {
@@ -137,31 +141,83 @@
       "type": "number",
       "$$target": "#/definitions/changeId"
     },
+    "timestamp": {
+      "title": "Timestamp",
+      "$$target": "#/definitions/timestamp",
+      "type": "string",
+      "format": "date-time"
+    },
+    "version": {
+      "title": "Generic Version Identifier",
+      "$$target": [
+        "#/definitions/version",
+        "./manifest-schema.json#/definitions/version"
+      ],
+      "anyOf": [{ "type": "string" }, { "type": "number" }]
+    },
     "configurationSpec": {
-      "title": "configuration spec",
+      "title": "implementation definition",
       "type": "object",
       "properties": {
+        "operation": { "type": "string" },
         "className": { "type": "string" },
-        "majorVersion": {
-          "anyOf": [{ "type": "string" }, { "type": "number" }]
-        },
-        "minorVersion": { "type": "string" },
-        "workflow": { "type": "string" },
-        "inputs": { "$ref": "#/definitions/attributes", "default": {} },
-        "preconditions": { "$ref": "#/definitions/schema", "default": {} }
+        "majorVersion": { "$ref": "#/definitions/version" },
+        "minorVersion": { "type": "string" }
       },
       "required": ["className"],
       "$$target": "#/definitions/configurationSpec"
     },
-    "configurationStatus": {
-      "title": "configuration status",
-      "$$target": "#/definitions/configurationStatus",
+    "changes": {
+      "title": "Changes",
+      "description": "change log entry",
+      "$$target": [
+        "#/definitions/changes",
+        "./manifest-schema.json#/definitions/changes"
+      ],
+      "type": "array",
+      "additionalItems": {
+        "oneOf": [
+          { "$ref": "#/definitions/job" },
+          { "$ref": "#/definitions/task" }
+        ]
+      }
+    },
+    "job": {
+      "title": "Job Record",
+      "$$target": "#/definitions/job",
       "type": "object",
       "allOf": [
         { "$ref": "#/definitions/status" },
         {
           "properties": {
-            "inputs": { "$ref": "#/definitions/attributes", "default": {} },
+            "jobId": { "$ref": "#/definitions/changeId" },
+            "startCommit": { "type": "string" },
+            "startTime": { "$ref": "#/definitions/timestamp" },
+            "workflow": { "type": "string" },
+            "options": { "type": "object" },
+            "summary": { "type": "string" },
+            "specDigest": { "type": "string" },
+            "lastChangeId": { "$ref": "#/definitions/changeId" },
+            "endCommit": { "type": "string" }
+          }
+        }
+      ],
+      "required": ["jobId"]
+    },
+    "task": {
+      "title": "Task Record",
+      "$$target": "#/definitions/task",
+      "type": "object",
+      "allOf": [
+        {
+          "properties": {
+            "changeId": { "$ref": "#/definitions/changeId" },
+            "parentId": { "$ref": "#/definitions/changeId" },
+            "target": { "type": "string" },
+            "implementation": {
+              "$ref": "#/definitions/configurationSpec"
+            },
+            "inputs": { "$ref": "#/definitions/attributes" },
             "changes": {
               "allOf": [
                 { "$ref": "#/definitions/namedObjects" },
@@ -185,37 +241,16 @@
                   "required": { "type": "boolean" }
                 }
               }
-            }
-          }
-        }
-      ]
-    },
-    "changes": {
-      "title": "Change",
-      "description": "change log entry",
-      "$$target": [
-        "#/definitions/changes",
-        "./manifest-schema.json#/definitions/changes"
-      ],
-      "type": "array",
-      "additionalItems": {
-        "type": "object",
-        "allOf": [
-          { "$ref": "#/definitions/status" },
-          { "$ref": "#/definitions/configurationStatus" },
-          {
-            "properties": {
-              "parentId": { "$ref": "#/definitions/changeId" },
-              "commitId": { "type": "string" },
-              "startTime": { "type": "string" },
-              "implementation": {
-                "$ref": "#/definitions/configurationSpec"
-              }
             },
-            "required": ["changeId"]
-          }
-        ]
-      }
+            "messages": { "type": "array" },
+            "result": {
+              "oneOf": [{ "enum": ["skipped"] }, { "type": "object" }]
+            }
+          },
+          "required": ["changeId"]
+        },
+        { "$ref": "#/definitions/status" }
+      ]
     }
   },
   "type": "object",
@@ -241,6 +276,7 @@
             {
               "properties": {
                 "service_template": {
+                  "description": "a TOSCA service template",
                   "type": "object"
                 }
               }
@@ -248,6 +284,7 @@
             {
               "properties": {
                 "node_templates": {
+                  "description": "TOSCA nodes templates",
                   "type": "object"
                 }
               }
@@ -256,11 +293,7 @@
         },
         {
           "properties": {
-            "inputs": { "$ref": "#/definitions/attributes" }
-          }
-        },
-        {
-          "properties": {
+            "inputs": { "$ref": "#/definitions/attributes" },
             "instances": { "$ref": "#/definitions/namedObjects" }
           }
         }
@@ -274,23 +307,14 @@
             "topology": { "type": "string" },
             "inputs": { "$ref": "#/definitions/attributes" },
             "outputs": { "$ref": "#/definitions/attributes" },
-            "instances": {
-              "allOf": [
-                { "$ref": "#/definitions/namedObjects" },
-                {
-                  "additionalProperties": {
-                    "$ref": "#/definitions/instance"
-                  }
-                }
-              ]
-            }
+            "instances": { "$ref": "#/definitions/instances" }
           }
         },
         { "$ref": "#/definitions/status" }
       ],
       "default": {}
     },
-    "latestChange": { "type": "object" },
+    "latestChange": { "$ref": "#/definitions/job" },
     "changeLog": { "type": "string" },
     "changes": { "$ref": "#/definitions/changes" }
   },
