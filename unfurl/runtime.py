@@ -365,6 +365,16 @@ class EntityInstance(OperationalInstance, ResourceRef):
         # attribute class getter resolves references
         return self.root.attributeManager.getAttributes(self)
 
+    def __eq__(self, other):
+        if self is other:
+            return True
+        if self.__class__ != other.__class__:
+            return False
+        if not self.lastChange:
+            # only support equality if resource has a changeid
+            return False
+        return self.lastChange == other.lastChange and self.key == other.key
+
 
 # both have occurrences
 # only need to configure capabilities as required by a relationship
@@ -498,8 +508,12 @@ class NodeInstance(EntityInstance):
 
         return self._requirements
 
-    def getRequirements(self, name):
-        return [r for r in self.requirements if r.template.name == name]
+    def getRequirements(self, match):
+        if isinstance(match, six.string_types):
+            return [r for r in self.requirements if r.template.name == match]
+        else:
+            # assume it's a nodeinstance
+            return [r for r in self.requirements if r.target == match]
 
     @property
     def capabilities(self):
@@ -603,16 +617,6 @@ class NodeInstance(EntityInstance):
                 self._interfaces[name] = instance
                 return instance
         return None
-
-    def __eq__(self, other):
-        if self is other:
-            return True
-        if not isinstance(other, NodeInstance):
-            return False
-        if not self.lastChange:
-            # only support equality if resource has a changeid
-            return False
-        return self.name == other.name and self.lastChange == other.lastChange
 
     def __repr__(self):
         return "NodeInstance('%s')" % self.name

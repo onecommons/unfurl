@@ -347,10 +347,43 @@ class TaskView(object):
             self._inputs = ResultsMap(inputs, RefContext(self.target, vars))
         return self._inputs
 
+    def _findRelationshipEnvVars(self):
+        """
+        We look for instances the implementation might to connect to
+        and see if the operation host has any environment variables set by connections
+        the operation host has to those instances.
+        For example, an implementation whose target is a Kubernetes cluster hosted on GCP
+        might need KUBECONFIG and GOOGLE_APPLICATION_CREDENTIALS set
+        """
+        env = {}
+        if not self.operationHost:
+            return env
+        for parent in reversed(self.target.ancestors):
+            # use reversed() so nearer overrides farther
+            for rel in self.operationHost.getRequirements(parent):
+                # XXX propdef.
+                for propdef in rel.template.attributeDefs.values():
+                    if propdef.schema["type"] == "unfurl.dataypes.EnvVar":
+                        val = rel.attributes.get(propdef.name)
+                        if val is not None:
+                            env[propdef.name] = val
+                    # XXX
+                    # elif (
+                    #     propdef.schema['type'] == "map"
+                    #     and propdef.entry_schema.type == "unfurl.dataypes.EnvVar"
+                    # ):
+                    #     for key, val in rel.attributes[propdef.name].items():
+                    #         if val is not None:
+                    #             env[key] = val
+                    # elif propdef.datatype.properties or propdef.entry_schematype.properties:
+                    #    recurse
+        return env
+
     @property
     def environ(self):
         if self._environ is None:
             env = self.configSpec.environment.getSystemVars()
+            env.update(self._findRelationshipEnvVars())
             specvars = serializeValue(
                 mapValue(self.configSpec.environment.vars, self.inputs.context),
                 resolveExternal=True,

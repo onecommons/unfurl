@@ -47,6 +47,8 @@ node_types:
     properties:
       connection:
         type: map
+        entry_schema:
+          type: unfurl.datatypes.EnvVar
         required: false
        # any K8S_AUTH_* in https://docs.ansible.com/ansible/latest/modules/k8s_module.html#k8s-module
        # or if not specified checks in cluster KUBERNETES_SERVICE_HOST, KUBERNETES_SERVICE_PORT and /var/run/secrets/kubernetes.io/serviceaccount/
@@ -145,6 +147,12 @@ node_types:
 
   unfurl.nodes.k8sSecretResource:
     derived_from: unfurl.nodes.K8sResource
+
+data_types:
+  unfurl.datatypes.EnvVar:
+    derived_from: tosca.datatypes.Root
+    type: string
+    description: The value of an environment variable whose name matches the property's name
 
 capability_types:
   unfurl.capabilities.Installer:

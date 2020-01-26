@@ -21,7 +21,7 @@ kind: Manifest
 spec:
   inputs:
     cpus: 2
-  tosca:
+  service_template:
     node_types:
       testy.nodes.aNodeType:
         derived_from: tosca.nodes.Root
@@ -30,6 +30,10 @@ spec:
             type: string
             metadata:
               sensitive: true
+          TEST_VAR:
+            type: unfurl.datatypes.EnvVar
+          access_token:
+            type: tosca.datatypes.Credential
     topology_template:
       inputs:
         cpus:
@@ -49,6 +53,11 @@ spec:
           type: testy.nodes.aNodeType
           properties:
             private_address: foo
+            TEST_VAR: foo
+            access_token:
+              protocol: xauth
+              token_type: X-Auth-Token
+              token: 604bbe45ac7143a79e14f3158df67091
           interfaces:
            Standard:
             create:
@@ -88,9 +97,13 @@ class ToscaSyntaxTest(unittest.TestCase):
         manifest = YamlManifest(manifestDoc)
         job = Runner(manifest).run(JobOptions(add=True, startTime="time-to-test"))
         assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
-        assert (
-            manifest.getRootResource().findResource("my_server").attributes["test"]
-        ), "cpus: 2"
+        my_server = manifest.getRootResource().findResource("my_server")
+        assert my_server.attributes["test"], "cpus: 2"
+        # print(job.out.getvalue())
+        testSensitive = manifest.getRootResource().findResource("testSensitive")
+        for name, type in (("access_token", "tosca.datatypes.Credential"),
+                                      ("TEST_VAR", "unfurl.datatypes.EnvVar")):
+          assert testSensitive.template.attributeDefs[name].schema['type'] == type
         outputIp = job.getOutputs()["server_ip"]
         assert outputIp, "10.0.0.1"
         assert isinstance(outputIp, sensitive_str)

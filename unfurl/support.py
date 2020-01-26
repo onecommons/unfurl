@@ -573,7 +573,8 @@ class AttributeManager(object):
                     resource._attributes[key] = value
                 elif key not in specd or value.hasDiff():
                     # value is a Result and it is either new or different from the original value, so save
-                    defMeta = key in defs and defs[key].schema.get("metadata", {}) or {}
+                    defSchema = (key in defs and defs[key].schema) or {}
+                    defMeta = defSchema.get("metadata", {})
 
                     # XXX if defMeta.get('immutable') and key in specd:
                     #  error('value of attribute "%s" changed but is marked immutable' % key)

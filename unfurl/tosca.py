@@ -13,6 +13,7 @@ from .util import UnfurlValidationError
 from .eval import Ref
 from .yamlloader import resolveIfInRepository
 from toscaparser.tosca_template import ToscaTemplate
+from toscaparser.properties import Property
 from toscaparser.elements.entity_type import EntityType
 import toscaparser.workflow
 import toscaparser.imports
@@ -218,20 +219,24 @@ class EntitySpec(object):
         # nodes have both properties and attributes
         # as do capability properties and relationships
         # but only property values are declared
+        self.attributeDefs = toscaNodeTemplate.get_properties()
         self.properties = {
-            prop.name: prop.value for prop in toscaNodeTemplate.get_properties_objects()
+            prop.name: prop.value for prop in self.attributeDefs.values()
         }
         if toscaNodeTemplate.type_definition:
-            attrDefs = toscaNodeTemplate.type_definition.get_attributes_def_objects()
+            # add attributes definitions
+            attrDefs = toscaNodeTemplate.type_definition.get_attributes_def()
             self.defaultAttributes = {
-                prop.name: prop.default for prop in attrDefs if prop.default is not None
+                prop.name: prop.default
+                for prop in attrDefs.values()
+                if prop.default is not None
             }
-            propDefs = toscaNodeTemplate.type_definition.get_properties_def()
-            propDefs.update(toscaNodeTemplate.type_definition.get_attributes_def())
-            self.attributeDefs = propDefs
+            for name, aDef in attrDefs.items():
+                self.attributeDefs[name] = Property(
+                    name, aDef.default, aDef.schema, toscaNodeTemplate.custom_def
+                )
         else:
             self.defaultAttributes = {}
-            self.attributeDefs = {}
 
     def getInterfaces(self):
         return self.toscaEntityTemplate.interfaces

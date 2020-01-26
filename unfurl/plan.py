@@ -46,6 +46,7 @@ class Plan(object):
     def findShadowInstance(self, template, match):
         for name, value in self.root.imports.items():
             external = value.resource
+            # XXX if external is a Relationship and template isn't, get it's target template
             if getattr(external.template, match) == getattr(template, match):
                 if external.shadow and external.root is self.root:
                     # shadowed instance already created
