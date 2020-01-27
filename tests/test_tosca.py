@@ -32,6 +32,10 @@ spec:
               sensitive: true
           TEST_VAR:
             type: unfurl.datatypes.EnvVar
+          vars:
+            type: map
+            entry_schema:
+              type: unfurl.datatypes.EnvVar
           access_token:
             type: tosca.datatypes.Credential
     topology_template:
@@ -54,6 +58,8 @@ spec:
           properties:
             private_address: foo
             TEST_VAR: foo
+            vars:
+              VAR1: more
             access_token:
               protocol: xauth
               token_type: X-Auth-Token
@@ -101,9 +107,15 @@ class ToscaSyntaxTest(unittest.TestCase):
         assert my_server.attributes["test"], "cpus: 2"
         # print(job.out.getvalue())
         testSensitive = manifest.getRootResource().findResource("testSensitive")
-        for name, type in (("access_token", "tosca.datatypes.Credential"),
-                                      ("TEST_VAR", "unfurl.datatypes.EnvVar")):
-          assert testSensitive.template.attributeDefs[name].schema['type'] == type
+        for name, type in (
+            ("access_token", "tosca.datatypes.Credential"),
+            ("TEST_VAR", "unfurl.datatypes.EnvVar"),
+        ):
+            assert testSensitive.template.attributeDefs[name].schema["type"] == type
+        def t(datatype):
+            return datatype.type == "unfurl.datatypes.EnvVar"
+        envvars = list(testSensitive.template.findProps(testSensitive.attributes, t))
+        self.assertEqual(envvars, [('TEST_VAR', 'foo'), ('VAR1', 'more')])
         outputIp = job.getOutputs()["server_ip"]
         assert outputIp, "10.0.0.1"
         assert isinstance(outputIp, sensitive_str)

@@ -361,22 +361,10 @@ class TaskView(object):
         for parent in reversed(self.target.ancestors):
             # use reversed() so nearer overrides farther
             for rel in self.operationHost.getRequirements(parent):
-                # XXX propdef.
-                for propdef in rel.template.attributeDefs.values():
-                    if propdef.schema["type"] == "unfurl.dataypes.EnvVar":
-                        val = rel.attributes.get(propdef.name)
-                        if val is not None:
-                            env[propdef.name] = val
-                    # XXX
-                    # elif (
-                    #     propdef.schema['type'] == "map"
-                    #     and propdef.entry_schema.type == "unfurl.dataypes.EnvVar"
-                    # ):
-                    #     for key, val in rel.attributes[propdef.name].items():
-                    #         if val is not None:
-                    #             env[key] = val
-                    # elif propdef.datatype.properties or propdef.entry_schematype.properties:
-                    #    recurse
+                t = lambda datatype: datatype.type == "unfurl.datatypes.EnvVar"
+                for name, val in rel.template.findProps(rel.attributes, t):
+                    if val is not None:
+                        env[name] = val
         return env
 
     @property

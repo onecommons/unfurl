@@ -210,6 +210,55 @@ class ToscaSpec(object):
 
 _defaultTopology = createDefaultTopology()
 
+
+def findProps(attributes, attributeDefs, matchfn):
+    if not attributes:
+        return
+    for propdef in attributeDefs.values():
+        if propdef.name not in attributes:
+            continue
+        match = matchfn(propdef.entry_schema_entity or propdef.entity)
+        if not propdef.entry_schema and not propdef.entity.properties:
+            # it's a simple value type
+            if match:
+                yield propdef.name, attributes[propdef.name]
+            continue
+
+        if not propdef.entry_schema:
+            # it's complex datatype
+            value = attributes[propdef.name]
+            if match:
+                yield propdef.name, value
+            elif value:
+                # descend into its properties
+                for name, v in findProps(value, propdef.entity.properties, matchfn):
+                    yield name, v
+            continue
+
+        properties = propdef.entry_schema_entity.properties
+        if not match and not properties:
+            # entries are simple value types and didn't match
+            continue
+
+        value = attributes[propdef.name]
+        if not value:
+            continue
+        if propdef.type == "map":
+            for key, val in value.items():
+                if match:
+                    yield key, val
+                elif properties:
+                    for name, v in findProps(val, properties, matchfn):
+                        yield name, v
+        elif propdef.type == "list":
+            for val in value:
+                if match:
+                    yield None, val
+                elif properties:
+                    for name, v in findProps(val, properties, matchfn):
+                        yield name, v
+
+
 # represents a node, capability or relationship
 class EntitySpec(object):
     def __init__(self, toscaNodeTemplate):
@@ -265,6 +314,10 @@ class EntitySpec(object):
     @property
     def abstract(self):
         return None
+
+    def findProps(self, attributes, matchfn):
+        for name, val in findProps(attributes, self.attributeDefs, matchfn):
+            yield name, val
 
 
 class NodeSpec(EntitySpec):
