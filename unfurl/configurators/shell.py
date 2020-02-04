@@ -117,14 +117,14 @@ class ShellConfigurator(Configurator):
                 return Status.error
         return status
 
-    def cantRun(self, task):
+    def canRun(self, task):
         params = task.inputs
         cmd = params.get("command")
         if not cmd:
             return "missing command to execute"
         if isinstance(cmd, list) and not params.get("shell") and not which(cmd[0]):
             return "'%s' is not executable" % cmd[0]
-        return False
+        return True
 
     def run(self, task):
         params = task.inputs

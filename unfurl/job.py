@@ -550,14 +550,14 @@ class Job(ConfigChange):
                     if preErrors:
                         reason = "invalid preconditions: %s" % str(preErrors)
                     else:
-                        errors = task.configurator.cantRun(task)
-                        if errors:
+                        errors = task.configurator.canRun(task)
+                        if not errors or not isinstance(errors, bool):
                             reason = "configurator declined: %s" % str(errors)
                         else:
                             canRun = True
         except Exception:
-            UnfurlTaskError(task, "cantRun failed unexpectedly", True)
-            reason = "unexpected exception in cantRun"
+            UnfurlTaskError(task, "cantRunTask failed unexpectedly", True)
+            reason = "unexpected exception in cantRunTask"
             canRun = False
         finally:
             if canRun:

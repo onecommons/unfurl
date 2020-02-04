@@ -8,7 +8,7 @@ import datetime
 
 class TestConfigurator(Configurator):
     def run(self, task):
-        assert not self.cantRun(task)
+        assert self.canRun(task)
         attributes = task.target.attributes
         attributes["copyOfMeetsTheRequirement"] = attributes["meetsTheRequirement"]
         params = attributes

@@ -254,7 +254,7 @@ class Configurator(object):
         on the :obj:`task.target`.
 
         Args:
-            task (:class:`TaskView`) The task current running.
+            task (:class:`TaskView`) The task currently running.
 
         Yields:
             Should yield either a :class:`JobRequest`, :class:`TaskRequest`
@@ -264,23 +264,31 @@ class Configurator(object):
 
     def canDryRun(self, task):
         """
-        Called when dry run call.
-        If a configurator supports dry-run it should return True here and make sure it checks whether `task.dryRun` in run.
+        Returns whether this configurator can handle a dry-runs for the given task.
+        (And should check `task.dryRun` in during run()"".
 
         Args:
-            task (:obj:`TaskView`) The task current running.
+            task (:obj:`TaskView`) The task about to be run.
+
+        Returns:
+            bool
         """
         return False
 
-    def cantRun(self, task):
+    def canRun(self, task):
         """
+    Return whether or not the configurator can execute the given task.
+
     Does this configurator support the requested action and parameters
-    given the current state of the resource?
-    (e.g. can we upgrade from the previous configuration?)
+    and given the current state of the target instance?
 
-    Returns False or an error message (list or string)
+    Args:
+        task (:class:`TaskView`) The task that is about to be run.
+
+    Returns:
+        (bool or str): Should return True or a message describing why the task couldn't be run.
     """
-        return False
+        return True
 
     def shouldRun(self, task):
         """Does this configuration need to be run?"""

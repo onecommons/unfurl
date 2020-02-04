@@ -23,7 +23,7 @@ def createUnrelatedRepo(gitDir):
 
 class AConfigurator(Configurator):
     def run(self, task):
-        assert not self.cantRun(task)
+        assert self.canRun(task)
         yield task.done(True, Status.ok)
 
 
