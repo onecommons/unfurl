@@ -28,7 +28,6 @@ def option_group(*options):
 @click.pass_context
 @click.option(
     "--home",
-    default="",
     envvar="UNFURL_HOME",
     type=click.Path(exists=False),
     help="path to .unfurl home",
@@ -335,7 +334,7 @@ def git(ctx, gitargs, dir="."):
     """
 unfurl git --dir=/path/to/start [gitoptions] [gitcmd] [gitcmdoptions]: Runs command on each project repository.
 """
-    localEnv = LocalEnv(dir)
+    localEnv = LocalEnv(dir, ctx.obj.get("home"))
     repos = localEnv.getRepos()
     status = 0
     for repo in repos:

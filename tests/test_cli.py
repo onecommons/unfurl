@@ -6,6 +6,7 @@ from click.testing import CliRunner
 from unfurl.__main__ import cli
 from unfurl import __version__
 from unfurl.configurator import Configurator
+from unfurl.localenv import LocalEnv
 
 # python 2.7 needs these:
 from unfurl.configurators.shell import ShellConfigurator
@@ -166,6 +167,34 @@ class CliTest(unittest.TestCase):
             os.chdir(repoDir)
             with open("default-manifest.yaml", "w") as f:
                 f.write(manifest)
+
+            # make sure the test environment set UNFURL_HOME:
+            testHomePath = os.environ["UNFURL_HOME"]
+            assert testHomePath and testHomePath.endswith(
+                "/tmp/unfurl_home"
+            ), testHomePath
+
+            # empty UNFURL_HOME disables the home path
+            os.environ["UNFURL_HOME"] = ""
+            homePath = LocalEnv().homeConfigPath
+            assert not homePath, homePath
+
+            # no UNFURL_HOME and the default home path will be used
+            del os.environ["UNFURL_HOME"]
+            homePath = LocalEnv().homeConfigPath
+            assert homePath and homePath.endswith(".unfurl_home/unfurl.yaml"), homePath
+
+            # restore test environment's UNFURL_HOME
+            os.environ["UNFURL_HOME"] = testHomePath
+            homePath = LocalEnv().homeConfigPath
+            assert homePath and homePath.startswith(testHomePath), homePath
+
+            homePath = LocalEnv(homePath="").homeConfigPath
+            assert homePath is None, homePath
+
+            homePath = LocalEnv(homePath="override").homeConfigPath
+            assert homePath and homePath.endswith("/override/unfurl.yaml"), homePath
+
             result = runner.invoke(cli, ["-vvv", "deploy", "--jobexitcode", "degraded"])
             # uncomment this to see output:
             # print("result.output", result.exit_code, result.output)

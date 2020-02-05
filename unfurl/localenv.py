@@ -36,9 +36,14 @@ class Project(object):
   """
 
     def __init__(self, path, localEnv):
-        if os.path.isdir(path):
+        if not os.path.exists(path):
+            isdir = not path.endswith(".yml") and not path.endswith(".yaml")
+        else:
+            isdir = os.path.isdir(path)
+
+        if isdir:
             self.projectRoot = path
-            test = os.path.join(self.projectRoot, localEnv.DefaultLocalConfigName)
+            test = os.path.join(self.projectRoot, DefaultLocalConfigName)
             if os.path.exists(test):
                 self.localConfig = LocalConfig(
                     test, localEnv.homeProject and localEnv.homeProject.localConfig
@@ -262,14 +267,18 @@ class LocalEnv(object):
 
     homeProject = None
 
-    def __init__(self, manifestPath=None, homepath=None):
+    def __init__(self, manifestPath=None, homePath=None):
         """
     If manifestPath is None find the first .unfurl or manifest.yaml
     starting from the current directory.
+
+    If homepath is set it overrides UNFURL_HOME
+    (and an empty string disable the home path).
+    Otherwise the home path will be set to UNFURL_HOME or the default home location.
     """
-        # XXX need to save local config when changed
-        self.homeConfigPath = self.getHomeConfigPath(homepath)
-        self.homeProject = Project(self.homeConfigPath, self)
+        self.homeConfigPath = self.getHomeConfigPath(homePath)
+        if self.homeConfigPath:
+            self.homeProject = Project(self.homeConfigPath, self)
         self.manifestPath = None
         if manifestPath:
             # if manifestPath does not exist check project config
@@ -298,7 +307,11 @@ class LocalEnv(object):
 
         self.instanceRepo = self._getInstanceRepo()
         self.config = (
-            self.project and self.project.localConfig or self.homeProject.localConfig
+            self.project
+            and self.project.localConfig
+            or self.homeProject
+            and self.homeProject.localConfig
+            or LocalConfig()
         )
 
     # manifestPath specified
@@ -376,14 +389,25 @@ class LocalEnv(object):
             return None
 
     def getHomeConfigPath(self, homepath):
+        # if homepath is explicitly it overrides UNFURL_HOME
+        # (set it to empty string to disable the homepath)
+        # otherwise use UNFURL_HOME or the default location
+        if homepath is None:
+            if "UNFURL_HOME" in os.environ:
+                homepath = os.getenv("UNFURL_HOME")
+            else:
+                homepath = os.path.join("~", DefaultHomeDirectory)
         if homepath:
-            if os.path.isdir(homepath):
+            homepath = os.path.expanduser(homepath)
+            if not os.path.exists(homepath):
+                isdir = not homepath.endswith(".yml") and not homepath.endswith(".yaml")
+            else:
+                isdir = os.path.isdir(homepath)
+            if isdir:
                 return os.path.abspath(os.path.join(homepath, DefaultLocalConfigName))
             else:
                 return os.path.abspath(homepath)
-        return os.path.expanduser(
-            os.path.join("~", DefaultHomeDirectory, DefaultLocalConfigName)
-        )
+        return None
 
     def getLocalResource(self, name, importSpec):
         if name != "local" and name != "secret":
@@ -391,10 +415,13 @@ class LocalEnv(object):
         return self.config.getLocalResource(self.manifestPath, name, importSpec)
 
     def findGitRepo(self, repoURL, isFile=True, revision=None):
+        repo = None
         if self.project:
             repo = self.project.findGitRepo(repoURL, revision)
-            if not repo:
+        if not repo:
+            if self.homeProject:
                 return self.homeProject.findGitRepo(repoURL, revision)
+        return repo
 
     def findOrCreateWorkingDir(
         self, repoURL, isFile=True, revision=None, basepath=None
@@ -407,7 +434,10 @@ class LocalEnv(object):
                 project = self.project
             else:
                 project = self.homeProject
-            repo = project.createWorkingDir(repoURL, revision, basepath)
+            if project:
+                repo = project.createWorkingDir(repoURL, revision, basepath)
+        if not repo:
+            return None, None, None, None
         return (
             repo,
             repo.workingDir,
@@ -417,6 +447,7 @@ class LocalEnv(object):
 
     def findPathInRepos(self, path, importLoader=None):
         candidate = None
+        repo = None
         if self.project:
             repo, filePath, revision, bare = self.project.findPathInRepos(
                 path, importLoader
@@ -427,9 +458,10 @@ class LocalEnv(object):
                 else:
                     candidate = (repo, filePath, revision, bare)
 
-        repo, filePath, revision, bare = self.homeProject.findPathInRepos(
-            path, importLoader
-        )
+        if self.homeProject:
+            repo, filePath, revision, bare = self.homeProject.findPathInRepos(
+                path, importLoader
+            )
         if repo:
             if bare and candidate:
                 return candidate
