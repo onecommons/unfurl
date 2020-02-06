@@ -241,14 +241,19 @@ class Manifest(AttributeManager):
     def _createEntityInstance(self, ctor, name, status, parent):
         operational = self.loadStatus(status)
         templateName = status.get("template", name)
-        imported = status.get("imported")
-        if imported:
-            if imported not in self.imports:
-                raise UnfurlError("missing import %s" % imported)
-            anImport = self.imports[imported]
-            template = anImport.resource.template
+
+        imported = None
+        importName = status.get("imported")
+        if importName is not None:
+            imported = self.imports.findImport(importName)
+            if not imported:
+                raise UnfurlError("missing import %s" % importName)
+            if imported.shadow:
+                raise UnfurlError("already imported %s" % importName)
+            template = imported.template
         else:
             template = self.loadTemplate(templateName)
+
         if template is None:
             # not defined in the current model any more, try to retrieve the old version
             if operational.lastConfigChange:
@@ -257,10 +262,10 @@ class Manifest(AttributeManager):
         if template is None:
             raise UnfurlError("missing resource template %s" % templateName)
         logger.debug("template %s: %s", templateName, template)
+
         instance = ctor(name, status.get("attributes"), parent, template, operational)
-        imported = status.get("imported")
         if imported:
-            self.imports.setShadow(imported, instance)
+            self.imports.setShadow(importName, instance)
         return instance
 
     def findRepoFromGitUrl(self, path, isFile=True, importLoader=None, willUse=False):

@@ -357,11 +357,14 @@ class TaskView(object):
 
     def _findRelationshipEnvVars(self):
         """
-        We look for instances the implementation might to connect to
-        and see if the operation host has any environment variables set by connections
-        the operation host has to those instances.
-        For example, an implementation whose target is a Kubernetes cluster hosted on GCP
-        might need KUBECONFIG and GOOGLE_APPLICATION_CREDENTIALS set
+        We look for instances that the task's implementation might to connect to
+        (by following the targets hostedOn relationships)
+        and check if the operation_host has any relationships with those instances too.
+        If it does, collect any environment variables set by those connections.
+
+        For example, consider an implementation whose target is a Kubernetes cluster hosted on GCP.
+        The operation_host's connections to those instances might set KUBECONFIG and GOOGLE_APPLICATION_CREDENTIALS
+        respectively and the implementation will probably need both those set when it executes.
         """
         env = {}
         if not self.operationHost:
@@ -434,7 +437,7 @@ class TaskView(object):
     def _findOperationHost(self, target, operation_host):
         # SELF, HOST, ORCHESTRATOR, SOURCE, TARGET
         if not operation_host or operation_host in ["localhost", "ORCHESTRATOR"]:
-            return None
+            return target.root.imports.findImport("localhost")
         if operation_host == "SELF":
             return target
         if operation_host == "HOST":

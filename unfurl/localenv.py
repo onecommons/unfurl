@@ -200,8 +200,10 @@ defaults: # used if the manifest isn't defined above
 
     def getLocalResource(self, manifestPath, localName, importSpec):
         """
-    localName is either 'local' or 'secret'
-    """
+        manifestPath (str): The currently loading manifest
+        localName (str): Local name for the imported resource; either 'localhost', 'local' or 'secret'
+        importSpec (dict): Metadata about the imported manifest; will be updated if necessary.
+        """
         from .runtime import NodeInstance
 
         localRepo = None
@@ -245,7 +247,6 @@ defaults: # used if the manifest isn't defined above
             else:
                 # the local or secret is a resource defined in a local manifest
                 # set the url and resource name so the importing manifest loads it
-                # XXX but should load here and save for re-use
                 importSpec.update(localRepo)
                 if "file" in localRepo:
                     importSpec["file"] = self.adjustPath(localRepo["file"])
@@ -410,7 +411,7 @@ class LocalEnv(object):
         return None
 
     def getLocalResource(self, name, importSpec):
-        if name != "local" and name != "secret":
+        if name not in ["local", "localhost", "secret"]:
             return None
         return self.config.getLocalResource(self.manifestPath, name, importSpec)
 

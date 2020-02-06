@@ -315,6 +315,10 @@ class EntitySpec(object):
     def abstract(self):
         return None
 
+    @property
+    def directives(self):
+        return []
+
     def findProps(self, attributes, matchfn):
         for name, val in findProps(attributes, self.attributeDefs, matchfn):
             yield name, val
@@ -436,6 +440,10 @@ class NodeSpec(EntitySpec):
             if name in self.toscaEntityTemplate.directives:
                 return name
         return None
+
+    @property
+    def directives(self):
+        return self.toscaEntityTemplate.directives
 
 
 class RelationshipSpec(EntitySpec):

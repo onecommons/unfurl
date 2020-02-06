@@ -327,8 +327,10 @@ class YamlManifest(Manifest):
 
         importsSpec = manifest.get("imports", {})
         if localEnv:
+            # make sure these exist, localEnv will always add them
             importsSpec.setdefault("local", {})
             importsSpec.setdefault("secret", {})
+            importsSpec.setdefault("localhost", {})
         self.imports = self.loadImports(importsSpec)
 
         rootResource = self.createTopologyInstance(status)
@@ -595,6 +597,8 @@ class YamlManifest(Manifest):
                     imported[key] = importedManifest
 
                 rname = value.get("instance", "root")
+                if rname == "*":
+                    rname = "root"
                 resource = importedManifest.getRootResource().findResource(rname)
                 if "inheritHack" in value:  # set by getLocalResource() above
                     value["inheritHack"]._attributes["inheritFrom"] = resource

@@ -44,6 +44,7 @@ class Plan(object):
             self.filterTemplate = None
 
     def findShadowInstance(self, template, match):
+        searchAll = []
         for name, value in self.root.imports.items():
             external = value.resource
             # XXX if external is a Relationship and template isn't, get it's target template
@@ -53,21 +54,28 @@ class Plan(object):
                     return external
                 else:
                     return self.createShadowInstance(external, name)
+            if value.spec.get("instance") == "*":
+                searchAll.append((name, value.resource))
+
+        # look in the topologies where were are importing everything
+        for name, root in searchAll:
+            for external in root.getSelfAndDescendents():
+                if getattr(external.template, match) == getattr(template, match):
+                    return self.createShadowInstance(external, name)
+
         return None
 
-    def createShadowInstance(self, external, importName=None):
-        if not importName and external.name in self.root.imports:
-            raise UnfurlError(
-                'Can not add external resource "%s" to imports, name already used'
-                % external.name
-            )
-        name = importName or external.name
+    def createShadowInstance(self, external, importName):
+        if self.root.imports[importName].resource is external:
+            name = importName
+        else:
+            name = importName + ":" + external.name
 
-        if external.parent and external.parent is not external.root:
+        if external.parent and external.parent.parent:
             # assumes one-to-one correspondence instance and template
             parent = self.findShadowInstance(external.parent.template, "name")
             if not parent:  # parent wasn't in imports, add it now
-                parent = self.createShadowInstance(external.parent)
+                parent = self.createShadowInstance(external.parent, importName)
         else:
             parent = self.root
 
@@ -75,6 +83,7 @@ class Plan(object):
             name, external.attributes, parent, external.template
         )
         shadowInstance.shadow = external
+        # Imports.__setitem__ will add or update:
         self.root.imports[name] = shadowInstance
         return shadowInstance
 

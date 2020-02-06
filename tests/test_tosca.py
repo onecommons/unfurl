@@ -112,10 +112,12 @@ class ToscaSyntaxTest(unittest.TestCase):
             ("TEST_VAR", "unfurl.datatypes.EnvVar"),
         ):
             assert testSensitive.template.attributeDefs[name].schema["type"] == type
+
         def t(datatype):
             return datatype.type == "unfurl.datatypes.EnvVar"
-        envvars = list(testSensitive.template.findProps(testSensitive.attributes, t))
-        self.assertEqual(envvars, [('TEST_VAR', 'foo'), ('VAR1', 'more')])
+
+        envvars = set(testSensitive.template.findProps(testSensitive.attributes, t))
+        self.assertEqual(envvars, set([("TEST_VAR", "foo"), ("VAR1", "more")]))
         outputIp = job.getOutputs()["server_ip"]
         assert outputIp, "10.0.0.1"
         assert isinstance(outputIp, sensitive_str)
@@ -187,7 +189,7 @@ kind: Manifest
 imports:
  foreign:
     file:  foreignmanifest.yaml
-    instance: anInstance
+    instance: "*"  # this is the default
 spec:
   service_template:
     imports:
@@ -195,7 +197,7 @@ spec:
     topology_template:
       outputs:
         server_ip:
-          value: {eval: "::foreign::private_address"}
+          value: {eval: "::foreign:anInstance::private_address"}
       node_templates:
         abstract:
           type: test.nodes.AbstractTest
@@ -215,10 +217,12 @@ spec:
 
             manifest = YamlManifest(localEnv=LocalEnv("manifest.yaml"))
             job = Runner(manifest).run(JobOptions(add=True, startTime="time-to-test"))
-            # print(output.getvalue())
+            # print(job.out.getvalue())
+            # print(job.jsonSummary())
             assert job.status == Status.ok, job.summary()
             self.assertEqual(
-                job.jsonSummary()["tasks"], [["foreign:Install.check:check:1", "ok"]]
+                job.jsonSummary()["tasks"],
+                [["foreign:anInstance:Install.check:check:1", "ok"]],
             )
             self.assertEqual(job.getOutputs()["server_ip"], "10.0.0.1")
 
@@ -227,7 +231,9 @@ spec:
             # test that restored manifest create a shadow instance for the foreign instance
             imported = manifest2.imports["foreign"].resource
             assert imported
-            assert imported.shadow
-            self.assertIs(imported.root, manifest2.getRootResource())
-            self.assertEqual(imported.attributes["private_address"], "10.0.0.1")
-            self.assertIsNot(imported.shadow.root, manifest2.getRootResource())
+            imported2 = manifest2.imports.findImport("foreign:anInstance")
+            assert imported2
+            assert imported2.shadow
+            self.assertIs(imported2.root, manifest2.getRootResource())
+            self.assertEqual(imported2.attributes["private_address"], "10.0.0.1")
+            self.assertIsNot(imported2.shadow.root, manifest2.getRootResource())

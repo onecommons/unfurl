@@ -133,7 +133,7 @@ class CliTest(unittest.TestCase):
             result = runner.invoke(cli, ["run"])
             self.assertEqual(result.exit_code, 1, result)
             # XXX log handler is writing to the CliRunner's output stream
-            self.assertEqual(result.output.strip(), "Unable to create job")
+            self.assertIn("Unable to create job", result.output.strip())
 
             result = runner.invoke(cli, ["run", "--manifest", "missing.yaml"])
             assert "Manifest file does not exist" in str(result.exception)

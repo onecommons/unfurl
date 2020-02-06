@@ -329,6 +329,18 @@ setEvalFunc("external", getImport)
 class Imports(collections.OrderedDict):
     Import = collections.namedtuple("Import", ["resource", "spec"])
 
+    def findImport(self, name):
+        if name in self:
+            return self[name].resource
+        iName, sep, rName = name.partition(":")
+        if iName not in self:
+            return None
+        imported = self[iName].resource.findResource(rName or "root")
+        if imported:
+            # add for future reference
+            self[name] = imported
+        return imported
+
     def setShadow(self, key, instance):
         instance.shadow = self[key].resource
         self[key] = instance

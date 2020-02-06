@@ -170,7 +170,10 @@ class AnsibleConfigurator(Configurator):
         # XXX use host group instead of localhost depending on operation_host
         hosts = task.operationHost and task.operationHost.name or "localhost"
         if playbook and not "hosts" in playbook[0]:
-            return [dict(hosts=hosts, gather_facts=False, tasks=playbook)]
+            play = dict(hosts=hosts, gather_facts=False, tasks=playbook)
+            if hosts == "localhost":
+                play["connection"] = "local"
+            return [play]
         else:
             return playbook
 
