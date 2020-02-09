@@ -6,7 +6,11 @@ Unfurl lets you mix and match both declarative and imperative approaches in the 
 
 The core of an Unfurl project is a YAML manifest file that includes both a specification of the intended outcome and the status of the current live instances. The specification is defined using the TOSCA 1.2 OASIS standard ("Topology and Orchestration Specification for Cloud Applications") and the status is presented as an hierarchy of the operational status and attributes of live resources created, modified or observed by deploying and managing the project. 
 
-Unfurl maintains change log recording a history of the operations and changes that were applied to them.
+As illustrated in the figure below, the fundamental operation of Unfurl is to apply the specified configuration to a set of resources and record the results.
+
+Unfurl maintains a change log recording what operations were applied to which resources and how those resources where changed. The changes can also be committed to git automatically so that each commit represents an update to the state of the system.
+
+
 
 ![diagram](diagram1.svg)
 

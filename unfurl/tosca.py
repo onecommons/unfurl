@@ -1,12 +1,5 @@
 """
 TOSCA implementation
-
-Differences with TOSCA 1.1:
-
- * Entity type can allow properties that don't need to be declared
- * Added "any" datatype
- * Interface "implementation" values can be a node template name, and the corresponding
-   instance will be used to execute the operation.
 """
 from .tosca_plugins import TOSCA_VERSION
 from .util import UnfurlValidationError

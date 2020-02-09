@@ -28,7 +28,7 @@ logger = logging.getLogger("unfurl.task")
 
 class TaskRequest(object):
     """
-    Yield this to run a child task. (see :ref:`unfurl.configurator.TaskView.createSubTask`)
+    Yield this to run a child task. (see :py:meth:`unfurl.configurator.TaskView.createSubTask`)
     """
 
     def __init__(self, configSpec, resource, reason, persist=False, required=None):

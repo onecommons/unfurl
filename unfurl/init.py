@@ -1,15 +1,3 @@
-"""
-Project folder structure:
-
-project/spec/.git # has service-template.yaml and manifest-template.yaml
-        instances/current/.git # has manifest.yaml
-        # subprojects are created by repository declarations in spec or instance
-        subproject/spec/
-                  instances/current
-        # unfurl.yaml merges with ~/.unfurl_home/unfurl.yaml
-        unfurl.yaml # might create 'secret' or 'local' subprojects
-        revisions/...
-"""
 import uuid
 import os
 import os.path
@@ -174,10 +162,9 @@ spec:
 
 def createMultiRepoProject(projectdir):
     """
-  # creates .unfurl, project/specs/manifest-template.yaml, instances/current/manifest.yaml
-  # init git repos with initial commits
-  # adds ~/.unfurl_home/unfurl.yaml if missing
-  # add project to ~/.unfurl_home/unfurl.yaml
+  Creates a project folder with two git repositories:
+  a specification repository that contains "service-template.yaml" and "manifest-template.yaml" in a "spec" folder.
+  and an instance repository containing a "manifest.yaml" in a "instances/current" folder.
   """
     defaultManifestPath = os.path.join(
         projectdir, "instances", "current", "manifest.yaml"
@@ -192,7 +179,7 @@ def createMultiRepoProject(projectdir):
 
 def createMonoRepoProject(projectdir, repo):
     """
-    Creates a folder named `projectdir` with the following files:
+    Creates a folder named `projectdir` with a git repository with the following files:
 
     unfurl.yaml
     unfurl.local.example.yaml
@@ -245,7 +232,9 @@ def createProject(projectdir, home=None, mono=False, existing=False, **kw):
             raise UnfurlError("Could not find an existing repository")
     else:
         repo = None
+    # creates home if it doesn't exist already:
     newHome = createHome(home)
+    # XXX add project to ~/.unfurl_home/unfurl.yaml
     if mono or existing:
         if not repo:
             repo = _createRepo("mono", projectdir)

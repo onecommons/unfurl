@@ -15,9 +15,11 @@ Welcome to Unfurl's documentation!
 
    guide.md
 
-   api.rst
+   processing.rst
 
    jsonschema.rst
+
+   api.rst
 
 
 Indices and tables

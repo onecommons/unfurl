@@ -26,8 +26,9 @@ class ConfigChange(OperationalInstance, ChangeRecord):
   Represents a configuration change made to the system.
   It has a operating status and a list of dependencies that contribute to its status.
   There are two kinds of dependencies:
-    1. Live resource attributes that the configuration's inputs depend on.
-    2. Other configurations and resources it relies on to function properly.
+
+  1. Live resource attributes that the configuration's inputs depend on.
+  2. Other configurations and resources it relies on to function properly.
   """
 
     def __init__(self, status=None, **kw):

@@ -77,7 +77,9 @@ def initializeAnsible():
 
 initializeAnsible()
 
-VERSION = "unfurl/v1alpha1"  # XXX rename to api_version, to distinguish from __version__ and TOSCA_VERSION
+VERSION = (
+    "unfurl/v1alpha1"
+)  # XXX rename to api_version, to distinguish from __version__ and TOSCA_VERSION
 
 
 class UnfurlError(Exception):
@@ -338,9 +340,9 @@ class Generate(object):
 
         Usage:
 
-        >>  gen = Generate(generator())
-        >>  while gen():
-        >>    gen.result = yield gen.next
+        >>>  gen = Generate(generator())
+        >>>  while gen():
+        >>>    gen.result = yield gen.next
     """
 
     def __init__(self, generator):

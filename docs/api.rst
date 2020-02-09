@@ -1,29 +1,8 @@
-Merge directive
-================
-
-.. productionlist::
-     key            : "+"["?"]["include"][anchor][relative_path][absolute_path]
-     anchor         : "*"[PCHAR]*[PCHAR except "."]
-     relative_path  : "."+
-     absolute_path  : ["/" PCHAR*]+
-     PCHAR           : any printable character except "/"
-
-Expression syntax
-==================
-
-.. productionlist::
-     expr    : segment? ("::" segment)*
-     segment : [key] ("[" filter "]")* ["?"]
-     key     : name | integer | var | "*"
-     filter  : ['!'] [expr] [("!=" | "=") test]
-     test    : var | ([^$[]:?])+
-     var     : "$" name
-
 Python API
 ===================================
 
-.. automodule:: unfurl
-  :members:
+.. contents::
+    :depth: 2
 
 Manifest
 --------
@@ -46,6 +25,31 @@ Runtime
 Eval
 ----
 .. automodule:: unfurl.eval
+  :members:
+
+Support
+-------
+.. automodule:: unfurl.support
+  :members:
+
+Job
+-------
+.. automodule:: unfurl.job
+  :members:
+
+Plan
+-------
+.. automodule:: unfurl.plan
+  :members:
+
+Localenv
+--------
+.. automodule:: unfurl.localenv
+  :members:
+
+Init
+----
+.. automodule:: unfurl.init
   :members:
 
 Util

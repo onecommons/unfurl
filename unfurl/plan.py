@@ -277,7 +277,7 @@ class Plan(object):
 
     def generateConfiguration(self, operation, resource, reason=None, inputs=None):
         """implementation can either be a named artifact (including a python configurator class),
-        configurator node template, or a file path"""
+        or a file path"""
         interface, sep, action = operation.rpartition(".")
         iDef = self.findImplementation(interface, action, resource.template)
         if iDef and iDef.name != "default":
@@ -762,78 +762,78 @@ def findParentTemplate(source):
 
 
 # XXX!:
-def buildDependencyGraph():
-    """
-  We need to find each executed configuration that is affected by a configuration change
-  and re-execute them
-
-  dependencies map to inbound edges
-  lastConfigChange filters ConfigTasks
-  ConfigTasks.configurationResource dependencies are inbound
-  keys in ConfigTasks.changes map to a outbound edges to resources
-
-  Need to distinguish between runtime dependencies and configuration dependencies?
-  """
-
-
-def buildConfigChangedExecutionPlan():
-    """
-  graph = buildDependencyGraph()
-
-  We follow the edges if a resource's attributes or dependencies have changed
-  First we validate that we can execute the plan by validating configurationResource in the graph
-  If it validates, add to plan
-
-  After executing a task, only follow the dependent outputs that changed no need to follow those dependencies
-  """
-
-
-def validateNode(resource, expectedTemplateOrType):
-    """
-  First make sure the resource conforms to the expected template (type, properties, attributes, capabilities, requirements, etc.)
-  Then for each dependency that corresponds to a required relationship, call validateNode() on those resources with the declared type or template for the relationship
-  """
-
-
-def buildCreateExecutionPlan(self):
-    """
-  move Configurator nodes to separate list
-  start with root node template,
-  configuratorTemplate = find Configurator node for creation,
-  self.add(self.buildCreateExecutionPlan(configuratorTemplate))
-  return # that's all we need, the rest is dynamic, for each new resource, find Configurator for every missing capability and requirement
-  """
-
-
-def buildCreateStaticExecutionPlan(self):
-    """
-  Build a static plan by using the 'provides' property to estimate what the
-  configuration will create and then recursively find missing capabilities and requirements and then the configurators to run
-  """
-    start = self.buildCreateExecutionPlan(self.rootNodeTemplate)
-
-
-def buildUpgradeExecutionPlan():
-    """
-  Same as buildCreateExecutionPlan except look for existing resources
-  if it exists, see if it needs upgrading, if it doesn't then find create configurator
-  Upgrading:
-    compare resource with spec,
-    if different add configurators to replace exisiting configuration
-    for each requirement not in dependencies, add configurator
-    for each dependency on requirement, see if corresponding requirement in spec
-      if not, remove dependency
-      if it is, call buildUpgradeExecutionPlan on the target resource with the target node type or template
-  """
-
-
-def buildUpdateExecutionPlan():
-    """
-  Only apply updates that don't change the currently applied spec,
-  Starting with the start resource compare deployed artifacts and software nodes associate with it with current template
-  and if diffence is no more than a minor version bump,
-  retreive the old version of the topology that is associated with the appropriate configuredBy
-  and with it try to find and queue a configurator that can apply those changes.
-
-  For each resource dependency, call buildUpdateExecutionPlan().
-  """
+# def buildDependencyGraph():
+#     """
+#   We need to find each executed configuration that is affected by a configuration change
+#   and re-execute them
+#
+#   dependencies map to inbound edges
+#   lastConfigChange filters ConfigTasks
+#   ConfigTasks.configurationResource dependencies are inbound
+#   keys in ConfigTasks.changes map to a outbound edges to resources
+#
+#   Need to distinguish between runtime dependencies and configuration dependencies?
+#   """
+#
+#
+# def buildConfigChangedExecutionPlan():
+#     """
+#   graph = buildDependencyGraph()
+#
+#   We follow the edges if a resource's attributes or dependencies have changed
+#   First we validate that we can execute the plan by validating configurationResource in the graph
+#   If it validates, add to plan
+#
+#   After executing a task, only follow the dependent outputs that changed no need to follow those dependencies
+#   """
+#
+#
+# def validateNode(resource, expectedTemplateOrType):
+#     """
+#   First make sure the resource conforms to the expected template (type, properties, attributes, capabilities, requirements, etc.)
+#   Then for each dependency that corresponds to a required relationship, call validateNode() on those resources with the declared type or template for the relationship
+#   """
+#
+#
+# def buildCreateExecutionPlan(self):
+#     """
+#   move Configurator nodes to separate list
+#   start with root node template,
+#   configuratorTemplate = find Configurator node for creation,
+#   self.add(self.buildCreateExecutionPlan(configuratorTemplate))
+#   return # that's all we need, the rest is dynamic, for each new resource, find Configurator for every missing capability and requirement
+#   """
+#
+#
+# def buildCreateStaticExecutionPlan(self):
+#     """
+#   Build a static plan by using the 'provides' property to estimate what the
+#   configuration will create and then recursively find missing capabilities and requirements and then the configurators to run
+#   """
+#     start = self.buildCreateExecutionPlan(self.rootNodeTemplate)
+#
+#
+# def buildUpgradeExecutionPlan():
+#     """
+#   Same as buildCreateExecutionPlan except look for existing resources
+#   if it exists, see if it needs upgrading, if it doesn't then find create configurator
+#   Upgrading:
+#     compare resource with spec,
+#     if different add configurators to replace exisiting configuration
+#     for each requirement not in dependencies, add configurator
+#     for each dependency on requirement, see if corresponding requirement in spec
+#       if not, remove dependency
+#       if it is, call buildUpgradeExecutionPlan on the target resource with the target node type or template
+#   """
+#
+#
+# def buildUpdateExecutionPlan():
+#     """
+#   Only apply updates that don't change the currently applied spec,
+#   Starting with the start resource compare deployed artifacts and software nodes associate with it with current template
+#   and if diffence is no more than a minor version bump,
+#   retreive the old version of the topology that is associated with the appropriate configuredBy
+#   and with it try to find and queue a configurator that can apply those changes.
+#
+#   For each resource dependency, call buildUpdateExecutionPlan().
+#   """

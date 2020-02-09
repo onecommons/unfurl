@@ -3,7 +3,7 @@ Classes for managing the local environment.
 
 Repositories can optionally be organized into projects that have a local configuration.
 
-There is always a home project that contains the local secret instances.
+There is always a "home" project that contains the localhost instance.
 """
 import os
 import os.path
@@ -22,17 +22,8 @@ HiddenMarkerName = ".unfurl"
 
 class Project(object):
     """
-  A Unfurl project folder is a folder that contains
-
-  The spec and instance repo and an local configuration file (unfurl.yaml)
-
-  project/spec/.git # has template.yaml and manifest-template.yaml
-         instances/current/.git # has manifest.yaml
-          # subprojects are created by repository declarations in spec or instance
-          subproject/spec/
-                    instances/current
-          unfurl.yaml # might create 'secret' or 'local' subprojects
-          revisions/...
+  A Unfurl project is a folder that contains at least a local configuration file (unfurl.yaml),
+  one or more manifest.yaml files which maybe optionally organized into one or more git repositories.
   """
 
     def __init__(self, path, localEnv):
@@ -135,34 +126,12 @@ _basepath = os.path.abspath(os.path.dirname(__file__))
 
 class LocalConfig(object):
     """
-  The local configuration. Provides the environment that manifests run in:
-  instances imported from other ensembles, inputs, environment variables, secrets and local configuration.
+  Represents the local configuration file, which provides the environment that manifests run in, including:
+    instances imported from other ensembles, inputs, environment variables, secrets and local configuration.
 
-  - list of instance manifests with their local configuration
-  - the default local and secret instances
-
-unfurl:
-  version:
-
-manifests:
-  - file:
-    repository:
-    # default instance if there are multiple instances in that project
-    # (only applicable when config is local to a project)
-    default: True
-    environment:
-    local:
-      file: path
-      repository:
-      instance: root
-      # or:
-      attributes:
-        inheritFrom:
-    secret:
-
-defaults: # used if the manifest isn't defined above
- local:
- secret:
+  It consists of:
+  * a list of instance manifests with their local configuration
+  * the default local and secret instances
 """
 
     # XXX add list of projects to config
