@@ -373,6 +373,13 @@ class TaskView(object):
             # use reversed() so nearer overrides farther
             for rel in self.operationHost.getRequirements(parent):
                 t = lambda datatype: datatype.type == "unfurl.datatypes.EnvVar"
+                # examine both the relationship's properties and its capability's properties
+                capability = rel.parent
+                for name, val in capability.template.findProps(
+                    capability.attributes, t
+                ):
+                    if val is not None:
+                        env[name] = val
                 for name, val in rel.template.findProps(rel.attributes, t):
                     if val is not None:
                         env[name] = val
