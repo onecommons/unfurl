@@ -112,7 +112,11 @@ class Plan(object):
             # XXX need to evaluate matches
             return parent
 
-    def createResource(self, template, status=Status.pending):
+    def createResource(self, template):
+        if "discover" in template.directives:
+            status = Status.unknown
+        else:
+            status = Status.pending
         # XXX create capabilities and requirements too?
         # XXX if requirement with HostedOn relationship, target is the parent not root
         parent = self.findParentResource(template)
@@ -318,6 +322,9 @@ class Plan(object):
         for instance in self.root.getOperationalDependencies():
             # reverse to teardown leaf nodes first
             for resource in reversed(instance.descendents):
+                if resource.shadow or resource.template.directives:
+                    # readonly resource
+                    continue
                 # if resource exists (or unknown)
                 if resource.status not in [Status.notpresent, Status.pending]:
                     reason = include(resource)
