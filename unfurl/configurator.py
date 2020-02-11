@@ -2,7 +2,7 @@ import six
 import collections
 import re
 import os
-from .support import Status, Defaults, ResourceChanges
+from .support import Status, Defaults, ResourceChanges, Priority
 from .result import serializeValue, ChangeAware, Results, ResultsMap
 from .util import (
     AutoRegisterClass,
@@ -341,12 +341,18 @@ class TaskView(object):
                 target = self.target.target
             else:
                 target = self.target
+            # XXX why .attributes??
             HOST = (target.parent or target).attributes
+            ORCHESTRATOR = target.root.imports.findImport("localhost")
             vars = dict(
                 inputs=inputs,
                 task=self.getSettings(),
                 SELF=self.target.attributes,
                 HOST=HOST,
+                ORCHESTRATOR=ORCHESTRATOR and ORCHESTRATOR.attributes or {},
+                OPERATION_HOST=self.operationHost
+                and self.operationHost.attributes
+                or {},
             )
             if relationship:
                 vars["SOURCE"] = self.target.source.attributes
@@ -369,10 +375,10 @@ class TaskView(object):
         env = {}
         if not self.operationHost:
             return env
+        t = lambda datatype: datatype.type == "unfurl.datatypes.EnvVar"
         for parent in reversed(self.target.ancestors):
             # use reversed() so nearer overrides farther
             for rel in self.operationHost.getRequirements(parent):
-                t = lambda datatype: datatype.type == "unfurl.datatypes.EnvVar"
                 # examine both the relationship's properties and its capability's properties
                 capability = rel.parent
                 for name, val in capability.template.findProps(
@@ -523,11 +529,14 @@ class TaskView(object):
         wantList=False,
         resolveExternal=True,
         strict=True,
+        vars=None,
     ):
         # XXX refcontext should include TARGET HOST etc
         # XXX pass resolveExternal to context?
         try:
-            result = Ref(query).resolve(self.inputs.context, wantList, strict)
+            result = Ref(query, vars=vars).resolve(
+                self.inputs.context, wantList, strict
+            )
         except:
             UnfurlTaskError(self, "error evaluating query", True)
             return None

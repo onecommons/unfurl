@@ -213,7 +213,7 @@ class Manifest(AttributeManager):
             capabilityId = val.get("capability")
             if not capabilityId:
                 raise UnfurlError("requirement is missing capability %s" % key)
-            capability = capabilityId and self.getRootResource().find(capabilityId)
+            capability = capabilityId and self.getRootResource().query(capabilityId)
             if not capability or not isinstance(capability, CapabilityInstance):
                 raise UnfurlError("can not find capability %s" % capabilityId)
             if capability._relationships is None:

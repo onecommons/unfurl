@@ -20,14 +20,13 @@ node_types:
       operations:
         type: map
         description: >
-         Value is are config spec properties (see "configurationSpec" in the JSON schema for the manifest).
-         Keys that match <interface.operation> or <action> will be instantiated
-         values in "shared" will be merged into the other configurations
-         and "default" will be used if the operation isn't present.
+          Value is are config spec properties (see "configurationSpec" in the JSON schema for the manifest).
+          Keys that match <interface.operation> or <action> will be instantiated
+          values in "shared" will be merged into the other configurations
+          and "default" will be used if the operation isn't present.
 
   unfurl.nodes.Installation:
     derived_from: tosca.nodes.Root
-
     requirements:
       - install:
           capability: unfurl.capabilities.Installer
@@ -44,34 +43,23 @@ node_types:
 
   unfurl.nodes.K8sCluster:
     derived_from: tosca.nodes.Root
-    properties:
-      connection:
-        type: map
-        entry_schema:
-          type: unfurl.datatypes.EnvVar
-        required: false
-       # any K8S_AUTH_* in https://docs.ansible.com/ansible/latest/modules/k8s_module.html#k8s-module
-       # or if not specified checks in cluster KUBERNETES_SERVICE_HOST, KUBERNETES_SERVICE_PORT and /var/run/secrets/kubernetes.io/serviceaccount/
-       # see also https://www.terraform.io/docs/providers/kubernetes/index.html
     capabilities:
       host:
         type: tosca.capabilities.Container
-        valid_source_types: [unfurl.nodes.K8sRawResource, unfurl.nodes.K8sNamespace]
+        valid_source_types:
+          [unfurl.nodes.K8sRawResource, unfurl.nodes.K8sNamespace]
+      endpoint:
+        type: unfurl.capabilities.Endpoint.K8sCluster
     attributes:
       apiServer:
         description: URL to the cluster's api server
         type: string
         metadata:
           # mark this is as immutable to make sure the connection is pointing at the same cluster in subsequent runs
-         immutable: true
+          immutable: true
     interfaces:
-      Standard:
-        inputs:
-          connection: {get_property: ['SELF', 'connection']}
-        configure:
-          unfurl.configurators.k8s.ClusterConfigurator
-        delete:
-          unfurl.configurators.k8s.ClusterConfigurator
+      Install:
+        check: unfurl.configurators.k8s.ClusterConfigurator
 
   # unfurl.nodes.DockerImage:
   #   derived_from: tosca.nodes.Root
@@ -100,25 +88,21 @@ node_types:
           node: unfurl.nodes.K8sCluster
           relationship: tosca.relationships.HostedOn
     properties:
-     definition:
-       type: any
-       required: false
+      definition:
+        type: any
+        required: false
     attributes:
       apiResource:
-       type: map
-       required: false
+        type: map
+        required: false
       name:
-       type: string
-       default:
-         eval: .name
+        type: string
+        default:
+          eval: .name
     interfaces:
       Standard:
-        inputs:
-          connection: {get_property: ['HOST', 'connection']}
-        configure:
-          unfurl.configurators.k8s.ResourceConfigurator
-        delete:
-          unfurl.configurators.k8s.ResourceConfigurator
+        configure: unfurl.configurators.k8s.ResourceConfigurator
+        delete: unfurl.configurators.k8s.ResourceConfigurator
 
   unfurl.nodes.K8sNamespace:
     derived_from: unfurl.nodes.K8sRawResource
@@ -143,10 +127,46 @@ node_types:
     attributes:
       namespace:
         type: string
-        default: {get_property: [HOST, name]}
+        default: { get_property: [HOST, name] }
 
-  unfurl.nodes.k8sSecretResource:
+  unfurl.nodes.K8sSecretResource:
     derived_from: unfurl.nodes.K8sResource
+
+  unfurl.nodes.CloudAccount:
+    derived_from: tosca.nodes.Root
+    properties:
+      region:
+        description: "Cloud provider sepecific region identifier"
+        type: string
+        required: false
+
+  unfurl.nodes.GCPProject:
+    derived_from: unfurl.nodes.CloudAccount
+    properties:
+      project:
+        description: "Google Cloud project"
+        type: string
+        required: true
+      application_credentials:
+        description: "Path to file containing service account private keys in JSON format"
+        type: string
+        required: false
+      credentials:
+        description: "Content of file containing service account private keys"
+        type: string
+        required: false
+
+  unfurl.nodes.AWSAccount:
+    derived_from: unfurl.nodes.CloudAccount
+    properties:
+      access_key:
+        description: "AWS access key credentials"
+        type: string
+        required: true
+      secret_key:
+        description: "AWS secret key credentials"
+        type: string
+        required: true
 
 data_types:
   unfurl.datatypes.EnvVar:
@@ -156,7 +176,29 @@ data_types:
 
 capability_types:
   unfurl.capabilities.Installer:
-   derived_from: tosca.capabilities.Root
+    derived_from: tosca.capabilities.Root
+
+  unfurl.capabilities.Endpoint.K8sCluster:
+    derived_from: tosca.capabilities.Endpoint.Admin
+    description: >
+      Capability to connect to a K8sCluster. See unfurl.relationships.ConnectsTo.K8sCluster
+      for the semantics of its "secure" and "credential" properties.
+    properties:
+      host:
+        type: string
+        description: >
+          URL of the HTTP API of Kubernetes is exposed. Format: https://<host>:<port>"
+        required: false
+      context:
+        type: string
+        description: >
+          The default connection context to use to connect to this cluster if not set by the relationship template.
+        required: false
+      secure:
+        type: boolean
+        description: >
+          If set to false, the server's certificate should not be checked for validity. This will make your HTTPS connections insecure.
+        required: false
 
   unfurl.capabilities.Endpoint.Ansible:
     derived_from: tosca.capabilities.Endpoint.Admin
@@ -179,7 +221,7 @@ capability_types:
         type: tosca.datatypes.Credential
         required: false
         metadata:
-            sensitive: true
+          sensitive: true
       hostvars:
         type: map
         required: false
@@ -204,11 +246,44 @@ capability_types:
 
 relationship_types:
   unfurl.relationships.InstalledBy:
-   derived_from: tosca.relationships.Root
-   valid_target_types: [ unfurl.capabilities.Installer ]
-   interfaces:
-     Install:
-       type: unfurl.interfaces.Install
+    derived_from: tosca.relationships.Root
+    valid_target_types: [unfurl.capabilities.Installer]
+    interfaces:
+      Install:
+        type: unfurl.interfaces.Install
+
+  unfurl.relationships.ConnectsTo.K8sCluster:
+    derived_from: tosca.relationships.ConnectsTo
+    valid_target_types: [unfurl.capabilities.Endpoint.K8sCluster]
+    properties:
+      KUBECONFIG:
+        type: unfurl.datatypes.EnvVar
+        description: >
+          Path to an existing Kubernetes config file. If not provided, and no other connection
+          options are provided, and the KUBECONFIG environment variable is not set, the default location will be used (~/.kube/config.json).
+        required: false
+      context:
+        type: string
+        description: >
+          The name of a context found in the config file. If not set the current-context will be used.
+        required: false
+      secure:
+        type: boolean
+        description: >
+          If false, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+        default: true
+      credential:
+        description: >
+          token_type is either "api_key" or "password" (default is "password")
+          Its "keys" map can have the following values:
+          "cert_file": Path to a cert file for the certificate authority
+          "ssl_ca_cert": Path to a client certificate file for TLS
+          "key_file": Path to a client key file for TLS
+        type: tosca.datatypes.Credential
+        required: false
+    interfaces:
+      Install:
+        check: unfurl.configurators.k8s.ClusterConfigurator
 
 interface_types:
   unfurl.interfaces.Install:
@@ -227,4 +302,4 @@ group_types:
         description: Ansible hostvars for members of this group
         type: map
         default: {}
-    members: [ tosca.nodes.Compute, unfurl.groups.ansibleInventoryGroup]
+    members: [tosca.nodes.Compute, unfurl.groups.ansibleInventoryGroup]

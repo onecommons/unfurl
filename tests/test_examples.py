@@ -63,7 +63,8 @@ class RunTest(unittest.TestCase):
         job3 = Runner(manifest3).run(
             JobOptions(workflow="undeploy", out=output3, startTime="test")
         )
-        assert len(job3.workDone) == 3, job3.jsonSummary()
+        # two delete tasks should have ran
+        assert len(job3.workDone) == 2, job3.jsonSummary()
 
     def test_ansible(self):
         """

@@ -7,9 +7,9 @@ spec:
       unfurl.nodes.HelmRelease:
         derived_from: unfurl.nodes.Installation
         requirements:
-        - host:
-            node: unfurl.nodes.K8sNamespace
-            relationship: tosca.relationships.HostedOn
+          - host:
+              node: unfurl.nodes.K8sNamespace
+              relationship: tosca.relationships.HostedOn
         properties:
           chart:
             type: string
@@ -21,8 +21,8 @@ spec:
           Install:
             type: unfurl.interfaces.install.Helm
             inputs:
-              chart: {get_property: ['SELF', 'chart']}
-              release_name: {get_property: ['SELF', 'release_name']}
+              chart: { get_property: ["SELF", "chart"] }
+              release_name: { get_property: ["SELF", "release_name"] }
             operations:
               subtaskOperation:
                 implementation:
@@ -61,7 +61,7 @@ spec:
                       - name: {{doc.kind}}.{{doc.spec.metadata.namespace }}.{{ doc.spec.metadata.name }}
                         template:
                           {%if doc.kind == 'Secret' %}
-                          type: unfurl.nodes.k8sSecretResource
+                          type: unfurl.nodes.K8sSecretResource
                           {% else %}
                           type: unfurl.nodes.K8sResource
                           {% endif %}
@@ -105,30 +105,30 @@ spec:
             helm:
               target: unfurl.nodes.HelmRelease
               activities:
-                 - call_operation:
-                      operation: unfurl.interfaces.install.Helm.execute
-                      inputs:
-                        # XXX helmcmd: '{{ "update" if target.exists else "install"}}'
-                        helmcmd: install
-                 - inline: check
+                - call_operation:
+                    operation: unfurl.interfaces.install.Helm.execute
+                    inputs:
+                      # XXX helmcmd: '{{ "update" if target.exists else "install"}}'
+                      helmcmd: install
+                - inline: check
         undeploy:
           steps:
             helm:
               target: unfurl.nodes.HelmRelease
               activities:
-                 - delegate: undeploy
+                - delegate: undeploy
         check:
           steps:
             helm:
               target: unfurl.nodes.HelmRelease
               activities:
-                 - call_operation: unfurl.interfaces.install.Helm.discover
+                - call_operation: unfurl.interfaces.install.Helm.discover
 
       node_templates:
         gitlab-release:
           type: unfurl.nodes.HelmRelease
           requirements:
-            - host:    defaultNamespace
+            - host: defaultNamespace
           properties:
             chart: gitlab/gitlab
             release_name: foo
@@ -146,13 +146,16 @@ spec:
 
         stagingCluster:
           type: unfurl.nodes.K8sCluster
-          properties:
-            connection:
-              context: docker-for-desktop
+          directives:
+            - discover
+          capabilities:
+            endpoint:
+              properties:
+                context: docker-for-desktop
 
         defaultNamespace:
           type: unfurl.nodes.K8sNamespace
           requirements:
-          - host: stagingCluster
+            - host: stagingCluster
           properties:
             name: default

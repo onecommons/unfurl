@@ -2,9 +2,18 @@ from __future__ import absolute_import
 import codecs
 from ..util import sensitive_str
 from ..configurator import Configurator, Status
+from ..runtime import RelationshipInstance
 from .ansible import AnsibleConfigurator
 import json
 from ansible.module_utils.k8s.common import K8sAnsibleMixin
+
+
+def _getConnectionConfig(connectionInstance):
+    # XXX
+    # both connection and it's parent (the endpoint) might have "credential" property set
+    # credentials = connection.query("credential", wantList=True)
+    # connection.attributes: context, KUBECONFIG, secure
+    return dict(context=connectionInstance.attributes.get("context"))
 
 
 class ClusterConfigurator(Configurator):
@@ -13,16 +22,36 @@ class ClusterConfigurator(Configurator):
         client = K8sAnsibleMixin().get_api_client(**connectionConfig)
         return client.configuration.host
 
+    def shouldRun(self, task):
+        # only run this directly on a cluster if the topology doesn't define any to the cluster
+        if not isinstance(task.target, RelationshipInstance):
+            for endpoint in task.target.getCapabilities("endpoint"):
+                if endpoint.relationships:
+                    print("shouldRun", "endpoint.relationships", endpoint.relationships)
+                    return False
+        return True
+
+    def canRun(self, task):
+        if task.configSpec.operation not in ["check", "discover"]:
+            return "Configurator can't perform this operation (only supports check and discover)"
+        if not isinstance(
+            task.target, RelationshipInstance
+        ) and not task.target.getCapabilities("endpoint"):
+            return "No endpoint defined on this cluster"
+        return True
+
     def run(self, task):
         # this just tests the connection
-        if task.configSpec.operation == "Standard.delete":
-            # we don't really delete the cluster, just mark this connection unknown
-            yield task.done(True, False, Status.unknown)
-            return
+        if isinstance(task.target, RelationshipInstance):
+            cluster = task.target.target
+            connection = task.target
+        else:
+            cluster = task.target
+            connection = cluster.getCapabilities("endpoint")[0]
 
-        connectionConfig = task.inputs.get("connection", {})
+        connectionConfig = _getConnectionConfig(connection)
         try:
-            task.target.attributes["apiServer"] = self._getHost(connectionConfig)
+            cluster.attributes["apiServer"] = self._getHost(connectionConfig)
         except:
             yield task.done(
                 False,
@@ -48,6 +77,26 @@ class ResourceConfigurator(AnsibleConfigurator):
         print(json.dumps(self.findPlaybook(task), indent=4))
         yield task.done(True)
 
+    def _getConnection(self, task):
+        # get the cluster that the target resource is hosted on
+        cluster = task.query("[.type=unfurl.nodes.K8sCluster]")
+        if not cluster:
+            return {}
+        # find the operation_host's connection to that cluster
+        connection = task.query(
+            "$OPERATION_HOST::.requirements::*[.type=unfurl.relationships.ConnectsTo.K8sCluster][.target=$cluster]",
+            vars=dict(cluster=cluster),
+        )
+        # alternative query: [.type=unfurl.nodes.K8sCluster]::.capabilities::.relationships::[.type=unfurl.relationships.ConnectsTo.K8sCluster][.source=$OPERATION_HOST]
+        if not connection:
+            # no connection, use the defaults provided by the cluster's endpoint
+            endpoints = cluster.getCapabilities("endpoint")
+            if endpoints:
+                connection = endpoints[0]
+            else:
+                return {}
+        return _getConnectionConfig(connection)
+
     def makeSecret(self, data):
         # base64 adds trailing \n so strip it out
         return dict(
@@ -63,7 +112,7 @@ class ResourceConfigurator(AnsibleConfigurator):
     def getDefinition(self, task):
         if task.target.template.isCompatibleType("unfurl.nodes.K8sNamespace"):
             return dict(apiVersion="v1", kind="Namespace")
-        elif task.target.template.isCompatibleType("unfurl.nodes.k8sSecretResource"):
+        elif task.target.template.isCompatibleType("unfurl.nodes.K8sSecretResource"):
             return self.makeSecret(task.target.attributes.get("data", {}))
         else:
             # XXX if definition is string: parse
@@ -91,8 +140,8 @@ class ResourceConfigurator(AnsibleConfigurator):
         self.updateMetadata(definition, task)
         delete = task.configSpec.operation == "Standard.delete"
         state = "absent" if delete else "present"
-        connection = task.inputs.get("connection") or {}
-        moduleSpec = dict(state=state, definition=definition, **connection)
+        connectionConfig = self._getConnection(task)
+        moduleSpec = dict(state=state, definition=definition, **connectionConfig)
         return [dict(k8s=moduleSpec)]
 
     def _processResult(self, task, result):

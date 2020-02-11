@@ -11,24 +11,24 @@ import warnings
 manifestScript = """
 apiVersion: unfurl/v1alpha1
 kind: Manifest
-vars:
-  defaultNamespace:
-    requirements:
-       - host: k8sNamespace
 spec:
-  tosca:
+  service_template:
     dsl_definitions:
     topology_template:
-      inputs:
-        kubeConnection:
-          type: map
-          default:
-            context: docker-for-desktop
+      # relationship_templates:
+      #   k8sConnection:
+      #     type: unfurl.relationships.ConnectsTo.K8sCluster
+      #     properties:
+      #       context: docker-for-desktop
       node_templates:
         k8sCluster:
-         type: unfurl.nodes.K8sCluster
-         properties:
-           connection: { get_input: kubeConnection }
+          type: unfurl.nodes.K8sCluster
+          directives:
+            - discover
+          capabilities:
+            endpoint:
+              properties:
+                context: docker-for-desktop
         k8sNamespace:
          type: unfurl.nodes.K8sNamespace
          requirements:
@@ -38,7 +38,7 @@ spec:
         testSecret:
          # add metadata, type: Opaque
          # base64 values and omit data from status
-         type: unfurl.nodes.k8sSecretResource
+         type: unfurl.nodes.K8sSecretResource
          requirements:
            - host: k8sNamespace
          properties:
@@ -77,4 +77,4 @@ class k8sTest(unittest.TestCase):
         results = job2.jsonSummary()
         assert not job2.unexpectedAbort
         assert job2.status == Status.ok, job2.summary()
-        assert len(results["tasks"]) == 3, results
+        assert len(results["tasks"]) == 2, results

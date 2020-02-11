@@ -308,10 +308,10 @@ class EntityInstance(OperationalInstance, ResourceRef):
         self.attributes[key]  # force resolve
         return self.attributes._attributes[key]
 
-    def find(self, expr):
+    def query(self, expr, vars=None, wantList=False):
         from .eval import Ref, RefContext
 
-        return Ref(expr).resolveOne(RefContext(self))
+        return Ref(expr).resolve(RefContext(self, vars=vars), wantList)
 
     def localStatus():
         doc = "The localStatus property."
@@ -349,6 +349,10 @@ class EntityInstance(OperationalInstance, ResourceRef):
     @property
     def tosca_name(self):
         return self.template.name
+
+    @property
+    def type(self):
+        return self.template.type
 
     @property
     def attributes(self):

@@ -3,15 +3,15 @@ kind: Manifest
 spec:
   service_template:
     imports:
-    - file: spec/service-template.yaml
+      - file: spec/service-template.yaml
     # unfurl.relationships.InstalledBy used for implementation if no implementation is specified
     node_types:
       unfurl.nodes.HelmRelease:
         derived_from: unfurl.nodes.Installation
         requirements:
-        - host:
-            node: unfurl.nodes.K8sNamespace
-            relationship: tosca.relationships.HostedOn
+          - host:
+              node: unfurl.nodes.K8sNamespace
+              relationship: tosca.relationships.HostedOn
         properties:
           chart:
             type: string
@@ -21,8 +21,8 @@ spec:
           Install:
             type: unfurl.interfaces.install.Helm
             inputs:
-              chart: {get_property: ['SELF', 'chart']}
-              release-name: {get_property: ['SELF', 'release-name']}
+              chart: { get_property: ["SELF", "chart"] }
+              release-name: { get_property: ["SELF", "release-name"] }
             operations:
               execute: echo "{{inputs.helmcmd}}"
               discover: echo "discover helm"
@@ -40,12 +40,11 @@ spec:
             required: false
 
     topology_template:
-
       node_templates:
         gitlab-release:
           type: unfurl.nodes.HelmRelease
           requirements:
-            - host:    defaultNamespace
+            - host: defaultNamespace
           properties:
             chart: gitlab/gitlab
             release-name: foo
@@ -63,13 +62,16 @@ spec:
 
         stagingCluster:
           type: unfurl.nodes.K8sCluster
-          properties:
-            connection:
-              context: docker-for-desktop
+          directives:
+            - discover
+          capabilities:
+            endpoint:
+              properties:
+                context: docker-for-desktop
 
         defaultNamespace:
           type: unfurl.nodes.K8sNamespace
           requirements:
-          - host: stagingCluster
+            - host: stagingCluster
           properties:
             name: default
