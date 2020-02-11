@@ -230,6 +230,8 @@ def toEnum(enum, value, default=None):
         return enum[value]
     elif default is not None and not value:
         return default
+    elif isinstance(value, int):
+        return enum(value)
     else:
         return value
 

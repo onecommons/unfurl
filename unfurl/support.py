@@ -40,7 +40,7 @@ NodeState = IntEnum(
 )
 
 # ignore may must
-Priority = IntEnum("Priority", "ignore optional required", module=__name__)
+Priority = IntEnum("Priority", "ignore optional required critical", start=0, module=__name__)
 
 
 class Defaults(object):

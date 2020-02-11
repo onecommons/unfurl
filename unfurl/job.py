@@ -501,7 +501,10 @@ class Job(ConfigChange):
             UnfurlTaskError(task, "shouldRun failed unexpectedly", True)
             return False
 
-        priority = toEnum(Priority, priority, Priority.ignore)
+        if isinstance(priority, bool):
+            priority = priority and Priority.required or Priority.ignore
+        else:
+            priority = toEnum(Priority, priority)
         if priority != task.priority:
             logger.debug(
                 "configurator changed task %s priority from %s to %s",
