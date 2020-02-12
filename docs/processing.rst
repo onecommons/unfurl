@@ -7,14 +7,14 @@ Processing
 4. Job is run
 5. Unfurl expressions, TOSCA functions, and template strings are lazily evaluated as the job run
 
-YAML pre-processing with merge directives
------------------------------------------
+YAML pre-processing
+--------------------
 
 When a YAML configuration is loaded, will look for dictionary keys that match the following pattern:
 
 ``'+'['?']['include'][*anchor][relative path][absolute path]``
 
-and update the dictionary by processing the directive and merging in its resolved value.
+and treat them as `merge directives` that update the dictionary by processing the directive and merging in its resolved value.
 
 .. productionlist::
      merge key      : "+"["?"]["include"][anchor][relative_path][absolute_path]
@@ -152,15 +152,20 @@ of which parent value or resource) use a less deep path and iterate over results
 
 Special keys
 ~~~~~~~~~~~~~
-Instances have a special set of keys:
+Built-in keys start with a leading **.**:
 
-============ ======================================================
-**.**            self
-**..**          parent
-.parents     list of parents
-.ancestors   self and parents
-.root        root ancestor
-.children    child resources
-.descendents (including self)
-.all         dictionary of child resources with their names as keys
-============ ======================================================
+============== ========================================================
+**.**          self
+**..**         parent
+.name          name of this instance
+.type          name of instance's TOSCA type
+.parents       list of parents
+.ancestors     self and parents
+.root          root ancestor
+.instances     child instances (via the `hostedOn` relationship)
+.capabilities  list of capabilities
+.requirements  list of requirements
+.relationships relationships that target this capability
+.descendents   (including self)
+.all           dictionary of child resources with their names as keys
+============== ========================================================

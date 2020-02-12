@@ -17,6 +17,8 @@ Welcome to Unfurl's documentation!
 
    processing.rst
 
+   tosca.rst
+
    jsonschema.rst
 
    api.rst

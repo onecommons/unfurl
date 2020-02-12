@@ -4,13 +4,11 @@ Unfurl coordinates the deployment of disparate configuration management and buil
 
 Unfurl lets you mix and match both declarative and imperative approaches in the same project, and both carefully designed, fine-grained type system or course-grained objects can live alongside ad-hoc metadata and dynamically generated configuration.
 
-The core of an Unfurl project is a YAML manifest file that includes both a specification of the intended outcome and the status of the current live instances. The specification is defined using the TOSCA 1.2 OASIS standard ("Topology and Orchestration Specification for Cloud Applications") and the status is presented as an hierarchy of the operational status and attributes of live resources created, modified or observed by deploying and managing the project. 
+The core of an Unfurl project is a YAML manifest file that includes both a specification of the intended outcome and the status of the current live instances. The specification is defined using OASIS's [TOSCA](tosca) 1.3 ("Topology and Orchestration Specification for Cloud Applications") standard and the status is presented as an hierarchy of the operational status and attributes of live resources created, modified or observed by deploying and managing the project.
 
 As illustrated in the figure below, the fundamental operation of Unfurl is to apply the specified configuration to a set of resources and record the results.
 
 Unfurl maintains a change log recording what operations were applied to which resources and how those resources where changed. The changes can also be committed to git automatically so that each commit represents an update to the state of the system.
-
-
 
 ![diagram](diagram1.svg)
 
@@ -26,7 +24,7 @@ Terraform's design shares many similarities to Unfurl but Terraform is more comp
 
 Both Unfurl and Terraform can be thought of as cloud provider agnostic but unlike Terraform -- which requires separate configuration for each cloud provider -- Unfurl lets you write specifications that can be applied without change because TOSCA provides a type system that enables abstract topologies.
 
-Unfurl's deep integration with git and external repositories provides significantly different approach to sharing, integration and composability. Terraform support for sharing configuration outputs and state files is limited to its proprietary extensions, Terraform Cloud and Terraform Enterprise. 
+Unfurl's deep integration with git and external repositories provides significantly different approach to sharing, integration and composability. Terraform support for sharing configuration outputs and state files is limited to its proprietary extensions, Terraform Cloud and Terraform Enterprise.
 
 ### TOSCA Orchestrators (e.g. Cloudify, Ystia Orchestrator)
 
@@ -36,7 +34,7 @@ Unlike other [TOSCA Orchestrators](https://wiki.oasis-open.org/tosca/TOSCA-imple
 
 ### From the TOSCA Specification:
 
-Service Template: Services templates specify how resources should be configured using the [TOSCA standard](https://www.oasis-open.org/committees/tc_home.php?wg_abbrev=tosca). Templates can live in their own git repos 
+Service Template: Services templates specify how resources should be configured using the [TOSCA standard](https://www.oasis-open.org/committees/tc_home.php?wg_abbrev=tosca). Templates can live in their own git repos
 
 Node and node templates: Abstract or concrete
 
@@ -48,7 +46,7 @@ Properties
 
 Attributes
 
-Topology 
+Topology
 
 Relationships and Requirements
 
@@ -72,7 +70,7 @@ Installers: A node template represents the software that creates and manages ins
 
 Ref expressions
 
-Job Executes a workflow by instantiating a plan of tasks to run. 
+Job Executes a workflow by instantiating a plan of tasks to run.
 
 Tasks: Instantiates a configurator to carry out the given `operation`. It's results are
 
@@ -80,22 +78,22 @@ ConfigChange: a persistent record of the changes made by a task.
 
 Changelog
 
-Secrets: An object that represents a secret value. Secrets are stored in a separate configuration file outside of version control or retrieved from a KMS such as Hashicorp Vault. Sensitive values and objects tainted by sensitive values are always redacted when written out. 
+Secrets: An object that represents a secret value. Secrets are stored in a separate configuration file outside of version control or retrieved from a KMS such as Hashicorp Vault. Sensitive values and objects tainted by sensitive values are always redacted when written out.
 
 Local values: Values and configurations settings that are dependent on the local environment and therefore should be saved separately from a shared repository or deployment history, for example, proxy settings. Delineating these helps enable a reproducible infrastructure.
 
 External values: A reference to an object that is not modeled by the service template but instances are still dependent on. Examples would be a local file that may change or references to resources defined in another manifest.
 
-Dependencies: Configuration dependencies between instances expressed as `Ref expressions`. TOSCA relationships specify dependencies between nodes but specific dependencies 
+Dependencies: Configuration dependencies between instances expressed as `Ref expressions`. TOSCA relationships specify dependencies between nodes but specific dependencies
 
 ## Processing Model
 
-The core behavior of Unfurl is to run a `job` that executes a `workflow` on a given topology instance. 
+The core behavior of Unfurl is to run a `job` that executes a `workflow` on a given topology instance.
 There are two fundamental workflows ("normative workflows" in TOSCA terminology):
 `deploy`, which installs the topology, and `undeploy`, which uninstalls it.
 
-When a workflow job is run, it updates the status of its affected instances. 
-Each `instance` represented in a manifest has a status that indicates 
+When a workflow job is run, it updates the status of its affected instances.
+Each `instance` represented in a manifest has a status that indicates
 its relationship to its specification:
 
 Unknown
@@ -105,39 +103,39 @@ Error
 Pending
 NotPresent
 
-There are also `check` and `discover` workflows which update the status of 
-instances the based on their current live state. 
+There are also `check` and `discover` workflows which update the status of
+instances the based on their current live state.
 Users can also define custom workflows but they do not affect the change history of the topology.
 
-When a workflow is applied to an instance it will be skipped if it already has 
-the desired status (either "OK" or "NotPresent"). If its status is `Unknown`, 
+When a workflow is applied to an instance it will be skipped if it already has
+the desired status (either "OK" or "NotPresent"). If its status is `Unknown`,
 `check` will be run first. Otherwise the workflow will be applied by executing one or more `operations` on a target instance.
 
 If it succeeds, the target instance status will be set to either `OK` or `NotPresent`
 for `deploy` and `undeploy` respectively. If it fails, the status will depend on if the instance was modified by the operation.
 If it has been, the status is set to error; if the operation didn't report whether it did or not, it is set to `Unknown`. Otherwise, the status won't be changed.
 
-_ 1: or to Degraded, depending the priority of the task.
+\_ 1: or to Degraded, depending the priority of the task.
 
-### Operations and tasks 
+### Operations and tasks
 
 The actual work is done by `operations` and as they are executed the `node state` of the target instance is updated.
-Nodes states include: `initial`, `creating`, `created`, `configuring`, `configured`, 
-`starting`, `started`, `stopping`, `deleting`, and `error`. 
+Nodes states include: `initial`, `creating`, `created`, `configuring`, `configured`,
+`starting`, `started`, `stopping`, `deleting`, and `error`.
 See
 [TOSCA 1.3, §3.4.1](https://docs.oasis-open.org/tosca/TOSCA-Simple-Profile-YAML/v1.3/cos01/TOSCA-Simple-Profile-YAML-v1.3-cos01.html#_Toc454457724) for a complete definitions
 
-Each `task` in a `job` corresponds to an operation that was executed and is assigned a 
-`changeid`. Each task is recorded in the job's `changelog` as a `ConfigChange`, 
+Each `task` in a `job` corresponds to an operation that was executed and is assigned a
+`changeid`. Each task is recorded in the job's `changelog` as a `ConfigChange`,
 which designed so that it can replayed to reproduce the instance.
 
 Instances keep track of the last operation that was applied to it and also of the last
 task that observed changes to the internal state of the instance (which may or may not be
 reflected in attributes exposed in the topology model). Tracking internal state
-is useful because dependent instances may need to know when it has changed and to know 
+is useful because dependent instances may need to know when it has changed and to know
 if it is safe to delete an instance.
 
-When status of an instance is saved in the manifest, the attributes described above 
+When status of an instance is saved in the manifest, the attributes described above
 can be found in its `readyState`, for example:
 
 ```yaml
@@ -155,6 +153,6 @@ The `imports` section of the manifest lets you declare instances that are import
 
 There are 3 instances that are always implicitly imported even if they are not declared:
 
-* The `localhost` instance that represents the machine Unfurl is currently executing on. This instance is accessed through the `ORCHESTRATOR` keyword in TOSCA and is defined in the home manifest that resides in your Unfurl home folder. 
+- The `localhost` instance that represents the machine Unfurl is currently executing on. This instance is accessed through the `ORCHESTRATOR` keyword in TOSCA and is defined in the home manifest that resides in your Unfurl home folder.
 
-* The `local` and `secret` instances are for representing properties that may be specific to the local environment that the manifest is running in and are declared in the local configuration file. All `secret` attribute values are treated as `sensitive` and redacted when necessary. These instances can be accessed through the `local` and `secret` expression functions (which are just shorthands for the `external` function).
+- The `local` and `secret` instances are for representing properties that may be specific to the local environment that the manifest is running in and are declared in the local configuration file. All `secret` attribute values are treated as `sensitive` and redacted when necessary. These instances can be accessed through the `local` and `secret` expression functions (which are just shorthands for the `external` function).
