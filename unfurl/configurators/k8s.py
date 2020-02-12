@@ -8,12 +8,38 @@ import json
 from ansible.module_utils.k8s.common import K8sAnsibleMixin
 
 
-def _getConnectionConfig(connectionInstance):
-    # XXX
-    # both connection and it's parent (the endpoint) might have "credential" property set
-    # credentials = connection.query("credential", wantList=True)
-    # connection.attributes: context, KUBECONFIG, secure
-    return dict(context=connectionInstance.attributes.get("context"))
+def _getConnectionConfig(instance):
+    # see https://docs.ansible.com/ansible/latest/modules/k8s_module.html#k8s-module
+    #  for connection settings
+    connect = {}
+    if isinstance(instance, RelationshipInstance):
+        connect = instance.attributes
+        endpoint = instance.parent.attributes
+    else:
+        endpoint = instance.attributes
+
+    connection = {}
+    if "host" in endpoint:  # endpoint capability only
+        connection["host"] = endpoint["host"]
+
+    map1 = {"KUBECONFIG": "kubeconfig", "context": "context", "secure": "verify_ssl"}
+    # relationship overrides capability
+    for attributes in [endpoint, connect]:
+        for key, value in map1.items():
+            if key in attributes:
+                connection[value] = attributes[key]
+
+        credential = attributes.get("credential")
+        if credential:
+            if credential.get("token_type") in ["api_key", "password"]:
+                connection[credential["token_type"]] = credential["token"]
+            if "user" in credential:
+                connection["username"] = credential["user"]
+            if "keys" in credential:
+                # ["ssl_ca_cert", "cert_file", "key_file"]
+                connection.update(credential["keys"])
+
+    return connection
 
 
 class ClusterConfigurator(Configurator):
