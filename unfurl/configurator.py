@@ -464,6 +464,19 @@ class TaskView(object):
             return host
         raise UnfurlTaskError(self, "can not find operation_host: %s" % operation_host)
 
+    def findConnection(self, target, capability='endpoint', relation='tosca.relationships.ConnectsTo'):
+        connection = self.query(
+            "$OPERATION_HOST::.requirements::*[.type=%s][.target=$target]" % relation,
+            vars=dict(target=target),
+        )
+        # alternative query: [.type=unfurl.nodes.K8sCluster]::.capabilities::.relationships::[.type=unfurl.relationships.ConnectsTo.K8sCluster][.source=$OPERATION_HOST]
+        if not connection and capability:
+            # no connection, use the defaults provided by the cluster's endpoint
+            endpoints = target.getCapabilities(capability)
+            if endpoints:
+                connection = endpoints[0]
+        return connection
+
     def addMessage(self, message):
         self.messages.append(message)
 

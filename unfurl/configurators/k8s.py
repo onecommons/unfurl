@@ -11,6 +11,8 @@ from ansible.module_utils.k8s.common import K8sAnsibleMixin
 def _getConnectionConfig(instance):
     # see https://docs.ansible.com/ansible/latest/modules/k8s_module.html#k8s-module
     #  for connection settings
+    if not instance:
+      return {}
     connect = {}
     if isinstance(instance, RelationshipInstance):
         connect = instance.attributes
@@ -42,40 +44,25 @@ def _getConnectionConfig(instance):
     return connection
 
 
+def _getConnection(task, cluster):
+    instance = task.findConnection(cluster, relation='unfurl.relationships.ConnectsTo.K8sCluster')
+    return _getConnectionConfig(instance)
+
+
 class ClusterConfigurator(Configurator):
     @staticmethod
     def _getHost(connectionConfig):
         client = K8sAnsibleMixin().get_api_client(**connectionConfig)
         return client.configuration.host
 
-    def shouldRun(self, task):
-        # only run this directly on a cluster if the topology doesn't define any to the cluster
-        if not isinstance(task.target, RelationshipInstance):
-            for endpoint in task.target.getCapabilities("endpoint"):
-                if endpoint.relationships:
-                    print("shouldRun", "endpoint.relationships", endpoint.relationships)
-                    return False
-        return True
-
     def canRun(self, task):
         if task.configSpec.operation not in ["check", "discover"]:
             return "Configurator can't perform this operation (only supports check and discover)"
-        if not isinstance(
-            task.target, RelationshipInstance
-        ) and not task.target.getCapabilities("endpoint"):
-            return "No endpoint defined on this cluster"
         return True
 
     def run(self, task):
-        # this just tests the connection
-        if isinstance(task.target, RelationshipInstance):
-            cluster = task.target.target
-            connection = task.target
-        else:
-            cluster = task.target
-            connection = cluster.getCapabilities("endpoint")[0]
-
-        connectionConfig = _getConnectionConfig(connection)
+        cluster = task.target
+        connectionConfig = _getConnection(task, cluster)
         try:
             cluster.attributes["apiServer"] = self._getHost(connectionConfig)
         except:
@@ -108,20 +95,7 @@ class ResourceConfigurator(AnsibleConfigurator):
         cluster = task.query("[.type=unfurl.nodes.K8sCluster]")
         if not cluster:
             return {}
-        # find the operation_host's connection to that cluster
-        connection = task.query(
-            "$OPERATION_HOST::.requirements::*[.type=unfurl.relationships.ConnectsTo.K8sCluster][.target=$cluster]",
-            vars=dict(cluster=cluster),
-        )
-        # alternative query: [.type=unfurl.nodes.K8sCluster]::.capabilities::.relationships::[.type=unfurl.relationships.ConnectsTo.K8sCluster][.source=$OPERATION_HOST]
-        if not connection:
-            # no connection, use the defaults provided by the cluster's endpoint
-            endpoints = cluster.getCapabilities("endpoint")
-            if endpoints:
-                connection = endpoints[0]
-            else:
-                return {}
-        return _getConnectionConfig(connection)
+        return _getConnection(task, cluster)
 
     def makeSecret(self, data):
         # base64 adds trailing \n so strip it out

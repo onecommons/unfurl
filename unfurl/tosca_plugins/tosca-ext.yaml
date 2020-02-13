@@ -261,9 +261,6 @@ relationship_types:
           "key_file": Path to a client key file for TLS
         type: tosca.datatypes.Credential
         required: false
-    interfaces:
-      Install:
-        check: unfurl.configurators.k8s.ClusterConfigurator
 
 interface_types:
   unfurl.interfaces.Install:
