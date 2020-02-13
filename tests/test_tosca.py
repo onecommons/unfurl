@@ -237,3 +237,33 @@ spec:
             self.assertIs(imported2.root, manifest2.getRootResource())
             self.assertEqual(imported2.attributes["private_address"], "10.0.0.1")
             self.assertIsNot(imported2.shadow.root, manifest2.getRootResource())
+
+    def test_connections(self):
+        mainManifest = """
+apiVersion: %s
+kind: Manifest
+spec:
+  service_template:
+    topology_template:
+      node_templates:
+        defaultCluster:
+          directives:
+            - default
+          type: unfurl.nodes.K8sCluster
+        myCluster:
+          type: unfurl.nodes.K8sCluster
+        localhost:
+          type: unfurl.nodes.Default
+          requirements:
+            - connect: # section 3.8.2 p140
+                relationship:
+                  type: unfurl.relationships.ConnectsTo.K8sCluster
+                  properties:
+                    connect: docker-for-desktop
+  """   % VERSION
+        manifest2 = YamlManifest(mainManifest)
+        nodeSpec = manifest2.tosca.getTemplate('localhost')
+        assert nodeSpec
+        relationshipSpec = nodeSpec.requirements['connect'].relationship
+        assert relationshipSpec and relationshipSpec.name == 'unfurl.relationships.ConnectsTo.K8sCluster'
+        assert relationshipSpec.target.name == 'myCluster'

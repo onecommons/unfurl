@@ -48,6 +48,7 @@ class Plan(object):
         for name, value in self.root.imports.items():
             external = value.resource
             # XXX if external is a Relationship and template isn't, get it's target template
+            #  if no target, create with status == unknown
             if getattr(external.template, match) == getattr(template, match):
                 if external.shadow and external.root is self.root:
                     # shadowed instance already created
@@ -750,21 +751,18 @@ def orderTemplates(templates, filter=None):
 
 
 def getAncestorTemplates(source):
-    # RelationshipType: NodeTemplate
-    for rel, target in source.relationships.items():
-        # XXX tosca.relationships.DependsOn
-        if rel.type == "tosca.relationships.HostedOn":
-            for ancestor in getAncestorTemplates(target):
-                yield ancestor
-            break
+    # note: opposite direction as NodeSpec.relationships
+    for rel, req in source.relationships:
+        for ancestor in getAncestorTemplates(rel.target):
+            yield ancestor
+        break
     yield source
 
 
 def findParentTemplate(source):
-    for relation, nodetpl in source.relationships.items():
-        # XXX tosca.relationships.DependsOn
-        if relation.type == "tosca.relationships.HostedOn":
-            return nodetpl
+    for rel, req in source.relationships:
+        if rel.type == "tosca.relationships.HostedOn":
+            return rel.target
         return None
 
 

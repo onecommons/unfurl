@@ -339,14 +339,14 @@ class NodeSpec(EntitySpec):
         if self._requirements is None:
             self._requirements = {}
             nodeTemplate = self.toscaEntityTemplate
-            for req, targetNode in zip(
-                nodeTemplate.requirements, nodeTemplate.relationships.values()
-            ):
-                name, values = list(req.items())[0]
+            for req in nodeTemplate.requirements:
+                name, values = next(iter(req.items()))
                 reqSpec = RequirementSpec(name, values, self)
-                nodeSpec = self.spec.getTemplate(targetNode.name)
-                assert nodeSpec
-                nodeSpec.addRelationship(reqSpec)
+                relTpl = nodeTemplate._get_explicit_relationship(req)
+                if relTpl.target:
+                    nodeSpec = self.spec.getTemplate(relTpl.target.name)
+                    assert nodeSpec
+                    nodeSpec.addRelationship(reqSpec)
                 self._requirements[name] = reqSpec
         return self._requirements
 
@@ -440,6 +440,9 @@ class NodeSpec(EntitySpec):
 
 
 class RelationshipSpec(EntitySpec):
+    """
+    Links a RequirementSpec to a CapabilitySpec.
+    """
     def __init__(self, template=None, capability=None, requirement=None):
         # template is a RelationshipTemplate
         # It is a full-fledged entity with a name, type, properties, attributes, interfaces, and metadata.
@@ -493,7 +496,7 @@ class RequirementSpec(object):
             t = self.relationship.toscaEntityTemplate.type_definition
             return (
                 t.capability_name == capability.name
-                or capability.type in t.valid_target_types
+                or any(capability.isCompatibleType(cap) for cap in t.valid_target_types)
             )
         return False
 
