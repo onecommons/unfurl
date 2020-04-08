@@ -254,6 +254,7 @@ def findProps(attributes, attributeDefs, matchfn):
 
 # represents a node, capability or relationship
 class EntitySpec(object):
+    # XXX need to define __eq__ for spec changes
     def __init__(self, toscaNodeTemplate):
         self.toscaEntityTemplate = toscaNodeTemplate
         self.name = toscaNodeTemplate.name
@@ -341,8 +342,8 @@ class NodeSpec(EntitySpec):
             nodeTemplate = self.toscaEntityTemplate
             for req in nodeTemplate.requirements:
                 name, values = next(iter(req.items()))
-                reqSpec = RequirementSpec(name, values, self)
-                relTpl = nodeTemplate._get_explicit_relationship(req)
+                reqDef, relTpl = nodeTemplate._get_explicit_relationship(req)
+                reqSpec = RequirementSpec(name, reqDef, self)
                 if relTpl.target:
                     nodeSpec = self.spec.getTemplate(relTpl.target.name)
                     assert nodeSpec
@@ -446,7 +447,7 @@ class RelationshipSpec(EntitySpec):
     def __init__(self, template=None, capability=None, requirement=None):
         # template is a RelationshipTemplate
         # It is a full-fledged entity with a name, type, properties, attributes, interfaces, and metadata.
-        # its RelationshipType has valid_target_types (and (hackish) capability_name)
+        # its RelationshipType has valid_target_types
         if not template:
             template = _defaultTopology.topology_template.relationship_templates[0]
         EntitySpec.__init__(self, template)
@@ -469,7 +470,7 @@ class RequirementSpec(object):
     """
     A Requirement shares a Relationship with a Capability.
     """
-
+    # XXX need __eq__ since this doesn't derive from EntitySpec
     def __init__(self, name, req, parent):
         self.source = self.parentNode = parent  # NodeSpec
         self.spec = parent.spec
@@ -491,12 +492,15 @@ class RequirementSpec(object):
         return self.relationship.getInterfaces() if self.relationship else []
 
     def isCapable(self, capability):
-        # XXX consider self.requirements_tpl.name, capability, node_filter
+        # XXX consider self.requirements_tpl.node, node_filter
+        capabilityName = self.requirements_tpl and self.requirements_tpl.get('capability')
+        if capabilityName:
+          if capability.name == capabilityName or capability.isCompatibleType(capabilityName):
+            return True
         if self.relationship:
             t = self.relationship.toscaEntityTemplate.type_definition
             return (
-                t.capability_name == capability.name
-                or any(capability.isCompatibleType(cap) for cap in t.valid_target_types)
+                any(capability.isCompatibleType(cap) for cap in t.valid_target_types)
             )
         return False
 
