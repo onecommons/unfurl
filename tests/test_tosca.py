@@ -257,6 +257,7 @@ spec:
           requirements:
             - connect: # section 3.8.2 p140
                 relationship:
+                  # think of this as a connection, "discover" will figure out what's on the other end
                   type: unfurl.relationships.ConnectsTo.K8sCluster
                   properties:
                     connect: docker-for-desktop
@@ -266,4 +267,5 @@ spec:
         assert nodeSpec
         relationshipSpec = nodeSpec.requirements['connect'].relationship
         assert relationshipSpec and relationshipSpec.name == 'unfurl.relationships.ConnectsTo.K8sCluster'
+        # chooses myCluster instead of the cluster with the "default" directive
         assert relationshipSpec.target.name == 'myCluster'

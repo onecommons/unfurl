@@ -7,6 +7,7 @@ which describes its capabilities, relationships and available interfaces for con
 """
 import six
 import collections
+import itertools
 
 from ansible.template import Templar
 from ansible.parsing.dataloader import DataLoader
@@ -399,7 +400,7 @@ class CapabilityInstance(EntityInstance):
                 assert template.source
                 # the constructor will add itself to _relationships
                 rel = RelationshipInstance(
-                    template.name, parent=self, template=template.requirement
+                    template.name, parent=self, template=template
                 )
                 # find the node instance that uses this requirement
                 sourceNode = self.root.findResource(template.source.name)
@@ -407,6 +408,22 @@ class CapabilityInstance(EntityInstance):
                     rel.source = sourceNode
 
         return self._relationships
+
+    def getDefaultRelationships(self, relation):
+        rels = [
+            rel
+            for rel in self.relationships
+            if not rel.template.source and rel.template.isCompatibleType(relation)
+        ]
+        if rels:
+            return rels
+
+        return [
+            RelationshipInstance(
+                defaultRelSpec.name, parent=self, template=defaultRelSpec
+            )
+            for defaultRelSpec in self.template.getDefaultRelationships(relation)
+        ]
 
     @property
     def key(self):
@@ -438,6 +455,17 @@ class RelationshipInstance(EntityInstance):
             return "%s::.%s::[.name=%s]" % (self.source.key, "requirements", self.name)
         else:
             return "%s::.%s::[.name=%s]" % (self.parent.key, "relationships", self.name)
+
+    def mergeProps(self, matchfn):
+        env = {}
+        capability = self.parent
+        for name, val in capability.template.findProps(capability.attributes, matchfn):
+            if val is not None:
+                env[name] = val
+        for name, val in self.template.findProps(self.attributes, matchfn):
+            if val is not None:
+                env[name] = val
+        return env
 
 
 class NodeInstance(EntityInstance):
@@ -515,9 +543,12 @@ class NodeInstance(EntityInstance):
     def getRequirements(self, match):
         if isinstance(match, six.string_types):
             return [r for r in self.requirements if r.template.name == match]
-        else:
-            # assume it's a nodeinstance
+        elif isinstance(match, NodeInstance):
             return [r for r in self.requirements if r.target == match]
+        elif isinstance(match, CapabilityInstance):
+            return [r for r in self.requirements if r.parent == match]
+        else:
+            raise UnfurlError('invalid match for getRequirements: "%s"' % match)
 
     @property
     def capabilities(self):
@@ -538,6 +569,13 @@ class NodeInstance(EntityInstance):
             for capability in self.capabilities
             if capability.template.name == name
         ]
+
+    def getDefaultRelationships(self, relation=None):
+        inner = (
+            capability.getDefaultRelationships(relation)
+            for capability in self.capabilities
+        )
+        return list(itertools.chain(*filter(None, inner)))  # flatten
 
     def _resolve(self, key):
         # might return a Result
@@ -647,3 +685,6 @@ class TopologyInstance(NodeInstance):
         for instance in self.instances:
             if instance.name not in ["inputs", "outputs"]:
                 yield instance
+
+    def getDefaultRelationships(self, relation=None):
+        return []

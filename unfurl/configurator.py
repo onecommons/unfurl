@@ -378,17 +378,18 @@ class TaskView(object):
         t = lambda datatype: datatype.type == "unfurl.datatypes.EnvVar"
         for parent in reversed(self.target.ancestors):
             # use reversed() so nearer overrides farther
+            # XXX broken if multiple requirements point to same parent (e.g. dev and prod connections)
             for rel in self.operationHost.getRequirements(parent):
                 # examine both the relationship's properties and its capability's properties
-                capability = rel.parent
-                for name, val in capability.template.findProps(
-                    capability.attributes, t
-                ):
-                    if val is not None:
-                        env[name] = val
-                for name, val in rel.template.findProps(rel.attributes, t):
-                    if val is not None:
-                        env[name] = val
+                env.update(rel.mergeProps(t))
+                break
+            else:
+                # not found, see if there's a default connection
+                # XXX this should the same relationship type as findConnection()
+                for rel in parent.getDefaultRelationships():
+                    env.update(rel.mergeProps(t))
+                    break
+
         return env
 
     @property
@@ -464,15 +465,15 @@ class TaskView(object):
             return host
         raise UnfurlTaskError(self, "can not find operation_host: %s" % operation_host)
 
-    def findConnection(self, target, capability='endpoint', relation='tosca.relationships.ConnectsTo'):
+    def findConnection(self, target, relation="tosca.relationships.ConnectsTo"):
         connection = self.query(
             "$OPERATION_HOST::.requirements::*[.type=%s][.target=$target]" % relation,
             vars=dict(target=target),
         )
         # alternative query: [.type=unfurl.nodes.K8sCluster]::.capabilities::.relationships::[.type=unfurl.relationships.ConnectsTo.K8sCluster][.source=$OPERATION_HOST]
-        if not connection and capability:
-            # no connection, use the defaults provided by the cluster's endpoint
-            endpoints = target.getCapabilities(capability)
+        if not connection:
+            # no connection, see if there's a default relationship template defined for this target
+            endpoints = target.getDefaultRelationships(relation)
             if endpoints:
                 connection = endpoints[0]
         return connection

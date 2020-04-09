@@ -15,26 +15,29 @@ spec:
   service_template:
     dsl_definitions:
     topology_template:
-      # relationship_templates:
-      #   k8sConnection:
-      #     type: unfurl.relationships.ConnectsTo.K8sCluster
-      #     properties:
-      #       context: docker-for-desktop
+      relationship_templates:
+        k8sConnection:
+          # if a template defines node or capability it will be used
+          # as the default relationship when connecting to that node
+          default_for: ANY
+          # target: k8sCluster
+          type: unfurl.relationships.ConnectsTo.K8sCluster
+          properties:
+            context: docker-for-desktop
+
       node_templates:
         k8sCluster:
           type: unfurl.nodes.K8sCluster
           directives:
             - discover
-          capabilities:
-            endpoint:
-              properties:
-                context: docker-for-desktop
+
         k8sNamespace:
          type: unfurl.nodes.K8sNamespace
          requirements:
            - host: k8sCluster
          properties:
            name: octest
+
         testSecret:
          # add metadata, type: Opaque
          # base64 values and omit data from status
