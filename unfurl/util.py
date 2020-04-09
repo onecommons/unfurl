@@ -236,8 +236,10 @@ def toEnum(enum, value, default=None):
         return value
 
 
-def saveToTempfile(obj, suffix="", delete=True):
-    tp = tempfile.NamedTemporaryFile("w+t", suffix=suffix, delete=False)
+def saveToTempfile(obj, suffix="", delete=True, dir=None):
+    tp = tempfile.NamedTemporaryFile(
+        "w+t", suffix=suffix, delete=False, dir=dir or os.environ.get("UNFURL_TMPDIR")
+    )
     if delete:
         atexit.register(lambda: os.unlink(tp.name))
     try:
