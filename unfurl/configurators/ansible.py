@@ -101,24 +101,33 @@ class AnsibleConfigurator(Configurator):
         props = connection.attributes
         hostVars = {
             "ansible_" + name: props[name]
-            for name in ("port", "host", "connection")
+            for name in ("port", "host", "connection", "user")
             if name in props
         }
-        creds = connection.attributes.get("credential")
-        if creds:
-            if "user" in creds:
-                hostVars["ansible_user"] = creds["user"]
-                # e.g token_type is password or private_key_file:
-                hostVars["ansible_" + creds["token_type"]] = creds["token"]
-                if "keys" in creds:
-                    hostVars.update(creds["keys"])
+        # ansible_user
         hostVars.update(props.get("hostvars", {}))
         if "ansible_host" not in hostVars and hostVars.get("ip_address"):
             hostVars["ansible_host"] = hostVars["ip_address"]
         return hostVars
 
-    def _makeInventory(self, host, allVars):
-        hosts = {host.name: self._getHostVars(host)}
+    def _updateVars(self, connection, hostVars):
+        creds = connection.attributes.get("credential")
+        if creds:
+            if "user" in creds:
+                hostVars["ansible_user"] = creds["user"]
+            # e.g token_type is password or private_key_file:
+            if "token" in creds:
+                hostVars["ansible_" + creds["token_type"]] = creds["token"]
+            if "keys" in creds:
+                hostVars.update(creds["keys"])
+        hostVars.update(connection.attributes.get("hostvars", {}))
+
+    def _makeInventory(self, host, allVars, task):
+        hostVars = self._getHostVars(host)
+        connection = task.findConnection(host, "unfurl.relationships.ConnectsTo.Ansible")
+        if connection:
+            self._updateVars(connection, hostVars)
+        hosts = {host.name: hostVars}
         children = {
             group.name: self._makeInventoryFromGroup(group)
             for group in host.template.getGroups()
@@ -139,7 +148,7 @@ class AnsibleConfigurator(Configurator):
             host = task.operationHost
             if not host:
                 return inventory  # default to localhost if not inventory
-            inventory = self._makeInventory(host, inventory or {})
+            inventory = self._makeInventory(host, inventory or {}, task)
         # XXX cache and reuse file
         return saveToTempfile(inventory, "-inventory.yaml").name
         # don't worry about the warnings in log, see:

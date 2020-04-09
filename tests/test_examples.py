@@ -1,5 +1,6 @@
 import unittest
 import six
+import os
 from unfurl.yamlmanifest import YamlManifest
 from unfurl.job import Runner, JobOptions, Status
 from unfurl.configurator import Configurator
@@ -79,10 +80,37 @@ class RunTest(unittest.TestCase):
             JobOptions(
                 workflow="run",
                 host="www.example.com",
+                # this instance doesn't exist so warning is output
                 instance="www.example.com",
                 cmdline=["echo", "foo"],
                 out=output,
             )
         )
         assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
-        assert list(job.workDone.values())[0].result.result["stdout"] == "foo"
+        try:
+            from pathlib import Path
+
+            p = Path(os.environ["UNFURL_TMPDIR"])
+            files = list(p.glob("**/*-inventory.yaml"))
+            self.assertEqual(len(files), 1, files)
+            inventory = files[0]
+            expectedInventory = """all:
+  hosts:
+    www.example.com:
+      ansible_port: 22
+      ansible_connection: local
+      ansible_user: ubuntu
+      ansible_pipelining: yes
+      ansible_private_key_file: ~/.ssh/example-key.pem
+  vars: {}
+  children: {}
+"""
+            with inventory.open() as f:
+                self.assertEqual(f.read(), expectedInventory)
+        except ImportError:
+            pass
+
+        tasks = list(job.workDone.values())
+        self.assertEqual(len(tasks), 1)
+        assert "stdout" in tasks[0].result.result, tasks[0].result.result
+        self.assertEqual(tasks[0].result.result["stdout"], "foo")

@@ -169,11 +169,6 @@ capability_types:
         description: >
           URL of the HTTP API of Kubernetes is exposed. Format: https://<host>:<port>"
         required: false
-      context:
-        type: string
-        description: >
-          The default connection context to use to connect to this cluster if not set by the relationship template.
-        required: false
       secure:
         type: boolean
         description: >
@@ -194,14 +189,16 @@ capability_types:
         required: false
       host:
         type: string
-        description: sets "ansible_host"
+        description: Sets "ansible_host"
         required: false
-      credential:
-        description: Its "user" property sets "ansible_user", add properties like "ssh_private_key_file" to "keys"
-        type: tosca.datatypes.Credential
+      user:
+        description: Sets "ansible_user" if not set in credentials 
+        type: string
         required: false
-        metadata:
-          sensitive: true
+      authentication_type:
+        description: "Type of authentication required, should match the credential's token_type"
+        type: string
+        required: false
       hostvars:
         type: map
         required: false
@@ -261,6 +258,23 @@ relationship_types:
           "key_file": Path to a client key file for TLS
         type: tosca.datatypes.Credential
         required: false
+
+  unfurl.relationships.ConnectsTo.Ansible:
+    derived_from: tosca.relationships.ConnectsTo
+    valid_target_types: [unfurl.capabilities.Endpoint.Ansible]
+    properties:
+      credential:
+        description: Its "user" property sets "ansible_user", add properties like "ssh_private_key_file" to "keys"
+        type: tosca.datatypes.Credential
+        required: false
+        metadata:
+          sensitive: true
+      hostvars:
+        type: map
+        required: false
+        description: >
+          Passed to ansible as host vars
+          See https://docs.ansible.com/ansible/latest/user_guide/intro_inventory.html#connecting-to-hosts-behavioral-inventory-parameters
 
 interface_types:
   unfurl.interfaces.Install:
