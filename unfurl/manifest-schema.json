@@ -1,6 +1,5 @@
 {
   "$schema": "http://json-schema.org/draft-06/schema#",
-  "$id": "https://www.onecommons.org/schemas/unfurl/manifest-v1alpha1.json",
   "title": "manifest.yaml",
   "definitions": {
     "state": {
@@ -36,7 +35,7 @@
       "title": "namedObject",
       "type": "object",
       "description": "constrains how properties are named",
-      "propertyNames": { "pattern": "^[A-Za-z_][A-Za-z0-9_\\-]*$" },
+      "propertyNames": { "pattern": "^[A-Za-z_][A-Za-z0-9_:\\-]*$" },
       "$$target": "#/definitions/namedObjects"
     },
     "secret": {
@@ -255,8 +254,8 @@
   },
   "type": "object",
   "properties": {
-    "apiVersion": { "enum": ["unfurl/v1alpha1"] },
-    "kind": { "enum": ["Manifest"] },
+    "apiVersion": { "const": "unfurl/v1alpha1" },
+    "kind": { "const": "Manifest" },
     "imports": {
       "type": "object",
       "allOf": [

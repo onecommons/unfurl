@@ -1,6 +1,5 @@
 {
   "$schema": "http://json-schema.org/draft-04/schema#",
-  "$id": "https://www.onecommons.org/schemas/unfurl/changelog-v1alpha1.json",
   "title": "changelog.yaml",
   "description": "List of jobs ran with changes applied",
   "type": "object",

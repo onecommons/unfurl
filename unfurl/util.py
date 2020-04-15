@@ -10,7 +10,7 @@ import re
 
 from collections import Mapping
 import os.path
-from jsonschema import Draft4Validator, validators, RefResolver
+from jsonschema import Draft7Validator, validators, RefResolver
 from ruamel.yaml.scalarstring import ScalarString, FoldedScalarString
 from ruamel.yaml import YAML
 import logging
@@ -283,7 +283,7 @@ def extend_with_default(validator_class):
     return validators.extend(validator_class, {"properties": set_defaults})
 
 
-DefaultValidatingLatestDraftValidator = Draft4Validator #extend_with_default(Draft4Validator)
+DefaultValidatingLatestDraftValidator = Draft7Validator #extend_with_default(Draft4Validator)
 
 
 def validateSchema(obj, schema, baseUri=None):

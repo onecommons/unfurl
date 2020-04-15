@@ -1,6 +1,5 @@
 {
   "$schema": "http://json-schema.org/draft-04/schema#",
-  "$id": "https://www.onecommons.org/schemas/unfurl/project-v1alpha1.json",
   "title": "unfurl.yaml",
   "description": "Unfurl configuration file",
   "type": "object",
