@@ -241,7 +241,7 @@ def saveToTempfile(obj, suffix="", delete=True, dir=None):
         "w+t", suffix=suffix, delete=False, dir=dir or os.environ.get("UNFURL_TMPDIR")
     )
     if delete:
-        atexit.register(lambda: os.unlink(tp.name))
+        atexit.register(lambda: os.path.exists(tp.name) and os.unlink(tp.name))
     try:
         if suffix.endswith(".yml") or suffix.endswith(".yaml"):
             YAML().dump(obj, tp)
