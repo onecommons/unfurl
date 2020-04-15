@@ -255,6 +255,7 @@ def saveToTempfile(obj, suffix="", delete=True, dir=None):
 
 
 # https://python-jsonschema.readthedocs.io/en/latest/faq/#why-doesn-t-my-schema-s-default-property-set-the-default-on-my-instance
+# XXX unused because this breaks check_schema
 def extend_with_default(validator_class):
     """
   # Example usage:
@@ -282,7 +283,7 @@ def extend_with_default(validator_class):
     return validators.extend(validator_class, {"properties": set_defaults})
 
 
-DefaultValidatingLatestDraftValidator = extend_with_default(Draft4Validator)
+DefaultValidatingLatestDraftValidator = Draft4Validator #extend_with_default(Draft4Validator)
 
 
 def validateSchema(obj, schema, baseUri=None):
@@ -295,6 +296,7 @@ def findSchemaErrors(obj, schema, baseUri=None):
         resolver = RefResolver(base_uri=baseUri, referrer=schema)
     else:
         resolver = None
+    DefaultValidatingLatestDraftValidator.check_schema(schema)
     validator = DefaultValidatingLatestDraftValidator(schema, resolver=resolver)
     errors = list(validator.iter_errors(obj))
     if not errors:
