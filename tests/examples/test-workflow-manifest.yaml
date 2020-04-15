@@ -64,10 +64,6 @@ spec:
           type: unfurl.nodes.K8sCluster
           directives:
             - discover
-          capabilities:
-            endpoint:
-              properties:
-                context: docker-for-desktop
 
         defaultNamespace:
           type: unfurl.nodes.K8sNamespace

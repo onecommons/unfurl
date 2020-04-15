@@ -38,7 +38,7 @@ Not yet implemented and non-conformance with the TOSCA 1.3 specification
 * triggers
 * notifications
 * node_filters
-* json and xml schema constraints
+* xml schema constraints
 
 Extensions to built-in definitions
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

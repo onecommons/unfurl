@@ -38,6 +38,21 @@ spec:
               type: unfurl.datatypes.EnvVar
           access_token:
             type: tosca.datatypes.Credential
+          event_object: # 5.3.2.2 Examples p.194
+            type: tosca.datatypes.json
+            constraints:
+              - schema: >
+                  {
+                    "$schema": "http://json-schema.org/draft-04/schema#",
+                    "description": "Example Event type schema",
+                    "type": "object",
+                    "properties": {
+                      "uuid": {
+                        "description": "The unique ID for the event.",
+                        "type": "string"
+                      }
+                    }
+                  }
     topology_template:
       inputs:
         cpus:
@@ -64,6 +79,10 @@ spec:
               protocol: xauth
               token_type: X-Auth-Token
               token: 604bbe45ac7143a79e14f3158df67091
+            event_object: >
+              {
+                 "uuid": "cadf:1234-56-0000-abcd"
+              }
           interfaces:
            Standard:
             create:
@@ -104,6 +123,7 @@ class ToscaSyntaxTest(unittest.TestCase):
         job = Runner(manifest).run(JobOptions(add=True, startTime="time-to-test"))
         assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
         my_server = manifest.getRootResource().findResource("my_server")
+        assert my_server
         assert my_server.attributes["test"], "cpus: 2"
         # print(job.out.getvalue())
         testSensitive = manifest.getRootResource().findResource("testSensitive")
@@ -239,7 +259,8 @@ spec:
             self.assertIsNot(imported2.shadow.root, manifest2.getRootResource())
 
     def test_connections(self):
-        mainManifest = """
+        mainManifest = (
+            """
 apiVersion: %s
 kind: Manifest
 spec:
@@ -260,12 +281,17 @@ spec:
                   # think of this as a connection, "discover" will figure out what's on the other end
                   type: unfurl.relationships.ConnectsTo.K8sCluster
                   properties:
-                    connect: docker-for-desktop
-  """   % VERSION
+                    context: docker-for-desktop
+  """
+            % VERSION
+        )
         manifest2 = YamlManifest(mainManifest)
-        nodeSpec = manifest2.tosca.getTemplate('localhost')
+        nodeSpec = manifest2.tosca.getTemplate("localhost")
         assert nodeSpec
-        relationshipSpec = nodeSpec.requirements['connect'].relationship
-        assert relationshipSpec and relationshipSpec.name == 'unfurl.relationships.ConnectsTo.K8sCluster'
+        relationshipSpec = nodeSpec.requirements["connect"].relationship
+        assert (
+            relationshipSpec
+            and relationshipSpec.name == "unfurl.relationships.ConnectsTo.K8sCluster"
+        )
         # chooses myCluster instead of the cluster with the "default" directive
-        assert relationshipSpec.target.name == 'myCluster'
+        assert relationshipSpec.target.name == "myCluster"
