@@ -688,3 +688,6 @@ class TopologyInstance(NodeInstance):
 
     def getDefaultRelationships(self, relation=None):
         return []
+
+    def findLocalhost(self):
+        return self.findResource("localhost") or self.imports.findImport("localhost")

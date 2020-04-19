@@ -343,7 +343,7 @@ class TaskView(object):
                 target = self.target
             # XXX why .attributes??
             HOST = (target.parent or target).attributes
-            ORCHESTRATOR = target.root.imports.findImport("localhost")
+            ORCHESTRATOR = target.root.findLocalhost()
             vars = dict(
                 inputs=inputs,
                 task=self.getSettings(),
@@ -451,7 +451,7 @@ class TaskView(object):
     def _findOperationHost(self, target, operation_host):
         # SELF, HOST, ORCHESTRATOR, SOURCE, TARGET
         if not operation_host or operation_host in ["localhost", "ORCHESTRATOR"]:
-            return target.root.imports.findImport("localhost")
+            return target.root.findLocalhost()
         if operation_host == "SELF":
             return target
         if operation_host == "HOST":
