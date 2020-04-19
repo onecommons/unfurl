@@ -11,6 +11,7 @@ import os.path
 # import six
 from .repo import Repo
 from .util import UnfurlError
+from .merge import mergeDicts
 from .yamlloader import YamlConfig
 from . import __version__
 
@@ -134,6 +135,16 @@ class LocalConfig(object):
   * the default local and secret instances
 """
 
+    # don't merge the value of the keys of these dicts:
+    replaceKeys = [
+        "inputs",
+        "attributes",
+        "schemas",
+        "connections",
+        "instances",
+        "environment",
+    ]
+
     # XXX add list of projects to config
     # projects:
     #   - path:
@@ -149,8 +160,30 @@ class LocalConfig(object):
         self.manifests = self.config.config.get(
             "manifests", self.config.config.get("instances", [])  # backward compat
         )
-        self.defaults = self.config.config.get("defaults", {})
+        contexts = self.config.config.get("contexts", {})
+        if parentConfig:
+            contexts = mergeDicts(
+                parentConfig.contexts, contexts, replaceKeys=self.replaceKeys
+            )
+        self.contexts = contexts
         self.parentConfig = parentConfig
+
+    def getContext(self, manifestPath, context):
+        localContext = self.contexts.get("defaults", {})
+        contextName = "defaults"
+        for spec in self.manifests:
+            if manifestPath == self.adjustPath(spec["file"]):
+                contextName = spec.get("context", contextName)
+                break
+
+        if contextName != "defaults":
+            localContext = mergeDicts(
+                localContext,
+                self.contexts.get(contextName, {}),
+                replaceKeys=self.replaceKeys,
+            )
+
+        return mergeDicts(context, localContext, replaceKeys=self.replaceKeys)
 
     def adjustPath(self, path):
         """
@@ -167,64 +200,23 @@ class LocalConfig(object):
                     return self.adjustPath(spec["file"])
         return None
 
-    def getLocalResource(self, manifestPath, localName, importSpec):
-        """
-        manifestPath (str): The currently loading manifest
-        localName (str): Local name for the imported resource; either 'localhost', 'local' or 'secret'
-        importSpec (dict): Metadata about the imported manifest; will be updated if necessary.
-        """
+    def createLocalInstance(self, localName, attributes):
+        # local or secret
         from .runtime import NodeInstance
 
-        localRepo = None
-        for spec in self.manifests:
-            if manifestPath == self.adjustPath(spec["file"]):
-                localRepo = spec.get(localName)
-        if not localRepo:
-            localRepo = self.defaults.get(localName)
-        if not localRepo and self.parentConfig:
-            return self.parentConfig.getLocalResource(
-                manifestPath, localName, importSpec
-            )
-
-        if localRepo:
-            attributes = localRepo.get("attributes")
-            if attributes is not None:
-                if "default" in attributes:
-                    if not "default" in attributes.get(".interfaces", {}):
-                        attributes.setdefault(".interfaces", {})[
-                            "default"
-                        ] = "unfurl.support.DelegateAttributes"
-                if "inheritFrom" in attributes:
-                    if not "inherit" in attributes.get(".interfaces", {}):
-                        attributes.setdefault(".interfaces", {})[
-                            "inherit"
-                        ] = "unfurl.support.DelegateAttributes"
-                    if attributes["inheritFrom"] == "home" and self.parentConfig:
-                        parent = self.parentConfig.getLocalResource(
-                            manifestPath, localName, importSpec
-                        )
-                        localResource = NodeInstance(localName, attributes)
-                        if parent:
-                            localResource._attributes["inheritFrom"] = parent
-                            return localResource
-                        else:
-                            importSpec["inheritHack"] = localResource
-                            return None
-                repoResource = NodeInstance(localName, attributes)
-                repoResource.baseDir = self.config.getBaseDir()
-                return repoResource
-            else:
-                # the local or secret is a resource defined in a local manifest
-                # set the url and resource name so the importing manifest loads it
-                importSpec.update(localRepo)
-                if "file" in localRepo:
-                    importSpec["file"] = self.adjustPath(localRepo["file"])
-                if "repository" in localRepo:
-                    importSpec["repository"] = self.adjustPath(localRepo["repository"])
-                return None
-
-        # none found, return empty resource
-        return NodeInstance(localName)
+        if "default" in attributes:
+            if not "default" in attributes.get(".interfaces", {}):
+                attributes.setdefault(".interfaces", {})[
+                    "default"
+                ] = "unfurl.support.DelegateAttributes"
+        if "inheritFrom" in attributes:
+            if not "inherit" in attributes.get(".interfaces", {}):
+                attributes.setdefault(".interfaces", {})[
+                    "inherit"
+                ] = "unfurl.support.DelegateAttributes"
+        instance = NodeInstance(localName, attributes)
+        instance.baseDir = self.config.getBaseDir()
+        return instance
 
 
 class LocalEnv(object):
@@ -379,10 +371,19 @@ class LocalEnv(object):
                 return os.path.abspath(homepath)
         return None
 
-    def getLocalResource(self, name, importSpec):
-        if name not in ["local", "localhost", "secret"]:
-            return None
-        return self.config.getLocalResource(self.manifestPath, name, importSpec)
+    def getContext(self, context):
+        return self.config.getContext(self.manifestPath, context)
+
+    def getLocalInstance(self, name, context):
+        # XXX localhost
+        assert name in ["locals", "secrets", "local", "secret"]
+        local = context.get(name, {})
+        return (
+            self.config.createLocalInstance(
+                name.rstrip("s"), local.get("attributes", {})
+            ),
+            local,
+        )
 
     def findGitRepo(self, repoURL, isFile=True, revision=None):
         repo = None

@@ -15,8 +15,8 @@ from unfurl.configurators.ansible import AnsibleConfigurator
 manifest = """
 apiVersion: unfurl/v1alpha1
 kind: Manifest
-imports:
-  local:
+context:
+  locals:
     properties:
       prop2:
        type: number
@@ -58,27 +58,30 @@ spec:
 localConfig = """
 unfurl:
  version: 1.0
-defaults: #used if manifest isnt found in `manifests` list below
- secret:
-  attributes:
-    aDict:
-      key1: a string
-      key2: 2
-    default: # if key isn't found, apply this:
-      q: # quote
-        eval:
-          lookup:
-            env: "UNFURL_{{ key | upper }}"
-
-manifests:
-  - file: git/default-manifest.yaml
-    local:
+contexts:
+  defaults: #used if manifest isnt found in `manifests` list below
+   secrets:
+    attributes:
+      aDict:
+        key1: a string
+        key2: 2
+      default: # if key isn't found, apply this:
+        q: # quote
+          eval:
+            lookup:
+              env: "UNFURL_{{ key | upper }}"
+  test:
+    locals:
       attributes:
         prop1: 'found'
         prop2: 1
         aDict:
           key1: a string
           key2: 2
+
+manifests:
+  - file: git/default-manifest.yaml
+    context: test
 """
 
 

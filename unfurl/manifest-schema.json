@@ -36,7 +36,10 @@
       "type": "object",
       "description": "constrains how properties are named",
       "propertyNames": { "pattern": "^[A-Za-z_][A-Za-z0-9_:\\-]*$" },
-      "$$target": "#/definitions/namedObjects"
+      "$$target": [
+          "#/definitions/namedObjects",
+          "./manifest-schema.json#/definitions/namedObjects"
+      ]
     },
     "secret": {
       "type": "object",
@@ -67,13 +70,24 @@
       "type": "object",
       "$$target": "#/definitions/schema"
     },
+    "context": {
+      "title": "context",
+      "$$target": [
+              "#/definitions/context",
+              "./manifest-schema.json#/definitions/context"
+            ],
+      "type": "object",
+      "properties": {
+        "inputs": { "$ref": "#/definitions/attributes" },
+        "environment": { "$ref": "#/definitions/attributes" },
+        "locals": { "$ref": "#/definitions/import" },
+        "secrets": { "$ref": "#/definitions/import" }
+      }
+    },
     "import": {
       "title": "Import",
       "description": "Declare an instance imported from another manifest.",
-      "$$target": [
-        "#/definitions/import",
-        "./manifest-schema.json#/definitions/import"
-      ],
+      "$$target": "#/definitions/import",
       "type": "object",
       "properties": {
         "file": { "type": "string" },
@@ -256,6 +270,7 @@
   "properties": {
     "apiVersion": { "const": "unfurl/v1alpha1" },
     "kind": { "const": "Manifest" },
+    "context": { "$ref": "#/definitions/context" },
     "imports": {
       "type": "object",
       "allOf": [
@@ -292,7 +307,6 @@
         },
         {
           "properties": {
-            "inputs": { "$ref": "#/definitions/attributes" },
             "instances": { "$ref": "#/definitions/namedObjects" }
           }
         }

@@ -23,7 +23,7 @@ Extensions
 * groups can have other groups as members
 * operation_host can also refer to a node template name
 * add OPERATION_HOST reserved function keywords
-* add "discover" directive
+* add "discover" and "default" directives
 
 Not yet implemented and non-conformance with the TOSCA 1.3 specification
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

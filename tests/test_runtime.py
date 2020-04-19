@@ -241,7 +241,7 @@ templates:
       step1:
         +/configurators/step1:
 root:
-  resources:
+  instances:
     cloud3: #key is resource name
       +/templates/base:
       +/templates/production:

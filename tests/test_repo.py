@@ -31,7 +31,7 @@ manifestContent = """\
   apiVersion: unfurl/v1alpha1
   kind: Manifest
   spec:
-    tosca:
+    service_template:
       +include: service-template.yaml
       topology_template:
         node_templates:

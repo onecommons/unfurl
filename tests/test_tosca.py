@@ -18,9 +18,10 @@ class SetAttributeConfigurator(Configurator):
 manifestDoc = """
 apiVersion: unfurl/v1alpha1
 kind: Manifest
-spec:
+context:
   inputs:
     cpus: 2
+spec:
   service_template:
     node_types:
       testy.nodes.aNodeType:

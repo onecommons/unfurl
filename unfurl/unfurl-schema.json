@@ -18,18 +18,21 @@
         "properties": {
           "file": { "type": "string" },
           "default": { "type": "boolean" },
-          "local": { "$ref": "./manifest-schema.json#/definitions/import" },
-          "secret": { "$ref": "./manifest-schema.json#/definitions/import" }
+          "context": {"type": "string"}
         },
         "required": ["file"]
       }
     },
-    "defaults": {
+    "contexts": {
       "type": "object",
-      "properties": {
-        "local": { "$ref": "./manifest-schema.json#/definitions/import" },
-        "secret": { "$ref": "./manifest-schema.json#/definitions/import" }
-      }
+      "allOf": [
+        { "$ref": "./manifest-schema.json#/definitions/namedObjects" },
+        {
+          "additionalProperties": {
+            "$ref": "./manifest-schema.json#/definitions/context"
+          }
+        }
+      ]
     }
   },
   "required": ["unfurl"]

@@ -14,6 +14,25 @@ manifest.yaml
 
   apiVersion: VERSION
   kind: Manifest
+  # the context will be merged with the corresponding context in the project config:
+  context:
+    inputs:
+    locals:
+      attributes:
+      schema:
+        properties:
+         name1:
+           type: string
+           default
+        required:
+    secrets:
+      attributes:
+      schema:
+    environment:
+    instances:
+    connections:
+
+
   imports:
     name: # manifest to represent as a resource
       file: # if is missing, manifest must declared in local config
@@ -33,15 +52,11 @@ manifest.yaml
        name1:
          type: string
          default
-       # save-digest: true
-       # prompt: true
-       # readonly: true
      required:
 
   spec:
     service_template:
       # <tosca service template>
-    inputs:
     instances:
       name:
         template:
@@ -156,31 +171,32 @@ unfurl.yaml
   unfurl:
     version:
 
+  contexts:
+    defaults: # "defaults" are merged with optional contexts defined below
+      # values are merged with the manifest's context:
+      inputs:
+      locals:
+      secrets:
+      environment:
+    # user-defined contexts:
+    # production:
+    # staging:
+
   manifests:
     - file:
       repository:
       # default instance if there are multiple instances in that project
       # (only applicable when config is local to a project)
       default: True
-      environment:
-      local:
-        file: path
-        repository:
-        instance: root
-        # or:
-        attributes:
-          inheritFrom:
-      secret:
-
-  defaults: # used if the manifest isn't defined above
-   local:
-   secret:
+      context: production # "defaults" context is used if not specified
 
 
 .. jsonschema:: unfurl-schema.json
 
 Sections
 ---------
+
+.. jsonschema:: manifest-schema.json#/definitions/context
 
 .. jsonschema:: manifest-schema.json#/definitions/instance
 

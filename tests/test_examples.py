@@ -73,35 +73,34 @@ class RunTest(unittest.TestCase):
         Run ansible command on a (mock) remote instance.
         """
         try:
-          oldTmpDir = os.environ["UNFURL_TMPDIR"]
-          runner = CliRunner()
-          with runner.isolated_filesystem() as tempDir:
-              print('tempDir', tempDir)
-              os.environ["UNFURL_TMPDIR"] = tempDir
-              path = __file__ + "/../examples/ansible-manifest.yaml"
-              manifest = YamlManifest(path=path)
-              runner = Runner(manifest)
+            oldTmpDir = os.environ["UNFURL_TMPDIR"]
+            runner = CliRunner()
+            with runner.isolated_filesystem() as tempDir:
+                os.environ["UNFURL_TMPDIR"] = tempDir
+                path = __file__ + "/../examples/ansible-manifest.yaml"
+                manifest = YamlManifest(path=path)
+                runner = Runner(manifest)
 
-              output = six.StringIO()  # so we don't save the file
-              job = runner.run(
-                  JobOptions(
-                      workflow="run",
-                      host="www.example.com",
-                      # this instance doesn't exist so warning is output
-                      instance="www.example.com",
-                      cmdline=["echo", "foo"],
-                      out=output,
-                  )
-              )
-              assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
-              try:
-                  from pathlib import Path
+                output = six.StringIO()  # so we don't save the file
+                job = runner.run(
+                    JobOptions(
+                        workflow="run",
+                        host="www.example.com",
+                        # this instance doesn't exist so warning is output
+                        instance="www.example.com",
+                        cmdline=["echo", "foo"],
+                        out=output,
+                    )
+                )
+                assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
+                try:
+                    from pathlib import Path
 
-                  p = Path(os.environ["UNFURL_TMPDIR"])
-                  files = list(p.glob("**/*-inventory.yaml"))
-                  self.assertEqual(len(files), 1, files)
-                  inventory = files[-1]
-                  expectedInventory = """all:
+                    p = Path(os.environ["UNFURL_TMPDIR"])
+                    files = list(p.glob("**/*-inventory.yaml"))
+                    self.assertEqual(len(files), 1, files)
+                    inventory = files[-1]
+                    expectedInventory = """all:
   hosts:
     www.example.com:
       ansible_port: 22
@@ -112,10 +111,10 @@ class RunTest(unittest.TestCase):
   vars: {}
   children: {}
 """
-                  with inventory.open() as f:
-                      self.assertEqual(f.read(), expectedInventory)
-              except ImportError:
-                  pass
+                    with inventory.open() as f:
+                        self.assertEqual(f.read(), expectedInventory)
+                except ImportError:
+                    pass
         finally:
             os.environ["UNFURL_TMPDIR"] = oldTmpDir
         tasks = list(job.workDone.values())

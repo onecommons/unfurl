@@ -167,6 +167,10 @@ class YamlManifest(Manifest):
         )
         manifest = self.manifest.expanded
         spec = manifest.get("spec", {})
+        self.context = manifest.get("context", {})
+        if localEnv:
+            self.context = localEnv.getContext(self.context)
+        spec["inputs"] = self.context.get("inputs", spec.get("inputs", {}))
         super(YamlManifest, self).__init__(spec, self.manifest.path, localEnv)
         assert self.tosca
         status = manifest.get("status", {})
@@ -197,13 +201,15 @@ class YamlManifest(Manifest):
         )
         lastChangeId = self.changeSets and max(self.changeSets.keys()) or 0
 
+        self.imports = Imports()
+        if localEnv:  # XXX localhost
+            for name in ["locals", "secrets"]:
+                self.imports[name.rstrip("s")] = localEnv.getLocalInstance(
+                    name, self.context
+                )
+
         importsSpec = manifest.get("imports", {})
-        if localEnv:
-            # make sure these exist, localEnv will always add them
-            importsSpec.setdefault("local", {})
-            importsSpec.setdefault("secret", {})
-            importsSpec.setdefault("localhost", {})
-        self.imports = self.loadImports(importsSpec)
+        self.loadImports(importsSpec)
 
         rootResource = self.createTopologyInstance(status)
         # create an new instances declared in the spec:
@@ -234,6 +240,43 @@ class YamlManifest(Manifest):
         for key, val in status.get("instances", {}).items():
             self.createNodeInstance(key, val, root)
         return root
+
+    def loadImports(self, importsSpec):
+        """
+      file: local/path # for now
+      repository: uri or repository name in TOSCA template
+      commitId:
+      resource: name # default is root
+      attributes: # queries into resource
+      properties: # expected schema for attributes
+    """
+        imported = {}
+        for name, value in importsSpec.items():
+            # load the manifest for the imported resource
+            file = value.get("file")
+            if not file:
+                raise UnfurlError("Can not import '%s': no file specified" % (name))
+            location = dict(file=file, repository=value.get("repository"))
+            key = tuple(location.values())
+            importedManifest = imported.get(key)
+            if not importedManifest:
+                # if location resolves to an url to a git repo
+                # loadFromRepo will find or create a working dir
+                path, yamlDict = self.loadFromRepo(
+                    Artifact(location), self.getBaseDir()
+                )
+                importedManifest = YamlManifest(yamlDict, path=path)
+                imported[key] = importedManifest
+
+            rname = value.get("instance", "root")
+            if rname == "*":
+                rname = "root"
+            resource = importedManifest.getRootResource().findResource(rname)
+            if not resource:
+                raise UnfurlError(
+                    "Can not import '%s': resource '%s' not found" % (name, rname)
+                )
+            self.imports[name] = (resource, value)
 
     def saveEntityInstance(self, resource):
         status = CommentedMap()
@@ -437,51 +480,6 @@ class YamlManifest(Manifest):
                 f.write(output.getvalue())
         except:
             raise UnfurlError("Error saving changelog %s" % self.changeLogPath, True)
-
-    def loadImports(self, importsSpec):
-        """
-      file: local/path # for now
-      repository: uri or repository name in TOSCA template
-      commitId:
-      resource: name # default is root
-      attributes: # queries into resource
-      properties: # expected schema for attributes
-    """
-        imports = Imports()
-        imported = {}
-        for name, value in importsSpec.items():
-            resource = self.localEnv and self.localEnv.getLocalResource(name, value)
-            if not resource:
-                # load the manifest for the imported resource
-                file = value.get("file")
-                if not file:
-                    raise UnfurlError("Can not import '%s': no file specified" % (name))
-                location = dict(file=file, repository=value.get("repository"))
-                key = tuple(location.values())
-                importedManifest = imported.get(key)
-                if not importedManifest:
-                    # if location resolves to an url to a git repo
-                    # loadFromRepo will find or create a working dir
-                    path, yamlDict = self.loadFromRepo(
-                        Artifact(location), self.getBaseDir()
-                    )
-                    importedManifest = YamlManifest(yamlDict, path=path)
-                    imported[key] = importedManifest
-
-                rname = value.get("instance", "root")
-                if rname == "*":
-                    rname = "root"
-                resource = importedManifest.getRootResource().findResource(rname)
-                if "inheritHack" in value:  # set by getLocalResource() above
-                    value["inheritHack"]._attributes["inheritFrom"] = resource
-                    resource = value.pop("inheritHack")
-
-            if not resource:
-                raise UnfurlError(
-                    "Can not import '%s': resource '%s' not found" % (name, rname)
-                )
-            imports[name] = (resource, value)
-        return imports
 
 
 def runJob(manifestPath=None, _opts=None):

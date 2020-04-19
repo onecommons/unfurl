@@ -38,7 +38,7 @@ def makeMapWithBase(doc, baseDir):
 mergeStrategyKey = "+%"  # values: delete
 
 # b is the merge patch, a is original dict
-def mergeDicts(b, a, cls=dict):
+def mergeDicts(b, a, cls=dict, replaceKeys=None, defaultStrategy="merge"):
     """
   Returns a new dict (or cls) that recursively merges b into a.
   b is base, a overrides.
@@ -50,6 +50,10 @@ def mergeDicts(b, a, cls=dict):
     for key, val in a.items():
         if key == mergeStrategyKey:
             continue
+        if replaceKeys and key in replaceKeys:
+            childStrategy = "replace"
+        else:
+            childStrategy = "merge"
         if isinstance(val, Mapping):
             strategy = val.get(mergeStrategyKey)
             if key in b:
@@ -57,12 +61,18 @@ def mergeDicts(b, a, cls=dict):
                 if isinstance(bval, Mapping):
                     # merge strategy of a overrides b
                     if not strategy:
-                        strategy = bval.get(mergeStrategyKey) or "merge"
+                        strategy = bval.get(mergeStrategyKey) or defaultStrategy
                     if strategy == "merge":
                         if not val:  # empty map, treat as missing key
                             continue
                         cls = getattr(bval, "mapCtor", cls)
-                        cp[key] = mergeDicts(bval, val, cls)
+                        cp[key] = mergeDicts(
+                            bval,
+                            val,
+                            cls,
+                            defaultStrategy=childStrategy,
+                            replaceKeys=replaceKeys,
+                        )
                         continue
                     if strategy == "error":
                         raise UnfurlError(
