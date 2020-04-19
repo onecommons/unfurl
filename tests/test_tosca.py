@@ -201,16 +201,23 @@ class AbstractTemplateTest(unittest.TestCase):
             % VERSION
         )
 
+        localConfig = """
+          unfurl:
+           version: 1.0
+          contexts:
+            defaults:
+              external:
+               foreign:
+                  file:  foreignmanifest.yaml
+                  instance: "*"  # this is the default
+        """
+
         # import a node from a external manifest and have an abstract node template select it
         # check will be run on it each time
         mainManifest = (
             """
 apiVersion: %s
 kind: Manifest
-imports:
- foreign:
-    file:  foreignmanifest.yaml
-    instance: "*"  # this is the default
 spec:
   service_template:
     imports:
@@ -232,6 +239,9 @@ spec:
         with runner.isolated_filesystem():
             with open("foreignmanifest.yaml", "w") as f:
                 f.write(foreign)
+
+            with open("unfurl.yaml", "w") as f:
+                f.write(localConfig)
 
             with open("manifest.yaml", "w") as f:
                 f.write(mainManifest)

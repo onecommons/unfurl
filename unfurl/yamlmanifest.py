@@ -208,7 +208,7 @@ class YamlManifest(Manifest):
                     name, self.context
                 )
 
-        importsSpec = manifest.get("imports", {})
+        importsSpec = self.context.get("external", {})
         self.loadImports(importsSpec)
 
         rootResource = self.createTopologyInstance(status)
@@ -257,14 +257,13 @@ class YamlManifest(Manifest):
             if not file:
                 raise UnfurlError("Can not import '%s': no file specified" % (name))
             location = dict(file=file, repository=value.get("repository"))
-            key = tuple(location.values())
+            baseDir = getattr(value, "baseDir", self.getBaseDir())
+            key = tuple(location.values()) + (baseDir,)
             importedManifest = imported.get(key)
             if not importedManifest:
                 # if location resolves to an url to a git repo
                 # loadFromRepo will find or create a working dir
-                path, yamlDict = self.loadFromRepo(
-                    Artifact(location), self.getBaseDir()
-                )
+                path, yamlDict = self.loadFromRepo(Artifact(location), baseDir)
                 importedManifest = YamlManifest(yamlDict, path=path)
                 imported[key] = importedManifest
 

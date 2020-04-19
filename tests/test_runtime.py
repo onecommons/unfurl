@@ -437,7 +437,8 @@ class ImportTest(unittest.TestCase):
                 """
 apiVersion: %s
 kind: Manifest
-imports:
+context:
+ external:
   test:
     file: foreignmanifest.yaml
     instance: foreign # default is root

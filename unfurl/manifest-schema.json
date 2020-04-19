@@ -80,14 +80,25 @@
       "properties": {
         "inputs": { "$ref": "#/definitions/attributes" },
         "environment": { "$ref": "#/definitions/attributes" },
-        "locals": { "$ref": "#/definitions/import" },
-        "secrets": { "$ref": "#/definitions/import" }
+        "locals": { "$ref": "#/definitions/external" },
+        "secrets": { "$ref": "#/definitions/external" },
+        "external": {
+          "type": "object",
+          "allOf": [
+            { "$ref": "#/definitions/namedObjects" },
+            {
+              "additionalProperties": {
+                "$ref": "#/definitions/external"
+              }
+            }
+          ]
+        }
       }
     },
-    "import": {
-      "title": "Import",
-      "description": "Declare an instance imported from another manifest.",
-      "$$target": "#/definitions/import",
+    "external": {
+      "title": "External",
+      "description": "Declare external instances imported from another manifest.",
+      "$$target": "#/definitions/external",
       "type": "object",
       "properties": {
         "file": { "type": "string" },
@@ -271,17 +282,6 @@
     "apiVersion": { "const": "unfurl/v1alpha1" },
     "kind": { "const": "Manifest" },
     "context": { "$ref": "#/definitions/context" },
-    "imports": {
-      "type": "object",
-      "allOf": [
-        { "$ref": "#/definitions/namedObjects" },
-        {
-          "additionalProperties": {
-            "$ref": "#/definitions/import"
-          }
-        }
-      ]
-    },
     "spec": {
       "type": "object",
       "anyOf": [

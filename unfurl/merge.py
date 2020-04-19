@@ -38,13 +38,14 @@ def makeMapWithBase(doc, baseDir):
 mergeStrategyKey = "+%"  # values: delete
 
 # b is the merge patch, a is original dict
-def mergeDicts(b, a, cls=dict, replaceKeys=None, defaultStrategy="merge"):
+def mergeDicts(b, a, cls=None, replaceKeys=None, defaultStrategy="merge"):
     """
   Returns a new dict (or cls) that recursively merges b into a.
   b is base, a overrides.
 
   Similar to https://yaml.org/type/merge.html but does a recursive merge
   """
+    cls = getattr(b, "mapCtor", cls or b.__class__)
     cp = cls()
     skip = []
     for key, val in a.items():
@@ -65,11 +66,9 @@ def mergeDicts(b, a, cls=dict, replaceKeys=None, defaultStrategy="merge"):
                     if strategy == "merge":
                         if not val:  # empty map, treat as missing key
                             continue
-                        cls = getattr(bval, "mapCtor", cls)
                         cp[key] = mergeDicts(
                             bval,
                             val,
-                            cls,
                             defaultStrategy=childStrategy,
                             replaceKeys=replaceKeys,
                         )

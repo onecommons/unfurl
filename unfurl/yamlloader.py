@@ -72,7 +72,10 @@ def resolveIfInRepository(manifest, path, isFile=True, importLoader=None):
                     path = os.path.join(repo.workingDir, filePath)
     return path, None
 
-_refResolver = RefResolver('', None)
+
+_refResolver = RefResolver("", None)
+
+
 def load_yaml(path, isFile=True, importLoader=None, fragment=None):
     try:
         logger.debug(

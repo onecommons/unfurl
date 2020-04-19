@@ -17,42 +17,24 @@ manifest.yaml
   # the context will be merged with the corresponding context in the project config:
   context:
     inputs:
-    locals:
-      attributes:
-      schema:
-        properties:
-         name1:
-           type: string
-           default
-        required:
-    secrets:
-      attributes:
-      schema:
-    environment:
-    instances:
-    connections:
-
-
-  imports:
-    name: # manifest to represent as a resource
-      file: # if is missing, manifest must declared in local config
-      repository:
-      resource: name # default is root
-      attributes: # queries into manifest
-      properties: # expected JSON schema for attributes
     # local and secret are special cases that must be defined in the local config
     local:
-     properties:
+     schemas:
        name1:
          type: string
          default
-     required:
     secret:
-     properties:
+     schemas:
        name1:
          type: string
          default
-     required:
+    environment:
+    external:
+      name: # manifest to represent as a resource
+        file:
+        repository:
+        instance: name or "*" # default is root
+        schemas: # expected JSON schema for attributes
 
   spec:
     service_template:
@@ -178,6 +160,7 @@ unfurl.yaml
       locals:
       secrets:
       environment:
+      external:
     # user-defined contexts:
     # production:
     # staging:
@@ -200,7 +183,7 @@ Sections
 
 .. jsonschema:: manifest-schema.json#/definitions/instance
 
-.. jsonschema:: manifest-schema.json#/definitions/import
+.. jsonschema:: manifest-schema.json#/definitions/external
 
 .. jsonschema:: manifest-schema.json#/definitions/status
 

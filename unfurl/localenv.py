@@ -11,7 +11,7 @@ import os.path
 # import six
 from .repo import Repo
 from .util import UnfurlError
-from .merge import mergeDicts
+from .merge import mergeDicts, CommentedMap
 from .yamlloader import YamlConfig
 from . import __version__
 
@@ -136,14 +136,7 @@ class LocalConfig(object):
 """
 
     # don't merge the value of the keys of these dicts:
-    replaceKeys = [
-        "inputs",
-        "attributes",
-        "schemas",
-        "connections",
-        "instances",
-        "environment",
-    ]
+    replaceKeys = ["inputs", "attributes", "schemas", "connections", "environment"]
 
     # XXX add list of projects to config
     # projects:
@@ -160,10 +153,10 @@ class LocalConfig(object):
         self.manifests = self.config.config.get(
             "manifests", self.config.config.get("instances", [])  # backward compat
         )
-        contexts = self.config.config.get("contexts", {})
+        contexts = self.config.expanded.get("contexts", {})
         if parentConfig:
             contexts = mergeDicts(
-                parentConfig.contexts, contexts, replaceKeys=self.replaceKeys
+                parentConfig.config.expanded, contexts, replaceKeys=self.replaceKeys
             )
         self.contexts = contexts
         self.parentConfig = parentConfig
@@ -176,11 +169,9 @@ class LocalConfig(object):
                 contextName = spec.get("context", contextName)
                 break
 
-        if contextName != "defaults":
+        if contextName != "defaults" and contextName in self.contexts:
             localContext = mergeDicts(
-                localContext,
-                self.contexts.get(contextName, {}),
-                replaceKeys=self.replaceKeys,
+                localContext, self.contexts[contextName], replaceKeys=self.replaceKeys
             )
 
         return mergeDicts(context, localContext, replaceKeys=self.replaceKeys)
