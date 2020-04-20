@@ -20,8 +20,6 @@ from . import (
     DefaultHomeDirectory,
 )
 
-HiddenMarkerName = ".unfurl"
-
 
 class Project(object):
     """
@@ -224,7 +222,7 @@ class LocalEnv(object):
 
     def __init__(self, manifestPath=None, homePath=None):
         """
-    If manifestPath is None find the first .unfurl or manifest.yaml
+    If manifestPath is None find the first unfurl.yaml or manifest.yaml
     starting from the current directory.
 
     If homepath is set it overrides UNFURL_HOME
@@ -335,13 +333,6 @@ class LocalEnv(object):
                 return Project(test, self)
             current = os.path.dirname(current)
         return None
-
-    def findMarker(self, testPath):
-        test = os.path.join(testPath, HiddenMarkerName)
-        if os.path.exists(test):
-            return YamlConfig(test)
-        else:
-            return None
 
     def getHomeConfigPath(self, homepath):
         # if homepath is explicitly it overrides UNFURL_HOME

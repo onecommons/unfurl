@@ -30,7 +30,7 @@ def option_group(*options):
     "--home",
     envvar="UNFURL_HOME",
     type=click.Path(exists=False),
-    help="path to .unfurl home",
+    help="path to .unfurl_home",
 )
 @click.option("-v", "--verbose", count=True, help="verbose mode (-vvv for more)")
 @click.option(

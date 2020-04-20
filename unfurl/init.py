@@ -207,11 +207,15 @@ def createProject(projectdir, home=None, mono=False, existing=False, **kw):
         return newHome, createMultiRepoProject(projectdir)
 
 
+def _isValidSpecRepo(repo):
+    return os.path.isfile(os.path.join(repo.workingDir, "manifest-template.yaml"))
+
+
 def createNewInstance(specRepoDir, targetPath):
     sourceRepo = Repo.findContainingRepo(specRepoDir)
     if not sourceRepo:
         return None, "No repository exists at " + os.path.abspath(specRepoDir)
-    if not sourceRepo.isValidSpecRepo():
+    if not _isValidSpecRepo(sourceRepo):
         return (
             None,
             "The respository at '%s' is not valid" % os.path.abspath(specRepoDir),
@@ -233,7 +237,7 @@ def cloneSpecToNewProject(sourceDir, projectDir):
     sourceRepo = Repo.findContainingRepo(sourceDir)
     if not sourceRepo:
         return None, "No repository exists at " + os.path.abspath(sourceDir)
-    if not sourceRepo.isValidSpecRepo():
+    if not _isValidSpecRepo(sourceRepo):
         return None, "The respository at '%s' is not valid" % os.path.abspath(sourceDir)
 
     if os.path.exists(projectDir):

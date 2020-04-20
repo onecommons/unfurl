@@ -75,9 +75,6 @@ class Repo(object):
             return abspath[len(repoRoot) + 1 :], revision, bare
         return None, None, None
 
-    def isValidSpecRepo(self):
-        return os.path.isfile(os.path.join(self.workingDir, "manifest-template.yaml"))
-
     @classmethod
     def createWorkingDir(cls, gitUrl, localRepoPath, revision="HEAD"):
         empty_repo = git.Repo.init(localRepoPath)
