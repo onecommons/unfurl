@@ -1,0 +1,17 @@
+apiVersion: unfurl/v1alpha1
+kind: Manifest
+# merge in manifest-template.yaml from spec repo
++include:
+  file: manifest-template.yaml
+  repository: spec
+spec:
+  service_template:
+    repositories:
+      spec:
+        url: file:{{ specRepoPath }}
+        metadata:
+          initial-commit: {{ specInitialCommit }}
+      instance:
+        url: file:.
+        metadata:
+          initial-commit: {{ instanceInitialCommit }}

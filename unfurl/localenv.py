@@ -13,11 +13,13 @@ from .repo import Repo
 from .util import UnfurlError
 from .merge import mergeDicts, CommentedMap
 from .yamlloader import YamlConfig
-from . import __version__
+from . import (
+    __version__,
+    DefaultManifestName,
+    DefaultLocalConfigName,
+    DefaultHomeDirectory,
+)
 
-DefaultManifestName = "manifest.yaml"
-DefaultLocalConfigName = "unfurl.yaml"
-DefaultHomeDirectory = ".unfurl_home"
 HiddenMarkerName = ".unfurl"
 
 

@@ -18,6 +18,10 @@ import logging
 logging.captureWarnings(True)
 _logHandler = None
 
+DefaultManifestName = "manifest.yaml"
+DefaultLocalConfigName = "unfurl.yaml"
+DefaultHomeDirectory = ".unfurl_home"
+
 
 def initLogging(level, logfile=None):
     rootLogger = logging.getLogger()

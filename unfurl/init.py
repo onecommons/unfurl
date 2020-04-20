@@ -1,57 +1,63 @@
 import uuid
 import os
 import os.path
-from . import __version__
+from . import (
+    __version__,
+    DefaultManifestName,
+    DefaultLocalConfigName,
+    DefaultHomeDirectory,
+)
 from .tosca import TOSCA_VERSION
 from .repo import Repo, GitRepo
 from .util import UnfurlError
 
+from ansible.template import Templar
+from ansible.parsing.dataloader import DataLoader
 
-def _writeFile(dir, filename, content):
-    if not os.path.isdir(dir):
-        os.makedirs(dir)
-    filepath = os.path.join(dir, filename)
+
+_templatePath = os.path.join(os.path.abspath(os.path.dirname(__file__)), "templates")
+
+
+def processTemplate(template, **vars):
+    loader = DataLoader()
+    templar = Templar(loader, variables=vars)
+    return templar.template(template, disable_lookups=True)
+
+
+def _writeFile(folder, filename, content):
+    if not os.path.isdir(folder):
+        os.makedirs(folder)
+    filepath = os.path.join(folder, filename)
     with open(filepath, "w") as f:
         f.write(content)
     return filepath
 
 
+def writeTemplate(folder, filename, templatePath, vars):
+    with open(os.path.join(_templatePath, templatePath)) as f:
+        source = f.read()
+    content = processTemplate(source, **vars)
+    return _writeFile(folder, filename, content)
+
+
 def writeProjectConfig(
     projectdir,
-    filename="unfurl.yaml",
-    defaultManifestPath="manifest.yaml",
+    filename=DefaultLocalConfigName,
+    defaultManifestPath=DefaultManifestName,
     localInclude="",
 ):
-    content = """\
-unfurl:
-  version: %s
-%s
-manifests:
-  - file: %s
-    default: true
-
-# this is the default behavior, so not needed:
-# defaults: # used if the instance isn't defined above
-#   local:
-#     # local and secret can have "attributes" instead of declaring an import
-#     attributes:
-#       inheritFrom: home
-#   secret:
-#     attributes:
-#       inheritFrom: home
-""" % (
-        __version__,
-        localInclude,
-        defaultManifestPath,
+    templatePath = DefaultLocalConfigName + ".j2"
+    vars = dict(
+        version=__version__, include=localInclude, manifestPath=defaultManifestPath
     )
-    return _writeFile(projectdir, filename, content)
+    return writeTemplate(projectdir, filename, templatePath, vars)
 
 
 def createHome(path=None):
     """
   Write ~/.unfurl_home/unfurl.yaml if missing
   """
-    homedir = path or os.path.expanduser(os.path.join("~", ".unfurl_home"))
+    homedir = path or os.path.expanduser(os.path.join("~", DefaultHomeDirectory))
     if not os.path.exists(homedir):
         content = (
             """\
@@ -60,7 +66,7 @@ def createHome(path=None):
     """
             % __version__
         )
-        return _writeFile(homedir, "unfurl.yaml", content)
+        return _writeFile(homedir, DefaultLocalConfigName, content)
 
 
 def _createRepo(repotype, gitDir, gitUri=None):
@@ -89,73 +95,37 @@ def _createRepo(repotype, gitDir, gitUri=None):
 
 
 def writeServiceTemplate(projectdir, repo):
-    serviceTemplatePath = os.path.join(projectdir, "service-template.yaml")
     relPathToSpecRepo = os.path.relpath(repo.workingDir, os.path.abspath(projectdir))
-    with open(serviceTemplatePath, "w") as f:
-        f.write(
-            """\
-tosca_definitions_version: %s
-repositories:
-  spec:
-    url: file:%s
-    metadata:
-      initial-commit: %s
-topology_template:
-  node_templates: {}
-"""
-            % (TOSCA_VERSION, relPathToSpecRepo, repo.getInitialRevision())
-        )
-    return serviceTemplatePath
+    vars = dict(
+        version=TOSCA_VERSION,
+        specRepoPath=relPathToSpecRepo,
+        initialCommit=repo.getInitialRevision(),
+    )
+    return writeTemplate(
+        projectdir, "service-template.yaml", "service-template.yaml.j2", vars
+    )
 
 
 def createSpecRepo(gitDir):
     repo = _createRepo("spec", gitDir)
     writeServiceTemplate(gitDir, repo)
-    manifestTemplatePath = os.path.join(gitDir, "manifest-template.yaml")
-    with open(manifestTemplatePath, "w") as f:
-        f.write(
-            """\
-  apiVersion: unfurl/v1alpha1
-  kind: Manifest
-  spec:
-    service_template:
-      +include: service-template.yaml
-"""
-        )
+    writeTemplate(gitDir, "manifest-template.yaml", "manifest-template.yaml.j2", {})
     repo.repo.index.add(["service-template.yaml", "manifest-template.yaml"])
     repo.repo.index.commit("Default specification repository boilerplate")
     return repo
 
 
 def createInstanceRepo(gitDir, specRepo):
+    manifestName = DefaultManifestName
     repo = _createRepo("instance", gitDir)
-    filepath = os.path.join(gitDir, "manifest.yaml")
     relPathToSpecRepo = os.path.relpath(specRepo.workingDir, os.path.abspath(gitDir))
-    specInitialCommit = specRepo.getInitialRevision()
-    with open(filepath, "w") as f:
-        f.write(
-            """\
-apiVersion: unfurl/v1alpha1
-kind: Manifest
-# merge in manifest-template.yaml from spec repo
-+include:
-  file: manifest-template.yaml
-  repository: spec
-spec:
-  service_template:
-    repositories:
-      spec:
-        url: file:%s
-        metadata:
-          initial-commit: %s
-      instance:
-        url: file:.
-        metadata:
-          initial-commit: %s
-"""
-            % (relPathToSpecRepo, specInitialCommit, repo.revision)
-        )
-    repo.repo.index.add(["manifest.yaml"])
+    vars = dict(
+        specRepoPath=relPathToSpecRepo,
+        specInitialCommit=specRepo.getInitialRevision(),
+        instanceInitialCommit=repo.getInitialRevision(),
+    )
+    writeTemplate(gitDir, manifestName, "manifest.yaml.j2", vars)
+    repo.repo.index.add([manifestName])
     repo.repo.index.commit("Default instance repository boilerplate")
     return repo
 
@@ -203,15 +173,9 @@ def createMonoRepoProject(projectdir, repo):
     gitIgnorePath = _writeFile(projectdir, ".gitignore", gitIgnoreContent)
     serviceTemplatePath = writeServiceTemplate(projectdir, repo)
     # write manifest
-    manifestContent = """\
-  apiVersion: unfurl/v1alpha1
-  kind: Manifest
-  spec:
-    tosca:
-      +include: service-template.yaml
-  status: {}
-    """
-    manifestPath = _writeFile(projectdir, "manifest.yaml", manifestContent)
+    manifestPath = writeTemplate(
+        projectdir, DefaultManifestName, "manifest-template.yaml.j2", {}
+    )
     repo.commitFiles(
         [
             projectConfigPath,
