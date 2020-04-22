@@ -8,6 +8,7 @@ import pbr.version
 __version__ = pbr.version.VersionInfo(__name__).version_string()
 
 import os
+import os.path
 import sys
 
 vendor_dir = os.path.join(os.path.abspath(os.path.dirname(__file__)), "vendor")
@@ -21,6 +22,28 @@ _logHandler = None
 DefaultManifestName = "manifest.yaml"
 DefaultLocalConfigName = "unfurl.yaml"
 DefaultHomeDirectory = ".unfurl_home"
+
+
+def getHomeConfigPath(homepath):
+    # if homepath is explicitly it overrides UNFURL_HOME
+    # (set it to empty string to disable the homepath)
+    # otherwise use UNFURL_HOME or the default location
+    if homepath is None:
+        if "UNFURL_HOME" in os.environ:
+            homepath = os.getenv("UNFURL_HOME")
+        else:
+            homepath = os.path.join("~", DefaultHomeDirectory)
+    if homepath:
+        homepath = os.path.expanduser(homepath)
+        if not os.path.exists(homepath):
+            isdir = not homepath.endswith(".yml") and not homepath.endswith(".yaml")
+        else:
+            isdir = os.path.isdir(homepath)
+        if isdir:
+            return os.path.abspath(os.path.join(homepath, DefaultLocalConfigName))
+        else:
+            return os.path.abspath(homepath)
+    return None
 
 
 def initLogging(level, logfile=None):

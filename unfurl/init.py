@@ -5,7 +5,7 @@ from . import (
     __version__,
     DefaultManifestName,
     DefaultLocalConfigName,
-    DefaultHomeDirectory,
+    getHomeConfigPath,
 )
 from .tosca import TOSCA_VERSION
 from .repo import Repo, GitRepo
@@ -21,7 +21,8 @@ _templatePath = os.path.join(os.path.abspath(os.path.dirname(__file__)), "templa
 def processTemplate(template, **vars):
     loader = DataLoader()
     templar = Templar(loader, variables=vars)
-    return templar.template(template, disable_lookups=True)
+    # use do_template() instead of template() because is_template test can fail if variable_start_string is set
+    return templar.do_template(template, disable_lookups=True)
 
 
 def _writeFile(folder, filename, content):
@@ -57,7 +58,9 @@ def createHome(path=None):
     """
   Write ~/.unfurl_home/unfurl.yaml if missing
   """
-    homedir = path or os.path.expanduser(os.path.join("~", DefaultHomeDirectory))
+    homedir = getHomeConfigPath(path)
+    if not homedir:
+        return None
     if not os.path.exists(homedir):
         content = (
             """\

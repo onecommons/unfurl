@@ -11,13 +11,13 @@ import os.path
 # import six
 from .repo import Repo
 from .util import UnfurlError
-from .merge import mergeDicts, CommentedMap
+from .merge import mergeDicts
 from .yamlloader import YamlConfig
 from . import (
     __version__,
     DefaultManifestName,
     DefaultLocalConfigName,
-    DefaultHomeDirectory,
+    getHomeConfigPath,
 )
 
 
@@ -229,7 +229,7 @@ class LocalEnv(object):
     (and an empty string disable the home path).
     Otherwise the home path will be set to UNFURL_HOME or the default home location.
     """
-        self.homeConfigPath = self.getHomeConfigPath(homePath)
+        self.homeConfigPath = getHomeConfigPath(homePath)
         if self.homeConfigPath:
             self.homeProject = Project(self.homeConfigPath, self)
         self.manifestPath = None
@@ -332,27 +332,6 @@ class LocalEnv(object):
             if os.path.exists(test):
                 return Project(test, self)
             current = os.path.dirname(current)
-        return None
-
-    def getHomeConfigPath(self, homepath):
-        # if homepath is explicitly it overrides UNFURL_HOME
-        # (set it to empty string to disable the homepath)
-        # otherwise use UNFURL_HOME or the default location
-        if homepath is None:
-            if "UNFURL_HOME" in os.environ:
-                homepath = os.getenv("UNFURL_HOME")
-            else:
-                homepath = os.path.join("~", DefaultHomeDirectory)
-        if homepath:
-            homepath = os.path.expanduser(homepath)
-            if not os.path.exists(homepath):
-                isdir = not homepath.endswith(".yml") and not homepath.endswith(".yaml")
-            else:
-                isdir = os.path.isdir(homepath)
-            if isdir:
-                return os.path.abspath(os.path.join(homepath, DefaultLocalConfigName))
-            else:
-                return os.path.abspath(homepath)
         return None
 
     def getContext(self, context):

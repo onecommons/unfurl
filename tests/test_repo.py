@@ -75,6 +75,10 @@ class SharedGitRepoTest(unittest.TestCase):
                 set(repo.head.commit.stats.files.keys()),
                 {"deploy_dir/" + f for f in expectedFiles},
             )
+            # for n in expectedFiles:
+            #     with open("deploy_dir/" + n) as f:
+            #         print(n)
+            #         print(f.read())
 
             with open("deploy_dir/manifest.yaml", "w") as f:
                 f.write(manifestContent)
