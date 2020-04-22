@@ -226,6 +226,13 @@ class YamlManifest(Manifest):
     def getBaseDir(self):
         return self.manifest.getBaseDir()
 
+    def isPathToSelf(self, path):
+        if self.path is None or path is None:
+            return False
+        if isinstance(path, Artifact):
+            path, fragment = path.getPath()
+        return os.path.abspath(self.path) == os.path.abspath(path)
+
     def createTopologyInstance(self, status):
         """
     If an instance of the toplogy is recorded in status, load it,
@@ -258,14 +265,18 @@ class YamlManifest(Manifest):
                 raise UnfurlError("Can not import '%s': no file specified" % (name))
             location = dict(file=file, repository=value.get("repository"))
             baseDir = getattr(value, "baseDir", self.getBaseDir())
-            key = tuple(location.values()) + (baseDir,)
-            importedManifest = imported.get(key)
+            artifact = Artifact(location, path=baseDir)
+            path, fragment = artifact.getPath()
+            if self.isPathToSelf(path):
+                # don't import self (might happen when context is shared)
+                continue
+            importedManifest = imported.get(path)
             if not importedManifest:
                 # if location resolves to an url to a git repo
-                # loadFromRepo will find or create a working dir
-                path, yamlDict = self.loadFromRepo(Artifact(location), baseDir)
-                importedManifest = YamlManifest(yamlDict, path=path)
-                imported[key] = importedManifest
+                # loadFromArtifact will find or create a working dir
+                resolvedPath, yamlDict = self.loadFromArtifact(artifact)
+                importedManifest = YamlManifest(yamlDict, path=resolvedPath)
+                imported[path] = importedManifest
 
             rname = value.get("instance", "root")
             if rname == "*":
@@ -368,7 +379,7 @@ class YamlManifest(Manifest):
         changed = self.saveRootResource(job.workDone)
         # XXX imported resources need to include its repo's workingdir commitid in their status
         # status and job's changeset also need to save status of repositories
-        # that were accessed by loadFromRepo() and add them with commitid and repotype
+        # that were accessed by loadFromArtifact() and add them with commitid and repotype
         # note: initialcommit:requiredcommit means any repo that has at least requiredcommit
 
         # update changed with includes, this may change objects with references to these objects

@@ -341,24 +341,21 @@ class Manifest(AttributeManager):
         else:
             artifact = Artifact(dict(file=templatePath), path=baseDir)
 
-        return self.loadFromRepo(artifact, baseDir, repositories, warnWhenNotFound)
+        return self.loadFromArtifact(artifact, repositories, warnWhenNotFound)
 
-    def loadFromRepo(
-        self, artifact, basePath, repositories=None, ignoreFileNotFound=False
-    ):
+    def loadFromArtifact(self, artifact, repositories=None, ignoreFileNotFound=False):
         """
         Construct a dummy TOSCA import so we can invoke its URL resolution mechanism
         Returns (url or fullpath, parsed yaml)
         """
         context = CommentedMap()
-        context["base"] = basePath  # unused
         if repositories is None:
             context["repositories"] = self.tosca.template.tpl.get("repositories", {})
         else:
             context["repositories"] = repositories
         context.manifest = self
         context.ignoreFileNotFound = ignoreFileNotFound
-        return loadYamlFromArtifact(basePath, context, artifact)
+        return loadYamlFromArtifact(context, artifact)
 
     def statusSummary(self):
         def summary(instance, indent):

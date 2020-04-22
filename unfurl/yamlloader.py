@@ -133,9 +133,9 @@ import toscaparser.imports
 toscaparser.imports.YAML_LOADER = load_yaml
 
 
-def loadYamlFromArtifact(basePath, context, artifact):
+def loadYamlFromArtifact(context, artifact):
     # _load_import_template will invoke load_yaml above
-    loader = toscaparser.imports.ImportsLoader(None, basePath, tpl=context)
+    loader = toscaparser.imports.ImportsLoader(None, artifact.baseDir, tpl=context)
     return loader._load_import_template(None, artifact.asImportSpec())
 
 
