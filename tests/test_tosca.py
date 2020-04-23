@@ -246,8 +246,7 @@ spec:
             with open("manifest.yaml", "w") as f:
                 f.write(mainManifest)
 
-            YamlManifest._manifests = {}  # clear
-            manifest = YamlManifest.getManifest(LocalEnv("manifest.yaml"))
+            manifest = LocalEnv("manifest.yaml").getManifest()
             job = Runner(manifest).run(JobOptions(add=True, startTime="time-to-test"))
             # print(job.out.getvalue())
             # print(job.jsonSummary())
@@ -258,10 +257,11 @@ spec:
             )
             self.assertEqual(job.getOutputs()["server_ip"], "10.0.0.1")
 
-            self.assertEqual(len(YamlManifest._manifests), 2, YamlManifest._manifests)
+            self.assertEqual(
+                len(manifest.localEnv._manifests), 2, manifest.localEnv._manifests
+            )
             # reload:
-            YamlManifest._manifests = {}  # clear
-            manifest2 = YamlManifest.getManifest(LocalEnv("manifest.yaml"))
+            manifest2 = LocalEnv("manifest.yaml").getManifest()
             # test that restored manifest create a shadow instance for the foreign instance
             imported = manifest2.imports["foreign"].resource
             assert imported

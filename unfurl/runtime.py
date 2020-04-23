@@ -15,7 +15,6 @@ from ansible.parsing.dataloader import DataLoader
 from .util import UnfurlError, loadClass, toEnum
 from .result import ResourceRef, ChangeAware
 
-# from .local import LocalEnv
 from .support import AttributeManager, Defaults, Status, Priority, NodeState
 from .tosca import CapabilitySpec, RelationshipSpec, NodeSpec, TopologySpec
 

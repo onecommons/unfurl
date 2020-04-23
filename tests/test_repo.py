@@ -56,9 +56,13 @@ class SharedGitRepoTest(unittest.TestCase):
             repoDir = "./arepo"
             repo = createUnrelatedRepo(repoDir)
             os.chdir(repoDir)
-            result = runner.invoke(cli, ["init", "--existing", "deploy_dir"])
+            # override home so to avoid interferring with other tests
+            result = runner.invoke(
+                cli, ["--home", "../unfurl_home", "init", "--existing", "deploy_dir"]
+            )
             # uncomment this to see output:
             # print("result.output", result.exit_code, result.output)
+
             assert not result.exception, "\n".join(
                 traceback.format_exception(*result.exc_info)
             )

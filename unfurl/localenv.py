@@ -33,22 +33,17 @@ class Project(object):
         else:
             isdir = os.path.isdir(path)
 
+        parentConfig = homeProject and homeProject.localConfig or None
         if isdir:
             self.projectRoot = path
             test = os.path.join(self.projectRoot, DefaultLocalConfigName)
             if os.path.exists(test):
-                self.localConfig = LocalConfig(
-                    test, homeProject and homeProject.localConfig
-                )
-            elif homeProject:
-                self.localConfig = homeProject.localConfig
+                self.localConfig = LocalConfig(test, parentConfig)
             else:
-                self.localConfig = LocalConfig()
+                self.localConfig = LocalConfig(parentConfig=parentConfig)
         else:
             self.projectRoot = os.path.dirname(path)
-            self.localConfig = LocalConfig(
-                path, homeProject and homeProject.localConfig
-            )
+            self.localConfig = LocalConfig(path, parentConfig)
 
         self.workingDirs = Repo.findGitWorkingDirs(self.projectRoot)
         # the project repo if it exists manages the project config (unfurl.yaml)
@@ -155,8 +150,9 @@ class LocalConfig(object):
         )
         contexts = self.config.expanded.get("contexts", {})
         if parentConfig:
+            parentContexts = parentConfig.config.expanded.get("contexts", {})
             contexts = mergeDicts(
-                parentConfig.config.expanded, contexts, replaceKeys=self.replaceKeys
+                parentContexts, contexts, replaceKeys=self.replaceKeys
             )
         self.contexts = contexts
         self.parentConfig = parentConfig
@@ -219,9 +215,8 @@ class LocalEnv(object):
   """
 
     homeProject = None
-    _projects = {}
 
-    def __init__(self, manifestPath=None, homePath=None):
+    def __init__(self, manifestPath=None, homePath=None, parent=None):
         """
     If manifestPath is None find the first unfurl.yaml or manifest.yaml
     starting from the current directory.
@@ -230,9 +225,17 @@ class LocalEnv(object):
     (and an empty string disable the home path).
     Otherwise the home path will be set to UNFURL_HOME or the default home location.
     """
+        if parent:
+            self._projects = parent._projects
+            self._manifests = parent._manifests
+        else:
+            self._projects = {}
+            self._manifests = {}
+
         self.homeConfigPath = getHomeConfigPath(homePath)
         if self.homeConfigPath:
             self.homeProject = self.getProject(self.homeConfigPath, None)
+
         self.manifestPath = None
         if manifestPath:
             # if manifestPath does not exist check project config
@@ -268,12 +271,24 @@ class LocalEnv(object):
             or LocalConfig()
         )
 
-    @classmethod
-    def getProject(cls, path, homeProject):
-        project = cls._projects.get(path)
+    def getManifest(self, path=None):
+        from .yamlmanifest import YamlManifest
+
+        if path and path != self.manifestPath:
+            localEnv = LocalEnv(path, self.homeConfigPath, self)
+            return localEnv.getManifest()
+        else:
+            manifest = self._manifests.get(self.manifestPath)
+            if not manifest:
+                manifest = YamlManifest(localEnv=self)
+                self._manifests[self.manifestPath] = manifest
+            return manifest
+
+    def getProject(self, path, homeProject):
+        project = self._projects.get(path)
         if not project:
             project = Project(path, homeProject)
-            cls._projects[path] = project
+            self._projects[path] = project
         return project
 
     # manifestPath specified
