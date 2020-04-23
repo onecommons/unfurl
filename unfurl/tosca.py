@@ -665,7 +665,7 @@ class Artifact(object):
     def file(self):
         return self.artifact.file
 
-    def getPath(self):
+    def getPath(self, manifest=None):
         """
       returns path, fragment
       """
@@ -675,10 +675,10 @@ class Artifact(object):
         path, isFile, fragment = loader._resolve_import_template(
             None, self.asImportSpec()
         )
-        manifest = getattr(loader.tpl, "manifest", None)
+        manifest = manifest or getattr(loader.tpl, "manifest", None)
         if manifest:
             newpath, f = resolveIfInRepository(manifest, path, isFile, loader)
-            return path if f else newpath, fragment
+            return (path if f else newpath), fragment
         else:
             return path, fragment
 

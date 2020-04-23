@@ -27,7 +27,7 @@ class Project(object):
   one or more manifest.yaml files which maybe optionally organized into one or more git repositories.
   """
 
-    def __init__(self, path, localEnv):
+    def __init__(self, path, homeProject):
         if not os.path.exists(path):
             isdir = not path.endswith(".yml") and not path.endswith(".yaml")
         else:
@@ -38,16 +38,16 @@ class Project(object):
             test = os.path.join(self.projectRoot, DefaultLocalConfigName)
             if os.path.exists(test):
                 self.localConfig = LocalConfig(
-                    test, localEnv.homeProject and localEnv.homeProject.localConfig
+                    test, homeProject and homeProject.localConfig
                 )
-            elif localEnv.homeProject:
-                self.localConfig = localEnv.homeProject.localConfig
+            elif homeProject:
+                self.localConfig = homeProject.localConfig
             else:
                 self.localConfig = LocalConfig()
         else:
             self.projectRoot = os.path.dirname(path)
             self.localConfig = LocalConfig(
-                path, localEnv.homeProject and localEnv.homeProject.localConfig
+                path, homeProject and homeProject.localConfig
             )
 
         self.workingDirs = Repo.findGitWorkingDirs(self.projectRoot)
@@ -219,6 +219,7 @@ class LocalEnv(object):
   """
 
     homeProject = None
+    _projects = {}
 
     def __init__(self, manifestPath=None, homePath=None):
         """
@@ -231,7 +232,7 @@ class LocalEnv(object):
     """
         self.homeConfigPath = getHomeConfigPath(homePath)
         if self.homeConfigPath:
-            self.homeProject = Project(self.homeConfigPath, self)
+            self.homeProject = self.getProject(self.homeConfigPath, None)
         self.manifestPath = None
         if manifestPath:
             # if manifestPath does not exist check project config
@@ -267,6 +268,14 @@ class LocalEnv(object):
             or LocalConfig()
         )
 
+    @classmethod
+    def getProject(cls, path, homeProject):
+        project = cls._projects.get(path)
+        if not project:
+            project = Project(path, homeProject)
+            cls._projects[path] = project
+        return project
+
     # manifestPath specified
     #  doesn't exist: error
     #  is a directory: either instance repo or a project
@@ -283,7 +292,7 @@ class LocalEnv(object):
             else:
                 test = os.path.join(manifestPath, DefaultLocalConfigName)
                 if os.path.exists(test):
-                    return Project(test, self)
+                    return self.getProject(test, self.homeProject)
                 else:
                     message = (
                         "Can't find a unfurl manifest or project in folder '%s'"
@@ -315,7 +324,7 @@ class LocalEnv(object):
 
             test = os.path.join(current, DefaultLocalConfigName)
             if os.path.exists(test):
-                return Project(test, self)
+                return self.getProject(test, self.homeProject)
 
             current = os.path.dirname(current)
 
@@ -330,7 +339,7 @@ class LocalEnv(object):
         while current and current != os.sep:
             test = os.path.join(current, DefaultLocalConfigName)
             if os.path.exists(test):
-                return Project(test, self)
+                return self.getProject(test, self.homeProject)
             current = os.path.dirname(current)
         return None
 

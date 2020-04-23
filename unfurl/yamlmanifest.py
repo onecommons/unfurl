@@ -153,6 +153,8 @@ Convert dictionary suitable for serializing as yaml
 
 
 class YamlManifest(Manifest):
+    _manifests = {}
+
     def __init__(self, manifest=None, path=None, validate=True, localEnv=None):
         assert not (localEnv and (manifest or path))  # invalid combination of args
         # localEnv and repo are needed by loadHook before base class initialized
@@ -248,6 +250,14 @@ class YamlManifest(Manifest):
             self.createNodeInstance(key, val, root)
         return root
 
+    @classmethod
+    def getManifest(cls, localEnv):
+        manifest = cls._manifests.get(localEnv.manifestPath)
+        if not manifest:
+            manifest = YamlManifest(localEnv=localEnv)
+            cls._manifests[localEnv.manifestPath] = manifest
+        return manifest
+
     def loadImports(self, importsSpec):
         """
       file: local/path # for now
@@ -257,7 +267,6 @@ class YamlManifest(Manifest):
       attributes: # queries into resource
       properties: # expected schema for attributes
     """
-        imported = {}
         for name, value in importsSpec.items():
             # load the manifest for the imported resource
             file = value.get("file")
@@ -265,19 +274,15 @@ class YamlManifest(Manifest):
                 raise UnfurlError("Can not import '%s': no file specified" % (name))
             location = dict(file=file, repository=value.get("repository"))
             baseDir = getattr(value, "baseDir", self.getBaseDir())
-            artifact = Artifact(location, path=baseDir)
-            path, fragment = artifact.getPath()
+            artifact = Artifact(location, path=baseDir, spec=self.tosca)
+            path, fragment = artifact.getPath(self)
             if self.isPathToSelf(path):
                 # don't import self (might happen when context is shared)
                 continue
-            importedManifest = imported.get(path)
-            if not importedManifest:
-                # if location resolves to an url to a git repo
-                # loadFromArtifact will find or create a working dir
-                resolvedPath, yamlDict = self.loadFromArtifact(artifact)
-                importedManifest = YamlManifest(yamlDict, path=resolvedPath)
-                imported[path] = importedManifest
-
+            localEnv = LocalEnv(
+                path, self.localEnv and self.localEnv.homeConfigPath or None
+            )
+            importedManifest = self.getManifest(localEnv)
             rname = value.get("instance", "root")
             if rname == "*":
                 rname = "root"
@@ -504,7 +509,7 @@ def runJob(manifestPath=None, _opts=None):
 
     logger.info("loading manifest at %s", path)
     try:
-        manifest = YamlManifest(localEnv=localEnv)
+        manifest = YamlManifest.getManifest(localEnv)
     except Exception as e:
         logger.error(
             "failed to load manifest at %s: %s",
