@@ -1,0 +1,12 @@
+#jinja2: variable_start_string: '[%', variable_end_string: '%]'
+unfurl:
+  version: [%version%]
+contexts:
+  defaults:
+    external:
+      localhost:
+        file: [%manifestPath%]
+
+manifests:
+  - file: [%manifestPath%]
+    default: true

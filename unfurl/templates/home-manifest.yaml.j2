@@ -1,0 +1,17 @@
+apiVersion: unfurl/v1alpha1
+kind: Manifest
+spec:
+  service_template:
+    topology_template:
+      node_templates:
+        localhost:
+          type: unfurl.nodes.Default
+
+        defaultK8sCluster:
+          directives:
+            - default
+          type: unfurl.nodes.K8sCluster
+
+  instances:
+    localhost:
+      template: localhost

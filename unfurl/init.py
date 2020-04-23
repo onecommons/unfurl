@@ -46,8 +46,8 @@ def writeProjectConfig(
     filename=DefaultLocalConfigName,
     defaultManifestPath=DefaultManifestName,
     localInclude="",
+    templatePath=DefaultLocalConfigName + ".j2",
 ):
-    templatePath = DefaultLocalConfigName + ".j2"
     vars = dict(
         version=__version__, include=localInclude, manifestPath=defaultManifestPath
     )
@@ -56,20 +56,14 @@ def writeProjectConfig(
 
 def createHome(path=None):
     """
-  Write ~/.unfurl_home/unfurl.yaml if missing
-  """
-    homedir = getHomeConfigPath(path)
-    if not homedir:
-        return None
-    if not os.path.exists(homedir):
-        content = (
-            """\
-    unfurl:
-      version: %s
+    Write ~/.unfurl_home/unfurl.yaml if missing
     """
-            % __version__
-        )
-        return _writeFile(homedir, DefaultLocalConfigName, content)
+    homePath = getHomeConfigPath(path)
+    if not homePath or os.path.exists(homePath):
+        return None
+    homedir, filename = os.path.split(homePath)
+    writeTemplate(homedir, DefaultManifestName, "home-manifest.yaml.j2", {})
+    return writeProjectConfig(homedir, filename, templatePath="home-unfurl.yaml.j2")
 
 
 def _createRepo(repotype, gitDir, gitUri=None):
