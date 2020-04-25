@@ -23,9 +23,9 @@ class Plan(object):
 
     @staticmethod
     def getPlanClassForWorkflow(workflow):
-        return dict(deploy=DeployPlan, undeploy=UndeployPlan, run=RunNowPlan).get(
-            workflow
-        )
+        return dict(
+            deploy=DeployPlan, undeploy=UndeployPlan, run=RunNowPlan, check=CheckPlan
+        ).get(workflow, WorkflowPlan)
 
     def __init__(self, root, toscaSpec, jobOptions):
         self.jobOptions = jobOptions
@@ -343,7 +343,8 @@ class Plan(object):
             return self.executeDefaultDeploy(resource, reason, inputs)
         elif workflow == "undeploy":
             return self.executeDefaultUndeploy(resource, reason, inputs)
-        # elif workflow == 'check'
+        elif workflow == "check":
+            return self.executeDefaultCheck(resource, reason, inputs)
         return None
 
     @staticmethod
@@ -494,10 +495,10 @@ class DeployPlan(Plan):
               and the :class:`ConfigurationSpec` to run or `None` if it shound't be included.
     """
         assert template and resource
+        jobOptions = self.jobOptions
         if resource.shadow:
             # external resources are readonly, just check them
             return "check", template
-        jobOptions = self.jobOptions
         oldTemplate = resource.template
         if jobOptions.all:
             return "all", template
@@ -627,19 +628,25 @@ class DeployPlan(Plan):
                         "skipping task for %s:%s", resource.name, template.name
                     )
 
-            if not found and (opts.add or opts.all):
-                reason = "add"
-                # XXX initial status pending or unknown depending on joboption.check
-                resource = self.createResource(template)
-                visited.add(id(resource))
-                gen = Generate(self._generateConfigurations(resource, reason))
-                while gen():
-                    gen.result = yield gen.next
+            if not found:
+                reason = self.includeNotFound(template)
+                if reason:
+                    # XXX initial status pending or unknown depending on joboption.check
+                    resource = self.createResource(template)
+                    visited.add(id(resource))
+                    gen = Generate(self._generateConfigurations(resource, reason))
+                    while gen():
+                        gen.result = yield gen.next
 
         if opts.prune:
-            check = lambda resource: "prune" if id(resource) not in visited else False
-            for taskRequest in self.generateDeleteConfigurations(check):
+            test = lambda resource: "prune" if id(resource) not in visited else False
+            for taskRequest in self.generateDeleteConfigurations(test):
                 yield taskRequest
+
+    def includeNotFound(self, template):
+        if self.jobOptions.add or self.jobOptions.all:
+            return "add"
+        return None
 
 
 class UndeployPlan(Plan):
@@ -656,12 +663,22 @@ class UndeployPlan(Plan):
         return "undeploy"
 
 
+class CheckPlan(DeployPlan):
+    def includeTask(self, template, resource):
+        return "check", template
+
+    def includeNotFound(self, template):
+        return "check"
+
+
 class WorkflowPlan(Plan):
     def executePlan(self):
         """
     yields configSpec, target, reason
     """
         workflow = self.tosca.getWorkflow(self.jobOptions.workflow)
+        if not workflow:
+            raise UnfurlError('workflow not found: "%s"' % self.jobOptions.workflow)
         for step in workflow.initialSteps():
             if self.filterTemplate and not self.filterTemplate.isCompatibleTarget(
                 step.target

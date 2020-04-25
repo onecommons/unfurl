@@ -199,6 +199,19 @@ def deploy(ctx, manifest=None, **options):
     return _run(manifest, options, ctx)
 
 
+@cli.command(short_help="Check the status of each instance")
+@click.pass_context
+@click.argument("manifest", default="", type=click.Path(exists=False))
+@commonJobFilterOptions
+@jobControlOptions
+def check(ctx, manifest=None, **options):
+    """
+    Check and update the status of the ensemble's instances
+    """
+    options.update(ctx.obj)
+    return _run(manifest, options, ctx)
+
+
 # XXX
 # @cli.command(short_help="run the discover workflow")
 # @click.pass_context

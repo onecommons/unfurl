@@ -228,11 +228,12 @@ class LocalEnv(object):
         if parent:
             self._projects = parent._projects
             self._manifests = parent._manifests
+            self.homeConfigPath = parent.homeConfigPath
         else:
             self._projects = {}
             self._manifests = {}
+            self.homeConfigPath = getHomeConfigPath(homePath)
 
-        self.homeConfigPath = getHomeConfigPath(homePath)
         if self.homeConfigPath:
             self.homeProject = self.getProject(self.homeConfigPath, None)
 
