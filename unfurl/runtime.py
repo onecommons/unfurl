@@ -679,14 +679,14 @@ class TopologyInstance(NodeInstance):
         # add these as special child resources so they can be accessed like "::inputs::foo"
         self.inputs = NodeInstance("inputs", template.inputs, self)
         self.outputs = NodeInstance("outputs", template.outputs, self)
+        self._capabilities = []
+        self._requirements = []
+        self._relationships = []
 
     def getOperationalDependencies(self):
         for instance in self.instances:
             if instance.name not in ["inputs", "outputs"]:
                 yield instance
-
-    def getDefaultRelationships(self, relation=None):
-        return []
 
     def findLocalhost(self):
         return self.findResource("localhost") or self.imports.findImport("localhost")

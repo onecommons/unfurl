@@ -146,7 +146,8 @@ class GitRepo(Repo):
         return firstCommit.hexsha
 
     def commitFiles(self, files, msg):
-        index = git.IndexFile.from_tree(self.repo, "HEAD")
+        # note: this will also commit existing changes in the index
+        index = self.repo.index
         index.add([os.path.abspath(f) for f in files])
         return index.commit(msg)
 
@@ -178,18 +179,18 @@ class GitRepo(Repo):
                 yield repo
 
     # XXX unused.. logic is currently in yamlmanifest.commitJob()
-    def commit(self):
-        # before run referenced dirty repos should be committed?
-        # at the very least the state of any declared repo should be saved
-        # otherwise two different runs of the same commit could pull different versions
-        # this is true for the spec repos also -- save in spec's manifest-template?
-        repo = self.repo
-        repo.index.add("*")
-        # commit the manifest first so we can get a commit ref for the changerecord
-        commit = repo.git.commit("")
-        changeFiles = self.manifest.saveChanges(commit.hexsha)
-        repo.index.add(changeFiles)
-        repo.git.commit("")
+    # def commit(self):
+    #     # before run referenced dirty repos should be committed?
+    #     # at the very least the state of any declared repo should be saved
+    #     # otherwise two different runs of the same commit could pull different versions
+    #     # this is true for the spec repos also -- save in spec's manifest-template?
+    #     repo = self.repo
+    #     repo.index.add("*")
+    #     # commit the manifest first so we can get a commit ref for the changerecord
+    #     commit = repo.git.commit("")
+    #     changeFiles = self.manifest.saveChanges(commit.hexsha)
+    #     repo.index.add(changeFiles)
+    #     repo.git.commit("")
 
     def clone(self, newPath):
         return GitRepo(self.repo.clone(newPath))

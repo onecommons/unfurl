@@ -317,7 +317,7 @@ class Manifest(AttributeManager):
 
     @staticmethod
     def _getRepositories(tpl):
-        return tpl.get("spec", {}).get("tosca", {}).get("repositories", {})
+        return tpl.get("spec", {}).get("service_template", {}).get("repositories", {})
 
     def loadYamlInclude(
         self, yamlConfig, templatePath, baseDir, warnWhenNotFound=False

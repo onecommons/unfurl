@@ -8,6 +8,7 @@ import collections
 import datetime
 import types
 import itertools
+import os
 from .support import Status, Priority, Defaults, AttributeManager
 from .result import serializeValue, ChangeRecord
 from .util import UnfurlError, UnfurlTaskError, ansibleDisplay, toEnum
@@ -729,18 +730,24 @@ class Runner(object):
     def run(self, jobOptions=None):
         """
     """
-        if jobOptions is None:
-            jobOptions = JobOptions()
-        job = self.createJob(jobOptions)
-        self.currentJob = job
         try:
-            ansibleDisplay.verbosity = jobOptions.verbose
-            job.run()
-        except Exception:
-            job.localStatus = Status.error
-            job.unexpectedAbort = UnfurlError(
-                "unexpected exception while running job", True, True
-            )
-        self.currentJob = None
-        self.manifest.commitJob(job)
+            cwd = os.getcwd()
+            if self.manifest.getBaseDir():
+                os.chdir(self.manifest.getBaseDir())
+            if jobOptions is None:
+                jobOptions = JobOptions()
+            job = self.createJob(jobOptions)
+            self.currentJob = job
+            try:
+                ansibleDisplay.verbosity = jobOptions.verbose
+                job.run()
+            except Exception:
+                job.localStatus = Status.error
+                job.unexpectedAbort = UnfurlError(
+                    "unexpected exception while running job", True, True
+                )
+            self.currentJob = None
+            self.manifest.commitJob(job)
+        finally:
+            os.chdir(cwd)
         return job

@@ -742,9 +742,7 @@ class RunNowPlan(Plan):
                     )
             resources = [resource]
         else:
-            resources = list(self.root.getOperationalDependencies())
-            if not resources:
-                resources = [self.root]
+            resources = [self.root]
 
         for resource in resources:
             configSpec = self._createConfigurator(self.jobOptions.userConfig, "run")

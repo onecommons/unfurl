@@ -495,7 +495,6 @@ def runJob(manifestPath=None, _opts=None):
     else:
         logger.info("running %s job for %s", opts.workflow, path)
 
-    logger.info("loading manifest at %s", path)
     try:
         manifest = localEnv.getManifest()
     except Exception as e:

@@ -159,8 +159,7 @@ def createMonoRepoProject(projectdir, repo):
     localContent = """\
         # copy this to unfurl.local.yaml and
         # add configuration that you don't want commited to this repository,
-        # such as secrets, local settings, and local instances.
-        """
+        # such as secrets, local settings, and local instances."""
     exampleLocalConfigPath = writeProjectConfig(
         projectdir, "unfurl.local.example.yaml", localInclude=localContent
     )
