@@ -74,10 +74,14 @@ def saveResourceChanges(changes):
     return d
 
 
+def hasStatus(operational):
+    return operational.lastChange or operational.status
+
+
 def saveStatus(operational, status=None):
     if status is None:
         status = CommentedMap()
-    if not operational.lastChange and not operational.status:
+    if not hasStatus(operational):
         # skip status
         return status
 
@@ -294,26 +298,39 @@ class YamlManifest(Manifest):
             status["imported"] = resource.name
         saveStatus(resource, status)
         if resource.createdOn:  # will be a ChangeRecord
-            status["createdOn"] = resource.createdOn.changeI
+            status["createdOn"] = resource.createdOn.changeId
 
         return (resource.name, status)
 
     def saveRequirement(self, resource):
+        if not hasStatus(resource):
+            # no reason to serialize requirements that haven't been instantiated
+            return None
         name, status = self.saveEntityInstance(resource)
         status["capability"] = resource.parent.key
         return (name, status)
 
+    def saveCapability(self, resource):
+        if not hasStatus(resource):
+            # no reason to serialize capabilities that haven't been instantiated
+            return None
+        return self.saveEntityInstance(resource)
+
     def saveResource(self, resource, workDone):
         name, status = self.saveEntityInstance(resource)
         if resource._capabilities:
-            status["capabilities"] = CommentedMap(
-                map(self.saveEntityInstance, resource.capabilities)
+            capabilities = list(
+                filter(None, map(self.saveCapability, resource.capabilities))
             )
+            if capabilities:
+                status["capabilities"] = CommentedMap(capabilities)
 
         if resource._requirements:
-            status["requirements"] = CommentedMap(
-                map(self.saveRequirement, resource.requirements)
+            requirements = list(
+                filter(None, map(self.saveRequirement, resource.requirements))
             )
+            if requirements:
+                status["requirements"] = CommentedMap(requirements)
 
         if resource.instances:
             status["instances"] = CommentedMap(
