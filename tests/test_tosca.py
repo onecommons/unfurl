@@ -8,9 +8,16 @@ from unfurl.util import sensitive_str, VERSION
 import six
 from click.testing import CliRunner
 
-
 class SetAttributeConfigurator(Configurator):
     def run(self, task):
+        from toscaparser.elements.portspectype import PortSpec
+        if 'ports' in task.inputs:
+            ports = task.inputs['ports']
+            # target:source
+            assert str(PortSpec(ports[0])) == "50000:9000", PortSpec(ports[0])
+            assert str(PortSpec(ports[1])) == "20000-60000:1000-10000/udp", PortSpec(ports[1])
+            assert str(PortSpec(ports[2])) == "8000", PortSpec(ports[2])
+
         task.target.attributes["private_address"] = "10.0.0.1"
         yield task.done(True, Status.ok)
 
@@ -31,6 +38,10 @@ spec:
             type: string
             metadata:
               sensitive: true
+          ports:
+            type: list
+            entry_schema:
+              type: tosca.datatypes.network.PortSpec
           TEST_VAR:
             type: unfurl.datatypes.EnvVar
           vars:
@@ -73,6 +84,13 @@ spec:
           type: testy.nodes.aNodeType
           properties:
             private_address: foo
+            ports:
+              - source: 9000
+                target: 50000
+              - target_range: [ 20000, 60000 ]
+                source_range: [ 1000, 10000 ]
+                protocol: udp
+              - source: 8000
             TEST_VAR: foo
             vars:
               VAR1: more
@@ -87,6 +105,8 @@ spec:
           interfaces:
            Standard:
             create:
+              inputs:
+                ports: "{{ SELF['ports'] }}"
               implementation:
                 primary: SetAttributeConfigurator
         my_server:
@@ -111,7 +131,6 @@ spec:
           interfaces:
            Standard:
             create:
-              inputs:
               implementation:
                 primary: SetAttributeConfigurator
                 timeout: 120
