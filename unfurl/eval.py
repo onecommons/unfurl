@@ -155,6 +155,17 @@ class RefContext(object):
         self.addReference(key, val)
         return val.resolved
 
+    def __getstate__(self):
+        # Remove the unpicklable entries.
+        state = self.__dict__.copy()
+        state["templar"] = None
+        del state["referenced"]
+        return state
+
+    def __setstate__(self, d):
+        self.__dict__ = d
+        self.referenced = _Tracker()
+
 
 class Expr(object):
     def __init__(self, exp, vars=None):

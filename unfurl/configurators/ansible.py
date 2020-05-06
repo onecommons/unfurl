@@ -17,14 +17,7 @@ logger = logging.getLogger("unfurl")
 #  extraVars
 #  inventory
 #  facts (list of ansible facts to extract from ansible results)
-def ansibleResults(result, extraKeys=()):
-    # result is per-task ansible.executor.task_result.TaskResult
-    # https://github.com/ansible/ansible/blob/devel/lib/ansible/executor/task_result.py
-    # https://docs.ansible.com/ansible/latest/reference_appendices/common_return_values.html
-    # map to same result names used by shellconfigurator
-
-    # XXX map ansible facts and user set variables, needed for result templates
-    # https://docs.ansible.com/ansible/latest/user_guide/playbooks_variables.html#variables-discovered-from-systems-facts
+def getAnsibleResults(result, extraKeys=(), facts=()):
     """
   Returns a dictionary containing at least:
 
@@ -32,11 +25,20 @@ def ansibleResults(result, extraKeys=()):
   stdout
   returncode (None if the process didn't complete)
   error if an exception was raised
+  **extraKeys
   """
+    # result is per-task ansible.executor.task_result.TaskResult
+    # https://github.com/ansible/ansible/blob/devel/lib/ansible/executor/task_result.py
+    # https://docs.ansible.com/ansible/latest/reference_appendices/common_return_values.html
+    # map to same result names used by shellconfigurator
+
+    # XXX map ansible facts and user set variables, needed for result templates
+    # https://docs.ansible.com/ansible/latest/user_guide/playbooks_variables.html#variables-discovered-from-systems-facts
+
     # _check_key checks 'results' if task was a loop
     # 'warnings': result._check_key('warning'),
     result = result.clean_copy()
-    # print('result._result', result._result)
+    # print("result._result", result._result)
     resultDict = {"returncode": result._check_key("rc")}
     keyMap = {
         "msg": ["msg"],
@@ -49,9 +51,13 @@ def ansibleResults(result, extraKeys=()):
             if val:
                 resultDict[name] = val
                 break
-
     for key in extraKeys:
         resultDict[key] = result._check_key(key)
+
+    if facts:
+        ansible_facts = result._check_key("ansible_facts")
+        for fact in facts:
+            resultDict[fact] = ansible_facts.get(fact)
     return resultDict
 
 
@@ -124,7 +130,9 @@ class AnsibleConfigurator(Configurator):
 
     def _makeInventory(self, host, allVars, task):
         hostVars = self._getHostVars(host)
-        connection = task.findConnection(host, "unfurl.relationships.ConnectsTo.Ansible")
+        connection = task.findConnection(
+            host, "unfurl.relationships.ConnectsTo.Ansible"
+        )
         if connection:
             self._updateVars(connection, hostVars)
         hosts = {host.name: hostVars}
@@ -165,14 +173,8 @@ class AnsibleConfigurator(Configurator):
                 pass
         self._cleanupRoutines = []
 
-    # have a parameter for the mapping or just set_facts in playbook
     def getVars(self, task):
-        """
-    just add a lookup() plugin?
-    add attribute to parameters to map to vars?
-    # ansible yaml file but we evaluate the valuesFrom first?
-    """
-        return {}
+        return dict(__unfurl=task.inputs.context)
 
     def _makePlayBook(self, playbook, task):
         assertForm(playbook, collections.MutableSequence)
@@ -206,6 +208,10 @@ class AnsibleConfigurator(Configurator):
             args = [args]
         if task.dryRun:
             args.append("--check")
+        if task.configSpec.timeout:
+            args.append("--timeout=%s" % task.configSpec.timeout)
+        if task.verbose:
+            args.append("-" + ("v" * task.verbose))
         return args
 
     def _processResult(self, task, result):
@@ -218,7 +224,7 @@ class AnsibleConfigurator(Configurator):
                 task.updateResources(results)
 
     def getResultKeys(self, task, results):
-        return task.inputs.get("facts", [])
+        return []
 
     def run(self, task):
         try:
@@ -246,14 +252,14 @@ class AnsibleConfigurator(Configurator):
                 results.results[0]._check_key("result"),
             )
 
-            # XXX if more then one task??
-            result = (
-                results.results
-                and ansibleResults(
-                    results.results[0], self.getResultKeys(task, results.results[0])
-                )
-                or None
-            )
+            if results.results:
+                # XXX if more than one task??
+                first = results.results[0]
+                resultKeys = self.getResultKeys(task, first)
+                factKeys = []  # XXX task.outputs.keys()
+                result = getAnsibleResults(first, resultKeys, factKeys)
+            else:
+                result = None
             if result and status == Status.ok or status == Status.degraded:
                 # this can update resources so don't do it on error
                 self._processResult(task, result)
@@ -280,7 +286,7 @@ _ResultsByStatus = collections.namedtuple(
 
 
 class ResultCallback(CallbackModule):
-    # NOTE: callbacks will run in seperate process
+    # NOTE: callbacks will run in separate process
     # see ansible.executor.task_result.TaskResult and ansible.playbook.task.Task
 
     def __init__(self):
@@ -365,7 +371,7 @@ def runPlaybooks(playbooks, _inventory, params=None, args=None):
     cli._play_prereqs = hook_play_prereqs
 
     oldVerbosity = ansibleDisplay.verbosity
-    if logging.getLogger("ansible").getEffectiveLevel() <= 10:  # debug
+    if logging.getLogger("unfurl.ansible").getEffectiveLevel() <= 10:  # debug
         ansibleDisplay.verbosity = 2
     try:
         if cli.options.verbosity > ansibleDisplay.verbosity:

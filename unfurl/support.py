@@ -40,7 +40,9 @@ NodeState = IntEnum(
 )
 
 # ignore may must
-Priority = IntEnum("Priority", "ignore optional required critical", start=0, module=__name__)
+Priority = IntEnum(
+    "Priority", "ignore optional required critical", start=0, module=__name__
+)
 
 
 class Defaults(object):
@@ -167,7 +169,7 @@ def applyTemplate(value, ctx):
     # implementation notes:
     #   see https://github.com/ansible/ansible/test/units/template/test_templar.py
     #   dataLoader is only used by _lookup and to set _basedir (else ./)
-    if ctx.baseDir and ctx.templar._basedir != ctx.baseDir:
+    if not ctx.templar or (ctx.baseDir and ctx.templar._basedir != ctx.baseDir):
         # we need to create a new templar
         loader = DataLoader()
         if ctx.baseDir:

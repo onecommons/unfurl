@@ -44,7 +44,6 @@ except ImportError:
         return None
 
 
-# XXX set environment vars
 # XXX we should know if cmd if not os.access(implementation, os.X):
 class ShellConfigurator(Configurator):
     def runProcess(self, cmd, shell=False, timeout=None, env=None):

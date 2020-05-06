@@ -14,7 +14,7 @@ from jsonschema import RefResolver
 
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap
-from ruamel.yaml.representer import RepresenterError
+from ruamel.yaml.representer import RepresenterError, SafeRepresenter
 
 from .util import sensitive_str, UnfurlError, UnfurlValidationError, findSchemaErrors
 from .merge import expandDoc, makeMapWithBase, findAnchor, _cacheAnchors
@@ -23,6 +23,8 @@ from toscaparser.common.exception import ExceptionCollector
 from toscaparser.common.exception import URLException
 from toscaparser.utils.gettextutils import _
 
+from ansible.utils.unsafe_proxy import AnsibleUnsafeText
+
 import logging
 
 logger = logging.getLogger("unfurl")
@@ -30,7 +32,7 @@ yaml = YAML()
 # monkey patch for better error message
 def represent_undefined(self, data):
     raise RepresenterError(
-        "cannot represent an object: %s of type %s" % (data, type(data))
+        "cannot represent an object: <%s> of type %s" % (data, type(data))
     )
 
 
@@ -43,6 +45,13 @@ def represent_sensitive(dumper, data):
 
 
 yaml.representer.add_representer(sensitive_str, represent_sensitive)
+
+if six.PY3:
+    represent_unicode = SafeRepresenter.represent_str
+else:
+    represent_unicode = SafeRepresenter.represent_unicode
+
+yaml.representer.add_representer(AnsibleUnsafeText, represent_unicode)
 
 
 def resolveIfInRepository(manifest, path, isFile=True, importLoader=None):

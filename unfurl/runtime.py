@@ -379,6 +379,17 @@ class EntityInstance(OperationalInstance, ResourceRef):
             return False
         return self.lastChange == other.lastChange and self.key == other.key
 
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        # Remove the unpicklable entries.
+        if state.get("_templar"):
+            del state["_templar"]
+        if state.get("_interfaces"):
+            state["_interfaces"] = {}
+        if "attributeManager" in state:
+            del state["attributeManager"]
+        return state
+
 
 # both have occurrences
 # only need to configure capabilities as required by a relationship
@@ -661,14 +672,6 @@ class NodeInstance(EntityInstance):
 
     def __repr__(self):
         return "NodeInstance('%s')" % self.name
-
-    def __getstate__(self):
-        state = self.__dict__.copy()
-        # Remove the unpicklable entries.
-        if state.get("_templar"):
-            del state["_templar"]
-        state["_interfaces"] = None
-        return state
 
 
 class TopologyInstance(NodeInstance):
