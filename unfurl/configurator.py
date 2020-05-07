@@ -111,6 +111,7 @@ class ConfigurationSpec(object):
             postConditions=None,
             primary=None,
             dependencies=None,
+            outputs=None,
         )
 
     def __init__(
@@ -130,6 +131,7 @@ class ConfigurationSpec(object):
         postConditions=None,
         primary=None,
         dependencies=None,
+        outputs=None,
     ):
         assert name and className, "missing required arguments"
         self.name = name
@@ -143,6 +145,7 @@ class ConfigurationSpec(object):
         self.environment = Environment(**(environment or {}))
         self.inputs = inputs or {}
         self.inputSchema = inputSchema
+        self.outputs = outputs or {}
         self.preConditions = preConditions
         self.postConditions = postConditions
 
@@ -186,6 +189,7 @@ class ConfigurationSpec(object):
             and self.environment == other.environment
             and self.inputs == other.inputs
             and self.inputSchema == self.inputSchema
+            and self.outputs == other.outputs
             and self.preConditions == other.preConditions
             and self.postConditions == other.postConditions
         )
@@ -825,7 +829,7 @@ class Dependency(ChangeAware):
 
 def getConfigSpecArgsFromImplementation(iDef, inputs, template):
     implementation = iDef.implementation
-    kw = dict(inputs=inputs)
+    kw = dict(inputs=inputs, outputs=iDef.outputs)
     configSpecArgs = ConfigurationSpec.getDefaults()
     artifact = None
     if isinstance(implementation, dict):

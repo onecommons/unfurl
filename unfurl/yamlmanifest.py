@@ -127,6 +127,7 @@ Convert dictionary suitable for serializing as yaml
   changes:
   dependencies:
   messages:
+  output: 
   result:  # an object or "skipped"
   """
     output = CommentedMap()
@@ -147,9 +148,10 @@ Convert dictionary suitable for serializing as yaml
     if dependencies:
         output["dependencies"] = dependencies
     if task.result:
-        result = task.result.result
-        if result:
-            output["result"] = saveResult(result)
+        if task.result.outputs:
+            output["outputs"] = saveResult(task.result.outputs)
+        if task.result.result:
+            output["result"] = saveResult(task.result.result)
     else:
         output["result"] = "skipped"
 

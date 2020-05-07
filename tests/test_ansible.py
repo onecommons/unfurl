@@ -63,9 +63,13 @@ kind: Manifest
 configurations:
   create:
     implementation: unfurl.configurators.ansible.AnsibleConfigurator
+    outputs:
+      fact1:
     inputs:
       playbook:
         q:
+          - set_fact:
+              fact1: "{{ '.name' | ref }}"
           - name: Hello
             command: echo "{{hostvars['localhost'].ansible_python_interpreter}}"
 spec:
@@ -95,6 +99,7 @@ class AnsibleConfiguratorTest(unittest.TestCase):
         run1 = runner.run(JobOptions(resource="test1"))
         assert not run1.unexpectedAbort, run1.unexpectedAbort.getStackTrace()
         assert len(run1.workDone) == 1, run1.workDone
-        result = list(run1.workDone.values())[0].result.result
-        self.assertEqual(result, {"returncode": 0, "stdout": sys.executable})
+        result = list(run1.workDone.values())[0].result
+        self.assertEqual(result.outputs, {"fact1": "test1"})
+        self.assertEqual(result.result, {"stdout": sys.executable})
         assert run1.status == Status.ok, run1.summary()

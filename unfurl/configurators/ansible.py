@@ -1,5 +1,6 @@
 from __future__ import absolute_import
 import collections
+import functools
 from ..util import ansibleDisplay, ansibleDummyCli, assertForm, saveToTempfile
 from ..configurator import Configurator, Status
 from ..result import serializeValue
@@ -21,44 +22,45 @@ def getAnsibleResults(result, extraKeys=(), facts=()):
     """
   Returns a dictionary containing at least:
 
-  stderr
+  msg
   stdout
-  returncode (None if the process didn't complete)
-  error if an exception was raised
+  returncode: (None if the process didn't complete)
+  error: stderr or exception if one was raised
   **extraKeys
   """
     # result is per-task ansible.executor.task_result.TaskResult
     # https://github.com/ansible/ansible/blob/devel/lib/ansible/executor/task_result.py
     # https://docs.ansible.com/ansible/latest/reference_appendices/common_return_values.html
-    # map to same result names used by shellconfigurator
-
-    # XXX map ansible facts and user set variables, needed for result templates
     # https://docs.ansible.com/ansible/latest/user_guide/playbooks_variables.html#variables-discovered-from-systems-facts
 
     # _check_key checks 'results' if task was a loop
     # 'warnings': result._check_key('warning'),
     result = result.clean_copy()
-    # print("result._result", result._result)
-    resultDict = {"returncode": result._check_key("rc")}
+    resultDict = {}
+    # map keys in results to match the names that ShellConfigurator uses
     keyMap = {
+        "returncode": ["returncode"],
         "msg": ["msg"],
         "error": ["exception", "module_stderr"],
         "stdout": ["stdout", "module_stdout"],
     }
     for name, keys in keyMap.items():
         for key in keys:
-            val = result._check_key(key)
-            if val:
-                resultDict[name] = val
+            if key in result._result:
+                resultDict[name] = result._result[key]
                 break
     for key in extraKeys:
-        resultDict[key] = result._check_key(key)
+        if key in result._result:
+            resultDict[key] = result._result[key]
 
+    outputs = {}
     if facts:
-        ansible_facts = result._check_key("ansible_facts")
-        for fact in facts:
-            resultDict[fact] = ansible_facts.get(fact)
-    return resultDict
+        ansible_facts = result._result.get("ansible_facts")
+        if ansible_facts:
+            for fact in facts:
+                if fact in ansible_facts:
+                    outputs[fact] = ansible_facts[fact]
+    return resultDict, outputs
 
 
 class AnsibleConfigurator(Configurator):
@@ -218,7 +220,7 @@ class AnsibleConfigurator(Configurator):
         resultTemplate = task.inputs.get("resultTemplate")
         if resultTemplate:
             results = task.query(
-                {"eval": dict(template=resultTemplate), "vars": result.__dict__}
+                {"eval": dict(template=resultTemplate), "vars": result}
             )
             if results and results.strip():
                 task.updateResources(results)
@@ -234,11 +236,11 @@ class AnsibleConfigurator(Configurator):
 
             # build vars from inputs
             extraVars = self.getVars(task)
-            results = runPlaybooks(
+            resultCallback = runPlaybooks(
                 [playbook], inventory, extraVars, self.getPlaybookArgs(task)
             )
 
-            if results.exit_code or len(results.resultsByStatus.failed):
+            if resultCallback.exit_code or len(resultCallback.resultsByStatus.failed):
                 status = Status.error
             else:
                 # unreachable, failed, skipped
@@ -246,34 +248,50 @@ class AnsibleConfigurator(Configurator):
                 status = Status.ok
 
             logger.debug(
-                "runplaybook status %s changed %s results %s ",
+                "runplaybook status %s changed %s, total %s ",
                 status,
-                results.changed,
-                results.results[0]._check_key("result"),
+                resultCallback.changed,
+                len(resultCallback.results),
             )
 
-            if results.results:
-                # XXX if more than one task??
-                first = results.results[0]
-                resultKeys = self.getResultKeys(task, first)
-                factKeys = []  # XXX task.outputs.keys()
-                result = getAnsibleResults(first, resultKeys, factKeys)
-            else:
-                result = None
-            if result and status == Status.ok or status == Status.degraded:
-                # this can update resources so don't do it on error
-                self._processResult(task, result)
+            resultKeys = self.getResultKeys(task, resultCallback.results)
+            factKeys = list(task.configSpec.outputs)
+            # each task in a playbook will have a corresponding result
+            resultList, outputList = zip(
+                *map(
+                    lambda result: getAnsibleResults(result, resultKeys, factKeys),
+                    resultCallback.results,
+                )
+            )
+            mergeFn = lambda a, b: a.update(b) or a
+            results = functools.reduce(mergeFn, resultList, {})
+            outputs = functools.reduce(mergeFn, outputList, {})
 
-            if results.changed > 0:
-                if any(r.is_failed() and r.is_changed() for r in results.results):
+            if resultCallback.changed > 0:
+                if any(
+                    r.is_failed() and r.is_changed() for r in resultCallback.results
+                ):
                     modified = Status.error
                 else:
                     modified = True
             else:
                 modified = False
-            yield task.done(
-                status == Status.ok and not task.errors, modified, result=result
+            result = task.done(
+                status == Status.ok and not task.errors,
+                modified,
+                result=results,
+                outputs=outputs,
             )
+            if (
+                (results or outputs)
+                and status == Status.ok
+                or status == Status.degraded
+            ):
+                # this can update resources so don't do it on error
+                # XXX this should pass result.__dict__ not results
+                self._processResult(task, results)
+            yield result
+
         finally:
             self._cleanup()
 
