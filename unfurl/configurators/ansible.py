@@ -176,7 +176,9 @@ class AnsibleConfigurator(Configurator):
         self._cleanupRoutines = []
 
     def getVars(self, task):
-        return dict(__unfurl=task.inputs.context)
+        vars = task.inputs.context.vars.copy()
+        vars["__unfurl"] = task.inputs.context
+        return vars
 
     def _makePlayBook(self, playbook, task):
         assertForm(playbook, collections.MutableSequence)

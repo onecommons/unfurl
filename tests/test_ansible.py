@@ -65,17 +65,21 @@ configurations:
     implementation: unfurl.configurators.ansible.AnsibleConfigurator
     outputs:
       fact1:
+      fact2:
     inputs:
       playbook:
         q:
           - set_fact:
               fact1: "{{ '.name' | ref }}"
+              fact2: "{{ SELF.testProp }}"
           - name: Hello
             command: echo "{{hostvars['localhost'].ansible_python_interpreter}}"
 spec:
   node_templates:
     test1:
       type: tosca.nodes.Root
+      properties:
+        testProp: "test"
       interfaces:
         Standard:
           +/configurations:
@@ -100,6 +104,6 @@ class AnsibleConfiguratorTest(unittest.TestCase):
         assert not run1.unexpectedAbort, run1.unexpectedAbort.getStackTrace()
         assert len(run1.workDone) == 1, run1.workDone
         result = list(run1.workDone.values())[0].result
-        self.assertEqual(result.outputs, {"fact1": "test1"})
+        self.assertEqual(result.outputs, {"fact1": "test1", "fact2": "test"})
         self.assertEqual(result.result, {"stdout": sys.executable})
         assert run1.status == Status.ok, run1.summary()
