@@ -311,6 +311,67 @@ def getToscaProperty(args, ctx):
 setEvalFunc("get_property", getToscaProperty, True)
 
 
+def get_artifact(ctx, entity_name, artifact_name, location=None, remove=None):
+    """
+    Returns either an URL or local path to the artifact
+    See section "4.8.1 get_artifact" in TOSCA 1.3 (p. 189)
+
+    If the artifact is a Docker image, return the image name in the form of
+    "registry/repository/name:tag" or "registry/repository/name@sha256:digest"
+
+    If entity_name or artifact_name is not found return None.
+    """
+    # XXX if HOST search all parents
+    keywords = ["SELF", "HOST", "SOURCE", "TARGET", "OPERATION_HOST", "ORCHESTRATOR"]
+    if entity_name in keywords:
+        if entity_name in ctx.vars:
+            instance = ctx.vars[entity_name].context.currentResource
+        else:
+            instance = None
+    else:
+        instance = ctx.currentResource.root.findResource(entity_name)
+
+    if not instance:
+        ctx.trace("entity_name not found", entity_name)
+        return None
+    else:
+        # XXX implement instance.artifacts
+        artifact = instance.template.artifacts.get(artifact_name)
+        if not artifact:
+            ctx.trace("artifact not found", artifact_name)
+            return None
+
+    artifactDef = artifact.artifact
+    if artifactDef.is_derived_from("tosca.artifacts.Deployment.Image.Container.Docker"):
+        # if artifact is an image in a registry return image path and location isn't specified
+        if artifactDef.checksum:
+            name = (
+                artifactDef.file
+                + "@"
+                + artifactDef.checksum_algorithm
+                + ":"
+                + artifactDef.checksum
+            )
+        elif "tag" in artifact.properties:
+            name = artifactDef.file + ":" + artifact.properties["tag"]
+        else:
+            name = artifactDef.file
+        if artifact.repository:
+            return artifact.repository.hostname + "/" + name
+        return name
+    raise UnfurlError("get_artifact not implemented")
+    # XXX
+    # if not location:
+    #     #if  deploy_path # update artifact instance
+    #     return artifact.getUrl()
+    # else:
+    #     # if location is set, update the artifact instance's copies: and remove attributes if necessary
+    #     # if location == 'LOCAL_FILE':
+
+
+setEvalFunc("get_artifact", lambda args, ctx: get_artifact(ctx, *args), True)
+
+
 def getImport(arg, ctx):
     """
   Returns the external resource associated with the named import

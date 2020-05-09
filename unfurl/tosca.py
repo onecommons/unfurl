@@ -30,6 +30,7 @@ class RefFunc(functions.Function):
 
 functions.function_mappings["eval"] = RefFunc
 functions.function_mappings["ref"] = RefFunc
+functions.function_mappings["get_artifact"] = RefFunc
 
 toscaIsFunction = functions.is_function
 
@@ -302,8 +303,21 @@ class EntitySpec(object):
     def __repr__(self):
         return "%s('%s')" % (self.__class__.__name__, self.name)
 
-    def getArtifact(self, name):
-        return None
+    @property
+    def artifacts(self):
+        return {}
+
+    def findOrCreateArtifact(self, nameOrTpl, path=None):
+        if isinstance(nameOrTpl, six.string_types):
+            artifact = self.artifacts.get(nameOrTpl)
+            if artifact:
+                return artifact
+            # name not found, assume its a file path or URL
+            tpl = dict(file=nameOrTpl)
+        else:
+            tpl = nameOrTpl
+        # create an anonymous, inline artifact
+        return Artifact(tpl, self, path=path)
 
     @property
     def abstract(self):
@@ -331,9 +345,16 @@ class NodeSpec(EntitySpec):
         self._capabilities = None
         self._requirements = None
         self._relationships = None
+        self._artifacts = None
 
-    def getArtifact(self, name):
-        return self.toscaEntityTemplate.artifacts.get(name)
+    @property
+    def artifacts(self):
+        if self._artifacts is None:
+            self._artifacts = {
+                name: Artifact(artifact, self)
+                for name, artifact in self.toscaEntityTemplate.artifacts.items()
+            }
+        return self._artifacts
 
     @property
     def requirements(self):
@@ -503,8 +524,9 @@ class RequirementSpec(object):
         # relationship (template name or type name or inline relationship template)
         # occurrences
 
-    def getArtifact(self, name):
-        return self.parentNode.getArtifact(name)
+    @property
+    def artifacts(self):
+        return self.parentNode.artifacts
 
     def getUri(self):
         return self.parentNode.name + "#r#" + self.name
@@ -539,8 +561,9 @@ class CapabilitySpec(EntitySpec):
         self._relationships = None
         self._defaultRelationships = None
 
-    def getArtifact(self, name):
-        return self.parentNode.getArtifact(name)
+    @property
+    def artifacts(self):
+        return self.parentNode.artifacts
 
     def getInterfaces(self):
         # capabilities don't have their own interfaces
@@ -641,25 +664,29 @@ class Workflow(object):
 
 class Artifact(object):
     def __init__(self, artifact_tpl, template=None, spec=None, path=None):
+        # 3.6.7 Artifact definition p. 84
         self.spec = template.spec if template else spec
-        custom_defs = (
-            self.spec and self.spec.template.topology_template.custom_defs or {}
-        )
-        if isinstance(artifact_tpl, six.string_types):
-            artifact = template and template.getArtifact(artifact_tpl)
-            if not artifact:
-                artifact = toscaparser.artifacts.Artifact(
-                    artifact_tpl, dict(file=artifact_tpl), custom_defs, path
-                )
+        if isinstance(artifact_tpl, toscaparser.artifacts.Artifact):
+            artifact = artifact_tpl
         else:
             # inline artifact
+            custom_defs = (
+                self.spec and self.spec.template.topology_template.custom_defs or {}
+            )
             artifact = toscaparser.artifacts.Artifact(
                 artifact_tpl["file"], artifact_tpl, custom_defs, path
             )
         self.artifact = artifact
+        self.repository = (
+            self.spec
+            and artifact.repository
+            and self.spec.template.repositories.get(artifact.repository)
+            or None
+        )
         self.baseDir = (
             artifact._source or (self.spec and self.spec.template.path) or None
         )
+        self.properties = artifact.get_properties()
 
     @property
     def file(self):

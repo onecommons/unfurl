@@ -355,6 +355,10 @@ class EntityInstance(OperationalInstance, ResourceRef):
         return self.template.type
 
     @property
+    def artifacts(self):
+        return self.template.artifacts
+
+    @property
     def attributes(self):
         """attributes are live values but _attributes will be the serialized value
     """

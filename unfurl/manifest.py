@@ -328,16 +328,16 @@ class Manifest(AttributeManager):
         repositories = self._getRepositories(yamlConfig.config)
 
         if isinstance(templatePath, dict):
-            templatePath = templatePath.copy()
-            path = templatePath["file"]
-            repo = templatePath.get("repository")
+            artifactTpl = templatePath.copy()
+            path = artifactTpl["file"]
+            repo = artifactTpl.get("repository")
             if isinstance(repo, dict):
                 # a full repository spec maybe part of the include
                 reponame = repo.pop("name", os.path.basename(path))
                 # replace spec with just its name
-                templatePath["repository"] = reponame
+                artifactTpl["repository"] = reponame
                 repositories[reponame] = repo
-            artifact = Artifact(templatePath, path=baseDir)
+            artifact = Artifact(artifactTpl, path=baseDir)
         else:
             artifact = Artifact(dict(file=templatePath), path=baseDir)
 

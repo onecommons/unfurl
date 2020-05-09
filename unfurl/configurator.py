@@ -835,18 +835,21 @@ def getConfigSpecArgsFromImplementation(iDef, inputs, template):
     if isinstance(implementation, dict):
         for name, value in implementation.items():
             if name == "primary":
-                artifact = Artifact(value, template, path=iDef._source)
+                artifact = template.findOrCreateArtifact(value, path=iDef._source)
             elif name == "dependencies":
                 kw[name] = [
-                    Artifact(artifactTpl, template, path=iDef._source)
+                    template.findOrCreateArtifact(artifactTpl, path=iDef._source)
                     for artifactTpl in value
                 ]
             elif name in configSpecArgs:
                 kw[name] = value
 
     else:
-        artifact = Artifact(implementation, template, path=iDef._source)
+        # "either because it refers to a named artifact specified in the artifacts section of a type or template,
+        # or because it represents the name of a script in the CSAR file that contains the definition."
+        artifact = template.findOrCreateArtifact(implementation, path=iDef._source)
     kw["primary"] = artifact
+    assert artifact or "className" in kw
 
     if "className" not in kw:
         if not artifact:  # malformed implementation
@@ -873,5 +876,4 @@ def getConfigSpecArgsFromImplementation(iDef, inputs, template):
             if inputs:
                 shellArgs.update(inputs)
             kw["inputs"] = shellArgs
-
     return kw
