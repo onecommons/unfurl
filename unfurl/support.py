@@ -7,10 +7,12 @@ import copy
 import os
 import os.path
 import six
+import re
+import ast
 from enum import IntEnum
 
 from .eval import RefContext, setEvalFunc, Ref, mapValue
-from .result import ResultsMap, Result, ExternalValue, serializeValue
+from .result import Results, ResultsMap, Result, ExternalValue, serializeValue
 from .util import (
     ChainMap,
     findSchemaErrors,
@@ -21,8 +23,9 @@ from .util import (
     saveToTempfile,
 )
 from .merge import intersectDict, mergeDicts
-from ansible.template import Templar
+import ansible.template
 from ansible.parsing.dataloader import DataLoader
+from ansible.utils.unsafe_proxy import wrap_var, AnsibleUnsafeText, AnsibleUnsafeBytes
 
 import logging
 
@@ -138,6 +141,65 @@ def isSensitive(obj):
     return isinstance(obj, (sensitive_str, SensitiveValue, SecretResource))
 
 
+class Templar(ansible.template.Templar):
+    def template(self, variable, **kw):
+        if isinstance(variable, Results):
+            # template() will eagerly evaluate template strings in lists and dicts
+            # defeating the lazy evaluation ResultsMap and ResultsList is intending to provide
+            return variable
+        return super(Templar, self).template(variable, **kw)
+
+    @staticmethod
+    def findOverrides(data, overrides=None):
+        overrides = overrides or {}
+        JINJA2_OVERRIDE = "#jinja2:"
+        # Get jinja env overrides from template
+        if hasattr(data, "startswith") and data.startswith(JINJA2_OVERRIDE):
+            eol = data.find("\n")
+            line = data[len(JINJA2_OVERRIDE) : eol]
+            data = data[eol + 1 :]
+            for pair in line.split(","):
+                (key, val) = pair.split(":")
+                key = key.strip()
+                overrides[key] = ast.literal_eval(val.strip())
+        return overrides
+
+    def _applyTemplarOverrides(self, overrides):
+        # we need to update the environments so the same overrides are
+        # applied to each template evaluate through j2_concat (e.g. inside variables)
+        from ansible import constants as C
+
+        original = {}
+        for key, value in overrides.items():
+            original[key] = getattr(self.environment, key)
+            setattr(self.environment, key, value)
+
+        self.environment.__dict__.update(overrides)
+        # copied from Templar.__init__:
+        self.SINGLE_VAR = re.compile(
+            r"^%s\s*(\w*)\s*%s$"
+            % (
+                self.environment.variable_start_string,
+                self.environment.variable_end_string,
+            )
+        )
+
+        self._clean_regex = re.compile(
+            r"(?:%s|%s|%s|%s)"
+            % (
+                self.environment.variable_start_string,
+                self.environment.block_start_string,
+                self.environment.block_end_string,
+                self.environment.variable_end_string,
+            )
+        )
+        self._no_type_regex = re.compile(
+            r".*?\|\s*(?:%s)(?:\([^\|]*\))?\s*\)?\s*(?:%s)"
+            % ("|".join(C.STRING_TYPE_FILTERS), self.environment.variable_end_string)
+        )
+        return original
+
+
 def _getTemplateTestRegEx():
     return Templar(DataLoader())._clean_regex
 
@@ -146,6 +208,9 @@ _clean_regex = _getTemplateTestRegEx()
 
 
 def isTemplate(val, ctx):
+    if isinstance(val, (AnsibleUnsafeText, AnsibleUnsafeBytes)):
+        # already evaluated in a template, don't evaluate again
+        return False
     return isinstance(val, six.string_types) and not not _clean_regex.search(val)
 
 
@@ -158,7 +223,7 @@ class _VarTrackerDict(dict):
             return val
 
 
-def applyTemplate(value, ctx):
+def applyTemplate(value, ctx, overrides=None):
     if not isinstance(value, six.string_types):
         msg = "Error rendering template: source must be a string, not %s" % type(value)
         if ctx.strict:
@@ -166,19 +231,30 @@ def applyTemplate(value, ctx):
         else:
             return "<<%s>>" % msg
 
+    value = value.strip()
+    overrides = Templar.findOverrides(value, overrides)
+
     # implementation notes:
     #   see https://github.com/ansible/ansible/test/units/template/test_templar.py
     #   dataLoader is only used by _lookup and to set _basedir (else ./)
-    if not ctx.templar or (ctx.baseDir and ctx.templar._basedir != ctx.baseDir):
+    if (
+        overrides
+        or not ctx.templar
+        or (ctx.baseDir and ctx.templar._basedir != ctx.baseDir)
+    ):
         # we need to create a new templar
         loader = DataLoader()
         if ctx.baseDir:
             loader.set_basedir(ctx.baseDir)
         templar = Templar(loader)
+        if overrides:
+            overrides = templar._applyTemplarOverrides(overrides)
         ctx.templar = templar
+    else:
+        templar = ctx.templar
 
-    ctx.templar.environment.trim_blocks = False
-    # ctx.templar.environment.lstrip_blocks = False
+    templar.environment.trim_blocks = False
+    # templar.environment.lstrip_blocks = False
     fail_on_undefined = True
 
     vars = _VarTrackerDict(__unfurl=ctx)
@@ -187,7 +263,7 @@ def applyTemplate(value, ctx):
 
     # replaces current vars
     # don't use setter to avoid isinstance(dict) check
-    ctx.templar._available_variables = vars
+    templar._available_variables = vars
 
     oldvalue = value
     index = ctx.referenced.start()
@@ -196,10 +272,9 @@ def applyTemplate(value, ctx):
     try:
         # strip whitespace so jinija native types resolve even with extra whitespace
         # disable caching so we don't need to worry about the value of a cached var changing
+        # use do_template because we already know it's a template
         try:
-            value = ctx.templar.template(
-                value.strip(), cache=False, fail_on_undefined=fail_on_undefined
-            )
+            value = templar.template(value, fail_on_undefined=fail_on_undefined)
         except Exception as e:
             value = "<<Error rendering template: %s>>" % str(e)
             if ctx.strict:
@@ -216,12 +291,18 @@ def applyTemplate(value, ctx):
                         return SensitiveValue(
                             value
                         )  # mark the template result as sensitive
+                return wrap_var(value)
     finally:
-        ctx.referenced.stop()
+        ctx.referenced.stop
+        if overrides:
+            # restore original values
+            templar._applyTemplarOverrides(overrides)
     return value
 
 
-setEvalFunc("template", applyTemplate)
+setEvalFunc(
+    "template", lambda args, ctx: (applyTemplate(args, ctx, ctx.kw.get("overrides")))
+)
 
 
 def runLookup(name, templar, *args, **kw):
@@ -389,9 +470,10 @@ def getImport(arg, ctx):
 setEvalFunc("external", getImport)
 
 
-class Imports(collections.OrderedDict):
-    Import = collections.namedtuple("Import", ["resource", "spec"])
+_Import = collections.namedtuple("_Import", ["resource", "spec"])
 
+
+class Imports(collections.OrderedDict):
     def findImport(self, name):
         if name in self:
             return self[name].resource
@@ -410,12 +492,12 @@ class Imports(collections.OrderedDict):
 
     def __setitem__(self, key, value):
         if isinstance(value, tuple):
-            value = self.Import(*value)
+            value = _Import(*value)
         else:
             if key in self:
                 value = self[key]._replace(resource=value)
             else:
-                value = self.Import(value, {})
+                value = _Import(value, {})
         return super(Imports, self).__setitem__(key, value)
 
 

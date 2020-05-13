@@ -227,7 +227,7 @@ class Ref(object):
             keys = list(exp)
             if keys and keys[0] not in _FuncsTop:
                 self.vars.update(exp.get("vars", {}))
-                self.foreach = exp.get("foreach")
+                self.foreach = exp.get("foreach", exp.get("select"))
                 self.trace = exp.get("trace", 0)
                 exp = exp.get("eval", exp.get("ref", exp))
 
@@ -285,11 +285,15 @@ class Ref(object):
     @staticmethod
     def isRef(value):
         if isinstance(value, Mapping):
+            if not value:
+                return False
+            first = next(iter(value))
+
             if "ref" in value or "eval" in value:
                 return len(
-                    [x for x in ["vars", "trace", "foreach"] if x in value]
+                    [x for x in ["vars", "trace", "foreach", "select"] if x in value]
                 ) + 1 == len(value)
-            if len(value) == 1 and list(value)[0] in _FuncsTop:
+            if len(value) == 1 and first in _FuncsTop:
                 return True
             return False
         return isinstance(value, Ref)

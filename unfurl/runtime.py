@@ -9,13 +9,12 @@ import six
 import collections
 import itertools
 
-from ansible.template import Templar
 from ansible.parsing.dataloader import DataLoader
 
 from .util import UnfurlError, loadClass, toEnum
 from .result import ResourceRef, ChangeAware
 
-from .support import AttributeManager, Defaults, Status, Priority, NodeState
+from .support import AttributeManager, Defaults, Status, Priority, NodeState, Templar
 from .tosca import CapabilitySpec, RelationshipSpec, NodeSpec, TopologySpec
 
 import logging

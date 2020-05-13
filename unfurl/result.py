@@ -255,9 +255,6 @@ class Results(object):
             ctx.baseDir = newBaseDir
             ctx.trace("found baseDir", newBaseDir, "old", oldBaseDir)
         self.context = ctx
-        # setting __UNSAFE__ will prevent ansible templates from trying evaluate template strings
-        # in its items. It does so eagerly defeating the lazy evaluation this class is intending to provide
-        self.__UNSAFE__ = True
 
     def hasDiff(self):
         return any(isinstance(x, Result) and x.hasDiff() for x in self._attributes)
@@ -338,6 +335,9 @@ class Results(object):
         else:
             self.resolveAll()
             return self._attributes == other
+
+    def __str__(self):
+        return str(self._attributes)
 
     def __repr__(self):
         return "Results(%r)" % self._attributes

@@ -225,6 +225,35 @@ class EvalTest(unittest.TestCase):
         self.assertEqual(mapValue(query, resource), "test")
         self.assertEqual(resource.attributes["aTemplate"], "test")
 
+        template = """\
+#jinja2: variable_start_string: '<%', variable_end_string: '%>'
+{% filter from_yaml %}
+a_dict:
+    key1: "{{ extras.quoted }}" # shouldn't be evaluated
+    key2: "<% extras.quoted %>" # will be evaluated to "{{ quoted }}  "
+    <<: <% key4 | to_json %>  # will merge into a_dict
+{% endfilter %}
+        """
+        vars = {
+            "extras": dict(key2="hello", quoted={"q": "{{ quoted }}  "}),
+            "key4": dict(extra1="a", extra2=3),
+            "key2": {"q": "{{ quoted2 }}  "},
+        }
+        query2 = {"eval": {"template": template}}
+        expected = {
+            "a_dict": {
+                "key1": "{{ extras.quoted }}",
+                "key2": "{{ quoted }}  ",
+                "extra1": "a",
+                "extra2": 3,
+            }
+        }
+        ctx = RefContext(resource, vars)
+        result = applyTemplate(template, ctx)
+        self.assertEqual(result, expected)
+        result = mapValue(query2, ctx)
+        # self.assertEqual(result, expected)
+
     def test_innerReferences(self):
         resourceDef = {
             "a": dict(b={"ref": "a::c"}, c={"e": 1}, d=["2", {"ref": "a::d::0"}])
