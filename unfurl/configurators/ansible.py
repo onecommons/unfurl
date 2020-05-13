@@ -1,14 +1,18 @@
 from __future__ import absolute_import
 import collections
 import functools
-from ..util import ansibleDisplay, ansibleDummyCli, assertForm, saveToTempfile
+import logging
+from ..util import assertForm, saveToTempfile
 from ..configurator import Configurator, Status
 from ..result import serializeValue
 import ansible.constants as C
+from ansible import context
 from ansible.cli.playbook import PlaybookCLI
 from ansible.plugins.callback.default import CallbackModule
 from ansible.module_utils import six
-import logging
+from ansible.utils.display import Display
+
+display = Display()
 
 logger = logging.getLogger("unfurl")
 
@@ -64,17 +68,7 @@ def getAnsibleResults(result, extraKeys=(), facts=()):
 
 
 class AnsibleConfigurator(Configurator):
-    """
-  The current resource is the inventory.
-  #could have parameter for mapping resource attributes to groups
-  #also need to map attributes to host vars
-  sshconfig
-  ansible variables can not be set to a value of type resource
-
-  external inventory discovers resources
-  need away to map hosts to existing resources
-  and to map vars to types of different resource
-  """
+    """The current resource is the inventory."""
 
     def __init__(self, configSpec):
         super(AnsibleConfigurator, self).__init__(configSpec)
@@ -256,18 +250,21 @@ class AnsibleConfigurator(Configurator):
                 len(resultCallback.results),
             )
 
-            resultKeys = self.getResultKeys(task, resultCallback.results)
-            factKeys = list(task.configSpec.outputs)
-            # each task in a playbook will have a corresponding result
-            resultList, outputList = zip(
-                *map(
-                    lambda result: getAnsibleResults(result, resultKeys, factKeys),
-                    resultCallback.results,
+            if resultCallback.results:
+                resultKeys = self.getResultKeys(task, resultCallback.results)
+                factKeys = list(task.configSpec.outputs)
+                # each task in a playbook will have a corresponding result
+                resultList, outputList = zip(
+                    *map(
+                        lambda result: getAnsibleResults(result, resultKeys, factKeys),
+                        resultCallback.results,
+                    )
                 )
-            )
-            mergeFn = lambda a, b: a.update(b) or a
-            results = functools.reduce(mergeFn, resultList, {})
-            outputs = functools.reduce(mergeFn, outputList, {})
+                mergeFn = lambda a, b: a.update(b) or a
+                results = functools.reduce(mergeFn, resultList, {})
+                outputs = functools.reduce(mergeFn, outputList, {})
+            else:
+                results, outputs = {}, {}
 
             if resultCallback.changed > 0:
                 if any(
@@ -319,6 +316,9 @@ class ResultCallback(CallbackModule):
         self._load_name = "result"
         self.changed = 0
 
+    def get_option(self, k):
+        return False
+
     def getInfo(self, result):
         host = result._host
         taskname = result.task_name
@@ -356,17 +356,22 @@ class ResultCallback(CallbackModule):
         super(ResultCallback, self).v2_runner_on_unreachable(result)
 
 
+def _init_global_context(options):
+    # Context _init_global_context is designed to be called only once,
+    # setting CLIARGS to an ImmutableDict singleton
+    # Since we need to change it, replace the function with one that hacks into CLIARGS internal state
+    context.CLIARGS._store = vars(options)
+
+
 def runPlaybooks(playbooks, _inventory, params=None, args=None):
     # unfurl.util should have initialized ansibleDummyCli and ansibleDisplay already
     inventoryArgs = ["-i", _inventory] if _inventory else []
     args = ["ansible-playbook"] + inventoryArgs + (args or []) + playbooks
     logger.info("running " + " ".join(args))
     cli = PlaybookCLI(args)
-    cli.parse()
 
-    # CallbackBase imports __main__.cli (which is set to ansibleDummyCli)
-    # as assigns its options to self._options
-    ansibleDummyCli.options.__dict__.update(cli.options.__dict__)
+    context._init_global_context = _init_global_context
+    cli.parse()
 
     # replace C.DEFAULT_STDOUT_CALLBACK with our own so we have control over logging
     # config/base.yml sets C.DEFAULT_STDOUT_CALLBACK == 'default' (ansible/plugins/callback/default.py)
@@ -378,8 +383,8 @@ def runPlaybooks(playbooks, _inventory, params=None, args=None):
 
     _play_prereqs = cli._play_prereqs
 
-    def hook_play_prereqs(options):
-        loader, inventory, variable_manager = _play_prereqs(options)
+    def hook_play_prereqs():
+        loader, inventory, variable_manager = _play_prereqs()
         if params:
             variable_manager._extra_vars.update(params)
         resultsCB.inventoryManager = inventory
@@ -390,13 +395,11 @@ def runPlaybooks(playbooks, _inventory, params=None, args=None):
 
     cli._play_prereqs = hook_play_prereqs
 
-    oldVerbosity = ansibleDisplay.verbosity
+    oldVerbosity = display.verbosity
     if logging.getLogger("unfurl.ansible").getEffectiveLevel() <= 10:  # debug
-        ansibleDisplay.verbosity = 2
+        display.verbosity = 2
     try:
-        if cli.options.verbosity > ansibleDisplay.verbosity:
-            ansibleDisplay.verbosity = cli.options.verbosity
         resultsCB.exit_code = cli.run()
     finally:
-        ansibleDisplay.verbosity = oldVerbosity
+        display.verbosity = oldVerbosity
     return resultsCB

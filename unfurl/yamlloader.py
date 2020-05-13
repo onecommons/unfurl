@@ -23,7 +23,7 @@ from toscaparser.common.exception import ExceptionCollector
 from toscaparser.common.exception import URLException
 from toscaparser.utils.gettextutils import _
 
-from ansible.utils.unsafe_proxy import AnsibleUnsafeText
+from ansible.utils.unsafe_proxy import AnsibleUnsafeText, AnsibleUnsafeBytes
 
 import logging
 
@@ -48,10 +48,13 @@ yaml.representer.add_representer(sensitive_str, represent_sensitive)
 
 if six.PY3:
     represent_unicode = SafeRepresenter.represent_str
+    represent_binary = SafeRepresenter.represent_binary
 else:
     represent_unicode = SafeRepresenter.represent_unicode
+    represent_binary = SafeRepresenter.represent_str
 
 yaml.representer.add_representer(AnsibleUnsafeText, represent_unicode)
+yaml.representer.add_representer(AnsibleUnsafeBytes, represent_binary)
 
 
 def resolveIfInRepository(manifest, path, isFile=True, importLoader=None):

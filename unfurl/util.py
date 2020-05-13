@@ -1,5 +1,4 @@
 import sys
-import optparse
 import six
 import traceback
 import itertools
@@ -19,63 +18,6 @@ logger = logging.getLogger("unfurl")
 
 # import pickle
 pickleVersion = 2  # pickle.DEFAULT_PROTOCOL
-
-from ansible.plugins.loader import lookup_loader, filter_loader, strategy_loader
-
-lookup_loader.add_directory(os.path.abspath(os.path.dirname(__file__)), True)
-filter_loader.add_directory(os.path.abspath(os.path.dirname(__file__)), True)
-strategy_loader.add_directory(
-    os.path.abspath(
-        os.path.join(
-            os.path.dirname(__file__),
-            "vendor",
-            "ansible_mitogen",
-            "plugins",
-            "strategy",
-        )
-    ),
-    False,
-)
-
-
-class AnsibleDummyCli(object):
-    def __init__(self):
-        self.options = optparse.Values()
-
-
-ansibleDummyCli = AnsibleDummyCli()
-from ansible.utils import display
-
-display.logger = logging.getLogger("unfurl.ansible")
-
-
-class AnsibleDisplay(display.Display):
-    def display(self, msg, color=None, stderr=False, screen_only=False, log_only=False):
-        if screen_only:
-            return
-        log_only = True
-        return super(AnsibleDisplay, self).display(
-            msg, color, stderr, screen_only, log_only
-        )
-
-
-import ansible.constants as C
-
-if "ANSIBLE_NOCOWS" not in os.environ:
-    C.ANSIBLE_NOCOWS = 1
-if "ANSIBLE_JINJA2_NATIVE" not in os.environ:
-    C.DEFAULT_JINJA2_NATIVE = 1
-ansibleDisplay = AnsibleDisplay()
-
-
-def initializeAnsible():
-    main = sys.modules.get("__main__")
-    # XXX make sure ansible.executor.playbook_executor hasn't been loaded already
-    main.display = ansibleDisplay
-    main.cli = ansibleDummyCli
-
-
-initializeAnsible()
 
 VERSION = (
     "unfurl/v1alpha1"
@@ -283,7 +225,9 @@ def extend_with_default(validator_class):
     return validators.extend(validator_class, {"properties": set_defaults})
 
 
-DefaultValidatingLatestDraftValidator = Draft7Validator #extend_with_default(Draft4Validator)
+DefaultValidatingLatestDraftValidator = (
+    Draft7Validator
+)  # extend_with_default(Draft4Validator)
 
 
 def validateSchema(obj, schema, baseUri=None):

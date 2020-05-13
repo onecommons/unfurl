@@ -53,8 +53,6 @@ spec:
 
 class k8sTest(unittest.TestCase):
     def setUp(self):
-        # need to call this again on python 2.7:
-        unfurl.util.initializeAnsible()
         try:
             # Ansible generates tons of ResourceWarnings
             warnings.simplefilter("ignore", ResourceWarning)

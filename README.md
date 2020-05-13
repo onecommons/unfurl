@@ -36,7 +36,7 @@ Unfurl integrates with the deployment tools you are already using, like Ansible,
 
 ### Requirements
 
-Python (2.7, 3.5, or 3.7); git
+Python (2.7, 3.7, 3.8); git
 
 # Developing
 

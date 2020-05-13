@@ -12,8 +12,6 @@ import sys
 
 class AnsibleTest(unittest.TestCase):
     def setUp(self):
-        # need to call this again on python 2.7:
-        unfurl.util.initializeAnsible()
         try:
             # Ansible generates tons of ResourceWarnings
             warnings.simplefilter("ignore", ResourceWarning)
@@ -44,17 +42,19 @@ class AnsibleTest(unittest.TestCase):
         self.assertEqual(hostfacts["one_fact"], "test")
         self.assertEqual(hostfacts["echoresults"]["stdout"], "hello")
 
+    # setting UNFURL_LOGGING can break this test, so skip if it's set
+    @unittest.skipIf(
+        os.getenv("UNFURL_LOGGING"), "this test requires default log level"
+    )
     def test_verbosity(self):
-        # setting UNFURL_LOGGING can break this test, so skip if it's set
-        if not os.getenv("UNFURL_LOGGING"):
-            results = self.runPlaybook()
-            # task test-verbosity was skipped
-            assert not results.resultsByStatus.ok.get("test-verbosity")
-            assert results.resultsByStatus.skipped.get("test-verbosity")
-            results = self.runPlaybook(["-vv"])
-            # task test-verbosity was ok this time
-            assert results.resultsByStatus.ok.get("test-verbosity")
-            assert not results.resultsByStatus.skipped.get("test-verbosity")
+        results = self.runPlaybook()
+        # task test-verbosity was skipped
+        assert not results.resultsByStatus.ok.get("test-verbosity")
+        assert results.resultsByStatus.skipped.get("test-verbosity")
+        results = self.runPlaybook(["-vv"])
+        # task test-verbosity was ok this time
+        assert results.resultsByStatus.ok.get("test-verbosity")
+        assert not results.resultsByStatus.skipped.get("test-verbosity")
 
 
 manifest = """
@@ -95,7 +95,7 @@ class AnsibleConfiguratorTest(unittest.TestCase):
             # python 2.x doesn't have ResourceWarning
             pass
 
-    def test_ansible(self):
+    def test_configurator(self):
         """
     test that runner figures out the proper tasks to run
     """

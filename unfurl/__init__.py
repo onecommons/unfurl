@@ -14,11 +14,6 @@ import sys
 vendor_dir = os.path.join(os.path.abspath(os.path.dirname(__file__)), "vendor")
 sys.path.insert(0, vendor_dir)
 
-import logging
-
-logging.captureWarnings(True)
-_logHandler = None
-
 DefaultManifestName = "manifest.yaml"
 DefaultLocalConfigName = "unfurl.yaml"
 DefaultHomeDirectory = ".unfurl_home"
@@ -44,6 +39,13 @@ def getHomeConfigPath(homepath):
         else:
             return os.path.abspath(homepath)
     return None
+
+
+### logging initialization
+import logging
+
+logging.captureWarnings(True)
+_logHandler = None
 
 
 def initLogging(level, logfile=None):
@@ -74,3 +76,46 @@ def initLogging(level, logfile=None):
 _logEnv = os.getenv("UNFURL_LOGGING")
 if _logEnv is not None:
     initLogging(_logEnv.upper())
+
+### Ansible initialization
+import ansible.constants as C
+
+if "ANSIBLE_NOCOWS" not in os.environ:
+    C.ANSIBLE_NOCOWS = 1
+if "ANSIBLE_JINJA2_NATIVE" not in os.environ:
+    C.DEFAULT_JINJA2_NATIVE = 1
+
+import ansible.utils.display
+
+ansible.utils.display.logger = logging.getLogger("unfurl.ansible")
+display = ansible.utils.display.Display()
+
+# Display is a singleton which we can't subclass so monkey patch instead
+_super_display = ansible.utils.display.Display.display
+
+
+def _display(self, msg, color=None, stderr=False, screen_only=False, log_only=False):
+    if screen_only:
+        return
+    log_only = True
+    return _super_display(self, msg, color, stderr, screen_only, log_only)
+
+
+ansible.utils.display.Display.display = _display
+
+from ansible.plugins.loader import lookup_loader, filter_loader, strategy_loader
+
+lookup_loader.add_directory(os.path.abspath(os.path.dirname(__file__)), True)
+filter_loader.add_directory(os.path.abspath(os.path.dirname(__file__)), True)
+strategy_loader.add_directory(
+    os.path.abspath(
+        os.path.join(
+            os.path.dirname(__file__),
+            "vendor",
+            "ansible_mitogen",
+            "plugins",
+            "strategy",
+        )
+    ),
+    False,
+)

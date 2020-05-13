@@ -11,11 +11,12 @@ import itertools
 import os
 from .support import Status, Priority, Defaults, AttributeManager
 from .result import serializeValue, ChangeRecord
-from .util import UnfurlError, UnfurlTaskError, ansibleDisplay, toEnum
+from .util import UnfurlError, UnfurlTaskError, toEnum
 from .merge import mergeDicts
 from .runtime import OperationalInstance
 from .configurator import TaskView, ConfiguratorResult, TaskRequest, JobRequest
 from .plan import Plan, DeployPlan
+from . import display
 
 import logging
 
@@ -739,7 +740,7 @@ class Runner(object):
             job = self.createJob(jobOptions)
             self.currentJob = job
             try:
-                ansibleDisplay.verbosity = jobOptions.verbose
+                display.verbosity = jobOptions.verbose
                 job.run()
             except Exception:
                 job.localStatus = Status.error
