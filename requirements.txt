@@ -2,7 +2,7 @@
 # tests with new APIs/semantics. We want to update versions deliberately.
 # For an analysis of "install_requires" vs pip's requirements files see
 # https://packaging.python.org/en/latest/requirements.html
-ansible==2.9.1 # gpl 3
+ansible>=2.9.2 # gpl 3
 mitogen==0.2.7 # BSD 3-clause
 openshift # Apache 2.0
 click==7.1.1 # BSD 3-clause
