@@ -394,15 +394,16 @@ spec:
             assert config.config["+?include2"] == "missing.yaml"
             assert "a" not in config.config["spec"]
 
-    def test_change(self):
-        """
-    config parameter: file.path
-    run...
-    touch file...
-    run again...
-    assert it triggers update
-    """
-        # XXX
+    # XXX
+    # def test_change(self):
+    #     """
+    # config parameter: file.path
+    # run...
+    # touch file...
+    # run again...
+    # assert it triggers update
+    # """
+    #
 
 
 class ImportTestConfigurator(Configurator):

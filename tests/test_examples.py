@@ -31,7 +31,7 @@ class HelmConfigurator(Configurator):
 
 class DummyShellConfigurator(Configurator):
     def run(self, task):
-        yield task.done(True, Status.ok)
+        yield task.done(True, True)
 
 
 class RunTest(unittest.TestCase):
@@ -65,8 +65,13 @@ class RunTest(unittest.TestCase):
         job3 = Runner(manifest3).run(
             JobOptions(workflow="undeploy", out=output3, startTime="test")
         )
+        # print(output3.getvalue())
         # two delete tasks should have ran
+        # print(job3.jsonSummary())
         assert len(job3.workDone) == 2, job3.jsonSummary()
+        tasks = list(job3.workDone.values())
+        assert tasks[0].target.status.name == "notpresent", tasks[0].target.status
+        assert tasks[1].target.status.name == "notpresent", tasks[1].target.status
 
     def test_ansible(self):
         """

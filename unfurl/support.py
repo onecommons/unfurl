@@ -38,7 +38,7 @@ Status = IntEnum(
 # see "3.4.1 Node States" p74
 NodeState = IntEnum(
     "NodeState",
-    "initial creating created configuring configured starting started stopping deleting error",
+    "initial creating created configuring configured starting started stopping deleting deleted error",
     module=__name__,
 )
 

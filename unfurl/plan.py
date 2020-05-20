@@ -137,7 +137,7 @@ class Plan(object):
 
     def _runOperation(self, startState, op, resource, reason=None, inputs=None):
         ran = False
-        req = self.generateConfiguration(op, resource, reason, inputs)
+        req = self.createTaskRequest(op, resource, reason, inputs)
         if not req.error:
             resource.state = startState
             task = yield req
@@ -269,18 +269,20 @@ class Plan(object):
         # XXX remove_target: Operation called on source when a target instance is removed
         # (but only called if add_target had been called)
 
-        req = self.generateConfiguration("Standard.delete", resource, reason, inputs)
-        if not req.error:
-            resource.state = NodeState.deleting
-        yield req
-        # Note: there is no NodeState.deleted and Status.notpresent is set by TaskConfig.finished()
+        gen = self._runOperation(
+            NodeState.deleting, "Standard.delete", resource, reason, inputs
+        )
+        req = gen.send(None)
+        if req:
+            gen.send((yield req))
+        # Note: Status.notpresent is set in _generateConfigurations
 
     def executeDefaultCheck(self, resource, reason=None, inputs=None):
-        req = self.generateConfiguration("Install.check", resource, reason, inputs)
+        req = self.createTaskRequest("Install.check", resource, reason, inputs)
         if not req.error:
             yield req
 
-    def generateConfiguration(self, operation, resource, reason=None, inputs=None):
+    def createTaskRequest(self, operation, resource, reason=None, inputs=None):
         """implementation can either be a named artifact (including a python configurator class),
         or a file path"""
         interface, sep, action = operation.rpartition(".")
@@ -298,6 +300,9 @@ class Plan(object):
         if kw:
             if reason:
                 name = "for %s: %s.%s" % (reason, interface, action)
+                if reason == self.workflow:
+                    # set the task's workflow instead of using the default ("deploy")
+                    kw["workflow"] = reason
             else:
                 name = "%s.%s" % (interface, action)
             configSpec = ConfigurationSpec(name, action, **kw)
@@ -370,7 +375,8 @@ class Plan(object):
         successStatus = self.getSuccessStatus(workflow)
         gen = Generate(configGenerator)
         while gen():
-            gen.result = yield gen.next
+            result = (yield gen.next)
+            gen.result = result
             task = gen.result
             if not task:  # this was skipped (not shouldRun() or filtered step)
                 continue
@@ -452,7 +458,7 @@ class Plan(object):
                 # XXX need to pass operation_host (see 3.6.27 Workflow step definition p188)
                 # if target is a group can be value can be node_type or node template name
                 # if its a node_type select nodes matching the group
-                result = yield self.generateConfiguration(
+                result = yield self.createTaskRequest(
                     activity.call_operation,
                     resource,
                     "step:" + step.name,
@@ -462,7 +468,9 @@ class Plan(object):
                 resource.state = activity.set_state
             elif activity.type == "delegate":
                 # XXX inputs
-                configGenerator = self._getDefaultGenerator(activity.delegate, resource)
+                configGenerator = self._getDefaultGenerator(
+                    activity.delegate, resource, activity.delegate
+                )
                 if not configGenerator:
                     continue
                 gen = Generate(configGenerator)
@@ -640,8 +648,9 @@ class DeployPlan(Plan):
 
         if opts.prune:
             test = lambda resource: "prune" if id(resource) not in visited else False
-            for taskRequest in self.generateDeleteConfigurations(test):
-                yield taskRequest
+            gen = Generate(self.generateDeleteConfigurations(test))
+            while gen():
+                gen.result = yield gen.next
 
     def includeNotFound(self, template):
         if self.jobOptions.add or self.jobOptions.all:
@@ -654,8 +663,9 @@ class UndeployPlan(Plan):
         """
     yields configSpec, target, reason
     """
-        for taskRequest in self.generateDeleteConfigurations(self.includeForDeletion):
-            yield taskRequest
+        gen = Generate(self.generateDeleteConfigurations(self.includeForDeletion))
+        while gen():
+            gen.result = yield gen.next
 
     def includeForDeletion(self, resource):
         if self.filterTemplate and resource.template != self.filterTemplate:

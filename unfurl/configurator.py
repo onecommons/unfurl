@@ -610,7 +610,7 @@ class TaskView(object):
 
         if isinstance(operation, six.string_types):
             # XXX add option to pass different inputs
-            taskRequest = self.job.plan.generateConfiguration(
+            taskRequest = self.job.plan.createTaskRequest(
                 operation,
                 resource,
                 "for subtask: " + self.configSpec.name,
