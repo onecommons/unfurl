@@ -256,9 +256,6 @@ class Results(object):
             ctx.trace("found baseDir", newBaseDir, "old", oldBaseDir)
         self.context = ctx
 
-    def hasDiff(self):
-        return any(isinstance(x, Result) and x.hasDiff() for x in self._attributes)
-
     def getCopy(self, key, default=None):
         from .eval import mapValue
 
@@ -301,8 +298,12 @@ class Results(object):
             return val.resolved
         else:
             if self.doFullResolve:
-                resolved = mapValue(val, self.context)
+                if isinstance(val, Results):
+                    resolved = val
+                else:  # evaluate records that aren't Results
+                    resolved = mapValue(val, self.context)
             else:
+                # lazily evaluate lists and dicts
                 self.context.trace("Results._mapValue", val)
                 resolved = self._mapValue(val, self.context)
             # will return a Result if val was an expression that was evaluated
@@ -350,6 +351,18 @@ class ResultsMap(Results, MutableMapping):
     def resolveAll(self):
         list(self.values())
 
+    def serializeResolved(self, **kw):
+        return dict(
+            (key, serializeValue(v, **kw))
+            for key, v in self._attributes.items()
+            if isinstance(v, Result)
+        )
+
+    def hasDiff(self):
+        return any(
+            isinstance(x, Result) and x.hasDiff() for x in self._attributes.values()
+        )
+
     def getDiff(self, cls=dict):
         # returns a dict with the same semantics as diffDicts
         diffDict = cls()
@@ -367,6 +380,9 @@ class ResultsList(Results, MutableSequence):
     def insert(self, index, value):
         assert not isinstance(value, Result), value
         self._attributes.insert(index, Result(value))
+
+    def hasDiff(self):
+        return any(isinstance(x, Result) and x.hasDiff() for x in self._attributes)
 
     def getDiff(self, cls=list):
         # we don't have patchList yet so just returns the whole list

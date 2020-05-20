@@ -127,7 +127,7 @@ Convert dictionary suitable for serializing as yaml
   changes:
   dependencies:
   messages:
-  output: 
+  outputs:
   result:  # an object or "skipped"
   """
     output = CommentedMap()
@@ -137,8 +137,8 @@ Convert dictionary suitable for serializing as yaml
         output["target"] = task.target.key
     saveStatus(task, output)
     output["implementation"] = saveConfigSpec(task.configSpec)
-    if task._inputs:  # only serialize if inputs were already successfully instantiated
-        output["inputs"] = serializeValue(task.inputs)
+    if task._inputs:  # only serialize resolved inputs
+        output["inputs"] = task.inputs.serializeResolved()
     changes = saveResourceChanges(task._resourceChanges)
     if changes:
         output["changes"] = changes
@@ -346,7 +346,6 @@ class YamlManifest(Manifest):
         status = CommentedMap()
 
         # record the input and output values
-        # XXX make sure sensative values are redacted (and need to check for 'sensitive' metadata)
         status["inputs"] = serializeValue(resource.inputs.attributes)
         status["outputs"] = serializeValue(resource.outputs.attributes)
 
