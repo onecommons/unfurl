@@ -231,12 +231,13 @@ class EvalTest(unittest.TestCase):
 a_dict:
     key1: "{{ extras.quoted }}" # shouldn't be evaluated
     key2: "<% extras.quoted %>" # will be evaluated to "{{ quoted }}  "
-    <<: <% key4 | to_json %>  # will merge into a_dict
+    key3: "original"
+    <<: <% key4 | mapValue | to_json %>  # will merge into a_dict
 {% endfilter %}
         """
         vars = {
-            "extras": dict(key2="hello", quoted={"q": "{{ quoted }}  "}),
-            "key4": dict(extra1="a", extra2=3),
+            "extras": dict(key3="hello", quoted={"q": "{{ quoted }}  "}),
+            "key4": dict(extra1={"a": 1}, extra2=[1, 3], key3="overwritten"),
             "key2": {"q": "{{ quoted2 }}  "},
         }
         query2 = {"eval": {"template": template}}
@@ -244,15 +245,16 @@ a_dict:
             "a_dict": {
                 "key1": "{{ extras.quoted }}",
                 "key2": "{{ quoted }}  ",
-                "extra1": "a",
-                "extra2": 3,
+                "key3": "original",
+                "extra1": {"a": 1},
+                "extra2": [1, 3],
             }
         }
         ctx = RefContext(resource, vars)
         result = applyTemplate(template, ctx)
         self.assertEqual(result, expected)
         result = mapValue(query2, ctx)
-        # self.assertEqual(result, expected)
+        self.assertEqual(result, expected)
 
     def test_innerReferences(self):
         resourceDef = {

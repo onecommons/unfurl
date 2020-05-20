@@ -1,4 +1,4 @@
-from unfurl.eval import Ref
+from unfurl.eval import Ref, mapValue
 
 from jinja2.filters import contextfilter
 
@@ -11,6 +11,12 @@ def ref(context, ref):
     return Ref(ref).resolveOne(refContext)
 
 
+@contextfilter
+def mapValueFilter(context, ref):
+    refContext = context["__unfurl"]
+    return mapValue(ref, refContext)
+
+
 class FilterModule(object):
     def filters(self):
-        return {"ref": ref}
+        return {"ref": ref, "eval": ref, "mapValue": mapValueFilter}
