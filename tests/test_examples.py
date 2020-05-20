@@ -70,8 +70,8 @@ class RunTest(unittest.TestCase):
         # print(job3.jsonSummary())
         assert len(job3.workDone) == 2, job3.jsonSummary()
         tasks = list(job3.workDone.values())
-        assert tasks[0].target.status.name == "notpresent", tasks[0].target.status
-        assert tasks[1].target.status.name == "notpresent", tasks[1].target.status
+        assert tasks[0].target.status.name == "absent", tasks[0].target.status
+        assert tasks[1].target.status.name == "absent", tasks[1].target.status
 
     def test_ansible(self):
         """

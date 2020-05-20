@@ -22,7 +22,7 @@
     "readyState": {
       "title": "readyState",
       "description": "The operational status of the instance",
-      "enum": ["unknown", "ok", "degraded", "error", "pending", "notpresent"],
+      "enum": ["unknown", "ok", "degraded", "error", "pending", "absent"],
       "$$target": "#/definitions/readyState"
     },
     "atomic": {

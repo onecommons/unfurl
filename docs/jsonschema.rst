@@ -138,7 +138,7 @@ changelog.yaml
           foo: bar
         resource2:
           .spec:
-          .status: notpresent
+          .status: absent
         resource3/child1: +%delete
       messages: []
 

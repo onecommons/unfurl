@@ -83,7 +83,7 @@ class Operational(ChangeAware):
             return Status.unknown
 
         if status >= Status.error:
-            # return error, pending, or notpresent
+            # return error, pending, or absent
             return status
 
         dependentStatus = self.aggregateStatus(self.getOperationalDependencies())

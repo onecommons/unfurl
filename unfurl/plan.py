@@ -226,7 +226,7 @@ class Plan(object):
         # 5.8.5.2 Invocation Conventions p. 228
         # 7.2 Declarative workflows p.249
         ran = False
-        missing = resource.status in [Status.unknown, Status.notpresent, Status.pending]
+        missing = resource.status in [Status.unknown, Status.absent, Status.pending]
         if missing:
             gen = self._runOperation(
                 NodeState.creating, "Standard.create", resource, reason, inputs
@@ -275,7 +275,7 @@ class Plan(object):
         req = gen.send(None)
         if req:
             gen.send((yield req))
-        # Note: Status.notpresent is set in _generateConfigurations
+        # Note: Status.absent is set in _generateConfigurations
 
     def executeDefaultCheck(self, resource, reason=None, inputs=None):
         req = self.createTaskRequest("Install.check", resource, reason, inputs)
@@ -332,7 +332,7 @@ class Plan(object):
                     # readonly resource
                     continue
                 # if resource exists (or unknown)
-                if resource.status not in [Status.notpresent, Status.pending]:
+                if resource.status not in [Status.absent, Status.pending]:
                     reason = include(resource)
                     if reason:
                         logger.debug("removing instance %s", resource.name)
@@ -357,7 +357,7 @@ class Plan(object):
         if workflow == "deploy":
             return Status.ok
         elif workflow == "undeploy":
-            return Status.notpresent
+            return Status.absent
         return None
 
     def _generateConfigurations(self, resource, reason, workflow=None):

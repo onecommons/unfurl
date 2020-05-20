@@ -107,7 +107,7 @@ class DockerTest(unittest.TestCase):
         tasks = list(run2.workDone.values())
         # runner.manifest.dump()
         assert tasks[0].status.name == "ok", tasks[0].status
-        assert tasks[0].target.status.name == "notpresent", tasks[0].target.status
+        assert tasks[0].target.status.name == "absent", tasks[0].target.status
 
     def test_login(self):
         """

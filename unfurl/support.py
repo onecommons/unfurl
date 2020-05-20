@@ -32,7 +32,7 @@ import logging
 logger = logging.getLogger("unfurl")
 
 Status = IntEnum(
-    "Status", "unknown ok degraded error pending notpresent", start=0, module=__name__
+    "Status", "unknown ok degraded error pending absent", start=0, module=__name__
 )
 
 # see "3.4.1 Node States" p74
@@ -601,7 +601,7 @@ class ResourceChanges(collections.OrderedDict):
       attribute1: newvalue
       attribute2: %delete # if deleted
       .added: # set if resource was added
-      .status: # set when status changes, including when removed (Status.notpresent)
+      .status: # set when status changes, including when removed (Status.absent)
   """
 
     statusIndex = 0

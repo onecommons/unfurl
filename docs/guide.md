@@ -101,19 +101,19 @@ OK
 Degraded
 Error
 Pending
-NotPresent
+Absent
 
 There are also `check` and `discover` workflows which update the status of
 instances the based on their current live state.
 Users can also define custom workflows but they do not affect the change history of the topology.
 
 When a workflow is applied to an instance it will be skipped if it already has
-the desired status (either "OK" or "NotPresent"). If its status is `Unknown`,
+the desired status (either "OK" or "Absent"). If its status is `Unknown`,
 `check` will be run first. Otherwise the workflow will be applied by executing one or more `operations` on a target instance.
 
-If it succeeds, the target instance status will be set to either `OK` or `NotPresent`
-for `deploy` and `undeploy` respectively. If it fails, the status will depend on if the instance was modified by the operation.
-If it has been, the status is set to error; if the operation didn't report whether it did or not, it is set to `Unknown`. Otherwise, the status won't be changed.
+If it succeeds, the target instance status will be set to either `OK` or `Absent`
+for `deploy` and `undeploy` respectively. If it fails, the status will depend on whether the instance was modified by the operation.
+If it has been, the status is set to `Error`; if the operation didn't report whether or not it was modified, it is set to `Unknown`. Otherwise, the status won't be changed.
 
 \_ 1: or to Degraded, depending the priority of the task.
 
