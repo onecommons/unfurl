@@ -216,7 +216,12 @@ def isTemplate(val, ctx):
 
 class _VarTrackerDict(dict):
     def __getitem__(self, key):
-        val = super(_VarTrackerDict, self).__getitem__(key)
+        try:
+            val = super(_VarTrackerDict, self).__getitem__(key)
+        except KeyError:
+            logger.debug('Missing variable "%s" in template', key)
+            raise
+
         try:
             return self.ctx.resolveReference(key)
         except KeyError:
@@ -230,28 +235,25 @@ def applyTemplate(value, ctx, overrides=None):
             raise UnfurlError(msg)
         else:
             return "<<%s>>" % msg
-
     value = value.strip()
-    overrides = Templar.findOverrides(value, overrides)
 
     # implementation notes:
     #   see https://github.com/ansible/ansible/test/units/template/test_templar.py
     #   dataLoader is only used by _lookup and to set _basedir (else ./)
-    if (
-        overrides
-        or not ctx.templar
-        or (ctx.baseDir and ctx.templar._basedir != ctx.baseDir)
-    ):
+    if not ctx.templar or (ctx.baseDir and ctx.templar._basedir != ctx.baseDir):
         # we need to create a new templar
         loader = DataLoader()
         if ctx.baseDir:
             loader.set_basedir(ctx.baseDir)
         templar = Templar(loader)
-        if overrides:
-            overrides = templar._applyTemplarOverrides(overrides)
         ctx.templar = templar
     else:
         templar = ctx.templar
+
+    overrides = Templar.findOverrides(value, overrides)
+    if overrides:
+        # returns the original values
+        overrides = templar._applyTemplarOverrides(overrides)
 
     templar.environment.trim_blocks = False
     # templar.environment.lstrip_blocks = False
@@ -291,9 +293,10 @@ def applyTemplate(value, ctx, overrides=None):
                         return SensitiveValue(
                             value
                         )  # mark the template result as sensitive
+                # otherwise wrap result as AnsibleUnsafeText so it isn't evaluated again
                 return wrap_var(value)
     finally:
-        ctx.referenced.stop
+        ctx.referenced.stop()
         if overrides:
             # restore original values
             templar._applyTemplarOverrides(overrides)

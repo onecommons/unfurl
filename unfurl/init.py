@@ -11,18 +11,7 @@ from .tosca import TOSCA_VERSION
 from .repo import Repo, GitRepo
 from .util import UnfurlError
 
-from ansible.template import Templar
-from ansible.parsing.dataloader import DataLoader
-
-
 _templatePath = os.path.join(os.path.abspath(os.path.dirname(__file__)), "templates")
-
-
-def processTemplate(template, **vars):
-    loader = DataLoader()
-    templar = Templar(loader, variables=vars)
-    # use do_template() instead of template() because is_template test can fail if variable_start_string is set
-    return templar.do_template(template, disable_lookups=True)
 
 
 def _writeFile(folder, filename, content):
@@ -35,9 +24,15 @@ def _writeFile(folder, filename, content):
 
 
 def writeTemplate(folder, filename, templatePath, vars):
+    from .runtime import NodeInstance
+    from .eval import RefContext
+    from .support import applyTemplate
+
     with open(os.path.join(_templatePath, templatePath)) as f:
         source = f.read()
-    content = processTemplate(source, **vars)
+    instance = NodeInstance()
+    instance.baseDir = _templatePath
+    content = applyTemplate(source, RefContext(instance, vars))
     return _writeFile(folder, filename, content)
 
 
