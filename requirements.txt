@@ -10,6 +10,8 @@ click-log  # MIT
 jsonschema[format_nongpl]==3.2 # MIT
 ruamel.yaml>=0.15.37 # MIT
 gitpython # BSD
+octodns # MIT
+docker[tls] # Apache 2.0
 -r tosca-parser/requirements.txt # Apache 2.0
 # for python 2 compatibility:
 subprocess32

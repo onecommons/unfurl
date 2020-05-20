@@ -16,12 +16,13 @@ display = Display()
 
 logger = logging.getLogger("unfurl")
 
-# input parameters:
+# inputs:
 #  playbook
 #  playbookArgs
 #  extraVars
 #  inventory
-#  facts (list of ansible facts to extract from ansible results)
+# outputs:
+#  treated as ansible facts to extract from ansible results
 def getAnsibleResults(result, extraKeys=(), facts=()):
     """
   Returns a dictionary containing at least:
@@ -40,6 +41,7 @@ def getAnsibleResults(result, extraKeys=(), facts=()):
     # _check_key checks 'results' if task was a loop
     # 'warnings': result._check_key('warning'),
     result = result.clean_copy()
+    logger.debug("playbook task result: %s", result._result)
     resultDict = {}
     # map keys in results to match the names that ShellConfigurator uses
     keyMap = {
@@ -244,7 +246,7 @@ class AnsibleConfigurator(Configurator):
                 status = Status.ok
 
             logger.debug(
-                "runplaybook status %s changed %s, total %s ",
+                "ran playbook: status %s changed %s, total %s ",
                 status,
                 resultCallback.changed,
                 len(resultCallback.results),
