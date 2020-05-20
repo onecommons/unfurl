@@ -65,7 +65,7 @@ class UnfurlAddingResourceError(UnfurlTaskError):
 
 
 class sensitive_str(str):
-    pass
+    redacted_str = "<<REDACTED>>"
 
 
 def toYamlText(val):

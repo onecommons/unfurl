@@ -111,6 +111,11 @@ node_types:
 
   unfurl.nodes.K8sSecretResource:
     derived_from: unfurl.nodes.K8sResource
+    properties:
+      data:
+        type: map
+        metadata:
+          sensitive: true
 
   unfurl.nodes.CloudAccount:
     derived_from: tosca.nodes.Root

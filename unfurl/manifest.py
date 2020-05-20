@@ -12,7 +12,7 @@ from .runtime import (
     CapabilityInstance,
     RelationshipInstance,
 )
-from .util import UnfurlError, toEnum
+from .util import UnfurlError, toEnum, sensitive_str
 from .configurator import Dependency
 from .repo import RevisionManager, findGitRepo
 from .yamlloader import YamlConfig, loadYamlFromArtifact
@@ -263,7 +263,13 @@ class Manifest(AttributeManager):
             raise UnfurlError("missing resource template %s" % templateName)
         logger.debug("template %s: %s", templateName, template)
 
-        instance = ctor(name, status.get("attributes"), parent, template, operational)
+        # omit keys that match <<REDACTED>> so can we use the computed property
+        attributes = {
+            k: v
+            for k, v in status.get("attributes", {}).items()
+            if v != sensitive_str.redacted_str
+        }
+        instance = ctor(name, attributes, parent, template, operational)
         if imported:
             self.imports.setShadow(importName, instance)
         return instance
