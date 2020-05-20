@@ -7,8 +7,8 @@ Ref.resolveOne given an expression, return value, none or a (regular) list
 Ref.isRef return true if the given diction looks like a Ref
 
 Internal:
-evalRef() given expression (string or dictionary) return list of Results
-Expr.resolve() given expression string, return list of Results
+evalRef() given expression (string or dictionary) return list of Result
+Expr.resolve() given expression string, return list of Result
 Results._mapValue same as mapValue but with lazily evaluation
 """
 import six
@@ -197,7 +197,7 @@ class Expr(object):
         return "Expr('%s')" % self.source
 
     def resolve(self, context):
-        # returns a list of Results
+        # returns a list of Result
         currentResource = context.currentResource
         if not self.paths[0].key and not self.paths[0].filters:  # starts with "::"
             currentResource = currentResource.all
@@ -408,7 +408,7 @@ def _forEach(foreach, results, ctx):
 
 
 def forEach(foreach, results, ctx):
-    # results will be list of Results
+    # results will be list of Result
     return _forEach(foreach, enumerate(r.external or r.resolved for r in results), ctx)
 
 
@@ -448,9 +448,8 @@ def setEvalFunc(name, val, topLevel=False):
         _FuncsTop.append(name)
 
 
-# returns list of results
 def evalRef(val, ctx, top=False):
-    "val is assumed to be an expression, evaluate and return a list of Results"
+    "val is assumed to be an expression, evaluate and return a list of Result"
     from .support import isTemplate, applyTemplate
 
     # functions and ResultsMap assume resolveOne semantics
@@ -489,7 +488,7 @@ def evalRef(val, ctx, top=False):
             return [Result(applyTemplate(val, ctx))]
         else:
             expr = Expr(val, ctx.vars)
-            results = expr.resolve(ctx)  # returns a list of Results
+            results = expr.resolve(ctx)  # returns a list of Result
             ctx.trace("expr.resolve", results)
             return results
 
@@ -609,8 +608,8 @@ def _treatAsSingular(result, seg):
 
 def recursiveEval(v, exp, context):
     """
-  given a iterator of (previous) results,
-  yields Results
+  given a iterator of (previous) Result,
+  yields Result
   """
     context.trace("recursive evaluating", exp)
     matchFirst = exp[0].modifier == "?"
@@ -659,7 +658,7 @@ def recursiveEval(v, exp, context):
 
 
 def evalExp(start, paths, context):
-    "Returns a list of Results"
+    "Returns a list of Result"
     context.trace("evalexp", start, paths)
     assert isinstance(start, MutableSequence), start
     return list(recursiveEval((Result(i) for i in start), paths, context))
