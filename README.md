@@ -9,14 +9,18 @@ Unfurl integrates with the deployment tools you are already using, like Ansible,
 
 - **Next-level GitOps**: both configuration and operational status stored in git
 - **Hermetic**: tracks exact version of environment and deployment artifacts
-- **Reproducible**: hermetic builds + git + locked-down, immutable infrastructure = full reproducibility
+- **Reproducible**: hermetic builds + git + locked-down, immutable infrastructure = reproducibility
 - **Incremental**: only applies necessary changes
 - **Fast**: the above three features combined enable lightening-fast updates
-- **Configuration tool agnostic** and includes built-in support for Ansible and Terraform
+- **Configuration tool agnostic** with built-in support for Ansible and Terraform
 - **Secrets**: key manager integration; keeps secrets out of git so repos can be safely made public
 - **No server, no agent**: simple, stand-alone CLI that can be used both as development tool on client or for automated production deployment on a server
 - **Dependency management**: Easily track dependencies and changes across infrastructure layers and boundaries.
 - **Zero installation**: Uses client-side container support to bootstrap and automate installation requirements.
+
+## Today
+
+* record changes to your infrastructure in git 
 
 ## Features
 
@@ -32,11 +36,23 @@ Unfurl integrates with the deployment tools you are already using, like Ansible,
 
 # Installation
 
+`unfurl` is available on [PyPI](https://pypi.org/project/unfurl/). You can install using `pip`:
+
 `pip install unfurl`
+
+By default `unfurl` creates a virtual Python environment to run in so it only installs the minimal requirements needed to run the command line. If you want to run it using your system Python install it with the "full" option:
+
+`pip install unfurl[full]`
 
 ### Requirements
 
 Python (2.7, 3.7, 3.8); git
+
+Optional: docker
+
+# Quick Start
+
+
 
 # Developing
 
@@ -50,7 +66,7 @@ To build a distribution package run:
 
 You can now install this package with pip, for example:
 
-`pip install ../dist/unfurl-0.0.1.dev183-py2.py3-none-any.whl`
+`pip install ./dist/unfurl-0.0.1.dev183-py2.py3-none-any.whl`
 
 ### Running unit tests
 

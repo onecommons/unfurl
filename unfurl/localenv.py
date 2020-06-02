@@ -162,6 +162,7 @@ class LocalConfig(object):
         contextName = "defaults"
         for spec in self.manifests:
             if manifestPath == self.adjustPath(spec["file"]):
+                # use the context associated with the given manifest
                 contextName = spec.get("context", contextName)
                 break
 
@@ -360,6 +361,9 @@ class LocalEnv(object):
         return None
 
     def getContext(self, context):
+        """
+        Return a new context that merges the given context with the local context.
+        """
         return self.config.getContext(self.manifestPath, context)
 
     def getLocalInstance(self, name, context):
