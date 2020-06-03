@@ -79,6 +79,7 @@
       "type": "object",
       "properties": {
         "inputs": { "$ref": "#/definitions/attributes" },
+        "engine": { "type": "string"},
         "environment": { "$ref": "#/definitions/attributes" },
         "locals": { "$ref": "#/definitions/external" },
         "secrets": { "$ref": "#/definitions/external" },

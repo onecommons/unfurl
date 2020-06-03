@@ -1,6 +1,8 @@
 import uuid
 import os
 import os.path
+import sys
+import shutil
 from . import (
     __version__,
     DefaultManifestName,
@@ -9,7 +11,7 @@ from . import (
 )
 from .tosca import TOSCA_VERSION
 from .repo import Repo, GitRepo
-from .util import UnfurlError
+from .util import UnfurlError, subprocess
 
 _templatePath = os.path.join(os.path.abspath(os.path.dirname(__file__)), "templates")
 
@@ -49,7 +51,7 @@ def writeProjectConfig(
     return writeTemplate(projectdir, filename, templatePath, vars)
 
 
-def createHome(path=None):
+def createHome(path=None, **kw):
     """
     Write ~/.unfurl_home/unfurl.yaml if missing
     """
@@ -58,7 +60,12 @@ def createHome(path=None):
         return None
     homedir, filename = os.path.split(homePath)
     writeTemplate(homedir, DefaultManifestName, "home-manifest.yaml.j2", {})
-    return writeProjectConfig(homedir, filename, templatePath="home-unfurl.yaml.j2")
+    configPath = writeProjectConfig(
+        homedir, filename, templatePath="home-unfurl.yaml.j2"
+    )
+    if not kw.get("no_engine"):
+        initEngine(homedir, kw.get("engine") or "venv:")
+    return configPath
 
 
 def _createRepo(repotype, gitDir, gitUri=None):
@@ -128,9 +135,7 @@ def createMultiRepoProject(projectdir):
   a specification repository that contains "service-template.yaml" and "manifest-template.yaml" in a "spec" folder.
   and an instance repository containing a "manifest.yaml" in a "instances/current" folder.
   """
-    defaultManifestPath = os.path.join(
-        projectdir, "instances", "current", "manifest.yaml"
-    )
+    defaultManifestPath = os.path.join("instances", "current", "manifest.yaml")
     projectConfigPath = writeProjectConfig(
         projectdir, defaultManifestPath=defaultManifestPath
     )
@@ -188,7 +193,7 @@ def createProject(projectdir, home=None, mono=False, existing=False, **kw):
     else:
         repo = None
     # creates home if it doesn't exist already:
-    newHome = createHome(home)
+    newHome = createHome(home, **kw)
     # XXX add project to ~/.unfurl_home/unfurl.yaml
     if mono or existing:
         if not repo:
@@ -196,6 +201,11 @@ def createProject(projectdir, home=None, mono=False, existing=False, **kw):
         return newHome, createMonoRepoProject(projectdir, repo)
     else:
         return newHome, createMultiRepoProject(projectdir)
+
+    if not newHome and not kw.get("no_engine") and kw.get("engine"):
+        # if engine was explicitly set and we aren't creating the home project
+        # then initialize the engine here
+        initEngine(projectdir, kw.get("engine"))
 
 
 def _isValidSpecRepo(repo):
@@ -249,3 +259,88 @@ def cloneSpecToNewProject(sourceDir, projectDir):
 
 # def cloneInstanceLocal():
 # delete status, changes, latestChange, set changeLog
+
+
+def initEngine(projectDir, engine):
+    kind, sep, rest = engine.partition(":")
+    if kind == "venv":
+        return createVenv(projectDir, rest)
+    # elif kind == 'docker'
+    # XXX return 'unrecoginized engine string: "%s"'
+    return False
+
+
+def _addUnfurlToVenv(projectdir):
+    # this is hacky
+    # can cause confusion if it exposes more packages than unfurl
+    base = os.path.dirname(os.path.dirname(_templatePath))
+    sitePackageDir = None
+    libDir = os.path.join(projectdir, os.path.join(".venv", "lib"))
+    for name in os.listdir(libDir):
+        sitePackageDir = os.path.join(libDir, name, "site-packages")
+        if os.path.isdir(sitePackageDir):
+            break
+    else:
+        # XXX report error can find site-package folder
+        return
+    _writeFile(sitePackageDir, "unfurl.pth", base)
+    _writeFile(sitePackageDir, "unfurl.egg-link", base)
+
+
+def createVenv(projectDir, pipfileLocation):
+    """Create a virtual python environment for the given project."""
+    os.environ["PIPENV_IGNORE_VIRTUALENVS"] = "1"
+    os.environ["PIPENV_VENV_IN_PROJECT"] = "1"
+    if "PIPENV_PYTHON" not in os.environ:
+        os.environ["PIPENV_PYTHON"] = sys.executable
+
+    try:
+        cwd = os.getcwd()
+        os.chdir(projectDir)
+        # need to set env vars and change current dir before importing pipenv
+        from pipenv.core import do_install, ensure_python
+        from pipenv.utils import python_version
+
+        pythonPath = str(ensure_python())
+        assert pythonPath, pythonPath
+        if not pipfileLocation:
+            versionStr = python_version(pythonPath)
+            assert versionStr, versionStr
+            version = versionStr.rpartition(".")[0]  # 3.8.1 => 3.8
+            # version = subprocess.run([pythonPath, "-V"]).stdout.decode()[
+            #     7:10
+            # ]  # e.g. Python 3.8.1 => 3.8
+            pipfileLocation = os.path.join(
+                _templatePath, "python" + version
+            )  # e.g. templates/python3.8
+
+        if not os.path.isdir(pipfileLocation):
+            # XXX 'Pipfile location is not a valid directory: "%s" % pipfileLocation'
+            return False
+
+        # copy Pipfiles to project root
+        if os.path.abspath(projectDir) != os.path.abspath(pipfileLocation):
+            for filename in ["Pipfile", "Pipfile.lock"]:
+                path = os.path.join(pipfileLocation, filename)
+                if os.path.isfile(path):
+                    shutil.copy(path, projectDir)
+
+        # create the virtualenv and install the dependencies specified in the Pipefiles
+        sys_exit = sys.exit
+        try:
+            retcode = -1
+
+            def noexit(code):
+                retcode = code
+
+            sys.exit = noexit
+
+            do_install(python=pythonPath)
+            # this doesn't actually install the unfurl so link to this one
+            _addUnfurlToVenv(projectDir)
+        finally:
+            sys.exit = sys_exit
+
+        return not retcode  # retcode means error
+    finally:
+        os.chdir(cwd)

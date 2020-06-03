@@ -52,6 +52,13 @@ class Project(object):
         else:
             self.projectRepo = Repo.findContainingRepo(self.projectRoot)
 
+    @property
+    def venv(self):
+        venv = os.path.join(self.projectRoot, ".venv")
+        if os.path.isdir(venv):
+            return venv
+        return None
+
     def getRepos(self):
         return [repo for (gitUrl, repo) in self.workingDirs.values()]
 
@@ -365,6 +372,17 @@ class LocalEnv(object):
         Return a new context that merges the given context with the local context.
         """
         return self.config.getContext(self.manifestPath, context)
+
+    def getEngine(self):
+        context = self.getContext({})
+        engine = context.get("engine")
+        if engine:
+            return engine
+        if self.project and self.project.venv:
+            return "venv:" + self.project.venv
+        if self.homeProject and self.homeProject.venv:
+            return "venv:" + self.homeProject.venv
+        return None
 
     def getLocalInstance(self, name, context):
         # XXX localhost

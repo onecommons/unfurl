@@ -18,6 +18,8 @@ import os.path
 import traceback
 import logging
 import functools
+import subprocess
+import shlex
 
 
 def option_group(*options):
@@ -31,6 +33,14 @@ def option_group(*options):
     envvar="UNFURL_HOME",
     type=click.Path(exists=False),
     help="path to .unfurl_home",
+)
+@click.option("--engine", envvar="UNFURL_ENGINE", help="use engine")
+@click.option(
+    "--no-engine",
+    envvar="UNFURL_NOENGINE",
+    default=False,
+    is_flag=True,
+    help="ignore engine settings",
 )
 @click.option("-v", "--verbose", count=True, help="verbose mode (-vvv for more)")
 @click.option(
@@ -122,6 +132,52 @@ def run(ctx, instance="root", cmdline=None, **options):
 def _run(manifest, options, ctx=None):
     if ctx:
         options["workflow"] = ctx.info_name
+
+    if not options.get("no_engine"):
+        engine = options.get("engine")
+        if not engine:
+            localEnv = LocalEnv(manifest, ctx.obj.get("home"))
+            engine = localEnv.getEngine()
+        if engine and engine != ".":
+            return _runRemote(engine, manifest, options, ctx)
+    return _runLocal(manifest, options, ctx)
+
+
+def _venv(engine):
+    env = os.environ.copy()
+    # see virtualenv activate
+    env.pop("PYTHONHOME", None)  # unset if set
+    env["VIRTUAL_ENV"] = engine
+    env["PATH"] = os.path.join(engine, "bin") + os.pathsep + env.get("PATH", "")
+    return env
+
+
+def _remoteCmd(engine, cmdLine):
+    kind, sep, rest = engine.partition(":")
+    if kind == "venv":
+        return _venv(engine), ["python", "-m", "unfurl", "--no-engine"] + cmdLine, False
+    # elif docker: docker $container -it run $cmdline
+    else:
+        # treat as shell command
+        cmd = shlex.split(engine)
+        return None, cmd + ["--no-engine"] + cmdLine, True
+
+
+def _runRemote(engine, manifest, options, ctx):
+    import logging
+
+    logger = logging.getLogger("unfurl")
+    logger.debug('running command remotely on "%"', engine)
+    cmdLine = sys.argv[1:]
+    env, remote, shell = _remoteCmd(engine, cmdLine)
+    rv = subprocess.call(remote, env=env, shell=shell)
+    if options.get("standalone_mode") is False:
+        return rv
+    else:
+        sys.exit(rv)
+
+
+def _runLocal(manifest, options, ctx):
     job = runJob(manifest, options)
     if not job:
         click.echo("Unable to create job")
