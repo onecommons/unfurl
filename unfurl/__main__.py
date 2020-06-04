@@ -126,21 +126,21 @@ def run(ctx, instance="root", cmdline=None, **options):
     options.update(ctx.obj)
     options["instance"] = instance
     options["cmdline"] = cmdline
-    return _run(options.pop("manifest"), options, ctx)
+    return _run(options.pop("manifest"), options, ctx.info_name)
 
 
-def _run(manifest, options, ctx=None):
-    if ctx:
-        options["workflow"] = ctx.info_name
+def _run(manifest, options, workflow=None):
+    if workflow:
+        options["workflow"] = workflow
 
     if not options.get("no_engine"):
         engine = options.get("engine")
         if not engine:
-            localEnv = LocalEnv(manifest, ctx.obj.get("home"))
+            localEnv = LocalEnv(manifest, options.get("home"))
             engine = localEnv.getEngine()
         if engine and engine != ".":
-            return _runRemote(engine, manifest, options, ctx)
-    return _runLocal(manifest, options, ctx)
+            return _runRemote(engine, manifest, options)
+    return _runLocal(manifest, options)
 
 
 def _venv(engine):
@@ -163,11 +163,11 @@ def _remoteCmd(engine, cmdLine):
         return None, cmd + ["--no-engine"] + cmdLine, True
 
 
-def _runRemote(engine, manifest, options, ctx):
+def _runRemote(engine, manifest, options):
     import logging
 
     logger = logging.getLogger("unfurl")
-    logger.debug('running command remotely on "%"', engine)
+    logger.debug('running command remotely on "%s"', engine)
     cmdLine = sys.argv[1:]
     env, remote, shell = _remoteCmd(engine, cmdLine)
     rv = subprocess.call(remote, env=env, shell=shell)
@@ -177,7 +177,7 @@ def _runRemote(engine, manifest, options, ctx):
         sys.exit(rv)
 
 
-def _runLocal(manifest, options, ctx):
+def _runLocal(manifest, options):
     job = runJob(manifest, options)
     if not job:
         click.echo("Unable to create job")
@@ -252,7 +252,7 @@ def deploy(ctx, manifest=None, **options):
     Deploy the given manifest
     """
     options.update(ctx.obj)
-    return _run(manifest, options, ctx)
+    return _run(manifest, options, ctx.info_name)
 
 
 @cli.command(short_help="Check the status of each instance")
@@ -265,7 +265,7 @@ def check(ctx, manifest=None, **options):
     Check and update the status of the ensemble's instances
     """
     options.update(ctx.obj)
-    return _run(manifest, options, ctx)
+    return _run(manifest, options, ctx.info_name)
 
 
 # XXX
@@ -279,7 +279,7 @@ def check(ctx, manifest=None, **options):
 #     Update configuration by probing live instances associated with the manifest
 #     """
 #     options.update(ctx.obj)
-#     return _run(manifest, options, ctx)
+#     return _run(manifest, options, ctx.info_name)
 
 
 @cli.command()
@@ -292,7 +292,7 @@ def undeploy(ctx, manifest=None, **options):
     Destroy what was deployed.
     """
     options.update(ctx.obj)
-    return _run(manifest, options, ctx)
+    return _run(manifest, options, ctx.info_name)
 
 
 @cli.command(short_help="Print the given deployment plan")
