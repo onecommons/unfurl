@@ -24,7 +24,11 @@ class AnsibleTest(unittest.TestCase):
         return runPlaybooks(
             [os.path.join(os.path.dirname(__file__), "examples", "testplaybook.yaml")],
             "localhost,",
-            {"ansible_connection": "local", "extra": 1},
+            {
+                "ansible_connection": "local",
+                "extra": 1,
+                "ansible_python_interpreter": sys.executable,  # suppress ansible warning
+            },
             args,
         )
 

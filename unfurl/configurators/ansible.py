@@ -1,4 +1,5 @@
 from __future__ import absolute_import
+import sys
 import collections
 import functools
 import logging
@@ -127,19 +128,34 @@ class AnsibleConfigurator(Configurator):
         hostVars.update(connection.attributes.get("hostvars", {}))
 
     def _makeInventory(self, host, allVars, task):
-        hostVars = self._getHostVars(host)
-        connection = task.findConnection(
-            host, "unfurl.relationships.ConnectsTo.Ansible"
-        )
-        if connection:
-            self._updateVars(connection, hostVars)
-        hosts = {host.name: hostVars}
-        children = {
-            group.name: self._makeInventoryFromGroup(group)
-            for group in host.template.getGroups()
-            if group.isCompatibleType("unfurl.groups.AnsibleInventoryGroup")
-        }
-        # allVars is inventory vars shared by all hosts
+        if host:
+            hostVars = self._getHostVars(host)
+            connection = task.findConnection(
+                host, "unfurl.relationships.ConnectsTo.Ansible"
+            )
+            if connection:
+                self._updateVars(connection, hostVars)
+            hosts = {host.name: hostVars}
+
+            children = {
+                group.name: self._makeInventoryFromGroup(group)
+                for group in host.template.getGroups()
+                if group.isCompatibleType("unfurl.groups.AnsibleInventoryGroup")
+            }
+        else:
+            hostVars = {}
+            hosts = {"localhost": hostVars}
+            children = {}
+
+        if (
+            next(iter(hosts)) == "localhost"
+            and "ansible_python_interpreter" not in hostVars
+        ):
+            # we need to set this in case we are running inside a virtual environment, see:
+            # https://docs.ansible.com/ansible/latest/scenario_guides/guide_rax.html#running-from-a-python-virtual-environment-optional
+            hostVars["ansible_python_interpreter"] = sys.executable
+
+        # note: allVars is inventory vars shared by all hosts
         return dict(all=dict(hosts=hosts, vars=allVars, children=children))
 
     def getInventory(self, task):
@@ -151,10 +167,8 @@ class AnsibleConfigurator(Configurator):
 
         if not inventory:
             # XXX merge inventory
-            host = task.operationHost
-            if not host:
-                return inventory  # default to localhost if not inventory
-            inventory = self._makeInventory(host, inventory or {}, task)
+            # default to localhost if not inventory
+            inventory = self._makeInventory(task.operationHost, inventory or {}, task)
         # XXX cache and reuse file
         return saveToTempfile(inventory, "-inventory.yaml").name
         # don't worry about the warnings in log, see:
@@ -391,8 +405,6 @@ def runPlaybooks(playbooks, _inventory, params=None, args=None):
             variable_manager._extra_vars.update(params)
         resultsCB.inventoryManager = inventory
         resultsCB.variableManager = variable_manager
-        # XXX inventory.localhost is None right now
-        # inventory.localhost.set_variable("ansible_python_interpreter", sys.executable)
         return loader, inventory, variable_manager
 
     cli._play_prereqs = hook_play_prereqs
