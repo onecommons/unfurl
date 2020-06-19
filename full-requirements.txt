@@ -3,3 +3,5 @@ mitogen==0.2.7 # BSD 3-clause
 docker[tls] # Apache 2.0
 openshift # Apache 2.0
 octodns # MIT
+ansible[azure] # GPL 3
+boto3 # Apache 2.0

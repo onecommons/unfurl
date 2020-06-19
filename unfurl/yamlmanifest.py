@@ -208,13 +208,14 @@ class YamlManifest(Manifest):
         lastChangeId = self.changeSets and max(self.changeSets.keys()) or 0
 
         self.imports = Imports()
-        if localEnv:  # XXX localhost
+        if localEnv:
             for name in ["locals", "secrets"]:
                 self.imports[name.rstrip("s")] = localEnv.getLocalInstance(
                     name, self.context
                 )
 
         importsSpec = self.context.get("external", {})
+        # note: external "localhost" is defined in UNFURL_HOME's context by convention
         self.loadImports(importsSpec)
 
         rootResource = self.createTopologyInstance(status)
@@ -226,7 +227,7 @@ class YamlManifest(Manifest):
 
         rootResource.imports = self.imports
         rootResource.setBaseDir(self.getBaseDir())
-
+        rootResource.envRules = CommentedMap(self.context.get("environment", {}))
         self._ready(rootResource, lastChangeId)
 
     def getBaseDir(self):
@@ -258,11 +259,12 @@ class YamlManifest(Manifest):
         """
       file: local/path # for now
       repository: uri or repository name in TOSCA template
-      commitId:
-      resource: name # default is root
+      instance: "*" or name # default is root
+      connections: "*" or map
       attributes: # queries into resource
-      properties: # expected schema for attributes
+      schema: # expected schema for attributes
     """
+        # XXX commitId
         for name, value in importsSpec.items():
             # load the manifest for the imported resource
             file = value.get("file")
@@ -280,11 +282,16 @@ class YamlManifest(Manifest):
             rname = value.get("instance", "root")
             if rname == "*":
                 rname = "root"
-            resource = importedManifest.getRootResource().findResource(rname)
+            # use findInstanceOrExternal() not findResource() to handle export instances transitively
+            # e.g. to allow us to layer localhost manifests
+            resource = importedManifest.getRootResource().findInstanceOrExternal(rname)
             if not resource:
                 raise UnfurlError(
-                    "Can not import '%s': resource '%s' not found" % (name, rname)
+                    "Can not import '%s': instance '%s' not found" % (name, rname)
                 )
+            connections = value.get("connections")
+            if connections:
+                self.tosca.importConnections(importedManifest.tosca, connections)
             self.imports[name] = (resource, value)
 
     def saveEntityInstance(self, resource):

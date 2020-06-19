@@ -28,9 +28,8 @@ class RefFunc(functions.Function):
         pass
 
 
-functions.function_mappings["eval"] = RefFunc
-functions.function_mappings["ref"] = RefFunc
-functions.function_mappings["get_artifact"] = RefFunc
+for func in ["eval", "ref", "get_artifact", "has_env", "get_env"]:
+    functions.function_mappings[func] = RefFunc
 
 toscaIsFunction = functions.is_function
 
@@ -102,7 +101,7 @@ class ToscaSpec(object):
                 relTemplate = RelationshipSpec(template)
                 self.relationshipTemplates[template.name] = relTemplate
 
-        self.topology = TopologySpec(self.template.topology_template, inputs)
+        self.topology = TopologySpec(self, inputs)
         self.load_workflows()
 
     def load_workflows(self):
@@ -200,6 +199,21 @@ class ToscaSpec(object):
         if installer:
             impl["requirements"] = [{"install": installer}]
         return impl
+
+    def importConnections(self, importedSpec, connections):
+        assert connections
+        # user-declared telationship templates, source and target will be None
+        for template in importedSpec.template.relationship_templates:
+            if template.default_for:  # it's a default relationship template
+                if connections == "*" or template.name in connections:
+                    relTemplate = RelationshipSpec(template)
+                    if connections == "*" or not connections[template.name]:
+                        name = template.name
+                    else:  # renamed
+                        name = connections[template.name]
+
+                    if name not in self.relationshipTemplates:  # not defined yet
+                        self.relationshipTemplates[name] = relTemplate
 
 
 _defaultTopology = createDefaultTopology()
@@ -605,11 +619,15 @@ class CapabilitySpec(EntitySpec):
 
 class TopologySpec(EntitySpec):
     # has attributes: tosca_id, tosca_name, state, (3.4.1 Node States p.61)
-    def __init__(self, template=None, inputs=None):
-        if not template:
+    def __init__(self, spec=None, inputs=None):
+        if spec:
+            self.spec = spec
+            template = spec.template.topology_template
+        else:
             template = _defaultTopology.topology_template
-        inputs = inputs or {}
+            self.spec = ToscaSpec(_defaultTopology)
 
+        inputs = inputs or {}
         self.toscaEntityTemplate = template
         self.name = "#topology"
         self.type = "#topology"

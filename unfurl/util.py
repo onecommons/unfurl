@@ -7,6 +7,7 @@ import atexit
 import json
 import re
 import os
+import fnmatch
 
 if os.name == "posix" and sys.version_info[0] < 3:
     import subprocess32 as subprocess
@@ -312,3 +313,37 @@ class Generate(object):
             return True
         except StopIteration:
             return False
+
+
+def filterEnv(rules, env=None, addOnly=False):
+    """
+    foo: bar # add foo=bar
+    +!foo*: # add all except keys matching "foo*"
+    -!foo: # remove all except foo
+    """
+    if env is None:
+        env = os.environ
+
+    start = {} if addOnly else env.copy()
+    for name, val in rules.items():
+        if name[:1] in "+-":
+            # add or remove from env
+            remove = name[1] == "-"
+            name = name[1:]
+            neg = name[:1] == "!"
+            if neg:
+                name = name[1:]
+            if remove:
+                source = start  # if remove, look in the current set, not original
+            else:
+                source = env
+            match = {
+                k: v for k, v in source.items() if fnmatch.fnmatchcase(k, name) ^ neg
+            }
+            if remove:
+                [start.pop(k, None) for k in match]
+            else:
+                start.update(match)
+        else:
+            start[name] = val
+    return start

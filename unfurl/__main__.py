@@ -10,6 +10,7 @@ from .yamlmanifest import runJob
 from .support import Status
 from . import __version__, initLogging
 from .init import createProject, cloneSpecToNewProject, createNewInstance
+from .util import filterEnv
 from .localenv import LocalEnv
 import click
 import sys
@@ -20,6 +21,8 @@ import logging
 import functools
 import subprocess
 import shlex
+
+_latestJobs = []  # for testing
 
 
 def option_group(*options):
@@ -129,22 +132,32 @@ def run(ctx, instance="root", cmdline=None, **options):
     return _run(options.pop("manifest"), options, ctx.info_name)
 
 
+def _mapValue(val):
+    from .runtime import NodeInstance
+    from .eval import mapValue
+
+    instance = NodeInstance()
+    return mapValue(val, instance)
+
+
 def _run(manifest, options, workflow=None):
     if workflow:
         options["workflow"] = workflow
 
     if not options.get("no_engine"):
+        localEnv = LocalEnv(manifest, options.get("home"))
         engine = options.get("engine")
         if not engine:
-            localEnv = LocalEnv(manifest, options.get("home"))
             engine = localEnv.getEngine()
         if engine and engine != ".":
-            return _runRemote(engine, manifest, options)
+            context = localEnv.getContext()
+            return _runRemote(engine, manifest, options, context)
     return _runLocal(manifest, options)
 
 
-def _venv(engine):
-    env = os.environ.copy()
+def _venv(engine, env):
+    if env is None:
+        env = os.environ.copy()
     # see virtualenv activate
     env.pop("PYTHONHOME", None)  # unset if set
     env["VIRTUAL_ENV"] = engine
@@ -152,24 +165,34 @@ def _venv(engine):
     return env
 
 
-def _remoteCmd(engine, cmdLine):
+def _remoteCmd(engine, cmdLine, context):
     kind, sep, rest = engine.partition(":")
+    if "environment" in context:
+        addOnly = kind == "docker"
+        env = _mapValue(filterEnv(context["environment"], addOnly=addOnly))
+    else:
+        env = None
+
     if kind == "venv":
-        return _venv(engine), ["python", "-m", "unfurl", "--no-engine"] + cmdLine, False
+        return (
+            _venv(engine, env),
+            ["python", "-m", "unfurl", "--no-engine"] + cmdLine,
+            False,
+        )
     # elif docker: docker $container -it run $cmdline
     else:
         # treat as shell command
         cmd = shlex.split(engine)
-        return None, cmd + ["--no-engine"] + cmdLine, True
+        return env, cmd + ["--no-engine"] + cmdLine, True
 
 
-def _runRemote(engine, manifest, options):
+def _runRemote(engine, manifest, options, context):
     import logging
 
     logger = logging.getLogger("unfurl")
     logger.debug('running command remotely on "%s"', engine)
     cmdLine = sys.argv[1:]
-    env, remote, shell = _remoteCmd(engine, cmdLine)
+    env, remote, shell = _remoteCmd(engine, cmdLine, context)
     rv = subprocess.call(remote, env=env, shell=shell)
     if options.get("standalone_mode") is False:
         return rv
@@ -179,6 +202,7 @@ def _runRemote(engine, manifest, options):
 
 def _runLocal(manifest, options):
     job = runJob(manifest, options)
+    _latestJobs.append(job)
     if not job:
         click.echo("Unable to create job")
     elif job.unexpectedAbort:

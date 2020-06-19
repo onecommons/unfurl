@@ -21,6 +21,7 @@ from .util import (
     assertForm,
     sensitive_str,
     saveToTempfile,
+    filterEnv,
 )
 from .merge import intersectDict, mergeDicts
 import ansible.template
@@ -393,6 +394,44 @@ def getToscaProperty(args, ctx):
 
 
 setEvalFunc("get_property", getToscaProperty, True)
+
+
+def hasEnv(arg, ctx):
+    """
+    {has_env: foo}
+    """
+    if not ctx.currentResource.root.envRules:
+        return False
+    return arg in filterEnv(ctx.currentResource.root.envRules)
+
+
+setEvalFunc("has_env", hasEnv, True)
+
+
+def getEnv(args, ctx):
+    """
+    Return the value of the given environment variable name.
+    If not name is missing, return the given default value if supplied or return None.
+
+    e.g. {get_env: NAME} or {get_env: [NAME, default]}
+
+    If the value of its argument is empty (e.g. [] or null), return the entire dictionary.
+    """
+    env = filterEnv(ctx.currentResource.root.envRules or {})
+    if not args:
+        return env
+
+    if isinstance(args, list):
+        name = args[0]
+        default = args[1]
+    else:
+        name = args
+        default = None
+
+    return env.get(name, default)
+
+
+setEvalFunc("get_env", getEnv, True)
 
 
 def get_artifact(ctx, entity_name, artifact_name, location=None, remove=None):

@@ -289,6 +289,8 @@ class EntityInstance(OperationalInstance, ResourceRef):
     attributeManager = None
     createdOn = None
     shadow = None
+    imports = None
+    envRules = None
 
     def __init__(
         self, name="", attributes=None, parent=None, template=None, status=None
@@ -377,6 +379,13 @@ class EntityInstance(OperationalInstance, ResourceRef):
             return True
         if self.__class__ != other.__class__:
             return False
+        if self.root is not other.root:
+            if self.shadow and self.shadow == other:
+                return True
+            if other.shadow and other.shadow == self:
+                return True
+            else:
+                return False
         if not self.lastChange:
             # only support equality if resource has a changeid
             return False
@@ -422,13 +431,15 @@ class CapabilityInstance(EntityInstance):
 
         return self._relationships
 
-    def getDefaultRelationships(self, relation):
+    def getDefaultRelationships(self, relation=None):
         rels = [
             rel
             for rel in self.relationships
-            if not rel.template.source and rel.template.isCompatibleType(relation)
+            # if no source, so template must be a stand-alone and therefore the instance was created by getDefaultRelationships()
+            if not rel.template.source
+            and (not relation or rel.template.isCompatibleType(relation))
         ]
-        if rels:
+        if rels:  # already created
             return rels
 
         return [
@@ -463,11 +474,13 @@ class RelationshipInstance(EntityInstance):
 
     @property
     def key(self):
-        # XXX implement something like _ChildResources to enable ::name instead of [.name]
+        # XXX implement something like _ChildResources to enable ::name instead of [.name=name]
         if self.source:
-            return "%s::.%s::[.name=%s]" % (self.source.key, "requirements", self.name)
-        else:
-            return "%s::.%s::[.name=%s]" % (self.parent.key, "relationships", self.name)
+            return "%s::.requirements::[.name=%s]" % (self.source.key, self.name)
+        elif self.parent is self.root:  # it's a default relationship
+            return "::.requirements::[.name=%s]" % self.name
+        else:  # capability is parent
+            return "%s::.relationships::[.name=%s]" % (self.parent.key, self.name)
 
     def mergeProps(self, matchfn):
         env = {}
@@ -641,6 +654,14 @@ class NodeInstance(EntityInstance):
                 return child
         return None
 
+    def findInstanceOrExternal(self, resourceid):
+        instance = self.findResource(resourceid)
+        if instance:
+            return instance
+        if self.imports:
+            return self.imports.findImport(resourceid)
+        return None
+
     def setBaseDir(self, baseDir):
         self.baseDir = baseDir
         if not self._templar or self._templar._basedir != baseDir:
@@ -686,13 +707,33 @@ class TopologyInstance(NodeInstance):
         self.inputs = NodeInstance("inputs", template.inputs, self)
         self.outputs = NodeInstance("outputs", template.outputs, self)
         self._capabilities = []
-        self._requirements = []
-        self._relationships = []
+        self._relationships = None
+
+    @property
+    def requirements(self):
+        """
+        The root node returns RelationshipInstances representing default relationship templates
+        """
+        if self._relationships is None:
+            self._relationships = []
+            relTemplates = self.template.spec.relationshipTemplates
+            for name, template in relTemplates.items():
+                # template will be a RelationshipSpec
+                if template.toscaEntityTemplate.default_for:
+                    # the constructor will add itself to _relationships
+                    # note: name might not equal template.name if from an external spec
+                    RelationshipInstance(name, parent=self, template=template)
+
+        return self._relationships
+
+    def getDefaultRelationships(self, relation=None):
+        if not relation:
+            return self.requirements
+        return [
+            rel for rel in self.requirements if rel.template.isCompatibleType(relation)
+        ]
 
     def getOperationalDependencies(self):
         for instance in self.instances:
             if instance.name not in ["inputs", "outputs"]:
                 yield instance
-
-    def findLocalhost(self):
-        return self.findResource("localhost") or self.imports.findImport("localhost")

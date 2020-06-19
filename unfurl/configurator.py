@@ -13,10 +13,10 @@ from .util import (
     UnfurlError,
     UnfurlTaskError,
     UnfurlAddingResourceError,
+    filterEnv,
 )
 from .eval import Ref, mapValue, RefContext
 from .runtime import RelationshipInstance
-from .tosca import Artifact
 from ruamel.yaml import YAML
 
 yaml = YAML()
@@ -48,49 +48,6 @@ class JobRequest(object):
     def __init__(self, resources, errors):
         self.instances = resources
         self.errors = errors
-
-
-class Environment(object):
-    def __init__(self, vars=None, isolate=False, passvars=None, addinputs=False, **kw):
-        """
-        environment:
-          isolate: true
-          addinputs: true
-          passvars:
-            - ANSIBLE_VERBOSITY
-            - UNFURL_LOGGING
-            - ANDROID_*
-          vars:
-            FOO: "{{}}"
-      """
-        self.vars = vars or {}
-        self.isolate = isolate
-        self.passvars = passvars
-        self.addinputs = addinputs
-
-    # XXX add default passvars:
-    # see https://tox.readthedocs.io/en/latest/config.html#tox-environment-settings list of default passenv
-    # also SSH_AUTH_SOCK for ssh_agent
-    def getSystemVars(self):
-        # this need to execute on the operation_host the task is running on!
-        if self.isolate:
-            if self.passvars:  # XXX support glob, support UNFURL_PASSENV
-                env = {k: v for k, v in os.environ.items() if k in self.passvars}
-            else:
-                env = {}
-        else:
-            env = os.environ.copy()
-        return env
-
-    def __eq__(self, other):
-        if not isinstance(other, Environment):
-            return False
-        return (
-            self.vars == other.vars
-            and self.isolate == other.isolate
-            and self.passvars == other.passvars
-            and self.addinputs == other.addinputs
-        )
 
 
 # we want ConfigurationSpec to be standalone and easily serializable
@@ -142,7 +99,7 @@ class ConfigurationSpec(object):
         self.workflow = workflow
         self.timeout = timeout
         self.operationHost = operation_host
-        self.environment = Environment(**(environment or {}))
+        self.environment = environment
         self.inputs = inputs or {}
         self.inputSchema = inputSchema
         self.outputs = outputs or {}
@@ -345,12 +302,12 @@ class TaskView(object):
                 target = self.target.target
             else:
                 target = self.target
-            # XXX why .attributes??
             HOST = (target.parent or target).attributes
-            ORCHESTRATOR = target.root.findLocalhost()
+            ORCHESTRATOR = target.root.findInstanceOrExternal("localhost")
             vars = dict(
                 inputs=inputs,
                 task=self.getSettings(),
+                connections=self._getConnections(),
                 SELF=self.target.attributes,
                 HOST=HOST,
                 ORCHESTRATOR=ORCHESTRATOR and ORCHESTRATOR.attributes or {},
@@ -383,62 +340,55 @@ class TaskView(object):
         for parent in reversed(self.target.ancestors):
             # use reversed() so nearer overrides farther
             # XXX broken if multiple requirements point to same parent (e.g. dev and prod connections)
+            # XXX test if operationHost is external (e.g locahost) getRequirements() matches local parent
             for rel in self.operationHost.getRequirements(parent):
                 # examine both the relationship's properties and its capability's properties
                 env.update(rel.mergeProps(t))
                 break
             else:
                 # not found, see if there's a default connection
-                # XXX this should the same relationship type as findConnection()
+                # XXX this should use the same relationship type as findConnection()
                 for rel in parent.getDefaultRelationships():
                     env.update(rel.mergeProps(t))
                     break
 
         return env
 
-    @property
-    def environ(self):
-        if self._environ is None:
-            env = self.configSpec.environment.getSystemVars()
-            env.update(self._findRelationshipEnvVars())
-            specvars = serializeValue(
-                mapValue(self.configSpec.environment.vars, self.inputs.context),
+    def getEnvironment(self, addOnly):
+        # note: inputs should be evaluated before environment
+        rules = self.target.root.envRules.copy()
+        rules.update(
+            serializeValue(
+                mapValue(self.configSpec.environment or {}, self.inputs.context),
                 resolveExternal=True,
             )
-            targets = []
-            if isinstance(self.target, RelationshipInstance):
-                targets = [
-                    c.tosca_id
-                    for c in self.target.target.getCapabilities(
-                        self.target.capability.template.name
-                    )
-                ]
-                env.update(
-                    dict(
-                        TARGETS=",".join(targets),
-                        TARGET=self.target.target.tosca_id,
-                        SOURCES=",".join(
-                            [
-                                r.tosca_id
-                                for r in self.target.source.getRequirements(
-                                    self.target.requirement.template.name
-                                )
-                            ]
-                        ),
-                        SOURCE=self.target.source.tosca_id,
-                    )
+        )
+        env = filterEnv(rules, addOnly=addOnly)
+        rules.update(self._findRelationshipEnvVars())
+        targets = []
+        if isinstance(self.target, RelationshipInstance):
+            targets = [
+                c.tosca_id
+                for c in self.target.target.getCapabilities(
+                    self.target.capability.template.name
                 )
-            if self.configSpec.environment.addinputs:
-                inputVars = serializeValue(self.inputs)
-                env.update(inputVars, resolveExternal=True)
-                for t in targets:
-                    env.update({t + "_" + k: v for k, v in inputVars.items()})
-
-            # XXX validate that all vars are bytes or string (json serialize if not?)
-            env.update(specvars)
-            self._environ = env
-
-        return self._environ
+            ]
+            env.update(
+                dict(
+                    TARGETS=",".join(targets),
+                    TARGET=self.target.target.tosca_id,
+                    SOURCES=",".join(
+                        [
+                            r.tosca_id
+                            for r in self.target.source.getRequirements(
+                                self.target.requirement.template.name
+                            )
+                        ]
+                    ),
+                    SOURCE=self.target.source.tosca_id,
+                )
+            )
+        return env
 
     def getSettings(self):
         return dict(
@@ -455,7 +405,7 @@ class TaskView(object):
     def _findOperationHost(self, target, operation_host):
         # SELF, HOST, ORCHESTRATOR, SOURCE, TARGET
         if not operation_host or operation_host in ["localhost", "ORCHESTRATOR"]:
-            return target.root.findLocalhost()
+            return target.root.findInstanceOrExternal("localhost")
         if operation_host == "SELF":
             return target
         if operation_host == "HOST":
@@ -464,10 +414,21 @@ class TaskView(object):
             return target.source
         if operation_host == "TARGET":
             return target.target
-        host = target.root.findResource(operation_host)
+        host = target.root.findInstanceOrExternal(operation_host)
         if host:
             return host
         raise UnfurlTaskError(self, "can not find operation_host: %s" % operation_host)
+
+    def _getConnections(self):
+        cons = {}
+        if self.operationHost:
+            for rel in self.operationHost.requirements:
+                cons.setdefault(rel.name, []).append(rel)
+        for rel in self.target.root.requirements:
+            if rel.name not in cons:
+                cons[rel.name] = [rel]
+
+        return cons
 
     def findConnection(self, target, relation="tosca.relationships.ConnectsTo"):
         connection = self.query(
@@ -485,8 +446,8 @@ class TaskView(object):
     def addMessage(self, message):
         self.messages.append(message)
 
-    def findResource(self, name):
-        return self._manifest.getRootResource().findResource(name)
+    def findInstance(self, name):
+        return self._manifest.getRootResource().findInstanceOrExternal(name)
 
     # XXX
     # def pending(self, modified=None, sleep=100, waitFor=None, outputs=None):
@@ -638,9 +599,9 @@ class TaskView(object):
     # # XXX how can we explicitly associate relations with target resources etc.?
     # # through capability attributes and dependencies/relationship attributes
     def updateResources(self, resources):
-        """Notifies Unfurl new or changed resources made while the configurator was running.
+        """Notifies Unfurl of new or changes to instances made while the configurator was running.
 
-        Operational state indicates if the resource currently exists or not.
+        Operational status indicates if the instance currently exists or not.
         This will queue a new child job if needed.
 
         .. code-block:: YAML
@@ -683,7 +644,7 @@ class TaskView(object):
                 if rname == ".self" or rname == "SELF":
                     existingResource = self.target
                 else:
-                    existingResource = self.findResource(rname)
+                    existingResource = self.findInstance(rname)
                 if existingResource:
                     # XXX2 if spec is defined (not just status), there should be a way to
                     # indicate this should replace an existing resource or throw an error

@@ -1,9 +1,14 @@
-tosca_definitions_version: tosca_simple_unfurl_1_0_0
+tosca_definitions_version: tosca_simple_unfurl_1_0_0 # unfurl/v1alpha1.ServiceTemplate
 metadata:
-  template_name: unfurl_types
-  template_author: unfurl
+  template_name: Unfurl types
+  template_author: unfurl.onecommons.org
   template_version: 1.0.0
 node_types:
+  tosca.nodes.Root:
+      interfaces:
+        Install:
+          type: unfurl.interfaces.Install
+
   unfurl.nodes.Installer:
     derived_from: tosca.nodes.Root
     capabilities:
@@ -59,7 +64,8 @@ node_types:
           immutable: true
     interfaces:
       Install:
-        check: unfurl.configurators.k8s.ClusterConfigurator
+        operations:
+          check: unfurl.configurators.k8s.ClusterConfigurator
 
   unfurl.nodes.K8sRawResource:
     derived_from: tosca.nodes.Root
@@ -119,27 +125,17 @@ node_types:
 
   unfurl.nodes.CloudAccount:
     derived_from: tosca.nodes.Root
-    properties:
-      region:
-        description: "Cloud provider sepecific region identifier"
+    attributes:
+      account_id:
+        description: "Cloud provider specific account identifier"
         type: string
-        required: false
 
   unfurl.nodes.GCPProject:
     derived_from: unfurl.nodes.CloudAccount
     properties:
       project:
-        description: "Google Cloud project"
+        description: "Name of the Google Cloud project"
         type: string
-        required: true
-      application_credentials:
-        description: "Path to file containing service account private keys in JSON format"
-        type: string
-        required: false
-      credentials:
-        description: "Content of file containing service account private keys"
-        type: string
-        required: false
 
   unfurl.nodes.AWSAccount:
     derived_from: unfurl.nodes.CloudAccount
@@ -328,7 +324,6 @@ relationship_types:
         metadata:
           sensitive: true
 
-
   unfurl.relationships.ConnectsTo.Ansible:
     derived_from: tosca.relationships.ConnectsTo
     valid_target_types: [unfurl.capabilities.Endpoint.Ansible]
@@ -345,6 +340,108 @@ relationship_types:
         description: >
           Passed to ansible as host vars
           See https://docs.ansible.com/ansible/latest/user_guide/intro_inventory.html#connecting-to-hosts-behavioral-inventory-parameters
+
+  unfurl.relationships.ConnectsTo.CloudAccount:
+    derived_from: tosca.relationships.ConnectsTo
+    # valid_target_types: [unfurl.capabilities.Endpoint.CloudAccount]
+
+  unfurl.relationships.ConnectsTo.GCPProject:
+    derived_from: unfurl.relationships.ConnectsTo.CloudAccount
+    properties:
+      project:
+         description: id of the project
+         type: string
+         required: false
+      GOOGLE_APPLICATION_CREDENTIALS:
+        description: "Path to file containing service account private keys in JSON format"
+        type: unfurl.datatypes.EnvVar
+        required: false
+      credentials:
+        description: "Content of file containing service account private keys"
+        type: tosca.datatypes.json
+        required: false
+        metadata:
+          sensitive: true
+        # some of the keys in the credential json:
+        #   project_id
+        #   type: auth_kind: type of authentication being used (choices: machineaccount, serviceaccount, application)
+        #   client_email: email associated with the project
+        #   scopes: The specific scopes that you want the actions to use.
+
+  unfurl.relationships.ConnectsTo.AWSAccount:
+    derived_from: unfurl.relationships.ConnectsTo.CloudAccount
+    properties:
+      AWS_DEFAULT_REGION:
+        description: "The default region to use, e.g. us-west-1, us-west-2, etc."
+        type: unfurl.datatypes.EnvVar
+        required: false
+      AWS_ACCESS_KEY_ID:
+        description: "The access key for your AWS account"
+        type: unfurl.datatypes.EnvVar
+        required: true
+      AWS_SECRET_ACCESS_KEY:
+        description: "The secret key for your AWS account."
+        type: unfurl.datatypes.EnvVar
+        required: true
+        metadata:
+          sensitive: true
+    # see https://boto3.amazonaws.com/v1/documentation/api/latest/guide/configuration.html?highlight=aws_secret_access_key#environment-variable-configuration
+    # for more environment variables
+
+  unfurl.relationships.ConnectsTo.Azure:
+    derived_from: unfurl.relationships.ConnectsTo.CloudAccount
+    properties:
+      AZURE_CLIENT_ID:
+        type: unfurl.datatypes.EnvVar
+        required: false
+      AZURE_TENANT:
+        type: unfurl.datatypes.EnvVar
+        required: false
+      AZURE_SUBSCRIPTION_ID:
+        description: for authentication with service principal
+        type: unfurl.datatypes.EnvVar
+        required: false
+      AZURE_SECRET:
+        description: for authentication with service principal
+        type: unfurl.datatypes.EnvVar
+        required: false
+        metadata:
+          sensitive: true
+
+      AZURE_AD_USER:
+        description: for authentication with Active Directory
+        type: unfurl.datatypes.EnvVar
+        required: false
+      AZURE_PASSWORD:
+        description: for authentication with Active Directory
+        type: unfurl.datatypes.EnvVar
+        required: false
+        metadata:
+          sensitive: true
+      AZURE_ADFS_AUTHORITY_URL:
+        description: set if you have your own ADFS authority
+        type: unfurl.datatypes.EnvVar
+        required: false
+
+  unfurl.relationships.ConnectsTo.Packet:
+    derived_from: unfurl.relationships.ConnectsTo.CloudAccount
+    properties:
+      project:
+        description: UUID to packet project
+        type: string
+      PACKET_API_TOKEN:
+        type: unfurl.datatypes.EnvVar
+        metadata:
+          sensitive: true
+
+  unfurl.relationships.ConnectsTo.OpenStack:
+    derived_from: unfurl.relationships.ConnectsTo.CloudAccount
+    # # pyrax (rackspace, openstack)
+    # RAX_CREDS_FILE
+    # also CLOUD_* in https://github.com/pycontribs/pyrax/blob/master/docs/getting_started.md#available-configuration-settings
+
+  unfurl.relationships.ConnectsTo.Rackspace:
+    derived_from: unfurl.relationships.ConnectsTo.OpenStack
 
 interface_types:
   unfurl.interfaces.Install:

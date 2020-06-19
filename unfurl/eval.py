@@ -245,7 +245,10 @@ class Ref(object):
         ctx = ctx.copy(
             vars=self.vars, wantList=wantList, trace=self.trace, strict=strict
         )
-        ctx.trace("Ref.resolve(wantList=%s) start" % wantList, self.source)
+        ctx.trace(
+            "Ref.resolve(wantList=%s) start strict %s" % (wantList, ctx.strict),
+            self.source,
+        )
         results = evalRef(self.source, ctx, True)
         ctx.trace("Ref.resolve(wantList=%s) evalRef" % wantList, self.source, results)
         if results and self.foreach:

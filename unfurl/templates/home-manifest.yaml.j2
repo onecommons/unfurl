@@ -1,3 +1,4 @@
+#jinja2: variable_start_string: '[%', variable_end_string: '%]'
 apiVersion: unfurl/v1alpha1
 kind: Manifest
 spec:
@@ -9,8 +10,58 @@ spec:
 
         defaultK8sCluster:
           directives:
-            - default
+            - default # this template will be used if no other matching K8sCluster is defined elsewhere
           type: unfurl.nodes.K8sCluster
+
+      relationship_templates:
+        aws:
+          # if a template defines node or capability it will be used
+          # as the default relationship when connecting to that node
+          default_for: ANY
+          type: unfurl.relationships.ConnectsTo.AWSAccount
+          properties:
+            AWS_DEFAULT_REGION: {get_env: AWS_DEFAULT_REGION}
+            AWS_ACCESS_KEY_ID: {get_env: AWS_ACCESS_KEY_ID}
+            AWS_SECRET_ACCESS_KEY: {get_env: AWS_SECRET_ACCESS_KEY}
+
+        gcp:
+          # if a template defines node or capability it will be used
+          # as the default relationship when connecting to that node
+          default_for: ANY
+          type: unfurl.relationships.ConnectsTo.GCPProject
+          properties:
+            project:
+              eval:
+                local: gcp_project
+            GOOGLE_APPLICATION_CREDENTIALS: {get_env: GOOGLE_APPLICATION_CREDENTIALS}
+
+        azure:
+          default_for: ANY
+          type: unfurl.relationships.ConnectsTo.Azure
+          properties:
+            AZURE_CLIENT_ID: {get_env: AZURE_CLIENT_ID}
+            AZURE_SUBSCRIPTION_ID: {get_env: AZURE_SUBSCRIPTION_ID}
+            AZURE_SECRET: {get_env: AZURE_SECRET}
+
+        k8s:
+          # if a template defines node or capability it will be used
+          # as the default relationship when connecting to that node
+          default_for: ANY
+          type: unfurl.relationships.ConnectsTo.K8sCluster
+          properties:
+            KUBECONFIG: {get_env: KUBECONFIG}
+            context:
+              eval:
+                local: kube_context
+
+        packet:
+          default_for: ANY
+          type: unfurl.relationships.ConnectsTo.Packet
+          properties:
+            project:
+              eval:
+                local: packet_project
+            PACKET_API_TOKEN: {get_env: PACKET_API_TOKEN}
 
   instances:
     localhost:

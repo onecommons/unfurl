@@ -3,7 +3,7 @@ Classes for managing the local environment.
 
 Repositories can optionally be organized into projects that have a local configuration.
 
-There is always a "home" project that contains the localhost instance.
+By convention, the "home" project defines a localhost instance and adds it to its context.
 """
 import os
 import os.path
@@ -367,14 +367,14 @@ class LocalEnv(object):
             current = os.path.dirname(current)
         return None
 
-    def getContext(self, context):
+    def getContext(self, context=None):
         """
         Return a new context that merges the given context with the local context.
         """
-        return self.config.getContext(self.manifestPath, context)
+        return self.config.getContext(self.manifestPath, context or {})
 
     def getEngine(self):
-        context = self.getContext({})
+        context = self.getContext()
         engine = context.get("engine")
         if engine:
             return engine
@@ -385,7 +385,6 @@ class LocalEnv(object):
         return None
 
     def getLocalInstance(self, name, context):
-        # XXX localhost
         assert name in ["locals", "secrets", "local", "secret"]
         local = context.get(name, {})
         return (

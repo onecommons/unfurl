@@ -29,6 +29,7 @@ manifest.yaml
          type: string
          default
     environment:
+    engine:
     external:
       name: # manifest to represent as a resource
         file:

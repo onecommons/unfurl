@@ -8,14 +8,18 @@ from unfurl.util import sensitive_str, VERSION
 import six
 from click.testing import CliRunner
 
+
 class SetAttributeConfigurator(Configurator):
     def run(self, task):
         from toscaparser.elements.portspectype import PortSpec
-        if 'ports' in task.inputs:
-            ports = task.inputs['ports']
+
+        if "ports" in task.inputs:
+            ports = task.inputs["ports"]
             # target:source
             assert str(PortSpec(ports[0])) == "50000:9000", PortSpec(ports[0])
-            assert str(PortSpec(ports[1])) == "20000-60000:1000-10000/udp", PortSpec(ports[1])
+            assert str(PortSpec(ports[1])) == "20000-60000:1000-10000/udp", PortSpec(
+                ports[1]
+            )
             assert str(PortSpec(ports[2])) == "8000", PortSpec(ports[2])
 
         task.target.attributes["private_address"] = "10.0.0.1"
@@ -211,6 +215,7 @@ class AbstractTemplateTest(unittest.TestCase):
             derived_from: tosca.nodes.Root
             interfaces:
                Install:
+                operations:
                  check:
                    implementation: SetAttributeConfigurator
       instances:
