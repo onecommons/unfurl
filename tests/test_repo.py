@@ -50,6 +50,10 @@ awsTestManifest = """\
   context:
     environment:
       AWS_ACCESS_KEY_ID: mockAWS_ACCESS_KEY_ID
+    external:
+      localhost:
+        connections:
+          aws: aws_test
   spec:
     service_template:
       +include: service-template.yaml
@@ -64,11 +68,12 @@ awsTestManifest = """\
                   implementation:
                     className: unfurl.configurators.TemplateConfigurator
                   inputs:
-                    # test that the aws connection (defined in the home manifest) set its AWS_ACCESS_KEY_ID to the environment variable
+                    # test that the aws connection (defined in the home manifest and renamed in the context to aws_test)
+                    # set its AWS_ACCESS_KEY_ID to the environment variable
                     resultTemplate: |
                       - name: SELF
                         attributes:
-                          access_key: {{ "$connections::aws::AWS_ACCESS_KEY_ID" | eval }}
+                          access_key: {{ "$connections::aws_test::AWS_ACCESS_KEY_ID" | eval }}
   """
 
 

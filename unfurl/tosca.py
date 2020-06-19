@@ -203,11 +203,12 @@ class ToscaSpec(object):
     def importConnections(self, importedSpec, connections):
         assert connections
         # user-declared telationship templates, source and target will be None
+        importAll = connections.get("*")
         for template in importedSpec.template.relationship_templates:
             if template.default_for:  # it's a default relationship template
-                if connections == "*" or template.name in connections:
+                if importAll or template.name in connections:
                     relTemplate = RelationshipSpec(template)
-                    if connections == "*" or not connections[template.name]:
+                    if not connections.get(template.name):
                         name = template.name
                     else:  # renamed
                         name = connections[template.name]

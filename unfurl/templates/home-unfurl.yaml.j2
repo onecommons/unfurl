@@ -10,10 +10,12 @@ contexts:
   defaults:
     external:
       localhost:
-        file: [%manifestPath%]
+        manifest:
+          file: [%manifestPath%]
         instance: localhost
         # import all connection relationship_templates:
-        connections: "*"
+        connections:
+          "*": true
     # the following local settings and environment variables are consumed by the localhost's
     # connection templates, set as needed
     # locals:

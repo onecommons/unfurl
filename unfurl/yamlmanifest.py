@@ -269,11 +269,10 @@ class YamlManifest(Manifest):
         # XXX commitId
         for name, value in importsSpec.items():
             # load the manifest for the imported resource
-            file = value.get("file")
-            if not file:
-                raise UnfurlError("Can not import '%s': no file specified" % (name))
-            location = dict(file=file, repository=value.get("repository"))
-            baseDir = getattr(value, "baseDir", self.getBaseDir())
+            location = value.get("manifest")
+            if not location:
+                raise UnfurlError("Can not import '%s': no manifest specified" % (name))
+            baseDir = getattr(location, "baseDir", self.getBaseDir())
             artifact = Artifact(location, path=baseDir, spec=self.tosca)
             path, fragment = artifact.getPath(self)
             if self.isPathToSelf(path):

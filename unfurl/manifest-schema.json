@@ -102,8 +102,13 @@
       "$$target": "#/definitions/external",
       "type": "object",
       "properties": {
-        "file": { "type": "string" },
-        "repository": { "type": "string" },
+        "manifest": {
+          "type": "object",
+          "properties": {
+            "file": { "type": "string" },
+            "repository": { "type": "string" }
+          }
+        },
         "instance": { "type": "string" },
         "connections": {"anyOf": [{ "const": "*"}, { "type": "object" }]},
         "properties": { "$ref": "#/definitions/attributes" },

@@ -232,7 +232,8 @@ class AbstractTemplateTest(unittest.TestCase):
             defaults:
               external:
                foreign:
-                  file:  foreignmanifest.yaml
+                  manifest:
+                    file:  foreignmanifest.yaml
                   instance: "*"  # this is the default
         """
 

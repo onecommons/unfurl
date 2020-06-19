@@ -441,7 +441,8 @@ kind: Manifest
 context:
  external:
   test:
-    file: foreignmanifest.yaml
+    manifest:
+      file: foreignmanifest.yaml
     instance: foreign # default is root
     # attributes: # queries into resource
     properties: # expected schema for attributes

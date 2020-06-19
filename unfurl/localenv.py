@@ -138,7 +138,14 @@ class LocalConfig(object):
 """
 
     # don't merge the value of the keys of these dicts:
-    replaceKeys = ["inputs", "attributes", "schemas", "connections", "environment"]
+    replaceKeys = [
+        "inputs",
+        "attributes",
+        "schemas",
+        "connections",
+        "manifest",
+        "environment",
+    ]
 
     # XXX add list of projects to config
     # projects:
