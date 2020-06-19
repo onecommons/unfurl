@@ -4,8 +4,9 @@ import collections
 import functools
 import logging
 from ..util import assertForm, saveToTempfile
-from ..configurator import Configurator, Status
+from ..configurator import Status
 from ..result import serializeValue
+from . import TemplateConfigurator
 import ansible.constants as C
 from ansible import context
 from ansible.cli.playbook import PlaybookCLI
@@ -70,7 +71,7 @@ def getAnsibleResults(result, extraKeys=(), facts=()):
     return resultDict, outputs
 
 
-class AnsibleConfigurator(Configurator):
+class AnsibleConfigurator(TemplateConfigurator):
     """The current resource is the inventory."""
 
     def __init__(self, configSpec):
@@ -211,7 +212,7 @@ class AnsibleConfigurator(Configurator):
             # assume it's file path
             return playbook
         playbook = self._makePlayBook(playbook, task)
-        envvars = task.environ
+        envvars = task.getEnvironment(True)
         for play in playbook:
             play["environment"] = envvars
         return saveToTempfile(serializeValue(playbook), "-playbook.yml").name
@@ -227,15 +228,6 @@ class AnsibleConfigurator(Configurator):
         if task.verbose:
             args.append("-" + ("v" * task.verbose))
         return args
-
-    def _processResult(self, task, result):
-        resultTemplate = task.inputs.get("resultTemplate")
-        if resultTemplate:
-            results = task.query(
-                {"eval": dict(template=resultTemplate), "vars": result}
-            )
-            if results and results.strip():
-                task.updateResources(results)
 
     def getResultKeys(self, task, results):
         return []
@@ -304,7 +296,7 @@ class AnsibleConfigurator(Configurator):
             ):
                 # this can update resources so don't do it on error
                 # XXX this should pass result.__dict__ not results
-                self._processResult(task, results)
+                self.processResult(task, results)
             yield result
 
         finally:

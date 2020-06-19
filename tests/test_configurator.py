@@ -186,6 +186,39 @@ class ConfiguratorTest(unittest.TestCase):
         jobOptions.repair = "none"
         self.verifyRoundtrip(run.out.getvalue(), jobOptions)
 
+    def test_TemplateConfigurator(self):
+        manifest = """\
+  apiVersion: unfurl/v1alpha1
+  kind: Manifest
+  spec:
+    service_template:
+      topology_template:
+        node_templates:
+          testNode:
+            type: tosca.nodes.Root
+            interfaces:
+             Standard:
+              operations:
+                configure:
+                  implementation:
+                    className: unfurl.configurators.TemplateConfigurator
+                  outputs:
+                    outputVar: true
+                  inputs:
+                    resultTemplate: |
+                      - name: .self
+                        attributes:
+                          outputVar: {{ outputVar }}
+  """
+        runner = Runner(YamlManifest(manifest))
+        job = runner.run()
+        assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
+        self.assertEqual(
+            job.stats(),
+            {"total": 1, "ok": 1, "error": 0, "unknown": 0, "skipped": 0, "changed": 0},
+        )
+        assert job.rootResource.findResource("testNode").attributes["outputVar"]
+
     # def test_shouldRun(self):
     #   pass
     #   #assert should_run

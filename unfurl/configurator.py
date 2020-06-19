@@ -2,7 +2,7 @@ import six
 import collections
 import re
 import os
-from .support import Status, Defaults, ResourceChanges, Priority
+from .support import Status, Defaults, ResourceChanges
 from .result import serializeValue, ChangeAware, Results, ResultsMap
 from .util import (
     AutoRegisterClass,
@@ -500,7 +500,7 @@ class TaskView(object):
 
     def done(
         self,
-        success,
+        success=None,
         modified=None,
         status=None,
         result=None,
@@ -524,6 +524,8 @@ class TaskView(object):
         Returns:
               :class:`ConfiguratorResult`
         """
+        if success is None:
+            success = not self.errors
         if isinstance(modified, Status):
             status = modified
             modified = True
@@ -549,14 +551,13 @@ class TaskView(object):
         strict=True,
         vars=None,
     ):
-        # XXX refcontext should include TARGET HOST etc
         # XXX pass resolveExternal to context?
         try:
             result = Ref(query, vars=vars).resolve(
                 self.inputs.context, wantList, strict
             )
         except:
-            UnfurlTaskError(self, "error evaluating query", True)
+            UnfurlTaskError(self, "error while evaluating query", True)
             return None
 
         if dependency:

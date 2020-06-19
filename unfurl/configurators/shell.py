@@ -2,8 +2,7 @@
 inputs:
  command: "--switch {{ '.::foo' | ref }}"
  timeout: 9999
- resultTemplate:
-  q: # cmd, stdout, stderr
+ resultTemplate: # cmd, stdout, stderr
    ref:
     file:
       ./handleResult.tpl
@@ -14,7 +13,8 @@ inputs:
 # see also 13.4.1 Shell scripts p 360
 # XXX add support for a stdin parameter
 
-from ..configurator import Configurator, Status
+from ..configurator import Status
+from . import TemplateConfigurator
 import os
 
 # import os.path
@@ -45,7 +45,7 @@ except ImportError:
 
 
 # XXX we should know if cmd if not os.access(implementation, os.X):
-class ShellConfigurator(Configurator):
+class ShellConfigurator(TemplateConfigurator):
     def runProcess(self, cmd, shell=False, timeout=None, env=None):
         """
     Returns an object with the following attributes:
@@ -99,19 +99,19 @@ class ShellConfigurator(Configurator):
             err.error = err
             return err
 
-    def handleResult(self, task, result, resultTemplate=None):
-        status = Status.error if result.error or result.returncode else Status.ok
+    def _handleResult(self, task, result):
+        status = (
+            Status.error
+            if result.error or result.returncode or result.timeout
+            else Status.ok
+        )
         if status == Status.error:
             logger.warning("shell task run failure: %s", result.cmd)
         else:
             logger.info("shell task run success: %s", result.cmd)
 
-        if status != Status.error and resultTemplate:
-            results = task.query(
-                {"eval": dict(template=resultTemplate), "vars": result.__dict__}
-            )
-            if results and results.strip():
-                task.updateResources(results)
+        if status != Status.error:
+            self.processResult(task, result.__dict__)
             if task.errors:
                 return Status.error
         return status
@@ -130,8 +130,9 @@ class ShellConfigurator(Configurator):
         cmd = params["command"]
         # default for shell: True if command is a string otherwise False
         shell = params.get("shell", isinstance(cmd, six.string_types))
+        env = task.getEnvironment(False)
         result = self.runProcess(
-            cmd, shell=shell, timeout=task.configSpec.timeout, env=task.environ
+            cmd, shell=shell, timeout=task.configSpec.timeout, env=env
         )
-        status = self.handleResult(task, result, params.get("resultTemplate"))
+        status = self._handleResult(task, result)
         yield task.done(status == Status.ok, status=status, result=result.__dict__)

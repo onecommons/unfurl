@@ -65,9 +65,12 @@ class k8sTest(unittest.TestCase):
         manifest = YamlManifest(manifestScript)
         job = Runner(manifest).run(JobOptions(add=True, startTime="time-to-test"))
         # print(job.summary())
+        # print(job.out.getvalue())
+
         # verify secret contents isn't saved in config
-        self.assertIn("uri: <<REDACTED>>", job.out.getvalue())
         self.assertNotIn("a secret", job.out.getvalue())
+        self.assertNotIn("YSBzZWNyZXQ", job.out.getvalue())  # base64 of "a secret"
+        self.assertIn("uri: <<REDACTED>>", job.out.getvalue())
         assert not job.unexpectedAbort
         assert job.status == Status.ok, job.summary()
 

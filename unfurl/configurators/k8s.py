@@ -12,7 +12,7 @@ def _getConnectionConfig(instance):
     # see https://docs.ansible.com/ansible/latest/modules/k8s_module.html#k8s-module
     #  for connection settings
     if not instance:
-      return {}
+        return {}
     connect = {}
     if isinstance(instance, RelationshipInstance):
         connect = instance.attributes
@@ -45,7 +45,9 @@ def _getConnectionConfig(instance):
 
 
 def _getConnection(task, cluster):
-    instance = task.findConnection(cluster, relation='unfurl.relationships.ConnectsTo.K8sCluster')
+    instance = task.findConnection(
+        cluster, relation="unfurl.relationships.ConnectsTo.K8sCluster"
+    )
     return _getConnectionConfig(instance)
 
 
@@ -144,7 +146,8 @@ class ResourceConfigurator(AnsibleConfigurator):
         moduleSpec = dict(state=state, definition=definition, **connectionConfig)
         return [dict(k8s=moduleSpec)]
 
-    def _processResult(self, task, result):
+    def processResult(self, task, result):
+        # overrides super.processResult
         resource = result.get("result")
         task.target.attributes["apiResource"] = resource
         data = resource and resource.get("kind") == "Secret" and resource.get("data")
