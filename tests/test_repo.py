@@ -6,6 +6,7 @@ from unfurl.__main__ import cli, _latestJobs
 from unfurl import __version__
 from git import Repo
 from unfurl.configurator import Configurator, Status
+import unfurl.configurators  # python2.7 workaround
 
 
 def createUnrelatedRepo(gitDir):

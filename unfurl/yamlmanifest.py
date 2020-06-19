@@ -227,7 +227,9 @@ class YamlManifest(Manifest):
 
         rootResource.imports = self.imports
         rootResource.setBaseDir(self.getBaseDir())
-        rootResource.envRules = CommentedMap(self.context.get("environment", {}))
+        rootResource.envRules = CommentedMap(
+            self.context.get("environment", {}).items()
+        )
         self._ready(rootResource, lastChangeId)
 
     def getBaseDir(self):
