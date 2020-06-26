@@ -307,7 +307,8 @@ class TaskView(object):
             vars = dict(
                 inputs=inputs,
                 task=self.getSettings(),
-                connections=self._getConnections(),
+                connections=list(self._getConnections()),
+                allConnections=self._getAllConnections(),
                 SELF=self.target.attributes,
                 HOST=HOST,
                 ORCHESTRATOR=ORCHESTRATOR and ORCHESTRATOR.attributes or {},
@@ -322,6 +323,24 @@ class TaskView(object):
             self._inputs = ResultsMap(inputs, RefContext(self.target, vars))
         return self._inputs
 
+    def _getConnections(self):
+        for parent in reversed(self.target.ancestors):
+            # use reversed() so nearer overrides farther
+            # XXX broken if multiple requirements point to same parent (e.g. dev and prod connections)
+            # XXX test if operationHost is external (e.g locahost) getRequirements() matches local parent
+            found = False
+            if self.operationHost:
+                for rel in self.operationHost.getRequirements(parent):
+                    # examine both the relationship's properties and its capability's properties
+                    found = True
+                    yield rel
+
+            if not found:
+                # not found, see if there's a default connection
+                # XXX this should use the same relationship type as findConnection()
+                for rel in parent.getDefaultRelationships():
+                    yield rel
+
     def _findRelationshipEnvVars(self):
         """
         We look for instances that the task's implementation might to connect to
@@ -334,23 +353,10 @@ class TaskView(object):
         respectively and the implementation will probably need both those set when it executes.
         """
         env = {}
-        if not self.operationHost:
-            return env
         t = lambda datatype: datatype.type == "unfurl.datatypes.EnvVar"
-        for parent in reversed(self.target.ancestors):
-            # use reversed() so nearer overrides farther
-            # XXX broken if multiple requirements point to same parent (e.g. dev and prod connections)
-            # XXX test if operationHost is external (e.g locahost) getRequirements() matches local parent
-            for rel in self.operationHost.getRequirements(parent):
-                # examine both the relationship's properties and its capability's properties
-                env.update(rel.mergeProps(t))
-                break
-            else:
-                # not found, see if there's a default connection
-                # XXX this should use the same relationship type as findConnection()
-                for rel in parent.getDefaultRelationships():
-                    env.update(rel.mergeProps(t))
-                    break
+        # XXX broken if multiple requirements point to same parent (e.g. dev and prod connections)
+        for rel in self._getConnections():
+            env.update(rel.mergeProps(t))
 
         return env
 
@@ -419,7 +425,7 @@ class TaskView(object):
             return host
         raise UnfurlTaskError(self, "can not find operation_host: %s" % operation_host)
 
-    def _getConnections(self):
+    def _getAllConnections(self):
         cons = {}
         if self.operationHost:
             for rel in self.operationHost.requirements:

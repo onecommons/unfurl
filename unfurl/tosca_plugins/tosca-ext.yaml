@@ -438,6 +438,8 @@ relationship_types:
     derived_from: unfurl.relationships.ConnectsTo.CloudAccount
     # # pyrax (rackspace, openstack)
     # RAX_CREDS_FILE
+    # CLOUD_ID_TYPE "rackspace" or "keystone"
+    # CLOUD_REGION default: "DFW"
     # also CLOUD_* in https://github.com/pycontribs/pyrax/blob/master/docs/getting_started.md#available-configuration-settings
 
   unfurl.relationships.ConnectsTo.Rackspace:
