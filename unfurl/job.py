@@ -71,6 +71,7 @@ class JobOptions(object):
         append=None,
         replace=None,
         commit=True,
+        dirty=False,  # run the job even if the repository has uncommitted changrs
         workflow=Defaults.workflow,
     )
 
@@ -737,6 +738,12 @@ class Runner(object):
                 os.chdir(self.manifest.getBaseDir())
             if jobOptions is None:
                 jobOptions = JobOptions()
+            if jobOptions.commit and not jobOptions.dirty and self.manifest.repo:
+                if self.manifest.repo.isDirty():
+                    logger.error(
+                        "aborting run: uncommitted files (--dirty to override)"
+                    )
+                    return None
             job = self.createJob(jobOptions)
             self.currentJob = job
             try:

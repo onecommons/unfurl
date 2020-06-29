@@ -151,34 +151,37 @@ class GitRepo(Repo):
         index.add([os.path.abspath(f) for f in files])
         return index.commit(msg)
 
+    def isDirty(self, untracked_files=False):
+        # diff = self.repo.git.diff()  # "--abbrev=40", "--full-index", "--raw")
+        return self.repo.is_dirty(untracked_files=untracked_files)
+
     # XXX: def getDependentRepos()
-    # XXX: def isDirty()
     # XXX: def canManage()
 
-    def canMakeClean(self):
-        for repo in self.getDependentRepos():
-            if not repo.canMakeClean():
-                return False
-            elif repo.isDirty() and not self.canManage(repo):
-                return False
-        return True
+    # def canMakeClean(self):
+    #     for repo in self.getDependentRepos():
+    #         if not repo.canMakeClean():
+    #             return False
+    #         elif repo.isDirty() and not self.canManage(repo):
+    #             return False
+    #     return True
+    #
+    # def _commitAll(self, parent=None):
+    #     committed = []
+    #     for repo in self.getDependentRepos():
+    #         if repo.isDirty():
+    #             assert self.canManage(repo)
+    #             repo._commitAll(self)
+    #             committed.append(repo)
+    #     self.updateChildCommits(committed)
+    #     self._commit()
+    #
+    # def getDirtyDependents(self):
+    #     for repo in self.getDependentRepos():
+    #         if repo.isDirty():
+    #             yield repo
 
-    def _commitAll(self, parent=None):
-        committed = []
-        for repo in self.getDependentRepos():
-            if repo.isDirty():
-                assert self.canManage(repo)
-                repo._commitAll(self)
-                committed.append(repo)
-        self.updateChildCommits(committed)
-        self._commit()
-
-    def getDirtyDependents(self):
-        for repo in self.getDependentRepos():
-            if repo.isDirty():
-                yield repo
-
-    # XXX unused.. logic is currently in yamlmanifest.commitJob()
+    # XXX unused.. currently yamlmanifest.commitJob() calls commitFiles()
     # def commit(self):
     #     # before run referenced dirty repos should be committed?
     #     # at the very least the state of any declared repo should be saved

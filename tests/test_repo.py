@@ -103,17 +103,17 @@ class SharedGitRepoTest(unittest.TestCase):
                 traceback.format_exception(*result.exc_info)
             )
             self.assertEqual(result.exit_code, 0, result)
-            expectedFiles = {
+            expectedCommittedFiles = {
                 "unfurl.yaml",
                 "service-template.yaml",
                 ".gitignore",
                 "manifest.yaml",
-                "unfurl.local.example.yaml",
             }
+            expectedFiles = expectedCommittedFiles | {"unfurl.local.yaml"}
             self.assertEqual(set(os.listdir("deploy_dir")), expectedFiles)
             self.assertEqual(
                 set(repo.head.commit.stats.files.keys()),
-                {"deploy_dir/" + f for f in expectedFiles},
+                {"deploy_dir/" + f for f in expectedCommittedFiles},
             )
             # for n in expectedFiles:
             #     with open("deploy_dir/" + n) as f:
@@ -122,6 +122,24 @@ class SharedGitRepoTest(unittest.TestCase):
 
             with open("deploy_dir/manifest.yaml", "w") as f:
                 f.write(manifestContent)
+
+            result = runner.invoke(
+                cli,
+                [
+                    "git",
+                    "--dir",
+                    "deploy_dir",
+                    "commit",
+                    "-m",
+                    "update manifest",
+                    "deploy_dir/manifest.yaml",
+                ],
+            )
+            # uncomment this to see output:
+            # print("commit result.output", result.exit_code, result.output)
+            assert not result.exception, "\n".join(
+                traceback.format_exception(*result.exc_info)
+            )
 
             args = ["-vvv", "deploy", "deploy_dir", "--jobexitcode", "degraded"]
             result = runner.invoke(cli, args)
@@ -147,6 +165,16 @@ class SharedGitRepoTest(unittest.TestCase):
 
             with open("manifest.yaml", "w") as f:
                 f.write(awsTestManifest)
+
+            result = runner.invoke(
+                cli, ["git", "commit", "-m", "update manifest", "manifest.yaml"]
+            )
+            # uncomment this to see output:
+            # print("commit result.output", result.exit_code, result.output)
+            assert not result.exception, "\n".join(
+                traceback.format_exception(*result.exc_info)
+            )
+
             args = [
                 "-vvv",
                 "--home",

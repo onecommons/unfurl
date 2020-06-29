@@ -342,9 +342,13 @@ class LocalEnv(object):
 
     def getRepos(self):
         if self.project:
-            return self.project.getRepos()
+            repos = self.project.getRepos()
         else:
-            return [self.instanceRepo]
+            repos = []
+        if self.instanceRepo and self.instanceRepo not in repos:
+            return repos + [self.instanceRepo]
+        else:
+            return repos
 
     def searchForManifestOrProject(self, dir):
         current = os.path.abspath(dir)

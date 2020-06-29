@@ -86,6 +86,12 @@ jobControlOptions = option_group(
         help="Commit modified files to the instance repository. (Default: True)",
     ),
     click.option(
+        "--dirty",
+        default=False,
+        is_flag=True,
+        help="Run even if there are uncommitted changes in the instance repository. (Default: False)",
+    ),
+    click.option(
         "--jobexitcode",
         type=click.Choice(["error", "degraded", "never"]),
         default="never",
@@ -430,16 +436,18 @@ unfurl git --dir=/path/to/start [gitoptions] [gitcmd] [gitcmdoptions]: Runs comm
     localEnv = LocalEnv(dir, ctx.obj.get("home"))
     repos = localEnv.getRepos()
     status = 0
+    if not repos:
+        click.echo("Can't run git command, no repositories found")
     for repo in repos:
         repoPath = os.path.relpath(repo.workingDir, os.path.abspath(dir))
         click.echo("*** Running 'git %s' in './%s'" % (" ".join(gitargs), repoPath))
         _status, stdout, stderr = repo.runCmd(gitargs)
         click.echo(stdout + " \n")
+        if stderr.strip():
+            click.echo(stderr + " \n", color="red")
         if _status != 0:
             status = _status
 
-    # if stderr.strip():
-    #   raise click.ClickException(stderr)
     return status
 
 
