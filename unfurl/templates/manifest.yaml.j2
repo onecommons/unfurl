@@ -11,7 +11,7 @@ spec:
         url: file:{{ specRepoPath }}
         metadata:
           initial-commit: {{ specInitialCommit }}
-      instance:
-        url: file:.
+      self:
+        url: file:{{ instanceRepoPath }}
         metadata:
           initial-commit: {{ instanceInitialCommit }}

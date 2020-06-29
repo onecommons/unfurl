@@ -103,7 +103,9 @@ def saveStatus(operational, status=None):
 
 def saveResult(value):
     if isinstance(value, collections.Mapping):
-        return CommentedMap((key, saveResult(v)) for key, v in value.items())
+        return CommentedMap(
+            (key, saveResult(v)) for key, v in value.items() if v is not None
+        )
     elif isinstance(value, (collections.MutableSequence, tuple)):
         return [saveResult(item) for item in value]
     elif value is not None and not isinstance(value, (numbers.Real, bool)):
@@ -444,9 +446,10 @@ class YamlManifest(Manifest):
             raise UnfurlError("Error saving manifest %s" % self.manifest.path, True)
 
     def hasWritableRepo(self):
+        # only try to commit the repo if it matches the one specified in the manifest
         if self.repo:
             repos = self._getRepositories(self.manifest.expanded)
-            repoSpec = repos.get("instance", repos.get("spec"))
+            repoSpec = repos.get("instance", repos.get("self", repos.get("spec")))
             if repoSpec:
                 initialCommit = repoSpec and repoSpec.get("metadata", {}).get(
                     "initial-commit"
@@ -468,6 +471,7 @@ class YamlManifest(Manifest):
         if job.dryRun:
             return
 
+        # call hasWritableRepo() to make sure we own this repo
         doCommit = job.commit and self.hasWritableRepo()
         if doCommit:
             self.repo.commitFiles(

@@ -114,16 +114,24 @@ def createSpecRepo(gitDir):
     return repo
 
 
+def writeManifest(gitDir, manifestName, specRepo, instanceRepo):
+    relPathToSpecRepo = os.path.relpath(specRepo.workingDir, os.path.abspath(gitDir))
+    relPathToInstanceRepo = os.path.relpath(
+        specRepo.workingDir, os.path.abspath(gitDir)
+    )
+    vars = dict(
+        specRepoPath=relPathToSpecRepo,
+        instanceRepoPath=relPathToInstanceRepo or ".",
+        specInitialCommit=specRepo.getInitialRevision(),
+        instanceInitialCommit=instanceRepo.getInitialRevision(),
+    )
+    return writeTemplate(gitDir, manifestName, "manifest.yaml.j2", vars)
+
+
 def createInstanceRepo(gitDir, specRepo):
     manifestName = DefaultManifestName
     repo = _createRepo("instance", gitDir)
-    relPathToSpecRepo = os.path.relpath(specRepo.workingDir, os.path.abspath(gitDir))
-    vars = dict(
-        specRepoPath=relPathToSpecRepo,
-        specInitialCommit=specRepo.getInitialRevision(),
-        instanceInitialCommit=repo.getInitialRevision(),
-    )
-    writeTemplate(gitDir, manifestName, "manifest.yaml.j2", vars)
+    writeManifest(gitDir, manifestName, specRepo, repo)
     repo.repo.index.add([manifestName])
     repo.repo.index.commit("Default instance repository boilerplate")
     return repo
@@ -156,12 +164,8 @@ def createMonoRepoProject(projectdir, repo):
     Returns the absolute path to unfurl.yaml
     """
     localConfigFilename = "unfurl.local.yaml"
-    localContent = """\
-        # copy this to unfurl.local.yaml and
-        # add configuration that you don't want commited to this repository,
-        # such as secrets, local settings, and local instances."""
-    exampleLocalConfigPath = writeProjectConfig(
-        projectdir, "unfurl.local.example.yaml", localInclude=localContent
+    writeProjectConfig(
+        projectdir, localConfigFilename, templatePath="unfurl.local.yaml.j2"
     )
     localInclude = "+?include: " + localConfigFilename
     projectConfigPath = writeProjectConfig(projectdir, localInclude=localInclude)
@@ -173,14 +177,8 @@ def createMonoRepoProject(projectdir, repo):
         projectdir, DefaultManifestName, "manifest-template.yaml.j2", {}
     )
     repo.commitFiles(
-        [
-            projectConfigPath,
-            exampleLocalConfigPath,
-            gitIgnorePath,
-            serviceTemplatePath,
-            manifestPath,
-        ],
-        "Create an unfurl deployment",
+        [projectConfigPath, gitIgnorePath, serviceTemplatePath, manifestPath],
+        "Create a new unfurl repository",
     )
     return projectConfigPath
 
@@ -222,8 +220,15 @@ def createNewInstance(specRepoDir, targetPath):
             "The respository at '%s' is not valid" % os.path.abspath(specRepoDir),
         )
 
-    if Repo.findContainingRepo(targetPath):
-        return None, "Can't create repository inside another repository"
+    currentRepo = Repo.findContainingRepo(targetPath)
+    if currentRepo:
+        writeManifest(targetPath, DefaultManifestName, sourceRepo, None)
+        return (
+            sourceRepo,
+            'created a new instance at "%s" in the current repository located at'
+            % targetPath,
+        )
+
     instanceRepo = createInstanceRepo(targetPath, sourceRepo)
     # XXX
     # project = localEnv.findProject(targetPath)
@@ -281,7 +286,7 @@ def _addUnfurlToVenv(projectdir):
         if os.path.isdir(sitePackageDir):
             break
     else:
-        # XXX report error can find site-package folder
+        # XXX report error: can't find site-packages folder
         return
     _writeFile(sitePackageDir, "unfurl.pth", base)
     _writeFile(sitePackageDir, "unfurl.egg-link", base)

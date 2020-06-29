@@ -6,3 +6,17 @@ repositories:
       initial-commit: {{ initialCommit }}
 topology_template:
   node_templates:
+    # nodeExample:
+    #   type: tosca.nodes.Root
+    #   properties:
+    #     # you can add define adhoc properties here:
+    #     # example: "example"
+    #   interfaces:
+    #     Standard:
+    #       operations:
+    #         create:
+    #           implementation: unfurl.configurators.ansible.AnsibleConfigurator
+    #           inputs:
+    #             playbook:
+    #               q: # quote so that jinja2 expressions aren't evaluated util later by ansible
+    #                  # define an ansible playbook here, it will run a OPERATION_HOST (default: localhost)
