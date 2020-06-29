@@ -28,22 +28,12 @@ class Project(object):
   """
 
     def __init__(self, path, homeProject):
-        if not os.path.exists(path):
-            isdir = not path.endswith(".yml") and not path.endswith(".yaml")
-        else:
-            isdir = os.path.isdir(path)
-
         parentConfig = homeProject and homeProject.localConfig or None
-        if isdir:
-            self.projectRoot = path
-            test = os.path.join(self.projectRoot, DefaultLocalConfigName)
-            if os.path.exists(test):
-                self.localConfig = LocalConfig(test, parentConfig)
-            else:
-                self.localConfig = LocalConfig(parentConfig=parentConfig)
-        else:
-            self.projectRoot = os.path.dirname(path)
+        self.projectRoot = os.path.dirname(path)
+        if os.path.exists(path):
             self.localConfig = LocalConfig(path, parentConfig)
+        else:
+            self.localConfig = LocalConfig(parentConfig=parentConfig)
 
         self.workingDirs = Repo.findGitWorkingDirs(self.projectRoot)
         # the project repo if it exists manages the project config (unfurl.yaml)
@@ -51,6 +41,18 @@ class Project(object):
             self.projectRepo = self.workingDirs[self.projectRoot][1]
         else:
             self.projectRepo = Repo.findContainingRepo(self.projectRoot)
+
+    @staticmethod
+    def normalizePath(path):
+        if not os.path.exists(path):
+            isdir = not path.endswith(".yml") and not path.endswith(".yaml")
+        else:
+            isdir = os.path.isdir(path)
+
+        if isdir:
+            return os.path.join(path, DefaultLocalConfigName)
+        else:
+            return path
 
     @property
     def venv(self):
@@ -301,7 +303,7 @@ class LocalEnv(object):
             return manifest
 
     def getProject(self, path, homeProject):
-        project = self._projects.get(path)
+        project = self._projects.get(Project.normalizePath(path))
         if not project:
             project = Project(path, homeProject)
             self._projects[path] = project
