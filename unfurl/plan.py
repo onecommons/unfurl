@@ -227,7 +227,10 @@ class Plan(object):
         # 7.2 Declarative workflows p.249
         ran = False
         missing = resource.status in [Status.unknown, Status.absent, Status.pending]
-        if missing:
+        # if the resource doesn't exist or failed while creating:
+        if missing or (
+            resource.status == Status.error and resource.state == NodeState.creating
+        ):
             gen = self._runOperation(
                 NodeState.creating, "Standard.create", resource, reason, inputs
             )
