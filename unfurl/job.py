@@ -477,6 +477,7 @@ class Job(ConfigChange):
         return self.rootResource
 
     def runJobRequest(self, jobRequest):
+        logger.debug("running jobrequest: %s", jobRequest)
         self.jobRequestQueue.remove(jobRequest)
         resourceNames = [r.name for r in jobRequest.instances]
         jobOptions = JobOptions(
@@ -738,12 +739,13 @@ class Runner(object):
                 os.chdir(self.manifest.getBaseDir())
             if jobOptions is None:
                 jobOptions = JobOptions()
-            if jobOptions.commit and not jobOptions.dirty and self.manifest.repo:
-                if self.manifest.repo.isDirty():
-                    logger.error(
-                        "aborting run: uncommitted files (--dirty to override)"
-                    )
-                    return None
+            if jobOptions.commit and not jobOptions.dirty and self.manifest.localEnv:
+                for repo in self.manifest.localEnv.getRepos():
+                    if repo.isDirty():
+                        logger.error(
+                            "aborting run: uncommitted files (--dirty to override)"
+                        )
+                        return None
             job = self.createJob(jobOptions)
             self.currentJob = job
             try:
