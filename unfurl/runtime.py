@@ -279,10 +279,10 @@ class _ChildResources(collections.Mapping):
         return self.resource.findResource(key)
 
     def __iter__(self):
-        return self.resource.getSelfAndDescendents()
+        return iter(r.name for r in self.resource.getSelfAndDescendents())
 
     def __len__(self):
-        return len(tuple(self))
+        return len(tuple(self.resource.getSelfAndDescendents()))
 
 
 class EntityInstance(OperationalInstance, ResourceRef):

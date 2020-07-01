@@ -110,6 +110,8 @@ class EvalTest(unittest.TestCase):
             ["e::*::b2", ["v2"]],
             ["*", []],
             ["f", [{"a": 1, "b": 1}]],
+            ["::*", [resource]],
+            ["::*::.template::type", ['tosca.nodes.Root']],
             # [{"q": "{{ foo }}"}, ["{{ foo }}"]]
             # XXX test nested ['.[k[d=3]=4]']
         ]:

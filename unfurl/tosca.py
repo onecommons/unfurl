@@ -297,10 +297,17 @@ class EntitySpec(object):
         else:
             self.defaultAttributes = {}
 
+    def __reflookup__(self, key):
+        """Make attributes available to expressions"""
+        if key in ["name", "type", "uri", "groups"]:
+            return getattr(self, key)
+        raise KeyError(key)
+
     def getInterfaces(self):
         return self.toscaEntityTemplate.interfaces
 
-    def getGroups(self):
+    @property
+    def groups(self):
         # XXX return the groups this entity is in
         return []
 
@@ -311,6 +318,10 @@ class EntitySpec(object):
 
     def isCompatibleType(self, typeStr):
         return self.toscaEntityTemplate.is_derived_from(typeStr)
+
+    @property
+    def uri(self):
+        return self.getUri()
 
     def getUri(self):
         return self.name  # XXX

@@ -525,7 +525,7 @@ class Imports(collections.OrderedDict):
         imported = self[iName].resource.findResource(rName or "root")
         if imported:
             # add for future reference
-            self[name] = imported
+            self[name] = imported  # see __setitem__
         return imported
 
     def setShadow(self, key, instance):

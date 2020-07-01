@@ -140,7 +140,7 @@ class AnsibleConfigurator(TemplateConfigurator):
 
             children = {
                 group.name: self._makeInventoryFromGroup(group)
-                for group in host.template.getGroups()
+                for group in host.template.groups
                 if group.isCompatibleType("unfurl.groups.AnsibleInventoryGroup")
             }
         else:
@@ -232,6 +232,10 @@ class AnsibleConfigurator(TemplateConfigurator):
     def getResultKeys(self, task, results):
         return []
 
+    def processResult(self, task, result):
+        self.processResultTemplate(task, result.result)
+        return result
+
     def run(self, task):
         try:
             # build host inventory from resource
@@ -274,18 +278,20 @@ class AnsibleConfigurator(TemplateConfigurator):
             else:
                 results, outputs = {}, {}
 
+            targetStatus = None
             if resultCallback.changed > 0:
+                modified = True
                 if any(
                     r.is_failed() and r.is_changed() for r in resultCallback.results
                 ):
-                    modified = Status.error
-                else:
-                    modified = True
+                    targetStatus = Status.error
             else:
                 modified = False
+
             result = task.done(
                 status == Status.ok and not task.errors,
                 modified,
+                targetStatus,
                 result=results,
                 outputs=outputs,
             )
@@ -295,8 +301,7 @@ class AnsibleConfigurator(TemplateConfigurator):
                 or status == Status.degraded
             ):
                 # this can update resources so don't do it on error
-                # XXX this should pass result.__dict__ not results
-                self.processResult(task, results)
+                result = self.processResult(task, result)
             yield result
 
         finally:

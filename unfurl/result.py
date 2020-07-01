@@ -170,7 +170,7 @@ class Result(ChangeAware):
             # use items() to make sure __getitem__ was called
             return (resolved._attributes[k] for (k, v) in resolved.items())
         elif isinstance(resolved, Mapping):
-            return resolved.values()
+            return (Result(i) for i in resolved.values())
         elif isinstance(resolved, MutableSequence):
             return (Result(i) for i in resolved)
         else:
