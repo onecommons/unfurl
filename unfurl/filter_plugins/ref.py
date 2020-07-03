@@ -6,14 +6,16 @@ from jinja2.filters import contextfilter
 
 
 @contextfilter
-def ref(context, ref):
+def ref(context, ref, **vars):
     refContext = context["__unfurl"]
-    return Ref(ref).resolveOne(refContext)
+    return Ref(ref, vars=vars).resolveOne(refContext)
 
 
 @contextfilter
-def mapValueFilter(context, ref):
+def mapValueFilter(context, ref, **vars):
     refContext = context["__unfurl"]
+    if vars:
+      refContext = refContext.copy(vars=vars)
     return mapValue(ref, refContext)
 
 
