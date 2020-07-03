@@ -111,7 +111,7 @@ class ShellConfigurator(TemplateConfigurator):
             logger.info("shell task run success: %s", result.cmd)
 
         if status != Status.error:
-            self.processResult(task, result.__dict__)
+            self.processResultTemplate(task, result.__dict__)
             if task.errors:
                 return Status.error
         return status
