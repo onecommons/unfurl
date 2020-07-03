@@ -17,7 +17,13 @@ from ruamel.yaml.comments import CommentedMap
 from ruamel.yaml.representer import RepresenterError, SafeRepresenter
 
 from .util import sensitive_str, UnfurlError, UnfurlValidationError, findSchemaErrors
-from .merge import expandDoc, makeMapWithBase, findAnchor, _cacheAnchors
+from .merge import (
+    expandDoc,
+    makeMapWithBase,
+    findAnchor,
+    _cacheAnchors,
+    restoreIncludes,
+)
 
 from toscaparser.common.exception import ExceptionCollector
 from toscaparser.common.exception import URLException
@@ -222,6 +228,9 @@ class YamlConfig(object):
             return os.path.dirname(self.path)
         else:
             return "."
+
+    def restoreIncludes(self, changed):
+        restoreIncludes(self.includes, self.config, changed, cls=CommentedMap)
 
     def dump(self, out=sys.stdout):
         yaml.dump(self.config, out)

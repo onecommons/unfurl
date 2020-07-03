@@ -483,10 +483,7 @@ class Job(ConfigChange):
         jobOptions = JobOptions(
             parentJob=self, repair="none", all=True, instances=resourceNames
         )
-        plan = DeployPlan(
-            self.rootResource.root, self.runner.manifest.tosca, jobOptions
-        )
-        childJob = Job(self.runner, self.rootResource.root, plan, jobOptions)
+        childJob = self.runner.createJob(jobOptions)
         assert childJob.parentJob is self
         childJob.run()
         return childJob

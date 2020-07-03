@@ -24,7 +24,11 @@ class Plan(object):
     @staticmethod
     def getPlanClassForWorkflow(workflow):
         return dict(
-            deploy=DeployPlan, undeploy=UndeployPlan, run=RunNowPlan, check=CheckPlan
+            deploy=DeployPlan,
+            undeploy=UndeployPlan,
+            run=RunNowPlan,
+            check=CheckPlan,
+            discover=DiscoverPlan,
         ).get(workflow, WorkflowPlan)
 
     def __init__(self, root, toscaSpec, jobOptions):
@@ -280,8 +284,8 @@ class Plan(object):
             gen.send((yield req))
         # Note: Status.absent is set in _generateConfigurations
 
-    def executeDefaultCheck(self, resource, reason=None, inputs=None):
-        req = self.createTaskRequest("Install.check", resource, reason, inputs)
+    def executeDefaultInstallOp(self, operation, resource, reason=None, inputs=None):
+        req = self.createTaskRequest("Install." + operation, resource, reason, inputs)
         if not req.error:
             yield req
 
@@ -351,8 +355,8 @@ class Plan(object):
             return self.executeDefaultDeploy(resource, reason, inputs)
         elif workflow == "undeploy":
             return self.executeDefaultUndeploy(resource, reason, inputs)
-        elif workflow == "check":
-            return self.executeDefaultCheck(resource, reason, inputs)
+        elif workflow == "check" or workflow == "discover":
+            return self.executeDefaultInstallOp(workflow, resource, reason, inputs)
         return None
 
     @staticmethod
@@ -567,16 +571,19 @@ class DeployPlan(Plan):
             return "error", lastTemplate  # repair this
 
     def _generateConfigurations(self, resource, reason, workflow=None):
-        if resource.status == Status.unknown or reason == "check":
+        readOnlyWorkflow = workflow in ["discover", "check"]
+        if not readOnlyWorkflow and (
+            resource.status == Status.unknown or reason == "check"
+        ):
             configGenerator = self.executeWorkflow("check", resource)
             if not configGenerator:
-                configGenerator = self.executeDefaultCheck(resource)
+                configGenerator = self.executeDefaultInstallOp("check", resource)
             if configGenerator:
                 gen = Generate(configGenerator)
                 while gen():
                     gen.result = yield gen.next
-        if reason == "check":
-            return  # we're done
+            if reason == "check":
+                return  # we're done
 
         configGenerator = super(DeployPlan, self)._generateConfigurations(
             resource, reason, workflow
@@ -682,6 +689,14 @@ class CheckPlan(DeployPlan):
 
     def includeNotFound(self, template):
         return "check"
+
+
+class DiscoverPlan(DeployPlan):
+    def includeTask(self, template, resource):
+        return "discover", template
+
+    def includeNotFound(self, template):
+        return "discover"
 
 
 class WorkflowPlan(Plan):

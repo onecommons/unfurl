@@ -49,6 +49,7 @@ class Manifest(AttributeManager):
         else:
             toscaDef = {}
 
+        # XXX deprecate top-level node_templates
         if "node_templates" in toscaDef:
             # shortcut
             toscaDef = dict(
@@ -58,7 +59,8 @@ class Manifest(AttributeManager):
             # make sure this is present
             toscaDef["tosca_definitions_version"] = TOSCA_VERSION
 
-        toscaDef = CommentedMap(toscaDef.items())
+        if not isinstance(toscaDef, CommentedMap):
+            toscaDef = CommentedMap(toscaDef.items())
         # hack so we can make the manifest accessible to the yamlloader:
         toscaDef.manifest = self
         return ToscaSpec(toscaDef, spec.get("inputs"), spec, path)

@@ -32,7 +32,7 @@ spec:
                 inputs:
                   helmcmd: install
                   command:
-                    eval:
+                    eval: # helm install stable/mysql --generate-name
                       template: >
                         helm {{inputs.helmcmd}} {{inputs.release_name}} {{inputs.chart}}
                           --namespace {{"namespace" | ref}}
@@ -51,38 +51,35 @@ spec:
                         eval:
                           tempfile: $inputs::values
               discover:
-                implementation: DummyShellConfigurator
+                implementation: unfurl.configurators.shell.ShellConfigurator
                 inputs:
-                  command: helm status -o json {{inputs.release_name}}
+                  # command: helm status -o json {{inputs.release_name}}
+                  command: cat helm-release.json
                   resultTemplate: |
-                    {% set json = output | from_json %}
+                    {% set json = stdout | from_json %}
                     {%for doc in json.manifest | from_yaml_all %}
                       {%if doc.kind is defined %}
-                      - name: {{doc.kind}}.{{doc.spec.metadata.namespace }}.{{ doc.spec.metadata.name }}
+                      - name: {{doc.kind}}-{{doc.metadata.namespace }}-{{ doc.metadata.name }}
+                        {%if doc.metadata.namespace is not defined %}
+                        parent: HOST
+                        {% endif %}
                         template:
                           {%if doc.kind == 'Secret' %}
                           type: unfurl.nodes.K8sSecretResource
                           {% else %}
                           type: unfurl.nodes.K8sResource
-                          {% endif %}
+                          {% endif %}{%if doc.metadata.namespace is defined %}
                           requirements:
-                            host:
-                              {%if doc.spec.metadata.namespace is defined %}
-                              node_filter:
-                                type: unfurl.nodes.K8sNamespace
-                                properties:
-                                  name: {{doc.spec.metadata.namespace}}
-                              {% else %}
-                                HOST
-                              {%endif%}
+                            - host:
+                                node: {{ "::*::[.template::type=unfurl.nodes.K8sNamespace][name=$namespace]::.template::name" | eval(namespace=doc.metadata.namespace) }}
+                          {%endif%}
                         attributes:
-                          {%if doc.spec.metadata.namespace is defined %}
-                          namespace: {{doc.spec.metadata.namespace }}
+                          {%if doc.metadata.namespace is defined %}
+                          namespace: {{doc.metadata.namespace }}
                           {% endif %}
                           apiResource:
                     {{ doc | to_yaml | indent(10, true) }}
-                        status:
-                          readyState: ok
+                        readyState: {%if json.info.deleted %}absent{% else %}ok{%endif%}
                       {%endif%}
                     {% endfor %}
 
@@ -151,6 +148,8 @@ spec:
 
         defaultNamespace:
           type: unfurl.nodes.K8sNamespace
+          directives: # assume "default" namespace already exists
+            - discover
           requirements:
             - host: stagingCluster
           properties:

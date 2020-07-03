@@ -647,14 +647,14 @@ def recursiveEval(v, exp, context):
             for r in results:
                 found = True
                 context.trace("recursive result", r)
-                assert isinstance(r, Result)
+                assert isinstance(r, Result), r
                 yield r
             context.trace("found recursive %s matchFirst: %s" % (found, matchFirst))
             if found and matchFirst:
                 return
         else:
             for r in iv:
-                assert isinstance(r, Result)
+                assert isinstance(r, Result), r
                 yield r
                 if matchFirst:
                     return

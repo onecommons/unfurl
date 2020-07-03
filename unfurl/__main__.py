@@ -298,18 +298,17 @@ def check(ctx, manifest=None, **options):
     return _run(manifest, options, ctx.info_name)
 
 
-# XXX
-# @cli.command(short_help="run the discover workflow")
-# @click.pass_context
-# @click.argument("manifest", default="", type=click.Path(exists=False))
-# @commonJobFilterOptions
-# @jobControlOptions
-# def discover(ctx, manifest=None, **options):
-#     """
-#     Update configuration by probing live instances associated with the manifest
-#     """
-#     options.update(ctx.obj)
-#     return _run(manifest, options, ctx.info_name)
+@cli.command(short_help="run the discover workflow")
+@click.pass_context
+@click.argument("manifest", default="", type=click.Path(exists=False))
+@commonJobFilterOptions
+@jobControlOptions
+def discover(ctx, manifest=None, **options):
+    """
+    Update configuration by probing live instances associated with the manifest
+    """
+    options.update(ctx.obj)
+    return _run(manifest, options, ctx.info_name)
 
 
 @cli.command()

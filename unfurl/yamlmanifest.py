@@ -9,7 +9,7 @@ import os.path
 import itertools
 
 from .util import UnfurlError, toYamlText
-from .merge import restoreIncludes, patchDict
+from .merge import patchDict
 from .yamlloader import YamlConfig, yaml
 from .result import serializeValue
 from .support import ResourceChanges, Defaults, Imports
@@ -328,8 +328,13 @@ class YamlManifest(Manifest):
             return None
         return self.saveEntityInstance(resource)
 
-    def saveResource(self, resource, workDone):
+    def saveResource(self, resource, discovered):
         name, status = self.saveEntityInstance(resource)
+        if self.tosca.discovered and resource.template.name in self.tosca.discovered:
+            discovered[resource.template.name] = self.tosca.discovered[
+                resource.template.name
+            ]
+
         if resource._capabilities:
             capabilities = list(
                 filter(None, map(self.saveCapability, resource.capabilities))
@@ -346,12 +351,12 @@ class YamlManifest(Manifest):
 
         if resource.instances:
             status["instances"] = CommentedMap(
-                map(lambda r: self.saveResource(r, workDone), resource.instances)
+                map(lambda r: self.saveResource(r, discovered), resource.instances)
             )
 
         return (name, status)
 
-    def saveRootResource(self, workDone):
+    def saveRootResource(self, discovered):
         resource = self.rootResource
         status = CommentedMap()
 
@@ -363,7 +368,7 @@ class YamlManifest(Manifest):
         # getOperationalDependencies() skips inputs and outputs
         status["instances"] = CommentedMap(
             map(
-                lambda r: self.saveResource(r, workDone),
+                lambda r: self.saveResource(r, discovered),
                 resource.getOperationalDependencies(),
             )
         )
@@ -397,16 +402,21 @@ class YamlManifest(Manifest):
         return saveStatus(job, output)
 
     def saveJob(self, job):
-        changed = self.saveRootResource(job.workDone)
+        discovered = CommentedMap()
+        changed = self.saveRootResource(discovered)
         # XXX imported resources need to include its repo's workingdir commitid in their status
         # status and job's changeset also need to save status of repositories
         # that were accessed by loadFromArtifact() and add them with commitid and repotype
         # note: initialcommit:requiredcommit means any repo that has at least requiredcommit
 
         # update changed with includes, this may change objects with references to these objects
-        restoreIncludes(
-            self.manifest.includes, self.manifest.config, changed, cls=CommentedMap
-        )
+        self.manifest.restoreIncludes(changed)
+        # only saved discovered templates that are still referenced
+        spec = self.manifest.config.setdefault("spec", {})
+        spec.pop("discovered", None)
+        if discovered:
+            spec["discovered"] = discovered
+
         # modify original to preserve structure and comments
         if "status" not in self.manifest.config:
             self.manifest.config["status"] = {}

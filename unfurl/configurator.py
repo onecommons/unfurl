@@ -49,6 +49,9 @@ class JobRequest(object):
         self.instances = resources
         self.errors = errors
 
+    def __repr__(self):
+        return "JobRequest(%s)" % (self.instances,)
+
 
 # we want ConfigurationSpec to be standalone and easily serializable
 class ConfigurationSpec(object):
@@ -630,7 +633,6 @@ class TaskView(object):
           :class:`JobRequest`: To run the job based on the supplied spec
               immediately, yield the returned JobRequest.
     """
-        # XXX if template isn't specified deduce from provides and template keys
         from .manifest import Manifest
 
         if isinstance(resources, six.string_types):
@@ -681,6 +683,15 @@ class TaskView(object):
                         self.target.parent.name if self.target.parent else "root"
                     )
 
+                if isinstance(resourceSpec.get("template"), dict):
+                    # inline node template, add it to the spec
+                    tname = resourceSpec["template"].pop("name", rname)
+                    nodeSpec = self._manifest.tosca.addNodeTemplate(
+                        tname, resourceSpec["template"]
+                    )
+                    resourceSpec["template"] = nodeSpec.name
+
+                # note: resourceSpec[parent] if set overrides parent keyword
                 resource = self._manifest.createNodeInstance(
                     rname, resourceSpec, parent=self.target.root
                 )

@@ -14,6 +14,7 @@ import toscaparser.artifacts
 from toscaparser.common.exception import ExceptionCollector, ValidationError
 import six
 import logging
+from ruamel.yaml.comments import CommentedMap
 
 logger = logging.getLogger("unfurl")
 
@@ -57,6 +58,7 @@ class ToscaSpec(object):
     InstallerType = "unfurl.nodes.Installer"
 
     def __init__(self, toscaDef, inputs=None, instances=None, path=None):
+        self.discovered = None
         if isinstance(toscaDef, ToscaTemplate):
             self.template = toscaDef
         else:
@@ -89,13 +91,13 @@ class ToscaSpec(object):
         self.nodeTemplates = {}
         self.installers = {}
         self.relationshipTemplates = {}
-        if hasattr(self.template, "nodetemplates"):
-            for template in self.template.nodetemplates:
-                nodeTemplate = NodeSpec(template, self)
-                if template.is_derived_from(self.InstallerType):
-                    self.installers[template.name] = nodeTemplate
-                self.nodeTemplates[template.name] = nodeTemplate
+        for template in self.template.nodetemplates:
+            nodeTemplate = NodeSpec(template, self)
+            if template.is_derived_from(self.InstallerType):
+                self.installers[template.name] = nodeTemplate
+            self.nodeTemplates[template.name] = nodeTemplate
 
+        if hasattr(self.template, "relationship_templates"):
             # user-declared RelationshipTemplates, source and target will be None
             for template in self.template.relationship_templates:
                 relTemplate = RelationshipSpec(template)
@@ -104,9 +106,18 @@ class ToscaSpec(object):
         self.topology = TopologySpec(self, inputs)
         self.load_workflows()
 
+    def addNodeTemplate(self, name, tpl):
+        nodeTemplate = self.template.topology_template.add_template(name, tpl)
+        nodeSpec = NodeSpec(nodeTemplate, self)
+        self.nodeTemplates[name] = nodeSpec
+        if self.discovered is None:
+            self.discovered = CommentedMap()
+        self.discovered[name] = tpl
+        return nodeSpec
+
     def load_workflows(self):
         # we want to let different types defining standard workflows like deploy
-        # so we need support importing workflows
+        # so we need to support importing workflows
         workflows = {
             name: [Workflow(w)]
             for name, w in self.template.topology_template.workflows.items()
@@ -191,6 +202,14 @@ class ToscaSpec(object):
         for name, impl in tpl.get("instances", {}).items():
             if name not in node_templates and impl is not None:
                 node_templates[name] = self.loadInstance(impl.copy())
+
+        if "discovered" in tpl:
+            # node templates added dynamically by configurators
+            self.discovered = tpl["discovered"]
+            for name, impl in tpl["discovered"].items():
+                # print('discovered', impl)
+                if name not in node_templates:
+                    node_templates[name] = impl
 
     def loadInstance(self, impl):
         if "type" not in impl:
@@ -362,7 +381,7 @@ class NodeSpec(EntitySpec):
     # has attributes: tosca_id, tosca_name, state, (3.4.1 Node States p.61)
     def __init__(self, template=None, spec=None):
         if not template:
-            template = _defaultTopology.topology_template.nodetemplates[0]
+            template = next(iter(_defaultTopology.topology_template.nodetemplates))
             self.spec = ToscaSpec(_defaultTopology)
         else:
             assert spec
@@ -389,6 +408,7 @@ class NodeSpec(EntitySpec):
             nodeTemplate = self.toscaEntityTemplate
             for req in nodeTemplate.requirements:
                 name, values = next(iter(req.items()))
+                # _get_explicit_relationship should add this the target's relationship_tpl if needed
                 reqDef, relTpl = nodeTemplate._get_explicit_relationship(req)
                 reqSpec = RequirementSpec(name, reqDef, self)
                 if relTpl.target:
@@ -408,7 +428,7 @@ class NodeSpec(EntitySpec):
         """
         for r in self.toscaEntityTemplate.relationship_tpl:
             assert r.source
-            # calling requirement property will ensure the RelationshipSpec is property linked
+            # calling requirement property will ensure the RelationshipSpec is properly linked
             self.spec.getTemplate(r.source.name).requirements
         return self._getRelationshipSpecs()
 
@@ -442,6 +462,7 @@ class NodeSpec(EntitySpec):
 
     def addRelationship(self, reqSpec):
         # find the relationship for this requirement:
+        self._relationships = None
         for relSpec in self._getRelationshipSpecs():
             # the RelationshipTemplate should have had the source node assigned by the tosca parser
             # XXX this won't distinguish between more than one relationship between the same two nodes
@@ -456,9 +477,11 @@ class NodeSpec(EntitySpec):
                 relSpec.requirement = reqSpec
                 break
         else:
-            raise UnfurlValidationError(
-                "relationship not found for requirement %s" % reqSpec.name
+            msg = (
+                'relationship not found for requirement "%s" on "%s" targeting "%s"'
+                % (reqSpec.name, reqSpec.parentNode, self.name)
             )
+            raise UnfurlValidationError(msg)
 
         # figure out which capability the relationship targets:
         for capability in self.capabilities.values():
@@ -655,6 +678,14 @@ class TopologySpec(EntitySpec):
     def getInterfaces(self):
         # doesn't have any interfaces
         return []
+
+    def isCompatibleTarget(self, targetStr):
+        if self.name == targetStr:
+            return True
+        return False
+
+    def isCompatibleType(self, typeStr):
+        return False
 
 
 class Workflow(object):
