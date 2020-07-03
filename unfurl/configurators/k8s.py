@@ -114,12 +114,20 @@ class ResourceConfigurator(AnsibleConfigurator):
     def getDefinition(self, task):
         if task.target.template.isCompatibleType("unfurl.nodes.K8sNamespace"):
             return dict(apiVersion="v1", kind="Namespace")
-        elif task.target.template.isCompatibleType("unfurl.nodes.K8sSecretResource"):
+
+        if "definition" in task.target.attributes:
+            definition = task.target.attributes.getCopy("definition")
+        else:
+            definition = task.target.attributes.getCopy("apiResource", {})
+
+        if not definition and task.target.template.isCompatibleType(
+            "unfurl.nodes.K8sSecretResource"
+        ):
             return self.makeSecret(task.target.attributes.get("data", {}))
         else:
             # XXX if definition is string: parse
             # get copy so subsequent modifications dont affect the definition
-            return task.target.attributes.getCopy("definition", {})
+            return definition
 
     def updateMetadata(self, definition, task):
         namespace = None
@@ -140,19 +148,40 @@ class ResourceConfigurator(AnsibleConfigurator):
     def findPlaybook(self, task):
         definition = self.getDefinition(task)
         self.updateMetadata(definition, task)
-        delete = task.configSpec.operation == "Standard.delete"
+        delete = task.configSpec.operation in ["Standard.delete", "delete"]
         state = "absent" if delete else "present"
         connectionConfig = self._getConnection(task)
-        moduleSpec = dict(state=state, definition=definition, **connectionConfig)
+        moduleSpec = dict(state=state, **connectionConfig)
+        if task.configSpec.operation in ["check", "discover"]:
+            moduleSpec["kind"] = definition.get("kind", "")
+            moduleSpec["name"] = definition["metadata"]["name"]
+            if "namespace" in definition["metadata"]:
+                moduleSpec["namespace"] = definition["metadata"]["namespace"]
+        else:
+            moduleSpec["resource_definition"] = definition
         return [dict(k8s=moduleSpec)]
 
     def processResult(self, task, result):
         # overrides super.processResult
-        resource = result.get("result")
+        resource = result.result.get("result")
         task.target.attributes["apiResource"] = resource
-        data = resource and resource.get("kind") == "Secret" and resource.get("data")
-        if data:
-            resource["data"] = {k: sensitive_str(v) for k, v in data.items()}
+        if resource:
+            data = resource.get("kind") == "Secret" and resource.get("data")
+            if data:
+                resource["data"] = {k: sensitive_str(v) for k, v in data.items()}
+            if task.configSpec.operation in ["check", "discover"]:
+                states = dict(
+                    Active=Status.ok,
+                    Terminating=Status.absent,
+                    Pending=Status.pending,
+                    Running=Status.ok,
+                    Succeeded=Status.absent,
+                    Failed=Status.error,
+                    Unknown=Status.unknown,
+                )
+                status = resource.get("status", {}).get("phase", "Unknown")
+                result.status = states.get(status, Status.unknown)
+        return result
 
     def getResultKeys(self, task, results):
         # save first time even if it hasn't changed

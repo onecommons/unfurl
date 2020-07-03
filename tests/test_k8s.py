@@ -23,7 +23,7 @@ spec:
           # target: k8sCluster
           type: unfurl.relationships.ConnectsTo.K8sCluster
           properties:
-            context: docker-for-desktop
+            context: docker-desktop
 
       node_templates:
         k8sCluster:

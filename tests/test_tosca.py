@@ -320,7 +320,7 @@ spec:
                   # think of this as a connection, "discover" will figure out what's on the other end
                   type: unfurl.relationships.ConnectsTo.K8sCluster
                   properties:
-                    context: docker-for-desktop
+                    context: docker-desktop
   """
             % VERSION
         )
