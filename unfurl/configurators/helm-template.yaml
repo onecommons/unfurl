@@ -1,0 +1,156 @@
+tosca_definitions_version: tosca_simple_unfurl_1_0_0
+  # unfurl.relationships.InstalledBy used for implementation if no implementation is specified
+node_types:
+  unfurl.nodes.HelmRepository:
+    derived_from: tosca.nodes.Root
+    properties:
+      name:
+        type: string
+        default: {eval: ".name"}
+      url:
+        type: string
+    capabilities:
+      feature:
+        type: tosca.capabilities.Node
+    interfaces:
+      Standard:
+        create: "helm repo add {{ SELF.name }} {{ SELF.url }}"
+        delete: "helm repo remove {{ SELF.name }}"
+
+  unfurl.nodes.HelmRelease:
+    derived_from: unfurl.nodes.Installation
+    requirements:
+      - host:
+          node: unfurl.nodes.K8sNamespace
+          relationship: tosca.relationships.HostedOn
+      - repository:
+          node: unfurl.nodes.HelmRepository
+          capability: tosca.capabilities.Node
+    properties:
+      chart:
+        type: string
+      release_name:
+        type: string
+      namespace:
+        type: string
+        default: {eval: ".::.requirements::[.name=host]::.target::name" }
+    interfaces:
+      Helm:
+        type: unfurl.interfaces.Helm
+        operations:
+          execute:
+            implementation: unfurl.configurators.shell.ShellConfigurator
+            inputs:
+              chart: { get_property: ["SELF", "chart"] }
+              release_name: { get_property: ["SELF", "release_name"] }
+              dryrun: "--dry-run"
+              command:
+                eval:
+                  template: >-
+                    helm {{inputs.helmcmd}} {{inputs.release_name}} {{inputs.chart}}
+                      -o json --namespace {{"namespace" | eval }}
+                      {% if "context" | eval %}
+                       --kubecontext {{ "context" | eval }}
+                      {% endif %}
+                      {% if inputs.chart_values | default('', true) %}
+                      --values {{ valuesfile }}
+                      {% endif %}
+                      {% if task.verbose %}--debug{%endif%}
+                      {% if task.timeout %}--timeout {{task.timeout}}{%endif%}
+                      {% if inputs.flags is defined -%}
+                        {% for flag, value in inputs.flags.items() %}
+                          --{{flag}} "{{value | quote }}"
+                        {% endfor%}
+                      {%endif%}
+                vars:
+                  valuesfile:
+                    eval:
+                      tempfile:
+                        eval:
+                          $inputs::chart_values
+              resultTemplate: |
+                {% set json = stdout | from_json %}
+                {%for doc in json.manifest | from_yaml_all %}
+                  {%if doc.kind is defined %}
+                  - name: {{doc.kind}}-{{doc.metadata.namespace }}-{{ doc.metadata.name }}
+                    {%if doc.metadata.namespace is not defined %}
+                    parent: HOST
+                    {% endif %}
+                    template:
+                      {%if doc.kind == 'Secret' %}
+                      type: unfurl.nodes.K8sSecretResource
+                      {% else %}
+                      type: unfurl.nodes.K8sResource
+                      {% endif %}{%if doc.metadata.namespace is defined %}
+                      requirements:
+                        - host:
+                            node: {{ "::*::[.template::type=unfurl.nodes.K8sNamespace][name=$namespace]::.template::name" | eval(namespace=doc.metadata.namespace) }}
+                      {%endif%}
+                    attributes:
+                      {%if doc.metadata.namespace is defined %}
+                      namespace: {{doc.metadata.namespace }}
+                      {% endif %}
+                      apiResource:
+                {{ doc | to_yaml | indent(10, true) }}
+                    readyState: {%if json.info.status == 'deleted' or json.info.status == 'deleting' %}absent
+                                {%- elif json.info.status=='superseded' %}degraded
+                                {%- elif json.info.status=='deployed' %}ok
+                                {%- elif json.info.status=='failed' %}error
+                                {%- else %}unknown{%- endif%}
+                  {%endif%}
+                {% endfor %}
+
+      Standard:
+        operations:
+          configure:
+            implementation: unfurl.configurators.Delegate
+            inputs:
+              operation: Helm.execute
+              helmcmd: '{{ "update" if ".::.present" | eval else "install"}}'
+          delete:
+            implementation: unfurl.configurators.ShellConfigurator
+            inputs:
+              command:
+                eval:
+                  template: >-
+                    helm uninstall {{ "release_name" | eval }} --namespace {{"namespace" | eval }}
+                      {% if "context" | eval %}
+                       --kubecontext {{ "context" | eval }}
+                      {% endif %}
+                      {% if task.verbose %}--debug{%endif%}
+                      {% if task.timeout %}--timeout {{task.timeout}}{%endif%}
+                      {% if inputs.flags is defined -%}
+                        {% for flag, value in inputs.flags.items() %}
+                          --{{flag}} "{{value | quote }}"
+                        {% endfor%}
+                      {%endif%}
+              # XXX add result template that removes added resources
+
+      Install:
+        operations:
+          discover:
+            implementation: unfurl.configurators.Delegate
+            inputs:
+              operation: Helm.execute
+              helmcmd: status
+              dryrun: true
+
+interface_types:
+  unfurl.interfaces.Helm:
+    derived_from: tosca.interfaces.Root
+    operations:
+      execute:
+    inputs:
+      helmcmd:
+        type: string
+      release_name:
+        type: string
+      chart:
+        type: string
+        required: false
+      flags:
+        type: map
+        required: false
+      chart_values:
+        type: map
+        required: false

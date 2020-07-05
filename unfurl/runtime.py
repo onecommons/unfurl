@@ -62,6 +62,10 @@ class Operational(ChangeAware):
         return self.status <= Status.error
 
     @property
+    def present(self):
+        return self.operational or  self.status == Status.error
+
+    @property
     def status(self):
         """
         Return the effective status, considering first the local readyState and
