@@ -549,7 +549,7 @@ class RelationshipSpec(EntitySpec):
             or defaultFor == capability.name
             or capability.is_derived_from(defaultFor)
         ):
-            return self.toscaEntityTemplate.validate_target(
+            return self.toscaEntityTemplate.get_matching_capabilities(
                 nodeTemplate, capability.name
             )
 
