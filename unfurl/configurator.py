@@ -691,9 +691,22 @@ class TaskView(object):
                     )
                     resourceSpec["template"] = nodeSpec.name
 
-                # note: resourceSpec[parent] if set overrides parent keyword
+                if (
+                    self.job
+                    and "parent" not in resourceSpec
+                    and "template" in resourceSpec
+                ):
+                    nodeSpec = self._manifest.tosca.getTemplate(
+                        resourceSpec["template"]
+                    )
+                    parent = (
+                        self.job.plan.findParentResource(nodeSpec) or self.target.root
+                    )
+                else:
+                    parent = self.target.root
+                # note: if resourceSpec[parent] is set it overrides the parent keyword
                 resource = self._manifest.createNodeInstance(
-                    rname, resourceSpec, parent=self.target.root
+                    rname, resourceSpec, parent=parent
                 )
 
                 # XXX wrong... these need to be operational instances
