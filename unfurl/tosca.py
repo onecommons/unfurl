@@ -14,6 +14,7 @@ import toscaparser.artifacts
 from toscaparser.common.exception import ExceptionCollector, ValidationError
 import six
 import logging
+import os.path
 from ruamel.yaml.comments import CommentedMap
 
 logger = logging.getLogger("unfurl")
@@ -74,6 +75,12 @@ class ToscaSpec(object):
 
             if instances:
                 self.loadInstances(toscaDef, instances)
+
+            repositories = toscaDef.setdefault("repositories", {})
+            if "unfurl" not in repositories:
+                repositories["unfurl"] = dict(
+                    url="file:" + os.path.abspath(os.path.dirname(__file__))
+                )
 
             logger.info("Validating TOSCA template at %s", path)
             try:
