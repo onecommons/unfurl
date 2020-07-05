@@ -1,12 +1,17 @@
 """
+enviroment:
+timeout:
 inputs:
  command: "--switch {{ '.::foo' | ref }}"
- timeout: 9999
- resultTemplate: # cmd, stdout, stderr
-   ref:
+ cwd
+ dryrun
+ shell
+ keeplines
+ resultTemplate: # available vars: cmd, stdout, stderr, returncode, error, timeout
+   eval:
     file:
       ./handleResult.tpl
-  foreach: contents
+   foreach: contents # get the file contents
 """
 
 
@@ -46,7 +51,9 @@ except ImportError:
 
 # XXX we should know if cmd if not os.access(implementation, os.X):
 class ShellConfigurator(TemplateConfigurator):
-    def runProcess(self, cmd, shell=False, timeout=None, env=None):
+    def runProcess(
+        self, cmd, shell=False, timeout=None, env=None, cwd=None, keeplines=False
+    ):
         """
     Returns an object with the following attributes:
 
@@ -60,6 +67,8 @@ class ShellConfigurator(TemplateConfigurator):
         if not isinstance(cmd, six.string_types):
             cmdStr = " ".join(cmd)
         else:
+            if not keeplines:
+                cmd = cmd.replace("\n", " ")
             cmdStr = cmd
 
         try:
@@ -67,6 +76,7 @@ class ShellConfigurator(TemplateConfigurator):
                 cmd,
                 shell=shell,
                 env=env,
+                cwd=cwd,
                 timeout=timeout,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
@@ -107,8 +117,14 @@ class ShellConfigurator(TemplateConfigurator):
         )
         if status == Status.error:
             logger.warning("shell task run failure: %s", result.cmd)
+            logger.info(
+                "shell task return code: %s, stderr: %s",
+                result.returncode,
+                result.stderr,
+            )
         else:
             logger.info("shell task run success: %s", result.cmd)
+            logger.debug("shell task output: %s", result.stdout)
 
         if status != Status.error:
             self.processResultTemplate(task, result.__dict__)
@@ -125,14 +141,44 @@ class ShellConfigurator(TemplateConfigurator):
             return "'%s' is not executable" % cmd[0]
         return True
 
+    def canDryRun(self, task):
+        return task.inputs.get("dryrun")
+
     def run(self, task):
         params = task.inputs
         cmd = params["command"]
+        isString = isinstance(cmd, six.string_types)
         # default for shell: True if command is a string otherwise False
-        shell = params.get("shell", isinstance(cmd, six.string_types))
+        shell = params.get("shell", isString)
         env = task.getEnvironment(False)
+        cwd = params.get("cwd")
+        keeplines = params.get("keeplines")
+
+        if task.dryRun and isinstance(task.inputs.get("dryrun"), six.string_types):
+            dryrunArg = task.inputs["dryrun"]
+            if "%dryrun%" in cmd:  # replace %dryrun%
+                if isString:
+                    cmd = cmd.replace("%dryrun%", dryrunArg)
+                else:
+                    cmd[cmd.index("%dryrun%")] = dryrunArg
+            else:  # append dryrunArg
+                if isString:
+                    cmd += " " + dryrunArg
+                else:
+                    cmd.append(dryrunArg)
+        elif "%dryrun%" in cmd:
+            if isString:
+                cmd = cmd.replace("%dryrun%", "")
+            else:
+                cmd.remove("%dryrun%")
+
         result = self.runProcess(
-            cmd, shell=shell, timeout=task.configSpec.timeout, env=env
+            cmd,
+            shell=shell,
+            timeout=task.configSpec.timeout,
+            env=env,
+            cwd=cwd,
+            keeplines=keeplines,
         )
         status = self._handleResult(task, result)
-        yield task.done(status == Status.ok, status=status, result=result.__dict__)
+        yield task.done(status == Status.ok, result=result.__dict__)
