@@ -195,7 +195,7 @@ class ToscaSyntaxTest(unittest.TestCase):
         job = runner.run(
             JobOptions(add=True, planOnly=True, out=output, startTime="test")
         )
-        # print(job.summary())
+        # print(job.jsonSummary())
         assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
         self.assertEqual(job.status.name, "ok")
         self.assertEqual(job.stats()["ok"], 4)
@@ -278,7 +278,7 @@ spec:
             assert job.status == Status.ok, job.summary()
             self.assertEqual(
                 job.jsonSummary()["tasks"],
-                [["foreign:anInstance:Install.check:check:1", "ok"]],
+                [["foreign:anInstance:Install.check:check:1", "ok", "ok"]],
             )
             self.assertEqual(job.getOutputs()["server_ip"], "10.0.0.1")
 
@@ -328,9 +328,10 @@ spec:
         nodeSpec = manifest2.tosca.getTemplate("localhost")
         assert nodeSpec
         relationshipSpec = nodeSpec.requirements["connect"].relationship
-        assert (
-            relationshipSpec
-            and relationshipSpec.name == "unfurl.relationships.ConnectsTo.K8sCluster"
+        assert relationshipSpec
+        self.assertEqual(relationshipSpec.name, "connect")
+        self.assertEqual(
+            relationshipSpec.type, "unfurl.relationships.ConnectsTo.K8sCluster"
         )
         # chooses myCluster instead of the cluster with the "default" directive
         assert relationshipSpec.target.name == "myCluster"

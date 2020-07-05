@@ -232,6 +232,13 @@ class ConfigTask(ConfigChange, TaskView, AttributeManager):
         self.localStatus = Status.ok if result.success else Status.error
         return self
 
+    def modifiedTarget(self):
+        return (
+            (self.result and self.result.modified)
+            or self.target._lastStateChange == self.changeId
+            or self.target._lastConfigChange == self.changeId
+        )
+
     def commitChanges(self):
         """
     This can be called multiple times if the configurator yields multiple times.
@@ -430,14 +437,19 @@ class Job(ConfigChange):
                     continue
 
                 if self.jobOptions.planOnly:
-                    if not self.cantRunTask(task):
-                        # pretend run was sucessful
-                        logger.info("Run " + task.summary())
+                    errors = self.cantRunTask(task)
+                    if errors:
                         result = task.finished(
-                            ConfiguratorResult(True, True, Status.ok)
+                            ConfiguratorResult(False, False, result=errors)
                         )
                     else:
-                        result = task.finished(ConfiguratorResult(False, False))
+                        # pretend run was successful and modified its target
+                        status = None
+                        if task.configSpec.operation in ["check", "discover"]:
+                            # deploy and undeploy set status later (see getSuccessStatus())
+                            status = Status.ok
+                        result = task.finished(ConfiguratorResult(True, True, status))
+                        logger.info("Simulated task: " + task.summary())
                 else:
                     logger.info("Running task %s", task)
                     result = self.runTask(task)
@@ -543,8 +555,8 @@ class Job(ConfigChange):
                     dep for dep in dependencies if not dep.operational and dep.required
                 ]
             if missing:
-                reason = "missing required dependencies: %s" % ",".join(
-                    [dep.name for dep in missing]
+                reason = "required dependencies not operational: %s" % ",".join(
+                    ["%s is %s" % (dep.name, dep.status.name) for dep in missing]
                 )
             else:
                 errors = task.configSpec.findInvalidateInputs(task.inputs)
@@ -575,12 +587,15 @@ class Job(ConfigChange):
         return False  # XXX3
 
     def jsonSummary(self):
+        job = dict(id=self.changeId, status=self.status.name, tasks=len(self.workDone))
+        job.update(self.stats())
         return dict(
+            job=job,
             outputs=serializeValue(self.getOutputs()),
-            job=dict(
-                id=self.changeId, status=self.status.name, tasks=len(self.workDone)
-            ),
-            tasks=[[name, task.status.name] for (name, task) in self.workDone.items()],
+            tasks=[
+                [name, task.status.name, task.target.status.name]
+                for (name, task) in self.workDone.items()
+            ],
         )
 
     def stats(self, asMessage=False):
@@ -593,7 +608,7 @@ class Job(ConfigChange):
                 stats["skipped"] = len(list(g))
             else:
                 stats[k.name] = len(list(g))
-        stats["changed"] = len([t for t in tasks if t.result and t.result.modified])
+        stats["changed"] = len([t for t in tasks if t.modifiedTarget()])
         if asMessage:
             return "{total} tasks ({changed} changed, {ok} ok, {error} failed, {unknown} unknown, {skipped} skipped)".format(
                 **stats

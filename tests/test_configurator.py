@@ -215,7 +215,7 @@ class ConfiguratorTest(unittest.TestCase):
         assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
         self.assertEqual(
             job.stats(),
-            {"total": 1, "ok": 1, "error": 0, "unknown": 0, "skipped": 0, "changed": 0},
+            {"total": 1, "ok": 1, "error": 0, "unknown": 0, "skipped": 0, "changed": 1},
         )
         assert job.rootResource.findResource("testNode").attributes["outputVar"]
 
