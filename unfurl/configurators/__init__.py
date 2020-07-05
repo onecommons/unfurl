@@ -14,3 +14,15 @@ class TemplateConfigurator(Configurator):
         # XXX handle outputs better
         self.processResultTemplate(task, self.configSpec.outputs)
         yield task.done()
+
+
+class Delegate(Configurator):
+    def canDryRun(self, task):
+        return True # ok because this will also be called on the subtask
+
+    def run(self, task):
+        subtaskRequest = task.createSubTask(task.inputs["operation"], task.inputs.get('target'))
+        assert subtaskRequest
+        # note: this will call canRun() and if needed canDryRun() on subtask but not shouldRun()
+        subtask = yield subtaskRequest
+        yield subtask.result
