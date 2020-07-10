@@ -132,7 +132,9 @@ def createInstanceRepo(gitDir, specRepo):
     manifestName = DefaultManifestName
     repo = _createRepo("instance", gitDir)
     writeManifest(gitDir, manifestName, specRepo, repo)
-    repo.repo.index.add([manifestName])
+    gitAttributesContent = "**/*jobs.log merge=union\n"
+    _writeFile(gitDir, ".gitattributes", gitAttributesContent)
+    repo.repo.index.add([manifestName, ".gitattributes"])
     repo.repo.index.commit("Default instance repository boilerplate")
     return repo
 
@@ -171,13 +173,21 @@ def createMonoRepoProject(projectdir, repo):
     projectConfigPath = writeProjectConfig(projectdir, localInclude=localInclude)
     gitIgnoreContent = """%s\nlocal\n""" % localConfigFilename
     gitIgnorePath = _writeFile(projectdir, ".gitignore", gitIgnoreContent)
+    gitAttributesContent = "**/*jobs.log merge=union\n"
+    gitAttributesPath = _writeFile(projectdir, ".gitattributes", gitAttributesContent)
     serviceTemplatePath = writeServiceTemplate(projectdir, repo)
     # write manifest
     manifestPath = writeTemplate(
         projectdir, DefaultManifestName, "manifest-template.yaml.j2", {}
     )
     repo.commitFiles(
-        [projectConfigPath, gitIgnorePath, serviceTemplatePath, manifestPath],
+        [
+            projectConfigPath,
+            gitIgnorePath,
+            gitAttributesPath,
+            serviceTemplatePath,
+            manifestPath,
+        ],
         "Create a new unfurl repository",
     )
     return projectConfigPath

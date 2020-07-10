@@ -37,6 +37,7 @@ class Manifest(AttributeManager):
         self.specDigest = self.getSpecDigest(spec)
         self.revisions = RevisionManager(self)
         self.path = path
+        self.changeSets = None
 
     def loadSpec(self, spec, path):
         if "service_template" in spec:
@@ -72,11 +73,10 @@ class Manifest(AttributeManager):
             m.update(json.dumps(tpl, sort_keys=True).encode("utf-8"))
         return m.hexdigest()
 
-    def _ready(self, rootResource, lastChangeId=0):
+    def _ready(self, rootResource):
         self.rootResource = rootResource
         if rootResource:
             rootResource.attributeManager = self
-        self.lastChangeId = lastChangeId
 
     def getRootResource(self):
         return self.rootResource
@@ -133,48 +133,49 @@ class Manifest(AttributeManager):
                 ]
         return resourceChanges
 
-    def loadConfigChange(self, changeId):
-        """
-    Reconstruct the Configuration that was applied in the past
-    """
-        changeSet = self.changeSets.get(changeId)
-        if not changeSet:
-            raise UnfurlError("can not find changeset for changeid %s" % changeId)
-
-        configChange = ConfigChange()
-        Manifest.loadStatus(changeSet, configChange)
-        configChange.changeId = changeSet.get("changeId", 0)
-        configChange.parentId = changeSet.get("parentId")
-
-        configChange.inputs = changeSet.get("inputs")
-
-        configChange.dependencies = {}
-        for val in changeSet.get("dependencies", []):
-            key = val.get("name") or val["ref"]
-            assert key not in configChange.dependencies
-            configChange.dependencies[key] = Dependency(
-                val["ref"],
-                val.get("expected"),
-                val.get("schema"),
-                val.get("name"),
-                val.get("required"),
-                val.get("wantList", False),
-            )
-
-        if "changes" in changeSet:
-            configChange.resourceChanges = self.loadResourceChanges(
-                changeSet["changes"]
-            )
-
-        configChange.result = changeSet.get("result")
-        configChange.messages = changeSet.get("messages", [])
-
-        # XXX
-        # ('action', ''),
-        # ('target', ''), # nodeinstance key
-        # implementationType: configurator resource | artifact | configurator class
-        # implementation: repo:key#commitid | className:version
-        return configChange
+    # XXX unused
+    # def loadConfigChange(self, changeId):
+    #     """
+    # Reconstruct the Configuration that was applied in the past
+    # """
+    #     changeSet = self.changeSets.get(changeId)
+    #     if not changeSet:
+    #         raise UnfurlError("can not find changeset for changeid %s" % changeId)
+    #
+    #     configChange = ConfigChange()
+    #     Manifest.loadStatus(changeSet, configChange)
+    #     configChange.changeId = changeSet.get("changeId", 0)
+    #     configChange.parentId = changeSet.get("parentId")
+    #
+    #     configChange.inputs = changeSet.get("inputs")
+    #
+    #     configChange.dependencies = {}
+    #     for val in changeSet.get("dependencies", []):
+    #         key = val.get("name") or val["ref"]
+    #         assert key not in configChange.dependencies
+    #         configChange.dependencies[key] = Dependency(
+    #             val["ref"],
+    #             val.get("expected"),
+    #             val.get("schema"),
+    #             val.get("name"),
+    #             val.get("required"),
+    #             val.get("wantList", False),
+    #         )
+    #
+    #     if "changes" in changeSet:
+    #         configChange.resourceChanges = self.loadResourceChanges(
+    #             changeSet["changes"]
+    #         )
+    #
+    #     configChange.result = changeSet.get("result")
+    #     configChange.messages = changeSet.get("messages", [])
+    #
+    #     # XXX
+    #     # ('action', ''),
+    #     # ('target', ''), # nodeinstance key
+    #     # implementationType: configurator resource | artifact | configurator class
+    #     # implementation: repo:key#commitid | className:version
+    #     return configChange
 
     # XXX this is only used by commented out Taskview.createConfigurationSpec()
     # def loadConfigSpec(self, configName, spec):
@@ -234,11 +235,10 @@ class Manifest(AttributeManager):
     def _getLastChange(self, operational):
         if not operational.lastConfigChange:
             return None
-        changerecord = self.changeSets[operational.lastConfigChange]
-        parentId = changerecord.get("parentId")
-        if parentId:
-            return self.changeSets[parentId]
-        return changerecord
+        if not self.changeSets: # XXX load changesets if None
+            return None
+        jobId = ConfigChange.getJobId(operational.lastConfigChange)
+        return self.changeSets.get(jobId)
 
     def _createEntityInstance(self, ctor, name, status, parent):
         operational = self.loadStatus(status)

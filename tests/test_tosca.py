@@ -278,7 +278,7 @@ spec:
             assert job.status == Status.ok, job.summary()
             self.assertEqual(
                 job.jsonSummary()["tasks"],
-                [["foreign:anInstance:Install.check:check:1", "ok", "ok"]],
+                [["Install.check", "ok", "foreign:anInstance", "ok"]],
             )
             self.assertEqual(job.getOutputs()["server_ip"], "10.0.0.1")
 

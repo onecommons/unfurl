@@ -82,9 +82,10 @@ manifest.yaml
           # ...
   repositories
   changeLog: changes.yaml
-  latestChange:
-    jobId: 1
-    startCommit: ''
+  lastJob:
+    changeId: 1
+    previousId:
+    startCommit:
     startTime:
     specDigest:
     lastChangeId:
@@ -101,19 +102,18 @@ changelog.yaml
 
   manifest: manifest.yaml
   changes:
-    - jobId: 1
+    - changeId:
+      previousId:
       startCommit:
-      endCommit: ''
+      endCommit:
       startTime:
       specDigest:
-      tasksRun:
+      summary:
       readyState:
         effective: error
         local: ok
     - changeId: 2
       startTime
-      parentId: 1 # allows execution plan order to be reconstructed
-      previousId # XXX last time this configuration ran
       target
       readyState
       priority

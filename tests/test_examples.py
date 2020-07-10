@@ -41,7 +41,7 @@ class RunTest(unittest.TestCase):
         path = __file__ + "/../examples/helm-manifest.yaml"
         manifest = YamlManifest(path=path)
         runner = Runner(manifest)
-        self.assertEqual(runner.lastChangeId, 0, "expected new manifest")
+        assert not manifest.lastJob, "expected new manifest"
         output = six.StringIO()  # so we don't save the file
         job = runner.run(JobOptions(add=True, out=output, startTime="test"))
         assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
@@ -51,9 +51,7 @@ class RunTest(unittest.TestCase):
         manifest2 = YamlManifest(output.getvalue())
         # manifest2.statusSummary()
         output2 = six.StringIO()
-        job2 = Runner(manifest2).run(
-            JobOptions(add=True, out=output2, startTime="test")
-        )
+        job2 = Runner(manifest2).run(JobOptions(add=True, out=output2, startTime=1))
         # print("2", output2.getvalue())
         # print(job2.summary())
         assert not job2.unexpectedAbort, job2.unexpectedAbort.getStackTrace()
@@ -65,7 +63,7 @@ class RunTest(unittest.TestCase):
         output3 = six.StringIO()
         manifest3 = YamlManifest(output2.getvalue())
         job3 = Runner(manifest3).run(
-            JobOptions(workflow="undeploy", out=output3, startTime="test")
+            JobOptions(workflow="undeploy", out=output3, startTime=2)
         )
         # print(output3.getvalue())
         # 6 delete tasks should have ran
@@ -79,9 +77,9 @@ class RunTest(unittest.TestCase):
         path = __file__ + "/../examples/helm-manifest.yaml"
         manifest = YamlManifest(path=path)
         runner = Runner(manifest)
-        self.assertEqual(runner.lastChangeId, 0, "expected new manifest")
+        assert not manifest.lastJob, "expected new manifest"
         output = six.StringIO()  # so we don't save the file
-        job = runner.run(JobOptions(workflow="discover", out=output, startTime="test"))
+        job = runner.run(JobOptions(workflow="discover", out=output, startTime=1))
         # print(job.summary())
         # print("discovered", runner.manifest.tosca.discovered)
         # print("discovered manifest", output.getvalue())
@@ -94,7 +92,7 @@ class RunTest(unittest.TestCase):
         # manifest2.statusSummary()
         output2 = six.StringIO()
         job2 = Runner(manifest2).run(
-            JobOptions(workflow="discover", out=output2, startTime="test")
+            JobOptions(workflow="discover", out=output2, startTime=2)
         )
         # print("2", output2.getvalue())
         # print('job2', job2.summary())

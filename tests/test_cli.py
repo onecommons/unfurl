@@ -145,12 +145,18 @@ class CliTest(unittest.TestCase):
                 f.write(manifest)
             runCmd = ["run", "--manifest", "manifest2.yaml"]
             result = runner.invoke(cli, runCmd + ["--", "echo", "ok"])
+            assert not result.exception, "\n".join(
+                traceback.format_exception(*result.exc_info)
+            )
             assert r"'stdout': 'ok\n'" in result.output.replace(
                 "u'", "'"
             ), result.output
             # run same command using ansible
             result = runner.invoke(
                 cli, runCmd + ["--host", "localhost", "--", "echo", "ok"]
+            )
+            assert not result.exception, "\n".join(
+                traceback.format_exception(*result.exc_info)
             )
             assert r"'stdout': 'ok'" in result.output.replace("u'", "'"), result.output
 

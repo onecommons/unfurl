@@ -67,6 +67,8 @@ spec:
 
 class ConfiguratorTest(unittest.TestCase):
     def verifyRoundtrip(self, original, jobOptions):
+        if jobOptions.startTime:
+            jobOptions.startTime += 1
         job = Runner(YamlManifest(original)).run(jobOptions)
         # should not need to run any tasks
         assert len(job.workDone) == 0, job.workDone
@@ -99,9 +101,7 @@ class ConfiguratorTest(unittest.TestCase):
         #     self.assertEqual(str(notYetProvided[1]),
         # """[<ValidationError: "'copyOfMeetsTheRequirement' is a required property">]""")
 
-        jobOptions1 = JobOptions(
-            resource="test1", startTime=datetime.datetime.fromordinal(1)
-        )
+        jobOptions1 = JobOptions(resource="test1", startTime=1)
         run1 = runner.run(jobOptions1)
         # print(run1.out.getvalue())
         assert not run1.unexpectedAbort, run1.unexpectedAbort.getStackTrace()
@@ -125,9 +125,7 @@ class ConfiguratorTest(unittest.TestCase):
 
         self.verifyRoundtrip(run1.out.getvalue(), jobOptions1)
 
-        jobOptions2 = JobOptions(
-            resource="test2", startTime=datetime.datetime.fromordinal(1)
-        )
+        jobOptions2 = JobOptions(resource="test2", startTime=2)
         run2 = runner.run(jobOptions2)
         assert not run2.unexpectedAbort, run2.unexpectedAbort.getStackTrace()
         assert run2.status == Status.error, run2.status
@@ -141,9 +139,7 @@ class ConfiguratorTest(unittest.TestCase):
 
     def test_addingResources(self):
         runner = Runner(YamlManifest(manifest))
-        jobOptions = JobOptions(
-            resource="test3", startTime=datetime.datetime.fromordinal(1)
-        )
+        jobOptions = JobOptions(resource="test3", startTime=1)
         run = runner.run(jobOptions)
         assert not run.unexpectedAbort, run.unexpectedAbort.getStackTrace()
         # self.assertEqual(list(run.workDone.keys()), [('test3', 'test'), ('added1', 'config1')])
@@ -161,16 +157,14 @@ class ConfiguratorTest(unittest.TestCase):
         jobOptions.repair = "none"
         self.verifyRoundtrip(run.out.getvalue(), jobOptions)
 
-        jobOptions = JobOptions(
-            resource="test4", startTime=datetime.datetime.fromordinal(1)
-        )
+        jobOptions = JobOptions(resource="test4", startTime=2)
         run = runner.run(jobOptions)
         assert not run.unexpectedAbort, run.unexpectedAbort.getStackTrace()
         self.assertEqual(
-            list(run.workDone.keys()),
+            [(t.name, t.target.name) for t in run.workDone.values()],
             [
-                "test4:for add: Standard.configure:configure:5",
-                "added2:for all: Standard.configure:configure:6",
+                ("for add: Standard.configure", "test4"),
+                ("for all: Standard.configure", "added2"),
             ],
         )
         # print('test4', run.out.getvalue())

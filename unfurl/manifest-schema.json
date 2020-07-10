@@ -169,7 +169,8 @@
     },
     "changeId": {
       "title": "changeId",
-      "type": "number",
+      "type": "string",
+      "pattern": "^A[A-Za-z0-9]{11}$",
       "$$target": "#/definitions/changeId"
     },
     "timestamp": {
@@ -221,19 +222,19 @@
         { "$ref": "#/definitions/status" },
         {
           "properties": {
-            "jobId": { "$ref": "#/definitions/changeId" },
+            "changeId": { "$ref": "#/definitions/changeId" },
+            "previousId": { "$ref": "#/definitions/changeId" },
             "startCommit": { "type": "string" },
             "startTime": { "$ref": "#/definitions/timestamp" },
             "workflow": { "type": "string" },
             "options": { "type": "object" },
             "summary": { "type": "string" },
             "specDigest": { "type": "string" },
-            "lastChangeId": { "$ref": "#/definitions/changeId" },
             "endCommit": { "type": "string" }
           }
         }
       ],
-      "required": ["jobId"]
+      "required": ["changeId"]
     },
     "task": {
       "title": "Task Record",
@@ -243,7 +244,6 @@
         {
           "properties": {
             "changeId": { "$ref": "#/definitions/changeId" },
-            "parentId": { "$ref": "#/definitions/changeId" },
             "target": { "type": "string" },
             "implementation": {
               "$ref": "#/definitions/configurationSpec"
@@ -334,8 +334,9 @@
       ],
       "default": {}
     },
-    "latestChange": { "$ref": "#/definitions/job" },
+    "lastJob": { "$ref": "#/definitions/job" },
     "changeLog": { "type": "string" },
+    "jobsFolder": { "type": "string" },
     "changes": { "$ref": "#/definitions/changes" }
   },
   "required": ["apiVersion", "kind", "spec"]

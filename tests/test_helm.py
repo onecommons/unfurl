@@ -85,15 +85,14 @@ class HelmTest(unittest.TestCase):
     def test_helm(self):
         runner = Runner(YamlManifest(manifest))
 
-        run1 = runner.run(JobOptions(dryrun=False, verbose=3))
+        run1 = runner.run(JobOptions(dryrun=False, verbose=3, startTime=1))
         assert not run1.unexpectedAbort, run1.unexpectedAbort.getStackTrace()
         summary = run1.jsonSummary()
-        self.assertEquals(
+        self.assertEqual(
             summary["job"],
             {
-                "id": 1,
+                "id": "A01110000000",
                 "status": "ok",
-                "tasks": 9,
                 "total": 9,
                 "ok": 9,
                 "error": 0,
@@ -104,15 +103,15 @@ class HelmTest(unittest.TestCase):
         )
         assert all(task[-1] == "ok" for task in summary["tasks"]), summary["tasks"]
 
-        run2 = runner.run(JobOptions(workflow="undeploy"))
+        run2 = runner.run(JobOptions(workflow="undeploy", startTime=2))
         assert not run2.unexpectedAbort, run2.unexpectedAbort.getStackTrace()
         summary = run2.jsonSummary()
-        self.assertEquals(
+        # if tests fail need to run helm uninstall mysql-test  -n unfurl-helm-unittest
+        self.assertEqual(
             summary["job"],
             {
-                "id": 12,
+                "id": "A01120000000",
                 "status": "ok",
-                "tasks": 8,
                 "total": 8,
                 "ok": 8,
                 "error": 0,

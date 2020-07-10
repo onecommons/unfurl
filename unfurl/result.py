@@ -1,5 +1,8 @@
 from collections import Mapping, MutableSequence, MutableMapping
+from datetime import datetime, timedelta
+
 from .merge import diffDicts
+from .util import UnfurlError
 
 
 def serializeValue(value, **kw):
@@ -64,9 +67,141 @@ class ResourceRef(object):
 
 
 class ChangeRecord(object):
-    def __init__(self, changeId=0, parentId=None):
-        self.changeId = changeId
-        self.parentId = parentId
+    """
+    A ChangeRecord represents a job or task in the change log file.
+    It consists of a change ID and named attributes.
+
+    A change ID is an identifier with this sequence of 12 characters:
+    - "A" serves as a format version identifier
+    - 7 alphanumeric characters (0-9, A-Z, and a-z) encoding the date and time the job ran.
+    - 4 hexadecimal digits encoding the task id
+    """
+
+    EpochStartTime = datetime(2020, 1, 1, tzinfo=None)
+    LogAttributes = ("previousId",)
+    DateTimeFormat = "%Y-%m-%d-%H-%M-%S-%f"
+
+    def __init__(
+        self, jobId=None, startTime=None, taskId=0, previousId=None, parse=None
+    ):
+        if parse:
+            self.parse(parse)
+            self.setStartTime(getattr(self, "startTime", startTime))
+        else:
+            self.setStartTime(startTime)
+            self.taskId = taskId
+            self.previousId = previousId
+            if jobId:
+                self.changeId = self.updateChangeId(jobId, taskId)
+            else:
+                self.changeId = self.makeChangeId(self.startTime, taskId, previousId)
+
+    def setStartTime(self, startTime=None):
+        if not startTime:
+            self.startTime = datetime.utcnow()
+        elif isinstance(startTime, datetime):
+            self.startTime = startTime
+        elif isinstance(startTime, int):  # helper for deterministic testing
+            self.startTime = self.EpochStartTime.replace(hour=startTime)
+        else:
+            try:
+                self.startTime = datetime.strptime(startTime, self.DateTimeFormat)
+            except ValueError:
+                self.startTime = self.EpochStartTime
+
+    def getStartTime(self):
+        return self.startTime.strftime(self.DateTimeFormat)
+
+    def setTaskId(self, taskId):
+        self.taskId = taskId
+        self.changeId = self.updateChangeId(self.changeId, taskId)
+
+    @staticmethod
+    def getJobId(changeId):
+        return ChangeRecord.updateChangeId(changeId, 0)
+
+    @staticmethod
+    def updateChangeId(changeId, taskId):
+        return changeId[:-4] + "{:04x}".format(taskId)
+
+    @staticmethod
+    def decode(changeId):
+        def _decodeChr(i, c):
+            offset = 48 if c < "A" else 55
+            val = ord(c) - offset
+            return str(val + (2020 if i == 0 else 0))
+
+        return (
+            "-".join([_decodeChr(*e) for e in enumerate(changeId[1:7])])
+            + "."
+            + _decodeChr(7, changeId[7])
+        )
+
+    @classmethod
+    def makeChangeId(self, timestamp=None, taskid=0, previousId=None):
+        b62 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+        if not timestamp:
+            timestamp = datetime.utcnow()
+
+        year = timestamp.year - self.EpochStartTime.year  # 2020
+        if year < 0:
+            raise UnfurlError("changeId timestamp too far in the past: %s" % timestamp)
+        if year > len(b62):
+            raise UnfurlError(
+                "changeId timestamp too far in the future: %s" % timestamp
+            )
+
+        # year, month, day, hour, minute, second, wday, yday, dst
+        jobIdFragment = "".join([b62[n] for n in timestamp.utctimetuple()[1:6]])
+        fraction = b62[timestamp.microsecond // 16200]
+        changeId = "A{}{}{}{:04x}".format(b62[year], jobIdFragment, fraction, taskid)
+
+        if previousId:
+            if previousId[:8] == changeId[:8]:
+                # in case last job started less than 1/62nd of a second ago
+                return self.makeChangeId(
+                    timestamp + timedelta(milliseconds=16200), taskid, previousId
+                )
+            if previousId > changeId:
+                raise UnfurlError(
+                    "New changeId is earlier than the previous changeId: %s (%s) < %s (%s) Is time set correctly?"
+                    % (
+                        changeId,
+                        self.decode(changeId),
+                        previousId,
+                        self.decode(previousId),
+                    )
+                )
+        return changeId
+
+    def parse(self, log):
+        terms = log.split("\t")
+        attributes = dict(startTime=None)
+        for i, term in enumerate(terms):
+            if i == 0:
+                self.changeId = term
+                self.taskId = int(term[-4:], 16)
+            # elif i == 1 and '=' not in term:
+            #     self.parentId=ChangeId(term)
+            else:
+                left, sep, right = term.partition("=")
+                attributes[left] = right
+        self.__dict__.update(attributes)
+
+    def log(self, attributes=None):
+        r"changeid\tkey=value\tkey=value"
+        # if self.parentId:
+        #     start = [str(self.changeId), str(self.parentId)]
+        # else:
+        start = [self.changeId]
+        terms = start + [
+            "{}={}".format(k, getattr(self, k))
+            for k in self.LogAttributes
+            if getattr(self, k, None) is not None
+        ]
+        if attributes:
+            terms += ["{}={}".format(k, v) for k, v in attributes.items()]
+        return "\t".join(terms) + "\n"
 
 
 class ChangeAware(object):

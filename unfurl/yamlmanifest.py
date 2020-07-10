@@ -28,6 +28,8 @@ logger = logging.getLogger("unfurl")
 
 _basepath = os.path.abspath(os.path.dirname(__file__))
 
+DefaultJobLogName = "jobs.log"
+
 
 def saveConfigSpec(spec):
     saved = CommentedMap([("operation", spec.operation), ("className", spec.className)])
@@ -122,7 +124,6 @@ Convert dictionary suitable for serializing as yaml
 .. code-block:: YAML
 
   changeId:
-  parentId:
   target:
   implementation:
   inputs:
@@ -134,7 +135,6 @@ Convert dictionary suitable for serializing as yaml
   """
     output = CommentedMap()
     output["changeId"] = task.changeId
-    output["parentId"] = task.parentId
     if task.target:
         output["target"] = task.target.key
     saveStatus(task, output)
@@ -184,30 +184,12 @@ class YamlManifest(Manifest):
         status = manifest.get("status", {})
 
         self.changeLogPath = manifest.get("changeLog")
-        if self.changeLogPath:
-            fullPath = os.path.join(self.getBaseDir(), self.changeLogPath)
-            if os.path.exists(fullPath):
-                changelog = YamlConfig(
-                    None,
-                    fullPath,
-                    validate,
-                    os.path.join(_basepath, "changelog-schema.json"),
-                )
-                changes = changelog.config.get("changes", [])
-            else:
-                if status:
-                    logger.warning("missing changelog: %s", fullPath)
-                changes = manifest.get("changes", [])
-        else:
-            changes = manifest.get("changes", [])
-            if localEnv:
-                # save changes to a separate file if we're in a local environment
-                self.changeLogPath = "changes.yaml"
+        self.jobsFolder = manifest.get("jobsFolder", "jobs")
+        if not self.changeLogPath and localEnv:
+            # save changes to a separate file if we're in a local environment
+            self.changeLogPath = DefaultJobLogName
 
-        self.changeSets = dict(
-            (c.get("changeId", c.get("jobId", 0)), c) for c in changes
-        )
-        lastChangeId = self.changeSets and max(self.changeSets.keys()) or 0
+        self.lastJob = manifest.get("lastJob")
 
         self.imports = Imports()
         if localEnv:
@@ -232,7 +214,7 @@ class YamlManifest(Manifest):
         rootResource.envRules = CommentedMap(
             self.context.get("environment", {}).items()
         )
-        self._ready(rootResource, lastChangeId)
+        self._ready(rootResource)
 
     def getBaseDir(self):
         return self.manifest.getBaseDir()
@@ -389,8 +371,10 @@ class YamlManifest(Manifest):
     endCommit:   # commit updating status (only appears in changelog file)
     """
         output = CommentedMap()
-        output["jobId"] = job.changeId
-        output["startTime"] = str(job.startTime)
+        output["changeId"] = job.changeId
+        output["startTime"] = job.getStartTime()
+        if job.previousId:
+            output["previousId"] = job.previousId
         options = job.jobOptions.getUserSettings()
         output["workflow"] = options.pop("workflow", Defaults.workflow)
         output["options"] = options
@@ -398,7 +382,6 @@ class YamlManifest(Manifest):
         if self.currentCommitId:
             output["startCommit"] = self.currentCommitId
         output["specDigest"] = self.specDigest
-        output["lastChangeId"] = job.runner.lastChangeId
         return saveStatus(job, output)
 
     def saveJob(self, job):
@@ -428,7 +411,7 @@ class YamlManifest(Manifest):
 
         jobRecord = self.saveJobRecord(job)
         if job.workDone:
-            self.manifest.config["latestChange"] = jobRecord
+            self.manifest.config["lastJob"] = jobRecord
             changes = map(saveTask, job.workDone.values())
             if self.changeLogPath:
                 self.manifest.config["changeLog"] = self.changeLogPath
@@ -489,10 +472,11 @@ class YamlManifest(Manifest):
             )
             jobRecord["endCommit"] = self.repo.revision
         if self.changeLogPath:
-            self.saveChangeLog(jobRecord, changes)
+            jobLogPath = self.saveChangeLog(jobRecord, changes)
+            self.appendLog(job, jobRecord, jobLogPath)
             if doCommit:
                 self.repo.commitFiles(
-                    [os.path.join(self.getBaseDir(), self.changeLogPath)],
+                    [self.getChangeLogPath(), jobLogPath],
                     "Updating changelog for job %s" % job.changeId,
                 )
         if doCommit:
@@ -503,6 +487,51 @@ class YamlManifest(Manifest):
                 self.repo.getInitialRevision(),
             )
 
+    def getChangeLogPath(self):
+        return os.path.join(self.getBaseDir(), self.changeLogPath)
+
+    def getJobLogPath(self, startTime):
+        name = os.path.basename(self.getChangeLogPath())
+        # try to figure out any custom name pattern from changelogPath:
+        defaultName = os.path.splitext(DefaultJobLogName)[0]
+        currentName = os.path.splitext(name)[0]
+        prefix, _, suffix = currentName.partition(defaultName)
+        fileName = prefix + "job" + startTime + suffix + ".yaml"
+        return os.path.join(self.jobsFolder, fileName)
+
+    def appendLog(self, job, jobRecord, jobLogPath):
+        logPath = self.getChangeLogPath()
+        jobLogRelPath = os.path.relpath(jobLogPath, os.path.dirname(logPath))
+        if not os.path.isdir(os.path.dirname(logPath)):
+            os.makedirs(os.path.dirname(logPath))
+        logger.info("saving changelog to %s", logPath)
+        tasks = job.workDone.values()
+        with open(logPath, "a") as f:
+            attrs = dict(status=job.status.name)
+            attrs.update(
+                {
+                    k: jobRecord[k]
+                    for k in (
+                        "status",
+                        "startTime",
+                        "specDigest",
+                        "startCommit",
+                        "summary",
+                    )
+                    if k in jobRecord
+                }
+            )
+            attrs["logfile"] = jobLogRelPath
+            f.write(job.log(attrs))
+
+            for task in tasks:
+                attrs = dict(
+                    status=task.status.name,
+                    target=task.target.key,
+                    summary=task.summary(),
+                )
+                f.write(task.log(attrs))
+
     def saveChangeLog(self, jobRecord, newChanges):
         """
     manifest: manifest.yaml
@@ -511,16 +540,17 @@ class YamlManifest(Manifest):
         try:
             changelog = CommentedMap()
             changelog["manifest"] = os.path.basename(self.manifest.path)
-            # put jobs before their child tasks
-            key = lambda r: r.get("lastChangeId", r.get("changeId", 0))
-            changes = itertools.chain([jobRecord], newChanges, self.changeSets.values())
-            changelog["changes"] = sorted(changes, key=key, reverse=True)
+            changes = itertools.chain([jobRecord], newChanges)
+            changelog["changes"] = list(changes)
             output = six.StringIO()
             yaml.dump(changelog, output)
-            fullPath = os.path.join(self.getBaseDir(), self.changeLogPath)
-            logger.info("saving changelog to %s", fullPath)
+            fullPath = self.getJobLogPath(jobRecord["startTime"])
+            if not os.path.isdir(os.path.dirname(fullPath)):
+                os.makedirs(os.path.dirname(fullPath))
+            logger.info("saving job changes to %s", fullPath)
             with open(fullPath, "w") as f:
                 f.write(output.getvalue())
+            return fullPath
         except:
             raise UnfurlError("Error saving changelog %s" % self.changeLogPath, True)
 

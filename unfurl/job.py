@@ -5,7 +5,6 @@ Each task tracks and records its modifications to the system's state
 """
 
 import collections
-import datetime
 import types
 import itertools
 import os
@@ -15,7 +14,7 @@ from .util import UnfurlError, UnfurlTaskError, toEnum
 from .merge import mergeDicts
 from .runtime import OperationalInstance
 from .configurator import TaskView, ConfiguratorResult, TaskRequest, JobRequest
-from .plan import Plan, DeployPlan
+from .plan import Plan
 from . import display
 
 import logging
@@ -33,9 +32,14 @@ class ConfigChange(OperationalInstance, ChangeRecord):
   2. Other configurations and resources it relies on to function properly.
   """
 
-    def __init__(self, status=None, **kw):
+    def __init__(
+        self, parentJob=None, startTime=None, status=None, previousId=None, **kw
+    ):
         OperationalInstance.__init__(self, status, **kw)
-        ChangeRecord.__init__(self)
+        if parentJob:  # use the parent's job id and startTime
+            ChangeRecord.__init__(self, parentJob.changeId, parentJob.startTime)
+        else:  # generate a new job id and use the given startTime
+            ChangeRecord.__init__(self, startTime=startTime, previousId=previousId)
 
 
 class JobOptions(object):
@@ -98,13 +102,10 @@ class ConfigTask(ConfigChange, TaskView, AttributeManager):
     updates Configurator's target's status and lastConfigChange
   """
 
-    def __init__(self, job, configSpec, target, parentId=None, reason=None):
-        ConfigChange.__init__(self)
+    def __init__(self, job, configSpec, target, reason=None):
+        ConfigChange.__init__(self, job)
         TaskView.__init__(self, job.runner.manifest, configSpec, target, reason)
         AttributeManager.__init__(self)
-        self.parentId = parentId or job.changeId
-        self.changeId = self.parentId
-        self.startTime = job.startTime or datetime.datetime.now()
         self.dryRun = job.dryRun
         self.verbose = job.verbose
         self._configurator = None
@@ -206,8 +207,9 @@ class ConfigTask(ConfigChange, TaskView, AttributeManager):
         self.outputs = result.outputs
 
         # don't set the changeId until we're finish so that we have a higher changeid
-        # than nested tasks and jobs that ran (avoids spurious config changed tasks)
-        self.changeId = self.job.runner.incrementChangeId()
+        # than nested tasks and jobs that ran
+        # (task that never run will have the same changeId as its parent)
+        self.setTaskId(self.job.runner.incrementTaskCount())
         # XXX2 if attributes changed validate using attributesSchema
         # XXX2 Check that configuration provided the metadata that it declared (check postCondition)
 
@@ -248,31 +250,33 @@ class ConfigTask(ConfigChange, TaskView, AttributeManager):
         self.changeList.append(changes)
         return changes
 
-    def hasInputsChanged(self):
-        """
-    Evaluate configuration spec's inputs and compare with the current inputs' values
-    """
-        _parameters = None
-        if self.lastConfigChange:  # XXX this isn't set right now
-            changeset = self._manifest.loadConfigChange(self.lastConfigChange)
-            _parameters = changeset.inputs
-        if not _parameters:
-            return not not self.inputs
-
-        if set(self.inputs.keys()) != set(_parameters.keys()):
-            return True  # params were added or removed
-
-        # XXX3 not all parameters need to be live
-        # add an optional liveParameters attribute to config spec to specify which ones to check
-
-        # compare old with new
-        for name, val in self.inputs.items():
-            if serializeValue(val) != _parameters[name]:
-                return True
-            # XXX if the value changed since the last time we checked
-            # if Dependency.hasValueChanged(val, lastChecked):
-            #  return True
-        return False
+    # currently unused...
+    # def hasInputsChanged(self):
+    #     """
+    # Evaluate configuration spec's inputs and compare with the current inputs' values
+    # """
+    #     # XXX this isn't set right now
+    #     _parameters = None
+    #     if self.lastConfigChange:
+    #         changeset = self._manifest.loadConfigChange(self.lastConfigChange)
+    #         _parameters = changeset.inputs
+    #     if not _parameters:
+    #         return not not self.inputs
+    #
+    #     if set(self.inputs.keys()) != set(_parameters.keys()):
+    #         return True  # params were added or removed
+    #
+    #     # XXX3 not all parameters need to be live
+    #     # add an optional liveParameters attribute to config spec to specify which ones to check
+    #
+    #     # compare old with new
+    #     for name, val in self.inputs.items():
+    #         if serializeValue(val) != _parameters[name]:
+    #             return True
+    #         # XXX if the value changed since the last time we checked
+    #         # if Dependency.hasValueChanged(val, lastChecked):
+    #         #  return True
+    #     return False
 
     def hasDependenciesChanged(self):
         return any(d.hasChanged(self) for d in self.dependencies.values())
@@ -280,6 +284,15 @@ class ConfigTask(ConfigChange, TaskView, AttributeManager):
     def refreshDependencies(self):
         for d in self.dependencies.values():
             d.refresh(self)
+
+    @property
+    def name(self):
+        name = self.configSpec.name
+        if self.configSpec.operation and self.configSpec.operation not in name:
+            name = name + ":" + self.configSpec.operation
+        if self.reason and self.reason not in name:
+            return name + ":" + self.reason
+        return name
 
     def summary(self):
         if self.target.name != self.target.template.name:
@@ -305,11 +318,7 @@ class ConfigTask(ConfigChange, TaskView, AttributeManager):
         )
 
     def __repr__(self):
-        return "ConfigTask(%s:%s %s)" % (
-            self.target,
-            self.configSpec.name,
-            self.reason or "unknown",
-        )
+        return "ConfigTask(%s:%s)" % (self.target, self.name)
 
 
 class Job(ConfigChange):
@@ -319,27 +328,23 @@ class Job(ConfigChange):
 
     MAX_NESTED_SUBTASKS = 100
 
-    def __init__(self, runner, rootResource, plan, jobOptions):
-        super(Job, self).__init__(Status.ok)
+    def __init__(self, runner, rootResource, plan, jobOptions, previousId=None):
         assert isinstance(jobOptions, JobOptions)
         self.__dict__.update(jobOptions.__dict__)
+        super(Job, self).__init__(self.parentJob, self.startTime, Status.ok, previousId)
         self.dryRun = jobOptions.dryrun
-        if self.startTime is None:
-            self.startTime = datetime.datetime.now()
+
         self.jobOptions = jobOptions
         self.runner = runner
         self.plan = plan
         self.rootResource = rootResource
         self.jobRequestQueue = []
         self.unexpectedAbort = None
-        # note: tasks that never run will all share this changeid
-        self.changeId = runner.incrementChangeId()
-        self.parentId = self.parentJob.changeId if self.parentJob else None
         self.workDone = collections.OrderedDict()
 
-    def createTask(self, configSpec, target, parentId=None, reason=None):
+    def createTask(self, configSpec, target, reason=None):
         # XXX2 if operation_host set, create remote task instead
-        task = ConfigTask(self, configSpec, target, parentId, reason=reason)
+        task = ConfigTask(self, configSpec, target, reason=reason)
         try:
             task.inputs
             task.configurator
@@ -496,6 +501,7 @@ class Job(ConfigChange):
             parentJob=self, repair="none", all=True, instances=resourceNames
         )
         childJob = self.runner.createJob(jobOptions)
+        childJob.setTaskId(self.runner.incrementTaskCount())
         assert childJob.parentJob is self
         childJob.run()
         return childJob
@@ -587,14 +593,14 @@ class Job(ConfigChange):
         return False  # XXX3
 
     def jsonSummary(self):
-        job = dict(id=self.changeId, status=self.status.name, tasks=len(self.workDone))
+        job = dict(id=self.changeId, status=self.status.name)
         job.update(self.stats())
         return dict(
             job=job,
             outputs=serializeValue(self.getOutputs()),
             tasks=[
-                [name, task.status.name, task.target.status.name]
-                for (name, task) in self.workDone.items()
+                [task.name, task.status.name, task.target.name, task.target.status.name]
+                for task in self.workDone.values()
             ],
         )
 
@@ -631,7 +637,7 @@ class Job(ConfigChange):
                 outputString,
             )
 
-        def format(i, name, task):
+        def format(i, task):
             return "%d. %s; %s" % (i, task.summary(), task.result or "skipped")
 
         line1 = "Job %s completed: %s. %s:\n    " % (
@@ -640,8 +646,7 @@ class Job(ConfigChange):
             self.stats(asMessage=True),
         )
         tasks = "\n    ".join(
-            format(i + 1, name, task)
-            for i, (name, task) in enumerate(self.workDone.items())
+            format(i + 1, task) for i, task in enumerate(self.workDone.values())
         )
         return line1 + tasks + outputString
 
@@ -685,9 +690,7 @@ class Job(ConfigChange):
                     UnfurlTaskError(task, "too many subtasks spawned", True)
                     change = task.finished(ConfiguratorResult(False, None))
                 else:
-                    subtask = self.createTask(
-                        result.configSpec, result.target, self.changeId
-                    )
+                    subtask = self.createTask(result.configSpec, result.target)
                     self.runner.addWork(subtask)
                     # returns the subtask with result
                     change = self.runTask(subtask, depth + 1)
@@ -709,16 +712,11 @@ class Runner(object):
     def __init__(self, manifest):
         self.manifest = manifest
         assert self.manifest.tosca
-        self.lastChangeId = manifest.lastChangeId
+        self.taskCount = 0
         self.currentJob = None
 
     def addWork(self, task):
-        key = "%s:%s:%s:%s" % (
-            task.target.name,
-            task.configSpec.name,
-            task.configSpec.operation,
-            task.changeId,
-        )
+        key = id(task)
         self.currentJob.workDone[key] = task
         task.job.workDone[key] = task
 
@@ -726,7 +724,7 @@ class Runner(object):
         return None  # XXX
         # return configSpec.name in self.currentJob.workDone
 
-    def createJob(self, joboptions):
+    def createJob(self, joboptions, previousId=None):
         """
     Selects task to run based on job options and starting state of manifest
     """
@@ -736,11 +734,11 @@ class Runner(object):
         if not WorkflowPlan:
             raise UnfurlError("unknown workflow: %s" % joboptions.workflow)
         plan = WorkflowPlan(root, self.manifest.tosca, joboptions)
-        return Job(self, root, plan, joboptions)
+        return Job(self, root, plan, joboptions, previousId)
 
-    def incrementChangeId(self):
-        self.lastChangeId += 1
-        return self.lastChangeId
+    def incrementTaskCount(self):
+        self.taskCount += 1
+        return self.taskCount
 
     def run(self, jobOptions=None):
         """
@@ -758,7 +756,10 @@ class Runner(object):
                             "aborting run: uncommitted files (--dirty to override)"
                         )
                         return None
-            job = self.createJob(jobOptions)
+            job = self.createJob(
+                jobOptions, self.manifest.lastJob and self.manifest.lastJob["changeId"]
+            )
+
             self.currentJob = job
             try:
                 display.verbosity = jobOptions.verbose

@@ -204,7 +204,7 @@ class RunTest(unittest.TestCase):
         )
         manifest = YamlManifest(simple)
         runner = Runner(manifest)
-        self.assertEqual(runner.lastChangeId, 0)
+        self.assertEqual(runner.taskCount, 0)
         output = six.StringIO()
         job = runner.run(JobOptions(add=True, out=output, startTime="test"))
         assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
@@ -213,11 +213,12 @@ class RunTest(unittest.TestCase):
 
         # manifest shouldn't have changed
         manifest2 = YamlManifest(output.getvalue())
-        self.assertEqual(manifest2.lastChangeId, 3)
-        output2 = six.StringIO()
-        job2 = Runner(manifest2).run(
-            JobOptions(add=True, out=output2, startTime="test")
+        self.assertEqual(
+            manifest2.lastJob["summary"],
+            "2 tasks (2 changed, 2 ok, 0 failed, 0 unknown, 0 skipped)",
         )
+        output2 = six.StringIO()
+        job2 = Runner(manifest2).run(JobOptions(add=True, out=output2))
         # print('2', output2.getvalue())
         assert not job2.unexpectedAbort, job2.unexpectedAbort.getStackTrace()
 

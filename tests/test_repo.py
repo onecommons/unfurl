@@ -108,6 +108,7 @@ class SharedGitRepoTest(unittest.TestCase):
                 "service-template.yaml",
                 ".gitignore",
                 "manifest.yaml",
+                ".gitattributes",
             }
             expectedFiles = expectedCommittedFiles | {"unfurl.local.yaml"}
             self.assertEqual(set(os.listdir("deploy_dir")), expectedFiles)

@@ -63,7 +63,7 @@ class k8sTest(unittest.TestCase):
     def test_k8sConfig(self):
         os.environ["TEST_SECRET"] = "a secret"
         manifest = YamlManifest(manifestScript)
-        job = Runner(manifest).run(JobOptions(add=True, startTime="time-to-test"))
+        job = Runner(manifest).run(JobOptions(add=True, startTime=1))
         # print(job.summary())
         # print(job.out.getvalue())
 
@@ -75,9 +75,7 @@ class k8sTest(unittest.TestCase):
         assert job.status == Status.ok, job.summary()
 
         manifest = YamlManifest(job.out.getvalue())
-        job2 = Runner(manifest).run(
-            JobOptions(workflow="undeploy", startTime="time-to-test")
-        )
+        job2 = Runner(manifest).run(JobOptions(workflow="undeploy", startTime=2))
         results = job2.jsonSummary()
         assert not job2.unexpectedAbort
         assert job2.status == Status.ok, job2.summary()
