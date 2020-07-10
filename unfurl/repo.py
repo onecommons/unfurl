@@ -55,7 +55,7 @@ class Repo(object):
             if gitDir in dirs:
                 del dirs[:]  # don't visit sub directories
                 repo = GitRepo(git.Repo(root))
-                workingDirs[root] = (repo.url, repo)
+                workingDirs[os.path.abspath(root)] = (repo.url, repo)
         return workingDirs
 
     def findPath(self, path, importLoader=None):

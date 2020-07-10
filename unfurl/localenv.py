@@ -37,7 +37,7 @@ class Project(object):
 
         self.workingDirs = Repo.findGitWorkingDirs(self.projectRoot)
         # the project repo if it exists manages the project config (unfurl.yaml)
-        if self.projectRoot in self.workingDirs:
+        if os.path.abspath(self.projectRoot) in self.workingDirs:
             self.projectRepo = self.workingDirs[self.projectRoot][1]
         else:
             self.projectRepo = Repo.findContainingRepo(self.projectRoot)
@@ -122,7 +122,7 @@ class Project(object):
         localRepoPath = self._createPathForGitRepo(gitUrl)
         repo = Repo.createWorkingDir(gitUrl, localRepoPath, revision)
         # add to workingDirs
-        self.workingDirs[localRepoPath] = (gitUrl, repo)
+        self.workingDirs[os.path.abspath(localRepoPath)] = (gitUrl, repo)
         return repo
 
 
