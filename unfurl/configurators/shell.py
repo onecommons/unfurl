@@ -152,6 +152,8 @@ class ShellConfigurator(TemplateConfigurator):
         shell = params.get("shell", isString)
         env = task.getEnvironment(False)
         cwd = params.get("cwd")
+        if cwd:
+            cwd = os.path.abspath(cwd)
         keeplines = params.get("keeplines")
 
         if task.dryRun and isinstance(task.inputs.get("dryrun"), six.string_types):
