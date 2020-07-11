@@ -242,6 +242,10 @@ class LocalEnv(object):
     (and an empty string disable the home path).
     Otherwise the home path will be set to UNFURL_HOME or the default home location.
     """
+        import logging
+
+        logger = logging.getLogger("unfurl")
+
         if parent:
             self._projects = parent._projects
             self._manifests = parent._manifests
@@ -250,6 +254,10 @@ class LocalEnv(object):
             self._projects = {}
             self._manifests = {}
             self.homeConfigPath = getHomeConfigPath(homePath)
+            if self.homeConfigPath and not os.path.exists(self.homeConfigPath):
+                logger.warning(
+                    'UNFURL_HOME is set but does not exist: "%s"', self.homeConfigPath
+                )
 
         if self.homeConfigPath:
             self.homeProject = self.getProject(self.homeConfigPath, None)
