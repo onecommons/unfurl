@@ -60,15 +60,21 @@ def cli(ctx, verbose=0, quiet=False, logfile=None, **kw):
     # ensure that ctx.obj exists and is a dict (in case `cli()` is called
     # by means other than the `if` block below
     ctx.ensure_object(dict)
-    ctx.obj["verbose"] = verbose
     ctx.obj.update(kw)
+
+    levels = [logging.INFO, logging.DEBUG, 5, 5, 5]
     if quiet:
         logLevel = logging.CRITICAL
     else:
         # TRACE (5)
-        levels = [logging.INFO, logging.DEBUG, 5, 5, 5]
         logLevel = levels[min(verbose, 3)]
 
+    logEnv = os.getenv("UNFURL_LOGGING")
+    if logEnv:  # UNFURL_LOGGING overrides command line
+        logLevel = dict(CRITICAL=50, ERROR=40, WARNING=30, INFO=20, DEBUG=10)[
+            logEnv.upper()
+        ]
+    ctx.obj["verbose"] = 0 if logLevel > logging.INFO else levels.index(logLevel)
     initLogging(logLevel, logfile)
 
 
