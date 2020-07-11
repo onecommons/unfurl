@@ -7,13 +7,13 @@ Unfurl's configuration files are validated according to the JSON schemas describ
 Files
 -----
 
-manifest.yaml
+ensemble.yaml
 ~~~~~~~~~~~~~
 
 .. code-block:: YAML
 
-  apiVersion: VERSION
-  kind: Manifest
+  apiVersion: unfurl/v1alpha1
+  kind: Ensemble
   # the context will be merged with the corresponding context in the project config:
   context:
     inputs:
@@ -100,7 +100,7 @@ changelog.yaml
 
 .. code-block:: YAML
 
-  manifest: manifest.yaml
+  manifest: ensemble.yaml
   changes:
     - changeId:
       previousId:
@@ -151,8 +151,9 @@ unfurl.yaml
 
 .. code-block:: YAML
 
-  unfurl:
-    version:
+
+  apiVersion: unfurl/v1alpha1
+  kind: Project
 
   contexts:
     defaults: # "defaults" are merged with optional contexts defined below

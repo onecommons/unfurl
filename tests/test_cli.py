@@ -4,7 +4,7 @@ import traceback
 from collections import MutableSequence
 from click.testing import CliRunner
 from unfurl.__main__ import cli
-from unfurl import __version__
+import unfurl
 from unfurl.configurator import Configurator
 from unfurl.localenv import LocalEnv
 
@@ -14,7 +14,7 @@ from unfurl.configurators.ansible import AnsibleConfigurator
 
 manifest = """
 apiVersion: unfurl/v1alpha1
-kind: Manifest
+kind: Ensemble
 context:
   locals:
     properties:
@@ -56,8 +56,8 @@ spec:
 """
 
 localConfig = """
-unfurl:
- version: 1.0
+apiVersion: unfurl/v1alpha1
+kind: Project
 contexts:
   defaults: #used if manifest isnt found in `manifests` list below
    secrets:
@@ -120,7 +120,9 @@ class CliTest(unittest.TestCase):
         runner = CliRunner()
         result = runner.invoke(cli, ["version"])
         self.assertEqual(result.exit_code, 0, result)
-        self.assertEqual(result.output.strip(), "unfurl version %s" % __version__)
+        self.assertEqual(
+            result.output.strip(), "unfurl version %s" % unfurl.__version__
+        )
 
     def test_badargs(self):
         runner = CliRunner()
@@ -130,7 +132,7 @@ class CliTest(unittest.TestCase):
     def test_run(self):
         runner = CliRunner()
         with runner.isolated_filesystem():
-            with open("manifest.yaml", "w") as f:
+            with open("ensemble.yaml", "w") as f:
                 f.write("invalid manifest")
 
             result = runner.invoke(cli, ["run"])
@@ -138,12 +140,14 @@ class CliTest(unittest.TestCase):
             # XXX log handler is writing to the CliRunner's output stream
             self.assertIn("Unable to create job", result.output.strip())
 
-            result = runner.invoke(cli, ["run", "--manifest", "missing.yaml"])
-            assert "Manifest file does not exist" in str(result.exception)
+            result = runner.invoke(cli, ["run", "--ensemble", "missing.yaml"])
+            assert "Ensemble manifest does not exist" in str(
+                result.exception
+            ), result.exception
 
             with open("manifest2.yaml", "w") as f:
                 f.write(manifest)
-            runCmd = ["run", "--manifest", "manifest2.yaml"]
+            runCmd = ["run", "--ensemble", "manifest2.yaml"]
             result = runner.invoke(cli, runCmd + ["--", "echo", "ok"])
             assert not result.exception, "\n".join(
                 traceback.format_exception(*result.exc_info)
@@ -190,7 +194,9 @@ class CliTest(unittest.TestCase):
 
             # no UNFURL_HOME and the default home path will be used
             del os.environ["UNFURL_HOME"]
-            homePath = LocalEnv().homeConfigPath
+            # we don't want to want to try to load the real home path so call getHomeConfigPath() instead
+            # homePath = LocalEnv().homeConfigPath
+            homePath = unfurl.getHomeConfigPath(None)
             assert homePath and homePath.endswith(".unfurl_home/unfurl.yaml"), homePath
 
             # restore test environment's UNFURL_HOME

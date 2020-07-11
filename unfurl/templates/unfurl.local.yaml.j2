@@ -1,8 +1,8 @@
 #jinja2: variable_start_string: '[%', variable_end_string: '%]'
-unfurl:
-  version: [%version%]
+apiVersion: unfurl/v1alpha1
+kind: Project
 # this file is including into unfurl.yaml but is listed in .gitignore
-# so you can add configuration that you don't want commited to the repository,
+# so you can add configuration that you don't want committed to the repository,
 # such as secrets, local settings, and local instances.
 contexts:
   defaults:

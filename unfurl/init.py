@@ -6,6 +6,7 @@ import shutil
 from . import (
     __version__,
     DefaultManifestName,
+    DefaultManifestTemplateName,
     DefaultLocalConfigName,
     getHomeConfigPath,
 )
@@ -108,8 +109,9 @@ def writeServiceTemplate(projectdir, repo):
 def createSpecRepo(gitDir):
     repo = _createRepo("spec", gitDir)
     writeServiceTemplate(gitDir, repo)
-    writeTemplate(gitDir, "manifest-template.yaml", "manifest-template.yaml.j2", {})
-    repo.repo.index.add(["service-template.yaml", "manifest-template.yaml"])
+    manifestTemplate = DefaultManifestTemplateName
+    writeTemplate(gitDir, manifestTemplate, "manifest-template.yaml.j2", {})
+    repo.repo.index.add(["service-template.yaml", manifestTemplate])
     repo.repo.index.commit("Default specification repository boilerplate")
     return repo
 
@@ -124,6 +126,7 @@ def writeManifest(gitDir, manifestName, specRepo, instanceRepo):
         instanceRepoPath=relPathToInstanceRepo or ".",
         specInitialCommit=specRepo.getInitialRevision(),
         instanceInitialCommit=instanceRepo.getInitialRevision(),
+        ensembleTemplate=DefaultManifestTemplateName,
     )
     return writeTemplate(gitDir, manifestName, "manifest.yaml.j2", vars)
 
@@ -142,10 +145,10 @@ def createInstanceRepo(gitDir, specRepo):
 def createMultiRepoProject(projectdir):
     """
   Creates a project folder with two git repositories:
-  a specification repository that contains "service-template.yaml" and "manifest-template.yaml" in a "spec" folder.
-  and an instance repository containing a "manifest.yaml" in a "instances/current" folder.
+  a specification repository that contains "service-template.yaml" and "ensemble-template.yaml" in a "spec" folder.
+  and an instance repository containing a "ensemble.yaml" in a "instances/current" folder.
   """
-    defaultManifestPath = os.path.join("instances", "current", "manifest.yaml")
+    defaultManifestPath = os.path.join("instances", "current", DefaultManifestName)
     projectConfigPath = writeProjectConfig(
         projectdir, defaultManifestPath=defaultManifestPath
     )
@@ -161,7 +164,7 @@ def createMonoRepoProject(projectdir, repo):
     unfurl.yaml
     unfurl.local.example.yaml
     .gitignore
-    manifest.yaml
+    ensemble.yaml
 
     Returns the absolute path to unfurl.yaml
     """
@@ -216,8 +219,8 @@ def createProject(projectdir, home=None, mono=False, existing=False, **kw):
         initEngine(projectdir, kw.get("engine"))
 
 
-def _isValidSpecRepo(repo):
-    return os.path.isfile(os.path.join(repo.workingDir, "manifest-template.yaml"))
+def _isValidSpecRepo(repo):  # XXX fragile! replace..
+    return os.path.isfile(os.path.join(repo.workingDir, DefaultManifestTemplateName))
 
 
 def createNewInstance(specRepoDir, targetPath):
@@ -261,7 +264,7 @@ def cloneSpecToNewProject(sourceDir, projectDir):
 
     # XXX make sure projectdir is usable
     defaultManifestPath = os.path.join(
-        projectDir, "instances", "current", "manifest.yaml"
+        projectDir, "instances", "current", DefaultManifestName
     )
     projectConfigPath = writeProjectConfig(
         projectDir, defaultManifestPath=defaultManifestPath

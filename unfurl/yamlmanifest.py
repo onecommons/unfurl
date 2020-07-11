@@ -1,4 +1,4 @@
-"""Loads and saves a Unfurl manifest with the following format
+"""Loads and saves a ensemble manifest with the following format
 """
 from __future__ import absolute_import
 import six
@@ -533,10 +533,6 @@ class YamlManifest(Manifest):
                 f.write(task.log(attrs))
 
     def saveChangeLog(self, jobRecord, newChanges):
-        """
-    manifest: manifest.yaml
-    changes:
-    """
         try:
             changelog = CommentedMap()
             changelog["manifest"] = os.path.basename(self.manifest.path)

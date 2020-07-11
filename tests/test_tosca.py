@@ -226,8 +226,8 @@ class AbstractTemplateTest(unittest.TestCase):
         )
 
         localConfig = """
-          unfurl:
-           version: 1.0
+          apiVersion: unfurl/v1alpha1
+          kind: Project
           contexts:
             defaults:
               external:

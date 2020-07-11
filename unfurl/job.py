@@ -726,7 +726,7 @@ class Runner(object):
 
     def createJob(self, joboptions, previousId=None):
         """
-    Selects task to run based on job options and starting state of manifest
+    Selects task to run based on the workflow and job options
     """
         root = self.manifest.getRootResource()
         assert self.manifest.tosca

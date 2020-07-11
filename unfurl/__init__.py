@@ -14,7 +14,8 @@ import sys
 vendor_dir = os.path.join(os.path.abspath(os.path.dirname(__file__)), "vendor")
 sys.path.insert(0, vendor_dir)
 
-DefaultManifestName = "manifest.yaml"
+DefaultManifestName = "ensemble.yaml"
+DefaultManifestTemplateName = "ensemble-template.yaml"
 DefaultLocalConfigName = "unfurl.yaml"
 DefaultHomeDirectory = ".unfurl_home"
 

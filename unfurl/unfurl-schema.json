@@ -4,13 +4,8 @@
   "description": "Unfurl configuration file",
   "type": "object",
   "properties": {
-    "unfurl": {
-      "type": "object",
-      "properties": {
-        "version": { "$ref": "./manifest-schema.json#/definitions/version" }
-      },
-      "required": ["version"]
-    },
+    "apiVersion": { "const": "unfurl/v1alpha1" },
+    "kind": { "const": "Project" },
     "manifests": {
       "type": "array",
       "items": {
@@ -35,5 +30,5 @@
       ]
     }
   },
-  "required": ["unfurl"]
+  "required": ["apiVersion", "kind"]
 }

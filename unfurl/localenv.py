@@ -24,7 +24,7 @@ from . import (
 class Project(object):
     """
   A Unfurl project is a folder that contains at least a local configuration file (unfurl.yaml),
-  one or more manifest.yaml files which maybe optionally organized into one or more git repositories.
+  one or more ensemble.yaml files which maybe optionally organized into one or more git repositories.
   """
 
     def __init__(self, path, homeProject):
@@ -72,14 +72,14 @@ class Project(object):
         if fullPath:
             if not os.path.exists(fullPath):
                 raise UnfurlError(
-                    "The default manifest found in %s does not exist: %s"
+                    "The default ensemble found in %s does not exist: %s"
                     % (self.localConfig.config.path, os.path.abspath(fullPath))
                 )
         else:
             fullPath = os.path.join(self.getCurrentInstanceRepo(), DefaultManifestName)
             if not os.path.exists(fullPath):
                 raise UnfurlError(
-                    "The default manifest does not exist: %s"
+                    "The default ensemble does not exist: %s"
                     % os.path.abspath(fullPath)
                 )
         return fullPath
@@ -135,7 +135,7 @@ class LocalConfig(object):
     instances imported from other ensembles, inputs, environment variables, secrets and local configuration.
 
   It consists of:
-  * a list of instance manifests with their local configuration
+  * a list of ensemble manifests with their local configuration
   * the default local and secret instances
 """
 
@@ -157,7 +157,7 @@ class LocalConfig(object):
     #     spec: spec
 
     def __init__(self, path=None, parentConfig=None, validate=True):
-        defaultConfig = {"unfurl": dict(version=__version__)}
+        defaultConfig = {"apiVersion": "unfurl/v1alpha1", "kind": "Project"}
         self.config = YamlConfig(
             defaultConfig, path, validate, os.path.join(_basepath, "unfurl-schema.json")
         )
@@ -225,17 +225,15 @@ class LocalConfig(object):
 
 class LocalEnv(object):
     """
-  The class represents the local environment that a instance manifest runs in.
-
-  The instance manifest and/or the current project
-  The local configuration
+  This class represents the local environment that an ensemble runs in, including
+  the local project it is part of and the home project.
   """
 
     homeProject = None
 
     def __init__(self, manifestPath=None, homePath=None, parent=None):
         """
-    If manifestPath is None find the first unfurl.yaml or manifest.yaml
+    If manifestPath is None find the first unfurl.yaml or ensemble.yaml
     starting from the current directory.
 
     If homepath is set it overrides UNFURL_HOME
@@ -272,7 +270,8 @@ class LocalEnv(object):
                 #    self.manifestPath = pathORproject.getInstance(manifestPath)
                 # else:
                 raise UnfurlError(
-                    "Manifest file does not exist: '%s'" % os.path.abspath(manifestPath)
+                    "Ensemble manifest does not exist: '%s'"
+                    % os.path.abspath(manifestPath)
                 )
             else:
                 pathORproject = self.findManifestPath(manifestPath)
@@ -373,7 +372,7 @@ class LocalEnv(object):
 
             current = os.path.dirname(current)
 
-        message = "Can't find an Unfurl manifest or repository in current directory (or any of the parent directories)"
+        message = "Can't find an Unfurl ensemble or project in the current directory (or any of the parent directories)"
         raise UnfurlError(message)
 
     def findProject(self, testPath):

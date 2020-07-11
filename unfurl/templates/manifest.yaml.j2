@@ -1,8 +1,8 @@
 apiVersion: unfurl/v1alpha1
-kind: Manifest
-# merge in manifest-template.yaml from spec repo
+kind: Ensemble
+# merge in {{ensembleTemplate}} from spec repo
 +include:
-  file: manifest-template.yaml
+  file: {{ensembleTemplate}}
   repository: spec
 spec:
   service_template:

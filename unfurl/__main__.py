@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-Applies a Unfurl manifest
+Applies a Unfurl ensemble
 
 For each configuration, run it if required, then record the result
 """
@@ -114,7 +114,7 @@ commonJobFilterOptions = option_group(
 @cli.command(short_help="Record and run an ad-hoc command")
 @click.pass_context
 # @click.argument("action", default="*:upgrade")
-@click.option("--manifest", default="", type=click.Path(exists=False))
+@click.option("--ensemble", default="", type=click.Path(exists=False))
 # XXX:
 # @click.option(
 #     "--append", default=False, is_flag=True, help="add this command to the previous"
@@ -129,7 +129,7 @@ commonJobFilterOptions = option_group(
 @click.argument("cmdline", nargs=-1, type=click.UNPROCESSED)
 def run(ctx, instance="root", cmdline=None, **options):
     """
-    Run an ad-hoc command in the context of the given manifest.
+    Run an ad-hoc command in the context of the given ensemble.
     Use "--" to separate the given command line, for example:
 
     > unfurl run -- echo 'hello!'
@@ -141,7 +141,7 @@ def run(ctx, instance="root", cmdline=None, **options):
     options.update(ctx.obj)
     options["instance"] = instance
     options["cmdline"] = cmdline
-    return _run(options.pop("manifest"), options, ctx.info_name)
+    return _run(options.pop("ensemble"), options, ctx.info_name)
 
 
 def _mapValue(val):
@@ -152,19 +152,19 @@ def _mapValue(val):
     return mapValue(val, instance)
 
 
-def _run(manifest, options, workflow=None):
+def _run(ensemble, options, workflow=None):
     if workflow:
         options["workflow"] = workflow
 
     if not options.get("no_engine"):
-        localEnv = LocalEnv(manifest, options.get("home"))
+        localEnv = LocalEnv(ensemble, options.get("home"))
         engine = options.get("engine")
         if not engine:
             engine = localEnv.getEngine()
         if engine and engine != ".":
             context = localEnv.getContext()
-            return _runRemote(engine, manifest, options, context)
-    return _runLocal(manifest, options)
+            return _runRemote(engine, ensemble, options, context)
+    return _runLocal(ensemble, options)
 
 
 def _venv(engine, env):
@@ -198,7 +198,7 @@ def _remoteCmd(engine, cmdLine, context):
         return env, cmd + ["--no-engine"] + cmdLine, True
 
 
-def _runRemote(engine, manifest, options, context):
+def _runRemote(engine, ensemble, options, context):
     import logging
 
     logger = logging.getLogger("unfurl")
@@ -212,8 +212,8 @@ def _runRemote(engine, manifest, options, context):
         sys.exit(rv)
 
 
-def _runLocal(manifest, options):
-    job = runJob(manifest, options)
+def _runLocal(ensemble, options):
+    job = runJob(ensemble, options)
     _latestJobs.append(job)
     if not job:
         click.echo("Unable to create job")
@@ -279,71 +279,71 @@ deployFilterOptions = option_group(
 
 @cli.command()
 @click.pass_context
-@click.argument("manifest", default="", type=click.Path(exists=False))
+@click.argument("ensemble", default="", type=click.Path(exists=False))
 @commonJobFilterOptions
 @deployFilterOptions
 @jobControlOptions
-def deploy(ctx, manifest=None, **options):
+def deploy(ctx, ensemble=None, **options):
     """
-    Deploy the given manifest
+    Deploy the given ensemble
     """
     options.update(ctx.obj)
-    return _run(manifest, options, ctx.info_name)
+    return _run(ensemble, options, ctx.info_name)
 
 
 @cli.command(short_help="Check the status of each instance")
 @click.pass_context
-@click.argument("manifest", default="", type=click.Path(exists=False))
+@click.argument("ensemble", default="", type=click.Path(exists=False))
 @commonJobFilterOptions
 @jobControlOptions
-def check(ctx, manifest=None, **options):
+def check(ctx, ensemble=None, **options):
     """
     Check and update the status of the ensemble's instances
     """
     options.update(ctx.obj)
-    return _run(manifest, options, ctx.info_name)
+    return _run(ensemble, options, ctx.info_name)
 
 
 @cli.command(short_help="run the discover workflow")
 @click.pass_context
-@click.argument("manifest", default="", type=click.Path(exists=False))
+@click.argument("ensemble", default="", type=click.Path(exists=False))
 @commonJobFilterOptions
 @jobControlOptions
-def discover(ctx, manifest=None, **options):
+def discover(ctx, ensemble=None, **options):
     """
-    Update configuration by probing live instances associated with the manifest
+    Update configuration by probing live instances associated with the ensemble
     """
     options.update(ctx.obj)
-    return _run(manifest, options, ctx.info_name)
+    return _run(ensemble, options, ctx.info_name)
 
 
 @cli.command()
 @click.pass_context
-@click.argument("manifest", default="", type=click.Path(exists=False))
+@click.argument("ensemble", default="", type=click.Path(exists=False))
 @commonJobFilterOptions
 @jobControlOptions
-def undeploy(ctx, manifest=None, **options):
+def undeploy(ctx, ensemble=None, **options):
     """
     Destroy what was deployed.
     """
     options.update(ctx.obj)
-    return _run(manifest, options, ctx.info_name)
+    return _run(ensemble, options, ctx.info_name)
 
 
 @cli.command(short_help="Print the given deployment plan")
 @click.pass_context
-@click.argument("manifest", default="", type=click.Path(exists=False))
+@click.argument("ensemble", default="", type=click.Path(exists=False))
 @commonJobFilterOptions
 @deployFilterOptions
 @click.option("--query", help="Run the given expression")
 @click.option("--trace", default=0, help="set the query's trace level")
 @click.option("--workflow", default="deploy", help="plan workflow (default: deploy)")
-def plan(ctx, manifest=None, **options):
+def plan(ctx, ensemble=None, **options):
     "Print the given deployment plan"
     options.update(ctx.obj)
     options["planOnly"] = True
     # XXX show status and task to run including preview of generated templates, cmds to run etc.
-    return _run(manifest, options)
+    return _run(ensemble, options)
 
 
 @cli.command(short_help="Create a new unfurl project")

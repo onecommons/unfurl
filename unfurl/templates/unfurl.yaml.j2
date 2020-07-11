@@ -1,6 +1,6 @@
 #jinja2: variable_start_string: '[%', variable_end_string: '%]'
-unfurl:
-  version: [%version%]
+apiVersion: unfurl/v1alpha1
+kind: Project
 [%include%]
 manifests:
   - file: [%manifestPath%]

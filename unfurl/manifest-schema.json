@@ -287,7 +287,7 @@
   "type": "object",
   "properties": {
     "apiVersion": { "const": "unfurl/v1alpha1" },
-    "kind": { "const": "Manifest" },
+    "kind": { "enum": ["Manifest", "Ensemble"] },
     "context": { "$ref": "#/definitions/context" },
     "spec": {
       "type": "object",

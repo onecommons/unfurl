@@ -3,7 +3,6 @@ import os
 import traceback
 from click.testing import CliRunner
 from unfurl.__main__ import cli, _latestJobs
-from unfurl import __version__
 from git import Repo
 from unfurl.configurator import Configurator, Status
 import unfurl.configurators  # python2.7 workaround
@@ -107,7 +106,7 @@ class SharedGitRepoTest(unittest.TestCase):
                 "unfurl.yaml",
                 "service-template.yaml",
                 ".gitignore",
-                "manifest.yaml",
+                "ensemble.yaml",
                 ".gitattributes",
             }
             expectedFiles = expectedCommittedFiles | {"unfurl.local.yaml"}
@@ -133,7 +132,7 @@ class SharedGitRepoTest(unittest.TestCase):
                     "commit",
                     "-m",
                     "update manifest",
-                    "deploy_dir/manifest.yaml",
+                    "deploy_dir/ensemble.yaml",
                 ],
             )
             # uncomment this to see output:
@@ -164,11 +163,11 @@ class SharedGitRepoTest(unittest.TestCase):
                 traceback.format_exception(*result.exc_info)
             )
 
-            with open("manifest.yaml", "w") as f:
+            with open("ensemble.yaml", "w") as f:
                 f.write(awsTestManifest)
 
             result = runner.invoke(
-                cli, ["git", "commit", "-m", "update manifest", "manifest.yaml"]
+                cli, ["git", "commit", "-m", "update manifest", "ensemble.yaml"]
             )
             # uncomment this to see output:
             # print("commit result.output", result.exit_code, result.output)
