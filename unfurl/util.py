@@ -26,9 +26,7 @@ logger = logging.getLogger("unfurl")
 # import pickle
 pickleVersion = 2  # pickle.DEFAULT_PROTOCOL
 
-VERSION = (
-    "unfurl/v1alpha1"
-)  # XXX rename to api_version, to distinguish from __version__ and TOSCA_VERSION
+API_VERSION = "unfurl/v1alpha1"
 
 
 class UnfurlError(Exception):
@@ -105,7 +103,7 @@ def registerClass(apiVersion, kind, factory, replace=False):
 class AutoRegisterClass(type):
     def __new__(mcls, name, bases, dct):
         cls = type.__new__(mcls, name, bases, dct)
-        registerClass(VERSION, name, cls)
+        registerClass(API_VERSION, name, cls)
         return cls
 
 
@@ -153,7 +151,7 @@ def loadClass(klass, defaultModule="__main__"):
 
 
 def lookupClass(kind, apiVersion=None, default=None):
-    version = apiVersion or VERSION
+    version = apiVersion or API_VERSION
     api = _ClassRegistry.get(version)
     if api:
         klass = api.get(kind, default)

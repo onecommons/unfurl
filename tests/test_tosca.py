@@ -4,7 +4,7 @@ from unfurl.localenv import LocalEnv
 from unfurl.job import Runner, JobOptions
 from unfurl.support import Status
 from unfurl.configurator import Configurator
-from unfurl.util import sensitive_str, VERSION
+from unfurl.util import sensitive_str, API_VERSION
 import six
 from click.testing import CliRunner
 
@@ -222,7 +222,7 @@ class AbstractTemplateTest(unittest.TestCase):
         anInstance:
          type: test.nodes.AbstractTest
     """
-            % VERSION
+            % API_VERSION
         )
 
         localConfig = """
@@ -257,7 +257,7 @@ spec:
           directives:
              - select
   """
-            % VERSION
+            % API_VERSION
         )
 
         runner = CliRunner()
@@ -322,7 +322,7 @@ spec:
                   properties:
                     context: docker-desktop
   """
-            % VERSION
+            % API_VERSION
         )
         manifest2 = YamlManifest(mainManifest)
         nodeSpec = manifest2.tosca.getTemplate("localhost")

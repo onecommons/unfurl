@@ -4,7 +4,7 @@ from unfurl.job import JobOptions, Runner
 from unfurl.configurator import Configurator, ConfigurationSpec
 from unfurl.yamlmanifest import YamlManifest
 from unfurl.yamlloader import YamlConfig
-from unfurl.util import UnfurlError, UnfurlValidationError, lookupClass, VERSION
+from unfurl.util import UnfurlError, UnfurlValidationError, lookupClass, API_VERSION
 from unfurl.merge import (
     expandDoc,
     restoreIncludes,
@@ -200,7 +200,7 @@ class RunTest(unittest.TestCase):
                 implementation:    TestSubtaskConfigurator
                 inputs: {}
     """
-            % VERSION
+            % API_VERSION
         )
         manifest = YamlManifest(simple)
         runner = Runner(manifest)
@@ -323,7 +323,7 @@ class FileTest(unittest.TestCase):
                     contents:
                       ref: file::contents
     """
-            % VERSION
+            % API_VERSION
         )
         manifest = YamlManifest(simple)
         runner = Runner(manifest)
@@ -428,7 +428,7 @@ class ImportTest(unittest.TestCase):
           prop1: ok
           prop2: not-a-number
     """
-            % VERSION
+            % API_VERSION
         )
         runner = CliRunner()
         with runner.isolated_filesystem():
@@ -478,7 +478,7 @@ spec:
         Standard:
             create: ImportTestConfigurator
       """
-                % VERSION
+                % API_VERSION
             )
             manifest = YamlManifest(importer)
             root = manifest.getRootResource()
