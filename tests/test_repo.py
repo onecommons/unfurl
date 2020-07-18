@@ -141,7 +141,8 @@ class SharedGitRepoTest(unittest.TestCase):
                 traceback.format_exception(*result.exc_info)
             )
 
-            args = ["-vvv", "deploy", "deploy_dir", "--jobexitcode", "degraded"]
+            # "-vvv",
+            args = ["deploy", "deploy_dir", "--jobexitcode", "degraded"]
             result = runner.invoke(cli, args)
             # print("result.output", result.exit_code, result.output)
             assert not result.exception, "\n".join(
@@ -176,7 +177,7 @@ class SharedGitRepoTest(unittest.TestCase):
             )
 
             args = [
-                "-vvv",
+                #  "-vvv",
                 "--home",
                 "./unfurl_home",
                 "check",

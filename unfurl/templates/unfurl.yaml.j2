@@ -2,6 +2,8 @@
 apiVersion: unfurl/v1alpha1
 kind: Project
 [%include%]
+{%if manifestPath %}
 manifests:
   - file: [%manifestPath%]
     default: true
+{% endif %}

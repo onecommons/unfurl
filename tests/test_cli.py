@@ -217,3 +217,46 @@ class CliTest(unittest.TestCase):
                 traceback.format_exception(*result.exc_info)
             )
             self.assertEqual(result.exit_code, 0, result.output)
+
+    def test_clone(self):
+        runner = CliRunner()
+        with runner.isolated_filesystem():
+            specTemplate = os.path.join(
+                os.path.dirname(__file__), "examples/spec/service-template.yaml"
+            )
+            result = runner.invoke(cli, ["clone", specTemplate, "clone1"])
+            # print("result.output", result.exit_code, result.output)
+            assert not result.exception, "\n".join(
+                traceback.format_exception(*result.exc_info)
+            )
+            self.assertEqual(result.exit_code, 0, result)
+
+            result = runner.invoke(cli, ["-vvv", "deploy", "clone1"])
+            # print("result.output", result.exit_code, result.output)
+            assert not result.exception, "\n".join(
+                traceback.format_exception(*result.exc_info)
+            )
+            getattr(self, "assertRegex", self.assertRegexpMatches)(
+                result.output,
+                "Job A[0-9A-Za-z]{11} completed: ok. Found nothing to do.",
+            )
+            self.assertEqual(result.exit_code, 0, result.output)
+
+            # this will clone the new ensemble
+            result = runner.invoke(cli, ["clone", "clone1", "clone2"])
+            # print("result.output", result.exit_code, result.output)
+            assert not result.exception, "\n".join(
+                traceback.format_exception(*result.exc_info)
+            )
+            self.assertEqual(result.exit_code, 0, result)
+
+            result = runner.invoke(cli, ["-vvv", "deploy", "clone2"])
+            # print("result.output", result.exit_code, result.output)
+            assert not result.exception, "\n".join(
+                traceback.format_exception(*result.exc_info)
+            )
+            getattr(self, "assertRegex", self.assertRegexpMatches)(
+                result.output,
+                "Job A[0-9A-Za-z]{11} completed: ok. Found nothing to do.",
+            )
+            self.assertEqual(result.exit_code, 0, result.output)

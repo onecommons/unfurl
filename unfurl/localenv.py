@@ -9,16 +9,12 @@ import os
 import os.path
 
 # import six
-from .repo import Repo
+from .repo import Repo, normalizeGitUrl, findGitRepo
 from .util import UnfurlError
 from .merge import mergeDicts
 from .yamlloader import YamlConfig
-from . import (
-    __version__,
-    DefaultManifestName,
-    DefaultLocalConfigName,
-    getHomeConfigPath,
-)
+from . import DefaultNames, getHomeConfigPath
+from six.moves.urllib.parse import urlparse
 
 
 class Project(object):
@@ -27,7 +23,7 @@ class Project(object):
   one or more ensemble.yaml files which maybe optionally organized into one or more git repositories.
   """
 
-    def __init__(self, path, homeProject):
+    def __init__(self, path, homeProject=None):
         parentConfig = homeProject and homeProject.localConfig or None
         self.projectRoot = os.path.dirname(path)
         if os.path.exists(path):
@@ -37,10 +33,21 @@ class Project(object):
 
         self.workingDirs = Repo.findGitWorkingDirs(self.projectRoot)
         # the project repo if it exists manages the project config (unfurl.yaml)
-        if os.path.abspath(self.projectRoot) in self.workingDirs:
-            self.projectRepo = self.workingDirs[self.projectRoot][1]
+        projectRoot = os.path.abspath(self.projectRoot)
+        if projectRoot in self.workingDirs:
+            self.projectRepo = self.workingDirs[projectRoot][1]
         else:
-            self.projectRepo = Repo.findContainingRepo(self.projectRoot)
+            # XXX make sure projectroot isn't excluded from the containing repo
+            # project maybe part of a containing repo (if created with --existing option)
+            self.projectRepo = repo = Repo.findContainingRepo(self.projectRoot)
+            if self.projectRepo:
+                self.workingDirs[repo.workingDir] = (repo.url, repo)
+
+        if self.projectRepo:
+            for dir in self.projectRepo.findExcludedDirs(self.projectRoot):
+                # look for repos that might be in its
+                if os.path.abspath(dir) in projectRoot:
+                    Repo.updateGitWorkingDirs(self.workingDirs, dir, os.listdir(dir))
 
     @staticmethod
     def normalizePath(path):
@@ -50,9 +57,22 @@ class Project(object):
             isdir = os.path.isdir(path)
 
         if isdir:
-            return os.path.join(path, DefaultLocalConfigName)
+            return os.path.join(path, DefaultNames.LocalConfig)
         else:
             return path
+
+    @staticmethod
+    def findPath(testPath):
+        """
+    Walk parents looking for unfurl.yaml
+    """
+        current = os.path.abspath(testPath)
+        while current and current != os.sep:
+            test = os.path.join(current, DefaultNames.LocalConfig)
+            if os.path.exists(test):
+                return test
+            current = os.path.dirname(current)
+        return None
 
     @property
     def venv(self):
@@ -64,9 +84,6 @@ class Project(object):
     def getRepos(self):
         return [repo for (gitUrl, repo) in self.workingDirs.values()]
 
-    def getCurrentInstanceRepo(self):
-        return os.path.join(self.projectRoot, "instances", "current")
-
     def findDefaultInstanceManifest(self):
         fullPath = self.localConfig.getDefaultManifestPath()
         if fullPath:
@@ -75,22 +92,39 @@ class Project(object):
                     "The default ensemble found in %s does not exist: %s"
                     % (self.localConfig.config.path, os.path.abspath(fullPath))
                 )
+            return fullPath
         else:
-            fullPath = os.path.join(self.getCurrentInstanceRepo(), DefaultManifestName)
-            if not os.path.exists(fullPath):
-                raise UnfurlError(
-                    "The default ensemble does not exist: %s"
-                    % os.path.abspath(fullPath)
-                )
-        return fullPath
+            # no manifest specified in the project config so check the default locations
+            fullPath = os.path.join(
+                self.projectRoot, DefaultNames.EnsembleDirectory, DefaultNames.Ensemble
+            )
+            if os.path.exists(fullPath):
+                return fullPath
+            fullPath2 = os.path.join(self.projectRoot, DefaultNames.Ensemble)
+            if os.path.exists(fullPath2):
+                return fullPath2
+            raise UnfurlError(
+                'The can not find an ensemble in a default location: "%s" or "%s"'
+                % (fullPath, fullPath2)
+            )
 
     def isPathInProject(self, path):
+        # better? os.path.relpath(sourceRoot, destDir).startswith(".." + os.sep)
         return (
             os.path.abspath(self.projectRoot) + os.sep in os.path.abspath(path) + os.sep
         )
 
     def _createPathForGitRepo(self, gitUrl):
-        basename = name = os.path.splitext(os.path.basename(gitUrl))[0]
+        parts = urlparse(gitUrl)
+        if parts.scheme == "git-local":
+            # e.g. extract spec from git-local://0cfeee6571c4276ce1a63dc37aa8cbf8b8085d60:spec
+            name = parts.netloc.partition(":")[1]
+        else:
+            # e.g. extract tosca-parser from https://github.com/onecommons/tosca-parser.git
+            name = os.path.splitext(os.path.basename(parts.path[1:] or parts.netloc))[0]
+
+        assert not name.endswith(".git"), name
+        basename = name
         counter = 1
         while os.path.exists(os.path.join(self.projectRoot, name)):
             name = basename + str(counter)
@@ -100,7 +134,12 @@ class Project(object):
     def findGitRepo(self, repoURL, revision=None):
         candidate = None
         for dir, (url, repo) in self.workingDirs.items():
-            if repoURL == url:
+            if repoURL.startswith("git-local://"):
+                initialCommit = urlparse(repoURL).netloc.partition(":")[0]
+                match = initialCommit == repo.getInitialRevision()
+            else:
+                match = normalizeGitUrl(repoURL) == normalizeGitUrl(url)
+            if match:
                 if not revision or revision == repo.revision:
                     return repo
                 else:
@@ -108,13 +147,16 @@ class Project(object):
         return candidate
 
     def findPathInRepos(self, path, importLoader=None):
+        # importloader is unused until pinned revisions are supported
         candidate = None
-        for dir, (url, repo) in self.workingDirs.items():
+        for dir in sorted(self.workingDirs.keys()):
+            (url, repo) = self.workingDirs[dir]
+            # XXX make sure path isn't ignored in repo
             filePath, revision, bare = repo.findPath(path, importLoader)
             if filePath:
                 if not bare:
                     return repo, filePath, revision, bare
-                else:
+                else:  # if it's bare see if we can find a better candidate
                     candidate = (repo, filePath, revision, bare)
         return candidate or None, None, None, None
 
@@ -124,6 +166,25 @@ class Project(object):
         # add to workingDirs
         self.workingDirs[os.path.abspath(localRepoPath)] = (gitUrl, repo)
         return repo
+
+    def findRepository(self, repoSpec):
+        repoUrl = repoSpec.url
+        return self.findGitRepo(findGitRepo(repoUrl)[0])
+
+    def findOrClone(self, repo):
+        gitUrl = repo.url
+        existingRepo = self.findGitRepo(gitUrl)
+        if existingRepo:
+            return existingRepo
+
+        # if not found:
+        localRepoPath = os.path.abspath(
+            self._createPathForGitRepo(repo.workingDir or gitUrl)
+        )
+        newRepo = repo.clone(localRepoPath)
+        # add to workingDirs
+        self.workingDirs[localRepoPath] = (gitUrl, newRepo)
+        return newRepo
 
 
 _basepath = os.path.abspath(os.path.dirname(__file__))
@@ -231,7 +292,7 @@ class LocalEnv(object):
 
     homeProject = None
 
-    def __init__(self, manifestPath=None, homePath=None, parent=None):
+    def __init__(self, manifestPath=None, homePath=None, parent=None, project=None):
         """
     If manifestPath is None find the first unfurl.yaml or ensemble.yaml
     starting from the current directory.
@@ -250,6 +311,8 @@ class LocalEnv(object):
             self.homeConfigPath = parent.homeConfigPath
         else:
             self._projects = {}
+            if project:
+                self._projects[project.localConfig.config.path] = project
             self._manifests = {}
             self.homeConfigPath = getHomeConfigPath(homePath)
             if self.homeConfigPath and not os.path.exists(self.homeConfigPath):
@@ -285,7 +348,10 @@ class LocalEnv(object):
                 self.manifestPath = pathORproject.findDefaultInstanceManifest()
         else:
             self.manifestPath = pathORproject
-            self.project = self.findProject(os.path.dirname(pathORproject))
+            if project:
+                self.project = project
+            else:
+                self.project = self.findProject(os.path.dirname(pathORproject))
 
         self.instanceRepo = self._getInstanceRepo()
         self.config = (
@@ -310,7 +376,8 @@ class LocalEnv(object):
             return manifest
 
     def getProject(self, path, homeProject):
-        project = self._projects.get(Project.normalizePath(path))
+        path = Project.normalizePath(path)
+        project = self._projects.get(path)
         if not project:
             project = Project(path, homeProject)
             self._projects[path] = project
@@ -326,16 +393,16 @@ class LocalEnv(object):
             )
 
         if os.path.isdir(manifestPath):
-            test = os.path.join(manifestPath, DefaultManifestName)
+            test = os.path.join(manifestPath, DefaultNames.Ensemble)
             if os.path.exists(test):
                 return test
             else:
-                test = os.path.join(manifestPath, DefaultLocalConfigName)
+                test = os.path.join(manifestPath, DefaultNames.LocalConfig)
                 if os.path.exists(test):
                     return self.getProject(test, self.homeProject)
                 else:
                     message = (
-                        "Can't find a unfurl manifest or project in folder '%s'"
+                        "Can't find an Unfurl ensemble or project in folder '%s'"
                         % manifestPath
                     )
                     raise UnfurlError(message)
@@ -362,11 +429,11 @@ class LocalEnv(object):
     def searchForManifestOrProject(self, dir):
         current = os.path.abspath(dir)
         while current and current != os.sep:
-            test = os.path.join(current, DefaultManifestName)
+            test = os.path.join(current, DefaultNames.Ensemble)
             if os.path.exists(test):
                 return test
 
-            test = os.path.join(current, DefaultLocalConfigName)
+            test = os.path.join(current, DefaultNames.LocalConfig)
             if os.path.exists(test):
                 return self.getProject(test, self.homeProject)
 
@@ -379,12 +446,9 @@ class LocalEnv(object):
         """
     Walk parents looking for unfurl.yaml
     """
-        current = os.path.abspath(testPath)
-        while current and current != os.sep:
-            test = os.path.join(current, DefaultLocalConfigName)
-            if os.path.exists(test):
-                return self.getProject(test, self.homeProject)
-            current = os.path.dirname(current)
+        path = Project.findPath(testPath)
+        if path:
+            return self.getProject(path, self.homeProject)
         return None
 
     def getContext(self, context=None):
@@ -427,7 +491,8 @@ class LocalEnv(object):
         self, repoURL, isFile=True, revision=None, basepath=None
     ):
         repo = self.findGitRepo(repoURL, revision)
-        if not repo:
+        # git-local repos must already exist
+        if not repo and not repoURL.startswith("git-local://"):
             if self.project and (
                 basepath is None or self.project.isPathInProject(basepath)
             ):
@@ -435,17 +500,13 @@ class LocalEnv(object):
             else:
                 project = self.homeProject
             if project:
-                repo = project.createWorkingDir(repoURL, revision, basepath)
+                repo = project.createWorkingDir(repoURL, revision)
         if not repo:
-            return None, None, None, None
-        return (
-            repo,
-            repo.workingDir,
-            repo.revision,
-            revision and repo.revision != revision,
-        )
+            return None, None, None
+        return (repo, repo.revision, revision and repo.revision != revision)
 
     def findPathInRepos(self, path, importLoader=None):
+        # importloader is unused until pinned revisions are supported
         candidate = None
         repo = None
         if self.project:

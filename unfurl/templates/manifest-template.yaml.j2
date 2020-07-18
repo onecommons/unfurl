@@ -2,4 +2,4 @@ apiVersion: unfurl/v1alpha1
 kind: Ensemble
 spec:
   service_template:
-    +include: service-template.yaml
+    +include: {{ serviceTemplate | default("service-template.yaml") }}

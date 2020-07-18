@@ -9,7 +9,7 @@ from __future__ import print_function
 from .yamlmanifest import runJob
 from .support import Status
 from . import __version__, initLogging
-from .init import createProject, cloneSpecToNewProject, createNewInstance
+from .init import createProject, cloneEnsemble
 from .util import filterEnv
 from .localenv import LocalEnv
 import click
@@ -353,7 +353,7 @@ def plan(ctx, ensemble=None, **options):
     "--mono",
     default=False,
     is_flag=True,
-    help="Create a one repository for both spec and instances.",
+    help="Create a one repository for both spec and ensembles.",
 )
 @click.option(
     "--existing",
@@ -383,46 +383,28 @@ unfurl init [project] # creates a unfurl project with new spec and instance repo
     click.echo("New Unfurl project created at %s" % projectPath)
 
 
-@cli.command(short_help="Create a new instance repository")
+@cli.command(
+    short_help="Create a new ensemble from service template or existing ensemble"
+)
 @click.pass_context
 @click.argument(
-    "spec_repo_dir", type=click.Path(exists=True)
-)  # , help='path to spec repository')
+    "source",
+    type=click.Path(exists=True),
+    # help="path to a service template or ensemble",
+)
 @click.argument(
-    "new_instance_dir", type=click.Path(exists=False)
-)  # , help='path for new instance repository')
-def newinstance(ctx, spec_repo_dir, new_instance_dir, *args, **options):
-    """
-Creates a new instance repository for the given specification repository.
-"""
-    options.update(ctx.obj)
-
-    repo, message = createNewInstance(spec_repo_dir, new_instance_dir)
-    if repo:
-        click.echo(message)
-    else:
-        raise click.ClickException(message)
-
-
-@cli.command(short_help="Clone a project")
-@click.pass_context
-@click.argument(
-    "spec_repo_dir", type=click.Path(exists=True)
-)  # , help='path to spec repository')
-@click.argument(
-    "new_project_dir", type=click.Path(exists=False)
-)  # , help='path for new project')
-def clone(ctx, spec_repo_dir, new_project_dir, **options):
+    "dest",
+    type=click.Path(exists=False),
+    default=".",  # , help="path to the new ensemble"
+)
+def clone(ctx, source, dest, **options):
     """
 Create a new project by cloning the given specification repository and creating a new instance repository.
 """
     options.update(ctx.obj)
 
-    projectConfigPath, message = cloneSpecToNewProject(spec_repo_dir, new_project_dir)
-    if projectConfigPath:
-        click.echo(message)
-    else:
-        raise click.ClickException(message)
+    message = cloneEnsemble(source, dest, **options)
+    click.echo(message)
 
 
 @cli.command(

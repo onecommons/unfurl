@@ -45,6 +45,7 @@ class Manifest(AttributeManager):
         elif "tosca" in spec:  # backward compat
             toscaDef = spec["tosca"]
         elif "node_templates" in spec:
+            # XXX remove this
             # allow node_templates shortcut
             toscaDef = {"node_templates": spec["node_templates"]}
         else:
@@ -64,6 +65,11 @@ class Manifest(AttributeManager):
             toscaDef = CommentedMap(toscaDef.items())
         # hack so we can make the manifest accessible to the yamlloader:
         toscaDef.manifest = self
+        if getattr(toscaDef, "baseDir", None) and (
+            not path or toscaDef.baseDir != os.path.dirname(path)
+        ):
+            # note: we only recorded the baseDir not the name of the included file
+            path = toscaDef.baseDir
         return ToscaSpec(toscaDef, spec.get("inputs"), spec, path)
 
     def getSpecDigest(self, spec):
@@ -83,6 +89,10 @@ class Manifest(AttributeManager):
 
     def getBaseDir(self):
         return "."
+
+    @property
+    def repositories(self):
+        return self.tosca.template.repositories
 
     def saveJob(self, job):
         pass
@@ -235,7 +245,7 @@ class Manifest(AttributeManager):
     def _getLastChange(self, operational):
         if not operational.lastConfigChange:
             return None
-        if not self.changeSets: # XXX load changesets if None
+        if not self.changeSets:  # XXX load changesets if None
             return None
         jobId = ConfigChange.getJobId(operational.lastConfigChange)
         return self.changeSets.get(jobId)
@@ -285,11 +295,11 @@ class Manifest(AttributeManager):
         basePath = importLoader.path  # XXX check if dir or not
         # if not explicitRevision:
         #   revision = self.repoStatus.get(repoURL)
-        repo, filePath, revision, bare = self.localEnv.findOrCreateWorkingDir(
+        repo, revision, bare = self.localEnv.findOrCreateWorkingDir(
             repoURL, isFile, revision, basePath
         )
         # if willUse and (not explicitRevision or not bare):
-        #   self.updateRepoStatus(repo, revision)
+        #   self.updateRepoStatus(repo, revision) # record that this revision is in use
         return repo, filePath, revision, bare
 
     def findPathInRepos(self, path, importLoader=None, willUse=False):
@@ -297,7 +307,6 @@ class Manifest(AttributeManager):
     Check if the file path is inside a folder that is managed by a repository.
     If the revision is pinned and doesn't match the repo, it might be bare
     """
-        # XXX this doesn't use the tosca template's repositories at all
         candidate = None
         if self.repo:  # our own repo gets first crack
             filePath, revision, bare = self.repo.findPath(path, importLoader)

@@ -7,7 +7,9 @@ import collections
 import numbers
 import os.path
 import itertools
+from six.moves.urllib.parse import urlparse
 
+from . import DefaultNames
 from .util import UnfurlError, toYamlText
 from .merge import patchDict
 from .yamlloader import YamlConfig, yaml
@@ -27,8 +29,6 @@ import logging
 logger = logging.getLogger("unfurl")
 
 _basepath = os.path.abspath(os.path.dirname(__file__))
-
-DefaultJobLogName = "jobs.log"
 
 
 def saveConfigSpec(spec):
@@ -160,7 +160,7 @@ Convert dictionary suitable for serializing as yaml
     return output
 
 
-class YamlManifest(Manifest):
+class ReadOnlyManifest(Manifest):
     def __init__(self, manifest=None, path=None, validate=True, localEnv=None):
         assert not (localEnv and (manifest or path))  # invalid combination of args
         # localEnv and repo are needed by loadHook before base class initialized
@@ -173,21 +173,60 @@ class YamlManifest(Manifest):
             os.path.join(_basepath, "manifest-schema.json"),
             self.loadYamlInclude,
         )
+        if self.manifest.path:
+            logging.debug("loaded ensemble manifest at %s", self.manifest.path)
         manifest = self.manifest.expanded
         spec = manifest.get("spec", {})
         self.context = manifest.get("context", {})
         if localEnv:
             self.context = localEnv.getContext(self.context)
         spec["inputs"] = self.context.get("inputs", spec.get("inputs", {}))
-        super(YamlManifest, self).__init__(spec, self.manifest.path, localEnv)
+        super(ReadOnlyManifest, self).__init__(spec, self.manifest.path, localEnv)
         assert self.tosca
+
+    def getBaseDir(self):
+        return self.manifest.getBaseDir()
+
+    def isPathToSelf(self, path):
+        if self.path is None or path is None:
+            return False
+        if isinstance(path, Artifact):
+            path, fragment = path.getPath()
+        return os.path.abspath(self.path) == os.path.abspath(path)
+
+    def addRepo(self, name, repo):
+        self._getRepositories(self.manifest.config)[name] = repo
+
+    def dump(self, out=sys.stdout):
+        try:
+            self.manifest.dump(out)
+        except:
+            raise UnfurlError("Error saving manifest %s" % self.manifest.path, True)
+
+
+def clone(localEnv, destPath):
+    clone = ReadOnlyManifest(localEnv=localEnv)
+    config = clone.manifest.config
+    for key in ["status", "changes", "lastJob"]:
+        config.pop(key, None)
+    repositories = Manifest._getRepositories(config)
+    repositories.pop("self", None)
+    clone.manifest.path = destPath
+    return clone
+
+
+class YamlManifest(ReadOnlyManifest):
+    def __init__(self, manifest=None, path=None, validate=True, localEnv=None):
+        super(YamlManifest, self).__init__(manifest, path, validate, localEnv)
+        manifest = self.manifest.expanded
+        spec = manifest.get("spec", {})
         status = manifest.get("status", {})
 
         self.changeLogPath = manifest.get("changeLog")
         self.jobsFolder = manifest.get("jobsFolder", "jobs")
         if not self.changeLogPath and localEnv:
             # save changes to a separate file if we're in a local environment
-            self.changeLogPath = DefaultJobLogName
+            self.changeLogPath = DefaultNames.JobsLog
 
         self.lastJob = manifest.get("lastJob")
 
@@ -215,16 +254,6 @@ class YamlManifest(Manifest):
             self.context.get("environment", {}).items()
         )
         self._ready(rootResource)
-
-    def getBaseDir(self):
-        return self.manifest.getBaseDir()
-
-    def isPathToSelf(self, path):
-        if self.path is None or path is None:
-            return False
-        if isinstance(path, Artifact):
-            path, fragment = path.getPath()
-        return os.path.abspath(self.path) == os.path.abspath(path)
 
     def createTopologyInstance(self, status):
         """
@@ -432,21 +461,19 @@ class YamlManifest(Manifest):
                     f.write(output.getvalue())
         return jobRecord, changes
 
-    def dump(self, out=sys.stdout):
-        try:
-            self.manifest.dump(out)
-        except:
-            raise UnfurlError("Error saving manifest %s" % self.manifest.path, True)
-
     def hasWritableRepo(self):
-        # only try to commit the repo if it matches the one specified in the manifest
+        # only try to commit the repo if it matches the "self" repo specified in the manifest
         if self.repo:
             repos = self._getRepositories(self.manifest.expanded)
-            repoSpec = repos.get("instance", repos.get("self", repos.get("spec")))
+            repoSpec = repos.get(
+                "self", repos.get("instance")
+            )  # backward compatibility: check for "instance"
             if repoSpec:
-                initialCommit = repoSpec and repoSpec.get("metadata", {}).get(
-                    "initial-commit"
-                )
+                parts = urlparse(repoSpec.get("url"))
+                if parts.scheme == "git-local":
+                    initialCommit = parts.netloc.partition(":")[0]
+                else:
+                    initialCommit = repoSpec.get("metadata", {}).get("initial-commit")
                 return initialCommit == self.repo.getInitialRevision()
         return False
 
@@ -493,7 +520,7 @@ class YamlManifest(Manifest):
     def getJobLogPath(self, startTime):
         name = os.path.basename(self.getChangeLogPath())
         # try to figure out any custom name pattern from changelogPath:
-        defaultName = os.path.splitext(DefaultJobLogName)[0]
+        defaultName = os.path.splitext(DefaultNames.JobsLog)[0]
         currentName = os.path.splitext(name)[0]
         prefix, _, suffix = currentName.partition(defaultName)
         fileName = prefix + "job" + startTime + suffix + ".yaml"

@@ -78,6 +78,7 @@ class ToscaSpec(object):
 
             repositories = toscaDef.setdefault("repositories", {})
             if "unfurl" not in repositories:
+                # add a repository that points to this package
                 repositories["unfurl"] = dict(
                     url="file:" + os.path.abspath(os.path.dirname(__file__))
                 )
@@ -772,7 +773,7 @@ class Artifact(object):
         )
         manifest = manifest or getattr(loader.tpl, "manifest", None)
         if manifest:
-            newpath, f = resolveIfInRepository(manifest, path, isFile, loader)
+            newpath, f, isFile = resolveIfInRepository(manifest, path, isFile, loader)
             return (path if f else newpath), fragment
         else:
             return path, fragment

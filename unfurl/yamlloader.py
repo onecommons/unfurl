@@ -64,18 +64,14 @@ yaml.representer.add_representer(AnsibleUnsafeBytes, represent_binary)
 
 
 def resolveIfInRepository(manifest, path, isFile=True, importLoader=None):
-    # XXX urls and files outside of a repo should be saved and commited to the repo the importLoader is in
-    # check if this path is into a git repo
+    # check if this path is a git url, if it is, return the repo and local path to the file
     repo, filePath, revision, bare = manifest.findRepoFromGitUrl(
         path, isFile, importLoader, True
     )
     if repo:  # it's a git repo
         if bare:
-            return filePath, six.StringIO(repo.show(filePath, revision))
-        # find the project that the loading file is in
-        # tracks which commit was used, returns a workingDir
-        workingDir = repo.checkout(revision)
-        path = os.path.join(workingDir, filePath)
+            return filePath, six.StringIO(repo.show(filePath, revision)), True
+        path = os.path.join(repo.workingDir, filePath)
         isFile = True
     else:
         # if it's a file path, check if in one of our repos
@@ -85,10 +81,10 @@ def resolveIfInRepository(manifest, path, isFile=True, importLoader=None):
             )
             if repo:
                 if bare:
-                    return filePath, six.StringIO(repo.show(filePath, revision))
+                    return filePath, six.StringIO(repo.show(filePath, revision)), isFile
                 else:
                     path = os.path.join(repo.workingDir, filePath)
-    return path, None
+    return path, None, isFile
 
 
 _refResolver = RefResolver("", None)
@@ -103,7 +99,9 @@ def load_yaml(path, isFile=True, importLoader=None, fragment=None):
         f = None
         manifest = importLoader and getattr(importLoader.tpl, "manifest", None)
         if manifest:
-            path, f = resolveIfInRepository(manifest, path, isFile, importLoader)
+            path, f, isFile = resolveIfInRepository(
+                manifest, path, isFile, importLoader
+            )
 
         if not f:
             try:
@@ -134,6 +132,8 @@ def load_yaml(path, isFile=True, importLoader=None, fragment=None):
                 raise
         with f:
             doc = yaml.load(f.read())
+            if isinstance(doc, CommentedMap):
+                doc.path = path
         if fragment:
             return _refResolver.resolve_fragment(doc, fragment)
         else:

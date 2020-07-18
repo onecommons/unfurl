@@ -3,8 +3,15 @@ import os.path
 import git
 from git.repo.fun import is_git_dir
 import logging
+from six.moves.urllib.parse import urlparse
 
 logger = logging.getLogger("unfurl")
+
+
+def normalizeGitUrl(url):
+    if url.startswith("git-local://"):  # truncate url after commit digest
+        return "git-local://" + urlparse(url).netloc.partition(":")[0]
+    return url
 
 
 def findGitRepo(path, isFile=True, importLoader=None):
@@ -12,6 +19,10 @@ def findGitRepo(path, isFile=True, importLoader=None):
   Returns (repoURL, filePath, revision)
   RepoURL will be an empty string if it isn't a path to a git repo
   """
+    parts = urlparse(path)
+    if parts.scheme == "git-local":
+        return parts.scheme + "://" + parts.netloc, parts.path[1:], ""
+
     # XXX if importLoader: find the repository based on the path, and check revision
     # hack for now: if ends in .git
     # XXX path can end in #revision, return it
@@ -25,17 +36,6 @@ def findGitRepo(path, isFile=True, importLoader=None):
 
 
 class Repo(object):
-    # @staticmethod
-    # def makeRepo(url, repotype, basedir):
-    #   # XXX git or simple based on url
-    #   # basedir is the project/subproject root or local-config root dependening where the import definition lives
-    #   if repotype=='instance':
-    #     dir = os.path.join(basedir, 'instances', 'current')
-    #   else:
-    #     dir = os.path.join(basedir, repotype)
-    #   # XXX error if exists, else mkdirs
-    #   return SimpleRepo(url, dir)
-
     @staticmethod
     def findContainingRepo(rootDir, gitDir=".git"):
         """
@@ -52,11 +52,19 @@ class Repo(object):
     def findGitWorkingDirs(rootDir, gitDir=".git"):
         workingDirs = {}
         for root, dirs, files in os.walk(rootDir):
-            if gitDir in dirs:
+            if Repo.updateGitWorkingDirs(workingDirs, root, dirs, gitDir):
                 del dirs[:]  # don't visit sub directories
-                repo = GitRepo(git.Repo(root))
-                workingDirs[os.path.abspath(root)] = (repo.url, repo)
         return workingDirs
+
+    @staticmethod
+    def updateGitWorkingDirs(workingDirs, root, dirs, gitDir=".git"):
+        if gitDir in dirs and is_git_dir(os.path.join(root, gitDir)):
+            assert os.path.isdir(root), root
+            repo = GitRepo(git.Repo(root))
+            key = os.path.abspath(root)
+            workingDirs[key] = (repo.url, repo)
+            return key
+        return None
 
     def findPath(self, path, importLoader=None):
         base = self.workingDir
@@ -89,6 +97,7 @@ class GitRepo(Repo):
         self.repo = gitrepo
         self.url = self.workingDir or gitrepo.git_dir
         if gitrepo.remotes:
+            # note: these might not look like absolute urls, e.g. git@github.com:onecommons/unfurl.git
             try:
                 remote = gitrepo.remotes["origin"]
             except:
@@ -107,7 +116,24 @@ class GitRepo(Repo):
     def revision(self):
         return self.repo.head.commit.hexsha
 
-    def runCmd(self, args):
+    def findExcludedDirs(self, root):
+        root = os.path.relpath(root, self.workingDir)
+        status, stdout, stderr = self.runCmd(
+            [
+                "ls-files",
+                "--exclude-standard",
+                "-o",
+                "-i",
+                "--full-name",
+                "--directory",
+                root,
+            ]
+        )
+        for file in stdout.splitlines():
+            path = os.path.join(self.workingDir, file)
+            yield path
+
+    def runCmd(self, args, **kw):
         """
     :return:
       tuple(int(status), str(stdout), str(stderr))
@@ -118,7 +144,10 @@ class GitRepo(Repo):
         call.extend(gitcmd._persistent_git_options)
         call.extend(list(args))
 
-        return gitcmd.execute(call, with_exceptions=False, with_extended_output=True)
+        # note: sets cwd to working_dir
+        return gitcmd.execute(
+            call, with_exceptions=False, with_extended_output=True, **kw
+        )
 
     def show(self, path, commitId):
         if os.path.abspath(path) and self.workingDir:
@@ -154,6 +183,13 @@ class GitRepo(Repo):
     def isDirty(self, untracked_files=False):
         # diff = self.repo.git.diff()  # "--abbrev=40", "--full-index", "--raw")
         return self.repo.is_dirty(untracked_files=untracked_files)
+
+    def clone(self, newPath):
+        cloned = self.repo.clone(newPath)
+        return GitRepo(cloned)
+
+    def getGitLocalUrl(self, path, name=""):
+        return "git-local://%s:%s/%s" % (name, self.getInitialRevision(), path)
 
     # XXX: def getDependentRepos()
     # XXX: def canManage()
@@ -194,9 +230,6 @@ class GitRepo(Repo):
     #     changeFiles = self.manifest.saveChanges(commit.hexsha)
     #     repo.index.add(changeFiles)
     #     repo.git.commit("")
-
-    def clone(self, newPath):
-        return GitRepo(self.repo.clone(newPath))
 
 
 # class SimpleRepo(Repo):

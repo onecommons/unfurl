@@ -8,6 +8,9 @@ from unfurl.util import sensitive_str, API_VERSION
 import six
 from click.testing import CliRunner
 
+# python 2.7 needs these:
+from unfurl.configurators.shell import ShellConfigurator
+
 
 class SetAttributeConfigurator(Configurator):
     def run(self, task):
@@ -281,7 +284,6 @@ spec:
                 [["Install.check", "ok", "foreign:anInstance", "ok"]],
             )
             self.assertEqual(job.getOutputs()["server_ip"], "10.0.0.1")
-
             self.assertEqual(
                 len(manifest.localEnv._manifests), 2, manifest.localEnv._manifests
             )

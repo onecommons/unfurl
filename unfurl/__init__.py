@@ -14,10 +14,16 @@ import sys
 vendor_dir = os.path.join(os.path.abspath(os.path.dirname(__file__)), "vendor")
 sys.path.insert(0, vendor_dir)
 
-DefaultManifestName = "ensemble.yaml"
-DefaultManifestTemplateName = "ensemble-template.yaml"
-DefaultLocalConfigName = "unfurl.yaml"
-DefaultHomeDirectory = ".unfurl_home"
+
+class DefaultNames(object):
+    SpecDirectory = "spec"
+    EnsembleDirectory = "ensemble"
+    Ensemble = "ensemble.yaml"
+    EnsembleTemplate = "ensemble-template.yaml"
+    ServiceTemplate = "service-template.yaml"
+    LocalConfig = "unfurl.yaml"
+    HomeDirectory = ".unfurl_home"
+    JobsLog = "jobs.tsv"
 
 
 def getHomeConfigPath(homepath):
@@ -28,7 +34,7 @@ def getHomeConfigPath(homepath):
         if "UNFURL_HOME" in os.environ:
             homepath = os.getenv("UNFURL_HOME")
         else:
-            homepath = os.path.join("~", DefaultHomeDirectory)
+            homepath = os.path.join("~", DefaultNames.HomeDirectory)
     if homepath:
         homepath = os.path.expanduser(homepath)
         if not os.path.exists(homepath):
@@ -36,7 +42,7 @@ def getHomeConfigPath(homepath):
         else:
             isdir = os.path.isdir(homepath)
         if isdir:
-            return os.path.abspath(os.path.join(homepath, DefaultLocalConfigName))
+            return os.path.abspath(os.path.join(homepath, DefaultNames.LocalConfig))
         else:
             return os.path.abspath(homepath)
     return None
