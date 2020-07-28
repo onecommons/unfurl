@@ -13,22 +13,14 @@ logger = logging.getLogger("unfurl")
 
 
 class Plan(object):
-    """
-  add:  template or unapplied resource
-  update: resource
-  remove:  resource
-  check:   resource
-  discover: resource
-  """
-
     @staticmethod
     def getPlanClassForWorkflow(workflow):
         return dict(
             deploy=DeployPlan,
             undeploy=UndeployPlan,
             run=RunNowPlan,
-            check=CheckPlan,
-            discover=DiscoverPlan,
+            check=ReadOnlyPlan,
+            discover=ReadOnlyPlan,
         ).get(workflow, WorkflowPlan)
 
     def __init__(self, root, toscaSpec, jobOptions):
@@ -118,7 +110,7 @@ class Plan(object):
             return parent
 
     def createResource(self, template):
-        if "discover" in template.directives:
+        if False:  # XXX if joboption.check:
             status = Status.unknown
         else:
             status = Status.pending
@@ -331,11 +323,14 @@ class Plan(object):
 
         return TaskRequest(configSpec, resource, reason or action)
 
+    def isInstanceReadOnly(self, instance):
+        return instance.shadow or "discover" in instance.template.directives
+
     def generateDeleteConfigurations(self, include):
         for instance in self.root.getOperationalDependencies():
             # reverse to teardown leaf nodes first
             for resource in reversed(instance.descendents):
-                if resource.shadow or resource.template.directives:
+                if self.isInstanceReadOnly(resource):
                     # readonly resource
                     continue
                 # if resource exists (or unknown)
@@ -343,7 +338,6 @@ class Plan(object):
                     reason = include(resource)
                     if reason:
                         logger.debug("removing instance %s", resource.name)
-                        # it's an orphaned config
                         gen = Generate(
                             self._generateConfigurations(resource, reason, "undeploy")
                         )
@@ -492,10 +486,85 @@ class Plan(object):
         else:
             yield step.on_success
 
+    def _getTemplates(self):
+        templates = (
+            []
+            if not self.tosca.nodeTemplates
+            else [
+                t
+                for t in self.tosca.nodeTemplates.values()
+                if not t.isCompatibleType(self.tosca.ConfiguratorType)
+                and not t.isCompatibleType(self.tosca.InstallerType)
+            ]
+        )
+
+        # order by ancestors
+        return list(
+            orderTemplates(
+                {t.name: t for t in templates},
+                self.filterTemplate and self.filterTemplate.name,
+            )
+        )
+
+    def includeNotFound(self, template):
+        return True
+
+    def _generateWorkflowConfigurations(self, instance, oldTemplate):
+        configGenerator = self._generateConfigurations(instance, self.workflow)
+        gen = Generate(configGenerator)
+        while gen():
+            gen.result = yield gen.next
+
+    def executePlan(self):
+        """
+        Generate candidate tasks
+
+        yields TaskRequests
+        """
+        opts = self.jobOptions
+        templates = self._getTemplates()
+
+        logger.debug("checking for tasks for templates %s", [t.name for t in templates])
+        visited = set()
+        for template in templates:
+            found = False
+            for resource in self.findResourcesFromTemplate(template):
+                found = True
+                visited.add(id(resource))
+                gen = Generate(self._generateWorkflowConfigurations(resource, template))
+                while gen():
+                    gen.result = yield gen.next
+
+            if not found and "dependent" not in template.directives:
+                include = self.includeNotFound(template)
+                if include:
+                    resource = self.createResource(template)
+                    visited.add(id(resource))
+                    gen = Generate(self._generateWorkflowConfigurations(resource, None))
+                    while gen():
+                        gen.result = yield gen.next
+
+        if opts.prune:
+            test = lambda resource: "prune" if id(resource) not in visited else False
+            gen = Generate(self.generateDeleteConfigurations(test))
+            while gen():
+                gen.result = yield gen.next
+
 
 class DeployPlan(Plan):
+    def includeNotFound(self, template):
+        if self.jobOptions.add or self.jobOptions.all:
+            return "add"
+        return None
+
     def includeTask(self, template, resource):
+        # XXX doc string woefully out of date
         """Returns whether or not the config should be included in the current job.
+
+        Is it out of date?
+        Has its configuration changed?
+        Has its dependencies changed?
+        Are the resources it modifies in need of repair?
 
         Reasons include: "all", "add", "upgrade", "update", "re-add", 'prune',
         'missing', "config changed", "failed to apply", "degraded", "error".
@@ -511,25 +580,22 @@ class DeployPlan(Plan):
     """
         assert template and resource
         jobOptions = self.jobOptions
-        if resource.shadow:
-            # external resources are readonly, just check them
-            return "check", template
-        oldTemplate = resource.template
-        if jobOptions.all:
-            return "all", template
-
         if jobOptions.add and not resource.lastConfigChange:
             # add if it's a new resource
-            return "add", template
+            return "add"
+
+        if jobOptions.all:
+            return "all"
 
         # if the specification changed:
+        oldTemplate = resource.template
         if template != oldTemplate:
             if jobOptions.upgrade:
-                return "upgrade", template
+                return "upgrade"
             if jobOptions.update:
                 # only apply the new configuration if doesn't result in a major version change
                 if True:  # XXX if isMinorDifference(template, oldTemplate)
-                    return "update", template
+                    return "update"
 
         # there isn't a new config to run, see if the last applied config needs to be re-run
         # XXX: if (jobOptions.upgrade or jobOptions.update or jobOptions.all):
@@ -540,17 +606,15 @@ class DeployPlan(Plan):
     def checkForRepair(self, instance):
         jobOptions = self.jobOptions
         assert instance
-        lastTemplate = instance.template
         if jobOptions.repair == "none":
             return None
         status = instance.status
 
-        # repair should only apply to configurations that are active and in need of repair
         if status in [Status.unknown, Status.pending]:
-            if instance.required:
+            if jobOptions.repair == "missing":
+                return "repair missing"
+            elif instance.required:
                 status = Status.error  # treat as error
-            elif jobOptions.repair == "missing":
-                return "missing", lastTemplate
             else:
                 return None
 
@@ -559,7 +623,7 @@ class DeployPlan(Plan):
 
         if jobOptions.repair == "degraded":
             assert status > Status.ok, status
-            return "degraded", lastTemplate  # repair this
+            return "repair degraded"  # repair this
         elif status == Status.degraded:
             assert jobOptions.repair == "error", jobOptions.repair
             return None  # skip repairing this
@@ -568,104 +632,43 @@ class DeployPlan(Plan):
                 jobOptions.repair,
                 instance.status,
             )
-            return "error", lastTemplate  # repair this
+            return "repair error"  # repair this
 
-    def _generateConfigurations(self, resource, reason, workflow=None):
-        readOnlyWorkflow = workflow in ["discover", "check"]
-        if not readOnlyWorkflow and (
-            resource.status == Status.unknown or reason == "check"
-        ):
-            configGenerator = self.executeWorkflow("check", resource)
-            if not configGenerator:
-                configGenerator = self.executeDefaultInstallOp("check", resource)
+    def _generateWorkflowConfigurations(self, instance, oldTemplate):
+        # if oldTemplate is not None this is an existing instance, so check if we should include
+        if oldTemplate:
+            reason = self.includeTask(oldTemplate, instance)
+            if not reason:
+                logger.debug(
+                    "not including task for %s:%s", instance.name, oldTemplate.name
+                )
+                return
+        else:  # this is newly created resource
+            reason = "add"
+
+        if instance.status == Status.unknown or instance.shadow:
+            installOp = "check"
+        elif "discover" in instance.template.directives:
+            installOp = "discover"
+        else:
+            installOp = None
+
+        if installOp:
+            configGenerator = self._generateConfigurations(
+                instance, installOp, installOp
+            )
             if configGenerator:
                 gen = Generate(configGenerator)
                 while gen():
                     gen.result = yield gen.next
-            if reason == "check":
+
+            if self.isInstanceReadOnly(instance):
                 return  # we're done
 
-        configGenerator = super(DeployPlan, self)._generateConfigurations(
-            resource, reason, workflow
-        )
+        configGenerator = self._generateConfigurations(instance, reason)
         gen = Generate(configGenerator)
         while gen():
             gen.result = yield gen.next
-
-    def executePlan(self):
-        """
-    Find candidate tasks
-
-    Given declared spec, current status, and job options, generate selector
-
-    does the config apply to the action?
-    is it out of date?
-    is it in a ok state?
-    has its configuration changed?
-    has its dependencies changed?
-    are the resources it modifies in need of repair?
-    manual override (include / skip)
-
-    yields configSpec, target, reason
-    """
-        opts = self.jobOptions
-        templates = (
-            []
-            if not self.tosca.nodeTemplates
-            else [
-                t
-                for t in self.tosca.nodeTemplates.values()
-                if not t.isCompatibleType(self.tosca.ConfiguratorType)
-                and not t.isCompatibleType(self.tosca.InstallerType)
-            ]
-        )
-
-        # order by ancestors
-        templates = list(
-            orderTemplates(
-                {t.name: t for t in templates},
-                self.filterTemplate and self.filterTemplate.name,
-            )
-        )
-
-        logger.debug("checking for tasks for templates %s", [t.name for t in templates])
-        visited = set()
-        for template in templates:
-            found = False
-            for resource in self.findResourcesFromTemplate(template):
-                found = True
-                visited.add(id(resource))
-                include = self.includeTask(template, resource)
-                if include:
-                    reason, template = include
-                    gen = Generate(self._generateConfigurations(resource, reason))
-                    while gen():
-                        gen.result = yield gen.next
-                else:
-                    logger.debug(
-                        "skipping task for %s:%s", resource.name, template.name
-                    )
-
-            if not found:
-                reason = self.includeNotFound(template)
-                if reason:
-                    # XXX initial status pending or unknown depending on joboption.check
-                    resource = self.createResource(template)
-                    visited.add(id(resource))
-                    gen = Generate(self._generateConfigurations(resource, reason))
-                    while gen():
-                        gen.result = yield gen.next
-
-        if opts.prune:
-            test = lambda resource: "prune" if id(resource) not in visited else False
-            gen = Generate(self.generateDeleteConfigurations(test))
-            while gen():
-                gen.result = yield gen.next
-
-    def includeNotFound(self, template):
-        if self.jobOptions.add or self.jobOptions.all:
-            return "add"
-        return None
 
 
 class UndeployPlan(Plan):
@@ -683,20 +686,9 @@ class UndeployPlan(Plan):
         return "undeploy"
 
 
-class CheckPlan(DeployPlan):
-    def includeTask(self, template, resource):
-        return "check", template
-
-    def includeNotFound(self, template):
-        return "check"
-
-
-class DiscoverPlan(DeployPlan):
-    def includeTask(self, template, resource):
-        return "discover", template
-
-    def includeNotFound(self, template):
-        return "discover"
+class ReadOnlyPlan(Plan):
+    def isInstanceReadOnly(self, instance):
+        return True
 
 
 class WorkflowPlan(Plan):

@@ -21,8 +21,6 @@ inputs:
 from ..configurator import Status
 from . import TemplateConfigurator
 import os
-
-# import os.path
 import sys
 import six
 
@@ -51,6 +49,16 @@ except ImportError:
 
 # XXX we should know if cmd if not os.access(implementation, os.X):
 class ShellConfigurator(TemplateConfigurator):
+    @staticmethod
+    def _cmd(cmd, keeplines):
+        if not isinstance(cmd, six.string_types):
+            cmdStr = " ".join(cmd)
+        else:
+            if not keeplines:
+                cmd = cmd.replace("\n", " ")
+            cmdStr = cmd
+        return cmdStr, cmd
+
     def runProcess(
         self, cmd, shell=False, timeout=None, env=None, cwd=None, keeplines=False
     ):
@@ -64,12 +72,7 @@ class ShellConfigurator(TemplateConfigurator):
     returncode (None if the process didn't complete)
     error if an exception was raised
     """
-        if not isinstance(cmd, six.string_types):
-            cmdStr = " ".join(cmd)
-        else:
-            if not keeplines:
-                cmd = cmd.replace("\n", " ")
-            cmdStr = cmd
+        cmdStr, cmd = self._cmd(cmd, keeplines)
 
         try:
             completed = subprocess.run(

@@ -164,7 +164,7 @@ class ConfiguratorTest(unittest.TestCase):
             [(t.name, t.target.name) for t in run.workDone.values()],
             [
                 ("for add: Standard.configure", "test4"),
-                ("for all: Standard.configure", "added2"),
+                ("for add: Standard.configure", "added2"),
             ],
         )
         # print('test4', run.out.getvalue())

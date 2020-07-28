@@ -284,8 +284,9 @@ spec:
                     {
                         "action": "check",
                         "configurator": "SetAttributeConfigurator",
+                        "changed": True,
                         "priority": "required",
-                        "reason": "check unknown status",
+                        "reason": "check",
                         "status": "ok",
                         "target": "foreign:anInstance",
                         "targetStatus": "ok",

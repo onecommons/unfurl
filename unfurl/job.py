@@ -312,6 +312,7 @@ class ConfigTask(ConfigChange, TaskView, AttributeManager):
             template=self.target.template.name,
             type=self.target.template.type,
             targetStatus=self.target.status.name,
+            changed=self.modifiedTarget(),
             configurator=self.configSpec.className,
             priority=self.priority.name,
             reason=self.reason or "",
@@ -506,7 +507,7 @@ class Job(ConfigChange):
         self.jobRequestQueue.remove(jobRequest)
         resourceNames = [r.name for r in jobRequest.instances]
         jobOptions = JobOptions(
-            parentJob=self, repair="none", all=True, instances=resourceNames
+            parentJob=self, repair="missing", instances=resourceNames
         )
         childJob = self.runner.createJob(jobOptions)
         childJob.setTaskId(self.runner.incrementTaskCount())

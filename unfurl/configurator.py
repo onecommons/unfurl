@@ -1,7 +1,6 @@
 import six
 import collections
 import re
-import os
 from .support import Status, Defaults, ResourceChanges
 from .result import serializeValue, ChangeAware, Results, ResultsMap
 from .util import (
@@ -14,6 +13,7 @@ from .util import (
     UnfurlTaskError,
     UnfurlAddingResourceError,
     filterEnv,
+    toEnum,
 )
 from .eval import Ref, mapValue, RefContext
 from .runtime import RelationshipInstance
@@ -174,7 +174,7 @@ class ConfiguratorResult(object):
         exception=None,
     ):
         self.modified = modified
-        self.status = status
+        self.status = toEnum(Status, status)
         self.configChanged = configChanged
         self.result = result
         self.success = success
@@ -656,10 +656,10 @@ class TaskView(object):
                 if existingResource:
                     # XXX2 if spec is defined (not just status), there should be a way to
                     # indicate this should replace an existing resource or throw an error
-                    status = resourceSpec.get("status")
-                    operational = Manifest.loadStatus(status)
-                    if operational.localStatus:
-                        existingResource.localStatus = operational.localStatus
+                    if "readyState" in resourceSpec:
+                        operational = Manifest.loadStatus(resourceSpec)
+                        if operational.localStatus:
+                            existingResource.localStatus = operational.localStatus
                     attributes = resourceSpec.get("attributes")
                     if attributes:
                         for key, value in mapValue(
