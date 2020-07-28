@@ -1,3 +1,4 @@
+import six
 from ..configurator import Configurator, Status
 
 
@@ -6,22 +7,30 @@ class TemplateConfigurator(Configurator):
         # get the resultTemplate without evaluating it
         resultTemplate = task.inputs._attributes.get("resultTemplate")
         if resultTemplate:  # evaluate it now with the result
-            results = task.query({"eval": dict(template=resultTemplate)}, vars=result)
-            if results and results.strip():
+            if isinstance(resultTemplate, six.string_types):
+                query = dict(template=resultTemplate)
+            else:
+                query = resultTemplate
+            results = task.query({"eval": query}, vars=result)
+            if results:
+                if isinstance(results, six.string_types):
+                    result = results.strip()
                 task.updateResources(results)
 
     def run(self, task):
-        # XXX handle outputs better
-        self.processResultTemplate(task, self.configSpec.outputs)
-        yield task.done()
+        result = task.inputs.get("result", {})
+        self.processResultTemplate(task, result.get("result"))
+        yield task.done(**result)
 
 
 class Delegate(Configurator):
     def canDryRun(self, task):
-        return True # ok because this will also be called on the subtask
+        return True  # ok because this will also be called on the subtask
 
     def run(self, task):
-        subtaskRequest = task.createSubTask(task.inputs["operation"], task.inputs.get('target'))
+        subtaskRequest = task.createSubTask(
+            task.inputs["operation"], task.inputs.get("target")
+        )
         assert subtaskRequest
         # note: this will call canRun() and if needed canDryRun() on subtask but not shouldRun()
         subtask = yield subtaskRequest

@@ -196,9 +196,10 @@ class ConfiguratorTest(unittest.TestCase):
                 configure:
                   implementation:
                     className: unfurl.configurators.TemplateConfigurator
-                  outputs:
-                    outputVar: true
                   inputs:
+                    result:
+                      result:
+                        outputVar: true
                     resultTemplate: |
                       - name: .self
                         attributes:
