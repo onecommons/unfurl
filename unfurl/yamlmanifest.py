@@ -68,11 +68,11 @@ def saveResourceChanges(changes):
     d = CommentedMap()
     for k, v in changes.items():
         # k is the resource key
-        d[k] = v[ResourceChanges.attributesIndex] or {}
+        d[k] = serializeValue(v[ResourceChanges.attributesIndex] or {})
         if v[ResourceChanges.statusIndex] is not None:
             d[k][".status"] = v[ResourceChanges.statusIndex].name
         if v[ResourceChanges.addedIndex]:
-            d[k][".added"] = v[ResourceChanges.addedIndex]
+            d[k][".added"] = serializeValue(v[ResourceChanges.addedIndex])
     return d
 
 
@@ -474,7 +474,7 @@ class YamlManifest(ReadOnlyManifest):
                     initialCommit = parts.netloc.partition(":")[0]
                 else:
                     initialCommit = repoSpec.get("metadata", {}).get("initial-commit")
-                return initialCommit == self.repo.getInitialRevision()
+                return initialCommit and initialCommit == self.repo.getInitialRevision()
         return False
 
     def commitJob(self, job):
@@ -548,7 +548,7 @@ class YamlManifest(ReadOnlyManifest):
                     if k in jobRecord
                 }
             )
-            attrs["logfile"] = jobLogRelPath
+            attrs["changelog"] = jobLogRelPath
             f.write(job.log(attrs))
 
             for task in tasks:
@@ -562,12 +562,14 @@ class YamlManifest(ReadOnlyManifest):
     def saveChangeLog(self, jobRecord, newChanges):
         try:
             changelog = CommentedMap()
-            changelog["manifest"] = os.path.basename(self.manifest.path)
+            fullPath = self.getJobLogPath(jobRecord["startTime"])
+            changelog["manifest"] = os.path.relpath(
+                self.manifest.path, os.path.dirname(fullPath)
+            )
             changes = itertools.chain([jobRecord], newChanges)
             changelog["changes"] = list(changes)
             output = six.StringIO()
             yaml.dump(changelog, output)
-            fullPath = self.getJobLogPath(jobRecord["startTime"])
             if not os.path.isdir(os.path.dirname(fullPath)):
                 os.makedirs(os.path.dirname(fullPath))
             logger.info("saving job changes to %s", fullPath)
