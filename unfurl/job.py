@@ -294,7 +294,7 @@ class ConfigTask(ConfigChange, TaskView, AttributeManager):
             return name + ":" + self.reason
         return name
 
-    def summary(self):
+    def summary(self, asJson=False):
         if self.target.name != self.target.template.name:
             rname = "%s (%s)" % (self.target.name, self.target.template.name)
         else:
@@ -304,18 +304,26 @@ class ConfigTask(ConfigChange, TaskView, AttributeManager):
             cname = "%s (%s)" % (self.configSpec.name, self.configSpec.className)
         else:
             cname = self.configSpec.name
-        return (
-            "{action} on instance {rname} (type {rtype}, status {rstatus}) "
-            + "using configurator {cname}, priority: {priority}, reason: {reason}"
-        ).format(
+
+        summary = dict(
+            status=self.status.name,
+            target=self.target.name,
             action=self.configSpec.operation,
-            rname=rname,
-            rtype=self.target.template.type,
-            rstatus=self.target.status.name,
-            cname=cname,
+            template=self.target.template.name,
+            type=self.target.template.type,
+            targetStatus=self.target.status.name,
+            configurator=self.configSpec.className,
             priority=self.priority.name,
             reason=self.reason or "",
         )
+
+        if asJson:
+            return summary
+        else:
+            return (
+                "{action} on instance {rname} (type {type}, status {targetStatus}) "
+                + "using configurator {cname}, priority: {priority}, reason: {reason}"
+            ).format(cname=cname, rname=rname, **summary)
 
     def __repr__(self):
         return "ConfigTask(%s:%s)" % (self.target, self.name)
@@ -598,10 +606,7 @@ class Job(ConfigChange):
         return dict(
             job=job,
             outputs=serializeValue(self.getOutputs()),
-            tasks=[
-                [task.name, task.status.name, task.target.name, task.target.status.name]
-                for task in self.workDone.values()
-            ],
+            tasks=[task.summary(True) for task in self.workDone.values()],
         )
 
     def stats(self, asMessage=False):
@@ -749,7 +754,12 @@ class Runner(object):
                 os.chdir(self.manifest.getBaseDir())
             if jobOptions is None:
                 jobOptions = JobOptions()
-            if jobOptions.commit and not jobOptions.dirty and self.manifest.localEnv:
+            if (
+                not jobOptions.planOnly
+                and jobOptions.commit
+                and not jobOptions.dirty
+                and self.manifest.localEnv
+            ):
                 for repo in self.manifest.localEnv.getRepos():
                     if repo.isDirty():
                         logger.error(

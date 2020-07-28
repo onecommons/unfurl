@@ -280,8 +280,20 @@ spec:
             # print(job.jsonSummary())
             assert job.status == Status.ok, job.summary()
             self.assertEqual(
+                [
+                    {
+                        "action": "check",
+                        "configurator": "SetAttributeConfigurator",
+                        "priority": "required",
+                        "reason": "check unknown status",
+                        "status": "ok",
+                        "target": "foreign:anInstance",
+                        "targetStatus": "ok",
+                        "template": "anInstance",
+                        "type": "test.nodes.AbstractTest",
+                    }
+                ],
                 job.jsonSummary()["tasks"],
-                [["Install.check", "ok", "foreign:anInstance", "ok"]],
             )
             self.assertEqual(job.getOutputs()["server_ip"], "10.0.0.1")
             self.assertEqual(

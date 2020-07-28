@@ -21,6 +21,7 @@ import logging
 import functools
 import subprocess
 import shlex
+import json
 
 _latestJobs = []  # for testing
 
@@ -108,6 +109,14 @@ jobControlOptions = option_group(
 commonJobFilterOptions = option_group(
     click.option("--template", help="TOSCA template to target"),
     click.option("--instance", help="instance name to target"),
+    click.option("--query", help="Run the given expression upon job completion"),
+    click.option("--trace", default=0, help="Set the query's trace level"),
+    click.option(
+        "--output",
+        type=click.Choice(["text", "json", "none"]),
+        default="text",
+        help="How to print summary of job run",
+    ),
 )
 
 
@@ -222,12 +231,24 @@ def _runLocal(ensemble, options):
         if options["verbose"]:
             raise job.unexpectedAbort
     else:
-        click.echo(job.summary())
+        jsonSummary = {}
+        summary = options.get("output")
+        if summary == "text":
+            click.echo(job.summary())
+        elif summary == "json":
+            jsonSummary = job.jsonSummary()
+
         query = options.get("query")
         if query:
-            click.echo("query: " + query)
             result = job.runQuery(query, options.get("trace"))
-            click.echo(result)
+            if summary == "json":
+                jsonSummary["query"] = query
+                jsonSummary["result"] = result
+            else:
+                click.echo("query: " + query)
+                click.echo(result)
+        if jsonSummary:
+            click.echo(json.dumps(jsonSummary))
 
     if not job or (
         "jobexitcode" in options
@@ -335,8 +356,6 @@ def undeploy(ctx, ensemble=None, **options):
 @click.argument("ensemble", default="", type=click.Path(exists=False))
 @commonJobFilterOptions
 @deployFilterOptions
-@click.option("--query", help="Run the given expression")
-@click.option("--trace", default=0, help="set the query's trace level")
 @click.option("--workflow", default="deploy", help="plan workflow (default: deploy)")
 def plan(ctx, ensemble=None, **options):
     "Print the given deployment plan"
