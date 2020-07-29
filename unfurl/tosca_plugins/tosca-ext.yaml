@@ -460,9 +460,11 @@ interface_types:
   unfurl.interfaces.Install:
     derived_from: tosca.interfaces.Root
     check:
-      description: Checks and sets the status and attributes of SELF
+      description: Checks and sets the status and attributes of the instance
     discover:
       description: Discovers current state of the current instance and (possibly) related instances, updates the spec as needed.
+    revert:
+      description: Restore the instance to the state it was original found in
 
 group_types:
   unfurl.groups.AnsibleInventoryGroup:

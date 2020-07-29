@@ -99,6 +99,8 @@ node_types:
                                 {%- else %}unknown{%- endif%}
                   {%endif%}
                 {% endfor %}
+                  - name: SELF
+                    readyState: ok
 
       Standard:
         operations:

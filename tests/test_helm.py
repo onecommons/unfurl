@@ -108,18 +108,20 @@ class HelmTest(unittest.TestCase):
         run2 = runner.run(JobOptions(workflow="undeploy", startTime=2))
         assert not run2.unexpectedAbort, run2.unexpectedAbort.getStackTrace()
         summary = run2.jsonSummary()
-        # note if tests fail need to run: helm uninstall mysql-test  -n unfurl-helm-unittest
+
+        # note! if tests fail need to run: helm uninstall mysql-test  -n unfurl-helm-unittest
+
         self.assertEqual(
             summary["job"],
             {
                 "id": "A01120000000",
                 "status": "ok",
-                "total": 8,
-                "ok": 8,
+                "total": 3,
+                "ok": 3,
                 "error": 0,
                 "unknown": 0,
                 "skipped": 0,
-                "changed": 8,
+                "changed": 3,
             },
         )
         assert all(

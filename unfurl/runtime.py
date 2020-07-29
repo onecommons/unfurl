@@ -63,7 +63,7 @@ class Operational(ChangeAware):
 
     @property
     def present(self):
-        return self.operational or  self.status == Status.error
+        return self.operational or self.status == Status.error
 
     @property
     def status(self):
@@ -291,7 +291,7 @@ class _ChildResources(collections.Mapping):
 
 class EntityInstance(OperationalInstance, ResourceRef):
     attributeManager = None
-    createdOn = None
+    created = None
     shadow = None
     imports = None
     envRules = None

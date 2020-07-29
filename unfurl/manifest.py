@@ -282,6 +282,8 @@ class Manifest(AttributeManager):
             if v != sensitive_str.redacted_str
         }
         instance = ctor(name, attributes, parent, template, operational)
+        if "created" in status:
+            instance.created = status["created"]
         if imported:
             self.imports.setShadow(importName, instance)
         return instance

@@ -691,6 +691,12 @@ class TaskView(object):
                     )
                     resourceSpec["template"] = nodeSpec.name
 
+                if resourceSpec.get("readyState") and "created" not in resourceSpec:
+                    # setting "created" to the target's key indicates that
+                    # the target is responsible for deletion
+                    # if "created" is not defined, set it if readyState is set
+                    resourceSpec["created"] = self.target.key
+
                 if (
                     self.job
                     and "parent" not in resourceSpec

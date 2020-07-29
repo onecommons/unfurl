@@ -2,6 +2,7 @@ import unittest
 import six
 import os
 import os.path
+import json
 from click.testing import CliRunner
 from unfurl.yamlmanifest import YamlManifest
 from unfurl.job import Runner, JobOptions, Status
@@ -66,12 +67,11 @@ class RunTest(unittest.TestCase):
             JobOptions(workflow="undeploy", out=output3, startTime=2)
         )
         # print(output3.getvalue())
-        # 6 delete tasks should have ran
+        # only the chart delete task should have ran as it owns the resources it created
         # print(job3.jsonSummary())
-        assert len(job3.workDone) == 6, job3.jsonSummary()
+        assert len(job3.workDone) == 1, job3.jsonSummary()
         tasks = list(job3.workDone.values())
         assert tasks[0].target.status.name == "absent", tasks[0].target.status
-        assert tasks[1].target.status.name == "absent", tasks[1].target.status
 
     def test_discover(self):
         path = __file__ + "/../examples/helm-manifest.yaml"
@@ -97,7 +97,7 @@ class RunTest(unittest.TestCase):
         # print("2", output2.getvalue())
         # print('job2', job2.summary())
         assert not job2.unexpectedAbort, job2.unexpectedAbort.getStackTrace()
-        # print("job", list(job2.workDone))
+        # print("job", json.dumps(job2.jsonSummary(), indent=2))
         # should not have found any tasks to run:
         assert len(job2.workDone) == 8, list(job2.workDone)
 

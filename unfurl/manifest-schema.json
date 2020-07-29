@@ -15,6 +15,7 @@
         "started",
         "stopping",
         "deleting",
+        "deleted",
         "error"
       ],
       "$$target": "#/definitions/state"

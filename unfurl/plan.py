@@ -1,3 +1,4 @@
+import six
 from .runtime import NodeInstance
 from .util import UnfurlError, Generate
 from .support import Status, NodeState
@@ -135,11 +136,16 @@ class Plan(object):
         ran = False
         req = self.createTaskRequest(op, resource, reason, inputs)
         if not req.error:
-            resource.state = startState
+            if startState is not None:
+                resource.state = startState
             task = yield req
             if task:
                 ran = True
-                if task.result.success and resource.state == startState:
+                if (
+                    startState is not None
+                    and task.result.success
+                    and resource.state == startState
+                ):
                     # task succeeded but didn't update nodestate
                     resource.state = NodeState(resource.state + 1)
         yield ran
@@ -268,9 +274,14 @@ class Plan(object):
         # XXX remove_target: Operation called on source when a target instance is removed
         # (but only called if add_target had been called)
 
-        gen = self._runOperation(
-            NodeState.deleting, "Standard.delete", resource, reason, inputs
-        )
+        if resource.created:
+            nodeState = NodeState.deleting
+            op = "Standard.delete"
+        else:
+            nodeState = None
+            op = "Install.revert"
+
+        gen = self._runOperation(nodeState, op, resource, reason, inputs)
         req = gen.send(None)
         if req:
             gen.send((yield req))
@@ -323,16 +334,21 @@ class Plan(object):
 
         return TaskRequest(configSpec, resource, reason or action)
 
-    def isInstanceReadOnly(self, instance):
-        return instance.shadow or "discover" in instance.template.directives
-
     def generateDeleteConfigurations(self, include):
         for instance in self.root.getOperationalDependencies():
             # reverse to teardown leaf nodes first
             for resource in reversed(instance.descendents):
-                if self.isInstanceReadOnly(resource):
-                    # readonly resource
+                if instance.shadow or instance.template.abstract:  # readonly resource
                     continue
+                if not resource.created:  # creation and deletion is managed externally
+                    continue
+                if isinstance(resource.created, six.string_types):
+                    # creation and deletion is managed by another instance
+                    creator = resource.query(resource.created)
+                    # don't try to delete this if the owner still exists
+                    if creator and creator.present:
+                        continue
+
                 # if resource exists (or unknown)
                 if resource.status not in [Status.absent, Status.pending]:
                     reason = include(resource)
@@ -397,6 +413,8 @@ class Plan(object):
             resource.localStatus = successStatus
             if oldStatus != successStatus:
                 resource._lastConfigChange = task.changeId
+                if successStatus == Status.ok and resource.created is None:
+                    resource.created = True
 
     def executeWorkflow(self, workflowName, resource):
         workflow = self.tosca.getWorkflow(workflowName)
@@ -634,6 +652,9 @@ class DeployPlan(Plan):
             )
             return "repair error"  # repair this
 
+    def isInstanceReadOnly(self, instance):
+        return instance.shadow or "discover" in instance.template.directives
+
     def _generateWorkflowConfigurations(self, instance, oldTemplate):
         # if oldTemplate is not None this is an existing instance, so check if we should include
         if oldTemplate:
@@ -687,8 +708,7 @@ class UndeployPlan(Plan):
 
 
 class ReadOnlyPlan(Plan):
-    def isInstanceReadOnly(self, instance):
-        return True
+    pass
 
 
 class WorkflowPlan(Plan):

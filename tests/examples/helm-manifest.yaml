@@ -82,6 +82,8 @@ spec:
                         readyState: {%if json.info.deleted %}absent{% else %}ok{%endif%}
                       {%endif%}
                     {% endfor %}
+                      - name: SELF
+                        readyState: ok
 
     interface_types:
       unfurl.interfaces.install.Helm:

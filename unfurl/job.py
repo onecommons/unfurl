@@ -174,6 +174,11 @@ class ConfigTask(ConfigChange, TaskView, AttributeManager):
         if result.status is not None:
             # status was explicitly set
             self.target.localStatus = result.status
+            if self.target.present and self.target.created is None:
+                self.target.created = self.configSpec.operation not in [
+                    "check",
+                    "discover",
+                ]
         elif not result.success:
             # if any task failed and (maybe) modified, target.status will be set to error or unknown
             if result.modified:

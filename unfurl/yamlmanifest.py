@@ -320,8 +320,8 @@ class YamlManifest(ReadOnlyManifest):
             # name will be the same as the import name
             status["imported"] = resource.name
         saveStatus(resource, status)
-        if resource.createdOn:  # will be a ChangeRecord
-            status["createdOn"] = resource.createdOn.changeId
+        if resource.created is not None:
+            status["created"] = resource.created
 
         return (resource.name, status)
 
