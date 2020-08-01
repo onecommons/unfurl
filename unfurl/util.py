@@ -186,6 +186,23 @@ def toEnum(enum, value, default=None):
         return value
 
 
+def _dump(obj, tp, suffix=""):
+    if suffix.endswith(".yml") or suffix.endswith(".yaml"):
+        YAML().dump(obj, tp)
+    elif suffix.endswith(".json") or not isinstance(obj, six.string_types):
+        json.dump(obj, tp)
+    else:
+        tp.write(obj)
+
+
+def saveToFile(path, obj):
+    dir = os.path.dirname(path)
+    if dir and not os.path.isdir(dir):
+        os.makedirs(dir)
+    with open(path, "w") as f:
+        _dump(obj, f, path)
+
+
 def saveToTempfile(obj, suffix="", delete=True, dir=None):
     tp = tempfile.NamedTemporaryFile(
         "w+t", suffix=suffix, delete=False, dir=dir or os.environ.get("UNFURL_TMPDIR")
@@ -193,12 +210,7 @@ def saveToTempfile(obj, suffix="", delete=True, dir=None):
     if delete:
         atexit.register(lambda: os.path.exists(tp.name) and os.unlink(tp.name))
     try:
-        if suffix.endswith(".yml") or suffix.endswith(".yaml"):
-            YAML().dump(obj, tp)
-        elif suffix.endswith(".json") or not isinstance(obj, six.string_types):
-            json.dump(obj, tp)
-        else:
-            tp.write(obj)
+        _dump(obj, tp, suffix)
     finally:
         tp.close()
     return tp

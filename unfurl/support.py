@@ -21,6 +21,7 @@ from .util import (
     assertForm,
     sensitive_str,
     saveToTempfile,
+    saveToFile,
     filterEnv,
 )
 from .merge import intersectDict, mergeDicts
@@ -39,7 +40,7 @@ Status = IntEnum(
 # see "3.4.1 Node States" p74
 NodeState = IntEnum(
     "NodeState",
-    "initial creating created configuring configured starting started stopping deleting deleted error",
+    "initial creating created configuring configured starting started stopping stopped deleting deleted error",
     module=__name__,
 )
 
@@ -60,9 +61,18 @@ class File(ExternalValue):
   get() returns the given file path (usually relative)
   """
 
-    def __init__(self, name, baseDir=""):
+    def __init__(self, arg, baseDir=""):
+        write = False
+        if isinstance(arg, dict):
+            name = arg["path"]
+            write = True
+        else:
+            name = arg
+
         super(File, self).__init__("file", name)
         self.baseDir = baseDir or ""
+        if write:
+            saveToFile(self.getFullPath(), arg["contents"])
 
     def getFullPath(self):
         return os.path.abspath(os.path.join(self.baseDir, self.get()))
@@ -348,7 +358,7 @@ def lookupFunc(arg, ctx):
         name, args = list(arg.items())[0]
         kw = {}
     else:
-        assertForm(arg, list)
+        assertForm(arg, MutableSequence)
         name, args = list(assertForm(arg[0]).items())[0]
         kw = dict(list(assertForm(kw).items())[0] for kw in arg[1:])
 
