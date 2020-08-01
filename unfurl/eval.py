@@ -102,7 +102,7 @@ class RefContext(object):
         self.resolveExternal = resolveExternal
         self._trace = trace
         self.strict = strict
-        self.baseDir = currentResource.root.baseDir
+        self.baseDir = currentResource.baseDir
         self.templar = currentResource.templar
         self.referenced = _Tracker()
 

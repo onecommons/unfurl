@@ -280,7 +280,7 @@ class LocalConfig(object):
                     "inherit"
                 ] = "unfurl.support.DelegateAttributes"
         instance = NodeInstance(localName, attributes)
-        instance.baseDir = self.config.getBaseDir()
+        instance._baseDir = self.config.getBaseDir()
         return instance
 
 

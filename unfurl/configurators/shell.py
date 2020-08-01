@@ -30,10 +30,6 @@ else:
     import subprocess
 # cf https://github.com/opsmop/opsmop/blob/master/opsmop/core/command.py
 
-import logging
-
-logger = logging.getLogger("unfurl")
-
 try:
     from shutil import which
 except ImportError:
@@ -119,20 +115,19 @@ class ShellConfigurator(TemplateConfigurator):
             else Status.ok
         )
         if status == Status.error:
-            logger.warning("shell task run failure: %s", result.cmd)
-            logger.info(
+            task.logger.warning("shell task run failure: %s", result.cmd)
+            task.logger.info(
                 "shell task return code: %s, stderr: %s",
                 result.returncode,
                 result.stderr,
             )
         else:
-            logger.info("shell task run success: %s", result.cmd)
-            logger.debug("shell task output: %s", result.stdout)
+            task.logger.info("shell task run success: %s", result.cmd)
+            task.logger.debug("shell task output: %s", result.stdout)
 
-        if status != Status.error:
-            self.processResultTemplate(task, result.__dict__)
-            if task.errors:
-                return Status.error
+        self.processResultTemplate(task, result.__dict__)
+        if task._errors:
+            return Status.error
         return status
 
     def canRun(self, task):
@@ -154,9 +149,13 @@ class ShellConfigurator(TemplateConfigurator):
         # default for shell: True if command is a string otherwise False
         shell = params.get("shell", isString)
         env = task.getEnvironment(False)
+
         cwd = params.get("cwd")
         if cwd:
-            cwd = os.path.abspath(cwd)
+            # if cwd is relative, make it relative to task.cwd
+            cwd = os.path.abspath(os.path.join(task.cwd, cwd))
+        else:
+            cwd = task.cwd
         keeplines = params.get("keeplines")
 
         if task.dryRun and isinstance(task.inputs.get("dryrun"), six.string_types):

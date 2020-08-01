@@ -295,6 +295,7 @@ class EntityInstance(OperationalInstance, ResourceRef):
     shadow = None
     imports = None
     envRules = None
+    _baseDir = ""
 
     def __init__(
         self, name="", attributes=None, parent=None, template=None, status=None
@@ -358,6 +359,13 @@ class EntityInstance(OperationalInstance, ResourceRef):
     @property
     def type(self):
         return self.template.type
+
+    @property
+    def baseDir(self):
+        if self.shadow:
+            return self.shadow.baseDir
+        else:
+            return self.root._baseDir
 
     @property
     def artifacts(self):
@@ -499,7 +507,6 @@ class RelationshipInstance(EntityInstance):
 
 
 class NodeInstance(EntityInstance):
-    baseDir = ""
     templateType = NodeSpec
     parentRelation = "instances"
 
@@ -666,13 +673,6 @@ class NodeInstance(EntityInstance):
             return self.imports.findImport(resourceid)
         return None
 
-    def setBaseDir(self, baseDir):
-        self.baseDir = baseDir
-        if not self._templar or self._templar._basedir != baseDir:
-            loader = DataLoader()
-            loader.set_basedir(baseDir)
-            self._templar = Templar(loader)
-
     def addInterface(self, klass, name=None):
         if not isinstance(klass, six.string_types):
             klass = klass.__module__ + "." + klass.__name__
@@ -712,6 +712,13 @@ class TopologyInstance(NodeInstance):
         self.outputs = NodeInstance("outputs", template.outputs, self)
         self._capabilities = []
         self._relationships = None
+
+    def setBaseDir(self, baseDir):
+        self._baseDir = baseDir
+        if not self._templar or self._templar._basedir != baseDir:
+            loader = DataLoader()
+            loader.set_basedir(baseDir)
+            self._templar = Templar(loader)
 
     @property
     def requirements(self):

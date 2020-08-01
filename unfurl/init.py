@@ -29,7 +29,7 @@ def writeTemplate(folder, filename, templatePath, vars):
     with open(os.path.join(_templatePath, templatePath)) as f:
         source = f.read()
     instance = NodeInstance()
-    instance.baseDir = _templatePath
+    instance._baseDir = _templatePath
     content = applyTemplate(source, RefContext(instance, vars))
     return _writeFile(folder, filename, content)
 
