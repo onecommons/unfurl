@@ -784,9 +784,24 @@ class RunNowPlan(Plan):
         else:
             resources = [self.root]
 
-        for resource in resources:
+        # userConfig has the job options explicitly set by the user
+        operation = self.jobOptions.userConfig.get("operation")
+        operation_host = self.jobOptions.userConfig.get("host")
+        if not operation:
             configSpec = self._createConfigurator(self.jobOptions.userConfig, "run")
-            yield TaskRequest(configSpec, resource, "run")
+        else:
+            configSpec = None
+            interface, sep, action = operation.rpartition(".")
+            if not interface and findStandardInterface(operation):  # shortcut
+                operation = findStandardInterface(operation) + "." + operation
+        for resource in resources:
+            if configSpec:
+                yield TaskRequest(configSpec, resource, "run")
+            else:
+                req = self.createTaskRequest(operation, resource, "run")
+                if not req.error:  # if operation was found:
+                    req.configSpec.operation_host = operation_host
+                    yield req
 
 
 def orderTemplates(templates, filter=None):

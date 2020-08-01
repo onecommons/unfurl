@@ -8,6 +8,7 @@ from .yamlloader import resolveIfInRepository
 from toscaparser.tosca_template import ToscaTemplate
 from toscaparser.properties import Property
 from toscaparser.elements.entity_type import EntityType
+from toscaparser.elements.statefulentitytype import StatefulEntityType
 import toscaparser.workflow
 import toscaparser.imports
 import toscaparser.artifacts
@@ -20,6 +21,8 @@ from ruamel.yaml.comments import CommentedMap
 logger = logging.getLogger("unfurl")
 
 from toscaparser import functions
+
+_basepath = os.path.abspath(os.path.dirname(__file__))
 
 
 class RefFunc(functions.Function):
@@ -41,6 +44,17 @@ def is_function(function):
 
 
 functions.is_function = is_function
+
+
+def findStandardInterface(op):
+    if op in StatefulEntityType.interfaces_node_lifecycle_operations:
+        return "Standard"
+    elif op in ["check", "discover", "revert"]:
+        return "Install"
+    elif op in StatefulEntityType.interfaces_relationship_configure_operations:
+        return "Configure"
+    else:
+        return ""
 
 
 def createDefaultTopology():
@@ -79,9 +93,7 @@ class ToscaSpec(object):
             repositories = toscaDef.setdefault("repositories", {})
             if "unfurl" not in repositories:
                 # add a repository that points to this package
-                repositories["unfurl"] = dict(
-                    url="file:" + os.path.abspath(os.path.dirname(__file__))
-                )
+                repositories["unfurl"] = dict(url="file:" + _basepath)
 
             logger.info("Validating TOSCA template at %s", path)
             try:
@@ -502,8 +514,10 @@ class NodeSpec(EntitySpec):
                 reqSpec.relationship.capability = capability
                 break
         else:
+            capabilities = [c.name for c in self.capabilities.values()]
             raise UnfurlValidationError(
-                "capability not found for requirement %s" % reqSpec.name
+                'capabilities %s not found for requirement "%s" on node "%s"'
+                % (capabilities, reqSpec.name, self.name)
             )
 
     @property
@@ -743,7 +757,7 @@ class Artifact(object):
                 self.spec and self.spec.template.topology_template.custom_defs or {}
             )
             artifact = toscaparser.artifacts.Artifact(
-                artifact_tpl["file"], artifact_tpl, custom_defs, path
+                artifact_tpl.get("file", ""), artifact_tpl, custom_defs, path
             )
         self.artifact = artifact
         self.repository = (

@@ -134,6 +134,7 @@ commonJobFilterOptions = option_group(
 @jobControlOptions
 @commonJobFilterOptions
 @click.option("--host", help="host to run the command on")
+@click.option("--operation", help="TOSCA operation to run")
 @click.option("-m", "--module", help="ansible module to run (default: command)")
 @click.argument("cmdline", nargs=-1, type=click.UNPROCESSED)
 def run(ctx, instance="root", cmdline=None, **options):
