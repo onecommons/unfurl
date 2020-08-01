@@ -1,4 +1,5 @@
 import unittest
+import os
 from unfurl.yamlmanifest import YamlManifest
 from unfurl.localenv import LocalEnv
 from unfurl.job import Runner, JobOptions
@@ -263,54 +264,63 @@ spec:
             % API_VERSION
         )
 
-        runner = CliRunner()
-        with runner.isolated_filesystem():
-            with open("foreignmanifest.yaml", "w") as f:
-                f.write(foreign)
+        runner = CliRunner()  # delete UNFURL_HOME
+        try:
+            UNFURL_HOME = os.environ.get("UNFURL_HOME")
+            with runner.isolated_filesystem():
+                os.environ["UNFURL_HOME"] = ""
 
-            with open("unfurl.yaml", "w") as f:
-                f.write(localConfig)
+                with open("foreignmanifest.yaml", "w") as f:
+                    f.write(foreign)
 
-            with open("manifest.yaml", "w") as f:
-                f.write(mainManifest)
+                with open("unfurl.yaml", "w") as f:
+                    f.write(localConfig)
 
-            manifest = LocalEnv("manifest.yaml").getManifest()
-            job = Runner(manifest).run(JobOptions(add=True, startTime="time-to-test"))
-            # print(job.out.getvalue())
-            # print(job.jsonSummary())
-            assert job.status == Status.ok, job.summary()
-            self.assertEqual(
-                [
-                    {
-                        "action": "check",
-                        "configurator": "SetAttributeConfigurator",
-                        "changed": True,
-                        "priority": "required",
-                        "reason": "check",
-                        "status": "ok",
-                        "target": "foreign:anInstance",
-                        "targetStatus": "ok",
-                        "template": "anInstance",
-                        "type": "test.nodes.AbstractTest",
-                    }
-                ],
-                job.jsonSummary()["tasks"],
-            )
-            self.assertEqual(job.getOutputs()["server_ip"], "10.0.0.1")
-            self.assertEqual(
-                len(manifest.localEnv._manifests), 2, manifest.localEnv._manifests
-            )
-            # reload:
-            manifest2 = LocalEnv("manifest.yaml").getManifest()
-            # test that restored manifest create a shadow instance for the foreign instance
-            imported = manifest2.imports["foreign"].resource
-            assert imported
-            imported2 = manifest2.imports.findImport("foreign:anInstance")
-            assert imported2
-            assert imported2.shadow
-            self.assertIs(imported2.root, manifest2.getRootResource())
-            self.assertEqual(imported2.attributes["private_address"], "10.0.0.1")
-            self.assertIsNot(imported2.shadow.root, manifest2.getRootResource())
+                with open("manifest.yaml", "w") as f:
+                    f.write(mainManifest)
+
+                manifest = LocalEnv("manifest.yaml").getManifest()
+                job = Runner(manifest).run(
+                    JobOptions(add=True, startTime="time-to-test")
+                )
+                # print(job.out.getvalue())
+                # print(job.jsonSummary())
+                assert job.status == Status.ok, job.summary()
+                self.assertEqual(
+                    [
+                        {
+                            "operation": "check",
+                            "configurator": "SetAttributeConfigurator",
+                            "changed": True,
+                            "priority": "required",
+                            "reason": "check",
+                            "status": "ok",
+                            "target": "foreign:anInstance",
+                            "targetStatus": "ok",
+                            "template": "anInstance",
+                            "type": "test.nodes.AbstractTest",
+                        }
+                    ],
+                    job.jsonSummary()["tasks"],
+                )
+                self.assertEqual(job.getOutputs()["server_ip"], "10.0.0.1")
+                self.assertEqual(
+                    len(manifest.localEnv._manifests), 2, manifest.localEnv._manifests
+                )
+                # reload:
+                manifest2 = LocalEnv("manifest.yaml").getManifest()
+                # test that restored manifest create a shadow instance for the foreign instance
+                imported = manifest2.imports["foreign"].resource
+                assert imported
+                imported2 = manifest2.imports.findImport("foreign:anInstance")
+                assert imported2
+                assert imported2.shadow
+                self.assertIs(imported2.root, manifest2.getRootResource())
+                self.assertEqual(imported2.attributes["private_address"], "10.0.0.1")
+                self.assertIsNot(imported2.shadow.root, manifest2.getRootResource())
+        finally:
+            if UNFURL_HOME is not None:
+                os.environ["UNFURL_HOME"] = UNFURL_HOME
 
     def test_connections(self):
         mainManifest = (
