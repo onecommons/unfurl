@@ -88,7 +88,7 @@ class DockerTest(unittest.TestCase):
 
         run1 = runner.run(JobOptions(template="container1"))
         # runner.manifest.dump()
-        assert len(run1.workDone) == 1, run1.workDone
+        assert len(run1.workDone) == 2, run1.workDone  # configure and start
         tasks = list(run1.workDone.values())
         container = tasks[0].result.outputs.get("docker_container")
         assert container
@@ -102,7 +102,7 @@ class DockerTest(unittest.TestCase):
         assert tasks[0].target.status.name == "ok", tasks[0].target.status
 
         run2 = runner.run(JobOptions(workflow="undeploy", template="container1"))
-        assert len(run2.workDone) == 1, run2.workDone
+        assert len(run2.workDone) == 2, run2.workDone
         assert not run2.unexpectedAbort, run2.unexpectedAbort.getStackTrace()
         tasks = list(run2.workDone.values())
         # runner.manifest.dump()

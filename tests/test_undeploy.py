@@ -28,6 +28,11 @@ manifestContent = """\
               - dependent
             type: test.nodes.simple
 
+          external:
+            directives:
+              - select
+            type: test.nodes.simple
+
           missing:
             type: test.nodes.simple
 
@@ -98,6 +103,8 @@ class UndeployTest(unittest.TestCase):
         )
         self.assertIs(job.rootResource.findResource("unmanaged").created, True)
         self.assertIs(job.rootResource.findResource("preexisting").created, False)
+        self.assertNotIn("external", targets, "missing external instances should not be created")
+
         # print(job.out.getvalue())
 
         manifest2 = YamlManifest(job.out.getvalue())

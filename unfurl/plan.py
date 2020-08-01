@@ -7,6 +7,7 @@ from .configurator import (
     getConfigSpecArgsFromImplementation,
     TaskRequest,
 )
+from .tosca import findStandardInterface
 
 import logging
 
@@ -78,7 +79,7 @@ class Plan(object):
             parent = self.root
 
         shadowInstance = external.__class__(
-            name, external.attributes, parent, external.template
+            name, external.attributes, parent, external.template, external
         )
         shadowInstance.shadow = external
         # Imports.__setitem__ will add or update:
@@ -91,6 +92,10 @@ class Plan(object):
             shadowInstance = self.findShadowInstance(template, "type")
             if shadowInstance:
                 yield shadowInstance
+            else:
+                logger.debug(
+                    "could not find external instance for template %s", template.name
+                )
             # XXX also yield newly created parents that needed to be checked?
         else:
             for resource in self.root.getSelfAndDescendents():
@@ -109,6 +114,9 @@ class Plan(object):
         for parent in self.findResourcesFromTemplateName(parentTemplate.name):
             # XXX need to evaluate matches
             return parent
+        raise UnfurlError(
+            "could not find instance of template: %s" % parentTemplate.name
+        )
 
     def createResource(self, template):
         if False:  # XXX if joboption.check:
@@ -118,7 +126,6 @@ class Plan(object):
         # XXX create capabilities and requirements too?
         # XXX if requirement with HostedOn relationship, target is the parent not root
         parent = self.findParentResource(template)
-        assert parent, "parent should have already been created"
         # Set the initial status of new resources to status instead of defaulting to "unknown"
         return NodeInstance(template.name, None, parent, template, status)
 
@@ -136,11 +143,14 @@ class Plan(object):
         ran = False
         req = self.createTaskRequest(op, resource, reason, inputs)
         if not req.error:
-            if startState is not None:
+            if startState is not None and (
+                not resource.state or startState > resource.state
+            ):
                 resource.state = startState
             task = yield req
             if task:
                 ran = True
+                # if the state hasn't been set by the task, advance the state
                 if (
                     startState is not None
                     and task.result.success
@@ -240,31 +250,27 @@ class Plan(object):
             if req and gen.send((yield req)):
                 ran = True
 
-        if resource.state == NodeState.created:
+        if not ran or resource.state == NodeState.created:
             gen = Generate(self._executeDefaultConfigure(resource, reason, inputs))
             while gen():
                 gen.result = yield gen.next
-            if gen.next:
-                ran = True
+            ran = gen.next
             # XXX if the resource had already existed, call target_changed
             # "Operation to notify source some property or attribute of the target changed"
             # if not missing:
             #   for requirement in requirements:
             #     call target_changed
 
-        if resource.state == "configured":
+        if resource.state == NodeState.configured or (
+            not ran and resource.state == NodeState.created
+        ):
+            # configured or if no configure operation exists then node just needs to have been created
             gen = self._runOperation(
                 NodeState.starting, "Standard.start", resource, reason, inputs
             )
             req = gen.send(None)
             if req and gen.send((yield req)):
                 ran = True
-
-        if not ran:
-            # if none were selected, run configure (eg. if resource is in a error state)
-            gen = Generate(self._executeDefaultConfigure(resource, reason, inputs))
-            while gen():
-                gen.result = yield gen.next
 
         # XXX these are only called when adding instances
         # add_source: Operation to notify the target node of a source node which is now available via a relationship.
@@ -275,6 +281,14 @@ class Plan(object):
         # (but only called if add_target had been called)
 
         if resource.created:
+            nodeState = NodeState.stopping
+            op = "Standard.stop"
+
+            gen = self._runOperation(nodeState, op, resource, reason, inputs)
+            req = gen.send(None)
+            if req:
+                gen.send((yield req))
+
             nodeState = NodeState.deleting
             op = "Standard.delete"
         else:
@@ -335,10 +349,11 @@ class Plan(object):
         return TaskRequest(configSpec, resource, reason or action)
 
     def generateDeleteConfigurations(self, include):
-        for instance in self.root.getOperationalDependencies():
+        for parents in self.root.getOperationalDependencies():
             # reverse to teardown leaf nodes first
-            for resource in reversed(instance.descendents):
-                if instance.shadow or instance.template.abstract:  # readonly resource
+            for resource in reversed(parents.descendents):
+                logger.debug("checking instance for removal: %s", resource.name)
+                if resource.shadow or resource.template.abstract:  # readonly resource
                     continue
                 if not resource.created:  # creation and deletion is managed externally
                     continue
@@ -460,7 +475,7 @@ class Plan(object):
                 pass
 
     def executeStep(self, step, resource):
-        logging.debug("executing step %s for %s", step.name, resource.name)
+        logger.debug("executing step %s for %s", step.name, resource.name)
         result = None
         for activity in step.activities:
             if activity.type == "inline":
@@ -553,7 +568,11 @@ class Plan(object):
                 while gen():
                     gen.result = yield gen.next
 
-            if not found and "dependent" not in template.directives:
+            if (
+                not found
+                and not template.abstract
+                and "dependent" not in template.directives
+            ):
                 include = self.includeNotFound(template)
                 if include:
                     resource = self.createResource(template)
