@@ -17,8 +17,21 @@ class TemplateConfigurator(Configurator):
                     result = results.strip()
                 task.updateResources(results)
 
+    def canDryRun(self, task):
+        return not not task.inputs.get("dryrun")
+
     def run(self, task):
+        if task.dryRun:
+            runResult = task.inputs.get("dryrun")
+        else:
+            runResult = task.inputs.get("run")
+
         result = task.inputs.get("result", {})
+        if "result" not in result:
+            if not isinstance(runResult, dict):
+                result["result"] = {'run': runResult}
+            else:
+                result["result"] = runResult
         self.processResultTemplate(task, result.get("result"))
         yield task.done(**result)
 

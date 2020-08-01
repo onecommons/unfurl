@@ -1,6 +1,7 @@
 import six
 import collections
 import re
+import os
 from .support import Status, Defaults, ResourceChanges
 from .result import serializeValue, ChangeAware, Results, ResultsMap
 from .util import (
@@ -274,10 +275,11 @@ class TaskView(object):
         self.target = target
         self.reason = reason
         self.logger = logger
-        self.errors = []
         host = self._findOperationHost(target, configSpec.operationHost)
         self.operationHost = host
+        self.cwd = os.path.abspath(self.target.baseDir)
         # private:
+        self._errors = []  # UnfurlTaskError objects appends themselves to this list
         self._inputs = None
         self._environ = None
         self._manifest = manifest
@@ -325,6 +327,13 @@ class TaskView(object):
             # expose inputs lazily to allow self-referencee
             self._inputs = ResultsMap(inputs, RefContext(self.target, vars))
         return self._inputs
+
+    @property
+    def vars(self):
+        """
+        A dictionary of the same variables that are available to expressions when evaluating inputs.
+        """
+        return self.inputs.context.vars
 
     def _getConnections(self):
         for parent in reversed(self.target.ancestors):
@@ -409,6 +418,7 @@ class TaskView(object):
             timeout=self.configSpec.timeout,
             target=self.target.name,
             reason=self.reason,
+            cwd=self.cwd,
         )
 
     def _findOperationHost(self, target, operation_host):
@@ -495,14 +505,15 @@ class TaskView(object):
               :class:`ConfiguratorResult`
         """
         if success is None:
-            success = not self.errors
+            success = not self._errors
         if isinstance(modified, Status):
             status = modified
             modified = True
 
         kw = dict(result=result, outputs=outputs)
         if captureException is not None:
-            kw["exception"] = UnfurlTaskError(self, captureException, True)
+            logLevel = logging.DEBUG if success else logging.ERROR
+            kw["exception"] = UnfurlTaskError(self, captureException, logLevel)
 
         return ConfiguratorResult(success, modified, status, **kw)
 
@@ -527,7 +538,9 @@ class TaskView(object):
                 self.inputs.context, wantList, strict
             )
         except:
-            UnfurlTaskError(self, "error while evaluating query", True)
+            UnfurlTaskError(
+                self, "error while evaluating query: %s" % query, logging.WARNING
+            )
             return None
 
         if dependency:
@@ -639,8 +652,16 @@ class TaskView(object):
             try:
                 resources = yaml.load(resources)
             except:
-                UnfurlTaskError(self, "unable to parse as YAML: %s" % resources, True)
+                UnfurlTaskError(self, "unable to parse as YAML: %s" % resources)
                 return None
+
+        if not isinstance(resources, collections.MutableSequence):
+            UnfurlTaskError(
+                self,
+                "updateResources requires a list of updates, not a %s"
+                % type(resources),
+            )
+            return None
 
         errors = []
         newResources = []
@@ -648,11 +669,12 @@ class TaskView(object):
         for resourceSpec in resources:
             originalResourceSpec = resourceSpec
             try:
-                rname = resourceSpec["name"]
+                rname = resourceSpec.get("name", "SELF")
                 if rname == ".self" or rname == "SELF":
                     existingResource = self.target
                 else:
                     existingResource = self.findInstance(rname)
+
                 if existingResource:
                     # XXX2 if spec is defined (not just status), there should be a way to
                     # indicate this should replace an existing resource or throw an error
@@ -719,9 +741,7 @@ class TaskView(object):
                 # if resource.required or resourceSpec.get("dependent"):
                 #    self.addDependency(resource, required=resource.required)
             except:
-                errors.append(
-                    UnfurlAddingResourceError(self, originalResourceSpec, True)
-                )
+                errors.append(UnfurlAddingResourceError(self, originalResourceSpec))
             else:
                 newResourceSpecs.append(originalResourceSpec)
                 newResources.append(resource)
@@ -862,6 +882,9 @@ def getConfigSpecArgsFromImplementation(iDef, inputs, template):
                 lookupClass(implementation)
                 kw["className"] = implementation
         except UnfurlError:
+            logger.debug(
+                "interpreting 'implementation' as a shell command: %s", implementation
+            )
             # is it a shell script or a command line?
             # assume its a command line, create a ShellConfigurator
             kw["className"] = "unfurl.configurators.shell.ShellConfigurator"

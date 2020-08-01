@@ -46,7 +46,7 @@ class JobOptions(object):
     """
   Options available to select which tasks are run, e.g. read-only
 
-  does the config apply to the action?
+  does the config apply to the operation?
   is it out of date?
   is it in a ok state?
   """
@@ -313,7 +313,7 @@ class ConfigTask(ConfigChange, TaskView, AttributeManager):
         summary = dict(
             status=self.status.name,
             target=self.target.name,
-            action=self.configSpec.operation,
+            operation=self.configSpec.operation,
             template=self.target.template.name,
             type=self.target.template.type,
             targetStatus=self.target.status.name,
@@ -327,7 +327,7 @@ class ConfigTask(ConfigChange, TaskView, AttributeManager):
             return summary
         else:
             return (
-                "{action} on instance {rname} (type {type}, status {targetStatus}) "
+                "{operation} on instance {rname} (type {type}, status {targetStatus}) "
                 + "using configurator {cname}, priority: {priority}, reason: {reason}"
             ).format(cname=cname, rname=rname, **summary)
 
@@ -363,7 +363,7 @@ class Job(ConfigChange):
             task.inputs
             task.configurator
         except Exception:
-            UnfurlTaskError(task, "unable to create task", True)
+            UnfurlTaskError(task, "unable to create task")
 
         # if configSpec.hasBatchConfigurator():
         # search targets parents for a batchConfigurator
@@ -402,7 +402,7 @@ class Job(ConfigChange):
                         self, configSpec, req.target, reason=req.reason
                     )
                     # the task won't run if we associate an exception with it:
-                    UnfurlTaskError(errorTask, configSpec.className, True)
+                    UnfurlTaskError(errorTask, configSpec.className, logging.WARNING)
                     result = yield errorTask
                     continue
 
@@ -531,7 +531,7 @@ class Job(ConfigChange):
                 priority = task.priority
         except Exception:
             # unexpected error don't run this
-            UnfurlTaskError(task, "shouldRun failed unexpectedly", True)
+            UnfurlTaskError(task, "shouldRun failed unexpectedly")
             return False
 
         if isinstance(priority, bool):
@@ -559,7 +559,7 @@ class Job(ConfigChange):
         canRun = False
         reason = ""
         try:
-            if task.errors:
+            if task._errors:
                 canRun = False
                 reason = "could not create task"
                 return
@@ -593,7 +593,7 @@ class Job(ConfigChange):
                         else:
                             canRun = True
         except Exception:
-            UnfurlTaskError(task, "cantRunTask failed unexpectedly", True)
+            UnfurlTaskError(task, "cantRunTask failed unexpectedly")
             reason = "unexpected exception in cantRunTask"
             canRun = False
         finally:
@@ -694,11 +694,11 @@ class Job(ConfigChange):
             try:
                 result = task.send(change)
             except Exception:
-                UnfurlTaskError(task, "configurator.run failed", True)
+                UnfurlTaskError(task, "configurator.run failed")
                 return task.finished(ConfiguratorResult(False, None, Status.error))
             if isinstance(result, TaskRequest):
                 if depth >= self.MAX_NESTED_SUBTASKS:
-                    UnfurlTaskError(task, "too many subtasks spawned", True)
+                    UnfurlTaskError(task, "too many subtasks spawned")
                     change = task.finished(ConfiguratorResult(False, None))
                 else:
                     subtask = self.createTask(result.configSpec, result.target)
@@ -715,7 +715,7 @@ class Job(ConfigChange):
                 )
                 return retVal
             else:
-                UnfurlTaskError(task, "unexpected result from configurator", True)
+                UnfurlTaskError(task, "unexpected result from configurator")
                 return task.finished(ConfiguratorResult(False, None, Status.error))
 
 

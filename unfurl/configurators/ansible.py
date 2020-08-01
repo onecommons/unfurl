@@ -289,7 +289,7 @@ class AnsibleConfigurator(TemplateConfigurator):
                 modified = False
 
             result = task.done(
-                status == Status.ok and not task.errors,
+                status == Status.ok and not task._errors,
                 modified,
                 targetStatus,
                 result=results,

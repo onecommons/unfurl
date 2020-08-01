@@ -53,14 +53,17 @@ class UnfurlValidationError(UnfurlError):
 
 
 class UnfurlTaskError(UnfurlError):
-    def __init__(self, task, message, log=False):
-        super(UnfurlTaskError, self).__init__(message, True, log)
+    def __init__(self, task, message, log=logging.ERROR):
+        super(UnfurlTaskError, self).__init__(message, True, False)
         self.task = task
-        task.errors.append(self)
+        task._errors.append(self)
+        self.severity = log
+        if log:
+            task.logger.log(log, message, exc_info=True)
 
 
 class UnfurlAddingResourceError(UnfurlTaskError):
-    def __init__(self, task, resourceSpec, log=False):
+    def __init__(self, task, resourceSpec, log=logging.WARNING):
         resourcename = isinstance(resourceSpec, Mapping) and resourceSpec.get(
             "name", ""
         )
