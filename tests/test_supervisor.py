@@ -71,7 +71,7 @@ class SupervisorTest(unittest.TestCase):
             )
 
             # print(json.dumps(summary, indent=2))
-            time.sleep(0.15)
+            time.sleep(0.25)
             f = urllib.request.urlopen("http://127.0.0.1:8012/")
             expected = b"Directory listing for /"
             self.assertIn(expected, f.read())
