@@ -153,6 +153,7 @@ class ShellConfigurator(TemplateConfigurator):
         cwd = params.get("cwd")
         if cwd:
             # if cwd is relative, make it relative to task.cwd
+            assert isinstance(cmd, six.string_types)
             cwd = os.path.abspath(os.path.join(task.cwd, cwd))
         else:
             cwd = task.cwd

@@ -69,6 +69,7 @@ node_types:
                         eval:
                           $inputs::chart_values
               resultTemplate: |
+                {%if returncode == 0 %}
                 {% set json = stdout | from_json %}
                 {%for doc in json.manifest | from_yaml_all %}
                   {%if doc.kind is defined %}
@@ -101,6 +102,7 @@ node_types:
                 {% endfor %}
                   - name: SELF
                     readyState: ok
+                {% endif %}
 
       Standard:
         operations:

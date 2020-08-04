@@ -90,6 +90,8 @@ class SupervisorConfigurator(Configurator):
                 op == "start" and err.faultCode == 60
             ) and not (  # ok, 70 == NOT_RUNNING
                 op == "stop" and err.faultCode == 70
+            ) and not ( # ok, 90 == ALREADY_ADDED
+                op == "configure" and err.faultCode == 90
             ):
                 error = "supervisor error: " + str(err)
 
