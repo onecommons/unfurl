@@ -8,6 +8,7 @@ import collections
 import types
 import itertools
 import os
+import json
 from .support import Status, Priority, Defaults, AttributeManager
 from .result import serializeValue, ChangeRecord
 from .util import UnfurlError, UnfurlTaskError, toEnum
@@ -606,14 +607,17 @@ class Job(ConfigChange):
     def shouldAbort(self, task):
         return False  # XXX3
 
-    def jsonSummary(self):
+    def jsonSummary(self, pprint=False):
         job = dict(id=self.changeId, status=self.status.name)
         job.update(self.stats())
-        return dict(
+        summary = dict(
             job=job,
             outputs=serializeValue(self.getOutputs()),
             tasks=[task.summary(True) for task in self.workDone.values()],
         )
+        if pprint:
+            return json.dumps(summary, indent=2)
+        return summary
 
     def stats(self, asMessage=False):
         tasks = self.workDone.values()
@@ -769,7 +773,7 @@ class Runner(object):
                 for repo in self.manifest.localEnv.getRepos():
                     if repo.isDirty():
                         logger.error(
-                            "aborting run: uncommitted files (--dirty to override)"
+                            "aborting run: uncommitted files in %s (--dirty to override)", repo.workingDir
                         )
                         return None
             job = self.createJob(

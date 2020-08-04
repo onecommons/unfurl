@@ -482,7 +482,7 @@ def get_artifact(ctx, entity_name, artifact_name, location=None, remove=None):
             ctx.trace("artifact not found", artifact_name)
             return None
 
-    artifactDef = artifact.artifact
+    artifactDef = artifact.toscaEntityTemplate
     if artifactDef.is_derived_from("tosca.artifacts.Deployment.Image.Container.Docker"):
         # if artifact is an image in a registry return image path and location isn't specified
         if artifactDef.checksum:

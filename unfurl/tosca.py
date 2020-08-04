@@ -227,7 +227,6 @@ class ToscaSpec(object):
             # node templates added dynamically by configurators
             self.discovered = tpl["discovered"]
             for name, impl in tpl["discovered"].items():
-                # print('discovered', impl)
                 if name not in node_templates:
                     node_templates[name] = impl
 
@@ -745,9 +744,10 @@ class Workflow(object):
         return True
 
 
-class Artifact(object):
+class Artifact(EntitySpec):
     def __init__(self, artifact_tpl, template=None, spec=None, path=None):
         # 3.6.7 Artifact definition p. 84
+        self.parentNode = template
         self.spec = template.spec if template else spec
         if isinstance(artifact_tpl, toscaparser.artifacts.Artifact):
             artifact = artifact_tpl
@@ -759,7 +759,7 @@ class Artifact(object):
             artifact = toscaparser.artifacts.Artifact(
                 artifact_tpl.get("file", ""), artifact_tpl, custom_defs, path
             )
-        self.artifact = artifact
+        EntitySpec.__init__(self, artifact)
         self.repository = (
             self.spec
             and artifact.repository
@@ -769,11 +769,10 @@ class Artifact(object):
         self.baseDir = (
             artifact._source or (self.spec and self.spec.template.path) or None
         )
-        self.properties = artifact.get_properties()
 
     @property
     def file(self):
-        return self.artifact.file
+        return self.toscaEntityTemplate.file
 
     def getPath(self, manifest=None):
         """
@@ -793,4 +792,4 @@ class Artifact(object):
             return path, fragment
 
     def asImportSpec(self):
-        return dict(file=self.file, repository=self.artifact.repository)
+        return dict(file=self.file, repository=self.toscaEntityTemplate.repository)

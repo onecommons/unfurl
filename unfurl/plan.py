@@ -133,13 +133,13 @@ class Plan(object):
         )
 
     def createResource(self, template):
-        if False:  # XXX if joboption.check:
-            status = Status.unknown
-        else:
-            status = Status.pending
-        # XXX create capabilities and requirements too?
-        # XXX if requirement with HostedOn relationship, target is the parent not root
         parent = self.findParentResource(template)
+        # XXX if joboption.check: status = Status.unknown
+        if not parent.parent or parent.missing:
+            # parent is root or parent doesn't exist so this can't exist either, set to pending
+            status = Status.pending
+        else:
+            status = Status.unknown
         # Set the initial status of new resources to status instead of defaulting to "unknown"
         return NodeInstance(template.name, None, parent, template, status)
 
@@ -265,6 +265,10 @@ class Plan(object):
                 ran = True
 
         if not ran or resource.state == NodeState.created:
+            if resource.state > NodeState.configured:
+                # rerunning configuration, reset state
+                assert not ran
+                resource.state = NodeState.creating
             gen = Generate(self._executeDefaultConfigure(resource, reason, inputs))
             while gen():
                 gen.result = yield gen.next
@@ -291,6 +295,8 @@ class Plan(object):
         # add_target: Operation to notify source some property or attribute of the target changed
 
     def executeDefaultUndeploy(self, resource, reason=None, inputs=None):
+        # XXX run check before if defined?
+        # XXX don't delete if dirty
         # XXX remove_target: Operation called on source when a target instance is removed
         # (but only called if add_target had been called)
 
@@ -438,6 +444,9 @@ class Plan(object):
         # note: in ConfigTask.finished():
         # if any task failed and (maybe) modified, target.localStatus will be set to error or unknown
         # if any task succeeded and modified, target.lastStateChange will be set, but not localStatus
+        # XXX we should apply ConfigTask.finished() logic here in aggregate (use aggregateStatus?):
+        # e.g. if any task failed and any task modified but none didn't explicily set status, set error state
+        # use case: configure succeeds but start fails
         if successStatus is not None and successes and not failures:
             resource.localStatus = successStatus
             if oldStatus != successStatus:
@@ -716,6 +725,7 @@ class DeployPlan(Plan):
             installOp = None
 
         if installOp:
+            status = instance.status
             configGenerator = self._generateConfigurations(
                 instance, installOp, installOp
             )
@@ -726,6 +736,9 @@ class DeployPlan(Plan):
 
             if self.isInstanceReadOnly(instance):
                 return  # we're done
+
+            if instance.operational and status != instance.status:
+                return  # it checked out! we're done
 
         configGenerator = self._generateConfigurations(instance, reason)
         gen = Generate(configGenerator)
@@ -863,10 +876,9 @@ def orderTemplates(templates, filter=None):
 
 def getAncestorTemplates(source):
     # note: opposite direction as NodeSpec.relationships
-    for rel, req in source.relationships:
+    for (rel, req) in source.relationships:
         for ancestor in getAncestorTemplates(rel.target):
             yield ancestor
-        break
     yield source
 
 

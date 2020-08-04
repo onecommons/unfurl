@@ -168,6 +168,7 @@ class EvalTest(unittest.TestCase):
 
         # add 'key' to make result a dict
         # test that template strings work
+        # XXX fragile: key is base64 of __str__ of NodeInstance
         test1["foreach"]["key"] = "{{ item | ref | b64encode}}"
         result1 = Ref(test1).resolveOne(RefContext(resource))
         expected = {"Tm9kZUluc3RhbmNlKCd0ZXN0Jyk=": expected0}

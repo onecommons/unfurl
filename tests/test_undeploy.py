@@ -77,6 +77,7 @@ class UndeployTest(unittest.TestCase):
         assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
         summary = job.jsonSummary()
         # print(json.dumps(summary, indent=2))
+        # print(job.out.getvalue())
         self.assertEqual(
             {
                 "id": "A01110000000",
@@ -103,7 +104,9 @@ class UndeployTest(unittest.TestCase):
         )
         self.assertIs(job.rootResource.findResource("unmanaged").created, True)
         self.assertIs(job.rootResource.findResource("preexisting").created, False)
-        self.assertNotIn("external", targets, "missing external instances should not be created")
+        self.assertNotIn(
+            "external", targets, "missing external instances should not be created"
+        )
 
         # print(job.out.getvalue())
 

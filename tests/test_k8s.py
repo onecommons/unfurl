@@ -70,7 +70,8 @@ class k8sTest(unittest.TestCase):
         # verify secret contents isn't saved in config
         self.assertNotIn("a secret", job.out.getvalue())
         self.assertNotIn("YSBzZWNyZXQ", job.out.getvalue())  # base64 of "a secret"
-        self.assertIn("uri: <<REDACTED>>", job.out.getvalue())
+        # print (job.out.getvalue())
+        self.assertIn("<<REDACTED>>", job.out.getvalue())
         assert not job.unexpectedAbort
         assert job.status == Status.ok, job.summary()
 
@@ -79,4 +80,4 @@ class k8sTest(unittest.TestCase):
         results = job2.jsonSummary()
         assert not job2.unexpectedAbort
         assert job2.status == Status.ok, job2.summary()
-        assert len(results["tasks"]) == 2, results
+        assert len(results["tasks"]) == 1, results

@@ -273,7 +273,7 @@ class Manifest(AttributeManager):
                 template = self.loadTemplate(templateName, changerecord)
         if template is None:
             raise UnfurlError("missing resource template %s" % templateName)
-        logger.debug("template %s: %s", templateName, template)
+        # logger.debug("creating instance for template %s: %s", templateName, template)
 
         # omit keys that match <<REDACTED>> so can we use the computed property
         attributes = {

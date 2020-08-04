@@ -250,9 +250,9 @@ _Deleted = object()
 class Result(ChangeAware):
     __slots__ = ("original", "resolved", "external", "select")
 
-    def __init__(self, resolved, original=_Deleted):
+    def __init__(self, resolved):
         self.select = ()
-        self.original = original
+        self.original = _Deleted
         if isinstance(resolved, ExternalValue):
             self.resolved = resolved.get()
             assert not isinstance(self.resolved, Result), self.resolved
@@ -447,7 +447,8 @@ class Results(object):
                 result.original = val
                 resolved = result.resolved
             else:
-                result = Result(resolved, val)
+                result = Result(resolved)
+                result.original = val
             self._attributes[key] = result
             assert not isinstance(resolved, Result), val
             return resolved

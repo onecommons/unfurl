@@ -87,14 +87,20 @@ def saveStatus(operational, status=None):
         # skip status
         return status
 
-    readyState = CommentedMap([("effective", operational.status.name)])
+    readyState = CommentedMap()
     if operational.localStatus is not None:
+        if operational.status != operational.localStatus:
+            # if different serialize this too
+            readyState["effective"] = operational.status.name
         readyState["local"] = operational.localStatus.name
+    else:
+        readyState["effective"] = operational.status.name
     if operational.state is not None:
         readyState["state"] = operational.state.name
     if operational.priority:  # and operational.priority != Defaults.shouldRun:
         status["priority"] = operational.priority.name
     status["readyState"] = readyState
+
     if operational.lastStateChange:
         status["lastStateChange"] = operational.lastStateChange
     if operational.lastConfigChange:
