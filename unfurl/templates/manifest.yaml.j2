@@ -1,23 +1,23 @@
 apiVersion: unfurl/v1alpha1
 kind: Ensemble
-{% if ensembleTemplate is defined %}
+{%- if ensembleTemplate is defined %}
 +include:
   file: {{ensembleTemplate}}
   repository: spec
-{% endif %}
+{%- endif %}
 spec:
   service_template:
-    {% if serviceTemplate is defined %}
+    {%- if serviceTemplate is defined %}
     +include:
       file: {{ serviceTemplate }}
       repository: spec
     {% endif %}
     repositories:
-      # Files that are shared across ensemble instances should be placed in the "spec" repository
+    # Files that are shared across ensemble instances should be placed in this "spec" repository
       spec:
         url: git-local://{{ specInitialCommit }}:spec/{{ specRepoPath }}
-      {% if instanceInitialCommit %}
-      # Ensembles need a "self" repository to be able to commit their history
+      {%- if instanceInitialCommit %}
+    # Ensembles need a "self" repository defined to be able to commit their history
       self:
         url: git-local://{{ instanceInitialCommit }}:ensemble/{{ instanceRepoPath }}
       {% endif %}

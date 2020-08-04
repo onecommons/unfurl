@@ -90,6 +90,7 @@ def _createRepo(repotype, gitDir, gitUri=None):
 
 
 def writeServiceTemplate(projectdir, repo):
+    # path to spec folder relative to spec repository's root
     relPathToSpecRepo = os.path.relpath(os.path.abspath(projectdir), repo.workingDir)
     vars = dict(
         version=TOSCA_VERSION,
@@ -111,14 +112,13 @@ def createSpecRepo(gitDir):
     return repo
 
 
-def writeManifest(
+def writeMultiSpecManifest(
     destDir, manifestName, specRepo, instanceRepo, specDir=None, extraVars=None
 ):
-    relPathToSpecRepo = (
-        specRepo.workingDir
-        if specDir is None
-        else os.path.relpath(specDir, specRepo.workingDir)
-    )
+    # path to spec folder relative to spec repository's root
+    relPathToSpecRepo = specDir and os.path.relpath(specDir, specRepo.workingDir)
+
+    # path to ensemble folder relative to ensemble repository's root
     relPathToInstanceRepo = instanceRepo and os.path.relpath(
         destDir, instanceRepo.workingDir
     )
@@ -135,10 +135,10 @@ def writeManifest(
     return writeTemplate(destDir, manifestName, "manifest.yaml.j2", vars)
 
 
-def createInstanceRepo(gitDir, specRepo, specDir=None):
+def createInstanceRepo(gitDir, specRepo):
     manifestName = DefaultNames.Ensemble
-    repo = _createRepo("ensemble", dir)
-    writeManifest(gitDir, manifestName, specRepo, repo, specDir)
+    repo = _createRepo("ensemble", gitDir)
+    writeMultiSpecManifest(gitDir, manifestName, specRepo, repo)
     return initInstanceRepo(repo, os.path.join(gitDir, manifestName))
 
 
@@ -242,10 +242,11 @@ def createProject(
 
 
 def _looksLike(path, name):
-    if path.endswith(name):
-        return os.path.split(path)
+    # in case path is a directory:
     if os.path.isfile(os.path.join(path, name)):
         return path, name
+    if path.endswith(name):
+        return os.path.split(path)
     return None
 
 
@@ -302,19 +303,21 @@ def createNewEnsemble(sourcePath, sourceProject, targetPath, targetProject):
         templateVars = dict(serviceTemplate=template[1])
 
     if templateVars:
+        # we found a template file to clone
         assert sourceProject
         sourceDir = template[0]
         specRepo, relPath, revision, bare = sourceProject.findPathInRepos(sourceDir)
         if not specRepo:
             raise UnfurlError("Cloning from plain file directories not yet supported")
-        manifestPath = writeManifest(
+        manifestPath = writeMultiSpecManifest(
             destDir, manifestName, specRepo, None, sourceDir, templateVars
         )
         localEnv = LocalEnv(manifestPath, project=sourceProject)
         manifest = yamlmanifest.ReadOnlyManifest(localEnv=localEnv)
     else:
+        # didn't find a template file
+        # look for an ensemble at the given path or use the source project's default
         try:
-            # look for an ensemble that the given path or use the source project's default
             localEnv = LocalEnv(sourcePath, project=sourceProject)
             manifest = yamlmanifest.clone(localEnv, targetPath)
         except:
@@ -325,7 +328,7 @@ def createNewEnsemble(sourcePath, sourceProject, targetPath, targetProject):
 
 def cloneEnsembleFromDirectory(source, destDir):
     # source is not in a project, create a new project
-    raise UnfurlError("cloneEnsembleFromDirectory unsupported")
+    raise UnfurlError("Cloning from plain file directories not yet supported")
     # createProject(projectdir, home=None, mono=False, existing=False)
 
     # XXX if source is a remote git url:
@@ -388,7 +391,6 @@ def cloneEnsemble(source, destDir, includeLocal=False, **options):
 
 
 def initEngine(projectDir, engine):
-    raise UnfurlError("bad")
     kind, sep, rest = engine.partition(":")
     if kind == "venv":
         return createVenv(projectDir, rest)

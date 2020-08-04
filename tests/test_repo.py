@@ -1,6 +1,7 @@
 import unittest
 import os
 import traceback
+import six
 from click.testing import CliRunner
 from unfurl.__main__ import cli, _latestJobs
 from git import Repo
@@ -79,13 +80,13 @@ awsTestManifest = """\
   """
 
 
-class SharedGitRepoTest(unittest.TestCase):
+class GitRepoTest(unittest.TestCase):
     """
-    test that .gitignore, unfurl.local.example.yaml is created
+    test that .gitignore, unfurl.local.yaml is created
     test that init cmd committed the project config and related files
     """
 
-    def test_init(self):
+    def test_init_in_existing_repo(self):
         runner = CliRunner()
         with runner.isolated_filesystem():
             repoDir = "./arepo"
@@ -144,6 +145,48 @@ class SharedGitRepoTest(unittest.TestCase):
             # "-vvv",
             args = ["deploy", "deploy_dir", "--jobexitcode", "degraded"]
             result = runner.invoke(cli, args)
+            # print("result.output", result.exit_code, result.output)
+            assert not result.exception, "\n".join(
+                traceback.format_exception(*result.exc_info)
+            )
+            self.assertEqual(result.exit_code, 0, result)
+
+    def test_split_repos(self):
+        """
+        test that we can connect to AWS account
+        """
+        runner = CliRunner()
+        with runner.isolated_filesystem():
+            # override home so to avoid interferring with other tests
+            result = runner.invoke(cli, ["--home", "./unfurl_home", "init"])
+            # uncomment this to see output:
+            # print("result.output", result.exit_code, result.output)
+            assert not result.exception, "\n".join(
+                traceback.format_exception(*result.exc_info)
+            )
+            self.assertEqual(result.exit_code, 0, result)
+
+            result = runner.invoke(cli, ["--home", "./unfurl_home", "git", "ls-files"])
+            assert not result.exception, "\n".join(
+                traceback.format_exception(*result.exc_info)
+            )
+            self.assertEqual(result.exit_code, 0, result)
+            output = u"""\
+*** Running 'git ls-files' in './ensemble'
+.gitattributes
+.unfurl
+ensemble.yaml 
+
+*** Running 'git ls-files' in './spec'
+.unfurl
+ensemble-template.yaml
+service-template.yaml
+"""
+            if not six.PY2: # order not guaranteed in py2
+                self.assertEqual(result.output.strip(), output.strip())
+
+            result = runner.invoke(cli, ["--home", "./unfurl_home", "deploy"])
+            # uncomment this to see output:
             # print("result.output", result.exit_code, result.output)
             assert not result.exception, "\n".join(
                 traceback.format_exception(*result.exc_info)
