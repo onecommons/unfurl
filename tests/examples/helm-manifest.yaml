@@ -122,6 +122,7 @@ spec:
               target: unfurl.nodes.HelmRelease
               activities:
                 - call_operation: unfurl.interfaces.install.Helm.discover
+                - set_state: managed
 
       node_templates:
         gitlab-release:

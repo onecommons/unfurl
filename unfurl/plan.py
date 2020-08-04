@@ -1,6 +1,6 @@
 import six
 from .runtime import NodeInstance
-from .util import UnfurlError, Generate
+from .util import UnfurlError, Generate, toEnum
 from .support import Status, NodeState
 from .configurator import (
     ConfigurationSpec,
@@ -499,7 +499,15 @@ class Plan(object):
                     activity.inputs,
                 )
             elif activity.type == "set_state":
-                resource.state = activity.set_state
+                if "managed" in activity.set_state:
+                    resource.created = (
+                        False if activity.set_state == "unmanaged" else True
+                    )
+                else:
+                    try:
+                        resource.state = activity.set_state
+                    except KeyError:
+                        resource.localStatus = toEnum(Status, activity.set_state)
             elif activity.type == "delegate":
                 # XXX inputs
                 configGenerator = self._getDefaultGenerator(
