@@ -129,6 +129,14 @@ setEvalFunc(
     "tempfile", lambda arg, ctx: TempFile(mapValue(arg, ctx), ctx.kw.get("suffix", ""))
 )
 
+# see abspath in filter_plugins.ref
+setEvalFunc(
+    "abspath",
+    lambda arg, ctx: os.path.abspath(
+        os.path.join(ctx.currentResource.baseDir, mapValue(arg, ctx))
+    ),
+)
+
 # XXX need an api check if an object was marked sensitive
 # _secrets = weakref.WeakValueDictionary()
 # def addSecret(secret):
