@@ -14,6 +14,18 @@ import logging
 logger = logging.getLogger("unfurl")
 
 
+def isExternalTemplateCompatible(external, template):
+    # for now, require template names to match
+    if external.name == template.name:
+        if not external.isCompatibleType(template.type):
+            raise UnfurlError(
+                'external template "%s" not compatible with local template'
+                % template.name
+            )
+        return True
+    return False
+
+
 class Plan(object):
     @staticmethod
     def getPlanClassForWorkflow(workflow):
@@ -41,13 +53,14 @@ class Plan(object):
         else:
             self.filterTemplate = None
 
-    def findShadowInstance(self, template, match):
+    def findShadowInstance(self, template, match=isExternalTemplateCompatible):
         searchAll = []
         for name, value in self.root.imports.items():
             external = value.resource
             # XXX if external is a Relationship and template isn't, get it's target template
             #  if no target, create with status == unknown
-            if getattr(external.template, match) == getattr(template, match):
+
+            if match(external.template, template):
                 if external.shadow and external.root is self.root:
                     # shadowed instance already created
                     return external
@@ -59,7 +72,7 @@ class Plan(object):
         # look in the topologies where were are importing everything
         for name, root in searchAll:
             for external in root.getSelfAndDescendents():
-                if getattr(external.template, match) == getattr(template, match):
+                if match(external.template, template):
                     return self.createShadowInstance(external, name)
 
         return None
@@ -72,7 +85,7 @@ class Plan(object):
 
         if external.parent and external.parent.parent:
             # assumes one-to-one correspondence instance and template
-            parent = self.findShadowInstance(external.parent.template, "name")
+            parent = self.findShadowInstance(external.parent.template)
             if not parent:  # parent wasn't in imports, add it now
                 parent = self.createShadowInstance(external.parent, importName)
         else:
@@ -81,6 +94,7 @@ class Plan(object):
         shadowInstance = external.__class__(
             name, external.attributes, parent, external.template, external
         )
+
         shadowInstance.shadow = external
         # Imports.__setitem__ will add or update:
         self.root.imports[name] = shadowInstance
@@ -89,20 +103,20 @@ class Plan(object):
     def findResourcesFromTemplate(self, template):
         if template.abstract == "select":
             # XXX also match node_filter if present
-            shadowInstance = self.findShadowInstance(template, "type")
+            shadowInstance = self.findShadowInstance(template)
             if shadowInstance:
                 yield shadowInstance
             else:
-                logger.debug(
+                logger.info(
                     "could not find external instance for template %s", template.name
                 )
             # XXX also yield newly created parents that needed to be checked?
         else:
-            for resource in self.root.getSelfAndDescendents():
-                if resource.template.name == template.name:
-                    yield resource
+            for resource in self.findResourcesFromTemplateName(template.name):
+                yield resource
 
     def findResourcesFromTemplateName(self, name):
+        # XXX make faster
         for resource in self.root.getSelfAndDescendents():
             if resource.template.name == name:
                 yield resource

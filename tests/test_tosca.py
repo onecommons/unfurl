@@ -256,7 +256,7 @@ spec:
         server_ip:
           value: {eval: "::foreign:anInstance::private_address"}
       node_templates:
-        abstract:
+        anInstance:
           type: test.nodes.AbstractTest
           directives:
              - select
@@ -284,7 +284,7 @@ spec:
                     JobOptions(add=True, startTime="time-to-test")
                 )
                 # print(job.out.getvalue())
-                # print(job.jsonSummary())
+                # print(job.jsonSummary(True))
                 assert job.status == Status.ok, job.summary()
                 self.assertEqual(
                     [
