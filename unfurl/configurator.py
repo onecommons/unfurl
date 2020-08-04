@@ -336,6 +336,7 @@ class TaskView(object):
         return self.inputs.context.vars
 
     def _getConnections(self):
+        seen = set()
         for parent in reversed(self.target.ancestors):
             # use reversed() so nearer overrides farther
             # XXX broken if multiple requirements point to same parent (e.g. dev and prod connections)
@@ -345,13 +346,18 @@ class TaskView(object):
                 for rel in self.operationHost.getRequirements(parent):
                     # examine both the relationship's properties and its capability's properties
                     found = True
-                    yield rel
+                    if id(rel) not in seen:
+                      seen.add(id(rel))
+                      yield rel
 
             if not found:
                 # not found, see if there's a default connection
                 # XXX this should use the same relationship type as findConnection()
                 for rel in parent.getDefaultRelationships():
-                    yield rel
+                    if id(rel) not in seen:
+                      seen.add(id(rel))
+                      yield rel
+
 
     def _findRelationshipEnvVars(self):
         """
@@ -846,6 +852,7 @@ class Dependency(ChangeAware):
 
 
 def getConfigSpecArgsFromImplementation(iDef, inputs, template):
+    # XXX template should be operation_host's template!
     implementation = iDef.implementation
     kw = dict(inputs=inputs, outputs=iDef.outputs)
     configSpecArgs = ConfigurationSpec.getDefaults()

@@ -66,6 +66,10 @@ class Operational(ChangeAware):
         return self.operational or self.status == Status.error
 
     @property
+    def missing(self):
+        return self.status == Status.pending or self.status == Status.absent
+
+    @property
     def status(self):
         """
         Return the effective status, considering first the local readyState and
@@ -414,6 +418,10 @@ class EntityInstance(OperationalInstance, ResourceRef):
             del state["attributeManager"]
         return state
 
+    def __repr__(self):
+        return "%s('%s')" % (self.__class__, self.name)
+
+
 
 # both have occurrences
 # only need to configure capabilities as required by a relationship
@@ -442,24 +450,6 @@ class CapabilityInstance(EntityInstance):
                     rel.source = sourceNode
 
         return self._relationships
-
-    def getDefaultRelationships(self, relation=None):
-        rels = [
-            rel
-            for rel in self.relationships
-            # if no source, so template must be a stand-alone and therefore the instance was created by getDefaultRelationships()
-            if not rel.template.source
-            and (not relation or rel.template.isCompatibleType(relation))
-        ]
-        if rels:  # already created
-            return rels
-
-        return [
-            RelationshipInstance(
-                defaultRelSpec.name, parent=self, template=defaultRelSpec
-            )
-            for defaultRelSpec in self.template.getDefaultRelationships(relation)
-        ]
 
     @property
     def key(self):
@@ -607,12 +597,16 @@ class NodeInstance(EntityInstance):
             if capability.template.name == name
         ]
 
+    def _getDefaultRelationships(self, relation=None):
+      if self.root is self:
+          return
+      for rel in self.root.getDefaultRelationships(relation):
+            for capability in self.capabilities:
+                if rel.template.matches_target(capability.template):
+                    yield rel
+
     def getDefaultRelationships(self, relation=None):
-        inner = (
-            capability.getDefaultRelationships(relation)
-            for capability in self.capabilities
-        )
-        return list(itertools.chain(*filter(None, inner)))  # flatten
+        return list(self._getDefaultRelationships(relation))
 
     def _resolve(self, key):
         # might return a Result
@@ -701,7 +695,6 @@ class NodeInstance(EntityInstance):
     def __repr__(self):
         return "NodeInstance('%s')" % self.name
 
-
 class TopologyInstance(NodeInstance):
     templateType = TopologySpec
 
@@ -738,6 +731,7 @@ class TopologyInstance(NodeInstance):
         return self._relationships
 
     def getDefaultRelationships(self, relation=None):
+        # for root, this is the same as self.requirements
         if not relation:
             return self.requirements
         return [
