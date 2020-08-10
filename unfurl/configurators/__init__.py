@@ -23,13 +23,15 @@ class TemplateConfigurator(Configurator):
     def run(self, task):
         if task.dryRun:
             runResult = task.inputs.get("dryrun")
+            if not isinstance(runResult, dict):
+                runResult = task.inputs.get("run")
         else:
             runResult = task.inputs.get("run")
 
         result = task.inputs.get("result", {})
         if "result" not in result:
             if not isinstance(runResult, dict):
-                result["result"] = {'run': runResult}
+                result["result"] = {"run": runResult}
             else:
                 result["result"] = runResult
         self.processResultTemplate(task, result.get("result"))

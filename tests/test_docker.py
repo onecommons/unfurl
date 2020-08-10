@@ -9,6 +9,9 @@ apiVersion: unfurl/v1alpha1
 kind: Manifest
 spec:
   service_template:
+    imports:
+      - repository: unfurl
+        file: configurators/docker-template.yaml
     repositories:
       docker_hub:
         url: https://registry.hub.docker.com/

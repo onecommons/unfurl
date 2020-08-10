@@ -265,7 +265,7 @@ class Plan(object):
                 ran = True
 
         if not ran or resource.state == NodeState.created:
-            if resource.state > NodeState.configured:
+            if resource.state and resource.state > NodeState.configured:
                 # rerunning configuration, reset state
                 assert not ran
                 resource.state = NodeState.creating
