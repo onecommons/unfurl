@@ -75,7 +75,13 @@ def cli(ctx, verbose=0, quiet=False, logfile=None, **kw):
         logLevel = dict(CRITICAL=50, ERROR=40, WARNING=30, INFO=20, DEBUG=10)[
             logEnv.upper()
         ]
-    ctx.obj["verbose"] = 0 if logLevel > logging.INFO else levels.index(logLevel)
+    if logLevel == logging.CRITICAL:
+        verbose = -1
+    elif logLevel > logging.INFO:
+        verbose = 0
+    else:
+        verbose = levels.index(logLevel)
+    ctx.obj["verbose"] = verbose
     initLogging(logLevel, logfile)
 
 
@@ -229,7 +235,7 @@ def _runLocal(ensemble, options):
         click.echo("Unable to create job")
     elif job.unexpectedAbort:
         click.echo("Job unexpected aborted")
-        if options["verbose"]:
+        if options.get("verbose", 0) > 0:
             raise job.unexpectedAbort
     else:
         jsonSummary = {}
@@ -490,12 +496,12 @@ def main():
         click.secho("Aborted!", fg="red", err=True)
         sys.exit(1)
     except click.ClickException as e:
-        if obj.get("verbose"):
+        if obj.get("verbose", 0) > 0:
             traceback.print_exc(file=sys.stderr)
         click.secho("Error: %s" % e.format_message(), fg="red", err=True)
         sys.exit(e.exit_code)
     except Exception as err:
-        if obj.get("verbose"):
+        if obj.get("verbose", 0) > 0:
             traceback.print_exc(file=sys.stderr)
         else:
             click.secho("Exiting with error: " + str(err), fg="red", err=True)

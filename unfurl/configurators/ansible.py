@@ -225,7 +225,7 @@ class AnsibleConfigurator(TemplateConfigurator):
             args.append("--check")
         if task.configSpec.timeout:
             args.append("--timeout=%s" % task.configSpec.timeout)
-        if task.verbose:
+        if task.verbose > 0:
             args.append("-" + ("v" * task.verbose))
         return args
 
