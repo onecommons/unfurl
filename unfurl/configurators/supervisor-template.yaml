@@ -5,7 +5,9 @@ node_types:
     properties:
       homeDir:
         type: string
-        default: local/supervisor
+        default:
+          eval:
+            getdir: local
       confFile:
         type: string
         default: supervisord.conf

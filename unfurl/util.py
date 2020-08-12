@@ -8,6 +8,7 @@ import json
 import re
 import os
 import fnmatch
+import shutil
 
 if os.name == "posix" and sys.version_info[0] < 3:
     import subprocess32 as subprocess
@@ -214,6 +215,13 @@ def saveToTempfile(obj, suffix="", delete=True, dir=None):
     finally:
         tp.close()
     return tp
+
+
+def makeTempDir(delete=True, prefix="unfurl"):
+    tempDir = tempfile.mkdtemp(prefix, dir=os.environ.get("UNFURL_TMPDIR"))
+    if delete:
+        atexit.register(lambda: os.path.isdir(tempDir) and shutil.rmtree(tempDir))
+    return tempDir
 
 
 # https://python-jsonschema.readthedocs.io/en/latest/faq/#why-doesn-t-my-schema-s-default-property-set-the-default-on-my-instance

@@ -1,9 +1,9 @@
 from unfurl.eval import Ref, mapValue
+from unfurl.support import abspath as _abspath
 
 from jinja2.filters import contextfilter
 
 # from ansible.errors import AnsibleError, AnsibleFilterError
-import os.path
 
 
 @contextfilter
@@ -21,11 +21,12 @@ def mapValueFilter(context, ref, **vars):
 
 
 @contextfilter
-def abspath(context, path):
+def abspath(context, path, relativeTo=None, mkdir=True):
+    """
+    {{ 'foo' | abspath('local') }}
+    """
     refContext = context["__unfurl"]
-    # note: refContext.baseDir will be the baseDir of the source file this appears in
-    # but refContext.currentResource.baseDir will be the baseDir of the current instance, usually the ensemble's basedir
-    return os.path.abspath(os.path.join(refContext.currentResource.baseDir, path))
+    return _abspath(refContext, relativeTo, mkdir)
 
 
 class FilterModule(object):

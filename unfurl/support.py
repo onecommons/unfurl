@@ -55,6 +55,14 @@ class Defaults(object):
     workflow = "deploy"
 
 
+def _mapArgs(args, ctx):
+    args = mapValue(args, ctx)
+    if not isinstance(args, MutableSequence):
+        return [args]
+    else:
+        return args
+
+
 class File(ExternalValue):
     """
   Represents a local file.
@@ -129,13 +137,83 @@ setEvalFunc(
     "tempfile", lambda arg, ctx: TempFile(mapValue(arg, ctx), ctx.kw.get("suffix", ""))
 )
 
-# see abspath in filter_plugins.ref
-setEvalFunc(
-    "abspath",
-    lambda arg, ctx: os.path.abspath(
-        os.path.join(ctx.currentResource.baseDir, mapValue(arg, ctx))
-    ),
-)
+# work: <ensemble>/<instance name>/
+# local: <ensemble>/<instance name>/local/
+# work: <spec>/<template name>/
+# local: <spec>/<template name>/local/
+
+
+def _getbaseDir(ctx, name=None):
+    """
+  Returns an absolute path based on the given folder name:
+
+  ".":   directory that contains the current instance's the ensemble
+  "src": directory of the source file this expression appears in
+  "home" The "home" directory for the current instance (committed to repository)
+  "local": The "local" directory for the current instance (excluded from repository)
+  "tmp":   A temporary directory (removed after unfurl exits)
+  "spec/src": The directory of the source file the current instance's template appears in.
+  "spec/home": The "home" directory of the source file the current instance's template.
+  "spec/local": The "local" directory of the source file the current instance's template.
+
+  Otherwise look for a repository with the given name and return its path or None if not found.
+  """
+    instance = ctx.currentResource
+    if not name or name == ".":
+        # the folder of the current resource's ensemble
+        return instance.baseDir
+    elif name == "src":
+        # folder of the source file
+        return ctx.baseDir
+    elif name == "tmp":
+        return os.path.join(instance.root.tmpDir, instance.name)
+    elif name == "home":
+        return os.path.join(instance.baseDir, instance.name)
+    elif name == "local":
+        return os.path.join(instance.baseDir, instance.name, "local")
+    else:
+        start, sep, rest = name.partition("/")
+        if sep:
+            if start == "spec":
+                template = instance.template
+                if rest == "src":
+                    return template.baseDir
+                if rest == "home":
+                    return os.path.join(template.spec.baseDir, template.name)
+                elif rest == "local":
+                    return os.path.join(template.spec.baseDir, template.name, "local")
+            # XXX elif start == 'project' and rest == 'local'
+        else:
+            return instance.template.spec.getRepositoryPath(name)
+        return None  # unknown
+
+
+def abspath(ctx, path, relativeTo=None, mkdir=True):
+    if os.path.isabs(path):
+        return path
+
+    base = _getbaseDir(ctx, relativeTo)
+    if base is None:
+        raise UnfurlError('Named directory or repository "%s" not found' % relativeTo)
+    fullpath = os.path.join(base, path)
+    if mkdir:
+        dir = os.path.dirname(fullpath)
+        if len(dir) < len(base):
+            dir = base
+        if not os.path.exists(dir):
+            os.makedirs(dir)
+    return os.path.abspath(fullpath)
+
+
+def getdir(ctx, folder, mkdir=True):
+    return abspath(ctx, "", folder, mkdir)
+
+
+# see also abspath in filter_plugins.ref
+setEvalFunc("abspath", lambda arg, ctx: abspath(ctx, *_mapArgs(arg, ctx)))
+
+setEvalFunc("getdir", lambda arg, ctx: getdir(ctx, *_mapArgs(arg, ctx)))
+
 
 # XXX need an api check if an object was marked sensitive
 # _secrets = weakref.WeakValueDictionary()

@@ -7,11 +7,10 @@ which describes its capabilities, relationships and available interfaces for con
 """
 import six
 import collections
-import itertools
 
 from ansible.parsing.dataloader import DataLoader
 
-from .util import UnfurlError, loadClass, toEnum
+from .util import UnfurlError, loadClass, toEnum, makeTempDir
 from .result import ResourceRef, ChangeAware
 
 from .support import AttributeManager, Defaults, Status, Priority, NodeState, Templar
@@ -422,7 +421,6 @@ class EntityInstance(OperationalInstance, ResourceRef):
         return "%s('%s')" % (self.__class__, self.name)
 
 
-
 # both have occurrences
 # only need to configure capabilities as required by a relationship
 class CapabilityInstance(EntityInstance):
@@ -598,9 +596,9 @@ class NodeInstance(EntityInstance):
         ]
 
     def _getDefaultRelationships(self, relation=None):
-      if self.root is self:
-          return
-      for rel in self.root.getDefaultRelationships(relation):
+        if self.root is self:
+            return
+        for rel in self.root.getDefaultRelationships(relation):
             for capability in self.capabilities:
                 if rel.template.matches_target(capability.template):
                     yield rel
@@ -695,6 +693,7 @@ class NodeInstance(EntityInstance):
     def __repr__(self):
         return "NodeInstance('%s')" % self.name
 
+
 class TopologyInstance(NodeInstance):
     templateType = TopologySpec
 
@@ -705,6 +704,7 @@ class TopologyInstance(NodeInstance):
         self.outputs = NodeInstance("outputs", template.outputs, self)
         self._capabilities = []
         self._relationships = None
+        self._tmpDir = None
 
     def setBaseDir(self, baseDir):
         self._baseDir = baseDir
@@ -742,3 +742,9 @@ class TopologyInstance(NodeInstance):
         for instance in self.instances:
             if instance.name not in ["inputs", "outputs"]:
                 yield instance
+
+    @property
+    def tmpDir(self):
+        if not self._tmpDir:
+            self._tmpDir = makeTempDir()
+        return self._tmpDir

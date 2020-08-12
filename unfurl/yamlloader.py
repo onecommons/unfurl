@@ -74,7 +74,7 @@ def resolveIfInRepository(manifest, path, isFile=True, importLoader=None):
         path = os.path.join(repo.workingDir, filePath)
         isFile = True
     else:
-        # if it's a file path, check if in one of our repos
+        # if it's a file path, check if it's in one of our repos
         if isFile:
             repo, filePath, revision, bare = manifest.findPathInRepos(
                 path, importLoader, True

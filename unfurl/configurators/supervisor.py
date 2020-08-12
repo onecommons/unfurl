@@ -13,6 +13,7 @@ except ImportError:
     from xmlrpclib import Fault
 
 from ..configurator import Configurator
+from ..support import abspath
 
 # support unix domain socket connections
 # (we want to connect the same way as supervisorctl does for security and to automatically support multiple instances)
@@ -38,7 +39,7 @@ class SupervisorConfigurator(Configurator):
 
         # if homeDir is a relative path it will be relative to the baseDir of the host instance
         # which might be different from the current directory if host is an external instance
-        confDir = os.path.abspath(os.path.join(host.context.baseDir, host["homeDir"]))
+        confDir = abspath(host.context, host["homeDir"])
         conf = host["conf"]
 
         name = task.vars["SELF"]["name"]
@@ -86,12 +87,12 @@ class SupervisorConfigurator(Configurator):
                 modified = _reloadConfig(server, name)
                 server.supervisor.addProcessGroup(name)
         except Fault as err:
-            if not (  # ok, 60 == ALREADY_STARTED
-                op == "start" and err.faultCode == 60
-            ) and not (  # ok, 70 == NOT_RUNNING
-                op == "stop" and err.faultCode == 70
-            ) and not ( # ok, 90 == ALREADY_ADDED
-                op == "configure" and err.faultCode == 90
+            if (
+                not (op == "start" and err.faultCode == 60)  # ok, 60 == ALREADY_STARTED
+                and not (op == "stop" and err.faultCode == 70)  # ok, 70 == NOT_RUNNING
+                and not (  # ok, 90 == ALREADY_ADDED
+                    op == "configure" and err.faultCode == 90
+                )
             ):
                 error = "supervisor error: " + str(err)
 

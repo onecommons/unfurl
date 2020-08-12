@@ -120,7 +120,7 @@ class ToscaSpec(object):
         if hasattr(self.template, "relationship_templates"):
             # user-declared RelationshipTemplates, source and target will be None
             for template in self.template.relationship_templates:
-                relTemplate = RelationshipSpec(template)
+                relTemplate = RelationshipSpec(template, self)
                 self.relationshipTemplates[template.name] = relTemplate
 
         self.topology = TopologySpec(self, inputs)
@@ -157,6 +157,14 @@ class ToscaSpec(object):
         wfs = self._workflows.get(workflow)
         if wfs:
             return wfs[0]
+        else:
+            return None
+
+    def getRepositoryPath(self, repositoryName, file=""):
+        baseArtifact = Artifact(dict(repository=repositoryName), spec=self)
+        if baseArtifact.repository:
+            # may resolve repository url to local path (e.g. checkout a remote git repo)
+            return baseArtifact.getPath()
         else:
             return None
 
@@ -245,7 +253,7 @@ class ToscaSpec(object):
         for template in importedSpec.template.relationship_templates:
             if template.default_for:  # it's a default relationship template
                 if importAll or template.name in connections:
-                    relTemplate = RelationshipSpec(template)
+                    relTemplate = RelationshipSpec(template, self)
                     if not connections.get(template.name):
                         name = template.name
                     else:  # renamed
@@ -309,8 +317,9 @@ def findProps(attributes, attributeDefs, matchfn):
 # represents a node, capability or relationship
 class EntitySpec(object):
     # XXX need to define __eq__ for spec changes
-    def __init__(self, toscaNodeTemplate):
+    def __init__(self, toscaNodeTemplate, spec=None):
         self.toscaEntityTemplate = toscaNodeTemplate
+        self.spec = spec
         self.name = toscaNodeTemplate.name
         self.type = toscaNodeTemplate.type
         # nodes have both properties and attributes
@@ -395,17 +404,25 @@ class EntitySpec(object):
         for name, val in findProps(attributes, self.attributeDefs, matchfn):
             yield name, val
 
+    @property
+    def baseDir(self):
+        # XXX are these really dirs and not files?
+        return (
+            self.toscaEntityTemplate._source
+            or (self.spec and self.spec.template.path)
+            or None
+        )
+
 
 class NodeSpec(EntitySpec):
     # has attributes: tosca_id, tosca_name, state, (3.4.1 Node States p.61)
     def __init__(self, template=None, spec=None):
         if not template:
             template = next(iter(_defaultTopology.topology_template.nodetemplates))
-            self.spec = ToscaSpec(_defaultTopology)
+            spec = ToscaSpec(_defaultTopology)
         else:
             assert spec
-            self.spec = spec
-        EntitySpec.__init__(self, template)
+        EntitySpec.__init__(self, template, spec)
         self._capabilities = None
         self._requirements = None
         self._relationships = None
@@ -455,7 +472,8 @@ class NodeSpec(EntitySpec):
         if self._relationships is None:
             # relationship_tpl is a list of RelationshipTemplates that target the node
             self._relationships = [
-                RelationshipSpec(r) for r in self.toscaEntityTemplate.relationship_tpl
+                RelationshipSpec(r, self.spec)
+                for r in self.toscaEntityTemplate.relationship_tpl
             ]
         return self._relationships
 
@@ -536,15 +554,18 @@ class RelationshipSpec(EntitySpec):
     Links a RequirementSpec to a CapabilitySpec.
     """
 
-    def __init__(self, template=None, capability=None, requirement=None):
+    def __init__(self, template=None, spec=None):
         # template is a RelationshipTemplate
         # It is a full-fledged entity with a name, type, properties, attributes, interfaces, and metadata.
         # its RelationshipType has valid_target_types
         if not template:
             template = _defaultTopology.topology_template.relationship_templates[0]
-        EntitySpec.__init__(self, template)
-        self.requirement = requirement
-        self.capability = capability
+            spec = ToscaSpec(_defaultTopology)
+        else:
+            assert spec
+        EntitySpec.__init__(self, template, spec)
+        self.requirement = None
+        self.capability = None
 
     @property
     def source(self):
@@ -624,10 +645,9 @@ class CapabilitySpec(EntitySpec):
             parent = NodeSpec()
             capability = parent.toscaEntityTemplate.get_capabilities_objects()[0]
         self.parentNode = parent
-        self.spec = parent.spec
         assert capability
         # capabilities.Capability isn't an EntityTemplate but duck types with it
-        EntitySpec.__init__(self, capability)
+        EntitySpec.__init__(self, capability, parent.spec)
         self._relationships = None
         self._defaultRelationships = None
 
@@ -682,6 +702,7 @@ class TopologySpec(EntitySpec):
         else:
             template = _defaultTopology.topology_template
             self.spec = ToscaSpec(_defaultTopology)
+            self.spec.topology = self
 
         inputs = inputs or {}
         self.toscaEntityTemplate = template
@@ -748,26 +769,21 @@ class Artifact(EntitySpec):
     def __init__(self, artifact_tpl, template=None, spec=None, path=None):
         # 3.6.7 Artifact definition p. 84
         self.parentNode = template
-        self.spec = template.spec if template else spec
+        spec = template.spec if template else spec
         if isinstance(artifact_tpl, toscaparser.artifacts.Artifact):
             artifact = artifact_tpl
         else:
             # inline artifact
-            custom_defs = (
-                self.spec and self.spec.template.topology_template.custom_defs or {}
-            )
+            custom_defs = spec and spec.template.topology_template.custom_defs or {}
             artifact = toscaparser.artifacts.Artifact(
                 artifact_tpl.get("file", ""), artifact_tpl, custom_defs, path
             )
-        EntitySpec.__init__(self, artifact)
+        EntitySpec.__init__(self, artifact, spec)
         self.repository = (
-            self.spec
+            spec
             and artifact.repository
-            and self.spec.template.repositories.get(artifact.repository)
+            and spec.template.repositories.get(artifact.repository)
             or None
-        )
-        self.baseDir = (
-            artifact._source or (self.spec and self.spec.template.path) or None
         )
 
     @property

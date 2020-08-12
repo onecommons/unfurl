@@ -147,6 +147,8 @@ class Project(object):
         return candidate
 
     def findPathInRepos(self, path, importLoader=None):
+        """If the given path is part of the working directory of a git repository
+        return that repository and a path relative to it"""
         # importloader is unused until pinned revisions are supported
         candidate = None
         for dir in sorted(self.workingDirs.keys()):
@@ -506,6 +508,8 @@ class LocalEnv(object):
         return (repo, repo.revision, revision and repo.revision != revision)
 
     def findPathInRepos(self, path, importLoader=None):
+        """If the given path is part of the working directory of a git repository
+        return that repository and a path relative to it"""
         # importloader is unused until pinned revisions are supported
         candidate = None
         repo = None
