@@ -8,8 +8,17 @@ from .tosca import TOSCA_VERSION
 from .repo import Repo, GitRepo
 from .util import UnfurlError
 from .localenv import LocalEnv, Project
+import random
+import string
 
 _templatePath = os.path.join(os.path.abspath(os.path.dirname(__file__)), "templates")
+
+
+def get_random_password(count):
+    srandom = random.SystemRandom()
+    start = string.ascii_letters + string.digits
+    source = string.ascii_letters + string.digits + "%&()*+,-./:<>?=@[]^_`{}~"
+    return "".join(srandom.choice(source if i else start) for i in range(count))
 
 
 def _writeFile(folder, filename, content):
@@ -37,14 +46,13 @@ def writeTemplate(folder, filename, templatePath, vars):
 def writeProjectConfig(
     projectdir,
     filename=DefaultNames.LocalConfig,
-    defaultManifestPath=DefaultNames.Ensemble,
-    localInclude="",
     templatePath=DefaultNames.LocalConfig + ".j2",
+    vars=None,
 ):
-    vars = dict(
-        version=__version__, include=localInclude, manifestPath=defaultManifestPath
-    )
-    return writeTemplate(projectdir, filename, templatePath, vars)
+    _vars = dict(include="", manifestPath=DefaultNames.Ensemble)
+    if vars:
+        _vars.update(vars)
+    return writeTemplate(projectdir, filename, templatePath, _vars)
 
 
 def createHome(path=None, **kw):
@@ -56,9 +64,7 @@ def createHome(path=None, **kw):
         return None
     homedir, filename = os.path.split(homePath)
     writeTemplate(homedir, DefaultNames.Ensemble, "home-manifest.yaml.j2", {})
-    configPath = writeProjectConfig(
-        homedir, filename, templatePath="home-unfurl.yaml.j2"
-    )
+    configPath = writeProjectConfig(homedir, filename, "home-unfurl.yaml.j2")
     if not kw.get("no_engine"):
         initEngine(homedir, kw.get("engine") or "venv:")
     return configPath
@@ -170,7 +176,7 @@ def createMultiRepoProject(projectdir, specRepo=None, addDefaults=True):
             os.path.join(projectdir, DefaultNames.EnsembleDirectory), specRepo
         )
     projectConfigPath = writeProjectConfig(
-        projectdir, defaultManifestPath=defaultManifestPath
+        projectdir, vars=dict(manifestPath=defaultManifestPath)
     )
     return projectConfigPath
 
@@ -186,17 +192,19 @@ def createMonoRepoProject(projectdir, repo, addDefaults=True):
 
     Returns the absolute path to unfurl.yaml
     """
-    localConfigFilename = "unfurl.local.yaml"
+    localConfigFilename = DefaultNames.LocalConfig
     writeProjectConfig(
-        projectdir, localConfigFilename, templatePath="unfurl.local.yaml.j2"
+        os.path.join(projectdir, "local"),
+        localConfigFilename,
+        "unfurl.local.yaml.j2",
+        vars=dict(vaultpass=get_random_password(8)),
     )
     defaultManifestPath = DefaultNames.Ensemble if addDefaults else None
-    localInclude = "+?include: " + localConfigFilename
+    localInclude = "+?include: " + os.path.join("local", localConfigFilename)
     projectConfigPath = writeProjectConfig(
-        projectdir, localInclude=localInclude, defaultManifestPath=defaultManifestPath
+        projectdir, vars=dict(include=localInclude, manifestPath=defaultManifestPath)
     )
-    gitIgnoreContent = """%s\nlocal\nrepos\n""" % localConfigFilename
-    gitIgnorePath = _writeFile(projectdir, ".gitignore", gitIgnoreContent)
+    gitIgnorePath = writeTemplate(projectdir, ".gitignore", "gitignore.j2", {})
     gitAttributesContent = "**/*%s merge=union\n" % DefaultNames.JobsLog
     gitAttributesPath = _writeFile(projectdir, ".gitattributes", gitAttributesContent)
     files = [projectConfigPath, gitIgnorePath, gitAttributesPath]
