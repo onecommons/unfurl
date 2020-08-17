@@ -508,5 +508,16 @@ def main():
         sys.exit(1)
 
 
+def vaultclient():
+    try:
+        localEnv = LocalEnv(".")
+    except Exception as err:
+        click.echo(str(err), err=True)
+        return 1
+
+    print(localEnv.getVaultPassword() or "")
+    return 0
+
+
 if __name__ == "__main__":
     main()
