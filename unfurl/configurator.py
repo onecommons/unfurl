@@ -882,7 +882,7 @@ def getConfigSpecArgsFromImplementation(iDef, inputs, template):
         implementation = artifact.file
         try:
             if "#" in implementation:
-                path, fragment = artifact.getPath()
+                path, fragment = artifact.getPathAndFragment()
                 mod = loadModule(path)
                 kw["className"] = mod.__name__ + "." + fragment
             else:

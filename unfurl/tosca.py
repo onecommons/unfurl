@@ -126,6 +126,10 @@ class ToscaSpec(object):
         self.topology = TopologySpec(self, inputs)
         self.load_workflows()
 
+    @property
+    def baseDir(self):
+        return os.path.dirname(self.template.path)
+
     def addNodeTemplate(self, name, tpl):
         nodeTemplate = self.template.topology_template.add_template(name, tpl)
         nodeSpec = NodeSpec(nodeTemplate, self)
@@ -161,7 +165,7 @@ class ToscaSpec(object):
             return None
 
     def getRepositoryPath(self, repositoryName, file=""):
-        baseArtifact = Artifact(dict(repository=repositoryName), spec=self)
+        baseArtifact = Artifact(dict(repository=repositoryName, file=file), spec=self)
         if baseArtifact.repository:
             # may resolve repository url to local path (e.g. checkout a remote git repo)
             return baseArtifact.getPath()
@@ -341,6 +345,17 @@ class EntitySpec(object):
                 self.attributeDefs[name] = Property(
                     name, aDef.default, aDef.schema, toscaNodeTemplate.custom_def
                 )
+            # now add any property definitions that haven't been defined yet
+            # i.e. missing properties without a default and not required
+            props_def = toscaNodeTemplate.type_definition.get_properties_def()
+            for pDef in props_def.values():
+                if pDef.name not in self.attributeDefs:
+                    self.attributeDefs[pDef.name] = Property(
+                        pDef.name,
+                        pDef.default,
+                        pDef.schema,
+                        toscaNodeTemplate.custom_def,
+                    )
         else:
             self.defaultAttributes = {}
 
@@ -406,12 +421,12 @@ class EntitySpec(object):
 
     @property
     def baseDir(self):
-        # XXX are these really dirs and not files?
-        return (
-            self.toscaEntityTemplate._source
-            or (self.spec and self.spec.template.path)
-            or None
-        )
+        if self.toscaEntityTemplate._source:
+            return self.toscaEntityTemplate._source
+        elif self.spec:
+            return self.spec.baseDir
+        else:
+            return None
 
 
 class NodeSpec(EntitySpec):
@@ -791,6 +806,9 @@ class Artifact(EntitySpec):
         return self.toscaEntityTemplate.file
 
     def getPath(self, manifest=None):
+        return self.getPathAndFragment(manifest)[0]
+
+    def getPathAndFragment(self, manifest=None):
         """
       returns path, fragment
       """

@@ -197,7 +197,7 @@ class ReadOnlyManifest(Manifest):
         if self.path is None or path is None:
             return False
         if isinstance(path, Artifact):
-            path, fragment = path.getPath()
+            path = path.getPath()
         return os.path.abspath(self.path) == os.path.abspath(path)
 
     def addRepo(self, name, repo):
@@ -293,7 +293,7 @@ class YamlManifest(ReadOnlyManifest):
                 raise UnfurlError("Can not import '%s': no manifest specified" % (name))
             baseDir = getattr(location, "baseDir", self.getBaseDir())
             artifact = Artifact(location, path=baseDir, spec=self.tosca)
-            path, fragment = artifact.getPath(self)
+            path = artifact.getPath(self)
             if self.isPathToSelf(path):
                 # don't import self (might happen when context is shared)
                 continue

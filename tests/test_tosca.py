@@ -1,9 +1,10 @@
 import unittest
 import os
+import unfurl.tosca
 from unfurl.yamlmanifest import YamlManifest
 from unfurl.localenv import LocalEnv
 from unfurl.job import Runner, JobOptions
-from unfurl.support import Status
+from unfurl.support import Status, _getbaseDir, RefContext
 from unfurl.configurator import Configurator
 from unfurl.util import sensitive_str, API_VERSION
 import six
@@ -176,7 +177,8 @@ class ToscaSyntaxTest(unittest.TestCase):
         """
       Tests nested imports and url fragment resolution.
       """
-        manifest = YamlManifest(path=__file__ + "/../examples/testimport-manifest.yaml")
+        path = __file__ + "/../examples/testimport-manifest.yaml"
+        manifest = YamlManifest(path=path)
         self.assertEqual(2, len(manifest.tosca.template.nested_tosca_tpls.keys()))
 
         runner = Runner(manifest)
@@ -186,6 +188,51 @@ class ToscaSyntaxTest(unittest.TestCase):
         self.assertEqual(job.stats()["ok"], 1)
         self.assertEqual(job.getOutputs()["aOutput"], "set")
         assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
+        # print(output.getvalue())
+        anInstance = job.rootResource.findResource("testPrefix")
+        assert anInstance
+        ctx = RefContext(anInstance)
+
+        # .: <ensemble>/
+        base = _getbaseDir(ctx, ".")
+        self.assertEqual(base, os.path.normpath(os.path.dirname(path)))
+
+        # testPrefix appeared in the same source file so it will be the same
+        src = _getbaseDir(ctx, "src")
+        self.assertEqual(src, base)
+
+        # home: <ensemble>/<instance name>/
+        home = _getbaseDir(ctx, "home")
+        self.assertEqual(os.path.join(base, "testPrefix"), home)
+
+        # local: <ensemble>/<instance name>/local/
+        local = _getbaseDir(ctx, "local")
+        self.assertEqual(os.path.join(home, "local"), local)
+
+        tmp = _getbaseDir(ctx, "tmp")
+        assert tmp.endswith("testPrefix"), tmp
+
+        # spec/home: <spec>/<template name>/
+        specHome = _getbaseDir(ctx, "spec/home")
+        # template appears in the same folder as the ensemble so this is the same as home
+        self.assertEqual(home, specHome)
+
+        # spec/local: <spec>/<template name>/local/
+        specLocal = _getbaseDir(ctx, "spec/local")
+        self.assertEqual(local, specLocal)
+
+        specSrc = _getbaseDir(ctx, "spec/src")
+        self.assertEqual(src, specSrc)
+
+        unfurlRepoPath = _getbaseDir(ctx, "unfurl")
+        self.assertEqual(unfurl.tosca._basepath, os.path.normpath(unfurlRepoPath))
+
+        # XXX this repositories should always be defined
+        spec = _getbaseDir(ctx, "spec")
+        assert spec is None
+
+        self = _getbaseDir(ctx, "self")
+        assert self is None
 
     def test_workflows(self):
         manifest = YamlManifest(

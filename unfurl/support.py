@@ -137,11 +137,6 @@ setEvalFunc(
     "tempfile", lambda arg, ctx: TempFile(mapValue(arg, ctx), ctx.kw.get("suffix", ""))
 )
 
-# work: <ensemble>/<instance name>/
-# local: <ensemble>/<instance name>/local/
-# work: <spec>/<template name>/
-# local: <spec>/<template name>/local/
-
 
 def _getbaseDir(ctx, name=None):
     """
@@ -185,7 +180,7 @@ def _getbaseDir(ctx, name=None):
             # XXX elif start == 'project' and rest == 'local'
         else:
             return instance.template.spec.getRepositoryPath(name)
-        return None  # unknown
+    return None  # unknown
 
 
 def abspath(ctx, path, relativeTo=None, mkdir=True):
