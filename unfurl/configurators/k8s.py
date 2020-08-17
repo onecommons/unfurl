@@ -1,6 +1,5 @@
 from __future__ import absolute_import
 import codecs
-from ..util import sensitive_str
 from ..configurator import Configurator, Status
 from ..runtime import RelationshipInstance
 from .ansible import AnsibleConfigurator
@@ -168,7 +167,7 @@ class ResourceConfigurator(AnsibleConfigurator):
         if resource:
             data = resource.get("kind") == "Secret" and resource.get("data")
             if data:
-                resource["data"] = {k: sensitive_str(v) for k, v in data.items()}
+                resource["data"] = {k: task.sensitive(v) for k, v in data.items()}
             if task.configSpec.operation in ["check", "discover"]:
                 states = dict(
                     Active=Status.ok,

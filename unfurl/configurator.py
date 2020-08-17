@@ -2,7 +2,7 @@ import six
 import collections
 import re
 import os
-from .support import Status, Defaults, ResourceChanges
+from .support import Status, Defaults, ResourceChanges, wrapSensitiveValue
 from .result import serializeValue, ChangeAware, Results, ResultsMap
 from .util import (
     AutoRegisterClass,
@@ -18,9 +18,7 @@ from .util import (
 )
 from .eval import Ref, mapValue, RefContext
 from .runtime import RelationshipInstance
-from ruamel.yaml import YAML
-
-yaml = YAML()
+from .yamlloader import yaml
 
 import logging
 
@@ -347,17 +345,16 @@ class TaskView(object):
                     # examine both the relationship's properties and its capability's properties
                     found = True
                     if id(rel) not in seen:
-                      seen.add(id(rel))
-                      yield rel
+                        seen.add(id(rel))
+                        yield rel
 
             if not found:
                 # not found, see if there's a default connection
                 # XXX this should use the same relationship type as findConnection()
                 for rel in parent.getDefaultRelationships():
                     if id(rel) not in seen:
-                      seen.add(id(rel))
-                      yield rel
-
+                        seen.add(id(rel))
+                        yield rel
 
     def _findRelationshipEnvVars(self):
         """
@@ -467,6 +464,9 @@ class TaskView(object):
             if endpoints:
                 connection = endpoints[0]
         return connection
+
+    def sensitive(self, value):
+        return wrapSensitiveValue(value, self.operationHost.templar._loader._vault)
 
     def addMessage(self, message):
         self.messages.append(message)

@@ -12,7 +12,7 @@ from six.moves.urllib.parse import urlparse
 from . import DefaultNames
 from .util import UnfurlError, toYamlText
 from .merge import patchDict
-from .yamlloader import YamlConfig, yaml
+from .yamlloader import YamlConfig
 from .result import serializeValue
 from .support import ResourceChanges, Defaults, Imports
 from .localenv import LocalEnv
@@ -167,7 +167,9 @@ Convert dictionary suitable for serializing as yaml
 
 
 class ReadOnlyManifest(Manifest):
-    def __init__(self, manifest=None, path=None, validate=True, localEnv=None):
+    def __init__(
+        self, manifest=None, path=None, validate=True, localEnv=None, vault=None
+    ):
         assert not (localEnv and (manifest or path))  # invalid combination of args
         # localEnv and repo are needed by loadHook before base class initialized
         self.localEnv = localEnv
@@ -178,6 +180,7 @@ class ReadOnlyManifest(Manifest):
             validate,
             os.path.join(_basepath, "manifest-schema.json"),
             self.loadYamlInclude,
+            vault,
         )
         if self.manifest.path:
             logging.debug("loaded ensemble manifest at %s", self.manifest.path)
@@ -189,6 +192,10 @@ class ReadOnlyManifest(Manifest):
         spec["inputs"] = self.context.get("inputs", spec.get("inputs", {}))
         super(ReadOnlyManifest, self).__init__(spec, self.manifest.path, localEnv)
         assert self.tosca
+
+    @property
+    def yaml(self):
+        return self.manifest.yaml
 
     def getBaseDir(self):
         return self.manifest.getBaseDir()
@@ -222,8 +229,10 @@ def clone(localEnv, destPath):
 
 
 class YamlManifest(ReadOnlyManifest):
-    def __init__(self, manifest=None, path=None, validate=True, localEnv=None):
-        super(YamlManifest, self).__init__(manifest, path, validate, localEnv)
+    def __init__(
+        self, manifest=None, path=None, validate=True, localEnv=None, vault=None
+    ):
+        super(YamlManifest, self).__init__(manifest, path, validate, localEnv, vault)
         manifest = self.manifest.expanded
         spec = manifest.get("spec", {})
         status = manifest.get("status", {})
@@ -254,12 +263,19 @@ class YamlManifest(ReadOnlyManifest):
                 # XXX like Plan.createResource() parent should be hostedOn target if defined
                 self.createNodeInstance(name, instance or {}, rootResource)
 
+        self._configureRoot(rootResource)
+        self._ready(rootResource)
+
+    def _configureRoot(self, rootResource):
         rootResource.imports = self.imports
         rootResource.setBaseDir(self.getBaseDir())
+        if (
+            self.manifest.vault and self.manifest.vault.secrets
+        ):  # setBaseDir() may create a new templar
+            rootResource._templar._loader.set_vault_secrets(self.manifest.vault.secrets)
         rootResource.envRules = CommentedMap(
             self.context.get("environment", {}).items()
         )
-        self._ready(rootResource)
 
     def createTopologyInstance(self, status):
         """
@@ -575,7 +591,7 @@ class YamlManifest(ReadOnlyManifest):
             changes = itertools.chain([jobRecord], newChanges)
             changelog["changes"] = list(changes)
             output = six.StringIO()
-            yaml.dump(changelog, output)
+            self.yaml.dump(changelog, output)
             if not os.path.isdir(os.path.dirname(fullPath)):
                 os.makedirs(os.path.dirname(fullPath))
             logger.info("saving job changes to %s", fullPath)

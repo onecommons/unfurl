@@ -12,7 +12,7 @@ import os.path
 from .repo import Repo, normalizeGitUrl, findGitRepo
 from .util import UnfurlError
 from .merge import mergeDicts
-from .yamlloader import YamlConfig
+from .yamlloader import YamlConfig, makeVaultLib
 from . import DefaultNames, getHomeConfigPath
 from six.moves.urllib.parse import urlparse
 
@@ -306,6 +306,7 @@ class LocalEnv(object):
         import logging
 
         logger = logging.getLogger("unfurl")
+        self.logger = logger
 
         if parent:
             self._projects = parent._projects
@@ -364,6 +365,17 @@ class LocalEnv(object):
             or LocalConfig()
         )
 
+    def getVaultPassword(self, vaultId="default"):
+        secret = os.getenv("UNFURL_VAULT_%s_PASSWORD" % vaultId.upper())
+        if not secret:
+            context = self.getContext()
+            secret = (
+                context.get("secrets", {})
+                .get("attributes", {})
+                .get("vault_%s_password" % vaultId)
+            )
+        return secret
+
     def getManifest(self, path=None):
         from .yamlmanifest import YamlManifest
 
@@ -373,7 +385,13 @@ class LocalEnv(object):
         else:
             manifest = self._manifests.get(self.manifestPath)
             if not manifest:
-                manifest = YamlManifest(localEnv=self)
+                vaultId = "default"
+                vault = makeVaultLib(self.getVaultPassword(vaultId), vaultId)
+                if vault:
+                    self.logger.info(
+                        "Vault password found, configuring vault id: %s", vaultId
+                    )
+                manifest = YamlManifest(localEnv=self, vault=vault)
                 self._manifests[self.manifestPath] = manifest
             return manifest
 

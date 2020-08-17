@@ -7,6 +7,7 @@ from unfurl.__main__ import cli
 import unfurl
 from unfurl.configurator import Configurator
 from unfurl.localenv import LocalEnv
+from unfurl.util import sensitive_str
 
 # python 2.7 needs these:
 from unfurl.configurators.shell import ShellConfigurator
@@ -66,10 +67,9 @@ contexts:
         key1: a string
         key2: 2
       default: # if key isn't found, apply this:
-        q: # quote
-          eval:
-            lookup:
-              env: "UNFURL_{{ key | upper }}"
+        eval:
+          lookup:
+            env: "UNFURL_{{ key | upper }}"
   test:
     locals:
       attributes:
@@ -102,8 +102,9 @@ class CliTestConfigurator(Configurator):
             attrs["testApikey"] == "secret"
         ), "failed to get secret environment variable, maybe DelegateAttributes is broken?"
         assert attrs._attributes["aListOfItems"].external.type == "sensitive"
-        # XXX this should be marked as secret so it should serializes as "[REDACTED]"
-        # attrs['copyofAListOfItems'] = attrs['aListOfItems']
+        assert isinstance(
+            attrs._attributes["aListOfItems"].asRef(), sensitive_str
+        ), type(attrs._attributes["aListOfItems"].asRef())
         yield task.done(True, False)
 
 
@@ -149,6 +150,7 @@ class CliTest(unittest.TestCase):
                 f.write(manifest)
             runCmd = ["run", "--ensemble", "manifest2.yaml"]
             result = runner.invoke(cli, runCmd + ["--", "echo", "ok"])
+            # print("result.output1!", result.output)
             assert not result.exception, "\n".join(
                 traceback.format_exception(*result.exc_info)
             )

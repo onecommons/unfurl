@@ -15,7 +15,7 @@ from .runtime import (
 from .util import UnfurlError, toEnum, sensitive_str
 from .configurator import Dependency
 from .repo import RevisionManager, findGitRepo
-from .yamlloader import YamlConfig, loadYamlFromArtifact
+from .yamlloader import YamlConfig, loadYamlFromArtifact, yaml
 from .job import ConfigChange
 
 import logging
@@ -28,8 +28,10 @@ class Manifest(AttributeManager):
   Loads a model from dictionary representing the manifest
   """
 
+    rootResource = None
+
     def __init__(self, spec, path, localEnv=None):
-        super(Manifest, self).__init__()
+        super(Manifest, self).__init__(yaml)
         self.localEnv = localEnv
         self.repo = localEnv and localEnv.instanceRepo
         self.currentCommitId = self.repo and self.repo.revision
@@ -93,6 +95,10 @@ class Manifest(AttributeManager):
     @property
     def repositories(self):
         return self.tosca.template.repositories
+
+    @property
+    def loader(self):
+        return self.rootResource and self.rootResource.templar._loader
 
     def saveJob(self, job):
         pass
@@ -360,9 +366,13 @@ class Manifest(AttributeManager):
         else:
             artifact = Artifact(dict(file=templatePath), path=baseDir)
 
-        return self.loadFromArtifact(artifact, repositories, warnWhenNotFound)
+        return self.loadFromArtifact(
+            artifact, yamlConfig.yaml, repositories, warnWhenNotFound
+        )
 
-    def loadFromArtifact(self, artifact, repositories=None, ignoreFileNotFound=False):
+    def loadFromArtifact(
+        self, artifact, yaml, repositories=None, ignoreFileNotFound=False
+    ):
         """
         Construct a dummy TOSCA import so we can invoke its URL resolution mechanism
         Returns (url or fullpath, parsed yaml)
@@ -374,7 +384,7 @@ class Manifest(AttributeManager):
             context["repositories"] = repositories
         context.manifest = self
         context.ignoreFileNotFound = ignoreFileNotFound
-        return loadYamlFromArtifact(context, artifact)
+        return loadYamlFromArtifact(context, artifact, yaml)
 
     def statusSummary(self):
         def summary(instance, indent):

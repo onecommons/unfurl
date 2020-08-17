@@ -96,7 +96,7 @@ class JobOptions(object):
         }
 
 
-class ConfigTask(ConfigChange, TaskView, AttributeManager):
+class ConfigTask(ConfigChange, TaskView):
     """
     receives a configSpec and a target node instance
     instantiates and runs Configurator
@@ -106,7 +106,6 @@ class ConfigTask(ConfigChange, TaskView, AttributeManager):
     def __init__(self, job, configSpec, target, reason=None):
         ConfigChange.__init__(self, job)
         TaskView.__init__(self, job.runner.manifest, configSpec, target, reason)
-        AttributeManager.__init__(self)
         self.dryRun = job.dryRun
         self.verbose = job.verbose
         self._configurator = None
@@ -118,9 +117,8 @@ class ConfigTask(ConfigChange, TaskView, AttributeManager):
         # self._completedSubTasks = []
 
         # set the attribute manager on the root resource
-        # XXX refcontext in attributeManager should define $TARGET $HOST etc.
-        # self.configuratorResource.root.attributeManager = self
-        self.target.root.attributeManager = self
+        self._attributeManager = AttributeManager(self._manifest.yaml)
+        self.target.root.attributeManager = self._attributeManager
 
     def priority():
         doc = "The priority property."
@@ -227,7 +225,7 @@ class ConfigTask(ConfigChange, TaskView, AttributeManager):
                 accum = mergeDicts(accum, changes.pop(0))
 
             self._resourceChanges.updateChanges(
-                accum, self.statuses, self.target, self.changeId
+                accum, self._attributeManager.statuses, self.target, self.changeId
             )
             # XXX implement:
             # if not result.applied:
@@ -252,7 +250,7 @@ class ConfigTask(ConfigChange, TaskView, AttributeManager):
     This can be called multiple times if the configurator yields multiple times.
     Save the changes made each time.
     """
-        changes = AttributeManager.commitChanges(self)
+        changes = self._attributeManager.commitChanges()
         self.changeList.append(changes)
         return changes
 
@@ -773,7 +771,8 @@ class Runner(object):
                 for repo in self.manifest.localEnv.getRepos():
                     if repo.isDirty():
                         logger.error(
-                            "aborting run: uncommitted files in %s (--dirty to override)", repo.workingDir
+                            "aborting run: uncommitted files in %s (--dirty to override)",
+                            repo.workingDir,
                         )
                         return None
             job = self.createJob(

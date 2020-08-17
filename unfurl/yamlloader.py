@@ -2,6 +2,7 @@ import os.path
 import sys
 import codecs
 import json
+import functools
 import six
 from six.moves import urllib
 
@@ -15,8 +16,16 @@ from jsonschema import RefResolver
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap
 from ruamel.yaml.representer import RepresenterError, SafeRepresenter
+from ruamel.yaml.constructor import ConstructorError
 
-from .util import sensitive_str, UnfurlError, UnfurlValidationError, findSchemaErrors
+from .util import (
+    to_bytes,
+    to_text,
+    sensitive_str,
+    UnfurlError,
+    UnfurlValidationError,
+    findSchemaErrors,
+)
 from .merge import (
     expandDoc,
     makeMapWithBase,
@@ -29,38 +38,81 @@ from toscaparser.common.exception import ExceptionCollector
 from toscaparser.common.exception import URLException
 from toscaparser.utils.gettextutils import _
 
+from ansible.parsing.vault import VaultLib, VaultSecret
 from ansible.utils.unsafe_proxy import AnsibleUnsafeText, AnsibleUnsafeBytes
 
 import logging
 
 logger = logging.getLogger("unfurl")
-yaml = YAML()
-# monkey patch for better error message
+
+
 def represent_undefined(self, data):
     raise RepresenterError(
         "cannot represent an object: <%s> of type %s" % (data, type(data))
     )
 
 
-yaml.representer.represent_undefined = represent_undefined
-yaml.representer.add_representer(None, represent_undefined)
-
-
 def represent_sensitive(dumper, data):
-    return dumper.represent_scalar(u"tag:yaml.org,2002:str", sensitive_str.redacted_str)
+    if dumper.vault.secrets:
+        b_ciphertext = dumper.vault.encrypt(data)
+        return dumper.represent_scalar(u"!vault", b_ciphertext.decode(), style="|")
+    else:
+        return dumper.represent_scalar(
+            u"tag:yaml.org,2002:str", sensitive_str.redacted_str
+        )
 
 
-yaml.representer.add_representer(sensitive_str, represent_sensitive)
+def construct_vault(constructor, node):
+    value = constructor.construct_scalar(node)
+    if not constructor.vault.secrets:
+        raise ConstructorError(
+            context=None,
+            context_mark=None,
+            problem="found !vault but no vault password provided",
+            problem_mark=node.start_mark,
+            note=None,
+        )
+    cleartext = to_text(constructor.vault.decrypt(value))
+    return sensitive_str(cleartext)
 
-if six.PY3:
-    represent_unicode = SafeRepresenter.represent_str
-    represent_binary = SafeRepresenter.represent_binary
-else:
-    represent_unicode = SafeRepresenter.represent_unicode
-    represent_binary = SafeRepresenter.represent_str
 
-yaml.representer.add_representer(AnsibleUnsafeText, represent_unicode)
-yaml.representer.add_representer(AnsibleUnsafeBytes, represent_binary)
+def makeYAML(vault=None):
+    if not vault:
+        vault = VaultLib(secrets=None)
+    yaml = YAML()
+
+    # monkey patch for better error message
+    yaml.representer.represent_undefined = represent_undefined
+    yaml.representer.add_representer(None, represent_undefined)
+
+    yaml.constructor.vault = vault
+    yaml.constructor.add_constructor(u"!vault", construct_vault)
+
+    yaml.representer.vault = vault
+    yaml.representer.add_representer(sensitive_str, represent_sensitive)
+
+    if six.PY3:
+        represent_unicode = SafeRepresenter.represent_str
+        represent_binary = SafeRepresenter.represent_binary
+    else:
+        represent_unicode = SafeRepresenter.represent_unicode
+        represent_binary = SafeRepresenter.represent_str
+
+    yaml.representer.add_representer(AnsibleUnsafeText, represent_unicode)
+    yaml.representer.add_representer(AnsibleUnsafeBytes, represent_binary)
+    return yaml
+
+
+yaml = makeYAML()
+
+
+def makeVaultLib(passwordBytes, vaultId="default"):
+    if passwordBytes:
+        if isinstance(passwordBytes, six.string_types):
+            passwordBytes = to_bytes(passwordBytes)
+        vault_secrets = [(vaultId, VaultSecret(passwordBytes))]
+        return VaultLib(secrets=vault_secrets)
+    return None
 
 
 def resolveIfInRepository(manifest, path, isFile=True, importLoader=None):
@@ -81,7 +133,8 @@ def resolveIfInRepository(manifest, path, isFile=True, importLoader=None):
             )
             if repo:
                 if bare:
-                    return filePath, six.StringIO(repo.show(filePath, revision)), isFile
+                    contents = repo.show(filePath, revision)
+                    return filePath, six.StringIO(contents), isFile
                 else:
                     path = os.path.join(repo.workingDir, filePath)
     return path, None, isFile
@@ -90,7 +143,7 @@ def resolveIfInRepository(manifest, path, isFile=True, importLoader=None):
 _refResolver = RefResolver("", None)
 
 
-def load_yaml(path, isFile=True, importLoader=None, fragment=None):
+def load_yaml(yaml, path, isFile=True, importLoader=None, fragment=None):
     try:
         logger.debug(
             "attempting to load YAML %s: %s", "file" if isFile else "url", path
@@ -111,7 +164,13 @@ def load_yaml(path, isFile=True, importLoader=None, fragment=None):
                     )
                     if ignoreFileNotFound and not os.path.isfile(path):
                         return None
-                    f = codecs.open(path, encoding="utf-8", errors="strict")
+
+                    if manifest and manifest.loader:
+                        # show == True if file was decrypted
+                        contents, show = manifest.loader._get_file_contents(path)
+                        f = six.StringIO(codecs.decode(contents))
+                    else:
+                        f = codecs.open(path, encoding="utf-8", errors="strict")
                 else:
                     f = urllib.request.urlopen(path)
             except urllib.error.URLError as e:
@@ -148,20 +207,33 @@ def load_yaml(path, isFile=True, importLoader=None, fragment=None):
 
 import toscaparser.imports
 
-toscaparser.imports.YAML_LOADER = load_yaml
+toscaparser.imports.YAML_LOADER = functools.partial(load_yaml, yaml)
 
 
-def loadYamlFromArtifact(context, artifact):
+def loadYamlFromArtifact(context, artifact, yaml):
     # _load_import_template will invoke load_yaml above
-    loader = toscaparser.imports.ImportsLoader(None, artifact.baseDir, tpl=context)
+    loader = toscaparser.imports.ImportsLoader(
+        None,
+        artifact.baseDir,
+        tpl=context,
+        yaml_loader=functools.partial(load_yaml, yaml),
+    )
     return loader._load_import_template(None, artifact.asImportSpec())
 
 
 class YamlConfig(object):
     def __init__(
-        self, config=None, path=None, validate=True, schema=None, loadHook=None
+        self,
+        config=None,
+        path=None,
+        validate=True,
+        schema=None,
+        loadHook=None,
+        vault=None,
     ):
         try:
+            self._yaml = None
+            self.vault = vault
             self.path = None
             self.schema = schema
             if path:
@@ -178,7 +250,7 @@ class YamlConfig(object):
                     # set name on a StringIO so parsing error messages include the path
                     config = six.StringIO(config)
                     config.name = self.path
-                self.config = yaml.load(config)
+                self.config = self.yaml.load(config)
             elif isinstance(config, dict):
                 self.config = CommentedMap(config.items())
             else:
@@ -220,7 +292,7 @@ class YamlConfig(object):
         if warnWhenNotFound and not os.path.isfile(path):
             return path, None
         with open(path, "r") as f:
-            config = yaml.load(f)
+            config = self.yaml.load(f)
         return path, config
 
     def getBaseDir(self):
@@ -233,7 +305,17 @@ class YamlConfig(object):
         restoreIncludes(self.includes, self.config, changed, cls=CommentedMap)
 
     def dump(self, out=sys.stdout):
-        yaml.dump(self.config, out)
+        self.yaml.dump(self.config, out)
+
+    @property
+    def yaml(self):
+        if not self._yaml:
+            self._yaml = makeYAML(self.vault)
+        return self._yaml
+
+    def __getstate__(self):
+        self._yaml = None
+        return self.__dict__.copy()
 
     def validate(self, config):
         if isinstance(self.schema, six.string_types):

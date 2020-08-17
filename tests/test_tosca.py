@@ -7,6 +7,7 @@ from unfurl.job import Runner, JobOptions
 from unfurl.support import Status, _getbaseDir, RefContext
 from unfurl.configurator import Configurator
 from unfurl.util import sensitive_str, API_VERSION
+from unfurl.yamlloader import makeVaultLib
 import six
 from click.testing import CliRunner
 
@@ -147,8 +148,7 @@ spec:
 
 
 class ToscaSyntaxTest(unittest.TestCase):
-    def test_inputAndOutputs(self):
-        manifest = YamlManifest(manifestDoc)
+    def _runInputAndOutputs(self, manifest):
         job = Runner(manifest).run(JobOptions(add=True, startTime="time-to-test"))
         assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
         my_server = manifest.getRootResource().findResource("my_server")
@@ -156,11 +156,13 @@ class ToscaSyntaxTest(unittest.TestCase):
         assert my_server.attributes["test"], "cpus: 2"
         # print(job.out.getvalue())
         testSensitive = manifest.getRootResource().findResource("testSensitive")
-        for name, type in (
+        for name, toscaType in (
             ("access_token", "tosca.datatypes.Credential"),
             ("TEST_VAR", "unfurl.datatypes.EnvVar"),
         ):
-            assert testSensitive.template.attributeDefs[name].schema["type"] == type
+            assert (
+                testSensitive.template.attributeDefs[name].schema["type"] == toscaType
+            )
 
         def t(datatype):
             return datatype.type == "unfurl.datatypes.EnvVar"
@@ -168,10 +170,21 @@ class ToscaSyntaxTest(unittest.TestCase):
         envvars = set(testSensitive.template.findProps(testSensitive.attributes, t))
         self.assertEqual(envvars, set([("TEST_VAR", "foo"), ("VAR1", "more")]))
         outputIp = job.getOutputs()["server_ip"]
-        assert outputIp, "10.0.0.1"
-        assert isinstance(outputIp, sensitive_str)
-        assert "server_ip: <<REDACTED>>" in job.out.getvalue()
+        self.assertEqual(outputIp, "10.0.0.1")
+        assert isinstance(outputIp, sensitive_str), type(outputIp)
         assert job.status == Status.ok, job.summary()
+        return outputIp, job
+
+    def test_inputAndOutputs(self):
+        manifest = YamlManifest(manifestDoc)
+        outputIp, job = self._runInputAndOutputs(manifest)
+        assert "server_ip: <<REDACTED>>" in job.out.getvalue(), job.out.getvalue()
+
+    def test_ansibleVault(self):
+        manifest = YamlManifest(manifestDoc, vault=makeVaultLib("a_password"))
+        outputIp, job = self._runInputAndOutputs(manifest)
+        vaultString = "server_ip: !vault |\n      $ANSIBLE_VAULT;1.1;AES256"
+        assert vaultString in job.out.getvalue(), job.out.getvalue()
 
     def test_import(self):
         """
@@ -264,6 +277,12 @@ class AbstractTemplateTest(unittest.TestCase):
         node_types:
           test.nodes.AbstractTest:
             derived_from: tosca.nodes.Root
+            properties:
+              private_address:
+                type: string
+                required: false
+                metadata:
+                  sensitive: true
             interfaces:
                Install:
                 operations:
@@ -281,6 +300,9 @@ class AbstractTemplateTest(unittest.TestCase):
           kind: Project
           contexts:
             defaults:
+              secrets:
+                attributes:
+                  vault_default_password: a_password
               external:
                foreign:
                   manifest:
@@ -327,6 +349,7 @@ spec:
                     f.write(mainManifest)
 
                 manifest = LocalEnv("manifest.yaml").getManifest()
+                assert manifest.manifest.vault and manifest.manifest.vault.secrets
                 job = Runner(manifest).run(
                     JobOptions(add=True, startTime="time-to-test")
                 )
@@ -350,12 +373,23 @@ spec:
                     ],
                     job.jsonSummary()["tasks"],
                 )
+                job.getOutputs()
                 self.assertEqual(job.getOutputs()["server_ip"], "10.0.0.1")
                 self.assertEqual(
                     len(manifest.localEnv._manifests), 2, manifest.localEnv._manifests
                 )
+                # print("output", job.out.getvalue())
+                assert "10.0.0.1" not in job.out.getvalue(), job.out.getvalue()
+                vaultString1 = "server_ip: !vault |\n      $ANSIBLE_VAULT;1.1;AES256"
+                assert vaultString1 in job.out.getvalue()
+                vaultString2 = (
+                    "private_address: !vault |\n          $ANSIBLE_VAULT;1.1;AES256"
+                )
+                assert vaultString2 in job.out.getvalue()
+
                 # reload:
                 manifest2 = LocalEnv("manifest.yaml").getManifest()
+                assert manifest2.lastJob
                 # test that restored manifest create a shadow instance for the foreign instance
                 imported = manifest2.imports["foreign"].resource
                 assert imported

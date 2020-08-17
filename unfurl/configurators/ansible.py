@@ -244,8 +244,16 @@ class AnsibleConfigurator(TemplateConfigurator):
 
             # build vars from inputs
             extraVars = self.getVars(task)
+            if task.operationHost and task.operationHost.templar:
+                vault_secrets = task.operationHost.templar._loader._vault.secrets
+            else:
+                vault_secrets = None
             resultCallback = runPlaybooks(
-                [playbook], inventory, extraVars, self.getPlaybookArgs(task)
+                [playbook],
+                inventory,
+                extraVars,
+                self.getPlaybookArgs(task),
+                vault_secrets,
             )
 
             if resultCallback.exit_code or len(resultCallback.resultsByStatus.failed):
@@ -376,8 +384,7 @@ def _init_global_context(options):
     context.CLIARGS._store = vars(options)
 
 
-def runPlaybooks(playbooks, _inventory, params=None, args=None):
-    # unfurl.util should have initialized ansibleDummyCli and ansibleDisplay already
+def runPlaybooks(playbooks, _inventory, params=None, args=None, vault_secrets=None):
     inventoryArgs = ["-i", _inventory] if _inventory else []
     args = ["ansible-playbook"] + inventoryArgs + (args or []) + playbooks
     logger.info("running " + " ".join(args))
@@ -398,6 +405,8 @@ def runPlaybooks(playbooks, _inventory, params=None, args=None):
 
     def hook_play_prereqs():
         loader, inventory, variable_manager = _play_prereqs()
+        if vault_secrets:
+            loader.set_vault_secrets(vault_secrets)
         if params:
             variable_manager._extra_vars.update(params)
         resultsCB.inventoryManager = inventory

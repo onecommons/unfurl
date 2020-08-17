@@ -119,7 +119,7 @@ try:
     imp = None
 except ImportError:
     import imp
-from ansible.module_utils._text import to_bytes, to_native  # BSD licensed
+from ansible.module_utils._text import to_bytes, to_text, to_native  # BSD licensed
 
 
 def loadModule(path, full_name=None):
@@ -187,21 +187,23 @@ def toEnum(enum, value, default=None):
         return value
 
 
-def _dump(obj, tp, suffix=""):
+def _dump(obj, tp, suffix="", yaml=None):
+    from .yamlloader import yaml as _yaml
+
     if suffix.endswith(".yml") or suffix.endswith(".yaml"):
-        YAML().dump(obj, tp)
+        (yaml or _yaml).dump(obj, tp)
     elif suffix.endswith(".json") or not isinstance(obj, six.string_types):
-        json.dump(obj, tp)
+        json.dump(obj, tp, indent=2)
     else:
         tp.write(obj)
 
 
-def saveToFile(path, obj):
+def saveToFile(path, obj, yaml=None):
     dir = os.path.dirname(path)
     if dir and not os.path.isdir(dir):
         os.makedirs(dir)
     with open(path, "w") as f:
-        _dump(obj, f, path)
+        _dump(obj, f, path, yaml)
 
 
 def saveToTempfile(obj, suffix="", delete=True, dir=None):

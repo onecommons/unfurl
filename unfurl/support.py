@@ -9,6 +9,7 @@ import os.path
 import six
 import re
 import ast
+import codecs
 from enum import IntEnum
 
 from .eval import RefContext, setEvalFunc, Ref, mapValue
@@ -23,10 +24,12 @@ from .util import (
     saveToTempfile,
     saveToFile,
     filterEnv,
+    to_bytes,
 )
 from .merge import intersectDict, mergeDicts
 import ansible.template
 from ansible.parsing.dataloader import DataLoader
+from ansible.parsing.yaml.objects import AnsibleVaultEncryptedUnicode
 from ansible.utils.unsafe_proxy import wrap_var, AnsibleUnsafeText, AnsibleUnsafeBytes
 
 import logging
@@ -69,18 +72,19 @@ class File(ExternalValue):
   get() returns the given file path (usually relative)
   """
 
-    def __init__(self, arg, baseDir=""):
+    def __init__(self, arg, baseDir="", loader=None, yaml=None):
         write = False
         if isinstance(arg, dict):
             name = arg["path"]
-            write = True
+            write = "contents" in arg
         else:
             name = arg
 
         super(File, self).__init__("file", name)
         self.baseDir = baseDir or ""
+        self.loader = loader
         if write:
-            saveToFile(self.getFullPath(), arg["contents"])
+            saveToFile(self.getFullPath(), arg["contents"], yaml)
 
     def getFullPath(self):
         return os.path.abspath(os.path.join(self.baseDir, self.get()))
@@ -96,13 +100,36 @@ class File(ExternalValue):
         if name == "path":
             return self.getFullPath()
         elif name == "contents":
-            with open(self.getFullPath(), "r") as f:
-                return f.read()
+            path = self.getFullPath()
+            if self.loader:
+                # decrypts if necessary
+                contents, show = self.loader._get_file_contents(path)
+                return codecs.decode(contents)
+            else:
+                with open(path, "r") as f:
+                    return f.read()
         else:
             raise KeyError(name)
 
 
-setEvalFunc("file", lambda arg, ctx: File(mapValue(arg, ctx), ctx.baseDir))
+def writeFile(ctx, obj, path, relativeTo=None):
+    return File(
+        dict(path=abspath(ctx, path, relativeTo), contents=obj),
+        ctx.baseDir,
+        ctx.templar and ctx.templar._loader,
+        ctx.currentResource.root.attributeManager.yaml,
+    ).getFullPath()
+
+
+setEvalFunc(
+    "file",
+    lambda arg, ctx: File(
+        mapValue(arg, ctx),
+        ctx.baseDir,
+        ctx.templar and ctx.templar._loader,
+        ctx.currentResource.root.attributeManager.yaml,
+    ),
+)
 
 
 class TempFile(ExternalValue):
@@ -218,19 +245,34 @@ setEvalFunc("getdir", lambda arg, ctx: getdir(ctx, *_mapArgs(arg, ctx)))
 #    return id(obj) in _secrets
 
 
+def wrapSensitiveValue(value, vault=None):
+    # we don't remember the vault and vault id associated with this value
+    # so the value will be rekeyed with whichever vault is associated with the serializing yaml
+    return sensitive_str(value)
+
+
 class SensitiveValue(ExternalValue):
-    def __init__(self, value):
+    def __init__(self, value, vault=None):
         super(SensitiveValue, self).__init__("sensitive", value)
+        self.vault = vault
 
     def asRef(self, options=None):
-        return sensitive_str(self.get())
+        return wrapSensitiveValue(self.get(), self.vault)
 
 
-setEvalFunc("sensitive", lambda arg, ctx: SensitiveValue(mapValue(arg, ctx)))
+setEvalFunc(
+    "sensitive",
+    lambda arg, ctx: SensitiveValue(
+        mapValue(arg, ctx), ctx.templar and ctx.templar._loader._vault
+    ),
+)
 
 
 def isSensitive(obj):
-    return isinstance(obj, (sensitive_str, SensitiveValue, SecretResource))
+    return isinstance(
+        obj,
+        (sensitive_str, AnsibleVaultEncryptedUnicode, SensitiveValue, SecretResource),
+    )
 
 
 class Templar(ansible.template.Templar):
@@ -337,6 +379,8 @@ def applyTemplate(value, ctx, overrides=None):
         loader = DataLoader()
         if ctx.baseDir:
             loader.set_basedir(ctx.baseDir)
+        if ctx.templar and ctx.templar._loader._vault.secrets:
+            loader.set_vault_secrets(ctx.templar._loader._vault.secrets)
         templar = Templar(loader)
         ctx.templar = templar
     else:
@@ -383,7 +427,7 @@ def applyTemplate(value, ctx, overrides=None):
                     if isSensitive(result.external or result.resolved):
                         ctx.trace("setting template result as sensitive")
                         return SensitiveValue(
-                            value
+                            value, templar._loader._vault
                         )  # mark the template result as sensitive
                 # otherwise wrap result as AnsibleUnsafeText so it isn't evaluated again
                 return wrap_var(value)
@@ -704,14 +748,16 @@ class DelegateAttributes(object):
         if interface == "inherit":
             self.inheritFrom = resource.attributes["inheritFrom"]
         if interface == "default":
-            self.default = resource.attributes["default"]
+            # use '_attributes' so we don't evaluate "default"
+            self.default = resource._attributes.get("default")
 
     def __call__(self, key):
         if self.interface == "inherit":
             return self.inheritFrom.attributes[key]
         elif self.interface == "default":
-            result = Ref(self.default).resolve(
-                RefContext(self.resource, vars=dict(key=key))
+            result = mapValue(
+                self.default,
+                RefContext(self.resource, vars=dict(key=key), wantList=True),
             )
             if not result:
                 raise KeyError(key)
@@ -811,9 +857,14 @@ class AttributeManager(object):
 
     # what about an attribute that is added to the spec that already exists in status?
     # XXX2 tests for the above behavior
-    def __init__(self):
+    def __init__(self, yaml=None):
         self.attributes = {}
         self.statuses = {}
+        self._yaml = yaml  # hack to safely expose the yaml context
+
+    @property
+    def yaml(self):
+        return self._yaml
 
     def getStatus(self, resource):
         if resource.key not in self.statuses:
@@ -875,7 +926,9 @@ class AttributeManager(object):
                             not value.external
                         ):  # externalvalues are ok since they don't reveal much
                             # we won't be able to restore this value since we can't save it
-                            resource._attributes[key] = sensitive_str(value.resolved)
+                            resource._attributes[key] = wrapSensitiveValue(
+                                value.resolved, resource.templar._loader._vault
+                            )
                             foundSensitive.append(key)
                             continue
                     resource._attributes[key] = value.asRef()  # serialize Result
