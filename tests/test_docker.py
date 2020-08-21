@@ -1,5 +1,6 @@
 import unittest
 import os
+import pickle
 from unfurl.yamlmanifest import YamlManifest
 from unfurl.job import Runner, JobOptions
 import toscaparser.repositories
@@ -68,7 +69,6 @@ spec:
                           when: registry and registry.credential
 """
 
-
 class DockerTest(unittest.TestCase):
     def setUp(self):
         try:
@@ -88,6 +88,8 @@ class DockerTest(unittest.TestCase):
         assert client, "docker not installed?"
 
         runner = Runner(YamlManifest(manifest))
+        # pickled = pickle.dumps(runner.manifest, -1)
+        # manifest2 = pickle.loads(pickled)
 
         run1 = runner.run(JobOptions(template="container1"))
         # runner.manifest.dump()
@@ -122,6 +124,8 @@ class DockerTest(unittest.TestCase):
         assert client, "docker not installed?"
 
         runner = Runner(YamlManifest(manifest))
+        # pickled = pickle.dumps(runner.manifest, -1)
+        # manifest2 = pickle.loads(pickled)
 
         run1 = runner.run(JobOptions(resource="test1"))
         assert len(run1.workDone) == 1, run1.workDone

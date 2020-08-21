@@ -2,7 +2,7 @@ import six
 import collections
 import re
 import os
-from .support import Status, Defaults, ResourceChanges, wrapSensitiveValue
+from .support import Status, Defaults, ResourceChanges
 from .result import serializeValue, ChangeAware, Results, ResultsMap
 from .util import (
     AutoRegisterClass,
@@ -15,6 +15,7 @@ from .util import (
     UnfurlAddingResourceError,
     filterEnv,
     toEnum,
+    wrapSensitiveValue
 )
 from .eval import Ref, mapValue, RefContext
 from .runtime import RelationshipInstance
@@ -466,7 +467,9 @@ class TaskView(object):
         return connection
 
     def sensitive(self, value):
-        return wrapSensitiveValue(value, self.operationHost.templar._loader._vault)
+        return wrapSensitiveValue(
+            value, self.operationHost and self.operationHost.templar._loader._vault
+        )
 
     def addMessage(self, message):
         self.messages.append(message)
@@ -661,7 +664,9 @@ class TaskView(object):
                 UnfurlTaskError(self, "unable to parse as YAML: %s" % resources)
                 return None
 
-        if not isinstance(resources, collections.MutableSequence):
+        if isinstance(resources, collections.Mapping):
+            resources = [resources]
+        elif not isinstance(resources, collections.MutableSequence):
             UnfurlTaskError(
                 self,
                 "updateResources requires a list of updates, not a %s"

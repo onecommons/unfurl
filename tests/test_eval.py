@@ -4,6 +4,7 @@ import json
 from unfurl.result import ResultsList, serializeValue
 from unfurl.eval import Ref, mapValue, RefContext
 from unfurl.support import applyTemplate
+from unfurl.util import sensitive_str
 from unfurl.runtime import NodeInstance
 from ruamel.yaml.comments import CommentedMap
 
@@ -111,7 +112,7 @@ class EvalTest(unittest.TestCase):
             ["*", []],
             ["f", [{"a": 1, "b": 1}]],
             ["::*", [resource]],
-            ["::*::.template::type", ['tosca.nodes.Root']],
+            ["::*::.template::type", ["tosca.nodes.Root"]],
             # [{"q": "{{ foo }}"}, ["{{ foo }}"]]
             # XXX test nested ['.[k[d=3]=4]']
         ]:
@@ -215,6 +216,10 @@ class EvalTest(unittest.TestCase):
         self.assertEqual(
             mapValue(exp, RefContext(resource, vars)), {"a": "hello world"}
         )
+
+        vars = {"foo": {"bar": sensitive_str("sensitive")}}
+        val = applyTemplate("{{ foo.bar }}", RefContext(resource, vars, trace=0))
+        assert isinstance(val, sensitive_str), type(val)
 
     def test_templateFunc(self):
         query = {
@@ -347,4 +352,4 @@ a_dict:
         )
         result = mapValue(template, resource)
         with open(result) as tp:
-            self.assertEqual(tp.read(), json.dumps(value))
+            self.assertEqual(tp.read(), json.dumps(value, indent=2))

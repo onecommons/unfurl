@@ -1,13 +1,15 @@
 import unittest
 import os
 import traceback
+import six
 from collections import MutableSequence
 from click.testing import CliRunner
 from unfurl.__main__ import cli
 import unfurl
 from unfurl.configurator import Configurator
 from unfurl.localenv import LocalEnv
-from unfurl.util import sensitive_str
+from unfurl.util import sensitive_list
+from unfurl.yamlloader import yaml
 
 # python 2.7 needs these:
 from unfurl.configurators.shell import ShellConfigurator
@@ -48,8 +50,8 @@ spec:
                 {% endfor %}]
             vars:
               aLocalDict:
-               eval:
-                 secret: aDict
+                eval:
+                  secret: aDict
             # trace: 1
       interfaces:
         Standard:
@@ -101,10 +103,16 @@ class CliTestConfigurator(Configurator):
         assert (
             attrs["testApikey"] == "secret"
         ), "failed to get secret environment variable, maybe DelegateAttributes is broken?"
-        assert attrs._attributes["aListOfItems"].external.type == "sensitive"
+
+        # list will be marked as sensitive because the template that created referenced a sensitive content
+        assert isinstance(attrs["aListOfItems"], sensitive_list), type(attrs["aListOfItems"])
+        out = six.StringIO()
+        yaml.dump(attrs["aListOfItems"], out)
+        assert out.getvalue() == "<<REDACTED>>\n...\n", repr(out.getvalue())
         assert isinstance(
-            attrs._attributes["aListOfItems"].asRef(), sensitive_str
+            attrs._attributes["aListOfItems"].asRef(), sensitive_list
         ), type(attrs._attributes["aListOfItems"].asRef())
+
         yield task.done(True, False)
 
 
@@ -212,9 +220,9 @@ class CliTest(unittest.TestCase):
             homePath = LocalEnv(homePath="override").homeConfigPath
             assert homePath and homePath.endswith("/override/unfurl.yaml"), homePath
 
-            result = runner.invoke(cli, ["-vvv", "deploy", "--jobexitcode", "degraded"])
+            result = runner.invoke(cli, ["deploy", "--jobexitcode", "degraded"])
             # uncomment this to see output:
-            # print("result.output", result.exit_code, result.output)
+            print("result.output", result.exit_code, result.output)
             assert not result.exception, "\n".join(
                 traceback.format_exception(*result.exc_info)
             )
@@ -233,7 +241,7 @@ class CliTest(unittest.TestCase):
             )
             self.assertEqual(result.exit_code, 0, result)
 
-            result = runner.invoke(cli, ["-vvv", "deploy", "clone1"])
+            result = runner.invoke(cli, ["deploy", "clone1"])
             # print("result.output", result.exit_code, result.output)
             assert not result.exception, "\n".join(
                 traceback.format_exception(*result.exc_info)
@@ -252,7 +260,7 @@ class CliTest(unittest.TestCase):
             )
             self.assertEqual(result.exit_code, 0, result)
 
-            result = runner.invoke(cli, ["-vvv", "deploy", "clone2"])
+            result = runner.invoke(cli, ["deploy", "clone2"])
             # print("result.output", result.exit_code, result.output)
             assert not result.exception, "\n".join(
                 traceback.format_exception(*result.exc_info)

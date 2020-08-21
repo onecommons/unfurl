@@ -20,16 +20,15 @@ from .util import (
     UnfurlError,
     UnfurlValidationError,
     assertForm,
-    sensitive_str,
+    wrapSensitiveValue,
     saveToTempfile,
     saveToFile,
     filterEnv,
-    to_bytes,
+    isSensitive,
 )
 from .merge import intersectDict, mergeDicts
 import ansible.template
 from ansible.parsing.dataloader import DataLoader
-from ansible.parsing.yaml.objects import AnsibleVaultEncryptedUnicode
 from ansible.utils.unsafe_proxy import wrap_var, AnsibleUnsafeText, AnsibleUnsafeBytes
 
 import logging
@@ -244,35 +243,12 @@ setEvalFunc("getdir", lambda arg, ctx: getdir(ctx, *_mapArgs(arg, ctx)))
 # def isSecret(obj):
 #    return id(obj) in _secrets
 
-
-def wrapSensitiveValue(value, vault=None):
-    # we don't remember the vault and vault id associated with this value
-    # so the value will be rekeyed with whichever vault is associated with the serializing yaml
-    return sensitive_str(value)
-
-
-class SensitiveValue(ExternalValue):
-    def __init__(self, value, vault=None):
-        super(SensitiveValue, self).__init__("sensitive", value)
-        self.vault = vault
-
-    def asRef(self, options=None):
-        return wrapSensitiveValue(self.get(), self.vault)
-
-
 setEvalFunc(
     "sensitive",
-    lambda arg, ctx: SensitiveValue(
+    lambda arg, ctx: wrapSensitiveValue(
         mapValue(arg, ctx), ctx.templar and ctx.templar._loader._vault
     ),
 )
-
-
-def isSensitive(obj):
-    return isinstance(
-        obj,
-        (sensitive_str, AnsibleVaultEncryptedUnicode, SensitiveValue, SecretResource),
-    )
 
 
 class Templar(ansible.template.Templar):
@@ -424,9 +400,12 @@ def applyTemplate(value, ctx, overrides=None):
             if value != oldvalue:
                 ctx.trace("successfully processed template:", value)
                 for result in ctx.referenced.getReferencedResults(index):
-                    if isSensitive(result.external or result.resolved):
+                    if isSensitive(result):
+                        # note: even if the template rendered a list or dict
+                        # we still need to wrap the entire result as sensitive because we
+                        # don't know how the referenced senstive results were transformed by the template
                         ctx.trace("setting template result as sensitive")
-                        return SensitiveValue(
+                        return wrapSensitiveValue(
                             value, templar._loader._vault
                         )  # mark the template result as sensitive
                 # otherwise wrap result as AnsibleUnsafeText so it isn't evaluated again
@@ -729,6 +708,9 @@ class SecretResource(ExternalResource):
         # raises KeyError if not found
         return super(SecretResource, self).resolveKey(name, currentResource)
 
+    def __sensitive__(self):
+        return True
+
 
 # shortcuts for local and secret
 def shortcut(arg, ctx):
@@ -865,6 +847,11 @@ class AttributeManager(object):
     @property
     def yaml(self):
         return self._yaml
+
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        state['_yaml'] = None
+        return state
 
     def getStatus(self, resource):
         if resource.key not in self.statuses:

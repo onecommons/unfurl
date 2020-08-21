@@ -22,6 +22,9 @@ from .util import (
     to_bytes,
     to_text,
     sensitive_str,
+    sensitive_dict,
+    sensitive_list,
+    wrapSensitiveValue,
     UnfurlError,
     UnfurlValidationError,
     findSchemaErrors,
@@ -52,7 +55,7 @@ def represent_undefined(self, data):
     )
 
 
-def represent_sensitive(dumper, data):
+def represent_sensitive_str(dumper, data):
     if dumper.vault.secrets:
         b_ciphertext = dumper.vault.encrypt(data)
         return dumper.represent_scalar(u"!vault", b_ciphertext.decode(), style="|")
@@ -61,6 +64,14 @@ def represent_sensitive(dumper, data):
             u"tag:yaml.org,2002:str", sensitive_str.redacted_str
         )
 
+def represent_sensitive_json(dumper, data):
+    if dumper.vault.secrets:
+        b_ciphertext = dumper.vault.encrypt(json.dumps(data, sort_keys=True))
+        return dumper.represent_scalar(u"!vaultjson", b_ciphertext.decode(), style="|")
+    else:
+        return dumper.represent_scalar(
+            u"tag:yaml.org,2002:str", sensitive_str.redacted_str
+        )
 
 def construct_vault(constructor, node):
     value = constructor.construct_scalar(node)
@@ -75,6 +86,18 @@ def construct_vault(constructor, node):
     cleartext = to_text(constructor.vault.decrypt(value))
     return sensitive_str(cleartext)
 
+def construct_vaultjson(constructor, node):
+    value = constructor.construct_scalar(node)
+    if not constructor.vault.secrets:
+        raise ConstructorError(
+            context=None,
+            context_mark=None,
+            problem="found !vaultjson but no vault password provided",
+            problem_mark=node.start_mark,
+            note=None,
+        )
+    cleartext = to_text(constructor.vault.decrypt(value))
+    return wrapSensitiveValue(json.loads(cleartext))
 
 def makeYAML(vault=None):
     if not vault:
@@ -87,9 +110,12 @@ def makeYAML(vault=None):
 
     yaml.constructor.vault = vault
     yaml.constructor.add_constructor(u"!vault", construct_vault)
+    yaml.constructor.add_constructor(u"!vaultjson", construct_vaultjson)
 
     yaml.representer.vault = vault
-    yaml.representer.add_representer(sensitive_str, represent_sensitive)
+    yaml.representer.add_representer(sensitive_str, represent_sensitive_str)
+    yaml.representer.add_representer(sensitive_dict, represent_sensitive_json)
+    yaml.representer.add_representer(sensitive_list, represent_sensitive_json)
 
     if six.PY3:
         represent_unicode = SafeRepresenter.represent_str
@@ -314,8 +340,9 @@ class YamlConfig(object):
         return self._yaml
 
     def __getstate__(self):
-        self._yaml = None
-        return self.__dict__.copy()
+        state = self.__dict__.copy()
+        state['_yaml'] = None
+        return state
 
     def validate(self, config):
         if isinstance(self.schema, six.string_types):

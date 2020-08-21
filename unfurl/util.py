@@ -9,6 +9,7 @@ import re
 import os
 import fnmatch
 import shutil
+import collections
 
 if os.name == "posix" and sys.version_info[0] < 3:
     import subprocess32 as subprocess
@@ -19,13 +20,10 @@ from collections import Mapping
 import os.path
 from jsonschema import Draft7Validator, validators, RefResolver
 from ruamel.yaml.scalarstring import ScalarString, FoldedScalarString
-from ruamel.yaml import YAML
+from ansible.parsing.yaml.objects import AnsibleVaultEncryptedUnicode
 import logging
 
 logger = logging.getLogger("unfurl")
-
-# import pickle
-pickleVersion = 2  # pickle.DEFAULT_PROTOCOL
 
 API_VERSION = "unfurl/v1alpha1"
 
@@ -72,10 +70,45 @@ class UnfurlAddingResourceError(UnfurlTaskError):
         super(UnfurlAddingResourceError, self).__init__(task, message, log)
         self.resourceSpec = resourceSpec
 
+def wrapSensitiveValue(obj, vault=None):
+    # we don't remember the vault and vault id associated with this value
+    # so the value will be rekeyed with whichever vault is associated with the serializing yaml
+    if isinstance(obj, six.string_types):
+        return sensitive_str(obj)
+    elif isinstance(obj, collections.Mapping):
+        return sensitive_dict(obj)
+    elif isinstance(obj, collections.MutableSequence):
+        return sensitive_list(obj)
+    else:
+        return None
 
-class sensitive_str(str):
+def isSensitive(obj):
+    test = getattr(obj, "__sensitive__", None)
+    if test:
+        return test()
+    if isinstance(obj, AnsibleVaultEncryptedUnicode):
+        return True
+    elif isinstance(obj, collections.Mapping):
+        return any(isSensitive(i) for i in obj.values())
+    elif isinstance(obj, collections.MutableSequence):
+        return any(isSensitive(i) for i in obj)
+    return False
+
+
+class sensitive(object):
     redacted_str = "<<REDACTED>>"
 
+    def __sensitive__(self):
+        return True
+
+class sensitive_str(str, sensitive):
+    pass
+
+class sensitive_dict(dict, sensitive):
+    pass
+
+class sensitive_list(list, sensitive):
+    pass
 
 def toYamlText(val):
     if isinstance(val, (ScalarString, sensitive_str)):

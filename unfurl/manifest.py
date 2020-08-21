@@ -98,7 +98,7 @@ class Manifest(AttributeManager):
 
     @property
     def loader(self):
-        return self.rootResource and self.rootResource.templar._loader
+        return self.rootResource and self.rootResource.templar and self.rootResource.templar._loader
 
     def saveJob(self, job):
         pass

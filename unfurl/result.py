@@ -2,7 +2,7 @@ from collections import Mapping, MutableSequence, MutableMapping
 from datetime import datetime, timedelta
 
 from .merge import diffDicts
-from .util import UnfurlError
+from .util import UnfurlError, isSensitive, sensitive, sensitive_dict, sensitive_list
 
 
 def serializeValue(value, **kw):
@@ -10,9 +10,11 @@ def serializeValue(value, **kw):
     if getter:
         return getter(kw)
     if isinstance(value, Mapping):
-        return dict((key, serializeValue(v, **kw)) for key, v in value.items())
-    elif isinstance(value, (MutableSequence, tuple)):
-        return [serializeValue(item, **kw) for item in value]
+        ctor = sensitive_dict if isinstance(value, sensitive) else dict
+        return ctor((key, serializeValue(v, **kw)) for key, v in value.items())
+    if isinstance(value, (MutableSequence, tuple)):
+        ctor = sensitive_list if isinstance(value, sensitive) else list
+        return ctor(serializeValue(item, **kw) for item in value)
     else:
         return value
 
@@ -296,6 +298,12 @@ class Result(ChangeAware):
                     return diffDicts(old, val)
             return val
 
+    def __sensitive__(self):
+        if self.external:
+            return isSensitive(self.external)
+        else:
+            return isSensitive(self.resolved)
+
     def _values(self):
         resolved = self.resolved
         if isinstance(resolved, ResultsList):
@@ -416,6 +424,8 @@ class Results(object):
             return val
         elif Ref.isRef(val):
             return Ref(val).resolve(context, wantList="result")
+        elif isinstance(val, sensitive):
+            return val
         elif isinstance(val, Mapping):
             return ResultsMap(val, context)
         elif isinstance(val, list):
@@ -423,6 +433,14 @@ class Results(object):
         else:
             # at this point, just evaluates templates in strings or returns val
             return mapValue(val, context)
+
+    def __sensitive__(self):
+        # only check resolved values
+        return any(isinstance(x, Result) and isSensitive(x) for x in self._values())
+
+    def hasDiff(self):
+        # only check resolved values
+        return any(isinstance(x, Result) and x.hasDiff() for x in self._values())
 
     def __getitem__(self, key):
         from .eval import mapValue
@@ -494,10 +512,8 @@ class ResultsMap(Results, MutableMapping):
             if isinstance(v, Result)
         )
 
-    def hasDiff(self):
-        return any(
-            isinstance(x, Result) and x.hasDiff() for x in self._attributes.values()
-        )
+    def _values(self):
+        return self._attributes.values()
 
     def getDiff(self, cls=dict):
         # returns a dict with the same semantics as diffDicts
@@ -517,8 +533,8 @@ class ResultsList(Results, MutableSequence):
         assert not isinstance(value, Result), value
         self._attributes.insert(index, Result(value))
 
-    def hasDiff(self):
-        return any(isinstance(x, Result) and x.hasDiff() for x in self._attributes)
+    def _values(self):
+        return self._attributes
 
     def getDiff(self, cls=list):
         # we don't have patchList yet so just returns the whole list

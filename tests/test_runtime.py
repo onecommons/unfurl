@@ -19,6 +19,7 @@ import six
 import datetime
 import copy
 import os.path
+import pickle
 from click.testing import CliRunner
 
 
@@ -131,6 +132,16 @@ class JobTest(unittest.TestCase):
     #   runner = Runner(Manifest(rootResource, specs))
     #   job = runner.run(JobOptions(add=True))
     #   assert not job.unexpectedAbort, job.unexpectedAbort.stackInfo
+
+
+class PickleTest(unittest.TestCase):
+    @unittest.skipIf(six.PY2, "XXX fix pickling in 2.7")
+    def test_pickle(self):
+        path = __file__ + "/../examples/helm-manifest.yaml"
+        manifest = YamlManifest(path=path)
+        pickled = pickle.dumps(manifest, -1)
+        manifest2 = pickle.loads(pickled)
+        # self.assertEqual(manifest.rootResource, manifest2.rootResource)
 
 
 class OperationalInstanceTest(unittest.TestCase):
