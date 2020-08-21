@@ -311,6 +311,10 @@ relationship_types:
   unfurl.relationships.ConnectsTo.AWSAccount:
     derived_from: unfurl.relationships.ConnectsTo.CloudAccount
     properties:
+      endpoints:
+         description: custom service endpoints
+         type: map
+         required: false
       AWS_DEFAULT_REGION:
         description: "The default region to use, e.g. us-west-1, us-west-2, etc."
         type: unfurl.datatypes.EnvVar
@@ -318,14 +322,29 @@ relationship_types:
       AWS_ACCESS_KEY_ID:
         description: "The access key for your AWS account"
         type: unfurl.datatypes.EnvVar
-        required: true
+        required: false
       AWS_SECRET_ACCESS_KEY:
         description: "The secret key for your AWS account."
         type: unfurl.datatypes.EnvVar
-        required: true
+        required: false
         metadata:
           sensitive: true
-    # see https://boto3.amazonaws.com/v1/documentation/api/latest/guide/configuration.html?highlight=aws_secret_access_key#environment-variable-configuration
+      AWS_SESSION_TOKEN:
+        description: "The session key for your AWS account."
+        type: unfurl.datatypes.EnvVar
+        required: false
+        metadata:
+          sensitive: true
+      AWS_PROFILE:
+        type: unfurl.datatypes.EnvVar
+        required: false
+      AWS_SHARED_CREDENTIALS_FILE:
+        type: unfurl.datatypes.EnvVar
+        required: false
+      AWS_CONFIG_FILE:
+        type: unfurl.datatypes.EnvVar
+        required: false
+    # see https://boto3.amazonaws.com/v1/documentation/api/latest/guide/configuration.html#using-environment-variables
     # for more environment variables
 
   unfurl.relationships.ConnectsTo.Azure:
