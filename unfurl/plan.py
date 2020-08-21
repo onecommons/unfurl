@@ -254,8 +254,12 @@ class Plan(object):
         ran = False
         missing = resource.status in [Status.unknown, Status.absent, Status.pending]
         # if the resource doesn't exist or failed while creating:
-        if missing or (
-            resource.status == Status.error and resource.state == NodeState.creating
+        if (
+            missing
+            or self.jobOptions.all
+            or (
+                resource.status == Status.error and resource.state == NodeState.creating
+            )
         ):
             gen = self._runOperation(
                 NodeState.creating, "Standard.create", resource, reason, inputs
