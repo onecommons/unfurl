@@ -189,7 +189,7 @@ class GitRepo(Repo):
         return GitRepo(cloned)
 
     def getGitLocalUrl(self, path, name=""):
-        return "git-local://%s:%s/%s" % (name, self.getInitialRevision(), path)
+        return "git-local://%s:%s/%s" % (self.getInitialRevision(), name, path)
 
     # XXX: def getDependentRepos()
     # XXX: def canManage()

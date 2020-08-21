@@ -155,7 +155,7 @@ class Project(object):
             (url, repo) = self.workingDirs[dir]
             # XXX make sure path isn't ignored in repo
             filePath, revision, bare = repo.findPath(path, importLoader)
-            if filePath:
+            if filePath is not None:
                 if not bare:
                     return repo, filePath, revision, bare
                 else:  # if it's bare see if we can find a better candidate
@@ -467,7 +467,7 @@ class LocalEnv(object):
     Walk parents looking for unfurl.yaml
     """
         path = Project.findPath(testPath)
-        if path:
+        if path is not None:
             return self.getProject(path, self.homeProject)
         return None
 

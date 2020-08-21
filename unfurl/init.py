@@ -316,7 +316,10 @@ def createNewEnsemble(sourcePath, sourceProject, targetPath, targetProject):
         sourceDir = template[0]
         specRepo, relPath, revision, bare = sourceProject.findPathInRepos(sourceDir)
         if not specRepo:
-            raise UnfurlError("Cloning from plain file directories not yet supported")
+            raise UnfurlError(
+                '"%s" is not in a git repository. Cloning from plain file directories not yet supported'
+                % sourceDir
+            )
         manifestPath = writeMultiSpecManifest(
             destDir, manifestName, specRepo, None, sourceDir, templateVars
         )

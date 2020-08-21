@@ -82,7 +82,7 @@ awsTestManifest = """\
 
 class GitRepoTest(unittest.TestCase):
     """
-    test that .gitignore, unfurl.local.yaml is created
+    test that .gitignore, local/unfurl.yaml is created
     test that init cmd committed the project config and related files
     """
 
@@ -110,7 +110,7 @@ class GitRepoTest(unittest.TestCase):
                 "ensemble.yaml",
                 ".gitattributes",
             }
-            expectedFiles = expectedCommittedFiles | {"unfurl.local.yaml"}
+            expectedFiles = expectedCommittedFiles | {"local"}
             self.assertEqual(set(os.listdir("deploy_dir")), expectedFiles)
             self.assertEqual(
                 set(repo.head.commit.stats.files.keys()),
