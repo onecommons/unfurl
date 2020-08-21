@@ -22,7 +22,9 @@ from ..configurator import Status
 from . import TemplateConfigurator
 import os
 import sys
+import shlex
 import six
+from click.termui import unstyle
 
 if os.name == "posix" and sys.version_info[0] < 3:
     import subprocess32 as subprocess
@@ -43,8 +45,52 @@ except ImportError:
         return None
 
 
+class _PrintOnAppendList(list):
+    def append(self, data):
+        list.append(self, data)
+        try:
+            sys.stdout.write(data.decode())
+        except:
+            pass
+
+
+def _run(*args, **kwargs):
+    timeout = kwargs.pop("timeout", None)
+    with subprocess.Popen(*args, **kwargs) as process:
+        try:
+            stdout = None
+            stderr = None
+            _save_input = process._save_input
+            # _save_input is called after _fileobj2output is setup but before reading
+            def _save_input_hook_hack(input):
+                if process.stdout:
+                    process._fileobj2output[process.stdout] = _PrintOnAppendList()
+                if process.stderr:
+                    process._fileobj2output[process.stderr] = _PrintOnAppendList()
+                _save_input(input)
+
+            process._save_input = _save_input_hook_hack
+            process.communicate(input, timeout=timeout)
+            if process.stdout:
+                stdout = b"".join(process._fileobj2output[process.stdout])
+            if process.stderr:
+                stderr = b"".join(process._fileobj2output[process.stderr])
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+            raise
+        except:  # Including KeyboardInterrupt, communicate handled that.
+            process.kill()
+            # We don't call process.wait() as .__exit__ does that for us.
+            raise
+        retcode = process.poll()
+    return subprocess.CompletedProcess(process.args, retcode, stdout, stderr)
+
+
 # XXX we should know if cmd if not os.access(implementation, os.X):
 class ShellConfigurator(TemplateConfigurator):
+    _defaultCmd = None
+
     @staticmethod
     def _cmd(cmd, keeplines):
         if not isinstance(cmd, six.string_types):
@@ -53,10 +99,18 @@ class ShellConfigurator(TemplateConfigurator):
             if not keeplines:
                 cmd = cmd.replace("\n", " ")
             cmdStr = cmd
+            cmd = shlex.split(cmd)
         return cmdStr, cmd
 
     def runProcess(
-        self, cmd, shell=False, timeout=None, env=None, cwd=None, keeplines=False
+        self,
+        cmd,
+        shell=False,
+        timeout=None,
+        env=None,
+        cwd=None,
+        keeplines=False,
+        echo=True,
     ):
         """
     Returns an object with the following attributes:
@@ -69,10 +123,16 @@ class ShellConfigurator(TemplateConfigurator):
     error if an exception was raised
     """
         cmdStr, cmd = self._cmd(cmd, keeplines)
-
         try:
-            completed = subprocess.run(
-                cmd,
+            # hack to echo results
+            if echo and hasattr(subprocess.Popen, "_save_input"):
+                run = _run
+            else:
+                # Windows and 2.7 don't have _save_input
+                run = subprocess.run
+            completed = run(
+                # follow recommendation to use string with shell, list without
+                cmdStr if shell else cmd,
                 shell=shell,
                 env=env,
                 cwd=cwd,
@@ -80,6 +140,7 @@ class ShellConfigurator(TemplateConfigurator):
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
             )
+
             # try to convert stdout and stderr to strings but leave as binary if that fails
             try:
                 completed.stdout = completed.stdout.decode()
@@ -108,7 +169,7 @@ class ShellConfigurator(TemplateConfigurator):
             err.error = err
             return err
 
-    def _handleResult(self, task, result):
+    def _getStatusFromResult(self, task, result):
         status = (
             Status.error
             if result.error or result.returncode or result.timeout
@@ -124,7 +185,13 @@ class ShellConfigurator(TemplateConfigurator):
         else:
             task.logger.info("shell task run success: %s", result.cmd)
             task.logger.debug("shell task output: %s", result.stdout)
+        # strips terminal escapes after we printed output via logger
+        result.stdout = unstyle(result.stdout)
+        result.stderr = unstyle(result.stderr)
+        return status
 
+    def _handleResult(self, task, result):
+        status = self._getStatusFromResult(task, result)
         self.processResultTemplate(task, result.__dict__)
         if task._errors:
             return Status.error
@@ -132,7 +199,7 @@ class ShellConfigurator(TemplateConfigurator):
 
     def canRun(self, task):
         params = task.inputs
-        cmd = params.get("command")
+        cmd = params.get("command", self._defaultCmd)
         if not cmd:
             return "missing command to execute"
         if isinstance(cmd, list) and not params.get("shell") and not which(cmd[0]):
@@ -177,6 +244,7 @@ class ShellConfigurator(TemplateConfigurator):
             else:
                 cmd.remove("%dryrun%")
 
+        echo = params.get("echo") # task.verbose > -1)
         result = self.runProcess(
             cmd,
             shell=shell,
@@ -184,6 +252,7 @@ class ShellConfigurator(TemplateConfigurator):
             env=env,
             cwd=cwd,
             keeplines=keeplines,
+            echo=echo,
         )
         status = self._handleResult(task, result)
         yield task.done(status == Status.ok, result=result.__dict__)
