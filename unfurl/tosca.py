@@ -672,7 +672,7 @@ class CapabilitySpec(EntitySpec):
 
     def getInterfaces(self):
         # capabilities don't have their own interfaces
-        return self.parentNode.interfaces
+        return self.parentNode.getInterfaces()
 
     def getUri(self):
         # capabilities aren't standalone templates
