@@ -21,6 +21,19 @@ import os.path
 from jsonschema import Draft7Validator, validators, RefResolver
 from ruamel.yaml.scalarstring import ScalarString, FoldedScalarString
 from ansible.parsing.yaml.objects import AnsibleVaultEncryptedUnicode
+from ansible.parsing.vault import VaultEditor
+from ansible.module_utils._text import to_text, to_bytes, to_native  # BSD licensed
+import warnings
+import codecs
+import io
+
+try:
+    import importlib.util
+
+    imp = None
+except ImportError:
+    import imp
+
 import logging
 
 logger = logging.getLogger("unfurl")
@@ -70,10 +83,19 @@ class UnfurlAddingResourceError(UnfurlTaskError):
         super(UnfurlAddingResourceError, self).__init__(task, message, log)
         self.resourceSpec = resourceSpec
 
+
 def wrapSensitiveValue(obj, vault=None):
     # we don't remember the vault and vault id associated with this value
     # so the value will be rekeyed with whichever vault is associated with the serializing yaml
-    if isinstance(obj, six.string_types):
+    if isinstance(obj, bytes):
+        if six.PY3:
+            return sensitive_bytes(obj)
+        else:
+            try:
+                return sensitive_str(unicode(obj, "utf-8"))
+            except UnicodeDecodeError:
+                return sensitive_bytes(obj)
+    elif isinstance(obj, six.string_types):
         return sensitive_str(obj)
     elif isinstance(obj, collections.Mapping):
         return sensitive_dict(obj)
@@ -81,6 +103,7 @@ def wrapSensitiveValue(obj, vault=None):
         return sensitive_list(obj)
     else:
         return None
+
 
 def isSensitive(obj):
     test = getattr(obj, "__sensitive__", None)
@@ -101,17 +124,33 @@ class sensitive(object):
     def __sensitive__(self):
         return True
 
-class sensitive_str(str, sensitive):
+
+class sensitive_bytes(six.binary_type, sensitive):
     pass
+
+
+if six.PY3:
+
+    class sensitive_str(str, sensitive):
+        pass
+
+
+else:
+
+    class sensitive_str(unicode, sensitive):
+        pass
+
 
 class sensitive_dict(dict, sensitive):
     pass
 
+
 class sensitive_list(list, sensitive):
     pass
 
+
 def toYamlText(val):
-    if isinstance(val, (ScalarString, sensitive_str)):
+    if isinstance(val, (ScalarString, sensitive)):
         return val
     # convert or copy string (copy to deal with things like AnsibleUnsafeText)
     val = str(val)
@@ -142,17 +181,6 @@ class AutoRegisterClass(type):
         cls = type.__new__(mcls, name, bases, dct)
         registerClass(API_VERSION, name, cls)
         return cls
-
-
-import warnings
-
-try:
-    import importlib.util
-
-    imp = None
-except ImportError:
-    import imp
-from ansible.module_utils._text import to_bytes, to_text, to_native  # BSD licensed
 
 
 def loadModule(path, full_name=None):
@@ -220,35 +248,82 @@ def toEnum(enum, value, default=None):
         return value
 
 
-def _dump(obj, tp, suffix="", yaml=None):
+def _dump(obj, tp, suffix="", yaml=None, encoding=None):
     from .yamlloader import yaml as _yaml
 
-    if suffix.endswith(".yml") or suffix.endswith(".yaml"):
-        (yaml or _yaml).dump(obj, tp)
-    elif suffix.endswith(".json") or not isinstance(obj, six.string_types):
-        json.dump(obj, tp, indent=2)
-    else:
-        tp.write(obj)
+    try:
+        if six.PY3:
+            textEncoding = (
+                "utf-8" if encoding in [None, "yaml", "vault", "json"] else encoding
+            )
+            f = io.TextIOWrapper(tp, textEncoding)
+        else:
+            f = tp
+        if suffix.endswith(".yml") or suffix.endswith(".yaml") or encoding == "yaml":
+            (yaml or _yaml).dump(obj, f)
+            return
+        elif suffix.endswith(".json") or encoding == "json":
+            json.dump(obj, f, indent=2)  # str to bytes
+            return
+
+        if six.PY3:
+            if isinstance(obj, str):
+                obj = codecs.encode(obj, encoding or "utf-8")
+            if isinstance(obj, bytes):
+                tp.write(obj)
+                return
+        else:
+            if isinstance(obj, unicode):
+                obj = codecs.encode(obj, encoding or "utf-8")
+            if isinstance(obj, str):
+                tp.write(obj)
+                return
+
+        # try to dump any other object as json
+        json.dump(obj, f, indent=2)
+    finally:
+        if six.PY3:
+            f.detach()
 
 
-def saveToFile(path, obj, yaml=None):
+def _saveToVault(path, obj, yaml=None, encoding=None, fd=None):
+    vaultExt = path.endswith(".vault")
+    if vaultExt or encoding == "vault":
+        assert yaml and yaml.representer.vault
+        vault = VaultEditor(yaml.representer.vault)
+        f = io.BytesIO()
+        vpath = path[: -len(".vault")] if vaultExt else path
+        _dump(obj, f, vpath, yaml, encoding)
+        b_vaulttext = yaml.representer.vault.encrypt(f.getvalue())
+        vault.write_data(b_vaulttext, fd or path)
+        return True
+    return False
+
+
+def saveToFile(path, obj, yaml=None, encoding=None):
     dir = os.path.dirname(path)
     if dir and not os.path.isdir(dir):
         os.makedirs(dir)
-    with open(path, "w") as f:
-        _dump(obj, f, path, yaml)
+    if not _saveToVault(path, obj, yaml, encoding):
+        with open(path, "wb") as f:
+            _dump(obj, f, path, yaml, encoding)
 
 
-def saveToTempfile(obj, suffix="", delete=True, dir=None):
+def saveToTempfile(obj, suffix="", delete=True, dir=None, yaml=None, encoding=None):
     tp = tempfile.NamedTemporaryFile(
-        "w+t", suffix=suffix, delete=False, dir=dir or os.environ.get("UNFURL_TMPDIR")
+        "w+b",
+        suffix=suffix or "",
+        delete=False,
+        dir=dir or os.environ.get("UNFURL_TMPDIR"),
     )
     if delete:
         atexit.register(lambda: os.path.exists(tp.name) and os.unlink(tp.name))
-    try:
-        _dump(obj, tp, suffix)
-    finally:
-        tp.close()
+
+    if not _saveToVault(suffix or "", obj, yaml, encoding, tp.fileno()):
+        try:
+            _dump(obj, tp, suffix or "", yaml, encoding)
+        finally:
+            tp.close()
     return tp
 
 

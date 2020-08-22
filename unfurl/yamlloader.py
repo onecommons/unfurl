@@ -22,6 +22,7 @@ from .util import (
     to_bytes,
     to_text,
     sensitive_str,
+    sensitive_bytes,
     sensitive_dict,
     sensitive_list,
     wrapSensitiveValue,
@@ -55,49 +56,60 @@ def represent_undefined(self, data):
     )
 
 
-def represent_sensitive_str(dumper, data):
+def _represent_sensitive(dumper, data, tag):
     if dumper.vault.secrets:
         b_ciphertext = dumper.vault.encrypt(data)
-        return dumper.represent_scalar(u"!vault", b_ciphertext.decode(), style="|")
+        return dumper.represent_scalar(tag, b_ciphertext.decode(), style="|")
     else:
         return dumper.represent_scalar(
             u"tag:yaml.org,2002:str", sensitive_str.redacted_str
         )
+
+
+def represent_sensitive_str(dumper, data):
+    return _represent_sensitive(dumper, data, u"!vault")
+
 
 def represent_sensitive_json(dumper, data):
-    if dumper.vault.secrets:
-        b_ciphertext = dumper.vault.encrypt(json.dumps(data, sort_keys=True))
-        return dumper.represent_scalar(u"!vaultjson", b_ciphertext.decode(), style="|")
-    else:
-        return dumper.represent_scalar(
-            u"tag:yaml.org,2002:str", sensitive_str.redacted_str
-        )
+    return _represent_sensitive(
+        dumper, json.dumps(data, sort_keys=True), u"!vault-json"
+    )
 
-def construct_vault(constructor, node):
+
+def represent_sensitive_bytes(dumper, data):
+    return _represent_sensitive(dumper, data, u"!vault-binary")
+
+
+def _construct_vault(constructor, node, tag):
     value = constructor.construct_scalar(node)
     if not constructor.vault.secrets:
         raise ConstructorError(
             context=None,
             context_mark=None,
-            problem="found !vault but no vault password provided",
+            problem="found %s but no vault password provided" % tag,
             problem_mark=node.start_mark,
             note=None,
         )
+    return value
+
+
+def construct_vault(constructor, node):
+    value = _construct_vault(constructor, node, "!vault")
     cleartext = to_text(constructor.vault.decrypt(value))
     return sensitive_str(cleartext)
 
+
 def construct_vaultjson(constructor, node):
-    value = constructor.construct_scalar(node)
-    if not constructor.vault.secrets:
-        raise ConstructorError(
-            context=None,
-            context_mark=None,
-            problem="found !vaultjson but no vault password provided",
-            problem_mark=node.start_mark,
-            note=None,
-        )
+    value = _construct_vault(constructor, node, "!vault-json")
     cleartext = to_text(constructor.vault.decrypt(value))
     return wrapSensitiveValue(json.loads(cleartext))
+
+
+def construct_vaultbinary(constructor, node):
+    value = _construct_vault(constructor, node, "!vault-binary")
+    cleartext = constructor.vault.decrypt(value)
+    return sensitive_bytes(cleartext)
+
 
 def makeYAML(vault=None):
     if not vault:
@@ -110,12 +122,14 @@ def makeYAML(vault=None):
 
     yaml.constructor.vault = vault
     yaml.constructor.add_constructor(u"!vault", construct_vault)
-    yaml.constructor.add_constructor(u"!vaultjson", construct_vaultjson)
+    yaml.constructor.add_constructor(u"!vault-json", construct_vaultjson)
+    yaml.constructor.add_constructor(u"!vault-binary", construct_vaultbinary)
 
     yaml.representer.vault = vault
     yaml.representer.add_representer(sensitive_str, represent_sensitive_str)
     yaml.representer.add_representer(sensitive_dict, represent_sensitive_json)
     yaml.representer.add_representer(sensitive_list, represent_sensitive_json)
+    yaml.representer.add_representer(sensitive_bytes, represent_sensitive_bytes)
 
     if six.PY3:
         represent_unicode = SafeRepresenter.represent_str
@@ -341,7 +355,7 @@ class YamlConfig(object):
 
     def __getstate__(self):
         state = self.__dict__.copy()
-        state['_yaml'] = None
+        state["_yaml"] = None
         return state
 
     def validate(self, config):

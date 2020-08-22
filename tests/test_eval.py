@@ -353,3 +353,50 @@ a_dict:
         result = mapValue(template, resource)
         with open(result) as tp:
             self.assertEqual(tp.read(), json.dumps(value, indent=2))
+
+    def test_binaryvault(self):
+        import six
+        from unfurl.support import AttributeManager
+        from unfurl.yamlloader import makeYAML, sensitive_bytes, makeVaultLib
+
+        # load a binary file then write it out as a temporary vault file
+        fixture = os.path.join(
+            os.path.dirname(__file__), "fixtures/helmrepo/mysql-1.6.4.tgz"
+        )
+        src = (
+            """
+          eval:
+            tempfile:
+                eval:
+                  file: %s
+                select: contents
+            encoding: vault
+        """
+            % fixture
+        )
+        vault = makeVaultLib("password")
+        yaml = makeYAML(vault)
+        expr = yaml.load(six.StringIO(src))
+        resource = self._getTestResource()
+        resource.attributeManager = AttributeManager(yaml)
+        resource._templar._loader.set_vault_secrets(vault.secrets)
+
+        filePath = mapValue(expr, resource)
+        with open(filePath, "rb") as vf:
+            vaultContents = vf.read()
+            assert vaultContents.startswith(b"$ANSIBLE_VAULT;")
+
+        # decrypt the vault file, make sure it's a sensitive_bytes string that matches the original contents
+        src = """
+        eval:
+          file:
+            path:
+              eval: $tempfile
+            encoding: binary
+        select: contents
+        """
+        expr = yaml.load(six.StringIO(src))
+        contents = mapValue(expr, RefContext(resource, vars=dict(tempfile=filePath)))
+        assert isinstance(contents, sensitive_bytes), type(contents)
+        with open(fixture, "rb") as tp:
+            self.assertEqual(tp.read(), contents)

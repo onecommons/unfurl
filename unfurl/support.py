@@ -69,12 +69,14 @@ class File(ExternalValue):
     """
   Represents a local file.
   get() returns the given file path (usually relative)
+  `encoding` can be "binary", "vault", "json", "yaml" or an encoding registered with the Python codec registry
   """
 
-    def __init__(self, arg, baseDir="", loader=None, yaml=None):
+    def __init__(self, arg, baseDir="", loader=None, yaml=None, encoding=None):
         write = False
         if isinstance(arg, dict):
             name = arg["path"]
+            encoding = arg.get("encoding", encoding)
             write = "contents" in arg
         else:
             name = arg
@@ -82,8 +84,14 @@ class File(ExternalValue):
         super(File, self).__init__("file", name)
         self.baseDir = baseDir or ""
         self.loader = loader
+        self.encoding = encoding
         if write:
-            saveToFile(self.getFullPath(), arg["contents"], yaml)
+            saveToFile(
+                self.getFullPath(),
+                arg["contents"],
+                yaml,
+                encoding if encoding != "binary" else None,
+            )
 
     def getFullPath(self):
         return os.path.abspath(os.path.join(self.baseDir, self.get()))
@@ -100,20 +108,29 @@ class File(ExternalValue):
             return self.getFullPath()
         elif name == "contents":
             path = self.getFullPath()
+            with open(path, "rb") as f:
+                contents = f.read()
             if self.loader:
-                # decrypts if necessary
-                contents, show = self.loader._get_file_contents(path)
-                return codecs.decode(contents)
+                contents, show = self.loader._decrypt_if_vault_data(contents, path)
             else:
-                with open(path, "r") as f:
-                    return f.read()
+                show = True
+            if self.encoding != "binary":
+                try:
+                    # convert from bytes to string
+                    contents = codecs.decode(contents, self.encoding or "utf-8")
+                except ValueError:
+                    pass  # keep at bytes
+            if not show:  # it was encrypted
+                return wrapSensitiveValue(contents)
+            else:
+                return contents
         else:
             raise KeyError(name)
 
 
-def writeFile(ctx, obj, path, relativeTo=None):
+def writeFile(ctx, obj, path, relativeTo=None, encoding=None):
     return File(
-        dict(path=abspath(ctx, path, relativeTo), contents=obj),
+        dict(path=abspath(ctx, path, relativeTo), contents=obj, encoding=encoding),
         ctx.baseDir,
         ctx.templar and ctx.templar._loader,
         ctx.currentResource.root.attributeManager.yaml,
@@ -137,8 +154,8 @@ class TempFile(ExternalValue):
   get() returns the given file path (usually relative)
   """
 
-    def __init__(self, obj, suffix=""):
-        tp = saveToTempfile(obj, suffix)
+    def __init__(self, obj, suffix="", yaml=None, encoding=None):
+        tp = saveToTempfile(obj, suffix, yaml=yaml, encoding=encoding)
         super(TempFile, self).__init__("tempfile", tp.name)
         self.tp = tp
 
@@ -160,7 +177,13 @@ class TempFile(ExternalValue):
 
 
 setEvalFunc(
-    "tempfile", lambda arg, ctx: TempFile(mapValue(arg, ctx), ctx.kw.get("suffix", ""))
+    "tempfile",
+    lambda arg, ctx: TempFile(
+        mapValue(arg, ctx),
+        ctx.kw.get("suffix"),
+        ctx.currentResource.root.attributeManager.yaml,
+        ctx.kw.get("encoding"),
+    ),
 )
 
 
@@ -850,7 +873,7 @@ class AttributeManager(object):
 
     def __getstate__(self):
         state = self.__dict__.copy()
-        state['_yaml'] = None
+        state["_yaml"] = None
         return state
 
     def getStatus(self, resource):
