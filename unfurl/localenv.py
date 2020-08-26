@@ -479,9 +479,9 @@ class LocalEnv(object):
 
     def getEngine(self):
         context = self.getContext()
-        engine = context.get("engine")
-        if engine:
-            return engine
+        runtime = context.get("runtime")
+        if runtime:
+            return runtime
         if self.project and self.project.venv:
             return "venv:" + self.project.venv
         if self.homeProject and self.homeProject.venv:

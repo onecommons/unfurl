@@ -38,13 +38,13 @@ def option_group(*options):
     type=click.Path(exists=False),
     help="path to .unfurl_home",
 )
-@click.option("--engine", envvar="UNFURL_ENGINE", help="use engine")
+@click.option("--runtime", envvar="UNFURL_RUNTIME", help="use this runtime")
 @click.option(
-    "--no-engine",
-    envvar="UNFURL_NOENGINE",
+    "--no-runtime",
+    envvar="UNFURL_NORUNTIME",
     default=False,
     is_flag=True,
-    help="ignore engine settings",
+    help="ignore runtime settings",
 )
 @click.option("-v", "--verbose", count=True, help="verbose mode (-vvv for more)")
 @click.option(
@@ -172,29 +172,29 @@ def _run(ensemble, options, workflow=None):
     if workflow:
         options["workflow"] = workflow
 
-    if not options.get("no_engine"):
+    if not options.get("no_runtime"):
         localEnv = LocalEnv(ensemble, options.get("home"))
-        engine = options.get("engine")
-        if not engine:
-            engine = localEnv.getEngine()
-        if engine and engine != ".":
+        runtime = options.get("runtime")
+        if not runtime:
+            runtime = localEnv.getEngine()
+        if runtime and runtime != ".":
             context = localEnv.getContext()
-            return _runRemote(engine, ensemble, options, context)
+            return _runRemote(runtime, ensemble, options, context)
     return _runLocal(ensemble, options)
 
 
-def _venv(engine, env):
+def _venv(runtime, env):
     if env is None:
         env = os.environ.copy()
     # see virtualenv activate
     env.pop("PYTHONHOME", None)  # unset if set
-    env["VIRTUAL_ENV"] = engine
-    env["PATH"] = os.path.join(engine, "bin") + os.pathsep + env.get("PATH", "")
+    env["VIRTUAL_ENV"] = runtime
+    env["PATH"] = os.path.join(runtime, "bin") + os.pathsep + env.get("PATH", "")
     return env
 
 
-def _remoteCmd(engine, cmdLine, context):
-    kind, sep, rest = engine.partition(":")
+def _remoteCmd(runtime, cmdLine, context):
+    kind, sep, rest = runtime.partition(":")
     if "environment" in context:
         addOnly = kind == "docker"
         env = _mapValue(filterEnv(context["environment"], addOnly=addOnly))
@@ -203,24 +203,24 @@ def _remoteCmd(engine, cmdLine, context):
 
     if kind == "venv":
         return (
-            _venv(engine, env),
-            ["python", "-m", "unfurl", "--no-engine"] + cmdLine,
+            _venv(runtime, env),
+            ["python", "-m", "unfurl", "--no-runtime"] + cmdLine,
             False,
         )
     # elif docker: docker $container -it run $cmdline
     else:
         # treat as shell command
-        cmd = shlex.split(engine)
-        return env, cmd + ["--no-engine"] + cmdLine, True
+        cmd = shlex.split(runtime)
+        return env, cmd + ["--no-runtime"] + cmdLine, True
 
 
-def _runRemote(engine, ensemble, options, context):
+def _runRemote(runtime, ensemble, options, context):
     import logging
 
     logger = logging.getLogger("unfurl")
-    logger.debug('running command remotely on "%s"', engine)
+    logger.debug('running command remotely on "%s"', runtime)
     cmdLine = sys.argv[1:]
-    env, remote, shell = _remoteCmd(engine, cmdLine, context)
+    env, remote, shell = _remoteCmd(runtime, cmdLine, context)
     rv = subprocess.call(remote, env=env, shell=shell)
     if options.get("standalone_mode") is False:
         return rv

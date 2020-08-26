@@ -29,7 +29,7 @@ ensemble.yaml
          type: string
          default
     environment:
-    engine:
+    runtime:
     external:
       name: # manifest to represent as a resource
         file:

@@ -65,8 +65,8 @@ def createHome(path=None, **kw):
     homedir, filename = os.path.split(homePath)
     writeTemplate(homedir, DefaultNames.Ensemble, "home-manifest.yaml.j2", {})
     configPath = writeProjectConfig(homedir, filename, "home-unfurl.yaml.j2")
-    if not kw.get("no_engine"):
-        initEngine(homedir, kw.get("engine") or "venv:")
+    if not kw.get("no_runtime"):
+        initEngine(homedir, kw.get("runtime") or "venv:")
     return configPath
 
 
@@ -241,10 +241,10 @@ def createProject(
     else:
         projectConfigPath = createMultiRepoProject(projectdir, addDefaults=addDefaults)
 
-    if not newHome and not kw.get("no_engine") and kw.get("engine"):
-        # if engine was explicitly set and we aren't creating the home project
-        # then initialize the engine here
-        initEngine(projectdir, kw.get("engine"))
+    if not newHome and not kw.get("no_runtime") and kw.get("runtime"):
+        # if runtime was explicitly set and we aren't creating the home project
+        # then initialize the runtime here
+        initEngine(projectdir, kw.get("runtime"))
 
     return newHome, projectConfigPath
 
@@ -401,12 +401,12 @@ def cloneEnsemble(source, destDir, includeLocal=False, **options):
     )
 
 
-def initEngine(projectDir, engine):
-    kind, sep, rest = engine.partition(":")
+def initEngine(projectDir, runtime):
+    kind, sep, rest = runtime.partition(":")
     if kind == "venv":
         return createVenv(projectDir, rest)
     # elif kind == 'docker'
-    # XXX return 'unrecoginized engine string: "%s"'
+    # XXX return 'unrecoginized runtime string: "%s"'
     return False
 
 
