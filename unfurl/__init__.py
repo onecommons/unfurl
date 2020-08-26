@@ -55,9 +55,30 @@ logging.captureWarnings(True)
 _logHandler = None
 
 
+class sensitive(object):
+    redacted_str = "<<REDACTED>>"
+
+    def __sensitive__(self):
+        return True
+
+
+class SensitiveLogFilter(logging.Filter):
+    def filter(self, record):
+        # redact any sensitive value
+        record.args = tuple(
+            sensitive.redacted_str if isinstance(a, sensitive) else a
+            for a in record.args
+        )
+        return True
+
+
 def initLogging(level, logfile=None):
+
     rootLogger = logging.getLogger()
+    oldLevel = rootLogger.getEffectiveLevel()
     rootLogger.setLevel(logging.DEBUG)  # need to set this first
+    f = SensitiveLogFilter()
+    rootLogger.addFilter(f)
 
     if logfile:
         ch = logging.FileHandler(logfile)
@@ -66,6 +87,7 @@ def initLogging(level, logfile=None):
         )
         ch.setFormatter(formatter)
         ch.setLevel(logging.DEBUG)
+        ch.addFilter(f)
         rootLogger.addHandler(ch)
 
     # global _logHandler so we can call initLogging multiple times
@@ -74,10 +96,11 @@ def initLogging(level, logfile=None):
         _logHandler = logging.StreamHandler()
         formatter = logging.Formatter("%(name)s:%(levelname)s: %(message)s")
         _logHandler.setFormatter(formatter)
+        _logHandler.addFilter(f)
         rootLogger.addHandler(_logHandler)
 
     _logHandler.setLevel(level)
-    return _logHandler
+    return _logHandler, oldLevel
 
 
 _logEnv = os.getenv("UNFURL_LOGGING")

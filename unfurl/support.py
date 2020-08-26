@@ -728,7 +728,14 @@ class ExternalResource(ExternalValue):
 class SecretResource(ExternalResource):
     def resolveKey(self, name=None, currentResource=None):
         # raises KeyError if not found
-        return super(SecretResource, self).resolveKey(name, currentResource)
+        val = super(SecretResource, self).resolveKey(name, currentResource)
+        if isinstance(val, Result):
+            # XXX we need add sensitive flags to Result and Results
+            # so we mark this as sensitive without resolving it
+            # (with potential infinite recursion)
+            return val
+        else:
+            return wrapSensitiveValue(val)
 
     def __sensitive__(self):
         return True

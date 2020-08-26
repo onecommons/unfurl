@@ -4,7 +4,13 @@ from unfurl.job import JobOptions, Runner
 from unfurl.configurator import Configurator, ConfigurationSpec
 from unfurl.yamlmanifest import YamlManifest
 from unfurl.yamlloader import YamlConfig
-from unfurl.util import UnfurlError, UnfurlValidationError, lookupClass, API_VERSION
+from unfurl.util import (
+    UnfurlError,
+    UnfurlValidationError,
+    lookupClass,
+    API_VERSION,
+    sensitive_str,
+)
 from unfurl.merge import (
     expandDoc,
     restoreIncludes,
@@ -21,6 +27,8 @@ import copy
 import os.path
 import pickle
 from click.testing import CliRunner
+import logging
+from unfurl import initLogging
 
 
 class SimpleConfigurator(Configurator):
@@ -261,6 +269,25 @@ root:
         with self.assertRaises(UnfurlError) as err:
             YamlManifest(manifest)
         self.assertIn("missing includes: [+/templates/production]", str(err.exception))
+
+    def test_sensitive_logging(self):
+        try:
+            _logHandler, oldLevel = initLogging(logging.DEBUG)
+            oldStream = _logHandler.stream
+            _logHandler.stream = six.StringIO()
+
+            logger = logging.getLogger("unfurl")
+            logger.info("test1 %s", sensitive_str("sensitive"))
+
+            logger = logging.getLogger("another")
+            logger.debug("test2 %s", sensitive_str("sensitive"))
+
+            logOutput = _logHandler.stream.getvalue()
+            self.assertIn(sensitive_str.redacted_str, logOutput)
+            self.assertNotIn("sensitive", logOutput)
+        finally:
+            _logHandler.stream = oldStream
+            initLogging(oldLevel)
 
 
 class TestInterface:

@@ -33,7 +33,7 @@ try:
     imp = None
 except ImportError:
     import imp
-
+from . import sensitive
 import logging
 
 logger = logging.getLogger("unfurl")
@@ -102,7 +102,7 @@ def wrapSensitiveValue(obj, vault=None):
     elif isinstance(obj, collections.MutableSequence):
         return sensitive_list(obj)
     else:
-        return None
+        return obj
 
 
 def isSensitive(obj):
@@ -116,13 +116,6 @@ def isSensitive(obj):
     elif isinstance(obj, collections.MutableSequence):
         return any(isSensitive(i) for i in obj)
     return False
-
-
-class sensitive(object):
-    redacted_str = "<<REDACTED>>"
-
-    def __sensitive__(self):
-        return True
 
 
 class sensitive_bytes(six.binary_type, sensitive):

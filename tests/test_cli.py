@@ -105,7 +105,9 @@ class CliTestConfigurator(Configurator):
         ), "failed to get secret environment variable, maybe DelegateAttributes is broken?"
 
         # list will be marked as sensitive because the template that created referenced a sensitive content
-        assert isinstance(attrs["aListOfItems"], sensitive_list), type(attrs["aListOfItems"])
+        assert isinstance(attrs["aListOfItems"], sensitive_list), type(
+            attrs["aListOfItems"]
+        )
         out = six.StringIO()
         yaml.dump(attrs["aListOfItems"], out)
         assert out.getvalue() == "<<REDACTED>>\n...\n", repr(out.getvalue())
@@ -222,7 +224,7 @@ class CliTest(unittest.TestCase):
 
             result = runner.invoke(cli, ["deploy", "--jobexitcode", "degraded"])
             # uncomment this to see output:
-            print("result.output", result.exit_code, result.output)
+            # print("result.output", result.exit_code, result.output)
             assert not result.exception, "\n".join(
                 traceback.format_exception(*result.exc_info)
             )
