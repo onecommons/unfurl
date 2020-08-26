@@ -7,7 +7,7 @@ node_types:
         type: string
         default:
           eval:
-            getdir: local
+            get_dir: local
       confFile:
         type: string
         default: supervisord.conf
@@ -78,12 +78,9 @@ node_types:
           relationship: tosca.relationships.HostedOn
     interfaces:
       Standard:
+        implementation: unfurl.configurators.supervisor.SupervisorConfigurator
         operations:
           configure:
-            implementation: unfurl.configurators.supervisor.SupervisorConfigurator
           start:
-            implementation: unfurl.configurators.supervisor.SupervisorConfigurator
           stop:
-            implementation: unfurl.configurators.supervisor.SupervisorConfigurator
           delete:
-            implementation: unfurl.configurators.supervisor.SupervisorConfigurator

@@ -225,16 +225,16 @@ class ToscaSyntaxTest(unittest.TestCase):
         tmp = _getbaseDir(ctx, "tmp")
         assert tmp.endswith("testPrefix"), tmp
 
-        # spec/home: <spec>/<template name>/
-        specHome = _getbaseDir(ctx, "spec/home")
+        # spec.home: <spec>/<template name>/
+        specHome = _getbaseDir(ctx, "spec.home")
         # template appears in the same folder as the ensemble so this is the same as home
         self.assertEqual(home, specHome)
 
-        # spec/local: <spec>/<template name>/local/
-        specLocal = _getbaseDir(ctx, "spec/local")
+        # spec.local: <spec>/<template name>/local/
+        specLocal = _getbaseDir(ctx, "spec.local")
         self.assertEqual(local, specLocal)
 
-        specSrc = _getbaseDir(ctx, "spec/src")
+        specSrc = _getbaseDir(ctx, "spec.src")
         self.assertEqual(src, specSrc)
 
         unfurlRepoPath = _getbaseDir(ctx, "unfurl")

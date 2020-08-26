@@ -137,7 +137,7 @@ class TerraformConfigurator(ShellConfigurator):
         _, terraform = self._cmd(
             task.inputs.get("command", self._defaultCmd), task.inputs.get("keeplines")
         )
-        cwd = os.path.abspath(task.inputs.get("dir") or getdir(ctx, "spec/home"))
+        cwd = os.path.abspath(task.inputs.get("dir") or getdir(ctx, "spec.home"))
         dataDir = os.path.join(cwd, ".terraform")
 
         # write out any needed files to cwd, eg. main.tf.json
@@ -180,7 +180,9 @@ class TerraformConfigurator(ShellConfigurator):
         if varfilePath:
             cmd.append("-var-file=" + varfilePath)
 
-        result = self.runProcess(cmd, timeout=task.configSpec.timeout, env=env, cwd=cwd, echo=echo)
+        result = self.runProcess(
+            cmd, timeout=task.configSpec.timeout, env=env, cwd=cwd, echo=echo
+        )
         if result.returncode and "terraform init" in result.stderr:
             # modules or plugins out of date, re-run terraform init
             providerSchema = self._initTerraform(task, terraform, cwd, env)

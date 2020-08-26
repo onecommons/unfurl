@@ -196,9 +196,9 @@ def _getbaseDir(ctx, name=None):
   "home" The "home" directory for the current instance (committed to repository)
   "local": The "local" directory for the current instance (excluded from repository)
   "tmp":   A temporary directory (removed after unfurl exits)
-  "spec/src": The directory of the source file the current instance's template appears in.
-  "spec/home": The "home" directory of the source file the current instance's template.
-  "spec/local": The "local" directory of the source file the current instance's template.
+  "spec.src": The directory of the source file the current instance's template appears in.
+  "spec.home": The "home" directory of the source file the current instance's template.
+  "spec.local": The "local" directory of the source file the current instance's template.
 
   Otherwise look for a repository with the given name and return its path or None if not found.
   """
@@ -216,7 +216,7 @@ def _getbaseDir(ctx, name=None):
     elif name == "local":
         return os.path.join(instance.baseDir, instance.name, "local")
     else:
-        start, sep, rest = name.partition("/")
+        start, sep, rest = name.partition(".")
         if sep:
             if start == "spec":
                 template = instance.template
@@ -227,8 +227,7 @@ def _getbaseDir(ctx, name=None):
                 elif rest == "local":
                     return os.path.join(template.spec.baseDir, template.name, "local")
             # XXX elif start == 'project' and rest == 'local'
-        else:
-            return instance.template.spec.getRepositoryPath(name)
+        return instance.template.spec.getRepositoryPath(name)
     return None  # unknown
 
 
@@ -256,7 +255,7 @@ def getdir(ctx, folder, mkdir=True):
 # see also abspath in filter_plugins.ref
 setEvalFunc("abspath", lambda arg, ctx: abspath(ctx, *_mapArgs(arg, ctx)))
 
-setEvalFunc("getdir", lambda arg, ctx: getdir(ctx, *_mapArgs(arg, ctx)))
+setEvalFunc("get_dir", lambda arg, ctx: getdir(ctx, *_mapArgs(arg, ctx)))
 
 
 # XXX need an api check if an object was marked sensitive
