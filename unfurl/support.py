@@ -23,7 +23,6 @@ from .util import (
     wrapSensitiveValue,
     saveToTempfile,
     saveToFile,
-    filterEnv,
     isSensitive,
 )
 from .merge import intersectDict, mergeDicts
@@ -536,9 +535,7 @@ def hasEnv(arg, ctx):
     """
     {has_env: foo}
     """
-    if not ctx.currentResource.root.envRules:
-        return False
-    return arg in filterEnv(ctx.currentResource.root.envRules)
+    return arg in os.environ
 
 
 setEvalFunc("has_env", hasEnv, True)
@@ -547,13 +544,13 @@ setEvalFunc("has_env", hasEnv, True)
 def getEnv(args, ctx):
     """
     Return the value of the given environment variable name.
-    If not name is missing, return the given default value if supplied or return None.
+    If NAME is not present in the environment, return the given default value if supplied or return None.
 
     e.g. {get_env: NAME} or {get_env: [NAME, default]}
 
     If the value of its argument is empty (e.g. [] or null), return the entire dictionary.
     """
-    env = filterEnv(ctx.currentResource.root.envRules or {})
+    env = os.environ
     if not args:
         return env
 

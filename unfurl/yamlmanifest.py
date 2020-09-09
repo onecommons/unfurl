@@ -10,8 +10,8 @@ import itertools
 from six.moves.urllib.parse import urlparse
 
 from . import DefaultNames
-from .util import UnfurlError, toYamlText
-from .merge import patchDict
+from .util import UnfurlError, toYamlText, filterEnv
+from .merge import patchDict, intersectDict
 from .yamlloader import YamlConfig
 from .result import serializeValue
 from .support import ResourceChanges, Defaults, Imports
@@ -20,6 +20,7 @@ from .job import JobOptions, Runner
 from .manifest import Manifest
 from .tosca import Artifact
 from .runtime import TopologyInstance
+from .eval import mapValue
 
 from ruamel.yaml.comments import CommentedMap
 from codecs import open
@@ -186,7 +187,7 @@ class ReadOnlyManifest(Manifest):
             logging.debug("loaded ensemble manifest at %s", self.manifest.path)
         manifest = self.manifest.expanded
         spec = manifest.get("spec", {})
-        self.context = manifest.get("context", {})
+        self.context = manifest.get("context", CommentedMap())
         if localEnv:
             self.context = localEnv.getContext(self.context)
         spec["inputs"] = self.context.get("inputs", spec.get("inputs", {}))
@@ -252,11 +253,8 @@ class YamlManifest(ReadOnlyManifest):
                     name, self.context
                 )
 
-        importsSpec = self.context.get("external", {})
-        # note: external "localhost" is defined in UNFURL_HOME's context by convention
-        self.loadImports(importsSpec)
-
         rootResource = self.createTopologyInstance(status)
+
         # create an new instances declared in the spec:
         for name, instance in spec.get("instances", {}).items():
             if not rootResource.findResource(name):
@@ -268,14 +266,11 @@ class YamlManifest(ReadOnlyManifest):
 
     def _configureRoot(self, rootResource):
         rootResource.imports = self.imports
-        rootResource.setBaseDir(self.getBaseDir())
         if (
             self.manifest.vault and self.manifest.vault.secrets
         ):  # setBaseDir() may create a new templar
             rootResource._templar._loader.set_vault_secrets(self.manifest.vault.secrets)
-        rootResource.envRules = CommentedMap(
-            self.context.get("environment", {}).items()
-        )
+        rootResource.envRules = self.context.get("environment") or CommentedMap()
 
     def createTopologyInstance(self, status):
         """
@@ -286,7 +281,25 @@ class YamlManifest(ReadOnlyManifest):
         template = self.tosca.topology
         operational = self.loadStatus(status)
         root = TopologyInstance(template, operational)
-        # need to set it before createNodeInstance() is called
+        root.setBaseDir(self.getBaseDir())
+
+        # We need to set the environment as early as possible but not too early
+        # and only once.
+        # Now that we loaded the main manifest and set the root's baseDir
+        # let's do it before we import any other manifests.
+        # But only if we're the main manifest.
+        if self.context.get("environment") and self.isPathToSelf(
+            self.localEnv.manifestPath
+        ):
+            env = filterEnv(mapValue(self.context["environment"], root))
+            intersectDict(os.environ, env)  # remove keys not in env
+            os.environ.update(env)
+
+        importsSpec = self.context.get("external", {})
+        # note: external "localhost" is defined in UNFURL_HOME's context by convention
+        self.loadImports(importsSpec)
+
+        # need to set rootResource before createNodeInstance() is called
         self.rootResource = root
         for key, val in status.get("instances", {}).items():
             self.createNodeInstance(key, val, root)

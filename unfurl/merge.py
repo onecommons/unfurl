@@ -17,12 +17,22 @@ def _mapCtor(self):
 CommentedMap.mapCtor = property(_mapCtor)
 
 
+def copy(src):
+    cls = getattr(src, "mapCtor", src.__class__)
+    if six.PY2 and cls is CommentedMap:
+        return CommentedMap(src.items())
+    return cls(src)
+
+
 def makeMapWithBase(doc, baseDir):
     loadTemplate = getattr(doc, "loadTemplate", None)
     _anchorCache = getattr(doc, "_anchorCache", None)
 
     def factory(*args, **kws):
-        map = CommentedMap(*args, **kws)
+        if six.PY2 and args and isinstance(args[0], dict):
+            map = CommentedMap(args[0].items(), **kws)
+        else:
+            map = CommentedMap(*args, **kws)
         map.baseDir = baseDir
         if loadTemplate:
             map.loadTemplate = loadTemplate

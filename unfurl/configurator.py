@@ -15,8 +15,9 @@ from .util import (
     UnfurlAddingResourceError,
     filterEnv,
     toEnum,
-    wrapSensitiveValue
+    wrapSensitiveValue,
 )
+from . import merge
 from .eval import Ref, mapValue, RefContext
 from .runtime import RelationshipInstance
 from .yamlloader import yaml
@@ -378,15 +379,17 @@ class TaskView(object):
 
     def getEnvironment(self, addOnly):
         # note: inputs should be evaluated before environment
-        rules = self.target.root.envRules.copy()
-        rules.update(
-            serializeValue(
-                mapValue(self.configSpec.environment or {}, self.inputs.context),
-                resolveExternal=True,
-            )
+        # use merge.copy to preserve basedir
+        rules = merge.copy(self.target.root.envRules)
+
+        if self.configSpec.environment:
+            rules.update(self.configSpec.environment)
+        rules = serializeValue(
+            mapValue(rules, self.inputs.context), resolveExternal=True
         )
         env = filterEnv(rules, addOnly=addOnly)
-        rules.update(self._findRelationshipEnvVars())
+        relEnvVars = self._findRelationshipEnvVars()
+        env.update(relEnvVars)
         targets = []
         if isinstance(self.target, RelationshipInstance):
             targets = [

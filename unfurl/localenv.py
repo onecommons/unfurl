@@ -551,3 +551,14 @@ class LocalEnv(object):
             else:
                 return repo, filePath, revision, bare
         return None, None, None, None
+
+    def mapValue(self, val):
+        """
+        Evaluate using project home as a base dir.
+        """
+        from .runtime import NodeInstance
+        from .eval import mapValue
+
+        instance = NodeInstance()
+        instance._baseDir = self.config.config.getBaseDir()
+        return mapValue(val, instance)

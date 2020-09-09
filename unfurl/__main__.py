@@ -160,26 +160,17 @@ def run(ctx, instance="root", cmdline=None, **options):
     return _run(options.pop("ensemble"), options, ctx.info_name)
 
 
-def _mapValue(val):
-    from .runtime import NodeInstance
-    from .eval import mapValue
-
-    instance = NodeInstance()
-    return mapValue(val, instance)
-
-
 def _run(ensemble, options, workflow=None):
     if workflow:
         options["workflow"] = workflow
 
+    localEnv = LocalEnv(ensemble, options.get("home"))
     if not options.get("no_runtime"):
-        localEnv = LocalEnv(ensemble, options.get("home"))
         runtime = options.get("runtime")
         if not runtime:
             runtime = localEnv.getEngine()
         if runtime and runtime != ".":
-            context = localEnv.getContext()
-            return _runRemote(runtime, ensemble, options, context)
+            return _runRemote(runtime, ensemble, options, localEnv)
     return _runLocal(ensemble, options)
 
 
@@ -193,11 +184,12 @@ def _venv(runtime, env):
     return env
 
 
-def _remoteCmd(runtime, cmdLine, context):
+def _remoteCmd(runtime, cmdLine, localEnv):
+    context = localEnv.getContext()
     kind, sep, rest = runtime.partition(":")
-    if "environment" in context:
+    if context.get("environment"):
         addOnly = kind == "docker"
-        env = _mapValue(filterEnv(context["environment"], addOnly=addOnly))
+        env = filterEnv(localEnv.mapValue(context["environment"]), addOnly=addOnly)
     else:
         env = None
 
@@ -214,13 +206,13 @@ def _remoteCmd(runtime, cmdLine, context):
         return env, cmd + ["--no-runtime"] + cmdLine, True
 
 
-def _runRemote(runtime, ensemble, options, context):
+def _runRemote(runtime, ensemble, options, localEnv):
     import logging
 
     logger = logging.getLogger("unfurl")
     logger.debug('running command remotely on "%s"', runtime)
     cmdLine = sys.argv[1:]
-    env, remote, shell = _remoteCmd(runtime, cmdLine, context)
+    env, remote, shell = _remoteCmd(runtime, cmdLine, localEnv)
     rv = subprocess.call(remote, env=env, shell=shell)
     if options.get("standalone_mode") is False:
         return rv

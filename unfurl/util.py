@@ -441,8 +441,15 @@ class Generate(object):
 
 def filterEnv(rules, env=None, addOnly=False):
     """
+    If 'env' is None it will be set to os.environ
+
+    If addOnly is False (the default) all variables in `env` will be included
+    in the returned dict, otherwise only variables added by `rules` will be included
+
     foo: bar # add foo=bar
-    +!foo*: # add all except keys matching "foo*"
+    +foo: # copy foo
+    +foo: bar # copy foo, set it bar if not present
+    +!foo*: # copy all except keys matching "foo*"
     -!foo: # remove all except foo
     """
     if env is None:
@@ -465,9 +472,39 @@ def filterEnv(rules, env=None, addOnly=False):
                 k: v for k, v in source.items() if fnmatch.fnmatchcase(k, name) ^ neg
             }
             if remove:
-                [start.pop(k, None) for k in match]
+                [
+                    start.pop(k, None)
+                    for k in match
+                    # required_envars need to an explicit rule to be removed
+                    if k not in required_envvars or name in required_envvars
+                ]
             else:
-                start.update(match)
+                if match:
+                    start.update(match)
+                elif val is not None:  # name isn't in existing, use default is set
+                    start[name] = val
         else:
             start[name] = val
     return start
+
+
+# copied from tox
+required_envvars = [
+    "TMPDIR",
+    "CURL_CA_BUNDLE",
+    "PATH",
+    "LANG",
+    "LANGUAGE",
+    "LD_LIBRARY_PATH",
+    "REQUESTS_CA_BUNDLE",
+    "SSL_CERT_FILE",
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "NO_PROXY",
+    "PYTHONPATH",
+    "UNFURL_TMPDIR",
+    "UNFURL_LOGGING",
+    "UNFURL_HOME",
+    "UNFURL_RUNTIME",
+    "UNFURL_NORUNTIME",
+]
