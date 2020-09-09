@@ -566,6 +566,54 @@ def getEnv(args, ctx):
 
 setEvalFunc("get_env", getEnv, True)
 
+_toscaKeywordsToExpr = {
+    "SELF": ".",
+    "SOURCE": ".source",
+    "TARGET": ".target",
+    "ORCHESTRATOR": "::localhost",
+    "HOST": ".parents",
+    "OPERATION_HOST": "$OPERATION_HOST",
+}
+
+
+def get_attribute(args, ctx):
+    args = mapValue(args, ctx)
+    entity_name = args.pop(0)
+    candidate_name = args.pop(0)
+    ctx = ctx.copy(ctx._lastResource)
+
+    start = _toscaKeywordsToExpr.get(entity_name, "::" + entity_name)
+    if args:
+        attribute_name = args.pop(0)
+        # need to include candidate_name as a test in addition to selecting it
+        # so that the HOST search looks for that and not just ".names" (which all entities have)
+        query = "%s::.names[%s]?::%s::%s?" % (
+            start,
+            candidate_name,
+            candidate_name,
+            attribute_name,
+        )
+        if args:  # nested attribute or list index lookup
+            query += "::" + "::".join(args)
+    else:  # simple attribute lookup
+        query = start + "::" + candidate_name
+    return ctx.query(query)
+
+
+setEvalFunc("get_attribute", get_attribute, True)
+
+
+def get_nodes_of_type(type_name, ctx):
+    return [
+        r
+        for r in ctx.currentResource.root.getSelfAndDescendents()
+        if r.template.isCompatibleType(type_name)
+        and r.name not in ["inputs", "outputs"]
+    ]
+
+
+setEvalFunc("get_nodes_of_type", get_nodes_of_type, True)
+
 
 def get_artifact(ctx, entity_name, artifact_name, location=None, remove=None):
     """
@@ -577,23 +625,20 @@ def get_artifact(ctx, entity_name, artifact_name, location=None, remove=None):
 
     If entity_name or artifact_name is not found return None.
     """
-    # XXX if HOST search all parents
-    keywords = ["SELF", "HOST", "SOURCE", "TARGET", "OPERATION_HOST", "ORCHESTRATOR"]
-    if entity_name in keywords:
-        if entity_name in ctx.vars:
-            instance = ctx.vars[entity_name].context.currentResource
-        else:
-            instance = None
-    else:
-        instance = ctx.currentResource.root.findResource(entity_name)
+    ctx = ctx.copy(ctx._lastResource)
+    query = _toscaKeywordsToExpr.get(entity_name, "::" + entity_name)
+    instances = ctx.query(query, wantList=True)
 
-    if not instance:
+    if not instances:
         ctx.trace("entity_name not found", entity_name)
         return None
     else:
-        # XXX implement instance.artifacts
-        artifact = instance.template.artifacts.get(artifact_name)
-        if not artifact:
+        for instance in instances:
+            # XXX implement instance.artifacts
+            artifact = instance.template.artifacts.get(artifact_name)
+            if artifact:
+                break
+        else:
             ctx.trace("artifact not found", artifact_name)
             return None
 

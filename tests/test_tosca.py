@@ -43,6 +43,14 @@ spec:
     node_types:
       testy.nodes.aNodeType:
         derived_from: tosca.nodes.Root
+        requirements:
+          - host:
+              capabilities: tosca.capabilities.Compute
+              relationship: tosca.relationships.HostedOn
+        attributes:
+          distribution:
+            type: string
+            default: { get_attribute: [ HOST, os, distribution ] }
         properties:
           private_address:
             type: string
@@ -87,11 +95,14 @@ spec:
       outputs:
         server_ip:
           description: The private IP address of the provisioned server.
-          # equivalent to { get_attribute: [ my_server, private_address ] }
-          value: {eval: "::testSensitive::private_address"}
+          value: { get_attribute: [ testSensitive, private_address ] }
+          # equivalent to {eval: "::testSensitive::private_address"}
+
       node_templates:
         testSensitive:
           type: testy.nodes.aNodeType
+          requirements:
+            - host: my_server
           properties:
             private_address: foo
             ports:
@@ -173,11 +184,28 @@ class ToscaSyntaxTest(unittest.TestCase):
         self.assertEqual(outputIp, "10.0.0.1")
         assert isinstance(outputIp, sensitive_str), type(outputIp)
         assert job.status == Status.ok, job.summary()
+        self.assertEqual("RHEL", testSensitive.attributes["distribution"])
         return outputIp, job
 
     def test_inputAndOutputs(self):
         manifest = YamlManifest(manifestDoc)
         outputIp, job = self._runInputAndOutputs(manifest)
+        self.assertEqual(
+            ["my_server", "testSensitive"],
+            job.rootResource.query(
+                "$nodes::.name",
+                vars=dict(nodes={"get_nodes_of_type": "tosca.nodes.Root"}),
+            ),
+        )
+        self.assertEqual(
+            "testSensitive",
+            job.rootResource.query({"get_nodes_of_type": "testy.nodes.aNodeType"})[
+                0
+            ].name,
+        )
+        assert not job.rootResource.query(
+            {"get_nodes_of_type": "testy.nodes.Nonexistent"}
+        )
         assert "server_ip: <<REDACTED>>" in job.out.getvalue(), job.out.getvalue()
 
     def test_ansibleVault(self):

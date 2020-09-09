@@ -10,7 +10,7 @@ import collections
 
 from ansible.parsing.dataloader import DataLoader
 
-from .util import UnfurlError, loadClass, toEnum, makeTempDir
+from .util import UnfurlError, loadClass, toEnum, makeTempDir, ChainMap
 from .result import ResourceRef, ChangeAware
 
 from .support import AttributeManager, Defaults, Status, Priority, NodeState, Templar
@@ -389,6 +389,10 @@ class EntityInstance(OperationalInstance, ResourceRef):
         # attribute class getter resolves references
         return self.root.attributeManager.getAttributes(self)
 
+    @property
+    def names(self):
+        return self.attributes
+
     def __eq__(self, other):
         if self is other:
             return True
@@ -605,6 +609,15 @@ class NodeInstance(EntityInstance):
 
     def getDefaultRelationships(self, relation=None):
         return list(self._getDefaultRelationships(relation))
+
+    @property
+    def names(self):
+        # matches TOSCA logic for get_attribute lookup
+        return ChainMap(
+            self.attributes,
+            {r.name: r.parent for r in self.requirements},
+            {c.name: c for c in self.capabilities},
+        )
 
     def _resolve(self, key):
         # might return a Result

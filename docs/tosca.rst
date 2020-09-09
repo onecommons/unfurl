@@ -12,9 +12,9 @@ Extensions
 
 * add 'any' schema type for properties and attributes definitions
 * 'additionalProperties' field in type metadata
-* allow metadata field on parameters (i.e. inputs and outputs) and on artifacts
-* "sensitive" property and datatype metadata field
-* "immutable" property metadata field
+* allow metadata field on inputs, outputs, artifacts, and repositories
+* add "sensitive" property and datatype metadata field
+* add "immutable" property metadata field
 * add "environment" keyword to implementation definition
 * add "eval" function
 * add "type" in capability assignment
@@ -24,15 +24,15 @@ Extensions
 * operation_host can also refer to a node template name
 * add OPERATION_HOST reserved function keywords
 * add "discover" and "default" directives
+* add "default_for" keyword to relationship templates
+* add "defaults" section to interface definitions
 
 Not yet implemented and non-conformance with the TOSCA 1.3 specification
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-* Operation Outputs (use `resultTemplate` instead)
-* "copy" keyword (use dsl or merge directives instead)
-* `get_attribute` function (use `eval` instead)
-* `get_nodes_of_type` (use `eval` instead)
-* `get_artifact` function
+* Operation Outputs and `get_operation_output` function (use `resultTemplate` instead)
+* "copy" keyword (use dsl or `merge directives` instead)
+* `get_artifact` function (only implemented for artifacts that are docker images)
 * CSAR manifests and archives (implemented but untested)
 * substitution mapping (mostly implemented but untested)
 * triggers
