@@ -25,7 +25,7 @@ class Project(object):
 
     def __init__(self, path, homeProject=None):
         parentConfig = homeProject and homeProject.localConfig or None
-        self.projectRoot = os.path.dirname(path)
+        self.projectRoot = os.path.abspath(os.path.dirname(path))
         if os.path.exists(path):
             self.localConfig = LocalConfig(path, parentConfig)
         else:
@@ -33,7 +33,7 @@ class Project(object):
 
         self.workingDirs = Repo.findGitWorkingDirs(self.projectRoot)
         # the project repo if it exists manages the project config (unfurl.yaml)
-        projectRoot = os.path.abspath(self.projectRoot)
+        projectRoot = self.projectRoot
         if projectRoot in self.workingDirs:
             self.projectRepo = self.workingDirs[projectRoot][1]
         else:
@@ -51,6 +51,7 @@ class Project(object):
 
     @staticmethod
     def normalizePath(path):
+        path = os.path.abspath(path)
         if not os.path.exists(path):
             isdir = not path.endswith(".yml") and not path.endswith(".yaml")
         else:

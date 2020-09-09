@@ -35,6 +35,13 @@ def findGitRepo(path, isFile=True, importLoader=None):
         return a + ".git", c, ""
 
 
+class _ProgressPrinter(git.RemoteProgress):
+    def update(self, op_code, cur_count, max_count=None, message=""):
+        # print update to stdout but only if logging is INFO or more verbose
+        if message and logger.getEffectiveLevel() <= logging.INFO:
+            print("fetching from %s, received: %s " % (self.gitUrl, message))
+
+
 class Repo(object):
     @staticmethod
     def findContainingRepo(rootDir, gitDir=".git"):
@@ -87,8 +94,19 @@ class Repo(object):
     def createWorkingDir(cls, gitUrl, localRepoPath, revision="HEAD"):
         empty_repo = git.Repo.init(localRepoPath)
         origin = empty_repo.create_remote("origin", gitUrl)
-        empty_repo.create_head("master", origin.refs.master)
-        empty_repo.set_tracking_branch(origin.refs.master).checkout(revision)
+        progress = _ProgressPrinter()
+        progress.gitUrl = gitUrl
+        for fetch_info in origin.fetch(progress=progress):
+            # e.g. origin/master to 29373a553e45bcd714e993c3600e867cfbd7b9eb
+            logger.info(
+                "Updated %s with %s at %s"
+                % (localRepoPath, fetch_info.ref, fetch_info.commit)
+            )
+
+        # XXX don't assume "master"
+        empty_repo.create_head("master", origin.refs.master).set_tracking_branch(
+            origin.refs.master
+        ).checkout()
         return GitRepo(empty_repo)
 
 

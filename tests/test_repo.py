@@ -4,6 +4,7 @@ import traceback
 import six
 from click.testing import CliRunner
 from unfurl.__main__ import cli, _latestJobs
+from unfurl.localenv import LocalEnv
 from git import Repo
 from unfurl.configurator import Configurator, Status
 import unfurl.configurators  # python2.7 workaround
@@ -182,7 +183,7 @@ ensemble.yaml
 ensemble-template.yaml
 service-template.yaml
 """
-            if not six.PY2: # order not guaranteed in py2
+            if not six.PY2:  # order not guaranteed in py2
                 self.assertEqual(result.output.strip(), output.strip())
 
             result = runner.invoke(cli, ["--home", "./unfurl_home", "deploy"])
@@ -251,3 +252,37 @@ service-template.yaml
             # self.assertEqual(job.status.name, "ok")
             # self.assertEqual(job.stats()["ok"], 1)
             # self.assertEqual(job.getOutputs()["aOutput"], "set")
+
+    def test_remote_git_repo(self):
+        runner = CliRunner()
+        with runner.isolated_filesystem():
+            with open("ensemble.yaml", "w") as f:
+                f.write(repoManifestContent)
+            ensemble = LocalEnv().getManifest()
+            # Updated origin/master to a319ac1914862b8ded469d3b53f9e72c65ba4b7f
+            self.assertEqual(
+                os.path.join(os.environ["UNFURL_HOME"], "base-payments"),
+                ensemble.rootResource.findResource("my_server").attributes["repo_path"],
+            )
+
+
+repoManifestContent = """\
+  apiVersion: unfurl/v1alpha1
+  kind: Manifest
+  spec:
+    instances:
+      my_server:
+        template: my_server
+    service_template:
+      repositories:
+        remote-git-repo:
+          url: https://github.com/onecommons/base-payments.git
+      topology_template:
+        node_templates:
+          my_server:
+            type: tosca.nodes.Compute
+            properties:
+              repo_path:
+                eval:
+                  get_dir: remote-git-repo
+  """
