@@ -17,7 +17,7 @@ import operator
 import collections
 from collections import Mapping, MutableSequence
 from ruamel.yaml.comments import CommentedMap
-from .util import validateSchema, UnfurlError
+from .util import validateSchema, UnfurlError, assertForm
 from .result import ResultsList, Result, Results, ExternalValue, ResourceRef
 
 
@@ -81,6 +81,9 @@ class _Tracker(object):
                     yield obj
 
 
+_defaultStrictness = True
+
+
 class RefContext(object):
     def __init__(
         self,
@@ -89,7 +92,7 @@ class RefContext(object):
         wantList=False,
         resolveExternal=False,
         trace=0,
-        strict=False,
+        strict=_defaultStrictness,
     ):
         self.vars = vars or {}
         # the original context:
@@ -154,6 +157,9 @@ class RefContext(object):
         val = self._resolveVar(key)
         self.addReference(key, val)
         return val.resolved
+
+    def query(self, expr, vars=None, wantList=False):
+        return Ref(expr, vars).resolve(self, wantList)
 
     def __getstate__(self):
         # Remove the unpicklable entries.
@@ -235,7 +241,7 @@ class Ref(object):
             self.vars.update(vars)
         self.source = exp
 
-    def resolve(self, ctx, wantList=True, strict=False):
+    def resolve(self, ctx, wantList=True, strict=_defaultStrictness):
         """
     If wantList=True (default) returns a ResultList of matches
     Note that values in the list can be a list or None
@@ -273,7 +279,7 @@ class Ref(object):
                 else:
                     return list(results)
 
-    def resolveOne(self, ctx, strict=False):
+    def resolveOne(self, ctx, strict=_defaultStrictness):
         """
     If no match return None
     If more than one match return a list of matches
@@ -311,18 +317,25 @@ def ifFunc(arg, ctx):
     kw = ctx.kw
     result = evalAsBoolean(arg, ctx)
     if result:
-        return evalForFunc(kw.get("then"), ctx)
+        if "then" in kw:
+            return evalForFunc(kw["then"], ctx)
+        else:
+            return result
     else:
-        return evalForFunc(kw.get("else"), ctx)
+        if "else" in kw:
+            return evalForFunc(kw["else"], ctx)
+        else:
+            return result
 
 
 def orFunc(arg, ctx):
     args = evalForFunc(arg, ctx)
-    assert isinstance(args, MutableSequence), args
+    assertForm(args, MutableSequence)
     for arg in args:
         val = evalForFunc(arg, ctx)
         if val:
             return val
+    return False
 
 
 def notFunc(arg, ctx):
@@ -332,7 +345,7 @@ def notFunc(arg, ctx):
 
 def andFunc(arg, ctx):
     args = evalForFunc(arg, ctx)
-    assert isinstance(args, MutableSequence)
+    assertForm(args, MutableSequence)
     for arg in args:
         val = evalForFunc(arg, ctx)
         if not val:
@@ -346,13 +359,13 @@ def quoteFunc(arg, ctx):
 
 def eqFunc(arg, ctx):
     args = mapValue(arg, ctx)
-    assert isinstance(args, MutableSequence) and len(args) == 2
+    assertForm(args, MutableSequence, len(args) == 2)
     return args[0] == args[1]
 
 
 def validateSchemaFunc(arg, ctx):
     args = mapValue(arg, ctx)
-    assert isinstance(args, MutableSequence) and len(args) == 2
+    assertForm(args, MutableSequence, len(args) == 2)
     return validateSchema(args[0], args[1])
 
 
@@ -663,7 +676,7 @@ def recursiveEval(v, exp, context):
 def evalExp(start, paths, context):
     "Returns a list of Result"
     context.trace("evalexp", start, paths)
-    assert isinstance(start, MutableSequence), start
+    assertForm(start, MutableSequence)
     return list(recursiveEval((Result(i) for i in start), paths, context))
 
 

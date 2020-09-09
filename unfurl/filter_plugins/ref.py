@@ -1,3 +1,4 @@
+import os.path
 from unfurl.eval import Ref, mapValue
 from unfurl.support import abspath as _abspath
 
@@ -23,10 +24,14 @@ def mapValueFilter(context, ref, **vars):
 @contextfilter
 def abspath(context, path, relativeTo=None, mkdir=True):
     """
+    {{ 'foo' | abspath }}
+
+    or
+
     {{ 'foo' | abspath('local') }}
     """
     refContext = context["__unfurl"]
-    return _abspath(refContext, relativeTo, mkdir)
+    return _abspath(refContext, path, relativeTo, mkdir)
 
 
 class FilterModule(object):

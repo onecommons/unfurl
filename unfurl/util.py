@@ -152,8 +152,8 @@ def toYamlText(val):
     return val
 
 
-def assertForm(src, types=Mapping):
-    if not isinstance(src, types):
+def assertForm(src, types=Mapping, test=True):
+    if not isinstance(src, types) or not test:
         raise UnfurlError("Malformed definition: %s" % src)
     return src
 
@@ -273,7 +273,8 @@ def _dump(obj, tp, suffix="", yaml=None, encoding=None):
                 return
 
         # try to dump any other object as json
-        json.dump(obj, f, indent=2)
+        if obj is not None:  # treat None as 0 byte file
+            json.dump(obj, f, indent=2)
     finally:
         if six.PY3:
             f.detach()

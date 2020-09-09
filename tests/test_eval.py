@@ -390,9 +390,8 @@ a_dict:
         src = """
         eval:
           file:
-            path:
-              eval: $tempfile
-            encoding: binary
+            eval: $tempfile
+          encoding: binary
         select: contents
         """
         expr = yaml.load(six.StringIO(src))

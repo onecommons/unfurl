@@ -2,7 +2,7 @@
 Internal classes supporting the runtime.
 """
 import collections
-from collections import Mapping, MutableSequence
+from collections import MutableSequence
 import copy
 import os
 import os.path
@@ -71,85 +71,92 @@ class File(ExternalValue):
   `encoding` can be "binary", "vault", "json", "yaml" or an encoding registered with the Python codec registry
   """
 
-    def __init__(self, arg, baseDir="", loader=None, yaml=None, encoding=None):
-        write = False
-        if isinstance(arg, dict):
-            name = arg["path"]
-            encoding = arg.get("encoding", encoding)
-            write = "contents" in arg
-        else:
-            name = arg
-
+    def __init__(self, name, baseDir="", loader=None, yaml=None, encoding=None):
         super(File, self).__init__("file", name)
         self.baseDir = baseDir or ""
         self.loader = loader
+        self.yaml = yaml
         self.encoding = encoding
-        if write:
-            saveToFile(
-                self.getFullPath(),
-                arg["contents"],
-                yaml,
-                encoding if encoding != "binary" else None,
-            )
+
+    def write(self, obj):
+        encoding = self.encoding if self.encoding != "binary" else None
+        saveToFile(self.getFullPath(), obj, self.yaml, encoding)
 
     def getFullPath(self):
         return os.path.abspath(os.path.join(self.baseDir, self.get()))
 
+    def getContents(self):
+        path = self.getFullPath()
+        with open(path, "rb") as f:
+            contents = f.read()
+        if self.loader:
+            contents, show = self.loader._decrypt_if_vault_data(contents, path)
+        else:
+            show = True
+        if self.encoding != "binary":
+            try:
+                # convert from bytes to string
+                contents = codecs.decode(contents, self.encoding or "utf-8")
+            except ValueError:
+                pass  # keep at bytes
+        if not show:  # it was encrypted
+            return wrapSensitiveValue(contents)
+        else:
+            return contents
+
     def resolveKey(self, name=None, currentResource=None):
         """
+    Key can be one of:
+
     path # absolute path
     contents # file contents (None if it doesn't exist)
+    encoding
     """
         if not name:
             return self.get()
 
         if name == "path":
             return self.getFullPath()
+        elif name == "encoding":
+            return self.encoding or "utf-8"
         elif name == "contents":
-            path = self.getFullPath()
-            with open(path, "rb") as f:
-                contents = f.read()
-            if self.loader:
-                contents, show = self.loader._decrypt_if_vault_data(contents, path)
-            else:
-                show = True
-            if self.encoding != "binary":
-                try:
-                    # convert from bytes to string
-                    contents = codecs.decode(contents, self.encoding or "utf-8")
-                except ValueError:
-                    pass  # keep at bytes
-            if not show:  # it was encrypted
-                return wrapSensitiveValue(contents)
-            else:
-                return contents
+            return self.getContents()
         else:
             raise KeyError(name)
 
 
 def writeFile(ctx, obj, path, relativeTo=None, encoding=None):
-    return File(
-        dict(path=abspath(ctx, path, relativeTo), contents=obj, encoding=encoding),
+    file = File(
+        abspath(ctx, path, relativeTo),
         ctx.baseDir,
         ctx.templar and ctx.templar._loader,
         ctx.currentResource.root.attributeManager.yaml,
-    ).getFullPath()
+        encoding,
+    )
+    file.write(obj)
+    return file.getFullPath()
 
 
-setEvalFunc(
-    "file",
-    lambda arg, ctx: File(
+def _fileFunc(arg, ctx):
+    kw = mapValue(ctx.kw, ctx)
+    file = File(
         mapValue(arg, ctx),
         ctx.baseDir,
         ctx.templar and ctx.templar._loader,
         ctx.currentResource.root.attributeManager.yaml,
-    ),
-)
+        kw.get("encoding"),
+    )
+    if "contents" in kw:
+        file.write(kw["contents"])
+    return file
+
+
+setEvalFunc("file", _fileFunc)
 
 
 class TempFile(ExternalValue):
     """
-  Represents a local file.
+  Represents a temporary local file.
   get() returns the given file path (usually relative)
   """
 
@@ -390,7 +397,7 @@ def applyTemplate(value, ctx, overrides=None):
 
     templar.environment.trim_blocks = False
     # templar.environment.lstrip_blocks = False
-    fail_on_undefined = True
+    fail_on_undefined = ctx.strict
 
     vars = _VarTrackerDict(__unfurl=ctx)
     vars.update(ctx.vars)
@@ -413,6 +420,7 @@ def applyTemplate(value, ctx, overrides=None):
         except Exception as e:
             value = "<<Error rendering template: %s>>" % str(e)
             if ctx.strict:
+                logger.debug(value, exc_info=True)
                 raise UnfurlError(value)
             else:
                 logger.warning(value[2:100] + "... see debug log for full report")
@@ -467,29 +475,29 @@ def lookupFunc(arg, ctx):
     """
   Runs an ansible lookup plugin. Usage:
 
-  lookup:
-     lookupFunctionName: 'arg' or ['arg1', 'arg2']
+  .. code-block:: YAML
 
-  Or if you need to pass keyword arguments to the lookup function:
-
-  lookup:
-    - lookupFunctionName: 'arg' or ['arg1', 'arg2']
-    - kw1: value
-    - kw2: value
+    lookup:
+        lookupFunctionName: 'arg' or ['arg1', 'arg2']
+        kw1: value
+        kw2: value
   """
     arg = mapValue(arg, ctx)
-    if isinstance(arg, Mapping):
-        assert len(arg) == 1
-        name, args = list(arg.items())[0]
-        kw = {}
-    else:
-        assertForm(arg, MutableSequence)
-        name, args = list(assertForm(arg[0]).items())[0]
-        kw = dict(list(assertForm(kw).items())[0] for kw in arg[1:])
+    assertForm(arg, test=arg)  # a map with at least one element
+    name = None
+    args = None
+    kwargs = {}
+    for key, value in arg.items():
+        if not name:
+            name = key
+            args = value
+        else:
+            kwargs[key] = value
 
     if not isinstance(args, MutableSequence):
         args = [args]
-    return runLookup(name, ctx.templar, *args, **kw)
+
+    return runLookup(name, ctx.templar, *args, **kwargs)
 
 
 setEvalFunc("lookup", lookupFunc)
