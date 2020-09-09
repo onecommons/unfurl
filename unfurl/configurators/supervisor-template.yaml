@@ -55,9 +55,8 @@ node_types:
           inputs:
             run:
               eval:
-                file:
-                  path: '{{ SELF.homeDir }}/{{ SELF.confFile }}'
-                  contents: '{{ SELF.conf }}'
+                file: '{{ SELF.homeDir }}/{{ SELF.confFile }}'
+                contents: '{{ SELF.conf }}'
 
         start: supervisord -c {{ SELF.homeDir }}/{{ SELF.confFile }}
         stop: supervisorctl -c {{ SELF.homeDir }}/{{ SELF.confFile }} shutdown

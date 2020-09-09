@@ -18,6 +18,10 @@ from .configurator import TaskView, ConfiguratorResult, TaskRequest, JobRequest
 from .plan import Plan
 from . import display
 
+try:
+    from time import perf_counter
+except ImportError:
+    from time import clock as perf_counter
 import logging
 
 logger = logging.getLogger("unfurl")
@@ -354,6 +358,7 @@ class Job(ConfigChange):
         self.jobRequestQueue = []
         self.unexpectedAbort = None
         self.workDone = collections.OrderedDict()
+        self.timeTaken = 0
 
     def createTask(self, configSpec, target, reason=None):
         # XXX2 if operation_host set, create remote task instead
@@ -608,6 +613,8 @@ class Job(ConfigChange):
     def jsonSummary(self, pprint=False):
         job = dict(id=self.changeId, status=self.status.name)
         job.update(self.stats())
+        if not self.startTime:  # skip if startTime was explicitly set
+            job["timeTaken"] = self.timeTaken
         summary = dict(
             job=job,
             outputs=serializeValue(self.getOutputs()),
@@ -653,8 +660,9 @@ class Job(ConfigChange):
         def format(i, task):
             return "%d. %s; %s" % (i, task.summary(), task.result or "skipped")
 
-        line1 = "Job %s completed: %s. %s:\n    " % (
+        line1 = "Job %s completed in %.3fs: %s. %s:\n    " % (
             self.changeId,
+            self.timeTaken,
             self.status.name,
             self.stats(asMessage=True),
         )
@@ -754,8 +762,7 @@ class Runner(object):
         return self.taskCount
 
     def run(self, jobOptions=None):
-        """
-    """
+        job = None
         try:
             cwd = os.getcwd()
             if self.manifest.getBaseDir():
@@ -782,6 +789,7 @@ class Runner(object):
             self.currentJob = job
             try:
                 display.verbosity = jobOptions.verbose
+                startTime = perf_counter()
                 job.run()
             except Exception:
                 job.localStatus = Status.error
@@ -791,5 +799,7 @@ class Runner(object):
             self.currentJob = None
             self.manifest.commitJob(job)
         finally:
+            if job:
+                job.timeTaken = perf_counter() - startTime
             os.chdir(cwd)
         return job
