@@ -2,10 +2,13 @@ from ..util import saveToFile, UnfurlTaskError
 from .shell import ShellConfigurator, which
 from ..support import getdir, abspath, Status, writeFile
 import json
+import os
 import os.path
+import six
+import re
 
 
-def _getEnv(env, verbose, dataDir=".terraform"):
+def _getEnv(env, verbose, dataDir):
     env["TF_IN_AUTOMATION"] = "1"
     env["TF_INPUT"] = "0"
     # terraform currently only supports TF_LOG=TRACE
@@ -19,14 +22,14 @@ def _getEnv(env, verbose, dataDir=".terraform"):
     return env
 
 
-def markBlock(schema, items, task):
+def markBlock(schema, items, task, sensitiveNames):
     blockTypes = schema.get("block_types", {})
     attributes = schema.get("attributes", {})
     for obj in items:
         for name, value in obj.items():
             attributeSchema = attributes.get(name)
             if attributeSchema:
-                if attributeSchema.get("sensitive"):
+                if attributeSchema.get("sensitive") or name in sensitiveNames:
                     #   mark sensistive
                     obj[name] = task.sensitive(value)
             else:
@@ -37,17 +40,19 @@ def markBlock(schema, items, task):
                     # "single", "map", "list", "set"
                     objectType = blockSchema["nesting_mode"]
                     if objectType == "single":
-                        markBlock(blockSchema["block"], [value], task)
+                        markBlock(blockSchema["block"], [value], task, sensitiveNames)
                     elif objectType == "map":
-                        markBlock(blockSchema["block"], value.values(), task)
+                        markBlock(
+                            blockSchema["block"], value.values(), task, sensitiveNames
+                        )
                     else:
-                        markBlock(blockSchema["block"], value, task)
+                        markBlock(blockSchema["block"], value, task, sensitiveNames)
 
 
-def markSensitive(schemas, state, task):
+def markSensitive(schemas, state, task, sensitiveNames=()):
     for name, attrs in state["outputs"].items():
         value = attrs["value"]
-        if attrs.get("sensitive"):
+        if attrs.get("sensitive") or name in sensitiveNames:
             state["outputs"][name]["value"] = task.sensitive(value)
 
     for resource in state["resources"]:
@@ -59,7 +64,7 @@ def markSensitive(schemas, state, task):
         if providerSchema:
             schema = providerSchema["resource_schemas"].get(type)
             if schema:
-                markBlock(schema["block"], resource["instances"], task)
+                markBlock(schema["block"], resource["instances"], task, sensitiveNames)
             else:
                 task.logger.warning(
                     "resource type '%s' not found in terraform schema", type
@@ -71,6 +76,8 @@ def markSensitive(schemas, state, task):
 
 class TerraformConfigurator(ShellConfigurator):
     _defaultCmd = "terraform"
+
+    sensitiveNames = ["access_token", "key_material", "password"]
 
     def canDryRun(self, task):
         return True
@@ -84,15 +91,19 @@ class TerraformConfigurator(ShellConfigurator):
             return None
 
         cmd = terraform + "providers schema -json".split(" ")
-        result = self.runProcess(cmd, timeout=timeout, env=env, cwd=cwd, echo=echo)
+        result = self.runProcess(cmd, timeout=timeout, env=env, cwd=cwd, echo=False)
         if self._getStatusFromResult(task, result) != Status.ok:
             return None
 
-        providerSchema = json.loads(result.stdout.strip())["provider_schemas"]
-        # XXX add to ensemble "lock" section
-        # os.path.join(env['TF_DATA_DIR'], "modules", "modules.json")
-        # os.path.join(env['TF_DATA_DIR'], "plugins", "plugins.json")
-        return providerSchema
+        try:
+            providerSchema = json.loads(result.stdout.strip())["provider_schemas"]
+            # XXX add to ensemble "lock" section
+            # os.path.join(env['TF_DATA_DIR'], "modules", "modules.json")
+            # os.path.join(env['TF_DATA_DIR'], "plugins", "plugins.json")
+            return providerSchema
+        except:
+            task.logger.debug("failed to load provider schema", exc_info=True)
+            return None
 
     def _prepareWorkspace(self, cwd, task):
         """
@@ -103,8 +114,12 @@ class TerraformConfigurator(ShellConfigurator):
         # (add *.tmp.* to git ignore)
         main = task.inputs.getCopy("main")
         if main:
+            if isinstance(main, six.string_types):
+                # assume its HCL
+                path = os.path.join(cwd, "main.unfurl.tmp.tf")
+            else:
+                path = os.path.join(cwd, "main.unfurl.tmp.tf.json")
             ctx = task.inputs.context
-            path = os.path.join(cwd, "main.unfurl.tmp.tf.json")
             return writeFile(ctx, main, path)
         return None
 
@@ -113,8 +128,13 @@ class TerraformConfigurator(ShellConfigurator):
         # we need to output the plan and convert it to json to see which variables are marked sensitive
         tfvars = task.inputs.getCopy("tfvars")
         if tfvars:
+            if isinstance(tfvars, six.string_types):
+                # assume the contents of a tfvars file
+                path = "vars.tfvars"
+            else:
+                path = "vars.tfvars.json"
             ctx = task.inputs.context
-            return writeFile(ctx, tfvars, "tfvars.json", "local")
+            return writeFile(ctx, tfvars, path, "local")
         return None
 
     def _prepareState(self, task, ctx):
@@ -123,7 +143,7 @@ class TerraformConfigurator(ShellConfigurator):
         # and write out it as plaintext json into the local directory
         yamlPath = abspath(ctx, "terraform.tfstate.yaml", "home", False)
         jsonPath = abspath(ctx, "terraform.tfstate.json", "local", False)
-        if os.path.exists(yamlPath):
+        if not os.path.exists(jsonPath) and os.path.exists(yamlPath):
             # if exists in home, load and write out state file as json
             with open(yamlPath, "r") as f:
                 state = task._manifest.yaml.load(f.read())
@@ -138,7 +158,7 @@ class TerraformConfigurator(ShellConfigurator):
             task.inputs.get("command", self._defaultCmd), task.inputs.get("keeplines")
         )
         cwd = os.path.abspath(task.inputs.get("dir") or getdir(ctx, "spec.home"))
-        dataDir = os.path.join(cwd, ".terraform")
+        dataDir = os.getenv("TF_DATA_DIR", os.path.join(cwd, ".terraform"))
 
         # write out any needed files to cwd, eg. main.tf.json
         self._prepareWorkspace(cwd, task)
@@ -159,7 +179,7 @@ class TerraformConfigurator(ShellConfigurator):
             if providerSchema:
                 saveToFile(providerSchemaPath, providerSchema)
             else:
-                raise UnfurlTaskError(task, "terrform init failed")
+                raise UnfurlTaskError(task, "terraform init failed")
 
         # build the command line and run it
         if task.dryRun:
@@ -183,7 +203,7 @@ class TerraformConfigurator(ShellConfigurator):
         result = self.runProcess(
             cmd, timeout=task.configSpec.timeout, env=env, cwd=cwd, echo=echo
         )
-        if result.returncode and "terraform init" in result.stderr:
+        if result.returncode and re.search(r"terraform\s+init", result.stderr):
             # modules or plugins out of date, re-run terraform init
             providerSchema = self._initTerraform(task, terraform, cwd, env)
             if providerSchema:
@@ -205,7 +225,7 @@ class TerraformConfigurator(ShellConfigurator):
             # read state file
             with open(statePath) as sf:
                 state = json.load(sf)
-            state = markSensitive(providerSchema, state, task)
+            state = markSensitive(providerSchema, state, task, self.sensitiveNames)
             # save state file in home as yaml, encrypting sensitive values
             writeFile(ctx, state, "terraform.tfstate.yaml", "home")
             outputs = {name: attrs["value"] for name, attrs in state["outputs"].items()}

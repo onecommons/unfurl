@@ -5,46 +5,50 @@ metadata:
   template_version: 1.0.0
 node_types:
   tosca.nodes.Root:
-      interfaces:
-        Install:
-          type: unfurl.interfaces.Install
+    interfaces:
+      Install: # all nodes can implement this interface
+        type: unfurl.interfaces.Install
 
   unfurl.nodes.Installer:
     derived_from: tosca.nodes.Root
     capabilities:
-      install:
+      installer:
         type: unfurl.capabilities.Installer
-    properties:
-      provides:
-        type: list
-        required: false
-      implements:
-        type: list
-        default:
-          - unfurl.interfaces.Install
-      operations:
-        type: map
-        description: >
-          Value is are config spec properties (see "configurationSpec" in the JSON schema for the manifest).
-          Keys that match <interface.operation> or <action> will be instantiated
-          values in "shared" will be merged into the other configurations
-          and "default" will be used if the operation isn't present.
 
   unfurl.nodes.Installation:
     derived_from: tosca.nodes.Root
     requirements:
-      - install:
+      - installer:
           capability: unfurl.capabilities.Installer
           node: unfurl.nodes.Installer
           relationship: unfurl.relationships.InstalledBy
           occurrences: [0, 1] # it isn't necessarily required
-    interfaces:
-      Install:
-        type: unfurl.interfaces.Install
 
   unfurl.nodes.Default:
     derived_from: unfurl.nodes.Installation
     description: "Used if pre-existing instances are declared with no TOSCA template"
+
+  unfurl.nodes.Installer.Terraform:
+    derived_from: unfurl.nodes.Installer
+    properties:
+      dir:
+        type: string
+        default:
+          eval:
+            get_dir: spec.home
+    interfaces:
+      defaults:
+        implementation:
+          className: unfurl.configurators.terraform.TerraformConfigurator
+        inputs:
+          dir: { get_property: [SELF, dir] }
+      Standard:
+        operations:
+          delete:
+          create:
+      Install:
+        operations:
+          check:
 
   unfurl.nodes.K8sCluster:
     derived_from: tosca.nodes.Root
@@ -228,9 +232,6 @@ relationship_types:
   unfurl.relationships.InstalledBy:
     derived_from: tosca.relationships.Root
     valid_target_types: [unfurl.capabilities.Installer]
-    interfaces:
-      Install:
-        type: unfurl.interfaces.Install
 
   unfurl.relationships.ConnectsTo.K8sCluster:
     derived_from: tosca.relationships.ConnectsTo

@@ -128,7 +128,14 @@ class ToscaSpec(object):
 
     @property
     def baseDir(self):
-        return os.path.dirname(self.template.path)
+        if os.path.exists(self.template.path):
+            isdir = os.path.isdir(self.template.path)
+        else:
+            isdir = not os.path.splitext(self.template.path)[1]
+        if isdir:
+            return self.template.path
+        else:
+            return os.path.dirname(self.template.path)
 
     def addNodeTemplate(self, name, tpl):
         nodeTemplate = self.template.topology_template.add_template(name, tpl)
@@ -213,7 +220,7 @@ class ToscaSpec(object):
       spec:
             instances:
               test:
-                install: test
+                installer: test
             installers:
               test:
                 operations:

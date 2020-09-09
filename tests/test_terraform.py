@@ -15,11 +15,9 @@ spec:
     topology_template:
       node_templates:
         example:
-          type: tosca.nodes.Root
+          type: unfurl.nodes.Installer.Terraform
           interfaces:
             defaults:
-              implementation:
-                className: unfurl.configurators.terraform.TerraformConfigurator
               inputs:
                 tfvars:
                   tag: test
@@ -46,7 +44,6 @@ spec:
                       type: string
             Standard:
               operations:
-                delete:
                 create:
                   inputs:
                     resultTemplate:
@@ -54,9 +51,6 @@ spec:
                           id: "{{ resources[0].instances[0].attributes.id }}"
                           availability_zone: "{{ outputs.availability_zone.value }}"
                           tags: "{{ resources[0].instances[0].attributes.tags }}"
-            Install:
-              operations:
-                check:
 """
 
 projectConfig = """
@@ -132,7 +126,7 @@ class TerraformTest(unittest.TestCase):
                             "target": "example",
                             "operation": "create",
                             "template": "example",
-                            "type": "tosca.nodes.Root",
+                            "type": "unfurl.nodes.Installer.Terraform",
                             "targetStatus": "ok",
                             "changed": True,
                             "configurator": "unfurl.configurators.terraform.TerraformConfigurator",
@@ -175,7 +169,7 @@ class TerraformTest(unittest.TestCase):
                             "target": "example",
                             "operation": "check",
                             "template": "example",
-                            "type": "tosca.nodes.Root",
+                            "type": "unfurl.nodes.Installer.Terraform",
                             "targetStatus": "ok",
                             "changed": False,
                             "configurator": "unfurl.configurators.terraform.TerraformConfigurator",
@@ -218,7 +212,7 @@ class TerraformTest(unittest.TestCase):
                             "target": "example",
                             "operation": "delete",
                             "template": "example",
-                            "type": "tosca.nodes.Root",
+                            "type": "unfurl.nodes.Installer.Terraform",
                             "targetStatus": "absent",
                             "changed": True,
                             "configurator": "unfurl.configurators.terraform.TerraformConfigurator",

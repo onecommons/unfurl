@@ -562,7 +562,6 @@ class Plan(object):
                 t
                 for t in self.tosca.nodeTemplates.values()
                 if not t.isCompatibleType(self.tosca.ConfiguratorType)
-                and not t.isCompatibleType(self.tosca.InstallerType)
             ]
         )
 
