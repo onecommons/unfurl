@@ -261,6 +261,8 @@ class Plan(object):
                 resource.status == Status.error and resource.state == NodeState.creating
             )
         ):
+            if resource.created is None:
+                resource.created = True  # set this before running in case it fails
             gen = self._runOperation(
                 NodeState.creating, "Standard.create", resource, reason, inputs
             )
@@ -379,7 +381,8 @@ class Plan(object):
                 logger.debug("checking instance for removal: %s", resource.name)
                 if resource.shadow or resource.template.abstract:  # readonly resource
                     continue
-                if not resource.created:  # creation and deletion is managed externally
+                # check if creation and deletion is managed externally
+                if not resource.created:
                     continue
                 if isinstance(resource.created, six.string_types):
                     # creation and deletion is managed by another instance
