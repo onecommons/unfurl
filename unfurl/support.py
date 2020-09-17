@@ -201,7 +201,7 @@ def _getbaseDir(ctx, name=None):
   "src": directory of the source file this expression appears in
   "home" The "home" directory for the current instance (committed to repository)
   "local": The "local" directory for the current instance (excluded from repository)
-  "tmp":   A temporary directory (removed after unfurl exits)
+  "tmp":   A temporary directory for the instance (removed after unfurl exits)
   "spec.src": The directory of the source file the current instance's template appears in.
   "spec.home": The "home" directory of the source file the current instance's template.
   "spec.local": The "local" directory of the source file the current instance's template.
@@ -226,12 +226,13 @@ def _getbaseDir(ctx, name=None):
         if sep:
             if start == "spec":
                 template = instance.template
+                specHome = os.path.join(template.spec.baseDir, "spec", template.name)
                 if rest == "src":
                     return template.baseDir
                 if rest == "home":
-                    return os.path.join(template.spec.baseDir, template.name)
+                    return specHome
                 elif rest == "local":
-                    return os.path.join(template.spec.baseDir, template.name, "local")
+                    return os.path.join(specHome, "local")
             # XXX elif start == 'project' and rest == 'local'
         return instance.template.spec.getRepositoryPath(name)
     return None  # unknown

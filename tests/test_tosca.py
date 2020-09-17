@@ -1,6 +1,6 @@
 import unittest
 import os
-import unfurl.tosca
+import unfurl.manifest
 from unfurl.yamlmanifest import YamlManifest
 from unfurl.localenv import LocalEnv
 from unfurl.job import Runner, JobOptions
@@ -255,25 +255,24 @@ class ToscaSyntaxTest(unittest.TestCase):
 
         # spec.home: <spec>/<template name>/
         specHome = _getbaseDir(ctx, "spec.home")
-        # template appears in the same folder as the ensemble so this is the same as home
-        self.assertEqual(home, specHome)
+        self.assertEqual(os.path.join(base, "spec", "testPrefix"), specHome)
 
         # spec.local: <spec>/<template name>/local/
         specLocal = _getbaseDir(ctx, "spec.local")
-        self.assertEqual(local, specLocal)
+        self.assertEqual(os.path.join(specHome, "local"), specLocal)
 
         specSrc = _getbaseDir(ctx, "spec.src")
         self.assertEqual(src, specSrc)
 
+        # these repositories should always be defined:
         unfurlRepoPath = _getbaseDir(ctx, "unfurl")
-        self.assertEqual(unfurl.tosca._basepath, os.path.normpath(unfurlRepoPath))
+        self.assertEqual(unfurl.manifest._basepath, os.path.normpath(unfurlRepoPath))
 
-        # XXX this repositories should always be defined
         spec = _getbaseDir(ctx, "spec")
-        assert spec is None
+        self.assertEqual(os.path.normpath(spec), base)
 
-        self = _getbaseDir(ctx, "self")
-        assert self is None
+        selfPath = _getbaseDir(ctx, "self")
+        self.assertEqual(os.path.normpath(selfPath), base)
 
     def test_workflows(self):
         manifest = YamlManifest(
