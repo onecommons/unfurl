@@ -46,7 +46,7 @@ manifestContent = """\
                 discover:
                   implementation: unfurl.configurators.TemplateConfigurator
                   inputs:
-                    result:
+                    done:
                       # check only sets creator = False if found and created wasn't set before
                       status: ok
 
