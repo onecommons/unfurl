@@ -82,10 +82,6 @@ class ToscaSpec(object):
                 toscaDef["topology_template"] = dict(
                     node_templates={}, relationship_templates={}
                 )
-            else:
-                for section in ["node_templates", "relationship_templates"]:
-                    if not topology_tpl.get(section):
-                        topology_tpl[section] = {}
 
             if instances:
                 self.loadInstances(toscaDef, instances)

@@ -79,14 +79,16 @@ configurations:
           - name: Hello
             command: echo "{{hostvars['localhost'].ansible_python_interpreter}}"
 spec:
-  node_templates:
-    test1:
-      type: tosca.nodes.Root
-      properties:
-        testProp: "test"
-      interfaces:
-        Standard:
-          +/configurations:
+  service_template:
+    topology_template:
+      node_templates:
+        test1:
+          type: tosca.nodes.Root
+          properties:
+            testProp: "test"
+          interfaces:
+            Standard:
+              +/configurations:
 """
 
 

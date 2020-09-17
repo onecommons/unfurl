@@ -46,22 +46,11 @@ class Manifest(AttributeManager):
             toscaDef = spec["service_template"]
         elif "tosca" in spec:  # backward compat
             toscaDef = spec["tosca"]
-        elif "node_templates" in spec:
-            # XXX remove this
-            # allow node_templates shortcut
-            toscaDef = {"node_templates": spec["node_templates"]}
         else:
             toscaDef = {}
 
-        # XXX deprecate top-level node_templates
-        if "node_templates" in toscaDef:
-            # shortcut
-            toscaDef = dict(
-                tosca_definitions_version=TOSCA_VERSION, topology_template=toscaDef
-            )
-        else:
-            # make sure this is present
-            toscaDef["tosca_definitions_version"] = TOSCA_VERSION
+        # make sure this is present
+        toscaDef["tosca_definitions_version"] = TOSCA_VERSION
 
         if not isinstance(toscaDef, CommentedMap):
             toscaDef = CommentedMap(toscaDef.items())

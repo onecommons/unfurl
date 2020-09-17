@@ -295,24 +295,12 @@
       "type": "object",
       "anyOf": [
         {
-          "oneOf": [
-            {
-              "properties": {
-                "service_template": {
-                  "description": "a TOSCA service template",
-                  "type": "object"
-                }
-              }
-            },
-            {
-              "properties": {
-                "node_templates": {
-                  "description": "TOSCA nodes templates",
-                  "type": "object"
-                }
-              }
+          "properties": {
+            "service_template": {
+              "description": "a TOSCA service template",
+              "type": "object"
             }
-          ]
+          }
         },
         {
           "properties": {

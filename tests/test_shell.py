@@ -25,12 +25,14 @@ configurations:
            attributes:
              stdout: "{{ stdout | trim }}"
 spec:
-  node_templates:
-    test1:
-      type: tosca.nodes.Root
-      interfaces:
-        Standard:
-          +/configurations:
+  service_template:
+    topology_template:
+      node_templates:
+        test1:
+          type: tosca.nodes.Root
+          interfaces:
+            Standard:
+              +/configurations:
 """
 
 
@@ -41,7 +43,7 @@ class ShellConfiguratorTest(unittest.TestCase):
     """
         runner = Runner(YamlManifest(manifest))
 
-        run1 = runner.run(JobOptions(resource="test1"))
+        run1 = runner.run(JobOptions(instance="test1"))
         assert len(run1.workDone) == 1, run1.workDone
         self.assertEqual(
             runner.manifest.getRootResource()

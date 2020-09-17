@@ -344,22 +344,24 @@ class FileTest(unittest.TestCase):
     apiVersion: %s
     kind: Manifest
     spec:
-      node_templates:
-        test:
-          type: tosca.nodes.Root
-          properties:
-            file:
-              eval:
-                file: foo.txt
-          interfaces:
-            Standard:
-                create:
-                  implementation:  FileTestConfigurator
-                  inputs:
-                    path:
-                      ref: file::path
-                    contents:
-                      ref: file::contents
+      service_template:
+        topology_template:
+          node_templates:
+            test:
+              type: tosca.nodes.Root
+              properties:
+                file:
+                  eval:
+                    file: foo.txt
+              interfaces:
+                Standard:
+                    create:
+                      implementation:  FileTestConfigurator
+                      inputs:
+                        path:
+                          ref: file::path
+                        contents:
+                          ref: file::contents
     """
             % API_VERSION
         )
@@ -493,10 +495,12 @@ context:
 spec:
   instances:
     importer:
-  node_templates:
-    importer:
-      type: tosca.nodes.Root
-      properties:
+  service_template:
+    topology_template:
+      node_templates:
+        importer:
+          type: tosca.nodes.Root
+          properties:
             test:
               eval:
                 external: test
@@ -512,9 +516,9 @@ spec:
               eval:
                 external: test
               foreach: prop3
-      interfaces:
-        Standard:
-            create: ImportTestConfigurator
+          interfaces:
+            Standard:
+                create: ImportTestConfigurator
       """
                 % API_VERSION
             )
