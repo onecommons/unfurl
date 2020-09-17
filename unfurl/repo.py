@@ -268,10 +268,12 @@ class GitRepo(Repo):
 class RevisionManager(object):
     def __init__(self, manifest, localEnv=None):
         self.manifest = manifest
-        self.revisions = {manifest.specDigest: manifest}
+        self.revisions = None
         self.localEnv = localEnv
 
     def getRevision(self, change):
+        if self.revisions is None:
+            self.revisions = {self.manifest.specDigest: self.manifest}
         digest = change["specDigest"]
         commitid = change["startCommit"]
         if digest in self.revisions:

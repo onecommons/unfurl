@@ -2,7 +2,7 @@
 TOSCA implementation
 """
 from .tosca_plugins import TOSCA_VERSION
-from .util import UnfurlValidationError
+from .util import UnfurlValidationError, getBaseDir
 from .eval import Ref
 from .yamlloader import resolveIfInRepository
 from toscaparser.tosca_template import ToscaTemplate
@@ -21,8 +21,6 @@ from ruamel.yaml.comments import CommentedMap
 logger = logging.getLogger("unfurl")
 
 from toscaparser import functions
-
-_basepath = os.path.abspath(os.path.dirname(__file__))
 
 
 class RefFunc(functions.Function):
@@ -86,11 +84,6 @@ class ToscaSpec(object):
             if instances:
                 self.loadInstances(toscaDef, instances)
 
-            repositories = toscaDef.setdefault("repositories", {})
-            if "unfurl" not in repositories:
-                # add a repository that points to this package
-                repositories["unfurl"] = dict(url="file:" + _basepath)
-
             logger.info("Validating TOSCA template at %s", path)
             try:
                 # need to set a path for the import loader
@@ -124,14 +117,7 @@ class ToscaSpec(object):
 
     @property
     def baseDir(self):
-        if os.path.exists(self.template.path):
-            isdir = os.path.isdir(self.template.path)
-        else:
-            isdir = not os.path.splitext(self.template.path)[1]
-        if isdir:
-            return self.template.path
-        else:
-            return os.path.dirname(self.template.path)
+        return getBaseDir(self.template.path)
 
     def addNodeTemplate(self, name, tpl):
         nodeTemplate = self.template.topology_template.add_template(name, tpl)

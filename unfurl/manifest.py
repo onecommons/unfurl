@@ -12,15 +12,17 @@ from .runtime import (
     CapabilityInstance,
     RelationshipInstance,
 )
-from .util import UnfurlError, toEnum, sensitive_str
-from .configurator import Dependency
+from .util import UnfurlError, toEnum, sensitive_str, getBaseDir
 from .repo import RevisionManager, findGitRepo
 from .yamlloader import YamlConfig, loadYamlFromArtifact, yaml
 from .job import ConfigChange
 
+# from .configurator import Dependency
 import logging
 
 logger = logging.getLogger("unfurl")
+
+_basepath = os.path.abspath(os.path.dirname(__file__))
 
 
 class Manifest(AttributeManager):
@@ -30,16 +32,30 @@ class Manifest(AttributeManager):
 
     rootResource = None
 
-    def __init__(self, spec, path, localEnv=None):
+    def __init__(self, path, localEnv=None):
         super(Manifest, self).__init__(yaml)
         self.localEnv = localEnv
-        self.repo = localEnv and localEnv.instanceRepo
-        self.currentCommitId = self.repo and self.repo.revision
-        self.tosca = self.loadSpec(spec, path)
-        self.specDigest = self.getSpecDigest(spec)
-        self.revisions = RevisionManager(self)
         self.path = path
+        self.repo = self._findRepo()
+        self.currentCommitId = self.repo and self.repo.revision
+        self.revisions = RevisionManager(self)
         self.changeSets = None
+        self.tosca = None
+        self.specDigest = None
+
+    def _setSpec(self, spec):
+        self._setRepositories(spec)
+        self.tosca = self.loadSpec(spec, self.path)
+        self.specDigest = self.getSpecDigest(spec)
+
+    def _findRepo(self):
+        # check if this path exists in the repo
+        repo = self.localEnv and self.localEnv.instanceRepo
+        if repo:
+            path = repo.findPath(self.path)[0]
+            if path and (path, 0) in repo.repo.index.entries:
+                return repo
+        return None
 
     def loadSpec(self, spec, path):
         if "service_template" in spec:
@@ -87,7 +103,11 @@ class Manifest(AttributeManager):
 
     @property
     def loader(self):
-        return self.rootResource and self.rootResource.templar and self.rootResource.templar._loader
+        return (
+            self.rootResource
+            and self.rootResource.templar
+            and self.rootResource.templar._loader
+        )
 
     def saveJob(self, job):
         pass
@@ -304,25 +324,16 @@ class Manifest(AttributeManager):
     Check if the file path is inside a folder that is managed by a repository.
     If the revision is pinned and doesn't match the repo, it might be bare
     """
-        candidate = None
-        if self.repo:  # our own repo gets first crack
-            filePath, revision, bare = self.repo.findPath(path, importLoader)
-            if filePath:
-                if not bare:
-                    return self.repo, filePath, revision, bare
-                else:
-                    candidate = (self.repo, filePath, revision, bare)
         if self.localEnv:
-            repo, filePath, revision, bare = self.localEnv.findPathInRepos(
-                path, importLoader
-            )
-            if repo:
-                if bare and candidate:
-                    return candidate
-                else:
-                    # if willUse:
-                    #     self.updateRepoStatus(repo, revision)
-                    return repo, filePath, revision, bare
+            return self.localEnv.findPathInRepos(path, importLoader)
+        elif self.repo:
+            repo = self.repo
+            filePath = repo.findRepoPath(path)
+            if filePath is not None:
+                return repo, filePath, repo.revision, False
+        # XXX
+        # if willUse:
+        #     self.updateRepoStatus(repo, revision)
         return None, None, None, None
 
     # def updateRepoStatus(self, repos):
@@ -333,13 +344,53 @@ class Manifest(AttributeManager):
     def _getRepositories(tpl):
         return tpl.get("spec", {}).get("service_template", {}).get("repositories", {})
 
+    def _setRepositories(self, tpl):
+        repositories = tpl.setdefault("service_template", CommentedMap()).setdefault(
+            "repositories", CommentedMap()
+        )
+        if "unfurl" not in repositories:
+            # add a repository that points to this package
+            repositories["unfurl"] = dict(url="file:" + _basepath)
+        if "self" not in repositories:
+            # this is called too early to use self.getBaseDir()
+            path = getBaseDir(self.path) if self.path else "."
+            if self.repo:
+                url = self.repo.getGitLocalUrl(path, "self")
+            else:
+                url = "file:" + path
+            repositories["self"] = dict(url=url)
+        if "spec" not in repositories:
+            # if not found assume it points the project root or self if not in a project
+            if (
+                self.localEnv
+                and self.localEnv.project
+                and self.localEnv.project is not self.localEnv.homeProject
+            ):
+                if self.localEnv.project.projectRepo:
+                    assert self.localEnv.project.projectRoot
+                    url = self.localEnv.project.projectRepo.getGitLocalUrl(
+                        self.localEnv.project.projectRoot, "spec"
+                    )
+                else:
+                    url = "file:" + self.localEnv.project.projectRoot
+                repositories["spec"] = dict(url=url)
+            else:
+                repositories["spec"] = repositories["self"]
+        return repositories
+
     def loadYamlInclude(
         self, yamlConfig, templatePath, baseDir, warnWhenNotFound=False
     ):
-        "This is called while the YAML config is loading so setup is incomplete"
+        """
+        This is called while the YAML config is being loaded.
+        Returns (url or fullpath, parsed yaml)
+        """
 
-        # self.updateRepoStatus(yamlConfig.config.get('status', {}).get('repositories',{}))
+        # make a copy because we don't want to update the configuration while
+        # in the middle of loading and merging
         repositories = self._getRepositories(yamlConfig.config)
+        tmp = {"service_template": {"repositories": repositories.copy()}}
+        repositories = self._setRepositories(tmp)
 
         if isinstance(templatePath, dict):
             artifactTpl = templatePath.copy()
@@ -355,24 +406,11 @@ class Manifest(AttributeManager):
         else:
             artifact = Artifact(dict(file=templatePath), path=baseDir)
 
-        return self.loadFromArtifact(
-            artifact, yamlConfig.yaml, repositories, warnWhenNotFound
-        )
-
-    def loadFromArtifact(
-        self, artifact, yaml, repositories=None, ignoreFileNotFound=False
-    ):
-        """
-        Construct a dummy TOSCA import so we can invoke its URL resolution mechanism
-        Returns (url or fullpath, parsed yaml)
-        """
+        # loadYamlFromArtifact constructs a dummy TOSCA Import loader so we can invoke its URL resolution mechanism
         context = CommentedMap()
-        if repositories is None:
-            context["repositories"] = self.tosca.template.tpl.get("repositories", {})
-        else:
-            context["repositories"] = repositories
+        context["repositories"] = repositories
         context.manifest = self
-        context.ignoreFileNotFound = ignoreFileNotFound
+        context.ignoreFileNotFound = warnWhenNotFound
         return loadYamlFromArtifact(context, artifact, yaml)
 
     def statusSummary(self):
@@ -387,6 +425,7 @@ class Manifest(AttributeManager):
 
 class SnapShotManifest(Manifest):
     def __init__(self, manifest, commitId):
+        super(SnapShotManifest, self).__init__(manifest.path, self.localEnv)
         self.commitId = commitId
         oldManifest = manifest.repo.show(manifest.path, commitId)
         self.repo = manifest.repo
@@ -395,7 +434,6 @@ class SnapShotManifest(Manifest):
             oldManifest, manifest.path, loadHook=self.loadYamlInclude
         )
         expanded = self.manifest.expanded
-        spec = expanded.get("spec", {})
-        super(SnapShotManifest, self).__init__(spec, self.manifest.path, self.localEnv)
         # just needs the spec, not root resource
+        self._setSpec(expanded.get("spec", {}))
         self._ready(None)

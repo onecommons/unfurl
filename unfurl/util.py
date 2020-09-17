@@ -328,6 +328,17 @@ def makeTempDir(delete=True, prefix="unfurl"):
     return tempDir
 
 
+def getBaseDir(path):
+    if os.path.exists(path):
+        isdir = os.path.isdir(path)
+    else:
+        isdir = not os.path.splitext(path)[1]
+    if isdir:
+        return path
+    else:
+        return os.path.normpath(os.path.dirname(path))
+
+
 # https://python-jsonschema.readthedocs.io/en/latest/faq/#why-doesn-t-my-schema-s-default-property-set-the-default-on-my-instance
 # XXX unused because this breaks check_schema
 def extend_with_default(validator_class):

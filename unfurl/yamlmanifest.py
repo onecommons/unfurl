@@ -7,7 +7,6 @@ import collections
 import numbers
 import os.path
 import itertools
-from six.moves.urllib.parse import urlparse
 
 from . import DefaultNames
 from .util import UnfurlError, toYamlText, filterEnv
@@ -172,12 +171,13 @@ class ReadOnlyManifest(Manifest):
         self, manifest=None, path=None, validate=True, localEnv=None, vault=None
     ):
         assert not (localEnv and (manifest or path))  # invalid combination of args
-        # localEnv and repo are needed by loadHook before base class initialized
-        self.localEnv = localEnv
-        self.repo = localEnv and localEnv.instanceRepo
+        path = path or localEnv and localEnv.manifestPath
+        if path:
+            path = os.path.abspath(path)
+        super(ReadOnlyManifest, self).__init__(path, localEnv)
         self.manifest = YamlConfig(
             manifest,
-            path or localEnv and localEnv.manifestPath,
+            self.path,
             validate,
             os.path.join(_basepath, "manifest-schema.json"),
             self.loadYamlInclude,
@@ -191,7 +191,7 @@ class ReadOnlyManifest(Manifest):
         if localEnv:
             self.context = localEnv.getContext(self.context)
         spec["inputs"] = self.context.get("inputs", spec.get("inputs", {}))
-        super(ReadOnlyManifest, self).__init__(spec, self.manifest.path, localEnv)
+        self._setSpec(spec)
         assert self.tosca
 
     @property
@@ -496,22 +496,6 @@ class YamlManifest(ReadOnlyManifest):
                     f.write(output.getvalue())
         return jobRecord, changes
 
-    def hasWritableRepo(self):
-        # only try to commit the repo if it matches the "self" repo specified in the manifest
-        if self.repo:
-            repos = self._getRepositories(self.manifest.expanded)
-            repoSpec = repos.get(
-                "self", repos.get("instance")
-            )  # backward compatibility: check for "instance"
-            if repoSpec:
-                parts = urlparse(repoSpec.get("url"))
-                if parts.scheme == "git-local":
-                    initialCommit = parts.netloc.partition(":")[0]
-                else:
-                    initialCommit = repoSpec.get("metadata", {}).get("initial-commit")
-                return initialCommit and initialCommit == self.repo.getInitialRevision()
-        return False
-
     def commitJob(self, job):
         if job.planOnly:
             return
@@ -526,8 +510,7 @@ class YamlManifest(ReadOnlyManifest):
         if job.dryRun:
             return
 
-        # call hasWritableRepo() to make sure we own this repo
-        doCommit = job.commit and self.hasWritableRepo()
+        doCommit = job.commit and self.repo
         if doCommit:
             self.repo.commitFiles(
                 [self.manifest.path], "Updating status for job %s" % job.changeId
