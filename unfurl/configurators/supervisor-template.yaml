@@ -39,11 +39,13 @@ node_types:
         type: tosca.capabilities.Compute
     interfaces:
       Install:
-        check: ps -p `cat {{ SELF.homeDir }}/supervisord.pid`
+        check: test -f '{{ SELF.homeDir }}/supervisord.pid' && ps -p `cat '{{ SELF.homeDir }}/supervisord.pid'`
         inputs:
+          done:
+            success: True # succeeds if even if command fails
           resultTemplate:
-            - readyState: "{%if not returncode %}ok{%else%}absent{%endif%}"
-              state: "{%if not returncode %}started{%else%}stopped{%endif%}"
+            readyState: "{%if not returncode %}ok{%else%}absent{%endif%}"
+            state: "{%if not returncode %}started{%else%}stopped{%endif%}"
       Standard:
         create:
           implementation:

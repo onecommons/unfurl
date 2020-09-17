@@ -7,6 +7,7 @@ inputs:
  dryrun
  shell
  keeplines
+ done
  resultTemplate: # available vars: cmd, stdout, stderr, returncode, error, timeout
    eval:
     file:
@@ -194,7 +195,7 @@ class ShellConfigurator(TemplateConfigurator):
         status = self._getStatusFromResult(task, result)
         self.processResultTemplate(task, result.__dict__)
         if task._errors:
-            return Status.error
+            status = Status.error
         return status
 
     def canRun(self, task):
@@ -244,7 +245,7 @@ class ShellConfigurator(TemplateConfigurator):
             else:
                 cmd.remove("%dryrun%")
 
-        echo = params.get("echo") # task.verbose > -1)
+        echo = params.get("echo")  # task.verbose > -1)
         result = self.runProcess(
             cmd,
             shell=shell,
@@ -255,4 +256,6 @@ class ShellConfigurator(TemplateConfigurator):
             echo=echo,
         )
         status = self._handleResult(task, result)
-        yield task.done(status == Status.ok, result=result.__dict__)
+        done = task.inputs.get("done", {})
+        success = done.pop("success", status == Status.ok)
+        yield task.done(success, result=result.__dict__, **done)

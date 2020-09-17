@@ -28,14 +28,14 @@ class TemplateConfigurator(Configurator):
         else:
             runResult = task.inputs.get("run")
 
-        result = task.inputs.get("result", {})
-        if "result" not in result:
+        done = task.inputs.get("done", {})
+        if "result" not in done:
             if not isinstance(runResult, dict):
-                result["result"] = {"run": runResult}
+                done["result"] = {"run": runResult}
             else:
-                result["result"] = runResult
-        self.processResultTemplate(task, result.get("result"))
-        yield task.done(**result)
+                done["result"] = runResult
+        self.processResultTemplate(task, done.get("result"))
+        yield task.done(**done)
 
 
 class Delegate(Configurator):
