@@ -8,8 +8,8 @@ from __future__ import print_function
 
 from .yamlmanifest import runJob
 from .support import Status
-from . import __version__, initLogging
-from .init import createProject, cloneEnsemble
+from . import __version__, initLogging, getHomeConfigPath
+from .init import createProject, cloneEnsemble, createHome
 from .util import filterEnv
 from .localenv import LocalEnv
 import click
@@ -369,10 +369,7 @@ def plan(ctx, ensemble=None, **options):
 @click.pass_context
 @click.argument("projectdir", default=".", type=click.Path(exists=False))
 @click.option(
-    "--mono",
-    default=False,
-    is_flag=True,
-    help="Create a one repository for both spec and ensembles.",
+    "--mono", default=False, is_flag=True, help="Create one repository for the project."
 )
 @click.option(
     "--existing",
@@ -402,9 +399,42 @@ unfurl init [project] # creates a unfurl project with new spec and instance repo
     click.echo("New Unfurl project created at %s" % projectPath)
 
 
-@cli.command(
-    short_help="Create a new ensemble from service template or existing ensemble"
+# XXX add --upgrade option
+@cli.command(short_help="Manage the unfurl home project")
+@click.pass_context
+@click.option(
+    "--render",
+    default=False,
+    is_flag=True,
+    help="Generate files only (don't create repository)",
 )
+@click.option("--init", default=False, is_flag=True, help="Create a new home project")
+@click.option(
+    "--replace",
+    default=False,
+    is_flag=True,
+    help="Replace (and backup) current home project",
+)
+def home(ctx, init=False, render=False, replace=False, **options):
+    options.update(ctx.obj)
+    if not render and not init:
+        # just display the current home location
+        click.echo(getHomeConfigPath(options.get("home")))
+        return
+
+    homePath = createHome(render=render, replace=replace, **options)
+    action = "rendered" if render else "created"
+    if homePath:
+        click.echo("unfurl home %s at %s" % (action, homePath))
+    else:
+        currentHome = getHomeConfigPath(options.get("home"))
+        if currentHome:
+            click.echo("Can't %s home, it already exists at %s" % (action, currentHome))
+        else:
+            click.echo("Error: home path is empty")
+
+
+@cli.command(short_help="Clone a project, ensemble or service template")
 @click.pass_context
 @click.argument(
     "source",
@@ -416,10 +446,17 @@ unfurl init [project] # creates a unfurl project with new spec and instance repo
     type=click.Path(exists=False),
     default=".",  # , help="path to the new ensemble"
 )
+@click.option(
+    "--mono", default=False, is_flag=True, help="Create one repository for the project."
+)
+@click.option(
+    "--existing",
+    default=False,
+    is_flag=True,
+    help="Add project to nearest existing repository.",
+)
 def clone(ctx, source, dest, **options):
-    """
-Create a new project by cloning the given specification repository and creating a new instance repository.
-"""
+    """Create a new ensemble or project from a service template or an existing ensemble or project."""
     options.update(ctx.obj)
 
     message = cloneEnsemble(source, dest, **options)
@@ -448,9 +485,9 @@ unfurl git --dir=/path/to/start [gitoptions] [gitcmd] [gitcmdoptions]: Runs comm
         repoPath = os.path.relpath(repo.workingDir, os.path.abspath(dir))
         click.echo("*** Running 'git %s' in './%s'" % (" ".join(gitargs), repoPath))
         _status, stdout, stderr = repo.runCmd(gitargs)
-        click.echo(stdout + " \n")
+        click.echo(stdout + "\n")
         if stderr.strip():
-            click.echo(stderr + " \n", color="red")
+            click.echo(stderr + "\n", color="red")
         if _status != 0:
             status = _status
 

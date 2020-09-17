@@ -1,17 +1,55 @@
+"""
+Creates and clone projects and ensembles.
+
+After running "init" your Unfurl project will look like:
+
+ensemble/ensemble.yaml
+ensemble-template.yaml
+unfurl.yaml
+local/unfurl.yaml
+
+If the --existing option is used, the project will be added to the nearest repository found in a parent folder.
+If the --mono option is used, the ensemble add the project repo instead of it's own.
+
+Each repository created will also have .gitignore and .gitattributes added.
+
+When a repository is added as child of another repo, that folder will be added to .git/info/exclude
+(instead of .gitignore because they shouldn't be committed into the repository).
+
+Paths are always relative but you can optionally specify which repository a path is relative to.
+
+There are three predefined repositories:
+
+"self", which represents the location the ensemble lives in -- it will be
+a "git-local:" URL or a "file:" URL if the ensemble is not part of a git repository.
+
+"unfurl" which points to the Python package of the unfurl process -- this can be used to load configurators and templates
+that ship with Unfurl.
+
+"spec" which, unless otherwise specified, points to the project root or the ensemble itself if it is not part of a project.
+"""
 import uuid
 import os
 import os.path
+import datetime
 import sys
 import shutil
-from . import __version__, DefaultNames, getHomeConfigPath
+from . import DefaultNames, getHomeConfigPath
 from .tosca import TOSCA_VERSION
 from .repo import Repo, GitRepo
-from .util import UnfurlError
+from .util import UnfurlError, getBaseDir
 from .localenv import LocalEnv, Project
 import random
 import string
 
 _templatePath = os.path.join(os.path.abspath(os.path.dirname(__file__)), "templates")
+
+
+def renameForBackup(dir):
+    ctime = datetime.datetime.fromtimestamp(os.stat(dir).st_ctime)
+    new = dir + "." + ctime.strftime("%Y-%m-%d-%H-%M-%S")
+    os.rename(dir, new)
+    return new
 
 
 def get_random_password(count):
@@ -49,172 +87,160 @@ def writeProjectConfig(
     templatePath=DefaultNames.LocalConfig + ".j2",
     vars=None,
 ):
-    _vars = dict(include="", manifestPath=DefaultNames.Ensemble)
+    _vars = dict(include="", manifestPath=None)
     if vars:
         _vars.update(vars)
     return writeTemplate(projectdir, filename, templatePath, _vars)
 
 
-def createHome(path=None, **kw):
-    """
-    Write ~/.unfurl_home/unfurl.yaml if missing
-    """
-    homePath = getHomeConfigPath(path)
-    if not homePath or os.path.exists(homePath):
-        return None
+def renderHome(homePath):
     homedir, filename = os.path.split(homePath)
     writeTemplate(homedir, DefaultNames.Ensemble, "home-manifest.yaml.j2", {})
     configPath = writeProjectConfig(homedir, filename, "home-unfurl.yaml.j2")
-    if not kw.get("no_runtime"):
-        initEngine(homedir, kw.get("runtime") or "venv:")
+    writeTemplate(homedir, ".gitignore", "gitignore.j2", {})
     return configPath
 
 
-def _createRepo(repotype, gitDir, gitUri=None):
-    from git import Repo
+def createHome(home=None, render=False, replace=False, **kw):
+    """
+    Create the home project if missing
+    """
+    homePath = getHomeConfigPath(home)
+    if not homePath:
+        return None
+    exists = os.path.exists(homePath)
+    if exists and not replace:
+        return None
+
+    homedir, filename = os.path.split(homePath)
+    if render:  # just render
+        repo = None
+    else:
+        if exists:
+            renameForBackup(homedir)
+        repo = _createRepo(homedir)
+
+    configPath = renderHome(homePath)
+    if not render and not kw.get("no_runtime"):
+        initEngine(homedir, kw.get("runtime") or "venv:")
+    if repo:
+        createProjectRepo(
+            homedir,
+            repo,
+            True,
+            projectConfigTemplate="home-unfurl.yaml.j2",
+            addDefaults=False,
+        )
+        repo.repo.git.add("--all")
+        repo.repo.index.commit("Create the unfurl home repository")
+        repo.repo.git.branch("rendered")  # now create a branch
+    return configPath
+
+
+def _createRepo(gitDir, gitUri=None):
+    import git
 
     if not os.path.isdir(gitDir):
         os.makedirs(gitDir)
-    repo = Repo.init(gitDir)
-    filename = ".unfurl"
-    filepath = os.path.join(gitDir, filename)
-    with open(filepath, "w") as f:
-        f.write(
-            """\
-  unfurl:
-    version: %s
-  repo:
-    type: %s
-    uuid: %s
-  """
-            % (__version__, repotype, uuid.uuid1())
-        )
+    repo = git.Repo.init(gitDir)
+    repo.index.add(addHiddenGitFiles(gitDir))
+    repo.index.commit("Initial Commit for %s" % uuid.uuid1())
 
-    repo.index.add([filename])
-    repo.index.commit("Initial Commit")
+    Repo.ignoreDir(gitDir)
     return GitRepo(repo)
 
 
-def writeServiceTemplate(projectdir, repo):
-    # path to spec folder relative to spec repository's root
-    relPathToSpecRepo = os.path.relpath(os.path.abspath(projectdir), repo.workingDir)
-    vars = dict(
-        version=TOSCA_VERSION,
-        specRepoPath=relPathToSpecRepo,
-        initialCommit=repo.getInitialRevision(),
-    )
+def writeServiceTemplate(projectdir):
+    vars = dict(version=TOSCA_VERSION)
     return writeTemplate(
         projectdir, "service-template.yaml", "service-template.yaml.j2", vars
     )
 
 
-def createSpecRepo(gitDir):
-    repo = _createRepo(DefaultNames.SpecDirectory, gitDir)
-    writeServiceTemplate(gitDir, repo)
-    manifestTemplate = DefaultNames.EnsembleTemplate
-    writeTemplate(gitDir, manifestTemplate, "manifest-template.yaml.j2", {})
-    repo.repo.index.add(["service-template.yaml", manifestTemplate])
-    repo.repo.index.commit("Default specification repository boilerplate")
-    return repo
-
-
-def writeMultiSpecManifest(
-    destDir, manifestName, specRepo, instanceRepo, specDir=None, extraVars=None
+def writeEnsembleManifest(
+    destDir, manifestName, specRepo, specDir=None, extraVars=None
 ):
-    # path to spec folder relative to spec repository's root
-    relPathToSpecRepo = specDir and os.path.relpath(specDir, specRepo.workingDir)
-
-    # path to ensemble folder relative to ensemble repository's root
-    relPathToInstanceRepo = instanceRepo and os.path.relpath(
-        destDir, instanceRepo.workingDir
-    )
     if extraVars is None:
         # default behaviour is to include the ensembleTemplate
+        # in the root of the specDir
         extraVars = dict(ensembleTemplate=DefaultNames.EnsembleTemplate)
-    vars = dict(
-        specRepoPath=relPathToSpecRepo or "",
-        instanceRepoPath=relPathToInstanceRepo or "",
-        specInitialCommit=specRepo.getInitialRevision(),
-        instanceInitialCommit=instanceRepo and instanceRepo.getInitialRevision(),
-    )
+
+    if specDir:
+        specDir = os.path.abspath(specDir)
+    else:
+        specDir = ""
+    vars = dict(specRepoUrl=specRepo.getGitLocalUrl(specDir, "spec"))
     vars.update(extraVars)
     return writeTemplate(destDir, manifestName, "manifest.yaml.j2", vars)
 
 
-def createInstanceRepo(gitDir, specRepo):
-    manifestName = DefaultNames.Ensemble
-    repo = _createRepo("ensemble", gitDir)
-    writeMultiSpecManifest(gitDir, manifestName, specRepo, repo)
-    return initInstanceRepo(repo, os.path.join(gitDir, manifestName))
-
-
-def initInstanceRepo(repo, manifestPath):
-    dir, manifestName = os.path.split(manifestPath)
+def addHiddenGitFiles(gitDir):
+    # write .gitignore and  .gitattributes
+    gitIgnorePath = writeTemplate(gitDir, ".gitignore", "gitignore.j2", {})
     gitAttributesContent = "**/*%s merge=union\n" % DefaultNames.JobsLog
-    _writeFile(dir, ".gitattributes", gitAttributesContent)
-    repo.repo.index.add([manifestName, ".gitattributes"])
-    repo.repo.index.commit("Default ensemble repository boilerplate")
-    return repo
+    gitAttributesPath = _writeFile(gitDir, ".gitattributes", gitAttributesContent)
+    return [os.path.abspath(gitIgnorePath), os.path.abspath(gitAttributesPath)]
 
 
-def createMultiRepoProject(projectdir, specRepo=None, addDefaults=True):
-    """
-  Creates a project folder with two git repositories:
-  a specification repository that contains "service-template.yaml" and "ensemble-template.yaml" in a "spec" folder.
-  and an ensemble repository containing a "ensemble.yaml" in a folder named "ensemble1".
-  """
-    defaultManifestPath = None
-    if addDefaults:
-        defaultManifestPath = os.path.join(
-            DefaultNames.EnsembleDirectory, DefaultNames.Ensemble
-        )
-        if not specRepo:
-            specRepo = createSpecRepo(
-                os.path.join(projectdir, DefaultNames.SpecDirectory)
-            )
-        createInstanceRepo(
-            os.path.join(projectdir, DefaultNames.EnsembleDirectory), specRepo
-        )
-    projectConfigPath = writeProjectConfig(
-        projectdir, vars=dict(manifestPath=defaultManifestPath)
-    )
-    return projectConfigPath
-
-
-def createMonoRepoProject(projectdir, repo, addDefaults=True):
+def createProjectRepo(
+    projectdir, repo, mono, addDefaults=True, projectConfigTemplate=None
+):
     """
     Creates a folder named `projectdir` with a git repository with the following files:
 
     unfurl.yaml
-    unfurl.local.example.yaml
-    .gitignore
-    ensemble.yaml
+    local/unfurl.yaml
+    ensemble-template.yaml
+    ensemble/ensemble.yaml
 
     Returns the absolute path to unfurl.yaml
     """
+    # write the project files
     localConfigFilename = DefaultNames.LocalConfig
+    manifestPath = os.path.join(DefaultNames.EnsembleDirectory, DefaultNames.Ensemble)
+
+    vars = dict(vaultpass=get_random_password(8))
+    # manifestPath should be in local if ensemble is a separate repo
+    if addDefaults and not mono:
+        vars["manifestPath"] = manifestPath
     writeProjectConfig(
         os.path.join(projectdir, "local"),
         localConfigFilename,
         "unfurl.local.yaml.j2",
-        vars=dict(vaultpass=get_random_password(8)),
+        vars=vars,
     )
-    defaultManifestPath = DefaultNames.Ensemble if addDefaults else None
+
     localInclude = "+?include: " + os.path.join("local", localConfigFilename)
+    vars = dict(include=localInclude)
+    # manifestPath should here if ensemble is part of the repo
+    if addDefaults and mono:
+        vars["manifestPath"] = manifestPath
     projectConfigPath = writeProjectConfig(
-        projectdir, vars=dict(include=localInclude, manifestPath=defaultManifestPath)
+        projectdir,
+        templatePath=projectConfigTemplate or DefaultNames.LocalConfig + ".j2",
+        vars=vars,
     )
-    gitIgnorePath = writeTemplate(projectdir, ".gitignore", "gitignore.j2", {})
-    gitAttributesContent = "**/*%s merge=union\n" % DefaultNames.JobsLog
-    gitAttributesPath = _writeFile(projectdir, ".gitattributes", gitAttributesContent)
-    files = [projectConfigPath, gitIgnorePath, gitAttributesPath]
+    files = [projectConfigPath]
+
     if addDefaults:
-        serviceTemplatePath = writeServiceTemplate(projectdir, repo)
-        # write manifest
-        manifestPath = writeTemplate(
-            projectdir, DefaultNames.Ensemble, "manifest-template.yaml.j2", {}
+        # write service-template.yaml
+        serviceTemplatePath = writeServiceTemplate(projectdir)
+        files.append(serviceTemplatePath)
+        # write ensemble-template.yaml
+        ensembleTemplatePath = writeTemplate(
+            projectdir, DefaultNames.EnsembleTemplate, "manifest-template.yaml.j2", {}
         )
-        files.extend([serviceTemplatePath, manifestPath])
+        files.append(ensembleTemplatePath)
+        ensembleDir = os.path.join(projectdir, DefaultNames.EnsembleDirectory)
+        manifestName = DefaultNames.Ensemble
+        # write ensemble/ensemble.yaml
+        manifestPath = writeEnsembleManifest(ensembleDir, manifestName, repo)
+        if mono:
+            files.append(manifestPath)
+        else:
+            newRepo = _createRepo(ensembleDir)
+            newRepo.repo.index.add([os.path.abspath(manifestPath)])
+            newRepo.repo.index.commit("Default ensemble repository boilerplate")
 
     repo.commitFiles(files, "Create a new unfurl repository")
     return projectConfigPath
@@ -231,15 +257,17 @@ def createProject(
         repo = None
     # creates home if it doesn't exist already:
     newHome = createHome(home, **kw)
-    # XXX add project to ~/.unfurl_home/unfurl.yaml
-    if mono or existing:
-        if not repo:
-            repo = _createRepo("mono", projectdir)
-        projectConfigPath = createMonoRepoProject(
-            projectdir, repo, addDefaults=addDefaults
-        )
+
+    if repo:
+        repo.repo.index.add(addHiddenGitFiles(projectdir))
+        repo.repo.index.commit("Adding Unfurl project")
     else:
-        projectConfigPath = createMultiRepoProject(projectdir, addDefaults=addDefaults)
+        repo = _createRepo(projectdir)
+
+    # XXX add project to ~/.unfurl_home/unfurl.yaml
+    projectConfigPath = createProjectRepo(
+        projectdir, repo, mono, addDefaults=addDefaults
+    )
 
     if not newHome and not kw.get("no_runtime") and kw.get("runtime"):
         # if runtime was explicitly set and we aren't creating the home project
@@ -249,16 +277,7 @@ def createProject(
     return newHome, projectConfigPath
 
 
-def _looksLike(path, name):
-    # in case path is a directory:
-    if os.path.isfile(os.path.join(path, name)):
-        return path, name
-    if path.endswith(name):
-        return os.path.split(path)
-    return None
-
-
-def initNewEnsemble(manifest, sourceProject, targetProject):
+def cloneLocalRepos(manifest, sourceProject, targetProject):
     # We need to clone repositories that are local to the source project
     for repoSpec in manifest.repositories.values():
         if repoSpec.name == "self":
@@ -267,23 +286,57 @@ def initNewEnsemble(manifest, sourceProject, targetProject):
         if repo:
             targetProject.findOrClone(repo)
 
+
+def initNewEnsemble(manifest, sourceProject, targetProject):
+    cloneLocalRepos(manifest, sourceProject, targetProject)
+
     destDir = os.path.dirname(manifest.manifest.path)
     if targetProject.projectRepo:
         repo = targetProject.projectRepo
         relPath, revision, bare = repo.findPath(destDir)
     else:
-        repo = _createRepo("ensemble", destDir)
+        repo = _createRepo(destDir)
         relPath = ""
     manifest.addRepo("self", dict(url=repo.getGitLocalUrl(relPath, "ensemble")))
 
     with open(manifest.manifest.path, "w") as f:
         manifest.dump(f)
 
-    initInstanceRepo(repo, manifest.manifest.path)
+    repo.repo.index.add([manifest.manifest.path])
+    repo.repo.index.commit("Default ensemble repository boilerplate")
     return repo
 
 
-def createNewEnsemble(sourcePath, sourceProject, targetPath, targetProject):
+def _looksLike(path, name):
+    # in case path is a directory:
+    if os.path.isfile(os.path.join(path, name)):
+        return path, name
+    if path.endswith(name):  # name is explicit so don't need to check if file exists
+        return os.path.split(path)
+    return None
+
+
+def _getEnsemblePaths(sourcePath, sourceProject):
+    # look for an ensemble-template or service-template in source path
+    template = _looksLike(sourcePath, DefaultNames.EnsembleTemplate)
+    if template:
+        return dict(sourceDir=template[0], ensembleTemplate=template[1])
+    template = _looksLike(sourcePath, DefaultNames.ServiceTemplate)
+    if template:
+        return dict(sourceDir=template[0], serviceTemplate=template[1])
+    else:
+        # we couldn't find one of the default template files, so treat sourcePath
+        # as a path to an ensemble
+        # XXX if sourcePath points to an explicit file we should check if it's a service template first
+        try:
+            localEnv = LocalEnv(sourcePath, project=sourceProject)
+            return dict(manifestPath=localEnv.manifestPath, localEnv=localEnv)
+        except:
+            # nothing found
+            return {}
+
+
+def createNewEnsemble(templateVars, sourceProject, targetPath, targetProject):
     """
     If path is relative in
     include directives, imports, or external file reference they are guaranteed to be local to the project.
@@ -301,38 +354,27 @@ def createNewEnsemble(sourcePath, sourceProject, targetPath, targetProject):
         manifestName = DefaultNames.Ensemble
         targetPath = os.path.join(destDir, manifestName)
 
-    templateVars = None
-    # look for an ensemble-template or service-template in source path
-    template = _looksLike(sourcePath, DefaultNames.EnsembleTemplate)
-    if template:
-        templateVars = dict(ensembleTemplate=template[1])
-    template = _looksLike(sourcePath, DefaultNames.ServiceTemplate)
-    if template:
-        templateVars = dict(serviceTemplate=template[1])
-
-    if templateVars:
+    if "manifestPath" not in templateVars:
         # we found a template file to clone
         assert sourceProject
-        sourceDir = template[0]
+        sourceDir = templateVars["sourceDir"]
         specRepo, relPath, revision, bare = sourceProject.findPathInRepos(sourceDir)
         if not specRepo:
             raise UnfurlError(
                 '"%s" is not in a git repository. Cloning from plain file directories not yet supported'
                 % sourceDir
             )
-        manifestPath = writeMultiSpecManifest(
-            destDir, manifestName, specRepo, None, sourceDir, templateVars
+        manifestPath = writeEnsembleManifest(
+            destDir, manifestName, specRepo, sourceDir, templateVars
         )
         localEnv = LocalEnv(manifestPath, project=sourceProject)
         manifest = yamlmanifest.ReadOnlyManifest(localEnv=localEnv)
-    else:
+    elif templateVars:
         # didn't find a template file
         # look for an ensemble at the given path or use the source project's default
-        try:
-            localEnv = LocalEnv(sourcePath, project=sourceProject)
-            manifest = yamlmanifest.clone(localEnv, targetPath)
-        except:
-            return None  # can't find anything to clone
+        manifest = yamlmanifest.clone(templateVars["localEnv"], targetPath)
+    else:
+        return None  # can't find anything to clone
     return initNewEnsemble(manifest, sourceProject, targetProject)
     # XXX need to add manifest to unfurl.yaml
 
@@ -366,6 +408,8 @@ def cloneEnsemble(source, destDir, includeLocal=False, **options):
     If the folders already exist they will be copied to new folder unless the git repositories have the same HEAD.
     but the local repository names will remain the same.
     """
+    from unfurl import yamlmanifest
+
     # for each repository besides "self", clone if necessary and adjust
 
     sourceRoot = Project.findPath(source)
@@ -375,6 +419,7 @@ def cloneEnsemble(source, destDir, includeLocal=False, **options):
         return cloneEnsembleFromDirectory(source, destDir)
 
     newProject = False
+    paths = _getEnsemblePaths(source, sourceProject)
     # if dest is in the source project:
     if sourceProject.isPathInProject(destDir):
         # add a new ensemble to the current project
@@ -382,18 +427,70 @@ def cloneEnsemble(source, destDir, includeLocal=False, **options):
     else:
         destRoot = Project.findPath(destDir)
         if destRoot:
+            # destination is in an existing project, use that one
             destProject = Project(destRoot)
-        else:
-            # XXX use mono, existing options?
-            newHome, projectConfigPath = createProject(
-                destDir, addDefaults=False, **options
-            )
-            destProject = Project(projectConfigPath)
+        else:  # create new project
             newProject = True
-            destDir = os.path.join(destDir, DefaultNames.EnsembleDirectory)
+            destProject = None
+            # if source in the sourceProject's projectRepo, clone that repo
+            # instead of creating a new project repo
+            if sourceProject.projectRepo:
+                # check if source points to an ensemble that is part of the project repo
+                # if source is root, we need to get the default ensemble
+                pathToEnsemble = paths.get("manifestPath")
+                if pathToEnsemble:
+                    srcInRepo = (
+                        sourceProject.projectRepo.findRepoPath(pathToEnsemble)
+                        is not None
+                    )
+                    if srcInRepo:
+                        # if source is an ensemble and it's in the project repo
+                        # we've cloned the ensemble already so we're done
+                        sourceProject.projectRepo.clone(destDir)
+                        destProject = Project(Project.findPath(destDir))
+                        manifest = yamlmanifest.ReadOnlyManifest(
+                            localEnv=paths["localEnv"]
+                        )
+                        cloneLocalRepos(manifest, sourceProject, destProject)
+                        return "Cloned project to " + os.path.abspath(destDir)
+                    # XXX
+                    # else:
+                    #     # the source ensemble is not in the project repo
+                    #     # if one of the repositories it references is the project repo, clone it
+                    #     specFolder = getSpecFoldersFromEnsemble(pathToEnsemble)
+                    #     specInRepo = (
+                    #         sourceProject.projectRepo.findRepoPath(specFolder)
+                    #         is not None
+                    #     )
+                    #     if specInRepo:
+                    #         sourceProject.projectRepo.clone(destDir)
+                    #         destProject = Project(destDir)
+
+                # if source is at root of the project repo, just clone it
+                if os.path.normpath(sourceProject.projectRepo.workingDir) == getBaseDir(
+                    source
+                ):
+                    # clone the project but we still need to add a new ensemble to it
+                    destDir = os.path.abspath(destDir)
+                    sourceProject.projectRepo.clone(destDir)
+                    # print(
+                    #    "cloning", sourceProject.projectRepo.workingDir, "to", destDir
+                    # )
+                    destProject = Project(Project.findPath(destDir))
+                    # choose a destDir that doesn't conflict with an existing folder
+                    # (i.e. if default ensemble already exists)
+                    destDir = destProject.getUniquePath(DefaultNames.EnsembleDirectory)
+
+            if not destProject:
+                # create a new project from scratch for the new ensemble
+                newHome, projectConfigPath = createProject(
+                    destDir, addDefaults=False, **options
+                )
+                destProject = Project(projectConfigPath)
+                destDir = os.path.join(destDir, DefaultNames.EnsembleDirectory)
 
     # this will clone the default ensemble if it doesn't point to a specific spec or ensemble
-    createNewEnsemble(source, sourceProject, destDir, destProject)
+    createNewEnsemble(paths, sourceProject, destDir, destProject)
     return 'Created new ensemble "%s" in %s project at "%s"' % (
         destDir,
         "new" if newProject else "existing",

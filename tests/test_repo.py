@@ -34,7 +34,9 @@ manifestContent = """\
   kind: Manifest
   spec:
     service_template:
-      +include: service-template.yaml
+      +include:
+        file: service-template.yaml
+        repository: spec
       topology_template:
         node_templates:
           my_server:
@@ -57,7 +59,9 @@ awsTestManifest = """\
           aws: aws_test
   spec:
     service_template:
-      +include: service-template.yaml
+      +include:
+        file: service-template.yaml
+        repository: spec
       topology_template:
         node_templates:
           testNode:
@@ -95,7 +99,15 @@ class GitRepoTest(unittest.TestCase):
             os.chdir(repoDir)
             # override home so to avoid interferring with other tests
             result = runner.invoke(
-                cli, ["--home", "../unfurl_home", "init", "--existing", "deploy_dir"]
+                cli,
+                [
+                    "--home",
+                    "../unfurl_home",
+                    "init",
+                    "--existing",
+                    "--mono",
+                    "deploy_dir",
+                ],
             )
             # uncomment this to see output:
             # print("result.output", result.exit_code, result.output)
@@ -106,23 +118,24 @@ class GitRepoTest(unittest.TestCase):
             self.assertEqual(result.exit_code, 0, result)
             expectedCommittedFiles = {
                 "unfurl.yaml",
+                "ensemble-template.yaml",
                 "service-template.yaml",
                 ".gitignore",
-                "ensemble.yaml",
                 ".gitattributes",
             }
-            expectedFiles = expectedCommittedFiles | {"local"}
+            expectedFiles = expectedCommittedFiles | {"local", "ensemble"}
             self.assertEqual(set(os.listdir("deploy_dir")), expectedFiles)
-            self.assertEqual(
-                set(repo.head.commit.stats.files.keys()),
-                {"deploy_dir/" + f for f in expectedCommittedFiles},
-            )
+            files = set(_path for (_path, _stage) in repo.index.entries)
+            expectedCommittedFiles.add("ensemble/ensemble.yaml")
+            expected = {"deploy_dir/" + f for f in expectedCommittedFiles}
+            expected.add("README")  # the original file in the repo
+            self.assertEqual(files, expected)
             # for n in expectedFiles:
             #     with open("deploy_dir/" + n) as f:
             #         print(n)
             #         print(f.read())
 
-            with open("deploy_dir/manifest.yaml", "w") as f:
+            with open("deploy_dir/ensemble/ensemble.yaml", "w") as f:
                 f.write(manifestContent)
 
             result = runner.invoke(
@@ -134,7 +147,7 @@ class GitRepoTest(unittest.TestCase):
                     "commit",
                     "-m",
                     "update manifest",
-                    "deploy_dir/ensemble.yaml",
+                    "deploy_dir/ensemble/ensemble.yaml",
                 ],
             )
             # uncomment this to see output:
@@ -173,20 +186,30 @@ class GitRepoTest(unittest.TestCase):
             )
             self.assertEqual(result.exit_code, 0, result)
             output = u"""\
-*** Running 'git ls-files' in './ensemble'
+*** Running 'git ls-files' in './.'
 .gitattributes
-.unfurl
-ensemble.yaml 
-
-*** Running 'git ls-files' in './spec'
-.unfurl
+.gitignore
 ensemble-template.yaml
 service-template.yaml
-"""
-            if not six.PY2:  # order not guaranteed in py2
-                self.assertEqual(result.output.strip(), output.strip())
+unfurl.yaml
 
-            result = runner.invoke(cli, ["--home", "./unfurl_home", "deploy"])
+*** Running 'git ls-files' in './ensemble'
+.gitattributes
+.gitignore
+ensemble.yaml
+"""
+            # *** Running 'git ls-files' in './unfurl_home'
+            # .gitattributes
+            # .gitignore
+            # ensemble.yaml
+            # unfurl.yaml
+
+            if not six.PY2:  # order not guaranteed in py2
+                self.assertEqual(output.strip(), result.output.strip())
+
+            result = runner.invoke(
+                cli, ["--home", "./unfurl_home", "deploy", "--commit"]
+            )
             # uncomment this to see output:
             # print("result.output", result.exit_code, result.output)
             assert not result.exception, "\n".join(
@@ -208,11 +231,12 @@ service-template.yaml
                 traceback.format_exception(*result.exc_info)
             )
 
-            with open("ensemble.yaml", "w") as f:
+            with open("ensemble/ensemble.yaml", "w") as f:
                 f.write(awsTestManifest)
 
             result = runner.invoke(
-                cli, ["git", "commit", "-m", "update manifest", "ensemble.yaml"]
+                cli,
+                ["git", "commit", "-m", "update manifest", "ensemble/ensemble.yaml"],
             )
             # uncomment this to see output:
             # print("commit result.output", result.exit_code, result.output)
@@ -225,6 +249,7 @@ service-template.yaml
                 "--home",
                 "./unfurl_home",
                 "check",
+                "--commit",
                 "--jobexitcode",
                 "degraded",
             ]
@@ -260,6 +285,7 @@ service-template.yaml
                 f.write(repoManifestContent)
             ensemble = LocalEnv().getManifest()
             # Updated origin/master to a319ac1914862b8ded469d3b53f9e72c65ba4b7f
+            # the ensemble isn't part of a project so the home project is used
             self.assertEqual(
                 os.path.join(os.environ["UNFURL_HOME"], "base-payments"),
                 ensemble.rootResource.findResource("my_server").attributes["repo_path"],
@@ -276,6 +302,7 @@ repoManifestContent = """\
     service_template:
       repositories:
         remote-git-repo:
+          # use a remote git repository that is fast to download but big enough to test the fetching progress output
           url: https://github.com/onecommons/base-payments.git
       topology_template:
         node_templates:

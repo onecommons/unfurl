@@ -6,7 +6,23 @@ kind: Project
 # such as secrets, local settings, and local instances.
 contexts:
   defaults:
+    # use "environment" to modify environment variables
+    # keys are processed in order and a leader "+" and "-"
+    # will copy or remove the variable from the environment
+    # e.g.:
+    # environment:
+    #   -*:       # will remove all environment variables
+    #   +HOME:    # will add HOME back
+    #   FOO: bar  # set FOO
     environment: {}
+
+    {%- if vaultpass %}
     secrets:
       attributes:
         vault_default_password: "[% vaultpass %]"
+    {% endif %}
+{%if manifestPath %}
+manifests:
+  - file: [%manifestPath%]
+    default: true
+{% endif %}

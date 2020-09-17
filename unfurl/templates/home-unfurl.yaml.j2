@@ -1,7 +1,7 @@
 #jinja2: variable_start_string: '[%', variable_end_string: '%]'
 apiVersion: unfurl/v1alpha1
 kind: Project
-
++?include: local/unfurl.yaml
 contexts:
   # the contexts defined here are merged with each project's and ensemble's contexts
   # merge priority (from highest to lowest):
@@ -11,7 +11,7 @@ contexts:
     external:
       localhost:
         manifest:
-          file: [%manifestPath%]
+          file: ensemble.yaml
         instance: localhost
         # import all connection relationship_templates:
         connections:

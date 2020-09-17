@@ -73,9 +73,28 @@ class Repo(object):
             return key
         return None
 
+    @staticmethod
+    def ignoreDir(dir):
+        parent = Repo.findContainingRepo(os.path.dirname(dir))
+        if parent:
+            path = parent.findRepoPath(dir)
+            if path:  # can be None if dir is already ignored
+                parent.addToLocalGitIgnore(path)
+                return path
+        return None
+
+    def findRepoPath(self, path):
+        localPath = self.findPath(path)[0]
+        if localPath is not None and not self.isPathExcluded(localPath):
+            return localPath
+        return None
+
+    def isPathExcluded(self, localPath):
+        return False
+
     def findPath(self, path, importLoader=None):
         base = self.workingDir
-        if not base:
+        if not base:  # XXX support bare repos
             return None, None, None
         repoRoot = os.path.abspath(base)
         abspath = os.path.abspath(path).rstrip("/")
@@ -107,6 +126,7 @@ class Repo(object):
         empty_repo.create_head("master", origin.refs.master).set_tracking_branch(
             origin.refs.master
         ).checkout()
+        Repo.ignoreDir(localRepoPath)
         return GitRepo(empty_repo)
 
 
@@ -151,6 +171,12 @@ class GitRepo(Repo):
             path = os.path.join(self.workingDir, file)
             yield path
 
+    def isPathExcluded(self, localPath):
+        # XXX cache and test
+        # excluded = list(self.findExcludedDirs(self.workingDir))
+        # success error code means it's ignored
+        return not self.runCmd(["check-ignore", "-q", localPath])[0]
+
     def runCmd(self, args, **kw):
         """
     :return:
@@ -166,6 +192,10 @@ class GitRepo(Repo):
         return gitcmd.execute(
             call, with_exceptions=False, with_extended_output=True, **kw
         )
+
+    def addToLocalGitIgnore(self, rule):
+        with open(os.path.join(self.repo.git_dir, "info", "exclude"), "a") as f:
+            f.write("\n" + rule)
 
     def show(self, path, commitId):
         if os.path.abspath(path) and self.workingDir:
@@ -203,10 +233,14 @@ class GitRepo(Repo):
         return self.repo.is_dirty(untracked_files=untracked_files)
 
     def clone(self, newPath):
-        cloned = self.repo.clone(newPath)
+        cloned = self.repo.clone(os.path.abspath(newPath))
+        Repo.ignoreDir(newPath)
         return GitRepo(cloned)
 
     def getGitLocalUrl(self, path, name=""):
+        if os.path.isabs(path):
+            # get path relative to repository's root
+            path = os.path.relpath(path, self.workingDir)
         return "git-local://%s:%s/%s" % (self.getInitialRevision(), name, path)
 
     # XXX: def getDependentRepos()

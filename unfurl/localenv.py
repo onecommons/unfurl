@@ -8,7 +8,7 @@ By convention, the "home" project defines a localhost instance and adds it to it
 import os
 import os.path
 
-# import six
+import six
 from .repo import Repo, normalizeGitUrl, findGitRepo
 from .util import UnfurlError
 from .merge import mergeDicts
@@ -24,6 +24,7 @@ class Project(object):
   """
 
     def __init__(self, path, homeProject=None):
+        assert isinstance(path, six.string_types), path
         parentConfig = homeProject and homeProject.localConfig or None
         self.projectRoot = os.path.abspath(os.path.dirname(path))
         if os.path.exists(path):
@@ -37,16 +38,19 @@ class Project(object):
         if projectRoot in self.workingDirs:
             self.projectRepo = self.workingDirs[projectRoot][1]
         else:
-            # XXX make sure projectroot isn't excluded from the containing repo
             # project maybe part of a containing repo (if created with --existing option)
-            self.projectRepo = repo = Repo.findContainingRepo(self.projectRoot)
-            if self.projectRepo:
+            repo = Repo.findContainingRepo(self.projectRoot)
+            # make sure projectroot isn't excluded from the containing repo
+            if repo and not repo.isPathExcluded(self.projectRoot):
+                self.projectRepo = repo
                 self.workingDirs[repo.workingDir] = (repo.url, repo)
+            else:
+                self.projectRepo = None
 
         if self.projectRepo:
             for dir in self.projectRepo.findExcludedDirs(self.projectRoot):
                 # look for repos that might be in its
-                if os.path.abspath(dir) in projectRoot:
+                if projectRoot in dir and os.path.isdir(dir):
                     Repo.updateGitWorkingDirs(self.workingDirs, dir, os.listdir(dir))
 
     @staticmethod
@@ -83,7 +87,10 @@ class Project(object):
         return None
 
     def getRepos(self):
-        return [repo for (gitUrl, repo) in self.workingDirs.values()]
+        repos = [repo for (gitUrl, repo) in self.workingDirs.values()]
+        if self.projectRepo and self.projectRepo not in repos:
+            repos.append(self.projectRepo)
+        return repos
 
     def findDefaultInstanceManifest(self):
         fullPath = self.localConfig.getDefaultManifestPath()
@@ -125,6 +132,9 @@ class Project(object):
             name = os.path.splitext(os.path.basename(parts.path[1:] or parts.netloc))[0]
 
         assert not name.endswith(".git"), name
+        return self.getUniquePath(name)
+
+    def getUniquePath(self, name):
         basename = name
         counter = 1
         while os.path.exists(os.path.join(self.projectRoot, name)):
@@ -154,13 +164,17 @@ class Project(object):
         candidate = None
         for dir in sorted(self.workingDirs.keys()):
             (url, repo) = self.workingDirs[dir]
-            # XXX make sure path isn't ignored in repo
-            filePath, revision, bare = repo.findPath(path, importLoader)
+            filePath = repo.findRepoPath(path)
             if filePath is not None:
-                if not bare:
-                    return repo, filePath, revision, bare
-                else:  # if it's bare see if we can find a better candidate
-                    candidate = (repo, filePath, revision, bare)
+                return repo, filePath, repo.revision, False
+            #  XXX support bare repo and particular revisions
+            #  need to make sure path isn't ignored in repo or compare candidates
+            # filePath, revision, bare = repo.findPath(path, importLoader)
+            # if filePath is not None:
+            #     if not bare:
+            #         return repo, filePath, revision, bare
+            #     else:  # if it's bare see if we can find a better candidate
+            #         candidate = (repo, filePath, revision, bare)
         return candidate or None, None, None, None
 
     def createWorkingDir(self, gitUrl, revision="HEAD"):
@@ -530,6 +544,12 @@ class LocalEnv(object):
         """If the given path is part of the working directory of a git repository
         return that repository and a path relative to it"""
         # importloader is unused until pinned revisions are supported
+        if self.instanceRepo:
+            repo = self.instanceRepo
+            filePath = repo.findRepoPath(path)
+            if filePath is not None:
+                return repo, filePath, repo.revision, False
+
         candidate = None
         repo = None
         if self.project:
