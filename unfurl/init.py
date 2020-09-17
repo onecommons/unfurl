@@ -68,12 +68,17 @@ def _writeFile(folder, filename, content):
     return filepath
 
 
-def writeTemplate(folder, filename, templatePath, vars):
+def writeTemplate(folder, filename, template, vars, templateDir=None):
     from .runtime import NodeInstance
     from .eval import RefContext
     from .support import applyTemplate
 
-    with open(os.path.join(_templatePath, templatePath)) as f:
+    if templateDir and not os.path.isabs(templateDir):
+        templateDir = os.path.join(_templatePath, templateDir)
+    if not templateDir or not os.path.exists(os.path.join(templateDir, template)):
+        templateDir = _templatePath  # default
+
+    with open(os.path.join(templateDir, template)) as f:
         source = f.read()
     instance = NodeInstance()
     instance._baseDir = _templatePath
@@ -86,17 +91,20 @@ def writeProjectConfig(
     filename=DefaultNames.LocalConfig,
     templatePath=DefaultNames.LocalConfig + ".j2",
     vars=None,
+    templateDir=None,
 ):
     _vars = dict(include="", manifestPath=None)
     if vars:
         _vars.update(vars)
-    return writeTemplate(projectdir, filename, templatePath, _vars)
+    return writeTemplate(projectdir, filename, templatePath, _vars, templateDir)
 
 
 def renderHome(homePath):
     homedir, filename = os.path.split(homePath)
-    writeTemplate(homedir, DefaultNames.Ensemble, "home-manifest.yaml.j2", {})
-    configPath = writeProjectConfig(homedir, filename, "home-unfurl.yaml.j2")
+    writeTemplate(homedir, DefaultNames.Ensemble, "manifest.yaml.j2", {}, "home")
+    configPath = writeProjectConfig(
+        homedir, filename, "unfurl.yaml.j2", templateDir="home"
+    )
     writeTemplate(homedir, ".gitignore", "gitignore.j2", {})
     return configPath
 
@@ -124,13 +132,7 @@ def createHome(home=None, render=False, replace=False, **kw):
     if not render and not kw.get("no_runtime"):
         initEngine(homedir, kw.get("runtime") or "venv:")
     if repo:
-        createProjectRepo(
-            homedir,
-            repo,
-            True,
-            projectConfigTemplate="home-unfurl.yaml.j2",
-            addDefaults=False,
-        )
+        createProjectRepo(homedir, repo, True, addDefaults=False, templateDir="home")
         repo.repo.git.add("--all")
         repo.repo.index.commit("Create the unfurl home repository")
         repo.repo.git.branch("rendered")  # now create a branch
@@ -183,7 +185,12 @@ def addHiddenGitFiles(gitDir):
 
 
 def createProjectRepo(
-    projectdir, repo, mono, addDefaults=True, projectConfigTemplate=None
+    projectdir,
+    repo,
+    mono,
+    addDefaults=True,
+    projectConfigTemplate=None,
+    templateDir=None,
 ):
     """
     Creates a folder named `projectdir` with a git repository with the following files:
@@ -207,7 +214,8 @@ def createProjectRepo(
         os.path.join(projectdir, "local"),
         localConfigFilename,
         "unfurl.local.yaml.j2",
-        vars=vars,
+        vars,
+        templateDir,
     )
 
     localInclude = "+?include: " + os.path.join("local", localConfigFilename)
@@ -217,15 +225,14 @@ def createProjectRepo(
         vars["manifestPath"] = manifestPath
     projectConfigPath = writeProjectConfig(
         projectdir,
-        templatePath=projectConfigTemplate or DefaultNames.LocalConfig + ".j2",
-        vars=vars,
+        DefaultNames.LocalConfig,
+        projectConfigTemplate or DefaultNames.LocalConfig + ".j2",
+        vars,
+        templateDir,
     )
     files = [projectConfigPath]
 
     if addDefaults:
-        # write service-template.yaml
-        serviceTemplatePath = writeServiceTemplate(projectdir)
-        files.append(serviceTemplatePath)
         # write ensemble-template.yaml
         ensembleTemplatePath = writeTemplate(
             projectdir, DefaultNames.EnsembleTemplate, "manifest-template.yaml.j2", {}

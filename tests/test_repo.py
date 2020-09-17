@@ -31,12 +31,12 @@ class AConfigurator(Configurator):
 
 manifestContent = """\
   apiVersion: unfurl/v1alpha1
-  kind: Manifest
+  kind: Ensemble
+  +include:
+    file: ensemble-template.yaml
+    repository: spec
   spec:
     service_template:
-      +include:
-        file: service-template.yaml
-        repository: spec
       topology_template:
         node_templates:
           my_server:
@@ -49,7 +49,10 @@ manifestContent = """\
 
 awsTestManifest = """\
   apiVersion: unfurl/v1alpha1
-  kind: Manifest
+  kind: Ensemble
+  +include:
+    file: ensemble-template.yaml
+    repository: spec
   context:
     environment:
       AWS_ACCESS_KEY_ID: mockAWS_ACCESS_KEY_ID
@@ -59,9 +62,6 @@ awsTestManifest = """\
           aws: aws_test
   spec:
     service_template:
-      +include:
-        file: service-template.yaml
-        repository: spec
       topology_template:
         node_templates:
           testNode:
@@ -119,7 +119,6 @@ class GitRepoTest(unittest.TestCase):
             expectedCommittedFiles = {
                 "unfurl.yaml",
                 "ensemble-template.yaml",
-                "service-template.yaml",
                 ".gitignore",
                 ".gitattributes",
             }
@@ -190,7 +189,6 @@ class GitRepoTest(unittest.TestCase):
 .gitattributes
 .gitignore
 ensemble-template.yaml
-service-template.yaml
 unfurl.yaml
 
 *** Running 'git ls-files' in './ensemble'
@@ -254,7 +252,7 @@ ensemble.yaml
                 "degraded",
             ]
             result = runner.invoke(cli, args)
-            # print("result.output", result.exit_code, result.output)
+            print("result.output", result.exit_code, result.output)
             assert not result.exception, "\n".join(
                 traceback.format_exception(*result.exc_info)
             )
