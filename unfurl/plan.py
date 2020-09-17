@@ -254,21 +254,20 @@ class Plan(object):
         ran = False
         missing = resource.status in [Status.unknown, Status.absent, Status.pending]
         # if the resource doesn't exist or failed while creating:
+        initialState = not resource.state or resource.state == NodeState.creating
         if (
             missing
             or self.jobOptions.all
-            or (
-                resource.status == Status.error and resource.state == NodeState.creating
-            )
+            or (resource.status == Status.error and initialState)
         ):
-            if resource.created is None:
-                resource.created = True  # set this before running in case it fails
             gen = self._runOperation(
                 NodeState.creating, "Standard.create", resource, reason, inputs
             )
             req = gen.send(None)
             if req and gen.send((yield req)):
                 ran = True
+                if resource.created is None:
+                    resource.created = True
 
         if not ran or resource.state == NodeState.created:
             if resource.state and resource.state > NodeState.configured:
@@ -279,6 +278,9 @@ class Plan(object):
             while gen():
                 gen.result = yield gen.next
             ran = gen.next
+            if ran and resource.created is None:
+                resource.created = True
+
             # XXX if the resource had already existed, call target_changed
             # "Operation to notify source some property or attribute of the target changed"
             # if not missing:
