@@ -6,4 +6,6 @@ octodns # MIT
 ansible[azure] # GPL 3
 boto # Apache 2.0
 boto3 # Apache 2.0
-supervisor # BSD https://web.archive.org/web/20190406171444/http://repoze.org/LICENSE.txt
+supervisor # BSD, see https://web.archive.org/web/20190406171444/http://repoze.org/LICENSE.txt
+requests>=2.14.2 # Apache 2.0
+google-auth # Apache 2.0

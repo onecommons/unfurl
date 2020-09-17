@@ -21,20 +21,24 @@ contexts:
     # locals:
     #  attributes:
     #    kube_context: default
-    #    gcp_project: project_id
     #    packet_project: project_id
     # environment:
-      # AWS_DEFAULT_REGION:
-      # AWS_ACCESS_KEY_ID:
-      # AWS_SECRET_ACCESS_KEY:
-
-      # AZURE_CLIENT_ID:
-      # AZURE_SUBSCRIPTION_ID:
-      # AZURE_SECRET:
-
-      # GOOGLE_APPLICATION_CREDENTIALS:
-      # PACKET_API_TOKEN:
-
+    #   AWS_DEFAULT_REGION:
+    #   AWS_ACCESS_KEY_ID:
+    #   AWS_SECRET_ACCESS_KEY:
+    #   and more, see aws ~/unfurl_home/ensemble.yaml
+    #
+    #   AZURE_CLIENT_ID:
+    #   AZURE_SUBSCRIPTION_ID:
+    #   AZURE_SECRET:
+    #   and more, see azure in ~/unfurl_home/ensemble.yaml
+    #
+    #   GOOGLE_APPLICATION_CREDENTIALS:
+    #   CLOUDSDK_CORE_PROJECT:
+    #   CLOUDSDK_COMPUTE_REGION:
+    #   and more, see gcp in ~/unfurl_home/ensemble.yaml
+    #
+    #   PACKET_API_TOKEN:
 manifests:
-  - file: [%manifestPath%]
+  - file: ensemble.yaml
     default: true

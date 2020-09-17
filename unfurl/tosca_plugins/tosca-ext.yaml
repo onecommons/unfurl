@@ -289,15 +289,30 @@ relationship_types:
   unfurl.relationships.ConnectsTo.GCPProject:
     derived_from: unfurl.relationships.ConnectsTo.CloudAccount
     properties:
-      project:
+      # admin_email
+      # organization_id
+      # billing_account
+      CLOUDSDK_CORE_PROJECT:
          description: id of the project
-         type: string
+         type: unfurl.datatypes.EnvVar
+         required: false
+      CLOUDSDK_COMPUTE_REGION:
+         description: default region to use
+         type: unfurl.datatypes.EnvVar
+         required: false
+      CLOUDSDK_COMPUTE_ZONE:
+         description: default zone to use
+         type: unfurl.datatypes.EnvVar
          required: false
       GOOGLE_APPLICATION_CREDENTIALS:
         description: "Path to file containing service account private keys in JSON format"
         type: unfurl.datatypes.EnvVar
         required: false
-      credentials:
+      GOOGLE_OAUTH_ACCESS_TOKEN:
+        description: A temporary OAuth 2.0 access token obtained from the Google Authorization server
+        type: unfurl.datatypes.EnvVar
+        required: false
+      GCP_SERVICE_ACCOUNT_CONTENTS:
         description: "Content of file containing service account private keys"
         type: tosca.datatypes.json
         required: false
@@ -308,6 +323,14 @@ relationship_types:
         #   type: auth_kind: type of authentication being used (choices: machineaccount, serviceaccount, application)
         #   client_email: email associated with the project
         #   scopes: The specific scopes that you want the actions to use.
+      GCP_AUTH_KIND:
+        type: unfurl.datatypes.EnvVar
+        constraints:
+          - valid_values: [application, machineaccount, serviceaccount]
+        default: serviceaccount
+      scopes:
+        type: list
+        required: false
 
   unfurl.relationships.ConnectsTo.AWSAccount:
     derived_from: unfurl.relationships.ConnectsTo.CloudAccount
@@ -367,7 +390,6 @@ relationship_types:
         required: false
         metadata:
           sensitive: true
-
       AZURE_AD_USER:
         description: for authentication with Active Directory
         type: unfurl.datatypes.EnvVar
@@ -396,7 +418,7 @@ relationship_types:
 
   unfurl.relationships.ConnectsTo.OpenStack:
     derived_from: unfurl.relationships.ConnectsTo.CloudAccount
-    # # pyrax (rackspace, openstack)
+    # from pyrax (rackspace, openstack)
     # RAX_CREDS_FILE
     # CLOUD_ID_TYPE "rackspace" or "keystone"
     # CLOUD_REGION default: "DFW"
