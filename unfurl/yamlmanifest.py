@@ -512,9 +512,12 @@ class YamlManifest(ReadOnlyManifest):
 
         doCommit = job.commit and self.repo
         if doCommit:
-            self.repo.commitFiles(
-                [self.manifest.path], "Updating status for job %s" % job.changeId
-            )
+            if job.message is not None:
+                message = job.message
+            else:
+                message = "Updating status for job %s" % job.changeId
+            # XXX add -a
+            self.repo.commitFiles([self.manifest.path], message)
             jobRecord["endCommit"] = self.repo.revision
         if self.changeLogPath:
             jobLogPath = self.saveChangeLog(jobRecord, changes)
@@ -607,7 +610,6 @@ def runJob(manifestPath=None, _opts=None):
         logger.info("creating %s plan for %s", opts.workflow, path)
     else:
         logger.info("running %s job for %s", opts.workflow, path)
-
     try:
         manifest = localEnv.getManifest()
     except Exception as e:

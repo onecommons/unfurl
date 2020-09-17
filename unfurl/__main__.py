@@ -80,7 +80,7 @@ def cli(ctx, verbose=0, quiet=False, logfile=None, **kw):
     elif logLevel > logging.INFO:
         verbose = 0
     else:
-        verbose = levels.index(logLevel)
+        verbose = levels.index(logLevel) + 1
     ctx.obj["verbose"] = verbose
     initLogging(logLevel, logfile)
 
@@ -94,9 +94,9 @@ jobControlOptions = option_group(
     ),
     click.option(
         "--commit",
-        default=True,
+        default=False,
         is_flag=True,
-        help="Commit modified files to the instance repository. (Default: True)",
+        help="Commit modified files to the instance repository. (Default: False)",
     ),
     click.option(
         "--dirty",
@@ -104,6 +104,7 @@ jobControlOptions = option_group(
         is_flag=True,
         help="Run even if there are uncommitted changes in the instance repository. (Default: False)",
     ),
+    click.option("-m", "--message", help="commit message to use"),
     click.option(
         "--jobexitcode",
         type=click.Choice(["error", "degraded", "never"]),
@@ -141,7 +142,7 @@ commonJobFilterOptions = option_group(
 @commonJobFilterOptions
 @click.option("--host", help="host to run the command on")
 @click.option("--operation", help="TOSCA operation to run")
-@click.option("-m", "--module", help="ansible module to run (default: command)")
+@click.option("--module", help="ansible module to run (default: command)")
 @click.argument("cmdline", nargs=-1, type=click.UNPROCESSED)
 def run(ctx, instance="root", cmdline=None, **options):
     """

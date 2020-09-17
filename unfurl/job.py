@@ -79,8 +79,9 @@ class JobOptions(object):
         prune=False,
         append=None,
         replace=None,
-        commit=True,
+        commit=False,
         dirty=False,  # run the job even if the repository has uncommitted changrs
+        message=None,
         workflow=Defaults.workflow,
     )
 
