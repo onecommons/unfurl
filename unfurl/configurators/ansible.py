@@ -43,7 +43,7 @@ def getAnsibleResults(result, extraKeys=(), facts=()):
     # _check_key checks 'results' if task was a loop
     # 'warnings': result._check_key('warning'),
     result = result.clean_copy()
-    logger.debug("playbook task result: %s", result._result)
+    logger.debug("playbook task result: %s", str(result._result))
     resultDict = {}
     # map keys in results to match the names that ShellConfigurator uses
     keyMap = {

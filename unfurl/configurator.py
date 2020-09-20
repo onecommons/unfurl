@@ -591,7 +591,9 @@ class TaskView(object):
     #         configSpec = yaml.load(configSpec)
     #     return self._manifest.loadConfigSpec(name, configSpec)
 
-    def createSubTask(self, operation, resource=None, persist=False, required=False):
+    def createSubTask(
+        self, operation, resource=None, inputs=None, persist=False, required=False
+    ):
         """Create a subtask that will be executed if yielded by `run()`
 
            Args:
@@ -604,13 +606,12 @@ class TaskView(object):
         if resource is None:
             resource = self.target
 
+        if inputs is None:
+            inputs = self.configSpec.inputs
+
         if isinstance(operation, six.string_types):
-            # XXX add option to pass different inputs
             taskRequest = self.job.plan.createTaskRequest(
-                operation,
-                resource,
-                "for subtask: " + self.configSpec.name,
-                self.configSpec.inputs,
+                operation, resource, "for subtask: " + self.configSpec.name, inputs
             )
             if taskRequest.error:
                 return None

@@ -22,7 +22,7 @@ spec:
     topology_template:
       node_templates:
         container1:
-          type: unfurl.nodes.Application.Docker
+          type: unfurl.nodes.Container.Application.Docker
           properties:
             name: test_docker
           artifacts:
@@ -68,6 +68,7 @@ spec:
                              registry_url: "{{ registry.url }}"
                           when: registry and registry.credential
 """
+
 
 class DockerTest(unittest.TestCase):
     def setUp(self):

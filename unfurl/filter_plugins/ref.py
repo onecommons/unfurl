@@ -1,7 +1,6 @@
 import os.path
 from unfurl.eval import Ref, mapValue
-from unfurl.support import abspath as _abspath
-
+from unfurl.support import abspath, getdir
 from jinja2.filters import contextfilter
 
 # from ansible.errors import AnsibleError, AnsibleFilterError
@@ -22,7 +21,7 @@ def mapValueFilter(context, ref, **vars):
 
 
 @contextfilter
-def abspath(context, path, relativeTo=None, mkdir=True):
+def _abspath(context, path, relativeTo=None, mkdir=True):
     """
     {{ 'foo' | abspath }}
 
@@ -31,9 +30,21 @@ def abspath(context, path, relativeTo=None, mkdir=True):
     {{ 'foo' | abspath('local') }}
     """
     refContext = context["__unfurl"]
-    return _abspath(refContext, path, relativeTo, mkdir)
+    return abspath(refContext, path, relativeTo, mkdir)
+
+
+@contextfilter
+def get_dir(context, relativeTo, mkdir=True):
+    refContext = context["__unfurl"]
+    return getdir(refContext, relativeTo, mkdir)
 
 
 class FilterModule(object):
     def filters(self):
-        return {"ref": ref, "eval": ref, "mapValue": mapValueFilter, "abspath": abspath}
+        return {
+            "ref": ref,
+            "eval": ref,
+            "mapValue": mapValueFilter,
+            "abspath": _abspath,
+            "get_dir": get_dir,
+        }

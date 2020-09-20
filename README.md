@@ -1,26 +1,25 @@
-# Overview
+# Introduction
 
 Unfurl is a tool that works with Git to record and deploy changes to your DevOps infrastructure.
 It tracks configuration changes, keeping a history of exactly how you did it and what the results are, so you can easily repair or recreate what you did later.
 
-Unfurl integrates with the deployment tools you are already using, like Ansible, Terraform and Helm, organizing their usage into shareable abstractions that ease migrations to new environments as well as share and reuse your work.
+Unfurl integrates with the deployment tools you are already using, like Ansible, Terraform and Helm, organizing their usage into Ensembles, shareable abstractions that ease migrations to new environments as well as share and reuse your work.
 
-## Goals
+## Design
 
 - **Next-level GitOps**: both configuration and operational status stored in git
-- **Hermetic**: tracks exact version of environment and deployment artifacts
-- **Reproducible**: hermetic builds + git + locked-down, immutable infrastructure = reproducibility
-- **Incremental**: only applies necessary changes
-- **Fast**: the above three features combined enable lightening-fast updates
 - **Configuration tool agnostic** with built-in support for Ansible and Terraform
 - **Secrets**: key manager integration; keeps secrets out of git so repos can be safely made public
 - **No server, no agent**: simple, stand-alone CLI that can be used both as development tool on client or for automated production deployment on a server
 - **Dependency management**: Easily track dependencies and changes across infrastructure layers and boundaries.
 - **Zero installation**: Uses client-side container support to bootstrap and automate installation requirements.
 
-## Today
+## Goals
 
-* record changes to your infrastructure in git 
+- **Hermetic**: tracks exact version of environment and deployment artifacts
+- **Reproducible**: hermetic builds + git + locked-down, immutable infrastructure = reproducibility
+- **Incremental**: only applies necessary changes
+- **Fast**: the above three features combined enable lightening-fast updates
 
 ## Features
 
@@ -50,11 +49,7 @@ Python (2.7, 3.7, 3.8); git
 
 Optional: docker
 
-# Quick Start
-
-
-
-# Developing
+## Developing
 
 Clone https://github.com/onecommons/unfurl
 
@@ -75,6 +70,6 @@ Install tox `pip install tox` and then run `tox` in source root. To install the 
 
 Arguments after `--` are passed to the test runner, e.g. to run an individual test: `tox -- -p test_runtime.py`.
 
-## Learn more
+## Getting Started
 
 Check out the rest of Unfurl's documentation [here](https://www.onecommons.org/unfurl/guide.html)
