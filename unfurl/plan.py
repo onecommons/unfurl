@@ -32,6 +32,7 @@ class Plan(object):
         return dict(
             deploy=DeployPlan,
             undeploy=UndeployPlan,
+            stop=UndeployPlan,
             run=RunNowPlan,
             check=ReadOnlyPlan,
             discover=ReadOnlyPlan,
@@ -252,7 +253,10 @@ class Plan(object):
         # 5.8.5.2 Invocation Conventions p. 228
         # 7.2 Declarative workflows p.249
         ran = False
-        missing = resource.status in [Status.unknown, Status.absent, Status.pending]
+        missing = (
+            resource.status in [Status.unknown, Status.absent, Status.pending]
+            and resource.state != NodeState.stopped  # stop sets Status back to pending
+        )
         # if the resource doesn't exist or failed while creating:
         initialState = not resource.state or resource.state == NodeState.creating
         if (
@@ -269,7 +273,9 @@ class Plan(object):
                 if resource.created is None:
                     resource.created = True
 
-        if not ran or resource.state == NodeState.created:
+        if (
+            not ran and resource.state != NodeState.stopped
+        ) or resource.state == NodeState.created:
             if resource.state and resource.state > NodeState.configured:
                 # rerunning configuration, reset state
                 assert not ran
@@ -287,7 +293,7 @@ class Plan(object):
             #   for requirement in requirements:
             #     call target_changed
 
-        if resource.state == NodeState.configured or (
+        if resource.state in [NodeState.configured, NodeState.stopped] or (
             not ran and resource.state == NodeState.created
         ):
             # configured or if no configure operation exists then node just needs to have been created
@@ -308,7 +314,7 @@ class Plan(object):
         # XXX remove_target: Operation called on source when a target instance is removed
         # (but only called if add_target had been called)
 
-        if resource.created:
+        if resource.created or self.workflow == "stop":
             nodeState = NodeState.stopping
             op = "Standard.stop"
 
@@ -316,6 +322,9 @@ class Plan(object):
             req = gen.send(None)
             if req:
                 gen.send((yield req))
+
+            if self.workflow == "stop":
+                return
 
             nodeState = NodeState.deleting
             op = "Standard.delete"
@@ -397,9 +406,10 @@ class Plan(object):
                 if resource.status not in [Status.absent, Status.pending]:
                     reason = include(resource)
                     if reason:
-                        logger.debug("removing instance %s", resource.name)
+                        logger.debug("%s instance %s", reason, resource.name)
+                        workflow = "undeploy" if reason == "prune" else self.workflow
                         gen = Generate(
-                            self._generateConfigurations(resource, reason, "undeploy")
+                            self._generateConfigurations(resource, reason, workflow)
                         )
                         while gen():
                             gen.result = yield gen.next
@@ -407,16 +417,17 @@ class Plan(object):
     def _getDefaultGenerator(self, workflow, resource, reason=None, inputs=None):
         if workflow == "deploy":
             return self.executeDefaultDeploy(resource, reason, inputs)
-        elif workflow == "undeploy":
+        elif workflow == "undeploy" or workflow == "stop":
             return self.executeDefaultUndeploy(resource, reason, inputs)
         elif workflow == "check" or workflow == "discover":
             return self.executeDefaultInstallOp(workflow, resource, reason, inputs)
         return None
 
-    @staticmethod
-    def getSuccessStatus(workflow):
+    def getSuccessStatus(self, workflow):
         if workflow == "deploy":
             return Status.ok
+        elif workflow == "stop":
+            return Status.pending
         elif workflow == "undeploy":
             return Status.absent
         return None
@@ -766,7 +777,8 @@ class UndeployPlan(Plan):
     def includeForDeletion(self, resource):
         if self.filterTemplate and resource.template != self.filterTemplate:
             return None
-        return "undeploy"
+        # return value is used as "reason"
+        return self.workflow
 
 
 class ReadOnlyPlan(Plan):

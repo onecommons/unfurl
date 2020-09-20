@@ -12,14 +12,13 @@ manifestContent = """\
       node_types:
         test.nodes.simple:
           interfaces:
+           defaults:
+              implementation: unfurl.configurators.TemplateConfigurator
            Install:
               check:
-                implementation: unfurl.configurators.TemplateConfigurator
            Standard:
               configure:
-                implementation: unfurl.configurators.TemplateConfigurator
               delete:
-                implementation: unfurl.configurators.TemplateConfigurator
 
       topology_template:
         node_templates:
@@ -66,6 +65,28 @@ manifestContent = """\
                       - name: unmanaged
                         template: discovered
                         # status is not set, so create and delete operations will be invoked
+  """
+
+manifest2Content = """\
+  apiVersion: unfurl/v1alpha1
+  kind: Ensemble
+  spec:
+    service_template:
+      node_types:
+        test.nodes.simple:
+          interfaces:
+           defaults:
+              implementation: unfurl.configurators.TemplateConfigurator
+           Standard:
+              create:
+              start:
+              stop:
+              delete:
+
+      topology_template:
+        node_templates:
+          simple:
+            type: test.nodes.simple
   """
 
 
@@ -171,6 +192,121 @@ class UndeployTest(unittest.TestCase):
         # config sets creator = True only if created wasn't set before
         # undeploy doesn't delete with directive = select
         # undeploy only deletes if status == ok, degraded, error (aka present)
+
+    def test_stop(self):
+        manifest = YamlManifest(manifest2Content)
+        runner = Runner(manifest)
+        job = runner.run(JobOptions(startTime=1))  # deploy
+        assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
+        summary = job.jsonSummary()
+        # print(json.dumps(summary, indent=2))
+        # print(job.out.getvalue())
+        self.assertEqual(
+            {
+                "id": "A01110000000",
+                "status": "ok",
+                "total": 2,
+                "ok": 2,
+                "error": 0,
+                "unknown": 0,
+                "skipped": 0,
+                "changed": 1,
+            },
+            summary["job"],
+        )
+        manifest2 = YamlManifest(job.out.getvalue())
+        job = Runner(manifest2).run(JobOptions(workflow="stop", startTime=2))
+        assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
+        summary = job.jsonSummary()
+        # print(json.dumps(summary, indent=2))
+        # print(job.out.getvalue())
+        self.assertEqual(
+            [
+                {
+                    "status": "ok",
+                    "target": "simple",
+                    "operation": "stop",
+                    "template": "simple",
+                    "type": "test.nodes.simple",
+                    "targetStatus": "pending",
+                    "changed": True,
+                    "configurator": "unfurl.configurators.TemplateConfigurator",
+                    "priority": "required",
+                    "reason": "stop",
+                }
+            ],
+            summary["tasks"],
+        )
+
+        # start again
+        manifest3 = YamlManifest(job.out.getvalue())
+        job = Runner(manifest3).run(JobOptions(startTime=3))
+        assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
+        summary = job.jsonSummary()
+        # print(json.dumps(summary, indent=2))
+        # print(job.out.getvalue())
+        self.assertEqual(
+            {
+                "id": "A01130000000",
+                "status": "ok",
+                "total": 1,
+                "ok": 1,
+                "error": 0,
+                "unknown": 0,
+                "skipped": 0,
+                "changed": 1,
+            },
+            summary["job"],
+        )
+
+        manifest4 = YamlManifest(job.out.getvalue())
+        job = Runner(manifest4).run(JobOptions(workflow="undeploy", startTime=4))
+        assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
+        summary = job.jsonSummary()
+        # print(json.dumps(summary, indent=2))
+        # print(job.out.getvalue())
+        self.assertEqual(
+            {
+                "id": "A01140000000",
+                "status": "ok",
+                "total": 2,
+                "ok": 2,
+                "error": 0,
+                "unknown": 0,
+                "skipped": 0,
+                "changed": 1,
+            },
+            summary["job"],
+        )
+        self.assertEqual(
+            [
+                {
+                    "status": "ok",
+                    "target": "simple",
+                    "operation": "stop",
+                    "template": "simple",
+                    "type": "test.nodes.simple",
+                    "targetStatus": "absent",
+                    "changed": False,
+                    "configurator": "unfurl.configurators.TemplateConfigurator",
+                    "priority": "required",
+                    "reason": "undeploy",
+                },
+                {
+                    "status": "ok",
+                    "target": "simple",
+                    "operation": "delete",
+                    "template": "simple",
+                    "type": "test.nodes.simple",
+                    "targetStatus": "absent",
+                    "changed": True,
+                    "configurator": "unfurl.configurators.TemplateConfigurator",
+                    "priority": "required",
+                    "reason": "undeploy",
+                },
+            ],
+            summary["tasks"],
+        )
 
     # XXX fix and test Install.revert:
     # def test_revert(self): pass

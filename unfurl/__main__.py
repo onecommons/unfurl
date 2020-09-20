@@ -351,6 +351,19 @@ def undeploy(ctx, ensemble=None, **options):
     return _run(ensemble, options, ctx.info_name)
 
 
+@cli.command()
+@click.pass_context
+@click.argument("ensemble", default="", type=click.Path(exists=False))
+@commonJobFilterOptions
+@jobControlOptions
+def stop(ctx, ensemble=None, **options):
+    """
+    Stop running instances.
+    """
+    options.update(ctx.obj)
+    return _run(ensemble, options, ctx.info_name)
+
+
 @cli.command(short_help="Print the given deployment plan")
 @click.pass_context
 @click.argument("ensemble", default="", type=click.Path(exists=False))
