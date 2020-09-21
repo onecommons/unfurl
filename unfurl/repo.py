@@ -14,25 +14,35 @@ def normalizeGitUrl(url):
     return url
 
 
-def findGitRepo(path, isFile=True, importLoader=None):
+def findGitRepo(url, isFile=True, importLoader=None):
     """
   Returns (repoURL, filePath, revision)
   RepoURL will be an empty string if it isn't a path to a git repo
   """
-    parts = urlparse(path)
+    parts = urlparse(url)
     if parts.scheme == "git-local":
-        return parts.scheme + "://" + parts.netloc, parts.path[1:], ""
+        return parts.scheme + "://" + parts.netloc, parts.path[1:], parts.fragment
 
     # XXX if importLoader: find the repository based on the path, and check revision
-    # hack for now: if ends in .git
-    # XXX path can end in #revision, return it
-    # see https://docs.docker.com/engine/reference/commandline/build/ for git urls like:
-    # myrepo.git#mybranch, myrepo.git#pull/42/head, myrepo.git#:myfolder, myrepo.git#master:myfolder
-    a, b, c = path.partition(".git/")
-    if not b:
-        return "", a, ""
+    isUrl = parts.scheme != "file" or (not parts.scheme and not isFile)
+    if isUrl:
+        path = parts.path
     else:
-        return a + ".git", c, ""
+        path = url
+
+    # hack for now: git url if ends in .git
+    a, b, c = path.partition(".git")
+    if not b and not path.startswith("git@"):
+        return "", url if isUrl else a, ""
+    else:
+        # path can end in #revision, return it
+        # see https://docs.docker.com/engine/reference/commandline/build/ for git urls like:
+        # e.g. myrepo.git#mybranch, myrepo.git#pull/42/head, myrepo.git#:myfolder, myrepo.git#master:myfolder
+        revision, sep, folder = parts.fragment.partition(":")
+        if isUrl:
+            return url.strip("/"), folder, revision
+        else:
+            return a + b, c.strip("/"), revision
 
 
 class _ProgressPrinter(git.RemoteProgress):
@@ -111,6 +121,7 @@ class Repo(object):
 
     @classmethod
     def createWorkingDir(cls, gitUrl, localRepoPath, revision="HEAD"):
+        # print("fetching", gitUrl, "to", localRepoPath)
         empty_repo = git.Repo.init(localRepoPath)
         origin = empty_repo.create_remote("origin", gitUrl)
         progress = _ProgressPrinter()

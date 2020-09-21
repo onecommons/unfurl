@@ -36,7 +36,7 @@ import sys
 import shutil
 from . import DefaultNames, getHomeConfigPath
 from .tosca import TOSCA_VERSION
-from .repo import Repo, GitRepo
+from .repo import Repo, GitRepo, findGitRepo
 from .util import UnfurlError, getBaseDir
 from .localenv import LocalEnv, Project
 import random
@@ -298,13 +298,12 @@ def initNewEnsemble(manifest, sourceProject, targetProject):
     cloneLocalRepos(manifest, sourceProject, targetProject)
 
     destDir = os.path.dirname(manifest.manifest.path)
-    if targetProject.projectRepo:
+    if targetProject.projectRepo and targetProject is not sourceProject:
         repo = targetProject.projectRepo
         relPath, revision, bare = repo.findPath(destDir)
     else:
+        # XXX support --mono and --existing
         repo = _createRepo(destDir)
-        relPath = ""
-    manifest.addRepo("self", dict(url=repo.getGitLocalUrl(relPath, "ensemble")))
 
     with open(manifest.manifest.path, "w") as f:
         manifest.dump(f)
@@ -345,10 +344,10 @@ def _getEnsemblePaths(sourcePath, sourceProject):
 
 def createNewEnsemble(templateVars, sourceProject, targetPath, targetProject):
     """
-    If path is relative in
     include directives, imports, or external file reference they are guaranteed to be local to the project.
     Outside paths need to be referenced with a named repository.
     """
+    # if targetPath is relative, it will be treated as relative to the targetProject root
     from unfurl import yamlmanifest
 
     if not targetPath:
@@ -360,6 +359,9 @@ def createNewEnsemble(templateVars, sourceProject, targetPath, targetProject):
         destDir = targetPath
         manifestName = DefaultNames.Ensemble
         targetPath = os.path.join(destDir, manifestName)
+    # choose a destDir that doesn't conflict with an existing folder
+    # (i.e. if default ensemble already exists)
+    destDir = targetProject.getUniquePath(destDir)
 
     if "manifestPath" not in templateVars:
         # we found a template file to clone
@@ -382,27 +384,60 @@ def createNewEnsemble(templateVars, sourceProject, targetPath, targetProject):
         manifest = yamlmanifest.clone(templateVars["localEnv"], targetPath)
     else:
         return None  # can't find anything to clone
-    return initNewEnsemble(manifest, sourceProject, targetProject)
+    repo = initNewEnsemble(manifest, sourceProject, targetProject)
+    return destDir, repo
     # XXX need to add manifest to unfurl.yaml
 
 
-def cloneEnsembleFromDirectory(source, destDir):
-    # source is not in a project, create a new project
-    raise UnfurlError("Cloning from plain file directories not yet supported")
-    # createProject(projectdir, home=None, mono=False, existing=False)
-
-    # XXX if source is a remote git url:
-    #       sourceProject = createNewProject(destDir)
-    #       clone source into sourceProject
-
-    # destRoot = Project.findPath(destDir)
-    # if destRoot:
-    #     destProject = Project(destRoot)
-    # else:
-    #     destProject = createNewProject(destDir, empty=True)
-    # destDir = None  # use default names
-    # # this will create clone the default ensemble if it doesn't point to a specific spec or ensemble
-    # return createNewEnsemble(source, sourceProject, destDir, destProject)
+def getSourceProject(source, destDir):
+    # check if source is a git url
+    repoURL, filePath, revision = findGitRepo(source)
+    if repoURL:
+        # if destProject add repo to project
+        destRoot = Project.findPath(destDir)
+        if destRoot:
+            # destination is in an existing project, use that one
+            sourceProject = Project(destRoot)
+            repo = sourceProject.findGitRepo(repoURL, revision)
+            if not repo:
+                repo = sourceProject.createWorkingDir(repoURL, revision)
+            source = os.path.join(repo.workingDir, filePath)
+        else:
+            # otherwise clone to dest
+            Repo.createWorkingDir(repoURL, destDir, revision)
+            targetDir = os.path.join(destDir, filePath)
+            sourceRoot = Project.findPath(targetDir)
+            if sourceRoot:
+                sourceProject = Project(sourceRoot)
+                source = targetDir
+                # we cloned the repo to destDir but the might not be at it's root
+                destDir = sourceProject.projectRoot
+            else:
+                return (
+                    None,
+                    None,
+                    None,
+                    (
+                        'Error: cloned "%s" to "%s" but couldn\'t find an Unfurl project'
+                        % (source, destDir)
+                    ),
+                )
+    else:
+        sourceRoot = Project.findPath(source)
+        if sourceRoot:
+            sourceProject = Project(sourceRoot)
+        else:
+            # XXX support cloning from an ensemble or template that isn't in a project
+            return (
+                None,
+                None,
+                None,
+                (
+                    "Can't clone \"%s\": it isn't in an Unfurl project or repository"
+                    % source
+                ),
+            )
+    return sourceProject, source, destDir, None
 
 
 def cloneEnsemble(source, destDir, includeLocal=False, **options):
@@ -417,20 +452,18 @@ def cloneEnsemble(source, destDir, includeLocal=False, **options):
     """
     from unfurl import yamlmanifest
 
-    # for each repository besides "self", clone if necessary and adjust
-
-    sourceRoot = Project.findPath(source)
-    if sourceRoot:
-        sourceProject = Project(sourceRoot)
-    else:
-        return cloneEnsembleFromDirectory(source, destDir)
+    sourceProject, source, destDir, error = getSourceProject(source, destDir)
+    if error:
+        return error
 
     newProject = False
     paths = _getEnsemblePaths(source, sourceProject)
+    relDestDir = sourceProject.getRelativePath(destDir)
     # if dest is in the source project:
-    if sourceProject.isPathInProject(destDir):
+    if not relDestDir.startswith(".."):
         # add a new ensemble to the current project
         destProject = sourceProject
+        destDir = "" if relDestDir == "." else relDestDir
     else:
         destRoot = Project.findPath(destDir)
         if destRoot:
@@ -484,9 +517,7 @@ def cloneEnsemble(source, destDir, includeLocal=False, **options):
                     #    "cloning", sourceProject.projectRepo.workingDir, "to", destDir
                     # )
                     destProject = Project(Project.findPath(destDir))
-                    # choose a destDir that doesn't conflict with an existing folder
-                    # (i.e. if default ensemble already exists)
-                    destDir = destProject.getUniquePath(DefaultNames.EnsembleDirectory)
+                    destDir = DefaultNames.EnsembleDirectory
 
             if not destProject:
                 # create a new project from scratch for the new ensemble
@@ -497,7 +528,7 @@ def cloneEnsemble(source, destDir, includeLocal=False, **options):
                 destDir = os.path.join(destDir, DefaultNames.EnsembleDirectory)
 
     # this will clone the default ensemble if it doesn't point to a specific spec or ensemble
-    createNewEnsemble(paths, sourceProject, destDir, destProject)
+    destDir, repo = createNewEnsemble(paths, sourceProject, destDir, destProject)
     return 'Created new ensemble "%s" in %s project at "%s"' % (
         destDir,
         "new" if newProject else "existing",

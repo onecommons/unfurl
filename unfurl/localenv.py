@@ -116,11 +116,11 @@ class Project(object):
                 % (fullPath, fullPath2)
             )
 
+    def getRelativePath(self, path):
+        return os.path.relpath(os.path.abspath(path), self.projectRoot)
+
     def isPathInProject(self, path):
-        # better? os.path.relpath(sourceRoot, destDir).startswith(".." + os.sep)
-        return (
-            os.path.abspath(self.projectRoot) + os.sep in os.path.abspath(path) + os.sep
-        )
+        return not self.getRelativePath(path).startswith("..")
 
     def _createPathForGitRepo(self, gitUrl):
         parts = urlparse(gitUrl)

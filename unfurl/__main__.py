@@ -451,7 +451,6 @@ def home(ctx, init=False, render=False, replace=False, **options):
 @click.pass_context
 @click.argument(
     "source",
-    type=click.Path(exists=True),
     # help="path to a service template or ensemble",
 )
 @click.argument(

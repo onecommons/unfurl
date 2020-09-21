@@ -342,12 +342,21 @@ class Manifest(AttributeManager):
 
     @staticmethod
     def _getRepositories(tpl):
-        return tpl.get("spec", {}).get("service_template", {}).get("repositories", {})
+        return ((tpl.get("spec") or {}).get("service_template") or {}).get(
+            "repositories"
+        ) or {}
 
     def _setRepositories(self, tpl):
-        repositories = tpl.setdefault("service_template", CommentedMap()).setdefault(
-            "repositories", CommentedMap()
-        )
+        # handle missing and none
+        st = tpl.get("service_template")
+        if not st:
+            st = CommentedMap()
+            tpl["service_template"] = st
+        repositories = st.get("repositories")
+        if not repositories:
+            repositories = CommentedMap()
+            st["repositories"] = repositories
+
         if "unfurl" not in repositories:
             # add a repository that points to this package
             repositories["unfurl"] = dict(url="file:" + _basepath)
