@@ -155,7 +155,7 @@ def makeVaultLib(passwordBytes, vaultId="default"):
     return None
 
 
-def resolveIfInRepository(manifest, path, isFile=True, importLoader=None):
+def resolveIfInRepository(manifest, path, isFile, importLoader=None):
     # check if this path is a git url, if it is, return the repo and local path to the file
     repo, filePath, revision, bare = manifest.findRepoFromGitUrl(
         path, isFile, importLoader, True

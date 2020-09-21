@@ -13,7 +13,7 @@ from .runtime import (
     RelationshipInstance,
 )
 from .util import UnfurlError, toEnum, sensitive_str, getBaseDir
-from .repo import RevisionManager, findGitRepo
+from .repo import RevisionManager, splitGitUrl, isURLorGitPath
 from .yamlloader import YamlConfig, loadYamlFromArtifact, yaml
 from .job import ConfigChange
 
@@ -303,18 +303,22 @@ class Manifest(AttributeManager):
             self.imports.setShadow(importName, instance)
         return instance
 
-    def findRepoFromGitUrl(self, path, isFile=True, importLoader=None, willUse=False):
+    def findRepoFromGitUrl(self, path, isFile=None, importLoader=None, willUse=False):
         # XXX this doesn't use the tosca template's repositories at all
-        repoURL, filePath, revision = findGitRepo(path, isFile, importLoader)
+        repoURL = None
+        if not isFile or isURLorGitPath(path):
+            # only support urls to git repos for now
+            repoURL, filePath, revision = splitGitUrl(path)
         if not repoURL or not self.localEnv:
             return None, None, None, None
         # explicitRevision = revision
-        basePath = importLoader.path  # XXX check if dir or not
+        basePath = getBaseDir(importLoader.path)  # checks if dir or not
         # if not explicitRevision:
         #   revision = self.repoStatus.get(repoURL)
         repo, revision, bare = self.localEnv.findOrCreateWorkingDir(
-            repoURL, isFile, revision, basePath
+            repoURL, revision, basePath
         )
+
         # if willUse and (not explicitRevision or not bare):
         #   self.updateRepoStatus(repo, revision) # record that this revision is in use
         return repo, filePath, revision, bare

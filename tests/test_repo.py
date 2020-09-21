@@ -5,6 +5,7 @@ import six
 from click.testing import CliRunner
 from unfurl.__main__ import cli, _latestJobs
 from unfurl.localenv import LocalEnv
+from unfurl.repo import splitGitUrl, isURLorGitPath
 from git import Repo
 from unfurl.configurator import Configurator, Status
 import unfurl.configurators  # python2.7 workaround
@@ -252,7 +253,7 @@ ensemble.yaml
                 "degraded",
             ]
             result = runner.invoke(cli, args)
-            print("result.output", result.exit_code, result.output)
+            # print("result.output", result.exit_code, result.output)
             assert not result.exception, "\n".join(
                 traceback.format_exception(*result.exc_info)
             )
@@ -275,6 +276,63 @@ ensemble.yaml
             # self.assertEqual(job.status.name, "ok")
             # self.assertEqual(job.stats()["ok"], 1)
             # self.assertEqual(job.getOutputs()["aOutput"], "set")
+
+    def test_repo_urls(self):
+        urls = {
+            "foo/file": None,
+            "git@github.com:onecommons/unfurl_site.git": (
+                "git@github.com:onecommons/unfurl_site.git",
+                "",
+                "",
+            ),
+            "git-local://e67559c0bc47e8ed2afb11819fa55ecc29a87c97:spec/unfurl": (
+                "git-local://e67559c0bc47e8ed2afb11819fa55ecc29a87c97:spec",
+                "unfurl",
+                "",
+            ),
+            "/home/foo/file": None,
+            "/home/foo/repo.git": ("/home/foo/repo.git", "", ""),
+            "/home/foo/repo.git#branch:unfurl": (
+                "/home/foo/repo.git",
+                "unfurl",
+                "branch",
+            ),
+            "https://github.com/onecommons/": (
+                "https://github.com/onecommons/",
+                "",
+                "",
+            ),
+            "foo/repo.git": ("foo/repo.git", "", ""),
+            "https://github.com/onecommons/base.git#branch:unfurl": (
+                "https://github.com/onecommons/base.git",
+                "unfurl",
+                "branch",
+            ),
+            "file:foo/file": None,
+            "foo/repo.git#branch:unfurl": ("foo/repo.git", "unfurl", "branch"),
+            "https://github.com/onecommons/base.git": (
+                "https://github.com/onecommons/base.git",
+                "",
+                "",
+            ),
+            "git@github.com:onecommons/unfurl_site.git#rev:unfurl": (
+                "git@github.com:onecommons/unfurl_site.git",
+                "unfurl",
+                "rev",
+            ),
+            "file:foo/repo.git#branch:unfurl": (
+                "file:foo/repo.git",
+                "unfurl",
+                "branch",
+            ),
+            "file:foo/repo.git": ("file:foo/repo.git", "", ""),
+        }
+        for url, expected in urls.items():
+            if expected:
+                assert isURLorGitPath(url), url
+                self.assertEqual(splitGitUrl(url), expected)
+            else:
+                assert not isURLorGitPath(url), url
 
     def test_remote_git_repo(self):
         runner = CliRunner()

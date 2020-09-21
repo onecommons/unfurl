@@ -36,7 +36,7 @@ import sys
 import shutil
 from . import DefaultNames, getHomeConfigPath
 from .tosca import TOSCA_VERSION
-from .repo import Repo, GitRepo, findGitRepo
+from .repo import Repo, GitRepo, splitGitUrl, isURLorGitPath
 from .util import UnfurlError, getBaseDir
 from .localenv import LocalEnv, Project
 import random
@@ -391,8 +391,8 @@ def createNewEnsemble(templateVars, sourceProject, targetPath, targetProject):
 
 def getSourceProject(source, destDir):
     # check if source is a git url
-    repoURL, filePath, revision = findGitRepo(source)
-    if repoURL:
+    if isURLorGitPath(source):
+        repoURL, filePath, revision = splitGitUrl(source)
         # if destProject add repo to project
         destRoot = Project.findPath(destDir)
         if destRoot:
@@ -525,7 +525,7 @@ def cloneEnsemble(source, destDir, includeLocal=False, **options):
                     destDir, addDefaults=False, **options
                 )
                 destProject = Project(projectConfigPath)
-                destDir = os.path.join(destDir, DefaultNames.EnsembleDirectory)
+                destDir = DefaultNames.EnsembleDirectory
 
     # this will clone the default ensemble if it doesn't point to a specific spec or ensemble
     destDir, repo = createNewEnsemble(paths, sourceProject, destDir, destProject)

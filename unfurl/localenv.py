@@ -9,7 +9,7 @@ import os
 import os.path
 
 import six
-from .repo import Repo, normalizeGitUrl, findGitRepo
+from .repo import Repo, normalizeGitUrl, splitGitUrl
 from .util import UnfurlError
 from .merge import mergeDicts
 from .yamlloader import YamlConfig, makeVaultLib
@@ -129,7 +129,10 @@ class Project(object):
             name = parts.netloc.partition(":")[1]
         else:
             # e.g. extract tosca-parser from https://github.com/onecommons/tosca-parser.git
-            name = os.path.splitext(os.path.basename(parts.path[1:] or parts.netloc))[0]
+            name = (
+                os.path.splitext(os.path.basename(parts.path.strip("/")))[0]
+                or parts.netloc
+            )
 
         assert not name.endswith(".git"), name
         return self.getUniquePath(name)
@@ -186,7 +189,7 @@ class Project(object):
 
     def findRepository(self, repoSpec):
         repoUrl = repoSpec.url
-        return self.findGitRepo(findGitRepo(repoUrl)[0])
+        return self.findGitRepo(splitGitUrl(repoUrl)[0])
 
     def findOrClone(self, repo):
         gitUrl = repo.url
@@ -513,7 +516,7 @@ class LocalEnv(object):
             local,
         )
 
-    def findGitRepo(self, repoURL, isFile=True, revision=None):
+    def findGitRepo(self, repoURL, revision=None):
         repo = None
         if self.project:
             repo = self.project.findGitRepo(repoURL, revision)
@@ -522,9 +525,7 @@ class LocalEnv(object):
                 return self.homeProject.findGitRepo(repoURL, revision)
         return repo
 
-    def findOrCreateWorkingDir(
-        self, repoURL, isFile=True, revision=None, basepath=None
-    ):
+    def findOrCreateWorkingDir(self, repoURL, revision=None, basepath=None):
         repo = self.findGitRepo(repoURL, revision)
         # git-local repos must already exist
         if not repo and not repoURL.startswith("git-local://"):

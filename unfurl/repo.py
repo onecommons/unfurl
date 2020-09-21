@@ -14,7 +14,18 @@ def normalizeGitUrl(url):
     return url
 
 
-def findGitRepo(url, isFile=True, importLoader=None):
+def isURLorGitPath(url):
+    if "://" in url and not url.startswith("file:"):
+        return True
+    if "@" in url:
+        return True
+    candidate, sep, frag = url.partition("#")
+    if candidate.rstrip("/").endswith(".git"):
+        return True
+    return False
+
+
+def splitGitUrl(url):
     """
   Returns (repoURL, filePath, revision)
   RepoURL will be an empty string if it isn't a path to a git repo
@@ -23,27 +34,13 @@ def findGitRepo(url, isFile=True, importLoader=None):
     if parts.scheme == "git-local":
         return parts.scheme + "://" + parts.netloc, parts.path[1:], parts.fragment
 
-    # XXX if importLoader: find the repository based on the path, and check revision
-    isUrl = parts.scheme != "file" or (not parts.scheme and not isFile)
-    if isUrl:
-        path = parts.path
-    else:
-        path = url
-
-    # hack for now: git url if ends in .git
-    a, b, c = path.partition(".git")
-    if not b and not path.startswith("git@"):
-        return "", url if isUrl else a, ""
-    else:
-        # path can end in #revision, return it
+    if parts.fragment:
         # see https://docs.docker.com/engine/reference/commandline/build/ for git urls like:
         # e.g. myrepo.git#mybranch, myrepo.git#pull/42/head, myrepo.git#:myfolder, myrepo.git#master:myfolder
-        revision, sep, folder = parts.fragment.partition(":")
-        if isUrl:
-            nofrag, sep, frag = url.rpartition("#")
-            return nofrag.strip("/"), folder, revision
-        else:
-            return a + b, c.strip("/"), revision
+        revision, sep, path = parts.fragment.partition(":")
+        giturl, sep, frag = url.partition("#")
+        return giturl, path, revision
+    return url, "", ""
 
 
 class _ProgressPrinter(git.RemoteProgress):
@@ -122,7 +119,7 @@ class Repo(object):
 
     @classmethod
     def createWorkingDir(cls, gitUrl, localRepoPath, revision="HEAD"):
-        # print("fetching", gitUrl, "to", localRepoPath)
+        logger.info("Fetching %s to %s", gitUrl, localRepoPath)
         empty_repo = git.Repo.init(localRepoPath)
         origin = empty_repo.create_remote("origin", gitUrl)
         progress = _ProgressPrinter()
