@@ -40,7 +40,8 @@ def findGitRepo(url, isFile=True, importLoader=None):
         # e.g. myrepo.git#mybranch, myrepo.git#pull/42/head, myrepo.git#:myfolder, myrepo.git#master:myfolder
         revision, sep, folder = parts.fragment.partition(":")
         if isUrl:
-            return url.strip("/"), folder, revision
+            nofrag, sep, frag = url.rpartition("#")
+            return nofrag.strip("/"), folder, revision
         else:
             return a + b, c.strip("/"), revision
 
