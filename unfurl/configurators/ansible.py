@@ -49,9 +49,11 @@ def getAnsibleResults(result, extraKeys=(), facts=()):
     keyMap = {
         "returncode": ["returncode"],
         "msg": ["msg"],
-        "error": ["exception", "module_stderr"],
+        "error": ["exception"],
         "stdout": ["stdout", "module_stdout"],
+        "stderr": ["module_stderr"],
     }
+    # other common keys: "result", "method", "diff", "invocation"
     for name, keys in keyMap.items():
         for key in keys:
             if key in result._result:
@@ -233,7 +235,7 @@ class AnsibleConfigurator(TemplateConfigurator):
         return []
 
     def processResult(self, task, result):
-        self.processResultTemplate(task, result.result)
+        self.processResultTemplate(task, dict(result.result, outputs=result.outputs))
         return result
 
     def run(self, task):
@@ -309,6 +311,8 @@ class AnsibleConfigurator(TemplateConfigurator):
                 or status == Status.degraded
             ):
                 # this can update resources so don't do it on error
+                # XXX align with shell configurator behavior
+                # (which is called unconditionally and before done())
                 result = self.processResult(task, result)
             yield result
 

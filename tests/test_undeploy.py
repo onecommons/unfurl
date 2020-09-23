@@ -269,8 +269,8 @@ class UndeployTest(unittest.TestCase):
             {
                 "id": "A01140000000",
                 "status": "ok",
-                "total": 2,
-                "ok": 2,
+                "total": 1,
+                "ok": 1,
                 "error": 0,
                 "unknown": 0,
                 "skipped": 0,
@@ -280,18 +280,6 @@ class UndeployTest(unittest.TestCase):
         )
         self.assertEqual(
             [
-                {
-                    "status": "ok",
-                    "target": "simple",
-                    "operation": "stop",
-                    "template": "simple",
-                    "type": "test.nodes.simple",
-                    "targetStatus": "absent",
-                    "changed": False,
-                    "configurator": "unfurl.configurators.TemplateConfigurator",
-                    "priority": "required",
-                    "reason": "undeploy",
-                },
                 {
                     "status": "ok",
                     "target": "simple",

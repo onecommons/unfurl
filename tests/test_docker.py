@@ -93,9 +93,10 @@ class DockerTest(unittest.TestCase):
         # manifest2 = pickle.loads(pickled)
 
         run1 = runner.run(JobOptions(template="container1"))
-        # runner.manifest.dump()
-        assert len(run1.workDone) == 2, run1.workDone  # configure and start
+        # configure (start op shouldn't run since docker_container sets state to started)
+        assert len(run1.workDone) == 1, run1.workDone
         tasks = list(run1.workDone.values())
+        # print(run1.out.getvalue())
         container = tasks[0].result.outputs.get("docker_container")
         assert container
         self.assertEqual(container["Name"], "/test_docker")
@@ -108,7 +109,8 @@ class DockerTest(unittest.TestCase):
         assert tasks[0].target.status.name == "ok", tasks[0].target.status
 
         run2 = runner.run(JobOptions(workflow="undeploy", template="container1"))
-        assert len(run2.workDone) == 2, run2.workDone
+        # stop op shouldn't be called, just delete
+        assert len(run2.workDone) == 1, run2.workDone
         assert not run2.unexpectedAbort, run2.unexpectedAbort.getStackTrace()
         tasks = list(run2.workDone.values())
         # runner.manifest.dump()

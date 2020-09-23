@@ -9,14 +9,38 @@ node_types:
         default:
           eval: ".name"
     interfaces:
+      defaults:
+        implementation:
+          className: unfurl.configurators.ansible.AnsibleConfigurator
+        outputs:
+          docker_container:
+        inputs:
+          resultTemplate: |
+            {% set status = outputs.docker_container.State.Status | d("") %}
+            {% set error = outputs.docker_container.State.Error | d("") %}
+            readyState:
+              state: {{ {'created': 'created', 'restarting': 'starting',
+                        'running': 'started', 'removing': 'deleting',
+                        'paused': 'stopped', 'exited': 'deleted', 'dead': 'deleted'}[status] }}
+              local: {%if error %}error
+                          {% elif status == 'exited' or status == 'dead' %}absent
+                          {% elif status == 'running' %}ok
+                          {%else%}pending{%endif%}
+      Install:
+        check:
+          inputs:
+            playbookArgs:
+              --check
+              --diff
+            playbook:
+              - docker_container:
+                  name:
+                    eval: name
+                  state: started
       Standard:
         operations:
           configure:
             description: Create or update a container
-            implementation:
-              className: unfurl.configurators.ansible.AnsibleConfigurator
-            outputs:
-              docker_container:
             inputs:
               playbook:
                 eval:
@@ -50,8 +74,6 @@ node_types:
                         <<: <% inputs.configuration | default({}) | mapValue | to_json %>
                     {% endfilter %}
           start:
-            implementation:
-              className: unfurl.configurators.ansible.AnsibleConfigurator
             inputs:
               playbook:
                 - docker_container:
@@ -59,8 +81,6 @@ node_types:
                       eval: name
                     state: started
           stop:
-            implementation:
-              className: unfurl.configurators.ansible.AnsibleConfigurator
             inputs:
               playbook:
                 - docker_container:
@@ -68,8 +88,6 @@ node_types:
                       eval: name
                     state: stopped
           delete:
-            implementation:
-              className: unfurl.configurators.ansible.AnsibleConfigurator
             inputs:
               playbook:
                 - docker_container:

@@ -314,7 +314,7 @@ class Plan(object):
         # XXX remove_target: Operation called on source when a target instance is removed
         # (but only called if add_target had been called)
 
-        if resource.created or self.workflow == "stop":
+        if resource.state in [NodeState.starting, NodeState.started] or self.workflow == "stop":
             nodeState = NodeState.stopping
             op = "Standard.stop"
 
@@ -323,9 +323,10 @@ class Plan(object):
             if req:
                 gen.send((yield req))
 
-            if self.workflow == "stop":
-                return
+        if self.workflow == "stop":
+            return
 
+        if resource.created:
             nodeState = NodeState.deleting
             op = "Standard.delete"
         else:

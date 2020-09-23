@@ -646,8 +646,9 @@ class TaskView(object):
             parent:   HOST
             attributes:
                anAttribute: aValue
-            status:
-                readyState: ok
+            readyState:
+              local: ok
+              state: state
           - name:     SELF
             attributes:
                 anAttribute: aNewValue
@@ -694,9 +695,14 @@ class TaskView(object):
                     # XXX2 if spec is defined (not just status), there should be a way to
                     # indicate this should replace an existing resource or throw an error
                     if "readyState" in resourceSpec:
+                        # we need to set this explicitly for the attribute manager to track status
+                        # XXX track all status attributes (esp. state and created) and remove this hack
                         operational = Manifest.loadStatus(resourceSpec)
-                        if operational.localStatus:
+                        if operational.localStatus is not None:
                             existingResource.localStatus = operational.localStatus
+                        if operational.state is not None:
+                            existingResource.state = operational.state
+
                     attributes = resourceSpec.get("attributes")
                     if attributes:
                         for key, value in mapValue(

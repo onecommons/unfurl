@@ -156,6 +156,7 @@ class RefContext(object):
     def resolveReference(self, key):
         val = self._resolveVar(key)
         self.addReference(key, val)
+        assert not isinstance(val.resolved, Result)
         return val.resolved
 
     def query(self, expr, vars=None, wantList=False):

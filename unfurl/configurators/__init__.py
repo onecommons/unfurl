@@ -1,9 +1,15 @@
 import six
 from ..configurator import Configurator, Status
+from ..result import ResultsMap
 
 
 class TemplateConfigurator(Configurator):
     def processResultTemplate(self, task, result):
+        """
+        for both the ansible and shell configurators
+        result can include: "returncode", "msg", "error", "stdout", "stderr"
+        Ansible also includes "outputs"
+        """
         # get the resultTemplate without evaluating it
         resultTemplate = task.inputs._attributes.get("resultTemplate")
         if resultTemplate:  # evaluate it now with the result
@@ -11,10 +17,15 @@ class TemplateConfigurator(Configurator):
                 query = dict(template=resultTemplate)
             else:
                 query = resultTemplate
-            results = task.query({"eval": query}, vars=result)
+
+            # workaround for jinja template processing setting Result when getting items
+            if not isinstance(result, ResultsMap):
+                vars = ResultsMap(result, task.inputs.context)
+                vars.doFullResolve = True
+            else:
+                vars = result
+            results = task.query({"eval": query}, vars=vars)
             if results:
-                if isinstance(results, six.string_types):
-                    result = results.strip()
                 task.updateResources(results)
 
     def canDryRun(self, task):
