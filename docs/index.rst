@@ -2,7 +2,7 @@
 
 .. image:: unfurl_logo.svg
 
-Welcome to Unfurl's documentation!
+User Manual
 ===================================
 
 .. toctree::
@@ -11,11 +11,23 @@ Welcome to Unfurl's documentation!
 
    README.md
 
-   cli.rst
-
    guide.md
 
+   get-started-step-by-step.rst
+
+   projects.rst
+
+   jobs.rst
+
+   configurators.rst
+
+   glossary.rst
+
+   cli.rst
+
    processing.rst
+
+   expressions.rst
 
    tosca.rst
 

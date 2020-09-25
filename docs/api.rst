@@ -30,7 +30,7 @@ Eval
 Support
 -------
 .. automodule:: unfurl.support
-  :members: TempFile
+  :members:
 
 Job
 -------

@@ -1,6 +1,6 @@
 .. see https://sphinx-click.readthedocs.io/en/latest/
 
-Command line usage
+Command Line
 ===================================
 
 .. contents::
