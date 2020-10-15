@@ -4,6 +4,7 @@ import git
 from git.repo.fun import is_git_dir
 import logging
 from six.moves.urllib.parse import urlparse
+from unfurl.util import UnfurlError
 
 logger = logging.getLogger("unfurl")
 
@@ -35,7 +36,9 @@ def splitGitUrl(url):
         return parts.scheme + "://" + parts.netloc, parts.path[1:], parts.fragment
 
     if parts.fragment:
-        # see https://docs.docker.com/engine/reference/commandline/build/ for git urls like:
+        # treat fragment as a git revision spec; see https://git-scm.com/docs/gitrevisions
+        # or https://docs.docker.com/engine/reference/commandline/build/#git-repositories
+        # just support <ref>:<path> for now
         # e.g. myrepo.git#mybranch, myrepo.git#pull/42/head, myrepo.git#:myfolder, myrepo.git#master:myfolder
         revision, sep, path = parts.fragment.partition(":")
         giturl, sep, frag = url.partition("#")
@@ -118,25 +121,19 @@ class Repo(object):
         return None, None, None
 
     @classmethod
-    def createWorkingDir(cls, gitUrl, localRepoPath, revision="HEAD"):
-        logger.info("Fetching %s to %s", gitUrl, localRepoPath)
-        empty_repo = git.Repo.init(localRepoPath)
-        origin = empty_repo.create_remote("origin", gitUrl)
+    def createWorkingDir(cls, gitUrl, localRepoPath, revision=None):
+        branch = revision or "master"
+        logger.info("Fetching %s (%s) to %s", gitUrl, branch, localRepoPath)
         progress = _ProgressPrinter()
         progress.gitUrl = gitUrl
-        for fetch_info in origin.fetch(progress=progress):
-            # e.g. origin/master to 29373a553e45bcd714e993c3600e867cfbd7b9eb
-            logger.info(
-                "Updated %s with %s at %s"
-                % (localRepoPath, fetch_info.ref, fetch_info.commit)
+        try:
+            repo = git.Repo.clone_from(gitUrl, localRepoPath, progress, branch=branch)
+        except git.exc.GitCommandError as err:
+            raise UnfurlError(
+                "couldn't create working dir, clone failed: " + err._cmdline
             )
-
-        # XXX don't assume "master"
-        empty_repo.create_head("master", origin.refs.master).set_tracking_branch(
-            origin.refs.master
-        ).checkout()
         Repo.ignoreDir(localRepoPath)
-        return GitRepo(empty_repo)
+        return GitRepo(repo)
 
 
 class GitRepo(Repo):
@@ -162,6 +159,12 @@ class GitRepo(Repo):
     @property
     def revision(self):
         return self.repo.head.commit.hexsha
+
+    def resolveRevSpec(self, revision):
+        try:
+            return self.repo.commit(revision).hexsha
+        except:
+            return None
 
     def findExcludedDirs(self, root):
         root = os.path.relpath(root, self.workingDir)
@@ -207,8 +210,8 @@ class GitRepo(Repo):
             f.write("\n" + rule)
 
     def show(self, path, commitId):
-        if os.path.abspath(path) and self.workingDir:
-            path = path[len(self.workingDir) :]
+        if self.workingDir and os.path.isabs(path):
+            path = os.path.abspath(path)[len(self.workingDir) :]
         # XXX this won't work if path is in a submodule
         # if in path startswith a submodule: git log -1 -p [commitid] --  [submodule]
         # submoduleCommit = re."\+Subproject commit (.+)".group(1)

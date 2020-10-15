@@ -154,10 +154,12 @@ class Project(object):
             else:
                 match = normalizeGitUrl(repoURL) == normalizeGitUrl(url)
             if match:
-                if not revision or revision == repo.revision:
-                    return repo
-                else:
+                if revision:
+                    if repo.revision == repo.resolveRevSpec(revision):
+                        return repo
                     candidate = repo
+                else:
+                    return repo
         return candidate
 
     def findPathInRepos(self, path, importLoader=None):
@@ -180,9 +182,9 @@ class Project(object):
             #         candidate = (repo, filePath, revision, bare)
         return candidate or None, None, None, None
 
-    def createWorkingDir(self, gitUrl, revision="HEAD"):
+    def createWorkingDir(self, gitUrl, ref=None):
         localRepoPath = self._createPathForGitRepo(gitUrl)
-        repo = Repo.createWorkingDir(gitUrl, localRepoPath, revision)
+        repo = Repo.createWorkingDir(gitUrl, localRepoPath, ref)
         # add to workingDirs
         self.workingDirs[os.path.abspath(localRepoPath)] = (gitUrl, repo)
         return repo
@@ -539,7 +541,13 @@ class LocalEnv(object):
                 repo = project.createWorkingDir(repoURL, revision)
         if not repo:
             return None, None, None
-        return (repo, repo.revision, revision and repo.revision != revision)
+
+        if revision:
+            # bare if HEAD isn't at the requested revision
+            bare = repo.revision != repo.resolveRevSpec(revision)
+            return repo, repo.revision, bare
+        else:
+            return repo, repo.revision, False
 
     def findPathInRepos(self, path, importLoader=None):
         """If the given path is part of the working directory of a git repository

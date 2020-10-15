@@ -315,6 +315,11 @@ ensemble.yaml
                 "",
                 "",
             ),
+            "https://github.com/onecommons/base.git#ref": (
+                "https://github.com/onecommons/base.git",
+                "",
+                "ref",
+            ),
             "git@github.com:onecommons/unfurl_site.git#rev:unfurl": (
                 "git@github.com:onecommons/unfurl_site.git",
                 "unfurl",
@@ -342,10 +347,13 @@ ensemble.yaml
             ensemble = LocalEnv().getManifest()
             # Updated origin/master to a319ac1914862b8ded469d3b53f9e72c65ba4b7f
             # the ensemble isn't part of a project so the home project is used
+            path = os.path.join(os.environ["UNFURL_HOME"], "asdf")
+            assert not os.path.isdir(os.path.join(path, ".git"))
             self.assertEqual(
-                os.path.join(os.environ["UNFURL_HOME"], "base-payments"),
+                path,
                 ensemble.rootResource.findResource("my_server").attributes["repo_path"],
             )
+            assert os.path.isdir(os.path.join(path, ".git"))
 
 
 repoManifestContent = """\
@@ -359,7 +367,7 @@ repoManifestContent = """\
       repositories:
         remote-git-repo:
           # use a remote git repository that is fast to download but big enough to test the fetching progress output
-          url: https://github.com/onecommons/base-payments.git
+          url: https://github.com/asdf-vm/asdf.git#v0.8.0
       topology_template:
         node_templates:
           my_server:

@@ -38,8 +38,7 @@ from .merge import (
     restoreIncludes,
 )
 
-from toscaparser.common.exception import ExceptionCollector
-from toscaparser.common.exception import URLException
+from toscaparser.common.exception import URLException, ExceptionCollector
 from toscaparser.utils.gettextutils import _
 
 from ansible.parsing.vault import VaultLib, VaultSecret
@@ -162,7 +161,13 @@ def resolveIfInRepository(manifest, path, isFile, importLoader=None):
     )
     if repo:  # it's a git repo
         if bare:
-            return filePath, six.StringIO(repo.show(filePath, revision)), True
+            if not filePath:
+                raise UnfurlError(
+                    "can't retrieve local repository for '%s' with revision '%s'"
+                    % (path, revision)
+                )
+            contents = repo.show(filePath, revision)
+            return filePath, six.StringIO(contents), True
         path = os.path.join(repo.workingDir, filePath)
         isFile = True
     else:
@@ -172,11 +177,8 @@ def resolveIfInRepository(manifest, path, isFile, importLoader=None):
                 path, importLoader, True
             )
             if repo:
-                if bare:
-                    contents = repo.show(filePath, revision)
-                    return filePath, six.StringIO(contents), isFile
-                else:
-                    path = os.path.join(repo.workingDir, filePath)
+                assert not bare
+                path = os.path.join(repo.workingDir, filePath)
     return path, None, isFile
 
 
@@ -227,8 +229,8 @@ def load_yaml(yaml, path, isFile=True, importLoader=None, fragment=None):
                     ) % {"path": path, "code": e.code}
                     ExceptionCollector.appendException(URLException(what=msg))
                     return
-            except Exception as e:
-                raise
+                else:
+                    raise
         with f:
             doc = yaml.load(f.read())
             if isinstance(doc, CommentedMap):
