@@ -1,5 +1,4 @@
 subprocess32;python_version<'3'
-mitogen==0.2.7 # BSD 3-clause
 docker[tls] # Apache 2.0
 openshift # Apache 2.0
 octodns # MIT

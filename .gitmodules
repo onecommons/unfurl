@@ -1,6 +1,3 @@
 [submodule "tosca-parser"]
 	path = tosca-parser
 	url = https://github.com/onecommons/tosca-parser.git
-[submodule "mitogen"]
-	path = mitogen
-	url = https://github.com/dw/mitogen.git
