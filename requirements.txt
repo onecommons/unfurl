@@ -4,7 +4,7 @@ click>=7.1.2 # BSD 3-clause
 click-log  # MIT
 jsonschema[format_nongpl]==3.2 # MIT
 ruamel.yaml>=0.16.8 # MIT
-ansible>=2.9.2 # gpl 3
+ansible==2.9.14 # gpl 3
 GitPython # BSD
 -r tosca-parser/requirements.txt # Apache 2.0
 enum34; python_version<'3'
