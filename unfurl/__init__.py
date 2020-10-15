@@ -138,19 +138,7 @@ else:
 
     ansible.utils.display.Display.display = _display
 
-    from ansible.plugins.loader import lookup_loader, filter_loader, strategy_loader
+    from ansible.plugins.loader import lookup_loader, filter_loader
 
     lookup_loader.add_directory(os.path.abspath(os.path.dirname(__file__)), True)
     filter_loader.add_directory(os.path.abspath(os.path.dirname(__file__)), True)
-    strategy_loader.add_directory(
-        os.path.abspath(
-            os.path.join(
-                os.path.dirname(__file__),
-                "vendor",
-                "ansible_mitogen",
-                "plugins",
-                "strategy",
-            )
-        ),
-        False,
-    )
