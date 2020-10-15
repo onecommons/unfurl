@@ -65,7 +65,7 @@ contexts:
         vault_default_password: testing
 """
 
-
+@unittest.skipIf('terraform' in os.getenv('UNFURL_TEST_SKIP', ''), "UNFURL_TEST_SKIP set")
 class TerraformTest(unittest.TestCase):
     def setUp(self):
         import threading

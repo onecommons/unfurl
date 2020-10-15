@@ -69,7 +69,7 @@ spec:
                           when: registry and registry.credential
 """
 
-
+@unittest.skipIf('docker' in os.getenv('UNFURL_TEST_SKIP', ''), "UNFURL_TEST_SKIP set")
 class DockerTest(unittest.TestCase):
     def setUp(self):
         try:

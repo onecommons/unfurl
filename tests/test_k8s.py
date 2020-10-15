@@ -50,7 +50,7 @@ spec:
                uri: "{{ lookup('env', 'TEST_SECRET') }}"
 """
 
-
+@unittest.skipIf('k8s' in os.getenv('UNFURL_TEST_SKIP', ''), "UNFURL_TEST_SKIP set")
 class k8sTest(unittest.TestCase):
     def setUp(self):
         try:
