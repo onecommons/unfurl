@@ -2,7 +2,7 @@ subprocess32;python_version<'3'
 docker[tls] # Apache 2.0
 openshift # Apache 2.0
 octodns # MIT
-ansible[azure] # GPL 3
+ansible[azure]==2.9.14 # GPL 3
 boto # Apache 2.0
 boto3 # Apache 2.0
 supervisor # BSD, see https://web.archive.org/web/20190406171444/http://repoze.org/LICENSE.txt
