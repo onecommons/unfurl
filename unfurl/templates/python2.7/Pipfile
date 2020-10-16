@@ -7,30 +7,32 @@ verify_ssl = true
 
 [packages]
 pipenv = ">=2020.6.2"
-click = "==7.1.1"
+click = ">=7.1.2"
 click-log = "*"
 jsonschema = {extras = ["format_nongpl"], version = "==3.2"}
-"ruamel.yaml" = ">=0.15.37"
+"ruamel.yaml" = ">=0.16.8"
 docker = {extras = ["tls"], version = "*"}
-pbr = ">=2.0.0,!=2.1.0"
-cliff = ">=2.8.0,!=2.9.0"
+pbr = "!=2.1.0,>=2.0.0"
+cliff = "!=2.9.0,>=2.8.0"
 python-dateutil = ">=2.5.3"
 six = ">=1.10.0"
 stevedore = ">=1.20.0"
 requests = ">=2.14.2"
 enum34 = "*"
 subprocess32 = "*"
-ansible = {extras = ["azure"], version = "*"}
+ansible = {extras = ["azure"], version = "==2.9.14"}
 mitogen = "==0.2.7"
 openshift = "*"
 octodns = "*"
 Jinja2 = "*"
 GitPython = "*"
-Babel = ">=2.3.4,!=2.4.0"
+Babel = "!=2.4.0,>=2.3.4"
 PyYAML = ">=3.12"
 boto = "*"
 boto3 = "*"
 supervisor = "*"
+pyrsistent = "==0.15.7"
+google-auth = "*"
 
 [requires]
 python_version = "2.7"
