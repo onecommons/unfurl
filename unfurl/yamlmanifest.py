@@ -221,7 +221,7 @@ class ReadOnlyManifest(Manifest):
 def clone(localEnv, destPath):
     clone = ReadOnlyManifest(localEnv=localEnv)
     config = clone.manifest.config
-    for key in ["status", "changes", "lastJob"]:
+    for key in ["metadata", "status", "changes", "lastJob"]:
         config.pop(key, None)
     repositories = Manifest._getRepositories(config)
     repositories.pop("self", None)
@@ -288,12 +288,17 @@ class YamlManifest(ReadOnlyManifest):
         # Now that we loaded the main manifest and set the root's baseDir
         # let's do it before we import any other manifests.
         # But only if we're the main manifest.
-        if self.context.get("environment") and self.isPathToSelf(
-            self.localEnv.manifestPath
-        ):
-            env = filterEnv(mapValue(self.context["environment"], root))
-            intersectDict(os.environ, env)  # remove keys not in env
-            os.environ.update(env)
+        if not self.localEnv or self.isPathToSelf(self.localEnv.manifestPath):
+            if self.context.get("environment"):
+                env = filterEnv(mapValue(self.context["environment"], root))
+                intersectDict(os.environ, env)  # remove keys not in env
+                os.environ.update(env)
+            paths = self.localEnv and self.localEnv.getPaths()
+            if paths:
+                os.environ["PATH"] = (
+                    os.pathsep.join(paths) + os.pathsep + os.environ.get("PATH", [])
+                )
+                logger.debug("PATH set to %s", os.environ["PATH"])
 
         importsSpec = self.context.get("external", {})
         # note: external "localhost" is defined in UNFURL_HOME's context by convention

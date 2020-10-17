@@ -119,6 +119,13 @@ class ToscaSpec(object):
     def baseDir(self):
         return getBaseDir(self.template.path)
 
+    def _getProjectDir(self):
+        # hacky
+        manifest = getattr(self.template.tpl, "manifest", None)
+        if manifest and manifest.localEnv and manifest.localEnv.project:
+            return manifest.localEnv.project.projectRoot
+        return None
+
     def addNodeTemplate(self, name, tpl):
         nodeTemplate = self.template.topology_template.add_template(name, tpl)
         nodeSpec = NodeSpec(nodeTemplate, self)

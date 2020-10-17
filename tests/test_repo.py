@@ -23,6 +23,16 @@ def createUnrelatedRepo(gitDir):
     repo.index.commit("Initial Commit")
     return repo
 
+installDirs = [('terraform', '0.12.29', 'bin'), ('gcloud', '313.0.0', 'bin'),  ('helm', '3.3.4', 'bin')]
+def makeAsdfFixtures(base):
+  # make install dirs so we can pretend we already downloaded these
+  for subdir in installDirs:
+      path = os.path.join(base, 'plugins', subdir[0])
+      if not os.path.exists(path):
+          os.makedirs(path)
+      path = os.path.join(base, 'installs', *subdir)
+      if not os.path.exists(path):
+          os.makedirs(path)
 
 class AConfigurator(Configurator):
     def run(self, task):
@@ -339,6 +349,42 @@ ensemble.yaml
             else:
                 assert not isURLorGitPath(url), url
 
+    def test_home_template(self):
+        runner = CliRunner()
+        with runner.isolated_filesystem():
+            # override home so to avoid interferring with other tests
+            result = runner.invoke(cli, ["--home", "./unfurl_home", "home", "--init"])
+            # uncomment this to see output:
+            # print("result.output", result.exit_code, result.output)
+            assert not result.exception, "\n".join(
+                traceback.format_exception(*result.exc_info)
+            )
+
+            assert not os.path.exists('./unfurl_home/.tool_versions')
+            makeAsdfFixtures("test_asdf")
+            os.environ['ASDF_DATA_DIR'] = os.path.abspath('test_asdf')
+            args = [
+                #  "-vvv",
+                "deploy",
+                "./unfurl_home",
+                "--commit",
+                "--jobexitcode",
+                "degraded",
+            ]
+            result = runner.invoke(cli, args)
+            # print("result.output", result.exit_code, result.output)
+            assert not result.exception, "\n".join(
+                traceback.format_exception(*result.exc_info)
+            )
+            self.assertEqual(result.exit_code, 0, result)
+
+            assert os.path.exists('unfurl_home/.tool-versions')
+            LocalEnv('unfurl_home').getManifest()
+            paths = os.environ["PATH"].split(os.pathsep)
+            assert len(paths) >= len(installDirs)
+            for dirs, path in zip(installDirs, paths):
+                self.assertIn(os.sep.join(dirs), path)
+
     def test_remote_git_repo(self):
         runner = CliRunner()
         with runner.isolated_filesystem():
@@ -347,7 +393,7 @@ ensemble.yaml
             ensemble = LocalEnv().getManifest()
             # Updated origin/master to a319ac1914862b8ded469d3b53f9e72c65ba4b7f
             # the ensemble isn't part of a project so the home project is used
-            path = os.path.join(os.environ["UNFURL_HOME"], "asdf")
+            path = os.path.join(os.environ["UNFURL_HOME"], "base-payments")
             assert not os.path.isdir(os.path.join(path, ".git"))
             self.assertEqual(
                 path,
@@ -367,7 +413,7 @@ repoManifestContent = """\
       repositories:
         remote-git-repo:
           # use a remote git repository that is fast to download but big enough to test the fetching progress output
-          url: https://github.com/asdf-vm/asdf.git#v0.8.0
+          url: https://github.com/onecommons/base-payments.git
       topology_template:
         node_templates:
           my_server:

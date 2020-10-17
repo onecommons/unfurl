@@ -86,6 +86,28 @@ class Project(object):
             return venv
         return None
 
+    def getAsdfPaths(self, asdfDataDir):
+        paths = []
+        toolVersionsFilename = (
+            os.getenv("ASDF_DEFAULT_TOOL_VERSIONS_FILENAME") or ".tool-versions"
+        )
+        versionConf = os.path.join(self.projectRoot, toolVersionsFilename)
+        if os.path.exists(versionConf):
+            with open(versionConf) as conf:
+                for line in conf.readlines():
+                    line = line.strip()
+                    if line and line[0] != "#":
+                        tokens = line.split()
+                        plugin = tokens.pop(0)
+                        for version in tokens:
+                            if version != "system":
+                                path = os.path.join(
+                                    asdfDataDir, "installs", plugin, version, "bin"
+                                )
+                                if os.path.isdir(path):
+                                    paths.append(path)
+        return paths
+
     def getRepos(self):
         repos = [repo for (gitUrl, repo) in self.workingDirs.values()]
         if self.projectRepo and self.projectRepo not in repos:
@@ -592,3 +614,23 @@ class LocalEnv(object):
         instance = NodeInstance()
         instance._baseDir = self.config.config.getBaseDir()
         return mapValue(val, instance)
+
+    def getPaths(self):
+        paths = []
+        asdfDataDir = os.getenv("ASDF_DATA_DIR")
+        if not asdfDataDir:
+            # check if an ensemble previously installed asdf via git
+            repo = self.findGitRepo("https://github.com/asdf-vm/asdf.git/")
+            if repo:
+                asdfDataDir = repo.workingDir
+            else:
+                homeAsdf = os.path.expanduser("~/.asdf")
+                if os.path.isdir(homeAsdf):
+                    asdfDataDir = homeAsdf
+        if asdfDataDir:
+            # project has higher priority over home project
+            if self.project:
+                paths = self.project.getAsdfPaths(asdfDataDir)
+            if self.homeProject:
+                paths += self.homeProject.getAsdfPaths(asdfDataDir)
+        return paths

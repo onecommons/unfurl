@@ -80,7 +80,9 @@ class File(ExternalValue):
 
     def write(self, obj):
         encoding = self.encoding if self.encoding != "binary" else None
-        saveToFile(self.getFullPath(), obj, self.yaml, encoding)
+        path = self.getFullPath()
+        logger.debug("writing to %s", path)
+        saveToFile(path, obj, self.yaml, encoding)
 
     def getFullPath(self):
         return os.path.abspath(os.path.join(self.baseDir, self.get()))
@@ -221,6 +223,8 @@ def _getbaseDir(ctx, name=None):
         return os.path.join(instance.baseDir, instance.name)
     elif name == "local":
         return os.path.join(instance.baseDir, instance.name, "local")
+    elif name == "project":
+        return instance.template.spec._getProjectDir() or instance.baseDir
     else:
         start, sep, rest = name.partition(".")
         if sep:
@@ -781,9 +785,7 @@ class SecretResource(ExternalResource):
         # raises KeyError if not found
         val = super(SecretResource, self).resolveKey(name, currentResource)
         if isinstance(val, Result):
-            # XXX we need add sensitive flags to Result and Results
-            # so we mark this as sensitive without resolving it
-            # (with potential infinite recursion)
+            val.resolved = wrapSensitiveValue(val.resolved)
             return val
         else:
             return wrapSensitiveValue(val)
