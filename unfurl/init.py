@@ -52,11 +52,13 @@ def renameForBackup(dir):
     return new
 
 
-def get_random_password(count):
+def get_random_password(count=12, prefix="uv"):
     srandom = random.SystemRandom()
     start = string.ascii_letters + string.digits
     source = string.ascii_letters + string.digits + "%&()*+,-./:<>?=@[]^_`{}~"
-    return "".join(srandom.choice(source if i else start) for i in range(count))
+    return prefix + "".join(
+        srandom.choice(source if i else start) for i in range(count)
+    )
 
 
 def _writeFile(folder, filename, content):
@@ -206,7 +208,7 @@ def createProjectRepo(
     localConfigFilename = DefaultNames.LocalConfig
     manifestPath = os.path.join(DefaultNames.EnsembleDirectory, DefaultNames.Ensemble)
 
-    vars = dict(vaultpass=get_random_password(8))
+    vars = dict(vaultpass=get_random_password())
     # manifestPath should be in local if ensemble is a separate repo
     if addDefaults and not mono:
         vars["manifestPath"] = manifestPath
