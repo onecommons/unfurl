@@ -463,13 +463,14 @@ def filterEnv(rules, env=None, addOnly=False):
     +foo: bar # copy foo, set it bar if not present
     +!foo*: # copy all except keys matching "foo*"
     -!foo: # remove all except foo
+    ^foo: /bar/bin # treat foo like a PATH and prepend value: /bar/bin:$foo
     """
     if env is None:
         env = os.environ
 
     start = {} if addOnly else env.copy()
     for name, val in rules.items():
-        if name[:1] in "+-":
+        if name[:1] in "+-^":
             # add or remove from env
             remove = name[1] == "-"
             name = name[1:]
@@ -492,6 +493,9 @@ def filterEnv(rules, env=None, addOnly=False):
                 ]
             else:
                 if match:
+                    if name[1] == "^" and val:
+                        # treat as PATH-like and prepend val
+                        match = {k: (val + os.pathsep + v) for k, v in match.items()}
                     start.update(match)
                 elif val is not None:  # name isn't in existing, use default is set
                     start[name] = val
@@ -520,3 +524,5 @@ required_envvars = [
     "UNFURL_RUNTIME",
     "UNFURL_NORUNTIME",
 ]
+# hack for sphinx ext documentedlist
+_sphinx_envvars = [(i,) for i in required_envvars]
