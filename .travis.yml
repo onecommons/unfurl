@@ -4,6 +4,6 @@ python:
   - "3.7"
   - "3.8"
 env:
-  - UNFURL_TEST_SKIP=terraform+docker+k8s+helm
+  - UNFURL_TEST_SKIP=terraform+k8s+helm
 install: pip install tox-travis
 script: tox
