@@ -5,7 +5,13 @@ python:
   - "3.8"
 env:
   global:
-    - UNFURL_TEST_SKIP=terraform+k8s+helm
+    - UNFURL_TEST_SKIP=k8s+helm
     - TOX_SKIP_ENV=.+(docker|lock)
+    - tf_version=0.12.29
+before_install:
+  - wget https://releases.hashicorp.com/terraform/"$tf_version"/terraform_"$tf_version"_linux_amd64.zip
+  - unzip terraform_"$tf_version"_linux_amd64.zip
+  - sudo mv terraform /usr/local/bin/
+  - rm terraform_"$tf_version"_linux_amd64.zip
 install: pip install tox-travis
 script: tox
