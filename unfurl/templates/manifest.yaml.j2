@@ -5,6 +5,10 @@ kind: Ensemble
   file: {{ensembleTemplate}}
   repository: spec
 {%- endif %}
+{%- if ensembleUri is defined %}
+metadata:
+  uri: {{ ensembleUri }}
+{%- endif %}
 spec:
   service_template:
     {%- if serviceTemplate is defined %}

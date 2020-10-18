@@ -195,6 +195,23 @@ class ReadOnlyManifest(Manifest):
         assert self.tosca
 
     @property
+    def uris(self):
+        uris = []
+        if "metadata" in self.manifest.config:
+            uri = self.metadata.get("uri")
+            uris = self.metadata.get("aliases") or []
+            if uri:
+                return [uri] + uris
+        return uris
+
+    def hasUri(self, uri):
+        return uri in self.uris
+
+    @property
+    def metadata(self):
+        return self.manifest.config.setdefault("metadata", CommentedMap())
+
+    @property
     def yaml(self):
         return self.manifest.yaml
 
@@ -221,8 +238,11 @@ class ReadOnlyManifest(Manifest):
 def clone(localEnv, destPath):
     clone = ReadOnlyManifest(localEnv=localEnv)
     config = clone.manifest.config
-    for key in ["metadata", "status", "changes", "lastJob"]:
+    for key in ["status", "changes", "lastJob"]:
         config.pop(key, None)
+    if "metadata" in config:
+        config["metadata"].pop("uri", None)
+        config["metadata"].pop("aliases", None)
     repositories = Manifest._getRepositories(config)
     repositories.pop("self", None)
     clone.manifest.path = destPath
@@ -333,6 +353,11 @@ class YamlManifest(ReadOnlyManifest):
                 continue
             localEnv = self.localEnv or LocalEnv(path)
             importedManifest = localEnv.getManifest(path)
+            uri = value.get("uri")
+            if uri and not importedManifest.hasUri(uri):
+                raise UnfurlError(
+                    "Error importing '%s', uri mismatch for '%s'" % (path, uri)
+                )
             rname = value.get("instance", "root")
             if rname == "*":
                 rname = "root"

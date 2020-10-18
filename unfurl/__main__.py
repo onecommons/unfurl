@@ -390,7 +390,7 @@ def plan(ctx, ensemble=None, **options):
     return _run(ensemble, options)
 
 
-@cli.command(short_help="Create a new unfurl project")
+@cli.command(short_help="Create a new unfurl project or ensemble")
 @click.pass_context
 @click.argument("projectdir", default=".", type=click.Path(exists=False))
 @click.option(
@@ -413,10 +413,18 @@ unfurl init [project] # creates a unfurl project with new spec and instance repo
             raise click.ClickException(
                 'Can not create project in "' + projectdir + '": file already exists'
             )
-        elif os.listdir(projectdir):
-            raise click.ClickException(
-                'Can not create project in "' + projectdir + '": folder is not empty'
-            )
+        else:
+            # destination is inside an existing project, just create a new ensemble
+            if os.path.exists(os.path.join(projectdir, DefaultNames.LocalConfig)):
+                message = cloneEnsemble(projectdir, projectdir, **options)
+                click.echo(message)
+                return
+            elif os.listdir(projectdir):
+                raise click.ClickException(
+                    'Can not create project in "'
+                    + projectdir
+                    + '": folder is not empty'
+                )
 
     homePath, projectPath = createProject(projectdir, **options)
     if homePath:

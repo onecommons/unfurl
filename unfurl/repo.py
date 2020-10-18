@@ -166,6 +166,15 @@ class GitRepo(Repo):
         except:
             return None
 
+    def getUrlWithPath(self, path):
+        if isURLorGitPath(self.url):
+            if os.path.isabs(path):
+                # get path relative to repository's root
+                path = os.path.relpath(path, self.workingDir)
+            return self.url + "#:" + path
+        else:
+            return self.getGitLocalUrl(path)
+
     def findExcludedDirs(self, root):
         root = os.path.relpath(root, self.workingDir)
         status, stdout, stderr = self.runCmd(

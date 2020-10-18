@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-06/schema#",
-  "title": "manifest.yaml",
+  "title": "ensemble.yaml",
   "definitions": {
     "state": {
       "title": "state",
@@ -111,6 +111,7 @@
             "repository": { "type": "string" }
           }
         },
+        "uri": { "type": "string", "format": "uri" },
         "instance": { "type": "string" },
         "connections": {"anyOf": [{ "const": "*"}, { "type": "object" }]},
         "properties": { "$ref": "#/definitions/attributes" },
@@ -209,8 +210,8 @@
         "./manifest-schema.json#/definitions/changes"
       ],
       "type": "array",
-      "additionalItems": {
-        "oneOf": [
+      "items": {
+        "anyOf": [
           { "$ref": "#/definitions/job" },
           { "$ref": "#/definitions/task" }
         ]
@@ -290,6 +291,19 @@
   "properties": {
     "apiVersion": { "const": "unfurl/v1alpha1" },
     "kind": { "enum": ["Manifest", "Ensemble"] },
+    "metadata": {
+      "type": "object",
+      "properties": {
+        "uri": { "type": "string", "format": "uri" },
+        "aliases": {
+            "type": "array",
+            "items": {
+              "type": "string", "format": "uri"
+            }
+        }
+      },
+      "required": ["uri"]
+    },
     "context": { "$ref": "#/definitions/context" },
     "spec": {
       "type": "object",
@@ -328,6 +342,9 @@
     "changeLog": { "type": "string" },
     "jobsFolder": { "type": "string" },
     "changes": { "$ref": "#/definitions/changes" }
+  },
+  "lock": {
+    "type": "object"
   },
   "required": ["apiVersion", "kind", "spec"]
 }

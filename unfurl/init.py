@@ -242,14 +242,24 @@ def createProjectRepo(
         files.append(ensembleTemplatePath)
         ensembleDir = os.path.join(projectdir, DefaultNames.EnsembleDirectory)
         manifestName = DefaultNames.Ensemble
+        if mono:
+            ensembleRepo = repo
+        else:
+            ensembleRepo = _createRepo(ensembleDir)
+        extraVars = dict(
+            ensembleUri=ensembleRepo.getUrlWithPath(
+                os.path.abspath(os.path.join(ensembleDir, manifestName))
+            )
+        )
         # write ensemble/ensemble.yaml
-        manifestPath = writeEnsembleManifest(ensembleDir, manifestName, repo)
+        manifestPath = writeEnsembleManifest(
+            ensembleDir, manifestName, repo, extraVars=extraVars
+        )
         if mono:
             files.append(manifestPath)
         else:
-            newRepo = _createRepo(ensembleDir)
-            newRepo.repo.index.add([os.path.abspath(manifestPath)])
-            newRepo.repo.index.commit("Default ensemble repository boilerplate")
+            ensembleRepo.repo.index.add([os.path.abspath(manifestPath)])
+            ensembleRepo.repo.index.commit("Default ensemble repository boilerplate")
 
     repo.commitFiles(files, "Create a new unfurl repository")
     return projectConfigPath
@@ -302,11 +312,11 @@ def initNewEnsemble(manifest, sourceProject, targetProject):
     destDir = os.path.dirname(manifest.manifest.path)
     if targetProject.projectRepo and targetProject is not sourceProject:
         repo = targetProject.projectRepo
-        relPath, revision, bare = repo.findPath(destDir)
     else:
         # XXX support --mono and --existing
         repo = _createRepo(destDir)
 
+    manifest.metadata["uri"] = repo.getUrlWithPath(manifest.manifest.path)
     with open(manifest.manifest.path, "w") as f:
         manifest.dump(f)
 
@@ -360,10 +370,10 @@ def createNewEnsemble(templateVars, sourceProject, targetPath, targetProject):
     else:
         destDir = targetPath
         manifestName = DefaultNames.Ensemble
-        targetPath = os.path.join(destDir, manifestName)
     # choose a destDir that doesn't conflict with an existing folder
     # (i.e. if default ensemble already exists)
     destDir = targetProject.getUniquePath(destDir)
+    targetPath = os.path.join(destDir, manifestName)
 
     if "manifestPath" not in templateVars:
         # we found a template file to clone
