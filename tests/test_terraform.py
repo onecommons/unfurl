@@ -6,6 +6,9 @@ from unfurl.support import Status
 from unfurl.localenv import LocalEnv
 from click.testing import CliRunner
 
+# python2.7 workarounds:
+import unfurl.configurators
+import unfurl.configurators.terraform
 
 ensembleConfig = """
 apiVersion: unfurl/v1alpha1
