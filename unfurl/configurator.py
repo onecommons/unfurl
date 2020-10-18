@@ -866,6 +866,37 @@ class Dependency(ChangeAware):
         return False
 
 
+def _setDefaultCommand(kw, implementation, inputs):
+    # is it a shell script or a command line?
+    shell = inputs and inputs.get("shell")
+    if shell is None:
+        # no special shell characters
+        shell = not re.match(r"[\w.-]+\Z", implementation)
+
+    operation_host = kw.get("operation_host")
+    if not operation_host or operation_host == "localhost":
+        className = "unfurl.configurators.shell.ShellConfigurator"
+        if shell:
+            shellArgs = dict(command=implementation)
+        else:
+            shellArgs = dict(command=[implementation])
+    else:
+        className = "unfurl.configurators.ansible.AnsibleConfigurator"
+        module = "shell" if shell else "command"
+        playbookTask = dict(cmd=implementation)
+        cwd = inputs.get("cwd")
+        if cwd:
+            playbookTask["chdir"] = cwd
+        if shell and isinstance(shell, six.string_types):
+            playbookTask["executable"] = shell
+        shellArgs = dict(playbook=[{module: playbookTask}])
+
+    kw["className"] = className
+    if inputs:
+        shellArgs.update(inputs)
+    kw["inputs"] = shellArgs
+
+
 def getConfigSpecArgsFromImplementation(iDef, inputs, template):
     # XXX template should be operation_host's template!
     implementation = iDef.implementation
@@ -896,6 +927,7 @@ def getConfigSpecArgsFromImplementation(iDef, inputs, template):
             return None
         implementation = artifact.file
         try:
+            # try to treat implemenation as a python class
             if "#" in implementation:
                 path, fragment = artifact.getPathAndFragment()
                 mod = loadModule(path)
@@ -904,19 +936,9 @@ def getConfigSpecArgsFromImplementation(iDef, inputs, template):
                 lookupClass(implementation)
                 kw["className"] = implementation
         except UnfurlError:
+            # assume it's a command line
             logger.debug(
                 "interpreting 'implementation' as a shell command: %s", implementation
             )
-            # is it a shell script or a command line?
-            # assume its a command line, create a ShellConfigurator
-            kw["className"] = "unfurl.configurators.shell.ShellConfigurator"
-            shell = inputs and inputs.get("shell")
-            if shell is False or re.match(r"[\w.-]+\Z", implementation):
-                # don't use the shell
-                shellArgs = dict(command=[implementation])
-            else:
-                shellArgs = dict(command=implementation)
-            if inputs:
-                shellArgs.update(inputs)
-            kw["inputs"] = shellArgs
+            _setDefaultCommand(kw, implementation, inputs)
     return kw

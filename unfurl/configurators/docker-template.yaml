@@ -14,14 +14,17 @@ node_types:
           className: unfurl.configurators.ansible.AnsibleConfigurator
         outputs:
           docker_container:
+          image_path:
         inputs:
+          # https://medium.com/@BeNitinAgarwal/lifecycle-of-docker-container-d2da9f85959
+          # https://stackoverflow.com/questions/32427684/what-are-the-possible-states-for-a-docker-container
           resultTemplate: |
             {% set status = outputs.docker_container.State.Status | d("") %}
             {% set error = outputs.docker_container.State.Error | d("") %}
             readyState:
               state: {{ {'created': 'created', 'restarting': 'starting',
                         'running': 'started', 'removing': 'deleting',
-                        'paused': 'stopped', 'exited': 'deleted', 'dead': 'deleted'}[status] }}
+                        'paused': 'stopped',  'stopped': 'stopped', 'exited': 'deleted', 'dead': 'deleted'}[status] }}
               local: {%if error %}error
                           {% elif status == 'exited' or status == 'dead' %}absent
                           {% elif status == 'running' %}ok

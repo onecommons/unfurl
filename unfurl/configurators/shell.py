@@ -131,10 +131,15 @@ class ShellConfigurator(TemplateConfigurator):
             else:
                 # Windows and 2.7 don't have _save_input
                 run = subprocess.run
+            if shell and isinstance(shell, six.string_types):
+                executable = shell
+            else:
+                executable = None
             completed = run(
                 # follow recommendation to use string with shell, list without
                 cmdStr if shell else cmd,
                 shell=shell,
+                executable=executable,
                 env=env,
                 cwd=cwd,
                 timeout=timeout,
@@ -193,7 +198,9 @@ class ShellConfigurator(TemplateConfigurator):
 
     def _handleResult(self, task, result):
         status = self._getStatusFromResult(task, result)
-        self.processResultTemplate(task, result.__dict__)
+        resultDict = result.__dict__.copy()
+        resultDict["success"] = status == Status.ok
+        self.processResultTemplate(task, resultDict)
         if task._errors:
             status = Status.error
         return status
