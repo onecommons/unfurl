@@ -38,7 +38,7 @@ spec:
                   if ! [ -x "$(command -v asdf)" ]; then
                     ASDF_REPO={{ "asdf" | get_dir }}
                     export ASDF_DATA_DIR="${ASDF_DATA_DIR:-$ASDF_REPO}"
-                    . $ASDF_REPO/asdf.sh
+                    source $ASDF_REPO/asdf.sh
                   fi
                   asdf plugin add terraform
                   asdf install terraform 0.12.29
@@ -53,6 +53,7 @@ spec:
                   # set this so .tool-versions is written to the project root
                   cwd: '{{ "project" | get_dir }}'
                   keeplines: true
+                  shell: '{{ "bash" | which }}'
 
         localhost:
           type: tosca.nodes.Compute

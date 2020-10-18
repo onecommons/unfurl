@@ -258,6 +258,7 @@ ensemble.yaml
                 "--home",
                 "./unfurl_home",
                 "check",
+                "--dirty",
                 "--commit",
                 "--jobexitcode",
                 "degraded",
@@ -367,7 +368,6 @@ ensemble.yaml
                 #  "-vvv",
                 "deploy",
                 "./unfurl_home",
-                "--commit",
                 "--jobexitcode",
                 "degraded",
             ]

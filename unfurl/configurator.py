@@ -874,6 +874,7 @@ def _setDefaultCommand(kw, implementation, inputs):
         shell = not re.match(r"[\w.-]+\Z", implementation)
 
     operation_host = kw.get("operation_host")
+    implementation = implementation.lstrip()
     if not operation_host or operation_host == "localhost":
         className = "unfurl.configurators.shell.ShellConfigurator"
         if shell:
@@ -935,7 +936,7 @@ def getConfigSpecArgsFromImplementation(iDef, inputs, template):
             else:
                 lookupClass(implementation)
                 kw["className"] = implementation
-        except UnfurlError:
+        except:
             # assume it's a command line
             logger.debug(
                 "interpreting 'implementation' as a shell command: %s", implementation

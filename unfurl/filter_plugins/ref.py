@@ -1,6 +1,7 @@
 import os.path
 from unfurl.eval import Ref, mapValue
 from unfurl.support import abspath, getdir
+from unfurl.util import which
 from jinja2.filters import contextfilter
 
 # from ansible.errors import AnsibleError, AnsibleFilterError
@@ -47,4 +48,5 @@ class FilterModule(object):
             "mapValue": mapValueFilter,
             "abspath": _abspath,
             "get_dir": get_dir,
+            "which": which,
         }

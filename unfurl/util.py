@@ -28,6 +28,18 @@ import codecs
 import io
 
 try:
+    from shutil import which
+except ImportError:
+    from distutils import spawn
+
+    def which(executable, mode=os.F_OK | os.X_OK, path=None):
+        executable = spawn.find_executable(executable, path)
+        if executable:
+            if os.access(executable, mode):
+                return executable
+        return None
+
+try:
     import importlib.util
 
     imp = None

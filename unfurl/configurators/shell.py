@@ -20,6 +20,7 @@ inputs:
 # XXX add support for a stdin parameter
 
 from ..configurator import Status
+from ..util import which
 from . import TemplateConfigurator
 import os
 import sys
@@ -33,17 +34,6 @@ else:
     import subprocess
 # cf https://github.com/opsmop/opsmop/blob/master/opsmop/core/command.py
 
-try:
-    from shutil import which
-except ImportError:
-    from distutils import spawn
-
-    def which(executable, mode=os.F_OK | os.X_OK, path=None):
-        executable = spawn.find_executable(executable, path)
-        if executable:
-            if os.access(executable, mode):
-                return executable
-        return None
 
 
 class _PrintOnAppendList(list):
@@ -183,17 +173,20 @@ class ShellConfigurator(TemplateConfigurator):
         )
         if status == Status.error:
             task.logger.warning("shell task run failure: %s", result.cmd)
-            task.logger.info(
-                "shell task return code: %s, stderr: %s",
-                result.returncode,
-                result.stderr,
-            )
+            if result.error:
+                task.logger.info("shell task error", exc_info=result.error)
+            else:
+                task.logger.info(
+                    "shell task return code: %s, stderr: %s",
+                    result.returncode,
+                    result.stderr,
+                )
         else:
             task.logger.info("shell task run success: %s", result.cmd)
             task.logger.debug("shell task output: %s", result.stdout)
         # strips terminal escapes after we printed output via logger
-        result.stdout = unstyle(result.stdout)
-        result.stderr = unstyle(result.stderr)
+        result.stdout = unstyle(result.stdout or "")
+        result.stderr = unstyle(result.stderr or "")
         return status
 
     def _handleResult(self, task, result):
