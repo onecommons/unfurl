@@ -60,12 +60,17 @@ contexts:
   defaults:
     environment:
       AWS_DEFAULT_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: dummy
+      AWS_SECRET_ACCESS_KEY: not_so_secret
     secrets:
       attributes:
         vault_default_password: testing
 """
 
-@unittest.skipIf('terraform' in os.getenv('UNFURL_TEST_SKIP', ''), "UNFURL_TEST_SKIP set")
+
+@unittest.skipIf(
+    "terraform" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set"
+)
 class TerraformTest(unittest.TestCase):
     def setUp(self):
         import threading
