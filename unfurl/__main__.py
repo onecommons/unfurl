@@ -8,7 +8,7 @@ from __future__ import print_function
 
 from .yamlmanifest import runJob
 from .support import Status
-from . import __version__, initLogging, getHomeConfigPath
+from . import __version__, initLogging, getHomeConfigPath, DefaultNames
 from .init import createProject, cloneEnsemble, createHome
 from .util import filterEnv
 from .localenv import LocalEnv
@@ -36,7 +36,7 @@ def option_group(*options):
     "--home",
     envvar="UNFURL_HOME",
     type=click.Path(exists=False),
-    help="path to .unfurl_home",
+    help="Path to .unfurl_home",
 )
 @click.option("--runtime", envvar="UNFURL_RUNTIME", help="use this runtime")
 @click.option(
@@ -57,11 +57,21 @@ def option_group(*options):
 @click.option(
     "--logfile", default=None, help="Log file for messages during quiet operation"
 )
-def cli(ctx, verbose=0, quiet=False, logfile=None, **kw):
+@click.option(
+    "--tmp",
+    envvar="UNFURL_TMPDIR",
+    type=click.Path(exists=True),
+    help="Directory for saving temporary files",
+)
+@click.option("--loglevel", envvar="UNFURL_LOGGING", help="log level (overrides -v)")
+def cli(ctx, verbose=0, quiet=False, logfile=None, loglevel=None, tmp=None, **kw):
     # ensure that ctx.obj exists and is a dict (in case `cli()` is called
     # by means other than the `if` block below
     ctx.ensure_object(dict)
     ctx.obj.update(kw)
+
+    if tmp is not None:
+        os.environ["UNFURL_TMPDIR"] = tmp
 
     levels = [logging.INFO, logging.DEBUG, 5, 5, 5]
     if quiet:
@@ -70,10 +80,9 @@ def cli(ctx, verbose=0, quiet=False, logfile=None, **kw):
         # TRACE (5)
         logLevel = levels[min(verbose, 3)]
 
-    logEnv = os.getenv("UNFURL_LOGGING")
-    if logEnv:  # UNFURL_LOGGING overrides command line
+    if loglevel:  # UNFURL_LOGGING overrides command line
         logLevel = dict(CRITICAL=50, ERROR=40, WARNING=30, INFO=20, DEBUG=10)[
-            logEnv.upper()
+            loglevel.upper()
         ]
     if logLevel == logging.CRITICAL:
         verbose = -1
@@ -287,7 +296,10 @@ deployFilterOptions = option_group(
         help="run configurations with major version changes or whose spec has changed",
     ),
     click.option(
-        "--all", default=False, is_flag=True, help="(re)run all configurations"
+        "--force",
+        default=False,
+        is_flag=True,
+        help="(re)run operation regardless of instance's status or state",
     ),
     click.option(
         "--prune",

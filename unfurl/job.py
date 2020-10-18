@@ -70,7 +70,7 @@ class JobOptions(object):
         update=True,  # run configurations that whose spec has changed but don't require a major version change
         repair="error",  # or 'degraded' or "missing" or "none", run configurations that are not operational and/or degraded
         upgrade=False,  # run configurations with major version changes or whose spec has changed
-        all=False,  # (re)run all configurations
+        force=False,  # (re)run operation regardless of instance's status or state
         verify=False,  # XXX3 discover first and set status if it differs from expected state
         readonly=False,  # only run configurations that won't alter the system
         dryrun=False,

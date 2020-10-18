@@ -261,7 +261,7 @@ class Plan(object):
         initialState = not resource.state or resource.state == NodeState.creating
         if (
             missing
-            or self.jobOptions.all
+            or self.jobOptions.force
             or (resource.status == Status.error and initialState)
         ):
             gen = self._runOperation(
@@ -314,7 +314,10 @@ class Plan(object):
         # XXX remove_target: Operation called on source when a target instance is removed
         # (but only called if add_target had been called)
 
-        if resource.state in [NodeState.starting, NodeState.started] or self.workflow == "stop":
+        if (
+            resource.state in [NodeState.starting, NodeState.started]
+            or self.workflow == "stop"
+        ):
             nodeState = NodeState.stopping
             op = "Standard.stop"
 
@@ -641,7 +644,7 @@ class Plan(object):
 
 class DeployPlan(Plan):
     def includeNotFound(self, template):
-        if self.jobOptions.add or self.jobOptions.all:
+        if self.jobOptions.add or self.jobOptions.force:
             return "add"
         return None
 
@@ -654,7 +657,7 @@ class DeployPlan(Plan):
         Has its dependencies changed?
         Are the resources it modifies in need of repair?
 
-        Reasons include: "all", "add", "upgrade", "update", "re-add", 'prune',
+        Reasons include: "force", "add", "upgrade", "update", "re-add", 'prune',
         'missing', "config changed", "failed to apply", "degraded", "error".
 
         Args:
@@ -672,8 +675,8 @@ class DeployPlan(Plan):
             # add if it's a new resource
             return "add"
 
-        if jobOptions.all:
-            return "all"
+        if jobOptions.force:
+            return "force"
 
         # if the specification changed:
         oldTemplate = resource.template
@@ -686,7 +689,7 @@ class DeployPlan(Plan):
                     return "update"
 
         # there isn't a new config to run, see if the last applied config needs to be re-run
-        # XXX: if (jobOptions.upgrade or jobOptions.update or jobOptions.all):
+        # XXX: if (jobOptions.upgrade or jobOptions.update or jobOptions.force):
         #  if (configTask.hasInputsChanged() or configTask.hasDependenciesChanged()) and
         #    return 'config changed', configTask.configSpec
         return self.checkForRepair(resource)
