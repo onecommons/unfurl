@@ -5,7 +5,7 @@ import sys, os
 sys.path.insert(0, os.path.abspath(".."))
 import unfurl
 
-VERSION = unfurl.__version__
+VERSION = unfurl.__version__()
 
 
 # -- Project information -----------------------------------------------------
@@ -28,8 +28,15 @@ extensions = [
     "sphinx_click.ext",
     "sphinx-jsonschema",
     "sphinx.ext.autodoc.typehints",
+    "sphinxcontrib.documentedlist",
+    "sphinx.ext.autosectionlabel",
 ]
+
 autodoc_typehints = "description"
+
+# sphinx.ext.extlinks
+# extlinks = {'issue': ('https://github.com/sphinx-doc/sphinx/issues/%s',
+#                      'issue ')}
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ["_templates"]
@@ -48,10 +55,11 @@ exclude_patterns = ["_build", "Thumbs.db", ".DS_Store", "todo"]
 # The theme to use for HTML and HTML Help pages.  See the documentation for
 # a list of builtin themes.
 html_theme_options = {
-    # "show_sidebar": True,
+    "show_sidebar": True,
     # "navbar_bg_class": 'faded',
     # "navbar_color_class": 'light',
-    # "sidebar_fixed": False
+    "sidebar_fixed": False,
+    "main_width": "90%",
 }
 
 # default theme:
@@ -60,7 +68,6 @@ html_theme_options = {
 import sphinxbootstrap4theme
 
 html_theme = "sphinxbootstrap4theme"
-
 html_theme_path = [sphinxbootstrap4theme.get_path()]
 
 # Add any paths that contain custom static files (such as style sheets) here,
@@ -69,3 +76,9 @@ html_theme_path = [sphinxbootstrap4theme.get_path()]
 html_static_path = ["_static"]
 html_css_files = ["custom.css"]
 html_logo = "./unfurl_logo.svg"
+html_favicon = "favicon32.png"
+
+# default: {"**":['globaltoc.html', 'sourcelink.html', 'searchbox.html'],
+html_sidebars = {"**": ["globaltoc.html"], "index": []}
+html_title = "Unfurl Documentation"
+# XXX fix search

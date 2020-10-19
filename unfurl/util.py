@@ -52,6 +52,17 @@ logger = logging.getLogger("unfurl")
 
 API_VERSION = "unfurl/v1alpha1"
 
+try:
+  from importlib.metadata import files
+except ImportError:
+  from importlib_metadata import files
+
+def getPackageDigest():
+  try:
+      pbr = [p for p in files('unfurl') if 'pbr.json' in str(p)][0]
+      return json.loads(pbr.read_text())['git_version']
+  except:
+      return ''
 
 class UnfurlError(Exception):
     def __init__(self, message, saveStack=False, log=False):

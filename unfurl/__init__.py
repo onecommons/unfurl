@@ -4,8 +4,12 @@ from __future__ import absolute_import, division, print_function
 __metaclass__ = type
 
 import pbr.version
-
-__version__ = pbr.version.VersionInfo(__name__).version_string()
+def __version__(release=False):
+    # a function because this is expensive
+    if release:
+        return pbr.version.VersionInfo(__name__).release_string()
+    else:
+        return pbr.version.VersionInfo(__name__).version_string()
 
 import os
 import os.path

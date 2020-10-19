@@ -10,7 +10,7 @@ from .yamlmanifest import runJob
 from .support import Status
 from . import __version__, initLogging, getHomeConfigPath, DefaultNames
 from .init import createProject, cloneEnsemble, createHome
-from .util import filterEnv
+from .util import filterEnv, getPackageDigest
 from .localenv import LocalEnv
 import click
 import sys
@@ -84,12 +84,13 @@ def cli(ctx, verbose=0, quiet=False, logfile=None, loglevel=None, tmp=None, **kw
         logLevel = dict(CRITICAL=50, ERROR=40, WARNING=30, INFO=20, DEBUG=10)[
             loglevel.upper()
         ]
+    # verbose: 0 == INFO, -1 == CRITICAL, >= 1 == DEBUG
     if logLevel == logging.CRITICAL:
         verbose = -1
-    elif logLevel > logging.INFO:
+    elif logLevel >= logging.INFO:
         verbose = 0
-    else:
-        verbose = levels.index(logLevel) + 1
+    else: # must be DEBUG
+        verbose = 1
     ctx.obj["verbose"] = verbose
     initLogging(logLevel, logfile)
 
@@ -527,9 +528,18 @@ unfurl git --dir=/path/to/start [gitoptions] [gitcmd] [gitcmdoptions]: Runs comm
 
 
 @cli.command()
-def version():
+@click.option(
+    "--semver",
+    default=False,
+    is_flag=True,
+    help="Print only the semantic version",
+)
+def version(semver=False):
     "Print the current version"
-    click.echo("unfurl version %s" % __version__)
+    if semver:
+        click.echo(__version__())
+    else:
+        click.echo("unfurl version %s (%s)" % (__version__(True), getPackageDigest()))
 
 
 @cli.command()

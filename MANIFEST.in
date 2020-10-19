@@ -7,3 +7,4 @@ prune unfurl/vendor/toscaparser/tests
 global-exclude *.py[cod] __pycache__ *.so
 # Include the data files
 recursive-include *.yaml
+recursive-include *.json
