@@ -472,12 +472,11 @@ def home(ctx, init=False, render=False, replace=False, **options):
 @click.pass_context
 @click.argument(
     "source",
-    # help="path to a service template or ensemble",
 )
 @click.argument(
     "dest",
     type=click.Path(exists=False),
-    default=".",  # , help="path to the new ensemble"
+    default="",
 )
 @click.option(
     "--mono", default=False, is_flag=True, help="Create one repository for the project."
@@ -489,7 +488,13 @@ def home(ctx, init=False, render=False, replace=False, **options):
     help="Add project to nearest existing repository.",
 )
 def clone(ctx, source, dest, **options):
-    """Create a new ensemble or project from a service template or an existing ensemble or project."""
+    """Create a new ensemble or project from a service template or an existing ensemble or project.
+
+      SOURCE Path or git url to a project, ensemble, or service template
+
+      DEST   Path to the new project or ensemble
+    """
+
     options.update(ctx.obj)
 
     message = cloneEnsemble(source, dest, **options)

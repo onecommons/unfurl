@@ -145,18 +145,7 @@ class Project(object):
         return not self.getRelativePath(path).startswith("..")
 
     def _createPathForGitRepo(self, gitUrl):
-        parts = urlparse(gitUrl)
-        if parts.scheme == "git-local":
-            # e.g. extract spec from git-local://0cfeee6571c4276ce1a63dc37aa8cbf8b8085d60:spec
-            name = parts.netloc.partition(":")[1]
-        else:
-            # e.g. extract tosca-parser from https://github.com/onecommons/tosca-parser.git
-            name = (
-                os.path.splitext(os.path.basename(parts.path.strip("/")))[0]
-                or parts.netloc
-            )
-
-        assert not name.endswith(".git"), name
+        name = Repo.getPathForGitRepo(gitUrl)
         return self.getUniquePath(name)
 
     def getUniquePath(self, name):

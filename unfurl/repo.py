@@ -120,8 +120,29 @@ class Repo(object):
             return abspath[len(repoRoot) + 1 :], revision, bare
         return None, None, None
 
+    @staticmethod
+    def getPathForGitRepo(gitUrl):
+        parts = urlparse(gitUrl)
+        if parts.scheme == "git-local":
+            # e.g. extract spec from git-local://0cfeee6571c4276ce1a63dc37aa8cbf8b8085d60:spec
+            name = parts.netloc.partition(":")[1]
+        else:
+            # e.g. extract tosca-parser from https://github.com/onecommons/tosca-parser.git
+            name = (
+                os.path.splitext(os.path.basename(parts.path.strip("/")))[0]
+                or parts.netloc
+            )
+        assert not name.endswith(".git"), name
+        return name
+
     @classmethod
     def createWorkingDir(cls, gitUrl, localRepoPath, revision=None):
+        localRepoPath = localRepoPath or '.'
+        if os.path.exists(localRepoPath):
+            if not os.path.isdir(localRepoPath) or os.listdir(localRepoPath):
+                raise UnfurlError(
+                    "couldn't create directory, it already exists and isn't empty: %s" % localRepoPath
+                )
         branch = revision or "master"
         logger.info("Fetching %s (%s) to %s", gitUrl, branch, localRepoPath)
         progress = _ProgressPrinter()
