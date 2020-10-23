@@ -9,7 +9,7 @@ from __future__ import print_function
 from .yamlmanifest import runJob
 from .support import Status
 from . import __version__, initLogging, getHomeConfigPath, DefaultNames
-from .init import createProject, cloneEnsemble, createHome
+from . import init as initmod
 from .util import filterEnv, getPackageDigest
 from .localenv import LocalEnv
 import click
@@ -403,6 +403,12 @@ def plan(ctx, ensemble=None, **options):
     is_flag=True,
     help="Add project to nearest existing repository.",
 )
+@click.option(
+    "--submodule", default=False, is_flag=True, help="Set the ensemble repository as a git submodule."
+)
+@click.option(
+    "--empty", default=False, is_flag=True, help="Don't create a default ensemble."
+)
 def init(ctx, projectdir, **options):
     """
 unfurl init [project] # creates a unfurl project with new spec and instance repos
@@ -417,7 +423,7 @@ unfurl init [project] # creates a unfurl project with new spec and instance repo
         else:
             # destination is inside an existing project, just create a new ensemble
             if os.path.exists(os.path.join(projectdir, DefaultNames.LocalConfig)):
-                message = cloneEnsemble(projectdir, projectdir, **options)
+                message = initmod.clone(projectdir, projectdir, **options)
                 click.echo(message)
                 return
             elif os.listdir(projectdir):
@@ -427,7 +433,7 @@ unfurl init [project] # creates a unfurl project with new spec and instance repo
                     + '": folder is not empty'
                 )
 
-    homePath, projectPath = createProject(projectdir, **options)
+    homePath, projectPath = initmod.createProject(projectdir, **options)
     if homePath:
         click.echo("unfurl home created at %s" % homePath)
     click.echo("New Unfurl project created at %s" % projectPath)
@@ -456,7 +462,7 @@ def home(ctx, init=False, render=False, replace=False, **options):
         click.echo(getHomeConfigPath(options.get("home")))
         return
 
-    homePath = createHome(render=render, replace=replace, **options)
+    homePath = initmod.createHome(render=render, replace=replace, **options)
     action = "rendered" if render else "created"
     if homePath:
         click.echo("unfurl home %s at %s" % (action, homePath))
@@ -497,7 +503,7 @@ def clone(ctx, source, dest, **options):
 
     options.update(ctx.obj)
 
-    message = cloneEnsemble(source, dest, **options)
+    message = initmod.clone(source, dest, **options)
     click.echo(message)
 
 

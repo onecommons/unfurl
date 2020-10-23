@@ -148,7 +148,7 @@ class Repo(object):
         progress = _ProgressPrinter()
         progress.gitUrl = gitUrl
         try:
-            repo = git.Repo.clone_from(gitUrl, localRepoPath, progress, branch=branch)
+            repo = git.Repo.clone_from(gitUrl, localRepoPath, progress, branch=branch, recurse_submodules=True)
         except git.exc.GitCommandError as err:
             raise UnfurlError(
                 "couldn't create working dir, clone failed: " + err._cmdline
@@ -260,6 +260,16 @@ class GitRepo(Repo):
         )
         return self.workingDir
 
+    def addSubModule(self, gitDir):
+        gitDir = os.path.abspath(gitDir)
+        status, stdout, stderr = self.runCmd(['submodule', 'add', gitDir])
+        success = not status
+        if success:
+            logging.debug("added submodule %s: %s %s", gitDir, stdout, stderr)
+        else:
+            logging.error("failed to add submodule %s: %s %s", gitDir, stdout, stderr)
+        return success
+
     def getInitialRevision(self):
         firstCommit = next(self.repo.iter_commits("HEAD", max_parents=0))
         return firstCommit.hexsha
@@ -275,7 +285,8 @@ class GitRepo(Repo):
         return self.repo.is_dirty(untracked_files=untracked_files)
 
     def clone(self, newPath):
-        cloned = self.repo.clone(os.path.abspath(newPath))
+        # note: repo.clone uses bare path, which breaks submodule path resolution
+        cloned = git.Repo.clone_from(self.workingDir, os.path.abspath(newPath), recurse_submodules=True)
         Repo.ignoreDir(newPath)
         return GitRepo(cloned)
 

@@ -114,6 +114,14 @@ class Project(object):
             repos.append(self.projectRepo)
         return repos
 
+    def getDefaultEnsemblePath(self):
+        fullPath = self.localConfig.getDefaultManifestPath()
+        if fullPath:
+            return fullPath
+        return os.path.join(
+            self.projectRoot, DefaultNames.EnsembleDirectory, DefaultNames.Ensemble
+        )
+
     def findDefaultInstanceManifest(self):
         fullPath = self.localConfig.getDefaultManifestPath()
         if fullPath:

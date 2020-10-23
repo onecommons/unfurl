@@ -243,7 +243,7 @@ class CliTest(unittest.TestCase):
             )
             self.assertEqual(result.exit_code, 0, result)
 
-            result = runner.invoke(cli, ["deploy", "clone1"])
+            result = runner.invoke(cli, ["deploy", "clone1/tests/examples"])
             # print("result.output", result.exit_code, result.output)
             assert not result.exception, "\n".join(
                 traceback.format_exception(*result.exc_info)
@@ -257,14 +257,14 @@ class CliTest(unittest.TestCase):
             # this will clone the new ensemble
             os.mkdir("anotherdir")
             os.chdir("anotherdir")
-            result = runner.invoke(cli, ["clone", "../clone1"])
+            result = runner.invoke(cli, ["clone", "../clone1/tests/examples", "clone1"])
             # print("result.output", result.exit_code, result.output)
             assert not result.exception, "\n".join(
                 traceback.format_exception(*result.exc_info)
             )
             self.assertEqual(result.exit_code, 0, result)
 
-            result = runner.invoke(cli, ["deploy", "clone1"])
+            result = runner.invoke(cli, ["deploy", "clone1/tests/examples"])
             # print("result.output", result.exit_code, result.output)
             assert not result.exception, "\n".join(
                 traceback.format_exception(*result.exc_info)

@@ -401,6 +401,24 @@ ensemble.yaml
             )
             assert os.path.isdir(os.path.join(path, ".git"))
 
+    def test_submodules(self):
+        runner = CliRunner()
+        with runner.isolated_filesystem():
+            # override home so to avoid interferring with other tests
+            result = runner.invoke(cli, ["init", "test", "--submodule"])
+            assert not result.exception, "\n".join(
+                traceback.format_exception(*result.exc_info)
+            )
+            self.assertEqual(result.exit_code, 0, result)
+
+            result = runner.invoke(cli, ["clone", "test", "cloned"])
+            assert not result.exception, "\n".join(
+                traceback.format_exception(*result.exc_info)
+            )
+            self.assertEqual(result.exit_code, 0, result)
+            assert os.path.isfile("cloned/ensemble/.git") and not os.path.isdir("cloned/ensemble/.git")
+
+
 
 repoManifestContent = """\
   apiVersion: unfurl/v1alpha1
