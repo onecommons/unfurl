@@ -237,7 +237,7 @@ class GitRepo(Repo):
 
     def addToLocalGitIgnore(self, rule):
         with open(os.path.join(self.repo.git_dir, "info", "exclude"), "a") as f:
-            f.write("\n" + rule)
+            f.write("\n" + rule + "\n")
 
     def show(self, path, commitId):
         if self.workingDir and os.path.isabs(path):

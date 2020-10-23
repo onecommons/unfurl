@@ -353,10 +353,11 @@ def _getEnsemblePaths(sourcePath, sourceProject):
         return {}
     isServiceTemplate = sourcePath.endswith(DefaultNames.ServiceTemplate)
     if not isServiceTemplate:
+        # we only support cloning TOSCA service templates if their names end in "service-template.yaml"
         try:
-            # we only support cloning TOSCA service templates if their names end in "service-template.yaml"
             localEnv = LocalEnv(sourcePath, project=sourceProject)
-            return dict(manifestPath=localEnv.manifestPath, localEnv=localEnv)
+            sourceDir = sourceProject.getRelativePath(os.path.dirname(localEnv.manifestPath))
+            return dict(sourceDir=sourceDir, localEnv=localEnv)
         except:
             pass
 
@@ -398,7 +399,7 @@ def createNewEnsemble(templateVars, project, targetPath):
     # destDir is now absolute
     targetPath = os.path.normpath(os.path.join(destDir, manifestName))
 
-    if "manifestPath" not in templateVars:
+    if "localEnv" not in templateVars:
         # we found a template file to clone
         assert project
         sourceDir = os.path.normpath(os.path.join(project.projectRoot, templateVars["sourceDir"]))
@@ -458,11 +459,18 @@ def getSourceProject(source):
     return None
 
 
-def isEnsembleInProjectRepo(project, pathToEnsemble):
+def isEnsembleInProjectRepo(project, sourceDir):
     # check if source points to an ensemble that is part of the project repo
     # if source is root, we need to get the default ensemble
-    return (pathToEnsemble and project.projectRepo
-            and project.projectRepo.findRepoPath(pathToEnsemble) is not None)
+    if not sourceDir or not project.projectRepo:
+        return False
+    assert not os.path.isabs(sourceDir)
+    pathToEnsemble = os.path.join(project.projectRepo.workingDir, sourceDir)
+    if not os.path.isdir(pathToEnsemble):
+        return False
+    if project.projectRepo.isPathExcluded(sourceDir):
+        return False
+    return True
 
 
 def clone(source, dest, includeLocal=False, **options):
@@ -490,7 +498,6 @@ def clone(source, dest, includeLocal=False, **options):
     if isRemote:
         clonedProject, source = cloneRemoteProject(source, dest)
         # source is now a path inside the cloned project
-        dest = "" # dest is root of the clonedProject
         paths = _getEnsemblePaths(source, clonedProject)
     else:
         sourceProject = getSourceProject(source)
@@ -527,9 +534,9 @@ def clone(source, dest, includeLocal=False, **options):
             # adjust if project is not at the root of its repo:
             dest = Project.normalizePath(os.path.join(dest, relPathToProject))
             clonedProject = Project(dest)
-            dest = "" # dest is relative to the root of the clonedProject
 
-    manifest, message = _createInClonedProject(paths, clonedProject, dest)
+    # pass in "" as dest because we already "consumed" dest by cloning the project to that location
+    manifest, message = _createInClonedProject(paths, clonedProject, "")
     if not isRemote and manifest:
         # we need to clone referenced local repos so the new project has access to them
         cloneLocalRepos(manifest, sourceProject, clonedProject)
@@ -545,9 +552,7 @@ def _createInClonedProject(paths, clonedProject, dest):
     """
     from unfurl import yamlmanifest
 
-    # dest: should be a path relative to the clonedProject's root
-    assert not os.path.isabs(dest)
-    ensembleInProjectRepo = isEnsembleInProjectRepo(clonedProject, paths.get("manifestPath"))
+    ensembleInProjectRepo = isEnsembleInProjectRepo(clonedProject, paths.get("sourceDir"))
     if ensembleInProjectRepo:
         # the ensemble is already part of the source project repository or a submodule
         # we're done
@@ -556,6 +561,8 @@ def _createInClonedProject(paths, clonedProject, dest):
         )
         return manifest, "Cloned project to " + clonedProject.projectRoot
     else:
+        # dest: should be a path relative to the clonedProject's root
+        assert not os.path.isabs(dest)
         destDir, manifest = createNewEnsemble(paths, clonedProject, dest)
         return manifest, 'Created new ensemble at "%s" in cloned project at "%s"' % (
             destDir,

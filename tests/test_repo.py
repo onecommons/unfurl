@@ -207,14 +207,12 @@ unfurl.yaml
 .gitignore
 ensemble.yaml
 """
-            # *** Running 'git ls-files' in './unfurl_home'
-            # .gitattributes
-            # .gitignore
-            # ensemble.yaml
-            # unfurl.yaml
-
             if not six.PY2:  # order not guaranteed in py2
                 self.assertEqual(output.strip(), result.output.strip())
+
+            with open(".git/info/exclude") as f:
+                contents = f.read()
+                self.assertIn("ensemble", contents)
 
             result = runner.invoke(
                 cli, ["--home", "./unfurl_home", "deploy", "--commit"]
@@ -417,7 +415,7 @@ ensemble.yaml
             )
             self.assertEqual(result.exit_code, 0, result)
             assert os.path.isfile("cloned/ensemble/.git") and not os.path.isdir("cloned/ensemble/.git")
-
+            assert not os.path.exists("cloned/ensemble1"), result.output
 
 
 repoManifestContent = """\
