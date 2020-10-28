@@ -368,6 +368,7 @@ class LocalEnv(object):
         self.manifestPath = None
         if manifestPath:
             # if manifestPath does not exist check project config
+            manifestPath = os.path.abspath(manifestPath)
             if not os.path.exists(manifestPath):
                 # XXX check if the manifest is named in the project config
                 # pathORproject = self.findProject(os.path.dirname(manifestPath))

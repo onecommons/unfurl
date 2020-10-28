@@ -168,7 +168,7 @@ def resolveIfInRepository(manifest, path, isFile, importLoader=None):
                 )
             contents = repo.show(filePath, revision)
             return filePath, six.StringIO(contents), True
-        path = os.path.join(repo.workingDir, filePath)
+        path = os.path.join(repo.workingDir, filePath.strip('/'))
         isFile = True
     else:
         # if it's a file path, check if it's in one of our repos
@@ -298,7 +298,7 @@ class YamlConfig(object):
             else:
                 self.config = config
             if not isinstance(self.config, CommentedMap):
-                raise UnfurlValidationError("invalid YAML document: %s" % self.config)
+                raise UnfurlValidationError('invalid YAML document with contents: "%s"' % self.config)
 
             findAnchor(self.config, None)  # create _anchorCache
             self._cachedDocIncludes = {}
