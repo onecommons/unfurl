@@ -1,0 +1,34 @@
+manifest: ../ensemble.yaml
+changes:
+- changeId: A0AP4P9C0000
+  startTime: 2020-10-25-04-25-09-199310
+  previousId: A0AP4OM20000
+  workflow: deploy
+  options: {}
+  summary: 2 tasks (1 changed, 2 ok, 0 failed, 0 unknown, 0 skipped)
+  specDigest: 925f61f8c2b3153f2e2e60ffb800f48720095a9a
+  priority: required
+  readyState:
+    effective: error
+    local: ok
+- changeId: A0AP4P9C0001
+  target: ::my_server
+  priority: required
+  readyState:
+    local: ok
+  implementation:
+    operation: check
+    className: unfurl.configurators.terraform.TerraformConfigurator
+  inputs: {}
+  result:
+    args:
+    - terraform
+    - refresh
+    - -state=/Users/adam/_dev/unfurl/tests/examples/my_server/local/terraform.tfstate.json
+    - -var-file=/Users/adam/_dev/unfurl/tests/examples/my_server/local/vars.tfvars.json
+    returncode: 0
+    stdout: >
+      Empty or non-existent state file.
+    stderr: ''
+    cmd: terraform refresh -state=/Users/adam/_dev/unfurl/tests/examples/my_server/local/terraform.tfstate.json
+      -var-file=/Users/adam/_dev/unfurl/tests/examples/my_server/local/vars.tfvars.json

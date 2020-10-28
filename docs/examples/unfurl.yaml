@@ -1,0 +1,22 @@
+  apiVersion: unfurl/v1alpha1
+  kind: Project
+
+  contexts:
+    defaults: # "defaults" are merged with optional contexts defined below
+      # # values are merged with the manifest's context:
+      # inputs:
+      # locals:
+      # secrets:
+      # environment:
+      # external:
+    # user-defined contexts:
+    # production:
+    # staging:
+
+  manifests:
+    - file: ""
+      repository: ""
+      # default instance if there are multiple instances in that project
+      # (only applicable when config is local to a project)
+      default: True
+      context: production # "defaults" context is used if not specified

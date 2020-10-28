@@ -4,6 +4,8 @@ Python API
 .. contents::
     :depth: 2
 
+.. public / referenced APIs: Status, State, ConfigChange, TaskView
+
 Manifest
 --------
 .. automodule:: unfurl.manifest

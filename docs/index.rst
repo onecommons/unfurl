@@ -1,13 +1,21 @@
 .. Shinx cheatsheet: http://openalea.gforge.inria.fr/doc/openalea/doc/_build/html/source/sphinx/rest_syntax.html
 
+Unfurl documentation
+===================================
+
 .. image:: unfurl_logo.svg
 
-User Manual
+Welcome! This is the documentation for **Unfurl**.
+
+**Unfurl** organizes your DevOps infrastructure into Git repositories and
+integrates with Terraform and Ansible. Use it to record `Ensembles`, reusable and sharable building blocks for deploying and managing your online creations.
+
+
+Table of Contents
 ===================================
 
 .. toctree::
-   :maxdepth: 1
-   :caption: Contents:
+   :maxdepth: 2
 
    README.md
 
@@ -17,13 +25,9 @@ User Manual
 
    projects.rst
 
+   secrets.rst
+
    jobs.rst
-
-   configurators.rst
-
-   glossary.rst
-
-   cli.rst
 
    processing.rst
 
@@ -31,7 +35,13 @@ User Manual
 
    tosca.rst
 
+   configurators.rst
+
+   cli.rst
+
    jsonschema.rst
+
+   glossary.rst
 
    api.rst
 

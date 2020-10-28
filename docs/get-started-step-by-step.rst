@@ -2,59 +2,280 @@
 Getting Started
 ===============
 
-This tutorial will walk you through setting up a local environment that provides access to
-the resources you want to manage with Unfurl, such as cloud provider credentials.
+Once you've installed `Unfurl`, you are ready to configure it and create your first Unfurl project.
 
-It will then guide you through creating your first Unfurl repository with a sample deployment you can start using immediately: an online Unfurl lock. An Unfurl lock is an online resource Unfurl can use to safe guard against
-multiple instances of Unfurl modifying the same resources at the same time.
+1. Configure your home environment
+===================================
 
-We'll see how we can use a service template that is cloud-agnostic and, once it is deployed, how to import and use that live instance in our own manifests.
+Unfurl creates a "home" directory (by default at ``~/.unfurl_home``) that contains the configuration settings and tools that you want shared by all your Unfurl projects. This is a good place to keep an inventory of the various account settings you'll need to connect to your cloud resources. You can group these settings into `contexts` and `Unfurl projects` with inherit them -- making easy for different projects to switch between contexts.
 
-(The lock manifest gets added in our home config so all our manifests automatically utilize it.)
+Contexts can also be used to isolate the environment Unfurl runs in, enabling you set different versions of tools, create Python virtual environment or run Unfurl in a Docker container.
 
- 1. create a repo
- 2. configure unfurl
-     1. kms setup: add credentials
-     2. create manifest with root resource: configure using kms
-     3. (optional) run bootstrap to create a secure root resource
- 3. start creating your manifest
-
-Setting up your local environment
-=================================
-
-You configure how to connect to online cloud providers and services by creating
-`relationship templates` in the local ensemble, which is TOSCA's way of specifying how instances connect.
-
-Cloud provider instances are identified by context independent attributes such as an account id (usually automatically detected) as opposed to client-dependent connection attributes such as an API key. But including cloud provider instances in your specification is optional if the connection info is just passed through to external tools.
+Under the hood, Unfurl's home is just a standard `Unfurl` project modeling the local machine it is running on so you can customize it and deploy it like any other `Unfurl` project.
 
 
-1. Initial set up of home environment
+You have two options for setting up your Unfurl home:
 
-The unfurl home directory contains configuration settings you want shared by all your projects on that device as a local manifest that represents the device. By updating and deploying that local manifest you can discover and configure local settings and resources (such as cloud provider accounts or client software) that your Unfurl projects can utilize.
+A) Do nothing and use your system's current environment
+-------------------------------------------------------
 
-1. run `unfurl init`
-2. take a look at `~/unfurl_home/local/manifest.yaml`, you see something like:
+By default, the first time you create an Unfurl project it will automatically generate a home project if it is missing. The default configuration will look for standard environment variables
+such as ``AWS_ACCESS_KEY_ID`` and ``AWS_SECRET_ACCESS_KEY``.
+Individual unfurl projects can filter or set the variables in its environment
+through the `environment` subsection of the `context` in the project file.
+
+B) Explicitly create and edit your home project
+-----------------------------------------------
+
+Before you create your first Unfurl project, run `unfurl home --init` to create the home project.
+It will be placed in `~/.unfurl_home` unless you specify otherwise using the `--home` option.
+
+Now you can customize the project and , for example:
+
+1. Edit the default context and create new contexts in ``unfurl.yaml``
+
+2. Add secrets or configure secret manager
+
+3. Edit the connections in `~/.unfurl_home/ensemble.yaml`.
+Add additional connections or change them
+from using environment variables to using secrets stored in a secret manager (see `secrets`)
+or just hard code the settings.
+
+4. Bootstrap dev tools
+
+5. Deploy local instances, like supervisord
+
+6. Declare shared and default resources. For example, if several project will use a pre-existing Kubernetes cluster, you could add an template that models it here. You can use the `default directive` to indicate that template should only be used if it wasn't already declared in the main project.
+
+`~/.unfurl_home/ensemble.yaml` contains a template (`asdfBootstrap`) that will install
+the tools might Unfurl's `configurators` need (eg. Terraform, gCloud and Helm)
+It install these tools, run `unfurl deploy ~/.unfurl_home`.
+
+.. tip::
+   Don't worry about making mistakes -- as a regular Unfurl project, your `.unfurl_home`
+   contains a git repository so you can rollback to previous versions of your config files.
+
+
+2. Create a project
+===================
+
+Now you are ready to create your first Unfurl project.
+
+Run `unfurl init`
+
+This will create a new project and commit it to new git repository unless the
+``--existing`` flag is used. If specified, Unfurl will search the current directory and its parents looking for the nearest existing git repository. It will then add the new project to that repository if one is found.
+
+`unfurl init` will also create an ensemble in the project unless the ``--empty`` flag used.
+By default, a separate, local git repository will be created for the ensemble. Use the `--mono` flag to add the ensemble to the project's git repository or use the `--submodule` flag to add the ensemble's git repository as a submodule of the project's git repository.
+
+Keeping the ensemble repository separate from the project repository is useful
+if the resources the ensemble creates are transitory or if you want to restrict access to them.
+Using the `--submodule` option allows those repositories to be easily packaged and shared with the project repository
+but still maintain separate access control and git history for each ensemble.
+
+Once created, the project directory will look like:
+
+| ├── .git
+| │   └── info/exclude
+| │   └── ... (other git stuff)
+| ├── .gitignore
+| ├── .gitattributes
+| ├── unfurl.yaml
+| ├── ensemble-template.yaml
+| ├── local
+| │   └── unfurl.yaml
+| ├── ensemble
+| │   └── public
+| │   └── ensemble.yaml
+
+In the folder structure above:
+
+- ``unfurl.yaml`` is the Unfurl project configuration file.
+- Any files in``local`` is excluded from the git repository
+- ``local/unfurl.yaml`` is included by the parent ``unfurl.yaml``
+  and is where you'll put local or private settings you don't want to commit.
+- ``ensemble-template.yaml`` is a template that is shared across ensembles in this project.
+  You'll probably want to put your ensemble's ``service template`` here.
+- ``ensemble`` is the folder that contains the default ensemble
+  (use the ``--empty`` flag to skip creating this).
+- ``ensemble/ensemble.yaml`` is the manifest file for this ensemble.
+    It includes ``ensemble-template.yaml``.
+- Private repository folders (like ``ensemble``) are listed in ``.git/info/exclude``
+
+3. Create a service template
+============================
+
+If you look at `ensemble_template.yaml`, you'll see that it contains a minimal template with one node template and one workflow.
+Workflows are optional but defining one is the simplest way to get started,
+because you just need to declare procedural steps instead of designing model of your topology.
+
+Topology and Orchestration Specification for Cloud Applications (TOSCA) is an OASIS standard language to describe a topology of cloud based web services,
+their components, relationships, and the processes that manage them.
+The TOSCA standard includes specifications to describe processes that create or modify web services. You can read more about it on the OASIS website.
+
+You can find examples
+
+https://github.com/oasis-open/tosca-community-contributions/tree/master/examples/1.3/tutorial
 
 .. code-block:: YAML
 
-  node_templates:
-     aws:
-     gcp:
-     k8s:
-     docker:
-     ansible:
+  topology_template:
+    node_templates:
+      my_server:
+        type: tosca.nodes.Compute
+        capabilities:
+          # Host container properties
+          host:
+            properties:
+              num_cpus: 1
+              disk_size: 200GB
+              mem_size: 512MB
+          # Guest Operating System properties
+          os:
+            properties:
+              # host Operating System image properties
+              architecture: x86_64
+              type: linux
+              distribution: ubuntu
+              version: focal
 
-When you run `unfurl discover`, the job will examine you system for configuration information and add what it finds to the manifest. Before running that command, you can comment out or delete the templates that you want to skip.
+A couple of things to note:
+* ``tosca.nodes.Compute`` on the these
+* In tosca dependencies
 
-After running `unfurl discover` successfully, your manifest will look something like:
+  D. build-in types
+  E. dependencies
 
+4. Implementing an operation
+============================
 
-Creating a manifest to represent your local system enables to unfurl to configure your local environment.
+Of course, we don't have enough information "my_server" to actually create a compute instance -- it could be, for example, a physical machine, a virtual machine, a docker image or Kubernetes pod.
+"my_server" are a set of abstract constraints that be applied to any number of
+
+It is the implementation that create (or discover) instances that conforms to this specification.
+Implementations are defined by specifying how to carry ouy operations that are applied to the node templates.
+TOSCA defines a vocabulary of a few standard operations such as "create" or "delete" and you can define your own.
+Their implementations can be a simple as the name of a shell script to invoke or yaml specification that is passed to a `configurator`,
+which is Unfurl's plugin system for implementing operations.
+Unfurl ships with several configurators, including ones for Ansible, Terraform and Kubernetes.
+
+We can implement ``my_server`` in just few lines of YAML by Google Cloud Platform by calling the `gcloud` tool.
+We'll start with "delete" to make the
 
 .. code-block:: YAML
 
-  unfurl: 0.1
+  topology_template:
+    node_templates:
+      my_server:
+        type: tosca.nodes.Compute
+        # details omitted, see example above
+      interfaces:
+        Standard:
+          delete:
+            implementation: gcloud compute instances delete {{ '.name' | eval }}
+        # ... see example below for more operations
 
-* A private, local repository and a secret store.
+Creates a little more verbose and illustrates how to pass input parameters and set attributes on the instance created from a template:
 
-Add local resources and credentials
+.. code-block:: YAML
+
+  topology_template:
+    node_templates:
+      my_server:
+        type: tosca.nodes.Compute
+        # details omitted, see example above
+      interfaces:
+        Standard:
+          delete:
+            implementation: gcloud compute instances delete {{ '.name' | eval }}
+          create:
+            implementation: |
+              gcloud compute instances create {{ '.name' | eval }}
+                --boot-disk-size={{ {"get_property": ["SELF", "host", "disk_size"]} | eval | regex_replace(" ") }}
+                --image=$(gcloud compute images list --filter=name:{{ {'get_property': ['SELF', 'os', 'distribution']} | eval }}
+                      --filter=name:focal --limit=1 --uri)
+                --machine-type=e2-medium   > /dev/null
+              && gcloud compute instances describe {{ '.name' | eval }} --format=json
+            inputs:
+              resultTemplate:
+                # recursively merge the map with the yaml anchor "gcloudStatusMap"
+                +*gcloudStatusMap:
+                eval:
+                  then:
+                    attributes:
+                      public_ip: "{{ result.networkInterfaces[0].accessConfigs[0].natIP }}"
+                      private_ip: "{{ result.networkInterfaces[0].networkIP }}"
+                      zone: "{{ result.zone | basename }}"
+                      id:  "{{ result.selfLink }}"
+            # ...  see below
+
+This implementation calls ``gcloud compute instances create`` to create the instance
+and then ``gcloud compute instances describe``. The ``resultTemplate`` parses that json and
+
+One mysterious looking line is ``+*gcloudStatusMap:`` which is a merge directive
+That's because its an anchor to a yaml map we haven't defined yet.
+We'll see it when we finish off the implementation by defining the "check" operation:
+
+.. code-block:: YAML
+
+  topology_template:
+    node_templates:
+      my_server:
+        type: tosca.nodes.Compute
+        # details omitted...
+      interfaces:
+        # other operations omitted, see example above
+        Install:
+          check:
+            implementation: gcloud compute instances describe {{ '.name' | eval }}  --format=json
+            inputs:
+              resultTemplate: &gcloudStatusMap
+                eval:
+                  if: $result
+                  then:
+                    readyState:
+                      state: "{{ {'PROVISIONING': 'creating', 'STAGING': 'starting',
+                                'RUNNING': 'started', 'REPAIRING' 'error,'
+                                'SUSPENDING': 'stopping',  'SUSPENDED': 'stopped',
+                                'STOPPING': 'deleting', 'TERMINATED': 'deleted'}[result.status] }}"
+                      local: "{{ {'PROVISIONING': 'pending', 'STAGING': 'pending',
+                                'RUNNING': 'ok', 'REPAIRING' 'error,'
+                                'SUSPENDING': 'error',  'SUSPENDED': 'error',
+                                'STOPPING': 'absent', 'TERMINATED': 'absent'}[result.status] }}"
+                vars:
+                  result: "{%if success %}{{ stdout | from_json }}{% endif %}"
+
+The "check" operation is part of the ``Install`` interface, an Unfurl specific TOSCA extention.
+It defines a "check" operation for checking the status of an existing interface; a "discover" operation for discovering pre-existing instances
+and a "revert" operation for reverting changes made by Unfurl on a pre-existing resource.
+
+The ``resultTemplate`` (shared with ``create``) maps Google Compute ["status" enumeration](https://cloud.google.com/compute/docs/instances/instance-life-cycle) to TOSCA's node state and to Unfurl's operation status.
+We can see that it uses TOSCA's functions with Ansible's Jinja2 expressions and filters, glued together using Unfurl's expression syntax (``eval``)
+https://docs.ansible.com/ansible/latest/user_guide/playbooks_filters.html
+
+4 Activate your ensemble
+========================
+
+1. Run deploy
+2. Commit your changes
+
+5. Publish your project
+=======================
+
+You can publish and share your projects like any git repository.
+If you want to publish local git repositories on a git hosting service like github.com
+(e.g. ones created by ``unfurl init`` or ``unfurl clone``) follow these steps:
+
+1. Create corresponding empty remote git repositories.
+2. Set the new repositories as the remote origins for your local repositories
+   with this command:
+
+   ``git remote set-url origin <remote-url>``
+
+   Or, if the repository is a git submodule set the URL use:
+
+   ``git submodule set-url <path> <remote-url>``
+
+3. Commit any needed changes in the repositories.
+4. Running ``unfurl git push`` will push all the repositories in the project.

@@ -2,6 +2,8 @@
 Eval Expressions
 ================
 
+.. contents::
+
 When jobs are run Unfurl expressions that appear in the YAML configuration files are processed.
 
 Expression Query Syntax

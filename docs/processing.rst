@@ -2,17 +2,6 @@
 YAML Pre-processing
 ===================
 
-.. contents::
-
-1. YAML parsed
-2. Pre-processing of merge directives
-3. Validation and instantiation of the model
-4. Job is run
-5. Unfurl expressions, TOSCA functions, and template strings are lazily evaluated as the job runs
-
-YAML pre-processing
---------------------
-
 When a YAML configuration is loaded, will look for dictionary keys that match the following pattern:
 
 ``'+'['?']['include'][*anchor][relative path][absolute path]``
@@ -64,3 +53,21 @@ The resolved value is merged into the directive's dictionary using the following
 Restoring merge directives
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 When saving YAML config file that contained merge directive will attempt restore them even if the configuration has changed -- if the target object has changed, a new diff will be generated to reflect those changes.
+
+Ansible Jinja2 Templates
+========================
+
+Filters
+-------
+
+  :eval: Evaluates the given `expression` or function
+  :mapValue: Resolves any expressions or template strings in the give map or list.
+  :abspath: see `abspath`,
+  :get_dir: see `get_dir`
+  :which: Returns the full path to the given executable, like the ``which`` shell command.
+
+Lookup plugins
+--------------
+
+  :unfurl: Evaluates the given `expression`
+           For example: ``{{ lookup("unfurl", "::instance1::anAttribute") }}``

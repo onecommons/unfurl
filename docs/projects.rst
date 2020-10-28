@@ -11,6 +11,14 @@ Unfurl Projects
 Contexts
 ========
 
+Connections
+-----------
+
+You configure how to connect to online cloud providers and services by creating
+`relationship templates` in the local ensemble, which is TOSCA's way of specifying how instances connect.
+
+Cloud provider instances are identified by context independent attributes such as an account id (usually automatically detected) as opposed to client-dependent connection attributes such as an API key. But including cloud provider instances in your specification is optional if the connection info is just passed through to external tools.
+
 External ensembles
 ------------------
 
@@ -22,50 +30,51 @@ There are 3 instances that are always implicitly imported even if they are not d
 
 - The `local` and `secret` instances are for representing properties that may be specific to the local environment that the manifest is running in and are declared in the local configuration file. All `secret` attribute values are treated as `sensitive` and redacted when necessary. These instances can be accessed through the `local` and `secret` expression functions (which are just shorthands for the `external` function).
 
-Managing Secrets
-================
+Merging and precedence
+----------------------
+# the contexts defined here are merged with each project's and ensemble's contexts
+# merge priority (from highest to lowest):
+# (named context in project, named context in home,
+#  defaults in project, defaults in home, context in ensemble)
+  # the following local settings and environment variables are consumed
+  # by the localhost's connection templates, set as needed
 
-Unfurl allows you to store secrets separately from the rest for your configuration, either in separate configuration file or in a secret manager such as HashiCorp Vault. In the project configuration file you specify how those secrets should be managed. You can apply the following strategies:
+Environment
+===========
 
-* Store the secrets in a local configuration file and distribute that file out-of-band if necessary.
-* Encrypt the secrets file using `Ansible Vault <https://docs.ansible.com/ansible/latest/user_guide/vault.html>`_ so they can be safely checked into the ensemble repository.
-* Store them in a secrets manager such as HashiCorp Vault or Amazon Secrets Manager or your OS's keyring. You can use any secrets manager that has an `Ansible Lookup Plugin <https://docs.ansible.com/ansible/latest/plugins/lookup.html>`_ available for it.
-* If your ensemble repository is private and the secrets not highly sensitive you can just commit it into the repository in plain text.
+You can control the environment variables are available while Unfurl is running
+by the setting the `environment` directive.
+When set in a `context` object it is applied globally or it can be appear in
+the operation's `implementation` declaration where it will only be applied to that operation.
 
-You can apply any of these techniques to different secrets and projects can inherit the secrets configuration from `unfurl_home`.
+In either case, `environment` makes a copy of the current environment and applied each of its keys
+in the order they are declared, adding the given key and value as
+envirnoment variables execpt keys starting with "+" and "-"
+will copy or remove the variable from the current into environment
+into the new one. In that case "*" and "?" are treated like filename wildcards and "!" negates the match:
 
 .. code-block:: YAML
 
-  secrets:
-    attributes:
-      # include secrets from a file that will not be committed to the repository:
-      +?include: local/secrets.yaml
-      # plaintext:
-      not_so_secret: admin
+  name: value    # add name=value
+  +name:         # copy name into the enviroment
+  +name: default # copy value, set it to "default" if not present
+  +!prefix*:     # copy all except variables matching "prefix*"
+  -!name:        # remove all except name
+  -!prefix*:     # remove all except variables matching "prefix*"
+  ^name: /bin  # treat name like a PATH and prepend value: e.g. /bin:$name
 
-      # encrypted inlined:
-      the_dev_secret: !vault |
-        $ANSIBLE_VAULT;1.2;AES256;dev
-        30613233633461343837653833666333643061636561303338373661313838333565653635353162
-        3263363434623733343538653462613064333634333464660a663633623939393439316636633863
-        61636237636537333938306331383339353265363239643939666639386530626330633337633833
-        6664656334373166630a363736393262666465663432613932613036303963343263623137386239
-        6330
-      # if secret isn't defined above look it up in a HashiCorp Vault instance
-      # (assumes VAULT_TOKEN etc. environment variables are set)
-      default: "{{ lookup('hashi_vault', 'secret='+key) }}" # "key" will be set to the secret name
 
-The "unfurl-vault-client" script outputs the vault password for the current project
- so you can encrypt secrets using the "ansible-vault" utility like this:
- ansible-vault encrypt_string --vault-id default@unfurl-vault-client "secret1" "secret2"
+For example:
 
-Sensitive Values
-----------------
-You can mark configuration data as sensitive. If you have Ansible Vault ids associated with your ensemble that will be saved encrypted, if not, they will be saved as "<<<Redacted>>>". When loading a YAML configuration file, any Vault data will be decrypted and any attribute with a value of "<<<Redacted>>>" will be omitted. By default, "unfurl init" will generate a random Ansible Vault key to your local secrets (found in "local/unfurl.yaml") and so any data marked sensitive will be encrypted.
+.. code-block:: YAML
 
-Creating secrets
-----------------
+  environment:
+     -*:       # this will remove all environment variables
+     +HOME:    # add HOME back
+     FOO: bar  # set FOO = bar
 
-.. code-block::
+The following environment variables will always be copied from the parent environment unless explicitly removed or set:
 
-  ansible-vault encrypt_string --vault-id unfurl-vault-client
+.. documentedlist::
+   :listobject: unfurl.util._sphinx_envvars
+   :header: "Name"

@@ -19,7 +19,7 @@ Unfurl integrates with the deployment tools you are already using, like Ansible,
 - **Hermetic**: tracks exact version of environment and deployment artifacts
 - **Reproducible**: hermetic builds + git + locked-down, immutable infrastructure = reproducibility
 - **Incremental**: only applies necessary changes
-- **Fast**: the above three features combined enable lightening-fast updates
+- **Fast**: the above three combined enable lightening-fast updates
 
 ## Features
 
@@ -45,9 +45,13 @@ By default `unfurl` creates a virtual Python environment to run in so it only in
 
 ### Requirements
 
-Python (2.7, 3.7, 3.8); git
+Linux or MacOs
+
+Python (2.7, 3.7, or 3.8); git
 
 Optional: docker
+
+If needed, Unfurl will download and install local copies of the following: Ansible, Terraform, gCloud, Supervisor, Helm, and asdf.
 
 ## Developing
 
