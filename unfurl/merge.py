@@ -91,13 +91,13 @@ def mergeDicts(b, a, cls=None, replaceKeys=None, defaultStrategy="merge"):
             if strategy == "delete":
                 skip.append(key)
                 continue
-        # XXX merge lists
-        # elif isinstance(val, list) and key in b:
-        #   bval = b[key]
-        #   if isinstance(bval, list):
+        elif isinstance(val, MutableSequence) and key in b:
+          bval = b[key]
+          if isinstance(bval, MutableSequence):
+        # XXX allow more strategies beyond append
         #     if appendlists == 'all' or key in appendlists:
-        #       cp[key] = bval + val
-        #       continue
+              cp[key] = bval + [item for item in val if item not in bval]
+              continue
         #     elif mergelists == 'all' or key in mergelists:
         #       newlist = []
         #       for ai, bi in zip(val, bval):

@@ -48,7 +48,6 @@ class TestSubtaskConfigurator(Configurator):
         # print ("running TestSubtaskConfigurator")
         yield task.done(True, Status.ok)
 
-
 class ExpandDocTest(unittest.TestCase):
     doc = {
         "t1": {"b": 2},
@@ -59,11 +58,14 @@ class ExpandDocTest(unittest.TestCase):
             [("+/t2", None), ("a", {"+/t1": None}), ("d", {"+/t3": None}), ("e", "e")]
         ),
         "test2": [1, {"+/t4": ""}, "+t4", {"+/t4": None}],
+        "base":  {"list": [1]},
+        "test3": {"list": [2, 1, 3], "+/base": None}
     }
 
     expected = {
         "test1": {"a": {"b": 2}, "c": "c", "d": "val", "e": "e"},
         "test2": [1, "a", "b", "+t4", "a", "b"],
+        "test3": {"list": [1, 2, 3]}
     }
 
     def test_expandDoc(self):
@@ -76,15 +78,18 @@ class ExpandDocTest(unittest.TestCase):
                 ("test1", "d"): [(parseMergeKey("+/t3"), None)],
                 ("test2", 1): [(parseMergeKey("+/t4"), "")],
                 ("test2", 3): [(parseMergeKey("+/t4"), None)],
+                ("test3",): [(parseMergeKey("+/base"), None)],
             },
         )
         self.assertEqual(expanded["test1"], self.expected["test1"])
         self.assertEqual(expanded["test2"], self.expected["test2"])
+        self.assertEqual(expanded["test3"], self.expected["test3"])
         restoreIncludes(includes, self.doc, expanded, CommentedMap)
         # restoreInclude should make expanded look like self.doc
         self.assertEqual(expanded["test1"], self.doc["test1"])
         # XXX restoring lists not implemented:
         # self.assertEqual(expanded["test2"], self.doc["test2"])
+        # self.assertEqual(expanded["test3"], self.doc["test3"])
 
     def test_diff(self):
         expectedOld = {"a": 1, "b": {"b1": 1, "b2": 1}, "d": 1}

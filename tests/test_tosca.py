@@ -164,6 +164,7 @@ class ToscaSyntaxTest(unittest.TestCase):
         assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
         my_server = manifest.getRootResource().findResource("my_server")
         assert my_server
+        self.assertEqual("10 GB", my_server.query({"get_property": ["SELF", "host", "disk_size"] }))
         assert my_server.attributes["test"], "cpus: 2"
         # print(job.out.getvalue())
         testSensitive = manifest.getRootResource().findResource("testSensitive")
