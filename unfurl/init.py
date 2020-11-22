@@ -1,34 +1,5 @@
 """
-Creates and clone projects and ensembles.
-
-After running "init" your Unfurl project will look like:
-
-ensemble/ensemble.yaml
-ensemble-template.yaml
-unfurl.yaml
-local/unfurl.yaml
-
-If the --existing option is used, the project will be added to the nearest repository found in a parent folder.
-If the --mono option is used, the ensemble add the project repo instead of it's own.
-
-Each repository created will also have .gitignore and .gitattributes added.
-
-When a repository is added as child of another repo, that folder will be added to .git/info/exclude
-(instead of .gitignore because they shouldn't be committed into the repository).
-
-Include directives, imports, and external file reference are guaranteed to be local to the project.
-Paths outside the project need to be referenced with a named repository.
-Paths are always relative but you can optionally specify which repository a path is relative to.
-
-There are three predefined repositories:
-
-"self", which represents the location the ensemble lives in -- it will be
-a "git-local:" URL or a "file:" URL if the ensemble is not part of a git repository.
-
-"unfurl" which points to the Python package of the unfurl process -- this can be used to load configurators and templates
-that ship with Unfurl.
-
-"spec" which, unless otherwise specified, points to the project root or the ensemble itself if it is not part of a project.
+This module implements creating and cloning project and ensembles as well Unfurl runtimes.
 """
 import uuid
 import os
@@ -459,13 +430,13 @@ def getSourceProject(source):
     return None
 
 
-def isEnsembleInProjectRepo(project, sourceDir):
+def isEnsembleInProjectRepo(project, paths):
     # check if source points to an ensemble that is part of the project repo
-    # if source is root, we need to get the default ensemble
-    if not sourceDir or not project.projectRepo:
+    if not project.projectRepo or "localEnv" not in paths:
         return False
+    sourceDir = paths["sourceDir"]
     assert not os.path.isabs(sourceDir)
-    pathToEnsemble = os.path.join(project.projectRepo.workingDir, sourceDir)
+    pathToEnsemble = os.path.join(project.projectRoot, sourceDir)
     if not os.path.isdir(pathToEnsemble):
         return False
     if project.projectRepo.isPathExcluded(sourceDir):
@@ -483,12 +454,15 @@ def clone(source, dest, includeLocal=False, **options):
     If the folders already exist they will be copied to new folder unless the git repositories have the same HEAD.
     but the local repository names will remain the same.
 
+    ================ =============================================
     dest             result
-    =============    ============
+    ================ =============================================
     Inside project   new ensemble
     new or empty dir clone or create project (depending on source)
     another project  error (not yet supported)
     other            error
+    ================ =============================================
+
     """
     if not dest:
         dest = Repo.getPathForGitRepo(source) # choose dest based on source url
@@ -545,14 +519,19 @@ def clone(source, dest, includeLocal=False, **options):
 
 def _createInClonedProject(paths, clonedProject, dest):
     """
-    source                             result
-    ======                             ======
-    project root or ensemble in repo   git clone
+    Called by `clone` when cloning an ensemble.
+
+    ================================   ========================
+    source ensemble                    result
+    ================================   ========================
+    project root or ensemble in repo   git clone only
     local ensemble or template         git clone + new ensemble
+    ================================   ========================
+
     """
     from unfurl import yamlmanifest
 
-    ensembleInProjectRepo = isEnsembleInProjectRepo(clonedProject, paths.get("sourceDir"))
+    ensembleInProjectRepo = isEnsembleInProjectRepo(clonedProject, paths)
     if ensembleInProjectRepo:
         # the ensemble is already part of the source project repository or a submodule
         # we're done
@@ -561,6 +540,14 @@ def _createInClonedProject(paths, clonedProject, dest):
         )
         return manifest, "Cloned project to " + clonedProject.projectRoot
     else:
+        # create local/unfurl.yaml in the new project
+        # XXX vaultpass should only be set for the new ensemble being created
+        writeProjectConfig(
+            os.path.join(clonedProject.projectRoot, "local"),
+            DefaultNames.LocalConfig,
+            "unfurl.local.yaml.j2",
+            dict(vaultpass=get_random_password()),
+        )
         # dest: should be a path relative to the clonedProject's root
         assert not os.path.isabs(dest)
         destDir, manifest = createNewEnsemble(paths, clonedProject, dest)
