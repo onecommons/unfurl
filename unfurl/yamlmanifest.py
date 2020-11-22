@@ -225,8 +225,8 @@ class ReadOnlyManifest(Manifest):
             path = path.getPath()
         return os.path.abspath(self.path) == os.path.abspath(path)
 
-    def addRepo(self, name, repo):
-        self._getRepositories(self.manifest.config)[name] = repo
+    # def addRepo(self, name, repo):
+    #     self._getRepositories(self.manifest.config)[name] = repo
 
     def dump(self, out=sys.stdout):
         try:
@@ -346,7 +346,7 @@ class YamlManifest(ReadOnlyManifest):
                 raise UnfurlError("Can not import '%s': no manifest specified" % (name))
             baseDir = getattr(location, "baseDir", self.getBaseDir())
             artifact = Artifact(location, path=baseDir, spec=self.tosca)
-            path = artifact.getPath(self)
+            path = artifact.getPath()
             if self.isPathToSelf(path):
                 # don't import self (might happen when context is shared)
                 continue

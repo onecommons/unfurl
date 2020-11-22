@@ -3,6 +3,15 @@
 
   contexts:
     defaults: # "defaults" are merged with optional contexts defined below
+      local:
+       schema:
+         name1:
+           type: string
+      secret:
+       schema:
+         name1:
+           type: string
+
       # # values are merged with the manifest's context:
       # inputs:
       # locals:
@@ -10,8 +19,8 @@
       # environment:
       # external:
     # user-defined contexts:
-    # production:
-    # staging:
+    production: {}
+    staging: {}
 
   manifests:
     - file: ""

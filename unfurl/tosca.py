@@ -4,7 +4,6 @@ TOSCA implementation
 from .tosca_plugins import TOSCA_VERSION
 from .util import UnfurlValidationError, getBaseDir
 from .eval import Ref
-from .yamlloader import resolveIfInRepository
 from toscaparser.tosca_template import ToscaTemplate
 from toscaparser.properties import Property
 from toscaparser.elements.entity_type import EntityType
@@ -15,7 +14,6 @@ import toscaparser.artifacts
 from toscaparser.common.exception import ExceptionCollector, ValidationError
 import six
 import logging
-import os.path
 from ruamel.yaml.comments import CommentedMap
 
 logger = logging.getLogger("unfurl")
@@ -70,7 +68,7 @@ class ToscaSpec(object):
     ConfiguratorType = "unfurl.nodes.Configurator"
     InstallerType = "unfurl.nodes.Installer"
 
-    def __init__(self, toscaDef, inputs=None, instances=None, path=None):
+    def __init__(self, toscaDef, inputs=None, instances=None, path=None, resolver=None):
         self.discovered = None
         if isinstance(toscaDef, ToscaTemplate):
             self.template = toscaDef
@@ -88,7 +86,7 @@ class ToscaSpec(object):
             try:
                 # need to set a path for the import loader
                 self.template = ToscaTemplate(
-                    path=path, parsed_params=inputs, yaml_dict_tpl=toscaDef
+                    path=path, parsed_params=inputs, yaml_dict_tpl=toscaDef, import_resolver=resolver
                 )
             except ValidationError:
                 message = "\n".join(ExceptionCollector.getExceptionsReport(False))
@@ -121,9 +119,10 @@ class ToscaSpec(object):
 
     def _getProjectDir(self):
         # hacky
-        manifest = getattr(self.template.tpl, "manifest", None)
-        if manifest and manifest.localEnv and manifest.localEnv.project:
-            return manifest.localEnv.project.projectRoot
+        if self.template.import_resolver:
+            manifest = self.template.import_resolver.manifest
+            if manifest.localEnv and manifest.localEnv.project:
+                return manifest.localEnv.project.projectRoot
         return None
 
     def addNodeTemplate(self, name, tpl):
@@ -801,25 +800,24 @@ class Artifact(EntitySpec):
     def file(self):
         return self.toscaEntityTemplate.file
 
-    def getPath(self, manifest=None):
-        return self.getPathAndFragment(manifest)[0]
+    def getPath(self, resolver=None):
+        return self.getPathAndFragment(resolver)[0]
 
-    def getPathAndFragment(self, manifest=None):
+    def getPathAndFragment(self, resolver=None, tpl=None):
         """
-      returns path, fragment
-      """
+          returns path, fragment
+        """
+        tpl = self.spec and self.spec.template.tpl or tpl
+        if not resolver and self.spec:
+            resolver = self.spec.template.import_resolver
+
         loader = toscaparser.imports.ImportsLoader(
-            None, self.baseDir, tpl=self.spec.template.tpl if self.spec else None
+            None, self.baseDir, tpl=tpl, resolver=resolver
         )
         path, isFile, fragment = loader._resolve_import_template(
             None, self.asImportSpec()
         )
-        manifest = manifest or getattr(loader.tpl, "manifest", None)
-        if manifest:
-            newpath, f, isFile = resolveIfInRepository(manifest, path, isFile, loader)
-            return (path if f else newpath), fragment
-        else:
-            return path, fragment
+        return path, fragment
 
     def asImportSpec(self):
         return dict(file=self.file, repository=self.toscaEntityTemplate.repository)

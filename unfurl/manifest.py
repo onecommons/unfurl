@@ -14,8 +14,9 @@ from .runtime import (
 )
 from .util import UnfurlError, toEnum, sensitive_str, getBaseDir
 from .repo import RevisionManager, splitGitUrl, isURLorGitPath
-from .yamlloader import YamlConfig, loadYamlFromArtifact, yaml
+from .yamlloader import YamlConfig, yaml, ImportResolver
 from .job import ConfigChange
+import toscaparser.imports
 
 # from .configurator import Dependency
 import logging
@@ -70,14 +71,12 @@ class Manifest(AttributeManager):
 
         if not isinstance(toscaDef, CommentedMap):
             toscaDef = CommentedMap(toscaDef.items())
-        # hack so we can make the manifest accessible to the yamlloader:
-        toscaDef.manifest = self
         if getattr(toscaDef, "baseDir", None) and (
             not path or toscaDef.baseDir != os.path.dirname(path)
         ):
             # note: we only recorded the baseDir not the name of the included file
             path = toscaDef.baseDir
-        return ToscaSpec(toscaDef, spec.get("inputs"), spec, path)
+        return ToscaSpec(toscaDef, spec.get("inputs"), spec, path, self.getImportResolver())
 
     def getSpecDigest(self, spec):
         m = hashlib.sha1()  # use same digest function as git
@@ -419,12 +418,14 @@ class Manifest(AttributeManager):
         else:
             artifact = Artifact(dict(file=templatePath), path=baseDir)
 
-        # loadYamlFromArtifact constructs a dummy TOSCA Import loader so we can invoke its URL resolution mechanism
-        context = CommentedMap()
-        context["repositories"] = repositories
-        context.manifest = self
-        context.ignoreFileNotFound = warnWhenNotFound
-        return loadYamlFromArtifact(context, artifact, yaml)
+        tpl = CommentedMap()
+        tpl["repositories"] = repositories
+        loader = toscaparser.imports.ImportsLoader(
+            None, artifact.baseDir, tpl=tpl, resolver=self.getImportResolver(warnWhenNotFound)
+        )
+        return loader._load_import_template(
+            None, artifact.asImportSpec()
+        )
 
     def statusSummary(self):
         def summary(instance, indent):
@@ -435,6 +436,8 @@ class Manifest(AttributeManager):
 
         summary(self.rootResource, 0)
 
+    def getImportResolver(self, ignoreFileNotFound=False):
+        return ImportResolver(self, ignoreFileNotFound)
 
 class SnapShotManifest(Manifest):
     def __init__(self, manifest, commitId):

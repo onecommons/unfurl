@@ -939,7 +939,7 @@ def getConfigSpecArgsFromImplementation(iDef, inputs, template):
         except:
             # assume it's a command line
             logger.debug(
-                "interpreting 'implementation' as a shell command: %s", implementation
+                "interpreting 'implementation' as a shell command: %s", implementation, exc_info=True
             )
             _setDefaultCommand(kw, implementation, inputs)
     return kw
