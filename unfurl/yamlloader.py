@@ -163,6 +163,11 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         self.ignoreFileNotFound = ignoreFileNotFound
         self.loader = manifest.loader
 
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        state["manifest"] = None # 2.7 workaround
+        return state
+
     def start(self, importLoader, repository_name, file_name):
         # need this because get_url isn't always called before load_yaml
         importLoader.stream = None
