@@ -6,7 +6,7 @@ For each configuration, run it if required, then record the result
 """
 from __future__ import print_function
 
-from .yamlmanifest import runJob
+from .job import runJob
 from .support import Status
 from . import __version__, initLogging, getHomeConfigPath, DefaultNames
 from . import init as initmod

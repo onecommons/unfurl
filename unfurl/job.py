@@ -16,6 +16,7 @@ from .merge import mergeDicts
 from .runtime import OperationalInstance
 from .configurator import TaskView, ConfiguratorResult, TaskRequest, JobRequest
 from .plan import Plan
+from .localenv import LocalEnv
 from . import display
 
 try:
@@ -341,7 +342,7 @@ class ConfigTask(ConfigChange, TaskView):
 
 class Job(ConfigChange):
     """
-  runs ConfigTasks and Jobs
+  runs ConfigTasks and child Jobs
   """
 
     MAX_NESTED_SUBTASKS = 100
@@ -359,7 +360,7 @@ class Job(ConfigChange):
         self.jobRequestQueue = []
         self.unexpectedAbort = None
         self.workDone = collections.OrderedDict()
-        self.timeTaken = 0
+        self.timeElapsed = 0
 
     def createTask(self, configSpec, target, reason=None):
         # XXX2 if operation_host set, create remote task instead
@@ -615,7 +616,7 @@ class Job(ConfigChange):
         job = dict(id=self.changeId, status=self.status.name)
         job.update(self.stats())
         if not self.startTime:  # skip if startTime was explicitly set
-            job["timeTaken"] = self.timeTaken
+            job["timeElapsed"] = self.timeElapsed
         summary = dict(
             job=job,
             outputs=serializeValue(self.getOutputs()),
@@ -663,7 +664,7 @@ class Job(ConfigChange):
 
         line1 = "Job %s completed in %.3fs: %s. %s:\n    " % (
             self.changeId,
-            self.timeTaken,
+            self.timeElapsed,
             self.status.name,
             self.stats(asMessage=True),
         )
@@ -801,6 +802,41 @@ class Runner(object):
             self.manifest.commitJob(job)
         finally:
             if job:
-                job.timeTaken = perf_counter() - startTime
+                job.timeElapsed = perf_counter() - startTime
             os.chdir(cwd)
         return job
+
+def runJob(manifestPath=None, _opts=None):
+    """
+    Loads the given Ensemble and creates and runs a job.
+
+    Args:
+        manifestPath (:obj:`str`, optional) The path the Ensemble manifest.
+         If None, it will look for an ensemble in the current working directory.
+        _opts (:obj:`dict`, optional) A dictionary of job options. Names and values should match
+          the names of the command line options for creating jobs.
+
+    Returns:
+        (:obj:`Job`): The job that just ran.
+    """
+    _opts = _opts or {}
+    localEnv = LocalEnv(manifestPath, _opts.get("home"))
+    opts = JobOptions(**_opts)
+    path = localEnv.manifestPath
+    if opts.planOnly:
+        logger.info("creating %s plan for %s", opts.workflow, path)
+    else:
+        logger.info("running %s job for %s", opts.workflow, path)
+    try:
+        manifest = localEnv.getManifest()
+    except Exception as e:
+        logger.error(
+            "failed to load manifest at %s: %s",
+            path,
+            str(e),
+            exc_info=opts.verbose >= 2,
+        )
+        return None
+
+    runner = Runner(manifest)
+    return runner.run(opts)

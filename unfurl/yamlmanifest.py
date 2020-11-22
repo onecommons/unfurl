@@ -332,12 +332,11 @@ class YamlManifest(ReadOnlyManifest):
 
     def loadImports(self, importsSpec):
         """
-      file: local/path # for now
-      repository: uri or repository name in TOSCA template
-      instance: "*" or name # default is root
-      connections: "*" or map
-      attributes: # queries into resource
-      schema: # expected schema for attributes
+      :file: local/path # for now
+      :repository: uri or repository name in TOSCA template
+      :instance: "*" or name # default is root
+      :connections: "*" or map
+      :schema: # expected schema for attributes
     """
         # XXX commitId
         for name, value in importsSpec.items():
@@ -512,7 +511,7 @@ class YamlManifest(ReadOnlyManifest):
             else:
                 self.manifest.config.setdefault("changes", []).extend(changes)
         else:
-            # no work was done, so bother recording this job
+            # no work was done
             changes = []
 
         if job.out:
@@ -629,27 +628,3 @@ class YamlManifest(ReadOnlyManifest):
             return fullPath
         except:
             raise UnfurlError("Error saving changelog %s" % self.changeLogPath, True)
-
-
-def runJob(manifestPath=None, _opts=None):
-    _opts = _opts or {}
-    localEnv = LocalEnv(manifestPath, _opts.get("home"))
-    opts = JobOptions(**_opts)
-    path = localEnv.manifestPath
-    if opts.planOnly:
-        logger.info("creating %s plan for %s", opts.workflow, path)
-    else:
-        logger.info("running %s job for %s", opts.workflow, path)
-    try:
-        manifest = localEnv.getManifest()
-    except Exception as e:
-        logger.error(
-            "failed to load manifest at %s: %s",
-            path,
-            str(e),
-            exc_info=opts.verbose >= 2,
-        )
-        return None
-
-    runner = Runner(manifest)
-    return runner.run(opts)
