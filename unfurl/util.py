@@ -19,6 +19,7 @@ else:
 from collections import Mapping
 import os.path
 from jsonschema import Draft7Validator, validators, RefResolver
+import jsonschema.exceptions
 from ruamel.yaml.scalarstring import ScalarString, FoldedScalarString
 from ansible.parsing.yaml.objects import AnsibleVaultEncryptedUnicode
 from ansible.parsing.vault import VaultEditor
@@ -142,27 +143,27 @@ def isSensitive(obj):
 
 
 class sensitive_bytes(six.binary_type, sensitive):
-    pass
+    """Transparent wrapper class to mark bytes as sensitive"""
 
 
 if six.PY3:
 
     class sensitive_str(str, sensitive):
-        pass
+        """Transparent wrapper class to mark a str as sensitive"""
 
 
 else:
 
     class sensitive_str(unicode, sensitive):
-        pass
+        """Transparent wrapper class to mark a str as sensitive"""
 
 
 class sensitive_dict(dict, sensitive):
-    pass
+    """Transparent wrapper class to mark a dict as sensitive"""
 
 
 class sensitive_list(list, sensitive):
-    pass
+    """Transparent wrapper class to mark a list as sensitive"""
 
 
 def toYamlText(val):
@@ -409,9 +410,10 @@ def findSchemaErrors(obj, schema, baseUri=None):
     DefaultValidatingLatestDraftValidator.check_schema(schema)
     validator = DefaultValidatingLatestDraftValidator(schema, resolver=resolver)
     errors = list(validator.iter_errors(obj))
-    if not errors:
-        return None
-    message = "\n".join(e.message for e in errors[:1])
+    error = jsonschema.exceptions.best_match(errors)
+    if not error:
+      return None
+    message = '%s in %s' % (error.message, '/'.join(error.absolute_path))
     return message, errors
 
 

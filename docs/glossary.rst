@@ -46,7 +46,7 @@ Unfurl specific
 ===============
 
 Ensembles
-  Resource manifests describe the current state of resources and maintain a history of changes applied to those resources. Each manifest lives in its own git repo, which corresponds to the lifespan of the resources represented in the manifest.
+  A representation of an isolated collections of resources. Ensembles are implemented in manifest files that describe the resources' operations, properties and current state. Ensembles can lives in its own git repository, maintaining a history of changes applied to its resources.
 
 Configurators
   A software plugin that implements an operation. Configurators apply changes to instances. There are built-in configurators for shell scripts, Ansible playbooks, Terraform configurations, and Kubernetes resources or you can include your as part of the service specification.

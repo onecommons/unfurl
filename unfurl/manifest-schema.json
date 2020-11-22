@@ -114,7 +114,7 @@
         "uri": { "type": "string", "format": "uri" },
         "instance": { "type": "string" },
         "connections": {"anyOf": [{ "const": "*"}, { "type": "object" }]},
-        "properties": { "$ref": "#/definitions/attributes" },
+        "schema": { "$ref": "#/definitions/attributes" },
         "attributes": { "$ref": "#/definitions/attributes" }
       }
     },

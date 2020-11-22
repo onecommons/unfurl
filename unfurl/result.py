@@ -208,6 +208,9 @@ class ChangeRecord(object):
 
 class ChangeAware(object):
     def hasChanged(self, changeRecord):
+        """
+        Whether or not this object changed since the give ChangeRecord.
+        """
         return False
 
 

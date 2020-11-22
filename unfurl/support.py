@@ -742,7 +742,7 @@ class ExternalResource(ExternalValue):
     def __init__(self, name, importSpec):
         super(ExternalResource, self).__init__("external", name)
         self.resource = importSpec.resource
-        self.schema = importSpec.spec.get("properties")
+        self.schema = importSpec.spec.get("schema")
 
     def _validate(self, obj, schema, name):
         if schema:

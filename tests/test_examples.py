@@ -132,6 +132,7 @@ class RunTest(unittest.TestCase):
                     )
                 )
                 assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
+                # verify we wrote out the correct ansible inventory file
                 try:
                     from pathlib import Path
 
@@ -153,7 +154,7 @@ class RunTest(unittest.TestCase):
                     with inventory.open() as f:
                         self.assertEqual(f.read(), expectedInventory)
                 except ImportError:
-                    pass
+                    pass # skip on 2.7
         finally:
             os.environ["UNFURL_TMPDIR"] = oldTmpDir
         tasks = list(job.workDone.values())

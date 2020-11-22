@@ -1,8 +1,8 @@
 """
 This module defines the core model and implements the runtime operations of the model.
 
-The state of the system is represented as a collection of Resources.
-Each resource have a status; attributes that describe its state; and a TOSCA template
+The state of the system is represented as a collection of Instances.
+Each instance have a status; attributes that describe its state; and a TOSCA template
 which describes its capabilities, relationships and available interfaces for configuring and interacting with it.
 """
 import six
@@ -177,6 +177,9 @@ class Operational(ChangeAware):
 
 
 class OperationalInstance(Operational):
+    """
+    A concrete implementation of Operational
+    """
     def __init__(
         self,
         status=None,

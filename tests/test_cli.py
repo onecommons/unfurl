@@ -20,7 +20,7 @@ apiVersion: unfurl/v1alpha1
 kind: Ensemble
 context:
   locals:
-    properties:
+    schema:
       prop2:
        type: number
 spec:
@@ -34,7 +34,7 @@ spec:
         local2:
           eval:
             external: local
-          foreach: prop2
+          select: prop2
         testApikey:
           eval:
            secret: testApikey

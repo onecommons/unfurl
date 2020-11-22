@@ -491,7 +491,7 @@ context:
       file: foreignmanifest.yaml
     instance: foreign # default is root
     # attributes: # queries into resource
-    properties: # expected schema for attributes
+    schema: # expected schema for attributes
       prop2:
        type: number
       prop3:
@@ -512,15 +512,15 @@ spec:
             mapped1:
               eval:
                 external: test
-              foreach: prop1
+              select: prop1
             mapped2:
               eval:
                 external: test
-              foreach: prop2
+              select: prop2
             mapped3:
               eval:
                 external: test
-              foreach: prop3
+              select: prop3
           interfaces:
             Standard:
                 create: ImportTestConfigurator

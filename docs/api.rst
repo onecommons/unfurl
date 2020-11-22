@@ -4,57 +4,48 @@ Python API
 .. contents::
     :depth: 2
 
-.. public / referenced APIs: Status, State, ConfigChange, TaskView
+API for writing configurators
+-----------------------------
 
-Manifest
---------
-.. automodule:: unfurl.manifest
-  :members:
-
-.. automodule:: unfurl.yamlmanifest
-  :members:
-
-Configurators
--------------
 .. automodule:: unfurl.configurator
-  :members:
+  :members: Configurator, TaskRequest, JobRequest, TaskView
+  :undoc-members:
+
+.. automodule:: unfurl.support
+  :members: Status, NodeState, Priority
+  :undoc-members:
+
+.. automodule:: unfurl.result
+  :members: ChangeRecord, ChangeAware
 
 Runtime
--------
+~~~~~~~
 .. automodule:: unfurl.runtime
-  :members:
+  :members: Operational, OperationalInstance
 
-Eval
-----
-.. automodule:: unfurl.eval
-  :members:
+APIs for controlling Unfurl
+----------------------------
 
-Support
--------
-.. automodule:: unfurl.support
-  :members:
-
-Job
--------
-.. automodule:: unfurl.job
-  :members:
-
-Plan
--------
-.. automodule:: unfurl.plan
-  :members:
-
-Localenv
---------
 .. automodule:: unfurl.localenv
-  :members:
+  :members: LocalEnv, Project
+  :undoc-members:
 
-Init
-----
+.. automodule:: unfurl.job
+  :members: runJob, JobOptions, ConfigChange, Job
+
+.. automodule:: unfurl.plan
+  :members: DeployPlan
+
 .. automodule:: unfurl.init
-  :members:
+  :members: clone, _createInClonedProject, createProjectRepo
 
-Util
-----
+Utility classes and functions
+-----------------------------
+
+.. automodule:: unfurl.eval
+  :members: Ref, mapValue, evalRef
+
 .. automodule:: unfurl.util
-  :members:
+  :members: UnfurlError, UnfurlTaskError, wrapSensitiveValue, isSensitive,
+    sensitive_bytes, sensitive_str, sensitive_dict, sensitive_list,
+    filterEnv, Generate

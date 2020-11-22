@@ -2,11 +2,13 @@
 Public Api:
 
 mapValue - returns a copy of the given value resolving any embedded queries or template strings
+
 Ref.resolve given an expression, returns a ResultList
 Ref.resolveOne given an expression, return value, none or a (regular) list
 Ref.isRef return true if the given diction looks like a Ref
 
 Internal:
+
 evalRef() given expression (string or dictionary) return list of Result
 Expr.resolve() given expression string, return list of Result
 Results._mapValue same as mapValue but with lazily evaluation

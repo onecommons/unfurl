@@ -276,7 +276,7 @@ class LocalConfig(object):
         self.parentConfig = parentConfig
 
     def getContext(self, manifestPath, context):
-        localContext = self.contexts.get("defaults", {})
+        localContext = self.contexts.get("defaults") or {}
         contextName = "defaults"
         for spec in self.manifests:
             if manifestPath == self.adjustPath(spec["file"]):
@@ -284,7 +284,7 @@ class LocalConfig(object):
                 contextName = spec.get("context", contextName)
                 break
 
-        if contextName != "defaults" and contextName in self.contexts:
+        if contextName != "defaults" and self.contexts.get(contextName):
             localContext = mergeDicts(
                 localContext, self.contexts[contextName], replaceKeys=self.replaceKeys
             )

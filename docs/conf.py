@@ -33,6 +33,11 @@ extensions = [
 ]
 
 autodoc_typehints = "description"
+modindex_common_prefix = ['unfurl.']
+
+rst_epilog = """
+.. _How it works: http://localhost:4002/howitworks
+"""
 
 # sphinx.ext.extlinks
 # extlinks = {'issue': ('https://github.com/sphinx-doc/sphinx/issues/%s',
