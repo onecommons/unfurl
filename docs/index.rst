@@ -1,4 +1,4 @@
-.. Shinx cheatsheet: http://openalea.gforge.inria.fr/doc/openalea/doc/_build/html/source/sphinx/rest_syntax.html
+.. Sphinx cheatsheet: http://openalea.gforge.inria.fr/doc/openalea/doc/_build/html/source/sphinx/rest_syntax.html
 
 Unfurl documentation
 ===================================
@@ -19,21 +19,24 @@ Table of Contents
 
    README.md
 
-   guide.md
-
    get-started-step-by-step.rst
+
+   ensembles.rst
 
    projects.rst
 
    secrets.rst
 
+   tosca.rst
+
    jobs.rst
+
+   runtime.rst
 
    processing.rst
 
    expressions.rst
 
-   tosca.rst
 
    configurators.rst
 

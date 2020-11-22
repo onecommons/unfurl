@@ -1,6 +1,6 @@
-===================
-YAML Pre-processing
-===================
+=====================
+YAML Merge directives
+=====================
 
 When a YAML configuration is loaded, will look for dictionary keys that match the following pattern:
 

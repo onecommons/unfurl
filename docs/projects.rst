@@ -2,25 +2,58 @@
 Unfurl Projects
 ===============
 
-  * Contexts
-  * Local
-  * Secrets and sensitive data
-  * External (rename Imports)
-  * Unfurl Home
+Ensembles are meant to be self-contained and independent of their environment with any
+environment-dependent values and settings placed in the Ensemble's context.
+
+Unfurl projects define these contexts and assign them to the project's ensembles.
 
 Contexts
 ========
 
-Connections
+Contexts can contain:
+
+Runtime
+-------
+
+An isolated execution environment to run the ensemble's job in. This can be directory to a Python virtual environment or a Docker container. If this is missing, it will look a Python virtual environment directory (``.venv``) in the project's directory. By default, Unfurl will create a Python virtual environment in `~/unfurl_home` when the home project is created.
+
+Environment
 -----------
 
-You configure how to connect to online cloud providers and services by creating
-`relationship templates` in the local ensemble, which is TOSCA's way of specifying how instances connect.
+Specifies the runtimes environment variables to set or copy from the current environment (see `Environment`)
 
-Cloud provider instances are identified by context independent attributes such as an account id (usually automatically detected) as opposed to client-dependent connection attributes such as an API key. But including cloud provider instances in your specification is optional if the connection info is just passed through to external tools.
+Locals
+------
+
+Locals are properties specific to the local environment (e.g. proxy settings) and are accessed through the `local` expression function.
+
+Secrets
+-------
+
+Secrets are like locals except they are marked `sensitive` and redacted or encrypted when necessary. They are accessed through the `secret` expression function. See `secrets` for more info.
+
+External
+--------
+
+This specifies instances and connections that will be imported from external ensembles. See `External ensembles`.
+
+Inheritance and precedence
+--------------------------
+
+A Unfurl project can set context defaults. It can also declare named contexts and associate ensembles with a named context.
+
+An Ensemble can also declare what properties and values it is expecting in its context along with defaults.
+
+The following search order is applied when looking context up settings and objects:
+
+1. named context in current project
+2. named context in home project
+3. defaults in current project
+4. defaults in home projects
+5. context section in the ensemble manifest
 
 External ensembles
-------------------
+==================
 
 The `external` section of the manifest lets you declare instances that are imported from external manifests. Instances listed here can be accessed in two ways: One, they will be implicitly used if they match a node template that is declared abstract using the "select" directive (see "3.4.3 Directives"). Two, they can be explicitly referenced using the `external` expression function.
 
@@ -28,53 +61,50 @@ There are 3 instances that are always implicitly imported even if they are not d
 
 - The `localhost` instance that represents the machine Unfurl is currently executing on. This instance is accessed through the `ORCHESTRATOR` keyword in TOSCA and is defined in the home manifest that resides in your Unfurl home folder.
 
-- The `local` and `secret` instances are for representing properties that may be specific to the local environment that the manifest is running in and are declared in the local configuration file. All `secret` attribute values are treated as `sensitive` and redacted when necessary. These instances can be accessed through the `local` and `secret` expression functions (which are just shorthands for the `external` function).
+:manifest: A map specifying the location of the manifest. It must contain a ``file`` key with the path to the ensemble and optionally a ``repository`` key indicating the name of the repository where the file is located.
+:instance: (default: "*") The name of the instance within the ensemble to make available.
+  If ``*`` all instances in the ensemble will be available.
+:uri: The ``uri`` of the ensemble. If it is set and it doesn't match the retrieved ensemble's URI a validation error will occur.
+:connections: If set, either ``*`` or a map. ``*`` indicates all connection relationship templates should be imported. If it is a map, each key, value pair the key will be the name of the template to import and the value, if not empty, will be a local name for the template.
 
-Merging and precedence
-----------------------
-# the contexts defined here are merged with each project's and ensemble's contexts
-# merge priority (from highest to lowest):
-# (named context in project, named context in home,
-#  defaults in project, defaults in home, context in ensemble)
-  # the following local settings and environment variables are consumed
-  # by the localhost's connection templates, set as needed
+Locals and secrets:
 
-Environment
-===========
+:``attributes``: a map of the providing the names and values of locals or secrets
+:``schema``: a JSON schema properties object describing the schema for each attribute. If missing, validation of the attributes will be skipped.
 
-You can control the environment variables are available while Unfurl is running
-by the setting the `environment` directive.
-When set in a `context` object it is applied globally or it can be appear in
-the operation's `implementation` declaration where it will only be applied to that operation.
+Project defaults
+================
 
-In either case, `environment` makes a copy of the current environment and applied each of its keys
-in the order they are declared, adding the given key and value as
-envirnoment variables execpt keys starting with "+" and "-"
-will copy or remove the variable from the current into environment
-into the new one. In that case "*" and "?" are treated like filename wildcards and "!" negates the match:
+After running "init" your Unfurl project will look like:
 
-.. code-block:: YAML
+ensemble/ensemble.yaml
+ensemble-template.yaml
+unfurl.yaml
+local/unfurl.yaml
 
-  name: value    # add name=value
-  +name:         # copy name into the enviroment
-  +name: default # copy value, set it to "default" if not present
-  +!prefix*:     # copy all except variables matching "prefix*"
-  -!name:        # remove all except name
-  -!prefix*:     # remove all except variables matching "prefix*"
-  ^name: /bin  # treat name like a PATH and prepend value: e.g. /bin:$name
+If the --existing option is used, the project will be added to the nearest repository found in a parent folder.
+If the --mono option is used, the ensemble add the project repo instead of it's own.
 
+Each repository created will also have .gitignore and .gitattributes added.
 
-For example:
+When a repository is added as child of another repo, that folder will be added to .git/info/exclude
+(instead of .gitignore because they shouldn't be committed into the repository).
 
-.. code-block:: YAML
+Include directives, imports, and external file reference are guaranteed to be local to the project.
+Paths outside the project need to be referenced with a named repository.
+Paths are always relative but you can optionally specify which repository a path is relative to.
 
-  environment:
-     -*:       # this will remove all environment variables
-     +HOME:    # add HOME back
-     FOO: bar  # set FOO = bar
+There are three predefined repositories:
 
-The following environment variables will always be copied from the parent environment unless explicitly removed or set:
+"self", which represents the location the ensemble lives in -- it will be
+a "git-local:" URL or a "file:" URL if the ensemble is not part of a git repository.
 
-.. documentedlist::
-   :listobject: unfurl.util._sphinx_envvars
-   :header: "Name"
+"unfurl" which points to the Python package of the unfurl process -- this can be used to load configurators and templates
+that ship with Unfurl.
+
+"spec" which, unless explicitly declared, defaults to the project root or the ensemble itself if it is not part of a project.
+
+Runtimes
+========
+
+How to create?

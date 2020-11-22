@@ -1,5 +1,5 @@
-TOSCA support
-=============
+TOSCA
+=====
 
 The service templates are defined using OASIS's `TOSCA <https://www.oasis-open.org/committees/tc_home.php?wg_abbrev=tosca>`_
 ("Topology and Orchestration Specification for Cloud Applications") Simple Profile
@@ -30,9 +30,9 @@ Extensions
 Not yet implemented and non-conformance with the TOSCA 1.3 specification
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-* Operation Outputs and `get_operation_output` function (use `resultTemplate` instead)
+* Operation outputs and `get_operation_output` function (use `resultTemplate` instead)
 * "copy" keyword (use dsl or `merge directives` instead)
-* `get_artifact` function (only implemented for artifacts that are docker images)
+* `get_artifact` function (only implemented for artifacts that are container images)
 * CSAR manifests and archives (implemented but untested)
 * substitution mapping (mostly implemented but untested)
 * triggers
