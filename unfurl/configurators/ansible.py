@@ -18,13 +18,6 @@ display = Display()
 
 logger = logging.getLogger("unfurl")
 
-# inputs:
-#  playbook
-#  playbookArgs
-#  extraVars
-#  inventory
-# outputs:
-#  treated as ansible facts to extract from ansible results
 def getAnsibleResults(result, extraKeys=(), facts=()):
     """
   Returns a dictionary containing at least:
@@ -138,7 +131,19 @@ class AnsibleConfigurator(TemplateConfigurator):
             )
             if connection:
                 self._updateVars(connection, hostVars)
-            hosts = {host.name: hostVars}
+
+            if "ansible_host" not in hostVars:
+                ip_address = host.attributes.get('public_ip') or host.attributes.get('private_ip')
+                if ip_address:
+                    hostVars['ansible_host'] = ip_address
+
+            project_id = host.attributes.get('project_id')
+            if project_id:
+                # hack for gcp because this name is set in .ssh/config by `gcloud compute config-ssh --quiet`
+                hostname = "%s.%s.%s" % (host.name, host.attributes['zone'], project_id)
+            else:
+                hostname = host.name
+            hosts = {hostname: hostVars}
 
             children = {
                 group.name: self._makeInventoryFromGroup(group)
@@ -235,7 +240,7 @@ class AnsibleConfigurator(TemplateConfigurator):
         return []
 
     def processResult(self, task, result):
-        self.processResultTemplate(task, dict(result.result, outputs=result.outputs))
+        self.processResultTemplate(task, dict(result.result, success=result.success, outputs=result.outputs))
         return result
 
     def run(self, task):
