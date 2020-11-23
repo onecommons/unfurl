@@ -277,7 +277,7 @@ def createProject(
 def cloneLocalRepos(manifest, sourceProject, targetProject):
     # We need to clone repositories that are local to the source project
     # otherwise we won't be able to find them
-    for repoSpec in manifest.repositories.values():
+    for repoSpec in manifest.tosca.template.repositories.values():
         if repoSpec.name == "self":
             continue
         repo = sourceProject.findRepository(repoSpec)

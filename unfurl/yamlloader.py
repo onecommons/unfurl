@@ -41,6 +41,7 @@ from .merge import (
 from toscaparser.common.exception import URLException, ExceptionCollector
 from toscaparser.utils.gettextutils import _
 import toscaparser.imports
+from toscaparser.repositories import Repository
 
 from ansible.parsing.vault import VaultLib, VaultSecret
 from ansible.utils.unsafe_proxy import AnsibleUnsafeText, AnsibleUnsafeBytes
@@ -165,50 +166,44 @@ class ImportResolver(toscaparser.imports.ImportResolver):
 
     def __getstate__(self):
         state = self.__dict__.copy()
+        # XXX try just clearing manifest.config.loadHook
         state["manifest"] = None # 2.7 workaround
         return state
 
-    def start(self, importLoader, repository_name, file_name):
-        # need this because get_url isn't always called before load_yaml
-        importLoader.stream = None
-
-    def get_url(self, importLoader, repo_def, file_name):
+    def get_url(self, importLoader, repository_name, file_name, isFile=None):
         # returns url or path, isFile, fragment
-        url_info = super(ImportResolver, self).get_url(importLoader, repo_def, file_name)
+        importLoader.stream = None
+        if repository_name:
+            # don't include file_name, we need to keep it distinct from the repo path till the end
+            url_info = super(ImportResolver, self).get_url(importLoader, repository_name, '', isFile)
+        else:
+            url_info = super(ImportResolver, self).get_url(importLoader, repository_name, file_name, isFile)
+            file_name = ''
         if not url_info:
             return url_info
         path, isFile, fragment = url_info
-        newpath, f, isFile = self._resolveIfInRepository(self.manifest, path, isFile, importLoader)
-        importLoader.stream = f
-        return (path if f else newpath), isFile, fragment
-
-    @staticmethod
-    def _resolveIfInRepository(manifest, path, isFile, importLoader):
-        # check if this path is a git url, if it is, return the repo and local path to the file
-        repo, filePath, revision, bare = manifest.findRepoFromGitUrl(
-            path, isFile, importLoader, True
+        repo, filePath, revision, bare = self.manifest.findRepoFromGitUrl(
+            path, isFile, importLoader
         )
-        if repo:  # it's a git repo
+        if repo:
+            isFile = True
             if bare:
                 if not filePath:
                     raise UnfurlError(
                         "can't retrieve local repository for '%s' with revision '%s'"
                         % (path, revision)
                     )
-                contents = repo.show(filePath, revision)
-                return filePath, six.StringIO(contents), True
-            path = os.path.join(repo.workingDir, filePath.strip('/'))
-            isFile = True
-        else:
-            # if it's a file path, check if it's in one of our repos
-            if isFile:
-                repo, filePath, revision, bare = manifest.findPathInRepos(
-                    path, importLoader, True
-                )
-                if repo:
-                    assert not bare
-                    path = os.path.join(repo.workingDir, filePath)
-        return path, None, isFile
+                importLoader.stream = six.StringIO(repo.show(filePath, revision))
+                path = os.path.join(filePath, file_name or '')
+            else:
+                path = os.path.join(repo.workingDir, filePath, file_name or '').rstrip('/')
+                repository = None
+                if repository_name:
+                    repository = Repository(repository_name, importLoader.repositories[repository_name])
+                    self.manifest.addRepository(repo, repository, filePath)
+        elif file_name:
+            path = os.path.join(path, file_name)
+        return path, isFile, fragment
 
     def load_yaml(self, importLoader, path, isFile=True, fragment=None):
         try:

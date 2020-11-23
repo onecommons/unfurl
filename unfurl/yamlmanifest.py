@@ -191,7 +191,7 @@ class ReadOnlyManifest(Manifest):
         if localEnv:
             self.context = localEnv.getContext(self.context)
         spec["inputs"] = self.context.get("inputs", spec.get("inputs", {}))
-        self._setSpec(spec)
+        self._setSpec(manifest)
         assert self.tosca
 
     @property

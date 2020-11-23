@@ -157,6 +157,29 @@ class Repo(object):
         return GitRepo(repo)
 
 
+class Repository(object):
+    # view of Repo optionally filtered by path
+    # XXX and revision too
+    def __init__(self, repository, repo, path=''):
+        self.repository = repository
+        self.repo = repo
+        self.path = path
+        self.readOnly = not repo
+
+    @property
+    def name(self):
+        return self.repository.name
+
+    def isDirty(self):
+      if self.readOnly:
+          return False
+      return self.repo.isDirty(path=self.path)
+
+    def commit(self, message=''):
+      self.repo.repo.git.add("--all", self.path)
+      self.repo.repo.index.commit(message)
+
+
 class GitRepo(Repo):
     def __init__(self, gitrepo):
         self.repo = gitrepo
@@ -280,9 +303,10 @@ class GitRepo(Repo):
         index.add([os.path.abspath(f) for f in files])
         return index.commit(msg)
 
-    def isDirty(self, untracked_files=False):
+    def isDirty(self, untracked_files=False, path=None):
         # diff = self.repo.git.diff()  # "--abbrev=40", "--full-index", "--raw")
-        return self.repo.is_dirty(untracked_files=untracked_files)
+        # https://gitpython.readthedocs.io/en/stable/reference.html?highlight=is_dirty#git.repo.base.Repo.is_dirty
+        return self.repo.is_dirty(untracked_files=untracked_files, path=path)
 
     def clone(self, newPath):
         # note: repo.clone uses bare path, which breaks submodule path resolution
@@ -335,21 +359,6 @@ class GitRepo(Repo):
     #     changeFiles = self.manifest.saveChanges(commit.hexsha)
     #     repo.index.add(changeFiles)
     #     repo.git.commit("")
-
-
-# class SimpleRepo(Repo):
-#   def __init__(self, lastCommitId):
-#     self.lastCommitId = int(lastCommitId or 0)
-#
-#   def checkout(self, commitid, useCurrent):
-#     if useCurrent and commitid == self.lastCommitId:
-#       return self.workingDir
-#     return './revisions/{commitid}/files'
-#
-#   def commit(self):
-#     self.lastCommitId += 1
-#     # copy current workingDir to /revisions/{commitid}/files
-#     return self.lastCommitId
 
 
 class RevisionManager(object):
