@@ -50,11 +50,11 @@ mergeStrategyKey = "+%"  # values: delete
 # b is the merge patch, a is original dict
 def mergeDicts(b, a, cls=None, replaceKeys=None, defaultStrategy="merge"):
     """
-  Returns a new dict (or cls) that recursively merges b into a.
-  b is base, a overrides.
+    Returns a new dict (or cls) that recursively merges b into a.
+    b is base, a overrides.
 
-  Similar to https://yaml.org/type/merge.html but does a recursive merge
-  """
+    Similar to https://yaml.org/type/merge.html but does a recursive merge
+    """
     cls = getattr(b, "mapCtor", cls or b.__class__)
     cp = cls()
     skip = []
@@ -92,12 +92,12 @@ def mergeDicts(b, a, cls=None, replaceKeys=None, defaultStrategy="merge"):
                 skip.append(key)
                 continue
         elif isinstance(val, MutableSequence) and key in b:
-          bval = b[key]
-          if isinstance(bval, MutableSequence):
-        # XXX allow more strategies beyond append
-        #     if appendlists == 'all' or key in appendlists:
-              cp[key] = bval + [item for item in val if item not in bval]
-              continue
+            bval = b[key]
+            if isinstance(bval, MutableSequence):
+                # XXX allow more strategies beyond append
+                #     if appendlists == 'all' or key in appendlists:
+                cp[key] = bval + [item for item in val if item not in bval]
+                continue
         #     elif mergelists == 'all' or key in mergelists:
         #       newlist = []
         #       for ai, bi in zip(val, bval):
@@ -172,7 +172,7 @@ def getTemplate(doc, key, value, path, cls):
     if key.include:
         value, template, baseDir = doc.loadTemplate(value, key.maybe)
         if template is None:  # include wasn't not found and key.maybe
-            return doc
+            return None
         cls = makeMapWithBase(doc, baseDir)
         # fileKey = key._replace(include=None)
         # template = getTemplate(template, fileKey, "raw", (), cls)
@@ -276,12 +276,12 @@ MergeKey = namedtuple("MergeKey", "key, maybe, include, anchor, relative, pointe
 
 def parseMergeKey(key):
     """
-  +[maybe]?[include]?[anchor]?[relative]?[jsonpointer]?
+    +[maybe]?[include]?[anchor]?[relative]?[jsonpointer]?
 
-  [include] = "include"[number?]
-  [anchor] = "*"[anchorname]
-  relative = '.'+
-  """
+    [include] = "include"[number?]
+    [anchor] = "*"[anchorname]
+    relative = '.'+
+    """
     original = key
     key = key[1:]
     _jsonPointerValidate(key)
@@ -306,13 +306,13 @@ def parseMergeKey(key):
 
 def expandDict(doc, path, includes, current, cls=dict):
     """
-  Return a copy of `doc` that expands include directives.
-  Include directives look like "+path/to/value"
-  When appearing as a key in a map it will merge the result with the current dictionary.
-  When appearing in a list it will insert the result in the list;
-  if result is also a list, each item will be inserted separately.
-  (If you don't want that behavior just wrap include in another list, e.g "[+list1]")
-  """
+    Return a copy of `doc` that expands include directives.
+    Include directives look like "+path/to/value"
+    When appearing as a key in a map it will merge the result with the current dictionary.
+    When appearing in a list it will insert the result in the list;
+    if result is also a list, each item will be inserted separately.
+    (If you don't want that behavior just wrap include in another list, e.g "[+list1]")
+    """
     cp = cls()
     # first merge any includes includes into cp
     templates = []
@@ -338,6 +338,8 @@ def expandDict(doc, path, includes, current, cls=dict):
             template = getTemplate(doc, mergeKey, value, path, cls)
             if isinstance(template, Mapping):
                 templates.append(template)
+            elif mergeKey.include and template is None:
+                continue  # include path not found
             else:
                 if len(current) > 1:  # XXX include merge directive keys in count
                     raise UnfurlError("can not merge non-map value %s" % template)
@@ -423,8 +425,8 @@ def expandList(doc, path, includes, value, cls=dict):
 
 def diffDicts(old, new, cls=dict):
     """
-  return a dict where old + diff = new
-  """
+    return a dict where old + diff = new
+    """
     diff = cls()
     # start with old to preserve original order
     for key, val in old.items():
@@ -447,8 +449,8 @@ def diffDicts(old, new, cls=dict):
 # XXX rename function, confusing name
 def patchDict(old, new, cls=dict):
     """
-  Transform old into new while preserving old as much as possible.
-  """
+    Transform old into new while preserving old as much as possible.
+    """
     # start with old to preserve original order
     for key, val in list(old.items()):
         if key in new:
@@ -478,8 +480,8 @@ def patchDict(old, new, cls=dict):
 
 def intersectDict(old, new, cls=dict):
     """
-  remove keys from old that don't match new
-  """
+    remove keys from old that don't match new
+    """
     # start with old to preserve original order
     for key, val in list(old.items()):
         if key in new:
@@ -536,8 +538,8 @@ def addTemplate(changedDoc, path, mergeKey, template, cls):
 
 def restoreIncludes(includes, originalDoc, changedDoc, cls=dict):
     """
-  Modifies changedDoc with to use the includes found in originalDoc
-  """
+    Modifies changedDoc with to use the includes found in originalDoc
+    """
     # if the path to the include still exists
     # resolve the include
     # if the include doesn't exist in the current doc, re-add it

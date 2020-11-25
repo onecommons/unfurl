@@ -48,6 +48,7 @@ class TestSubtaskConfigurator(Configurator):
         # print ("running TestSubtaskConfigurator")
         yield task.done(True, Status.ok)
 
+
 class ExpandDocTest(unittest.TestCase):
     doc = {
         "t1": {"b": 2},
@@ -58,14 +59,14 @@ class ExpandDocTest(unittest.TestCase):
             [("+/t2", None), ("a", {"+/t1": None}), ("d", {"+/t3": None}), ("e", "e")]
         ),
         "test2": [1, {"+/t4": ""}, "+t4", {"+/t4": None}],
-        "base":  {"list": [1]},
-        "test3": {"list": [2, 1, 3], "+/base": None}
+        "base": {"list": [1]},
+        "test3": {"list": [2, 1, 3], "+/base": None},
     }
 
     expected = {
         "test1": {"a": {"b": 2}, "c": "c", "d": "val", "e": "e"},
         "test2": [1, "a", "b", "+t4", "a", "b"],
-        "test3": {"list": [1, 2, 3]}
+        "test3": {"list": [1, 2, 3]},
     }
 
     def test_expandDoc(self):
@@ -198,15 +199,15 @@ class OperationalInstanceTest(unittest.TestCase):
 
 class RunTest(unittest.TestCase):
     """
-  XXX:
-  test status: report last state, report config changes, report plan
-  test discover
-  test failing configurations with abort, continue, revert (both capable of reverting and not)
-  test incomplete runs
-  test unexpected errors, terminations
-  test locking
-  test required metadata on resources
-  """
+    XXX:
+    test status: report last state, report config changes, report plan
+    test discover
+    test failing configurations with abort, continue, revert (both capable of reverting and not)
+    test incomplete runs
+    test unexpected errors, terminations
+    test locking
+    test required metadata on resources
+    """
 
     def test_manifest(self):
         simple = (
@@ -303,11 +304,11 @@ class TestInterface:
 
 class InterfaceTest(unittest.TestCase):
     """
-  .interfaces:
-    inherit: ClassName
-    default:
-    filter:
-  """
+    .interfaces:
+      inherit: ClassName
+      default:
+      filter:
+    """
 
     def test_interface(self):
         r = NodeInstance("test")
@@ -439,6 +440,16 @@ spec:
             assert config.config["+?include"] == "missing.yaml"
             assert config.config["+?include2"] == "missing.yaml"
             assert "a" not in config.config["spec"]
+
+            configYaml = """
+kind: Project
++?include: local/unfurl.yaml
+a:
+  b: 1
+"""
+            config = YamlConfig(configYaml)
+            assert config.expanded.baseDir == "."
+            assert config.expanded["a"].baseDir == "."
 
     # XXX
     # def test_change(self):
