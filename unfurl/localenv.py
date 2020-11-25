@@ -19,9 +19,9 @@ from six.moves.urllib.parse import urlparse
 
 class Project(object):
     """
-  A Unfurl project is a folder that contains at least a local configuration file (unfurl.yaml),
-  one or more ensemble.yaml files which maybe optionally organized into one or more git repositories.
-  """
+    A Unfurl project is a folder that contains at least a local configuration file (unfurl.yaml),
+    one or more ensemble.yaml files which maybe optionally organized into one or more git repositories.
+    """
 
     def __init__(self, path, homeProject=None):
         assert isinstance(path, six.string_types), path
@@ -69,8 +69,8 @@ class Project(object):
     @staticmethod
     def findPath(testPath):
         """
-    Walk parents looking for unfurl.yaml
-    """
+        Walk parents looking for unfurl.yaml
+        """
         current = os.path.abspath(testPath)
         while current and current != os.sep:
             test = os.path.join(current, DefaultNames.LocalConfig)
@@ -233,13 +233,12 @@ _basepath = os.path.abspath(os.path.dirname(__file__))
 
 class LocalConfig(object):
     """
-  Represents the local configuration file, which provides the environment that manifests run in, including:
-    instances imported from other ensembles, inputs, environment variables, secrets and local configuration.
+    Represents the local configuration file, which provides the environment that manifests run in, including:
+      instances imported from other ensembles, inputs, environment variables, secrets and local configuration.
 
-  It consists of:
-  * a list of ensemble manifests with their local configuration
-  * the default local and secret instances
-"""
+    It consists of:
+    * a list of ensemble manifests with their local configuration
+    * the default local and secret instances"""
 
     # don't merge the value of the keys of these dicts:
     replaceKeys = [
@@ -293,8 +292,8 @@ class LocalConfig(object):
 
     def adjustPath(self, path):
         """
-    Makes sure relative paths are relative to the location of this local config
-    """
+        Makes sure relative paths are relative to the location of this local config
+        """
         return os.path.join(self.config.getBaseDir(), path)
 
     def getDefaultManifestPath(self):
@@ -327,21 +326,21 @@ class LocalConfig(object):
 
 class LocalEnv(object):
     """
-  This class represents the local environment that an ensemble runs in, including
-  the local project it is part of and the home project.
-  """
+    This class represents the local environment that an ensemble runs in, including
+    the local project it is part of and the home project.
+    """
 
     homeProject = None
 
     def __init__(self, manifestPath=None, homePath=None, parent=None, project=None):
         """
-    If manifestPath is None find the first unfurl.yaml or ensemble.yaml
-    starting from the current directory.
+        If manifestPath is None find the first unfurl.yaml or ensemble.yaml
+        starting from the current directory.
 
-    If homepath is set it overrides UNFURL_HOME
-    (and an empty string disable the home path).
-    Otherwise the home path will be set to UNFURL_HOME or the default home location.
-    """
+        If homepath is set it overrides UNFURL_HOME
+        (and an empty string disable the home path).
+        Otherwise the home path will be set to UNFURL_HOME or the default home location.
+        """
         import logging
 
         logger = logging.getLogger("unfurl")
@@ -357,13 +356,18 @@ class LocalEnv(object):
                 self._projects[project.localConfig.config.path] = project
             self._manifests = {}
             self.homeConfigPath = getHomeConfigPath(homePath)
-            if self.homeConfigPath and not os.path.exists(self.homeConfigPath):
+
+        if self.homeConfigPath:
+            if not os.path.exists(self.homeConfigPath):
                 logger.warning(
                     'UNFURL_HOME is set but does not exist: "%s"', self.homeConfigPath
                 )
-
-        if self.homeConfigPath:
-            self.homeProject = self.getProject(self.homeConfigPath, None)
+            else:
+                self.homeProject = self.getProject(self.homeConfigPath, None)
+                if not self.homeProject:
+                    logger.warning(
+                        'Could not load home project at: "%s"', self.homeConfigPath
+                    )
 
         self.manifestPath = None
         if manifestPath:
@@ -504,8 +508,8 @@ class LocalEnv(object):
 
     def findProject(self, testPath):
         """
-    Walk parents looking for unfurl.yaml
-    """
+        Walk parents looking for unfurl.yaml
+        """
         path = Project.findPath(testPath)
         if path is not None:
             return self.getProject(path, self.homeProject)

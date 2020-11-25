@@ -158,11 +158,11 @@ class ConfigurationSpec(object):
 
 class ConfiguratorResult(object):
     """
-  Modified indicates whether the underlying state of configuration,
-  was changed i.e. the physically altered the system this configuration represents.
+    Modified indicates whether the underlying state of configuration,
+    was changed i.e. the physically altered the system this configuration represents.
 
-  status reports the Status of the current configuration.
-  """
+    status reports the Status of the current configuration.
+    """
 
     def __init__(
         self,
@@ -242,17 +242,17 @@ class Configurator(object):
 
     def canRun(self, task):
         """
-    Return whether or not the configurator can execute the given task.
+        Return whether or not the configurator can execute the given task.
 
-    Does this configurator support the requested action and parameters
-    and given the current state of the target instance?
+        Does this configurator support the requested action and parameters
+        and given the current state of the target instance?
 
-    Args:
-        task (:class:`TaskView`) The task that is about to be run.
+        Args:
+            task (:class:`TaskView`) The task that is about to be run.
 
-    Returns:
-        (bool or str): Should return True or a message describing why the task couldn't be run.
-    """
+        Returns:
+            (bool or str): Should return True or a message describing why the task couldn't be run.
+        """
         return True
 
     def shouldRun(self, task):
@@ -266,8 +266,7 @@ class Configurator(object):
 
 
 class TaskView(object):
-    """The interface presented to configurators.
-  """
+    """The interface presented to configurators."""
 
     def __init__(self, manifest, configSpec, target, reason=None, dependencies=None):
         # public:
@@ -470,6 +469,12 @@ class TaskView(object):
         return connection
 
     def sensitive(self, value):
+        """Mark the given value as sensitive. Sensitive values will be encrypted or redacted when outputed.
+
+        Returns:
+          sensitive: A subtype of `sensitive` appropriate for the value or the value itself if it can't be converted.
+
+        """
         return wrapSensitiveValue(
             value, self.operationHost and self.operationHost.templar._loader._vault
         )
@@ -596,12 +601,12 @@ class TaskView(object):
     ):
         """Create a subtask that will be executed if yielded by `run()`
 
-           Args:
-             operation (str): The operation call (like `interface.operation`)
-             resource (:class:`NodeInstance`) The current target if missing.
+        Args:
+          operation (str): The operation call (like `interface.operation`)
+          resource (:class:`NodeInstance`) The current target if missing.
 
-           Returns:
-              :class:`TaskRequest`
+        Returns:
+           :class:`TaskRequest`
         """
         if resource is None:
             resource = self.target
@@ -659,7 +664,7 @@ class TaskView(object):
         Returns:
           :class:`JobRequest`: To run the job based on the supplied spec
               immediately, yield the returned JobRequest.
-    """
+        """
         from .manifest import Manifest
 
         if isinstance(resources, six.string_types):
@@ -783,16 +788,16 @@ class Dependency(ChangeAware):
     """Represents a runtime dependency for a configuration.
 
 
-    Dependencies are used to determine if a configuration needs re-run as follows:
+      Dependencies are used to determine if a configuration needs re-run as follows:
 
-  * Tosca `DependsOn`
+    * Tosca `DependsOn`
 
-    * They are dynamically created when evaluating and comparing the
-      configuration spec's attributes with the previous values
+      * They are dynamically created when evaluating and comparing the
+        configuration spec's attributes with the previous values
 
-    * Persistent dependencies can be created when the configurator
-      invokes these apis: `createSubTask`, `updateResources`, `query`, `addDependency`
-  """
+      * Persistent dependencies can be created when the configurator
+        invokes these apis: `createSubTask`, `updateResources`, `query`, `addDependency`
+    """
 
     def __init__(
         self,
@@ -804,10 +809,10 @@ class Dependency(ChangeAware):
         wantList=False,
     ):
         """
-    if schema is not None, validate the result using schema
-    if expected is not None, test that result equals expected
-    otherwise test that result isn't empty has not changed since the last attempt
-    """
+        if schema is not None, validate the result using schema
+        if expected is not None, test that result equals expected
+        otherwise test that result isn't empty has not changed since the last attempt
+        """
         assert not (expected and schema)
         self.expr = expr
 
@@ -939,7 +944,9 @@ def getConfigSpecArgsFromImplementation(iDef, inputs, template):
         except:
             # assume it's a command line
             logger.debug(
-                "interpreting 'implementation' as a shell command: %s", implementation, exc_info=True
+                "interpreting 'implementation' as a shell command: %s",
+                implementation,
+                exc_info=True,
             )
             _setDefaultCommand(kw, implementation, inputs)
     return kw

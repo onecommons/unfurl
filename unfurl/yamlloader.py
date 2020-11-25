@@ -158,27 +158,26 @@ def makeVaultLib(passwordBytes, vaultId="default"):
 
 _refResolver = RefResolver("", None)
 
+
 class ImportResolver(toscaparser.imports.ImportResolver):
     def __init__(self, manifest, ignoreFileNotFound=False):
         self.manifest = manifest
         self.ignoreFileNotFound = ignoreFileNotFound
         self.loader = manifest.loader
 
-    def __getstate__(self):
-        state = self.__dict__.copy()
-        # XXX try just clearing manifest.config.loadHook
-        state["manifest"] = None # 2.7 workaround
-        return state
-
     def get_url(self, importLoader, repository_name, file_name, isFile=None):
         # returns url or path, isFile, fragment
         importLoader.stream = None
         if repository_name:
             # don't include file_name, we need to keep it distinct from the repo path till the end
-            url_info = super(ImportResolver, self).get_url(importLoader, repository_name, '', isFile)
+            url_info = super(ImportResolver, self).get_url(
+                importLoader, repository_name, "", isFile
+            )
         else:
-            url_info = super(ImportResolver, self).get_url(importLoader, repository_name, file_name, isFile)
-            file_name = ''
+            url_info = super(ImportResolver, self).get_url(
+                importLoader, repository_name, file_name, isFile
+            )
+            file_name = ""
         if not url_info:
             return url_info
         path, isFile, fragment = url_info
@@ -194,12 +193,16 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                         % (path, revision)
                     )
                 importLoader.stream = six.StringIO(repo.show(filePath, revision))
-                path = os.path.join(filePath, file_name or '')
+                path = os.path.join(filePath, file_name or "")
             else:
-                path = os.path.join(repo.workingDir, filePath, file_name or '').rstrip('/')
+                path = os.path.join(repo.workingDir, filePath, file_name or "").rstrip(
+                    "/"
+                )
                 repository = None
                 if repository_name:
-                    repository = Repository(repository_name, importLoader.repositories[repository_name])
+                    repository = Repository(
+                        repository_name, importLoader.repositories[repository_name]
+                    )
                     self.manifest.addRepository(repo, repository, filePath)
         elif file_name:
             path = os.path.join(path, file_name)
@@ -231,7 +234,8 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                 except urllib.error.URLError as e:
                     if hasattr(e, "reason"):
                         msg = _(
-                            'Failed to reach server "%(path)s". Reason is: ' "%(reason)s."
+                            'Failed to reach server "%(path)s". Reason is: '
+                            "%(reason)s."
                         ) % {"path": path, "reason": e.reason}
                         ExceptionCollector.appendException(URLException(what=msg))
                         return
@@ -258,6 +262,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
             else:
                 msg = 'Could not load "%s"' % path
             raise UnfurlError(msg, True)
+
 
 class YamlConfig(object):
     def __init__(
@@ -294,7 +299,9 @@ class YamlConfig(object):
             else:
                 self.config = config
             if not isinstance(self.config, CommentedMap):
-                raise UnfurlValidationError('invalid YAML document with contents: "%s"' % self.config)
+                raise UnfurlValidationError(
+                    'invalid YAML document with contents: "%s"' % self.config
+                )
 
             findAnchor(self.config, None)  # create _anchorCache
             self._cachedDocIncludes = {}
@@ -353,7 +360,9 @@ class YamlConfig(object):
 
     def __getstate__(self):
         state = self.__dict__.copy()
+        # workarounds for 2.7:  Can't pickle <type 'instancemethod'>
         state["_yaml"] = None
+        state["loadHook"] = None
         return state
 
     def validate(self, config):
@@ -370,7 +379,7 @@ class YamlConfig(object):
         return findSchemaErrors(config, self.schema, baseUri)
 
     def loadInclude(self, templatePath, warnWhenNotFound=False):
-        if templatePath == self.baseDirs[-1]:
+        if templatePath == self.baseDirs[-1]:  # pop hack
             self.baseDirs.pop()
             return
 
