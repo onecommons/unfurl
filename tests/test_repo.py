@@ -23,16 +23,24 @@ def createUnrelatedRepo(gitDir):
     repo.index.commit("Initial Commit")
     return repo
 
-installDirs = [('terraform', '0.12.29', 'bin'), ('gcloud', '313.0.0', 'bin'),  ('helm', '3.3.4', 'bin')]
+
+installDirs = [
+    ("terraform", "0.12.29", "bin"),
+    ("gcloud", "313.0.0", "bin"),
+    ("helm", "3.3.4", "bin"),
+]
+
+
 def makeAsdfFixtures(base):
-  # make install dirs so we can pretend we already downloaded these
-  for subdir in installDirs:
-      path = os.path.join(base, 'plugins', subdir[0])
-      if not os.path.exists(path):
-          os.makedirs(path)
-      path = os.path.join(base, 'installs', *subdir)
-      if not os.path.exists(path):
-          os.makedirs(path)
+    # make install dirs so we can pretend we already downloaded these
+    for subdir in installDirs:
+        path = os.path.join(base, "plugins", subdir[0])
+        if not os.path.exists(path):
+            os.makedirs(path)
+        path = os.path.join(base, "installs", *subdir)
+        if not os.path.exists(path):
+            os.makedirs(path)
+
 
 class AConfigurator(Configurator):
     def run(self, task):
@@ -256,7 +264,7 @@ ensemble.yaml
                 "--home",
                 "./unfurl_home",
                 "check",
-                "--dirty",
+                "--dirty=ok",
                 "--commit",
                 "--jobexitcode",
                 "degraded",
@@ -359,9 +367,9 @@ ensemble.yaml
                 traceback.format_exception(*result.exc_info)
             )
 
-            assert not os.path.exists('./unfurl_home/.tool_versions')
+            assert not os.path.exists("./unfurl_home/.tool_versions")
             makeAsdfFixtures("test_asdf")
-            os.environ['ASDF_DATA_DIR'] = os.path.abspath('test_asdf')
+            os.environ["ASDF_DATA_DIR"] = os.path.abspath("test_asdf")
             args = [
                 #  "-vvv",
                 "deploy",
@@ -376,8 +384,8 @@ ensemble.yaml
             )
             self.assertEqual(result.exit_code, 0, result)
 
-            assert os.path.exists('unfurl_home/.tool-versions')
-            LocalEnv('unfurl_home').getManifest()
+            assert os.path.exists("unfurl_home/.tool-versions")
+            LocalEnv("unfurl_home").getManifest()
             paths = os.environ["PATH"].split(os.pathsep)
             assert len(paths) >= len(installDirs)
             for dirs, path in zip(installDirs, paths):
@@ -386,15 +394,19 @@ ensemble.yaml
     def test_remote_git_repo(self):
         runner = CliRunner()
         with runner.isolated_filesystem():
+            result = runner.invoke(cli, ["init", "--mono"])
+            assert not result.exception, "\n".join(
+                traceback.format_exception(*result.exc_info)
+            )
+
             with open("ensemble.yaml", "w") as f:
                 f.write(repoManifestContent)
             ensemble = LocalEnv().getManifest()
             # Updated origin/master to a319ac1914862b8ded469d3b53f9e72c65ba4b7f
-            # the ensemble isn't part of a project so the home project is used
-            path = os.path.join(os.environ["UNFURL_HOME"], "base-payments")
-            assert not os.path.isdir(os.path.join(path, ".git"))
+
+            path = "base-payments"
             self.assertEqual(
-                path,
+                os.path.abspath(path),
                 ensemble.rootResource.findResource("my_server").attributes["repo_path"],
             )
             assert os.path.isdir(os.path.join(path, ".git"))
@@ -414,7 +426,9 @@ ensemble.yaml
                 traceback.format_exception(*result.exc_info)
             )
             self.assertEqual(result.exit_code, 0, result)
-            assert os.path.isfile("cloned/ensemble/.git") and not os.path.isdir("cloned/ensemble/.git")
+            assert os.path.isfile("cloned/ensemble/.git") and not os.path.isdir(
+                "cloned/ensemble/.git"
+            )
             assert not os.path.exists("cloned/ensemble1"), result.output
 
 

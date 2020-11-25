@@ -11,7 +11,7 @@ from .support import Status
 from . import __version__, initLogging, getHomeConfigPath, DefaultNames
 from . import init as initmod
 from .util import filterEnv, getPackageDigest
-from .localenv import LocalEnv
+from .localenv import LocalEnv, Project
 import click
 import sys
 import os
@@ -89,7 +89,7 @@ def cli(ctx, verbose=0, quiet=False, logfile=None, loglevel=None, tmp=None, **kw
         verbose = -1
     elif logLevel >= logging.INFO:
         verbose = 0
-    else: # must be DEBUG
+    else:  # must be DEBUG
         verbose = 1
     ctx.obj["verbose"] = verbose
     initLogging(logLevel, logfile)
@@ -404,34 +404,37 @@ def plan(ctx, ensemble=None, **options):
     help="Add project to nearest existing repository.",
 )
 @click.option(
-    "--submodule", default=False, is_flag=True, help="Set the ensemble repository as a git submodule."
+    "--submodule",
+    default=False,
+    is_flag=True,
+    help="Set the ensemble repository as a git submodule.",
 )
 @click.option(
     "--empty", default=False, is_flag=True, help="Don't create a default ensemble."
 )
 def init(ctx, projectdir, **options):
     """
-unfurl init [project] # creates a unfurl project with new spec and instance repos
-"""
+    unfurl init [projectdir] Create a new project or, if [project_dir] exists or is inside a project, create a new ensemble"""
     options.update(ctx.obj)
 
+    if Project.findPath(projectdir):
+        # dest is already in a project, so create a new ensemble in it instead of a new project
+        message = initmod.clone(
+            os.path.dirname(Project.findPath(projectdir)), projectdir, **options
+        )
+        click.echo(message)
+        return
     if os.path.exists(projectdir):
         if not os.path.isdir(projectdir):
             raise click.ClickException(
-                'Can not create project in "' + projectdir + '": file already exists'
+                'Can not create project in "'
+                + projectdir
+                + '": file already exists with that name'
             )
-        else:
-            # destination is inside an existing project, just create a new ensemble
-            if os.path.exists(os.path.join(projectdir, DefaultNames.LocalConfig)):
-                message = initmod.clone(projectdir, projectdir, **options)
-                click.echo(message)
-                return
-            elif os.listdir(projectdir):
-                raise click.ClickException(
-                    'Can not create project in "'
-                    + projectdir
-                    + '": folder is not empty'
-                )
+        elif os.listdir(projectdir):
+            raise click.ClickException(
+                'Can not create project in "' + projectdir + '": folder is not empty'
+            )
 
     homePath, projectPath = initmod.createProject(projectdir, **options)
     if homePath:
@@ -496,9 +499,9 @@ def home(ctx, init=False, render=False, replace=False, **options):
 def clone(ctx, source, dest, **options):
     """Create a new ensemble or project from a service template or an existing ensemble or project.
 
-      SOURCE Path or git url to a project, ensemble, or service template
+    SOURCE Path or git url to a project, ensemble, or service template
 
-      DEST   Path to the new project or ensemble
+    DEST   Path to the new project or ensemble
     """
 
     options.update(ctx.obj)
@@ -518,8 +521,7 @@ def clone(ctx, source, dest, **options):
 @click.argument("gitargs", nargs=-1)
 def git(ctx, gitargs, dir="."):
     """
-unfurl git --dir=/path/to/start [gitoptions] [gitcmd] [gitcmdoptions]: Runs command on each project repository.
-"""
+    unfurl git --dir=/path/to/start [gitoptions] [gitcmd] [gitcmdoptions]: Runs command on each project repository."""
     localEnv = LocalEnv(dir, ctx.obj.get("home"))
     repos = localEnv.getRepos()
     status = 0
