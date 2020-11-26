@@ -238,13 +238,14 @@ class RunTest(unittest.TestCase):
 
         # manifest shouldn't have changed
         manifest2 = YamlManifest(output.getvalue())
+        lock = manifest2.manifest.config["lock"]
+        assert "runtime" in lock and len(lock["repositories"]) == 3
         self.assertEqual(
             manifest2.lastJob["summary"],
             "2 tasks (2 changed, 2 ok, 0 failed, 0 unknown, 0 skipped)",
         )
         output2 = six.StringIO()
         job2 = Runner(manifest2).run(JobOptions(add=True, out=output2))
-        # print('2', output2.getvalue())
         assert not job2.unexpectedAbort, job2.unexpectedAbort.getStackTrace()
 
         # should not find any tasks to run

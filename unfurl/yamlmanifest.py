@@ -15,7 +15,7 @@ from .yamlloader import YamlConfig
 from .result import serializeValue
 from .support import ResourceChanges, Defaults, Imports
 from .localenv import LocalEnv
-from .job import JobOptions, Runner
+from .lock import Lock
 from .manifest import Manifest
 from .tosca import Artifact
 from .runtime import TopologyInstance
@@ -204,6 +204,14 @@ class ReadOnlyManifest(Manifest):
                 return [uri] + uris
         return uris
 
+    @property
+    def uri(self):
+        uris = self.uris
+        if uris:
+            return uris[0]
+        else:
+            return ""
+
     def hasUri(self, uri):
         return uri in self.uris
 
@@ -267,6 +275,8 @@ class YamlManifest(ReadOnlyManifest):
         self.lastJob = manifest.get("lastJob")
 
         self.imports = Imports()
+        self._importedManifests = {}
+
         if localEnv:
             for name in ["locals", "secrets"]:
                 self.imports[name.rstrip("s")] = localEnv.getLocalInstance(
@@ -361,7 +371,8 @@ class YamlManifest(ReadOnlyManifest):
                 rname = "root"
             # use findInstanceOrExternal() not findResource() to handle export instances transitively
             # e.g. to allow us to layer localhost manifests
-            resource = importedManifest.getRootResource().findInstanceOrExternal(rname)
+            root = importedManifest.getRootResource()
+            resource = root.findInstanceOrExternal(rname)
             if not resource:
                 raise UnfurlError(
                     "Can not import '%s': instance '%s' not found" % (name, rname)
@@ -370,6 +381,7 @@ class YamlManifest(ReadOnlyManifest):
             if connections:
                 self.tosca.importConnections(importedManifest.tosca, connections)
             self.imports[name] = (resource, value)
+            self._importedManifests[id(root)] = importedManifest
 
     def saveEntityInstance(self, resource):
         status = CommentedMap()
@@ -479,10 +491,6 @@ class YamlManifest(ReadOnlyManifest):
     def saveJob(self, job):
         discovered = CommentedMap()
         changed = self.saveRootResource(discovered)
-        # XXX imported resources need to include its repo's workingdir commitid in their status
-        # status and job's changeset also need to save status of repositories
-        # that were accessed by loadFromArtifact() and add them with commitid and repotype
-        # note: initialcommit:requiredcommit means any repo that has at least requiredcommit
 
         # update changed with includes, this may change objects with references to these objects
         self.manifest.restoreIncludes(changed)
@@ -493,9 +501,17 @@ class YamlManifest(ReadOnlyManifest):
             spec["discovered"] = discovered
 
         # modify original to preserve structure and comments
+        lock = Lock(self).lock()
+        if "lock" not in self.manifest.config:
+            self.manifest.config["lock"] = {}
+        if not self.manifest.config["lock"]:
+            self.manifest.config["lock"] = lock
+        else:
+            patchDict(self.manifest.config["lock"], lock, cls=CommentedMap)
+
+        # modify original to preserve structure and comments
         if "status" not in self.manifest.config:
             self.manifest.config["status"] = {}
-
         if not self.manifest.config["status"]:
             self.manifest.config["status"] = changed
         else:

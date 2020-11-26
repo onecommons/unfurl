@@ -86,7 +86,7 @@ class Project(object):
             return venv
         return None
 
-    def getAsdfPaths(self, asdfDataDir):
+    def getAsdfPaths(self, asdfDataDir, toolVersions={}):
         paths = []
         toolVersionsFilename = (
             os.getenv("ASDF_DEFAULT_TOOL_VERSIONS_FILENAME") or ".tool-versions"
@@ -99,11 +99,13 @@ class Project(object):
                     if line and line[0] != "#":
                         tokens = line.split()
                         plugin = tokens.pop(0)
+                        versions = toolVersions.setdefault(plugin, set())
                         for version in tokens:
                             if version != "system":
                                 path = os.path.join(
                                     asdfDataDir, "installs", plugin, version, "bin"
                                 )
+                                versions.add(version)
                                 if os.path.isdir(path):
                                     paths.append(path)
         return paths
@@ -400,6 +402,7 @@ class LocalEnv(object):
             else:
                 self.project = self.findProject(os.path.dirname(pathORproject))
 
+        self.toolVersions = {}
         self.instanceRepo = self._getInstanceRepo()
         self.config = (
             self.project
@@ -632,7 +635,7 @@ class LocalEnv(object):
         if asdfDataDir:
             # project has higher priority over home project
             if self.project:
-                paths = self.project.getAsdfPaths(asdfDataDir)
+                paths = self.project.getAsdfPaths(asdfDataDir, self.toolVersions)
             if self.homeProject:
-                paths += self.homeProject.getAsdfPaths(asdfDataDir)
+                paths += self.homeProject.getAsdfPaths(asdfDataDir, self.toolVersions)
         return paths

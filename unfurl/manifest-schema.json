@@ -344,7 +344,58 @@
     "changes": { "$ref": "#/definitions/changes" }
   },
   "lock": {
-    "type": "object"
+    "type": "object",
+    "properties": {
+      "runtime": {
+        "type": "object",
+        "properties": {
+          "unfurl": {
+            "type": "object",
+            "properties": {
+                "version": { "type": "string" },
+                "digest": { "type": "string" }
+            }
+           },
+          "toolVersions": { "type": "object" }
+        }
+      },
+      "repositories": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "name": { "type": "string" },
+            "url": { "type": "string", "format": "uri" },
+            "revision": { "type": "string" },
+            "initial": { "type": "string" },
+            "origin": { "type": "string" }
+          }
+        }
+      },
+      "ensembles": {
+        "type": "object",
+        "allOf": [
+          { "$ref": "#/definitions/namedObjects" },
+          {
+            "additionalProperties": {
+              "type": "object",
+              "properties": {
+                "uri": { "type": "string", "format": "uri" },
+                "changeId": { "$ref": "#/definitions/changeId" },
+                "digest": { "type": "string"},
+                "manifest": {
+                  "type": "object",
+                  "properties": {
+                    "file": { "type": "string" },
+                    "repository": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
   },
   "required": ["apiVersion", "kind", "spec"]
 }

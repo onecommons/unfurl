@@ -180,13 +180,27 @@ class Repository(object):
     def name(self):
         return self.repository.name
 
+    @property
+    def url(self):
+        return self.repository.url
+
+    @property
+    def origin(self):
+        if (
+            self.repo
+            and self.repo.url != self.url
+            and self.repo.url != self.repo.workingDir
+        ):
+            return self.repo.url
+        return ""
+
     def isDirty(self):
         if self.readOnly:
             return False
         return self.repo.isDirty(untracked_files=True, path=self.path)
 
     def addAll(self):
-        self.repo.repo.git.add("--all", self.path)
+        self.repo.repo.git.add("--all", self.path or ".")
 
     def commit(self, message, addAll=False):
         if addAll:
@@ -194,7 +208,20 @@ class Repository(object):
         return self.repo.repo.index.commit(message)
 
     def status(self):
-        return self.repo.runCmd(["status", self.path])[1]
+        return self.repo.runCmd(["status", self.path or "."])[1]
+
+    def getInitialRevision(self):
+        if not self.repo:
+            return ""
+        return self.repo.getInitialRevision()
+
+    def getCurrentRevision(self):
+        if not self.repo:
+            return ""
+        if self.isDirty():
+            return self.repo.revision + "-dirty"
+        else:
+            return self.repo.revision
 
 
 class GitRepo(Repo):
@@ -323,7 +350,7 @@ class GitRepo(Repo):
     def isDirty(self, untracked_files=False, path=None):
         # diff = self.repo.git.diff()  # "--abbrev=40", "--full-index", "--raw")
         # https://gitpython.readthedocs.io/en/stable/reference.html?highlight=is_dirty#git.repo.base.Repo.is_dirty
-        return self.repo.is_dirty(untracked_files=untracked_files, path=path)
+        return self.repo.is_dirty(untracked_files=untracked_files, path=path or None)
 
     def clone(self, newPath):
         # note: repo.clone uses bare path, which breaks submodule path resolution
