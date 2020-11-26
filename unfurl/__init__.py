@@ -4,12 +4,15 @@ from __future__ import absolute_import, division, print_function
 __metaclass__ = type
 
 import pbr.version
+
+
 def __version__(release=False):
     # a function because this is expensive
     if release:
         return pbr.version.VersionInfo(__name__).release_string()
     else:
         return pbr.version.VersionInfo(__name__).version_string()
+
 
 import os
 import os.path
@@ -76,13 +79,25 @@ class SensitiveLogFilter(logging.Filter):
         return True
 
 
-def initLogging(level, logfile=None):
+# def addFileLogger():
 
+
+def initLogging(level=None, logfile=None):
     rootLogger = logging.getLogger()
     oldLevel = rootLogger.getEffectiveLevel()
-    rootLogger.setLevel(logging.DEBUG)  # need to set this first
     f = SensitiveLogFilter()
-    rootLogger.addFilter(f)
+
+    # global _logHandler so we can call initLogging multiple times
+    global _logHandler
+    if not _logHandler:
+        rootLogger.setLevel(logging.DEBUG)  # need to set this first
+        rootLogger.addFilter(f)
+
+        _logHandler = logging.StreamHandler()
+        formatter = logging.Formatter("%(name)s:%(levelname)s: %(message)s")
+        _logHandler.setFormatter(formatter)
+        _logHandler.addFilter(f)
+        rootLogger.addHandler(_logHandler)
 
     if logfile:
         ch = logging.FileHandler(logfile)
@@ -94,16 +109,8 @@ def initLogging(level, logfile=None):
         ch.addFilter(f)
         rootLogger.addHandler(ch)
 
-    # global _logHandler so we can call initLogging multiple times
-    global _logHandler
-    if not _logHandler:
-        _logHandler = logging.StreamHandler()
-        formatter = logging.Formatter("%(name)s:%(levelname)s: %(message)s")
-        _logHandler.setFormatter(formatter)
-        _logHandler.addFilter(f)
-        rootLogger.addHandler(_logHandler)
-
-    _logHandler.setLevel(level)
+    if level is not None:
+        _logHandler.setLevel(level)
     return _logHandler, oldLevel
 
 

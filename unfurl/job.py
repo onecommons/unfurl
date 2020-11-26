@@ -17,7 +17,7 @@ from .runtime import OperationalInstance
 from .configurator import TaskView, ConfiguratorResult, TaskRequest, JobRequest
 from .plan import Plan
 from .localenv import LocalEnv
-from . import display
+from . import display, initLogging
 
 try:
     from time import perf_counter
@@ -342,12 +342,12 @@ class ConfigTask(ConfigChange, TaskView):
 
 class Job(ConfigChange):
     """
-  runs ConfigTasks and child Jobs
-  """
+    runs ConfigTasks and child Jobs
+    """
 
     MAX_NESTED_SUBTASKS = 100
 
-    def __init__(self, runner, rootResource, plan, jobOptions, previousId=None):
+    def __init__(self, runner, rootResource, jobOptions, previousId=None):
         assert isinstance(jobOptions, JobOptions)
         self.__dict__.update(jobOptions.__dict__)
         super(Job, self).__init__(self.parentJob, self.startTime, Status.ok, previousId)
@@ -355,7 +355,6 @@ class Job(ConfigChange):
 
         self.jobOptions = jobOptions
         self.runner = runner
-        self.plan = plan
         self.rootResource = rootResource
         self.jobRequestQueue = []
         self.unexpectedAbort = None
@@ -749,15 +748,28 @@ class Runner(object):
 
     def createJob(self, joboptions, previousId=None):
         """
-    Selects task to run based on the workflow and job options
-    """
+        Selects task to run based on the workflow and job options
+        """
         root = self.manifest.getRootResource()
         assert self.manifest.tosca
+        job = Job(self, root, joboptions, previousId)
+
+        if self.manifest.localEnv and not joboptions.parentJob:
+            logPath = self.manifest.getJobLogPath(job.getStartTime(), ".log")
+            if not os.path.isdir(os.path.dirname(logPath)):
+                os.makedirs(os.path.dirname(logPath))
+            initLogging(logfile=logPath)
+            path = self.manifest.path
+            if joboptions.planOnly:
+                logger.info("creating %s plan for %s", joboptions.workflow, path)
+            else:
+                logger.info("starting %s job for %s", joboptions.workflow, path)
+
         WorkflowPlan = Plan.getPlanClassForWorkflow(joboptions.workflow)
         if not WorkflowPlan:
             raise UnfurlError("unknown workflow: %s" % joboptions.workflow)
-        plan = WorkflowPlan(root, self.manifest.tosca, joboptions)
-        return Job(self, root, plan, joboptions, previousId)
+        job.plan = WorkflowPlan(root, self.manifest.tosca, joboptions)
+        return job
 
     def incrementTaskCount(self):
         self.taskCount += 1
@@ -823,10 +835,8 @@ def runJob(manifestPath=None, _opts=None):
     localEnv = LocalEnv(manifestPath, _opts.get("home"))
     opts = JobOptions(**_opts)
     path = localEnv.manifestPath
-    if opts.planOnly:
-        logger.info("creating %s plan for %s", opts.workflow, path)
-    else:
-        logger.info("running %s job for %s", opts.workflow, path)
+    if not opts.planOnly:
+        logger.info("creating %s job for %s", opts.workflow, path)
     try:
         manifest = localEnv.getManifest()
     except Exception as e:

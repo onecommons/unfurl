@@ -567,13 +567,13 @@ class YamlManifest(ReadOnlyManifest):
     def getChangeLogPath(self):
         return os.path.join(self.getBaseDir(), self.changeLogPath)
 
-    def getJobLogPath(self, startTime):
+    def getJobLogPath(self, startTime, ext=".yaml"):
         name = os.path.basename(self.getChangeLogPath())
         # try to figure out any custom name pattern from changelogPath:
         defaultName = os.path.splitext(DefaultNames.JobsLog)[0]
         currentName = os.path.splitext(name)[0]
         prefix, _, suffix = currentName.partition(defaultName)
-        fileName = prefix + "job" + startTime + suffix + ".yaml"
+        fileName = prefix + "job" + startTime + suffix + ext
         return os.path.join(self.jobsFolder, fileName)
 
     def appendLog(self, job, jobRecord, jobLogPath):
