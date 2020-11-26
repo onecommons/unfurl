@@ -28,9 +28,9 @@ def isURLorGitPath(url):
 
 def splitGitUrl(url):
     """
-  Returns (repoURL, filePath, revision)
-  RepoURL will be an empty string if it isn't a path to a git repo
-  """
+    Returns (repoURL, filePath, revision)
+    RepoURL will be an empty string if it isn't a path to a git repo
+    """
     parts = urlparse(url)
     if parts.scheme == "git-local":
         return parts.scheme + "://" + parts.netloc, parts.path[1:], parts.fragment
@@ -57,8 +57,8 @@ class Repo(object):
     @staticmethod
     def findContainingRepo(rootDir, gitDir=".git"):
         """
-    Walk parents looking for a git repository.
-    """
+        Walk parents looking for a git repository.
+        """
         current = os.path.abspath(rootDir)
         while current and current != os.sep:
             if is_git_dir(os.path.join(current, gitDir)):
@@ -137,18 +137,21 @@ class Repo(object):
 
     @classmethod
     def createWorkingDir(cls, gitUrl, localRepoPath, revision=None):
-        localRepoPath = localRepoPath or '.'
+        localRepoPath = localRepoPath or "."
         if os.path.exists(localRepoPath):
             if not os.path.isdir(localRepoPath) or os.listdir(localRepoPath):
                 raise UnfurlError(
-                    "couldn't create directory, it already exists and isn't empty: %s" % localRepoPath
+                    "couldn't create directory, it already exists and isn't empty: %s"
+                    % localRepoPath
                 )
         branch = revision or "master"
         logger.info("Fetching %s (%s) to %s", gitUrl, branch, localRepoPath)
         progress = _ProgressPrinter()
         progress.gitUrl = gitUrl
         try:
-            repo = git.Repo.clone_from(gitUrl, localRepoPath, progress, branch=branch, recurse_submodules=True)
+            repo = git.Repo.clone_from(
+                gitUrl, localRepoPath, progress, branch=branch, recurse_submodules=True
+            )
         except git.exc.GitCommandError as err:
             raise UnfurlError(
                 "couldn't create working dir, clone failed: " + err._cmdline
@@ -160,24 +163,38 @@ class Repo(object):
 class Repository(object):
     # view of Repo optionally filtered by path
     # XXX and revision too
-    def __init__(self, repository, repo, path=''):
-        self.repository = repository
+    def __init__(self, repository, repo, path=""):
+        self.repository = repository  # toscaparser.Repository
         self.repo = repo
         self.path = path
         self.readOnly = not repo
+
+    @property
+    def workingDir(self):
+        if self.repo:
+            return os.path.join(self.repo.workingDir, self.path)
+        else:
+            return os.path.join(self.repository.url, self.path)
 
     @property
     def name(self):
         return self.repository.name
 
     def isDirty(self):
-      if self.readOnly:
-          return False
-      return self.repo.isDirty(path=self.path)
+        if self.readOnly:
+            return False
+        return self.repo.isDirty(untracked_files=True, path=self.path)
 
-    def commit(self, message=''):
-      self.repo.repo.git.add("--all", self.path)
-      self.repo.repo.index.commit(message)
+    def addAll(self):
+        self.repo.repo.git.add("--all", self.path)
+
+    def commit(self, message, addAll=False):
+        if addAll:
+            self.addAll()
+        return self.repo.repo.index.commit(message)
+
+    def status(self):
+        return self.repo.runCmd(["status", self.path])[1]
 
 
 class GitRepo(Repo):
@@ -244,9 +261,9 @@ class GitRepo(Repo):
 
     def runCmd(self, args, **kw):
         """
-    :return:
-      tuple(int(status), str(stdout), str(stderr))
-    """
+        :return:
+          tuple(int(status), str(stdout), str(stderr))
+        """
         gitcmd = self.repo.git
         call = [gitcmd.GIT_PYTHON_GIT_EXECUTABLE]
         # add persistent git options
@@ -285,7 +302,7 @@ class GitRepo(Repo):
 
     def addSubModule(self, gitDir):
         gitDir = os.path.abspath(gitDir)
-        status, stdout, stderr = self.runCmd(['submodule', 'add', gitDir])
+        status, stdout, stderr = self.runCmd(["submodule", "add", gitDir])
         success = not status
         if success:
             logging.debug("added submodule %s: %s %s", gitDir, stdout, stderr)
@@ -310,7 +327,9 @@ class GitRepo(Repo):
 
     def clone(self, newPath):
         # note: repo.clone uses bare path, which breaks submodule path resolution
-        cloned = git.Repo.clone_from(self.workingDir, os.path.abspath(newPath), recurse_submodules=True)
+        cloned = git.Repo.clone_from(
+            self.workingDir, os.path.abspath(newPath), recurse_submodules=True
+        )
         Repo.ignoreDir(newPath)
         return GitRepo(cloned)
 

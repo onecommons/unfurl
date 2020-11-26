@@ -124,21 +124,21 @@ def saveResult(value):
 
 def saveTask(task):
     """
-Convert dictionary suitable for serializing as yaml
-  or creating a Changeset.
+    Convert dictionary suitable for serializing as yaml
+      or creating a Changeset.
 
-.. code-block:: YAML
+    .. code-block:: YAML
 
-  changeId:
-  target:
-  implementation:
-  inputs:
-  changes:
-  dependencies:
-  messages:
-  outputs:
-  result:  # an object or "skipped"
-  """
+      changeId:
+      target:
+      implementation:
+      inputs:
+      changes:
+      dependencies:
+      messages:
+      outputs:
+      result:  # an object or "skipped"
+    """
     output = CommentedMap()
     output["changeId"] = task.changeId
     if task.target:
@@ -294,9 +294,9 @@ class YamlManifest(ReadOnlyManifest):
 
     def createTopologyInstance(self, status):
         """
-    If an instance of the toplogy is recorded in status, load it,
-    otherwise create a new resource using the the topology as its template
-    """
+        If an instance of the toplogy is recorded in status, load it,
+        otherwise create a new resource using the the topology as its template
+        """
         # XXX use the substitution_mapping (3.8.12) represent the resource
         template = self.tosca.topology
         operational = self.loadStatus(status)
@@ -332,13 +332,12 @@ class YamlManifest(ReadOnlyManifest):
 
     def loadImports(self, importsSpec):
         """
-      :file: local/path # for now
-      :repository: uri or repository name in TOSCA template
-      :instance: "*" or name # default is root
-      :connections: "*" or map
-      :schema: # expected schema for attributes
-    """
-        # XXX commitId
+        :file: local/path # for now
+        :repository: uri or repository name in TOSCA template
+        :instance: "*" or name # default is root
+        :connections: "*" or map
+        :schema: # expected schema for attributes
+        """
         for name, value in importsSpec.items():
             # load the manifest for the imported resource
             location = value.get("manifest")
@@ -451,18 +450,18 @@ class YamlManifest(ReadOnlyManifest):
 
     def saveJobRecord(self, job):
         """
-  .. code-block:: YAML
+        .. code-block:: YAML
 
-    jobId: 1
-    startCommit: # commit when job began
-    startTime:
-    workflow:
-    options: # job options set by the user
-    summary:
-    specDigest:
-    lastChangeId: # the changeid of the job's last task
-    endCommit:   # commit updating status (only appears in changelog file)
-    """
+          jobId: 1
+          startCommit: # commit when job began
+          startTime:
+          workflow:
+          options: # job options set by the user
+          summary:
+          specDigest:
+          lastChangeId: # the changeid of the job's last task
+          endCommit:   # commit updating status (only appears in changelog file)
+        """
         output = CommentedMap()
         output["changeId"] = job.changeId
         output["startTime"] = job.getStartTime()
@@ -539,30 +538,57 @@ class YamlManifest(ReadOnlyManifest):
         if job.dryRun:
             return
 
-        doCommit = job.commit and self.repo
-        if doCommit:
-            if job.message is not None:
-                message = job.message
-            else:
-                message = "Updating status for job %s" % job.changeId
-            # XXX add -a
-            self.repo.commitFiles([self.manifest.path], message)
-            jobRecord["endCommit"] = self.repo.revision
         if self.changeLogPath:
             jobLogPath = self.saveChangeLog(jobRecord, changes)
             self.appendLog(job, jobRecord, jobLogPath)
-            if doCommit:
-                self.repo.commitFiles(
-                    [self.getChangeLogPath(), jobLogPath],
-                    "Updating changelog for job %s" % job.changeId,
+
+        if job.commit and self.repo:
+            if job.message is not None:
+                message = job.message
+            else:
+                message = self.getDefaultCommitMessage()
+            self.commit(message, True)
+
+    def getDefaultCommitMessage(self):
+        jobRecord = self.manifest.config.get("lastJob")
+        if jobRecord:
+            return "Updating status for job %s" % jobRecord["changeId"]
+        else:
+            return "Commit by Unfurl"
+
+    def getRepoStatuses(self, dirty=False):
+        return [
+            'Status for "%s" at %s:\n%s\n\n' % (r.name, r.workingDir, r.status())
+            for r in self.repositories.values()
+            if r.repo and (not dirty or r.isDirty())
+        ]
+
+    def addAll(self):
+        for repository in self.repositories.values():
+            if not repository.readOnly and repository.isDirty():
+                repository.addAll()
+
+    def commit(self, msg, addAll):
+        committed = 0
+        for repository in self.repositories.values():
+            if repository.repo == self.repo:
+                continue
+            if not repository.readOnly and repository.isDirty():
+                retVal = repository.commit(msg, addAll)
+                committed += 1
+                logger.info(
+                    "committed %s to %s: %s", retVal, repository.workingDir, msg
                 )
-        if doCommit:
-            logger.info("committed instance repo changes: %s", self.repo.revision)
-        elif job.commit and self.repo:
-            logger.info(
-                "couldn't commit, the current repository with initial revision %s was not specified",
-                self.repo.getInitialRevision(),
-            )
+        # if manifest was changed: # e.g. calling commit after a job was run
+        #    if commits were made writeLock and save updated manifest??
+        #    (note: endCommit will be omitted as changes.yaml isn't updated)
+        ensembleRepo = self.repositories["self"]
+        if ensembleRepo.isDirty():
+            retVal = ensembleRepo.commit(msg, addAll)
+            committed += 1
+            logger.info("committed %s to %s: %s", retVal, ensembleRepo.workingDir, msg)
+
+        return committed
 
     def getChangeLogPath(self):
         return os.path.join(self.getBaseDir(), self.changeLogPath)

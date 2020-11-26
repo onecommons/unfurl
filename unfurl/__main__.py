@@ -54,9 +54,7 @@ def option_group(*options):
     is_flag=True,
     help="Only output errors to the stdout",
 )
-@click.option(
-    "--logfile", default=None, help="Log file for messages during quiet operation"
-)
+@click.option("--logfile", default=None, help="Log messages to file (at DEBUG level)")
 @click.option(
     "--tmp",
     envvar="UNFURL_TMPDIR",
@@ -106,13 +104,13 @@ jobControlOptions = option_group(
         "--commit",
         default=False,
         is_flag=True,
-        help="Commit modified files to the instance repository. (Default: False)",
+        help="Commit modified files to the instance repository. (Default: false)",
     ),
     click.option(
         "--dirty",
-        default=False,
-        is_flag=True,
-        help="Run even if there are uncommitted changes in the instance repository. (Default: False)",
+        type=click.Choice(["abort", "ok", "auto"]),
+        default="auto",
+        help="Action if there are uncommitted changes before run. (Default: auto)",
     ),
     click.option("-m", "--message", help="commit message to use"),
     click.option(
@@ -218,8 +216,6 @@ def _remoteCmd(runtime, cmdLine, localEnv):
 
 
 def _runRemote(runtime, ensemble, options, localEnv):
-    import logging
-
     logger = logging.getLogger("unfurl")
     logger.debug('running command remotely on "%s"', runtime)
     cmdLine = sys.argv[1:]
@@ -232,6 +228,7 @@ def _runRemote(runtime, ensemble, options, localEnv):
 
 
 def _runLocal(ensemble, options):
+    logger = logging.getLogger("unfurl")
     job = runJob(ensemble, options)
     _latestJobs.append(job)
     if not job:
@@ -243,6 +240,7 @@ def _runLocal(ensemble, options):
     else:
         jsonSummary = {}
         summary = options.get("output")
+        logger.debug(job.summary())
         if summary == "text":
             click.echo(job.summary())
         elif summary == "json":
@@ -538,6 +536,79 @@ def git(ctx, gitargs, dir="."):
             status = _status
 
     return status
+
+
+def get_commit_message(manifest):
+    statuses = manifest.getRepoStatuses(True)
+    if not statuses:
+        click.echo("Nothing to commit!")
+        return None
+    defaultMsg = manifest.getDefaultCommitMessage()
+    MARKER = "# Everything below is ignored\n"
+    statuses = "".join(statuses)
+    statusMsg = "# " + "\n# ".join(statuses.rstrip().splitlines())
+    message = click.edit(defaultMsg + "\n\n" + MARKER + statusMsg)
+    if message is not None:
+        return message.split(MARKER, 1)[0].rstrip("\n")
+    else:
+        click.echo("Aborted commit")
+        return None
+
+
+@cli.command()
+@click.pass_context
+@click.option("--ensemble", default="", type=click.Path(exists=False))
+@click.option("-m", "--message", help="commit message to use")
+@click.option(
+    "--no-edit",
+    default=False,
+    is_flag=True,
+    help="Use default message instead of invoking the editor",
+)
+@click.option(
+    "--skip-add",
+    default=False,
+    is_flag=True,
+    help="Don't add files for committing (if set, must first manually add)",
+)
+def commit(ctx, message, ensemble, skip_add, no_edit, **options):
+    "Commit any outstanding changes to this ensemble."
+    options.update(ctx.obj)
+    localEnv = LocalEnv(ensemble, options.get("home"))
+    manifest = localEnv.getManifest()
+    if not skip_add:
+        manifest.addAll()
+    if not message:
+        if no_edit:
+            message = manifest.getDefaultCommitMessage()
+        else:
+            message = get_commit_message(manifest)
+            if not message:
+                return  # aborted
+    committed = manifest.commit(message, False)
+    click.echo("committed to %s repositories" % committed)
+
+
+@cli.command(short_help="Show the git status for paths relevant to this ensemble.")
+@click.pass_context
+@click.option("--ensemble", default="", type=click.Path(exists=False))
+@click.option(
+    "--dirty",
+    default=False,
+    is_flag=True,
+    help="Only show repositories with uncommitted changes",
+)
+def status(ctx, ensemble, dirty, **options):
+    "Show the git status for repository paths that are relevant to this ensemble."
+    options.update(ctx.obj)
+    localEnv = LocalEnv(ensemble, options.get("home"))
+    manifest = localEnv.getManifest()
+    statuses = manifest.getRepoStatuses(dirty)
+    if not statuses:
+        click.echo("No status to display.")
+    else:
+        for status in statuses:
+            click.echo(status)
 
 
 @cli.command()

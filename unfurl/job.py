@@ -30,13 +30,13 @@ logger = logging.getLogger("unfurl")
 
 class ConfigChange(OperationalInstance, ChangeRecord):
     """
-  Represents a configuration change made to the system.
-  It has a operating status and a list of dependencies that contribute to its status.
-  There are two kinds of dependencies:
+    Represents a configuration change made to the system.
+    It has a operating status and a list of dependencies that contribute to its status.
+    There are two kinds of dependencies:
 
-  1. Live resource attributes that the configuration's inputs depend on.
-  2. Other configurations and resources it relies on to function properly.
-  """
+    1. Live resource attributes that the configuration's inputs depend on.
+    2. Other configurations and resources it relies on to function properly.
+    """
 
     def __init__(
         self, parentJob=None, startTime=None, status=None, previousId=None, **kw
@@ -50,12 +50,12 @@ class ConfigChange(OperationalInstance, ChangeRecord):
 
 class JobOptions(object):
     """
-  Options available to select which tasks are run, e.g. read-only
+    Options available to select which tasks are run, e.g. read-only
 
-  does the config apply to the operation?
-  is it out of date?
-  is it in a ok state?
-  """
+    does the config apply to the operation?
+    is it out of date?
+    is it in a ok state?
+    """
 
     defaults = dict(
         parentJob=None,
@@ -81,7 +81,7 @@ class JobOptions(object):
         append=None,
         replace=None,
         commit=False,
-        dirty=False,  # run the job even if the repository has uncommitted changrs
+        dirty="auto",  # run the job even if the repository has uncommitted changrs
         message=None,
         workflow=Defaults.workflow,
     )
@@ -107,7 +107,7 @@ class ConfigTask(ConfigChange, TaskView):
     receives a configSpec and a target node instance
     instantiates and runs Configurator
     updates Configurator's target's status and lastConfigChange
-  """
+    """
 
     def __init__(self, job, configSpec, target, reason=None):
         ConfigChange.__init__(self, job)
@@ -196,9 +196,9 @@ class ConfigTask(ConfigChange, TaskView):
 
     def _updateLastChange(self, result):
         """
-      If the target's configuration or state has changed, set the instance's lastChange
-      state to this tasks' changeid.
-      """
+        If the target's configuration or state has changed, set the instance's lastChange
+        state to this tasks' changeid.
+        """
         if self.target.lastChange is None:
             # hacky but always save _lastConfigChange the first time to
             # distinguish this from a brand new resource
@@ -253,9 +253,9 @@ class ConfigTask(ConfigChange, TaskView):
 
     def commitChanges(self):
         """
-    This can be called multiple times if the configurator yields multiple times.
-    Save the changes made each time.
-    """
+        This can be called multiple times if the configurator yields multiple times.
+        Save the changes made each time.
+        """
         changes = self._attributeManager.commitChanges()
         self.changeList.append(changes)
         return changes
@@ -527,8 +527,8 @@ class Job(ConfigChange):
 
     def shouldRunTask(self, task):
         """
-    Checked at runtime right before each task is run
-    """
+        Checked at runtime right before each task is run
+        """
         try:
             if task._configurator:
                 priority = task.configurator.shouldRun(task)
@@ -555,12 +555,12 @@ class Job(ConfigChange):
 
     def cantRunTask(self, task):
         """
-    Checked at runtime right before each task is run
+        Checked at runtime right before each task is run
 
-    * validate inputs
-    * check pre-conditions to see if it can be run
-    * check task if it can be run
-    """
+        * validate inputs
+        * check pre-conditions to see if it can be run
+        * check task if it can be run
+        """
         canRun = False
         reason = ""
         try:
@@ -688,13 +688,13 @@ class Job(ConfigChange):
 
     def runTask(self, task, depth=0):
         """
-    During each task run:
-    * Notification of metadata changes that reflect changes made to resources
-    * Notification of add or removing dependency on a resource or properties of a resource
-    * Notification of creation or deletion of a resource
-    * Requests a resource with requested metadata, if it doesn't exist, a task is run to make it so
-    (e.g. add a dns entry, install a package).
-    """
+        During each task run:
+        * Notification of metadata changes that reflect changes made to resources
+        * Notification of add or removing dependency on a resource or properties of a resource
+        * Notification of creation or deletion of a resource
+        * Requests a resource with requested metadata, if it doesn't exist, a task is run to make it so
+        (e.g. add a dns entry, install a package).
+        """
         errors = self.cantRunTask(task)
         if errors:
             return task.finished(ConfiguratorResult(False, False, result=errors))
@@ -783,27 +783,27 @@ class Runner(object):
                 os.chdir(self.manifest.getBaseDir())
             if jobOptions is None:
                 jobOptions = JobOptions()
-            if (
-                not jobOptions.planOnly
-                and jobOptions.commit
-                and not jobOptions.dirty
-                and self.manifest.localEnv
-            ):
-                for repo in self.manifest.localEnv.getRepos():
+
+            if jobOptions.dirty == "auto":  # default to false if committing
+                checkIfClean = jobOptions.commit
+            else:
+                checkIfClean = jobOptions.dirty == "abort"
+            if not jobOptions.planOnly and checkIfClean:
+                for repo in self.manifest.repositories.values():
                     if repo.isDirty():
                         logger.error(
-                            "aborting run: uncommitted files in %s (--dirty to override)",
+                            "aborting run: uncommitted files in %s (--dirty=ok to override)",
                             repo.workingDir,
                         )
                         return None
+
             job = self.createJob(
                 jobOptions, self.manifest.lastJob and self.manifest.lastJob["changeId"]
             )
-
+            startTime = perf_counter()
             self.currentJob = job
             try:
                 display.verbosity = jobOptions.verbose
-                startTime = perf_counter()
                 job.run()
             except Exception:
                 job.localStatus = Status.error
@@ -817,6 +817,7 @@ class Runner(object):
                 job.timeElapsed = perf_counter() - startTime
             os.chdir(cwd)
         return job
+
 
 def runJob(manifestPath=None, _opts=None):
     """
