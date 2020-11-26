@@ -69,7 +69,8 @@ spec:
                           when: registry and registry.credential
 """
 
-@unittest.skipIf('docker' in os.getenv('UNFURL_TEST_SKIP', ''), "UNFURL_TEST_SKIP set")
+
+@unittest.skipIf("docker" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
 class DockerTest(unittest.TestCase):
     def setUp(self):
         try:
@@ -81,8 +82,8 @@ class DockerTest(unittest.TestCase):
 
     def test_container(self):
         """
-    test that runner figures out the proper tasks to run
-    """
+        test that runner figures out the proper tasks to run
+        """
         import docker
 
         client = docker.from_env()
@@ -119,8 +120,8 @@ class DockerTest(unittest.TestCase):
 
     def test_login(self):
         """
-    test that runner figures out the proper tasks to run
-    """
+        test that runner figures out the proper tasks to run
+        """
         import docker
 
         client = docker.from_env()
@@ -135,9 +136,7 @@ class DockerTest(unittest.TestCase):
         tasks = list(run1.workDone.values())
         # docker login will fail because user doesn't exist:
         assert tasks[0].status.name == "error", tasks[0].status
-        self.assertIn(
-            "401 Client Error: Unauthorized", tasks[0].result.result.get("msg", "")
-        )
+        self.assertIn("401 Client Error", tasks[0].result.result.get("msg", ""))
         # but the repository and image path will have been created
         self.assertEqual(
             tasks[0].result.outputs.get("image_path"),
