@@ -11,7 +11,7 @@ VERSION = unfurl.__version__()
 # -- Project information -----------------------------------------------------
 
 project = "Unfurl"
-copyright = "2019, Adam Souzis"
+copyright = "2020, Adam Souzis"
 author = "Adam Souzis"
 release = VERSION
 
@@ -33,10 +33,10 @@ extensions = [
 ]
 
 autodoc_typehints = "description"
-modindex_common_prefix = ['unfurl.']
+modindex_common_prefix = ["unfurl."]
 
 rst_epilog = """
-.. _How it works: http://localhost:4002/howitworks
+.. _How it works: https://unfurl.run/howitworks.html
 """
 
 # sphinx.ext.extlinks

@@ -5,7 +5,7 @@ click-log  # MIT
 pyrsistent==0.15.7; python_version<'3' # last version with 2.7 support (needed for jsonschema)
 jsonschema[format_nongpl]==3.2 # MIT
 ruamel.yaml>=0.16.8 # MIT
-ansible==2.9.14 # gpl 3
+ansible>=2.9.10,<2.10.0 # gpl 3
 GitPython # BSD
 # the following are all Apache 2.0 (note: don't put comments on -r lines)
 -r tosca-parser/requirements.txt

@@ -1,0 +1,37 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+pipenv = ">=2020.6.2"
+click = ">=7.1.2"
+click-log = "*"
+pyrsistent = "==0.15.7"
+jsonschema = {version = "==3.2", extras = ["format_nongpl"]}
+"ruamel.yaml" = ">=0.16.8"
+ansible = {version = ">=2.9.10,<2.10.0", extras = ["azure"]}
+pbr = "!=2.1.0,>=2.0.0"
+cliff = ">=2.8.0,!=2.9.0"
+python-dateutil = ">=2.5.3"
+six = ">=1.10.0"
+stevedore = ">=1.20.0"
+requests = ">=2.14.2"
+enum34 = "*"
+importlib-metadata = "*"
+subprocess32 = "*"
+docker = {extras = ["tls"], version = "*"}
+openshift = "*"
+octodns = "*"
+boto = "*"
+boto3 = "*"
+supervisor = "*"
+google-auth = "*"
+GitPython = "*"
+Babel = "!=2.4.0,>=2.3.4"
+PyYAML = ">=3.12"
+
+[dev-packages]
+
+[requires]
+python_version = "3.9"
