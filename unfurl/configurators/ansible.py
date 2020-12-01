@@ -18,16 +18,17 @@ display = Display()
 
 logger = logging.getLogger("unfurl")
 
+
 def getAnsibleResults(result, extraKeys=(), facts=()):
     """
-  Returns a dictionary containing at least:
+    Returns a dictionary containing at least:
 
-  msg
-  stdout
-  returncode: (None if the process didn't complete)
-  error: stderr or exception if one was raised
-  **extraKeys
-  """
+    msg
+    stdout
+    returncode: (None if the process didn't complete)
+    error: stderr or exception if one was raised
+    **extraKeys
+    """
     # result is per-task ansible.executor.task_result.TaskResult
     # https://github.com/ansible/ansible/blob/devel/lib/ansible/executor/task_result.py
     # https://docs.ansible.com/ansible/latest/reference_appendices/common_return_values.html
@@ -76,17 +77,18 @@ class AnsibleConfigurator(TemplateConfigurator):
     def canDryRun(self, task):
         return True
 
-    def _makeInventoryFromGroup(self, group):
+    def _makeInventoryFromGroup(self, group, includeInstances):
         hosts = {}
         vars = {}
         children = {}
-        for member in group.memberInstances:
-            hosts[member.name] = self._getHostVars(member)
+        # XXX:
+        #  if includeInstances:
+        #     for member in group.memberInstances:
+        #         hosts[member.name] = self._getHostVars(member)
         for child in group.memberGroups:
             if child.isCompatibleType("unfurl.groups.AnsibleInventoryGroup"):
-                children[child] = self._makeInventoryFromGroup(child)
-        for prop, value in group.properties.items():
-            vars[prop] = value
+                children[child] = self._makeInventoryFromGroup(child, includeInstances)
+        vars.update(group.properties.get("hostvars", {}))
         return dict(hosts=hosts, vars=vars, children=children)
 
     def _getHostVars(self, node):
@@ -133,20 +135,22 @@ class AnsibleConfigurator(TemplateConfigurator):
                 self._updateVars(connection, hostVars)
 
             if "ansible_host" not in hostVars:
-                ip_address = host.attributes.get('public_ip') or host.attributes.get('private_ip')
+                ip_address = host.attributes.get("public_ip") or host.attributes.get(
+                    "private_ip"
+                )
                 if ip_address:
-                    hostVars['ansible_host'] = ip_address
+                    hostVars["ansible_host"] = ip_address
 
-            project_id = host.attributes.get('project_id')
+            project_id = host.attributes.get("project_id")
             if project_id:
                 # hack for gcp because this name is set in .ssh/config by `gcloud compute config-ssh --quiet`
-                hostname = "%s.%s.%s" % (host.name, host.attributes['zone'], project_id)
+                hostname = "%s.%s.%s" % (host.name, host.attributes["zone"], project_id)
             else:
                 hostname = host.name
             hosts = {hostname: hostVars}
 
             children = {
-                group.name: self._makeInventoryFromGroup(group)
+                group.name: self._makeInventoryFromGroup(group, False)
                 for group in host.template.groups
                 if group.isCompatibleType("unfurl.groups.AnsibleInventoryGroup")
             }
@@ -240,7 +244,9 @@ class AnsibleConfigurator(TemplateConfigurator):
         return []
 
     def processResult(self, task, result):
-        self.processResultTemplate(task, dict(result.result, success=result.success, outputs=result.outputs))
+        self.processResultTemplate(
+            task, dict(result.result, success=result.success, outputs=result.outputs)
+        )
         return result
 
     def run(self, task):

@@ -86,7 +86,10 @@ class ToscaSpec(object):
             try:
                 # need to set a path for the import loader
                 self.template = ToscaTemplate(
-                    path=path, parsed_params=inputs, yaml_dict_tpl=toscaDef, import_resolver=resolver
+                    path=path,
+                    parsed_params=inputs,
+                    yaml_dict_tpl=toscaDef,
+                    import_resolver=resolver,
                 )
             except ValidationError:
                 message = "\n".join(ExceptionCollector.getExceptionsReport(False))
@@ -112,6 +115,9 @@ class ToscaSpec(object):
 
         self.topology = TopologySpec(self, inputs)
         self.load_workflows()
+        self.groups = {
+            g.name: GroupSpec(g, self) for g in self.template.topology_template.groups
+        }
 
     @property
     def baseDir(self):
@@ -201,21 +207,20 @@ class ToscaSpec(object):
 
     def loadInstances(self, toscaDef, tpl):
         """
-    Creates node templates for any instances defined in the spec
+        Creates node templates for any instances defined in the spec
 
-    .. code-block:: YAML
+        .. code-block:: YAML
 
-      spec:
-            instances:
-              test:
-                installer: test
-            installers:
-              test:
-                operations:
-                  default:
-                    implementation: TestConfigurator
-                    inputs:
-"""
+          spec:
+                instances:
+                  test:
+                    installer: test
+                installers:
+                  test:
+                    operations:
+                      default:
+                        implementation: TestConfigurator
+                        inputs:"""
         node_templates = toscaDef["topology_template"]["node_templates"]
         for name, impl in tpl.get("installers", {}).items():
             if name not in node_templates:
@@ -365,8 +370,11 @@ class EntitySpec(object):
 
     @property
     def groups(self):
-        # XXX return the groups this entity is in
-        return []
+        if not self.spec:
+            return
+        for g in self.spec.groups.values():
+            if self.name in g.members:
+                yield g
 
     def isCompatibleTarget(self, targetStr):
         if self.name == targetStr:
@@ -805,7 +813,7 @@ class Artifact(EntitySpec):
 
     def getPathAndFragment(self, resolver=None, tpl=None):
         """
-          returns path, fragment
+        returns path, fragment
         """
         tpl = self.spec and self.spec.template.tpl or tpl
         if not resolver and self.spec:
@@ -821,3 +829,13 @@ class Artifact(EntitySpec):
 
     def asImportSpec(self):
         return dict(file=self.file, repository=self.toscaEntityTemplate.repository)
+
+
+class GroupSpec(EntitySpec):
+    def __init__(self, template, spec):
+        EntitySpec.__init__(self, template, spec)
+        self.members = template.members
+
+    @property
+    def memberGroups(self):
+        return [self.spec.groups[m] for m in self.members if m in self.spec.groups]

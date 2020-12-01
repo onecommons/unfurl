@@ -33,12 +33,12 @@ Table of Contents
 
    runtime.rst
 
+   configurators.rst
+
    processing.rst
 
    expressions.rst
 
-
-   configurators.rst
 
    cli.rst
 

@@ -119,6 +119,10 @@ if _logEnv is not None:
     initLogging(_logEnv.upper())
 
 ### Ansible initialization
+if "ANSIBLE_CONFIG" not in os.environ:
+    os.environ["ANSIBLE_CONFIG"] = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "configurators", "ansible.cfg")
+    )
 try:
     import ansible
 except ImportError:

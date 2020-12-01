@@ -149,12 +149,17 @@ class RunTest(unittest.TestCase):
       ansible_pipelining: yes
       ansible_private_key_file: ~/.ssh/example-key.pem
   vars: {}
-  children: {}
+  children:
+    example_group:
+      hosts: {}
+      vars:
+        var_for_ansible_playbook: test
+      children: {}
 """
                     with inventory.open() as f:
                         self.assertEqual(f.read(), expectedInventory)
                 except ImportError:
-                    pass # skip on 2.7
+                    pass  # skip on 2.7
         finally:
             os.environ["UNFURL_TMPDIR"] = oldTmpDir
         tasks = list(job.workDone.values())

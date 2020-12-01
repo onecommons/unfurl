@@ -2,40 +2,74 @@
 Configurators
 ===============
 
+To use a configurator, set it as the ``implementation`` field of an `operation`
+and set its inputs as documented below.
+
+If you set an external command line directly as the ``implementation``, Unfurl will choose the appropriate one to use.
+If ``operation_host`` is local it will use the `Shell` configurator, if it is remote,
+it will use the ``Ansible`` configurator and generate a playbook that invokes it on the remote machine.
+
+.. contents::
+   :local:
+   :depth: 1
+
 Ansible
 ========
 
-Example
+The Ansible configurator executes the given playbook.
 
-Installs and supports Ansible 2.9
-https://docs.ansible.com/ansible/2.9/index.html
+Unfurl uses `Ansible 2.9 <https://docs.ansible.com/ansible/2.9/index.html>`_  as a library.
+These `Ansible modules <https://docs.ansible.com/ansible/2.9/modules/modules_by_category.html>`_ are available by default.
 
-https://docs.ansible.com/ansible/2.9/modules/modules_by_category.html
-
-- doc ANSIBLE_CONFIG var
-- use public_ip or private_ip or name as ansible host in inventory/gcp_compute.py
-- use case for ansible connecting to gcp servers: need to support dynamic inventory for ssh connection info
-- # INSTANCE_NAME.ZONE.PROJECT e.g. instance-1.us-central1-a.glowing-sanctum-287822
-  # gcloud compute config-ssh --quiet updates ~/.ssh/config
-- unfurl filters and query are available inside playbooks
-- unfurl.groups.AnsibleInventoryGroup
+You can access the same Unfurl filters and queries available in the Ensemble manifest from inside a playbook.
 
 Inputs
 ------
 
   :playbook: (*required*) If string, treat as a file path to the Ansible playbook to run, otherwise treat as an inline playbook
-  :inventory: If string, treat as a file path to an Ansible inventory file or directory, otherwise treat as in inline inventory.
+  :inventory: If string, treat as a file path to an Ansible inventory file or directory, otherwise treat as in inline YAML inventory.
               If omitted, the inventory host will be set to the ``operation_host``
   :extraVars: A dictionary of variables that will be passed to the playbook as Ansible facts
   :playbookArgs: A list of strings that will be passed to ``ansible-playbook`` as command-line arguments
-  :resultTemplate: As `shell` below, with the additional of the variable named ``outputs`` containing the results from
+  :resultTemplate: Same behavior as defined for `Shell` but will also include ``outputs`` as a variable.
 
 Other ``implementation`` keys
 -----------------------------
 
-  :operation_host: Defaults to ORCHESTRATOR (localhost). Set to HOST to have Ansible connect to the Compute instance is being targeted by this task.
+  :operation_host: Defaults to ORCHESTRATOR (localhost). Set to HOST to have Ansible connect to the Compute instance that is hosting the instance targeted by this task.
   :environment: If set, environment directives will processed and passed to the playbooks ``environment``
-  :outputs: Keys are the names of Ansible facts to by extracted after the playbook completes. Value are currently ignored
+  :outputs: Keys are the names of Ansible facts to be extracted after the playbook completes. Value are currently ignored.
+
+Execution environment
+---------------------
+
+  Unfurl runs Ansible in an environment isolated from your machine's Ansible installation
+  and will not load the ansible configuration files in the standard locations.
+  If you want to load an Ansible configuration file set the ``ANSIBLE_CONFIG`` environment variable.
+  If you want Ansible to search standard locations set to an empty or invalid value like ``ANSIBLE_CONFIG=``.
+  (See also the `Ansible Configurations Documentation`_)
+
+  Note: Because Ansible is initialized at the beginning of execution,
+  if the ``no-runtime`` command option is used or if no runtime is available
+  ``ANSIBLE_CONFIG`` will only be applied if in the environment that executes Unfurl.
+  It will not be applied if set in a `context`.
+
+  .. _Ansible Configurations Documentation: https://docs.ansible.com/ansible/latest/reference_appendices/config.html#the-configuration-file.
+
+Inventory
+---------
+
+If an inventory file isn't specified in ``inputs``, Unfurl will generate an Ansible inventory using the ``operation_host``
+as the host. The inventory will include groups and variables derived from the following sources:
+
+* If the ``operation_host`` has an ``endpoint`` of  type ``unfurl.capabilities.Endpoint.SSH`` or ``unfurl.capabilities.Endpoint.Ansible``
+  use that capabilities ``host``, ``port``, ``connection``, ``user``, ``credential``, and ``hostvars`` properties.
+* If the ``operation_host`` has relationship template or connection to the target instance of
+  type ``unfurl.relationships.ConnectsTo.Ansible`` uses its ``connection`` and ``hostvars`` properties.
+* If the operation_host is declared as a member of group of type ``unfurl.groups.AnsibleInventoryGroup`` in the service template,
+  the group's name will be added as an ansible group along with the contents of the group's ``hostvars`` property.
+* If ``ansible_host`` wasn't previously set, the host name will be set to the operation_host's `public_ip` or ``private_ip`` in that order, otherwise set it to ``localhost``.
+* If the host is a Google compute instance the host name will be set to ``INSTANCE_NAME.ZONE.PROJECT`` e.g. ``instance-1.us-central1-a.purple-sanctum-25912``. This is for compatibility with the ``gcloud compute config-ssh`` command to enable Unfurl to use those credentials.
 
 Delegate
 ========
@@ -49,51 +83,20 @@ Inputs
   :target: The name of the instance to delegate to. If omitted the current target will be used.
 
 
-Docker
-======
-
-imports:
-  - repository: unfurl
-    file: configurators/docker-template.yaml
-
-unfurl.nodes.Container.Application.Docker
-
-artifacts:
-  image:
-    type: tosca.artifacts.Deployment.Image.Container.Docker
-    file: busybox
-
-By default, the configurator will assume the image is in ``https://registry.hub.docker.com``.
-If the image is in a different registry you can declare it as a repository and have the ``image`` artifact reference that repository.
-
-Inputs
--------
-
- :configuration: https://docs.ansible.com/ansible/latest/modules/docker_container_module.html#docker-container-module
-
-
-Helm
-====
-
-release_name: (*required*)
-chart
-chart_values
-flags
-
-Kubernetes
-==========
-
 Shell
 =====
+
+The ``Shell`` configurator executes a shell command.
 
 Inputs
 ------
 
-  :command: (*required*) The command. It can be either a list or a string.
-  :cwd:
-  :dryrun: A string that will be either appended to the command line during a ``--dryrun`` job or replace the string ``%dryrun^`` if appears in the command line.
-           If not set, the task will not be executed at all during a dry run.
-  :shell: If a string the executable of the shell to execute the command in (e.g. ``/usr/bin/bash``).
+  :command: (*required*) The command. It can be either a string or a list of command arguments.
+  :cwd:  Set the current working directory to execute the command in.
+  :dryrun: During a during a dryrun job this will be either appended to the command line
+           or replace the string ``%dryrun%`` if it appears in the command. (``%dryrun%`` is stripped out when running regular jobs.)
+           If it is not set, the task will not be executed at all during a dry run job.
+  :shell: If a string, the executable of the shell to execute the command in (e.g. ``/usr/bin/bash``).
           A boolean indicates whether the command if invoked through the default shell or not.
           If omitted, it will be set to true if `command` is a string or false if it is a list.
   :echo: (*Default: true*) Whether or not should be standard output (and stderr)
@@ -101,25 +104,19 @@ Inputs
          (Doesn't affect the capture of stdout and stderr.)
   :keeplines:
   :done: As as `done` defined by the `Template` configurator.
-  :resultTemplate: A Jinja2 template that is processed after shell command completes
+  :resultTemplate: A Jinja2 template that is processed after shell command completes, it will have the following template variables:
 
 Result template variables
 -------------------------
-All values will be either string or null unless otherwise noted
+All values will be either string or null unless otherwise noted.
 
   :success: *true* unless an error occurred or the returncode wasn't 0
   :cmd: (string) The command line that was executed
   :stdout:
   :stderr:
-  :returncode: Integer (None if the process didn't complete)
+  :returncode: Integer (Null if the process didn't complete)
   :error: Set if an exception was raised
   :timeout: (Null unless a timeout occurred)
-
-Supervisor
-==========
-
-Supervisor is a light-weight process manager that is useful when you want to run a local development instance of server applications.
-The supervisor configurator will.
 
 Template
 =========
@@ -144,6 +141,8 @@ It will invoke the appropriate terraform command (e.g "apply" or "destroy") base
 The Terraform configurator manages the Terraform state file itself
 and commits it to the ensemble's repository so you don't have use Terraform's remote state -- it will be self-contained and sharable like the rest of the Ensemble.
 Any data marked sensitive will be encrypted using Ansible Vault.
+
+You can use the ``unfurl.nodes.Installer.Terraform`` node type with your node template to the avoid boilerplate and set the needed inputs.
 
 Inputs
 ------
@@ -241,3 +240,58 @@ Multiple provisioners become a list:
               destination: /tmp/example.txt
           - remote-exec:
               inline: ["sudo install-something -f /tmp/example.txt"]
+
+==================
+Installers
+==================
+
+Installation types don't need configurators because they already have Interface defaults defined.
+You just need to import the service template containing the TOSCA type definitions and
+declare node templates with the needed properties and inputs.
+
+.. contents::
+   :local:
+   :depth: 1
+
+Docker
+======
+
+imports:
+  - repository: unfurl
+    file: configurators/docker-template.yaml
+
+unfurl.nodes.Container.Application.Docker
+
+artifacts:
+  image:
+    type: tosca.artifacts.Deployment.Image.Container.Docker
+    file: busybox
+
+By default, the configurator will assume the image is in `<https://registry.hub.docker.com>`_.
+If the image is in a different registry you can declare it as a repository and have the ``image`` artifact reference that repository.
+
+Inputs
+-------
+
+ :configuration:  A map that will included as parameters to Ansible's Docker container module
+    They are enumerated `here <https://docs.ansible.com/ansible/latest/modules/docker_container_module.html#docker-container-module>`_
+
+Helm
+====
+
+Inputs
+-------
+
+  :release_name: (*required*) The name of the helm release
+  :chart: The name of the chart
+  :chart_values: A map of chart values
+  :flags: A list of flags to pass to the ``helm`` command
+
+Kubernetes
+==========
+
+Supervisor
+==========
+
+Supervisor is a light-weight process manager that is useful when you want to run a local development instance of server applications.
+The supervisor configurator will.
