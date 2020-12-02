@@ -315,6 +315,12 @@ class ConfigTask(ConfigChange, TaskView):
         else:
             cname = self.configSpec.name
 
+        if self._configurator:
+            cClass = self._configurator.__class__
+            configurator = "%s.%s" % (cClass.__module__, cClass.__name__)
+        else:
+            configurator = self.configSpec.className
+
         summary = dict(
             status=self.status.name,
             target=self.target.name,
@@ -323,7 +329,7 @@ class ConfigTask(ConfigChange, TaskView):
             type=self.target.template.type,
             targetStatus=self.target.status.name,
             changed=self.modifiedTarget(),
-            configurator=self.configSpec.className,
+            configurator=configurator,
             priority=self.priority.name,
             reason=self.reason or "",
         )
@@ -754,7 +760,11 @@ class Runner(object):
         assert self.manifest.tosca
         job = Job(self, root, joboptions, previousId)
 
-        if self.manifest.localEnv and not joboptions.parentJob:
+        if (
+            self.manifest.localEnv
+            and not joboptions.parentJob
+            and not joboptions.startTime
+        ):
             logPath = self.manifest.getJobLogPath(job.getStartTime(), ".log")
             if not os.path.isdir(os.path.dirname(logPath)):
                 os.makedirs(os.path.dirname(logPath))

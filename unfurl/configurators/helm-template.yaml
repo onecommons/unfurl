@@ -49,7 +49,7 @@ node_types:
         type: unfurl.interfaces.Helm
         operations:
           execute:
-            implementation: unfurl.configurators.shell.ShellConfigurator
+            implementation: Shell
             inputs:
               chart: { get_property: ["SELF", "chart"] }
               release_name: { get_property: ["SELF", "release_name"] }
@@ -118,7 +118,7 @@ node_types:
       Standard:
         operations:
           configure:
-            implementation: unfurl.configurators.Delegate
+            implementation: Delegate
             inputs:
               operation: Helm.execute
               helmcmd: '{{ "update" if ".::.present" | eval else "install"}}'
@@ -144,7 +144,7 @@ node_types:
       Install:
         operations:
           discover:
-            implementation: unfurl.configurators.Delegate
+            implementation: Delegate
             inputs:
               operation: Helm.execute
               helmcmd: status

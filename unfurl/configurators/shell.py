@@ -35,7 +35,6 @@ else:
 # cf https://github.com/opsmop/opsmop/blob/master/opsmop/core/command.py
 
 
-
 class _PrintOnAppendList(list):
     def append(self, data):
         list.append(self, data)
@@ -104,15 +103,15 @@ class ShellConfigurator(TemplateConfigurator):
         echo=True,
     ):
         """
-    Returns an object with the following attributes:
+        Returns an object with the following attributes:
 
-    cmd
-    timeout (None unless timeout occurred)
-    stderr
-    stdout
-    returncode (None if the process didn't complete)
-    error if an exception was raised
-    """
+        cmd
+        timeout (None unless timeout occurred)
+        stderr
+        stdout
+        returncode (None if the process didn't complete)
+        error if an exception was raised
+        """
         cmdStr, cmd = self._cmd(cmd, keeplines)
         try:
             # hack to echo results

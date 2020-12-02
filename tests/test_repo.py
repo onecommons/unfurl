@@ -62,7 +62,7 @@ manifestContent = """\
             type: tosca.nodes.Compute
             interfaces:
              Standard:
-              create: AConfigurator
+              create: A
   status: {}
   """
 

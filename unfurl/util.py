@@ -40,6 +40,7 @@ except ImportError:
                 return executable
         return None
 
+
 try:
     import importlib.util
 
@@ -54,16 +55,18 @@ logger = logging.getLogger("unfurl")
 API_VERSION = "unfurl/v1alpha1"
 
 try:
-  from importlib.metadata import files
+    from importlib.metadata import files
 except ImportError:
-  from importlib_metadata import files
+    from importlib_metadata import files
+
 
 def getPackageDigest():
-  try:
-      pbr = [p for p in files('unfurl') if 'pbr.json' in str(p)][0]
-      return json.loads(pbr.read_text())['git_version']
-  except:
-      return ''
+    try:
+        pbr = [p for p in files("unfurl") if "pbr.json" in str(p)][0]
+        return json.loads(pbr.read_text())["git_version"]
+    except:
+        return ""
+
 
 class UnfurlError(Exception):
     def __init__(self, message, saveStack=False, log=False):
@@ -191,13 +194,6 @@ def registerClass(apiVersion, kind, factory, replace=False):
         if api[kind] is not factory:
             raise UnfurlError("class already registered for %s.%s" % (apiVersion, kind))
     api[kind] = factory
-
-
-class AutoRegisterClass(type):
-    def __new__(mcls, name, bases, dct):
-        cls = type.__new__(mcls, name, bases, dct)
-        registerClass(API_VERSION, name, cls)
-        return cls
 
 
 def loadModule(path, full_name=None):
@@ -367,14 +363,14 @@ def getBaseDir(path):
 # XXX unused because this breaks check_schema
 def extend_with_default(validator_class):
     """
-  # Example usage:
-  obj = {}
-  schema = {'properties': {'foo': {'default': 'bar'}}}
-  # Note jsonschema.validate(obj, schema, cls=DefaultValidatingDraft7Validator)
-  # will not work because the metaschema contains `default` directives.
-  DefaultValidatingDraft7Validator(schema).validate(obj)
-  assert obj == {'foo': 'bar'}
-  """
+    # Example usage:
+    obj = {}
+    schema = {'properties': {'foo': {'default': 'bar'}}}
+    # Note jsonschema.validate(obj, schema, cls=DefaultValidatingDraft7Validator)
+    # will not work because the metaschema contains `default` directives.
+    DefaultValidatingDraft7Validator(schema).validate(obj)
+    assert obj == {'foo': 'bar'}
+    """
     validate_properties = validator_class.VALIDATORS["properties"]
 
     def set_defaults(validator, properties, instance, schema):
@@ -393,8 +389,8 @@ def extend_with_default(validator_class):
 
 
 DefaultValidatingLatestDraftValidator = (
-    Draft7Validator
-)  # extend_with_default(Draft4Validator)
+    Draft7Validator  # extend_with_default(Draft4Validator)
+)
 
 
 def validateSchema(obj, schema, baseUri=None):
@@ -412,15 +408,15 @@ def findSchemaErrors(obj, schema, baseUri=None):
     errors = list(validator.iter_errors(obj))
     error = jsonschema.exceptions.best_match(errors)
     if not error:
-      return None
-    message = '%s in %s' % (error.message, '/'.join(error.absolute_path))
+        return None
+    message = "%s in %s" % (error.message, "/".join(error.absolute_path))
     return message, errors
 
 
 class ChainMap(Mapping):
     """
-  Combine multiple mappings for sequential lookup.
-  """
+    Combine multiple mappings for sequential lookup.
+    """
 
     def __init__(self, *maps):
         self._maps = maps
@@ -454,13 +450,13 @@ class ChainMap(Mapping):
 
 class Generate(object):
     """
-        Roughly equivalent to "yield from" but works in Python < 3.3
+    Roughly equivalent to "yield from" but works in Python < 3.3
 
-        Usage:
+    Usage:
 
-        >>>  gen = Generate(generator())
-        >>>  while gen():
-        >>>    gen.result = yield gen.next
+    >>>  gen = Generate(generator())
+    >>>  while gen():
+    >>>    gen.result = yield gen.next
     """
 
     def __init__(self, generator):

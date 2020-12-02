@@ -18,7 +18,7 @@ class HelmConfigurator(Configurator):
         assert subtaskRequest
         assert (
             subtaskRequest.configSpec
-            and subtaskRequest.configSpec.className == "DummyShellConfigurator"
+            and subtaskRequest.configSpec.className == "DummyShell"
         ), subtaskRequest.configSpec.className
         subtask = yield subtaskRequest
         assert subtask.inputs["helmcmd"] == "install"
@@ -38,7 +38,7 @@ class DummyShellConfigurator(TemplateConfigurator):
 
 
 class RunTest(unittest.TestCase):
-    @unittest.skipIf('k8s' in os.getenv('UNFURL_TEST_SKIP', ''), "UNFURL_TEST_SKIP set")
+    @unittest.skipIf("k8s" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
     def test_manifest(self):
         path = __file__ + "/../examples/helm-manifest.yaml"
         manifest = YamlManifest(path=path)
@@ -74,7 +74,7 @@ class RunTest(unittest.TestCase):
         tasks = list(job3.workDone.values())
         assert tasks[0].target.status.name == "absent", tasks[0].target.status
 
-    @unittest.skipIf('k8s' in os.getenv('UNFURL_TEST_SKIP', ''), "UNFURL_TEST_SKIP set")
+    @unittest.skipIf("k8s" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
     def test_discover(self):
         path = __file__ + "/../examples/helm-manifest.yaml"
         manifest = YamlManifest(path=path)

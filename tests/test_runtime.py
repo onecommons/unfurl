@@ -37,7 +37,7 @@ class SimpleConfigurator(Configurator):
         yield task.done(True, Status.ok)
 
 
-simpleConfigSpec = ConfigurationSpec("subtask", "instantiate", "SimpleConfigurator", 0)
+simpleConfigSpec = ConfigurationSpec("subtask", "instantiate", "Simple", 0)
 
 
 class TestSubtaskConfigurator(Configurator):
@@ -136,7 +136,7 @@ class ExpandDocTest(unittest.TestCase):
 
 class JobTest(unittest.TestCase):
     def test_lookupClass(self):
-        assert lookupClass("SimpleConfigurator") is SimpleConfigurator
+        assert lookupClass("Simple") is SimpleConfigurator
 
     # XXX rewrite
     # def test_runner(self):
@@ -222,7 +222,7 @@ class RunTest(unittest.TestCase):
             Standard:
               operations:
                configure:
-                implementation:    TestSubtaskConfigurator
+                implementation:    TestSubtask
                 inputs: {}
     """
             % API_VERSION
@@ -363,7 +363,7 @@ class FileTest(unittest.TestCase):
               interfaces:
                 Standard:
                     create:
-                      implementation:  FileTestConfigurator
+                      implementation:  FileTest
                       inputs:
                         path:
                           ref: file::path
@@ -535,7 +535,7 @@ spec:
               select: prop3
           interfaces:
             Standard:
-                create: ImportTestConfigurator
+                create: ImportTest
       """
                 % API_VERSION
             )

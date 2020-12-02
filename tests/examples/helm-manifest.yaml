@@ -17,7 +17,7 @@ spec:
             type: string
         interfaces:
           Standard:
-            delete: DummyShellConfigurator
+            delete: DummyShell
           Install:
             type: unfurl.interfaces.install.Helm
             inputs:
@@ -26,9 +26,9 @@ spec:
             operations:
               subtaskOperation:
                 implementation:
-                  primary: DummyShellConfigurator
+                  primary: DummyShell
               execute:
-                implementation: HelmConfigurator
+                implementation: Helm
                 inputs:
                   helmcmd: install
                   command:
@@ -51,7 +51,7 @@ spec:
                         eval:
                           tempfile: $inputs::values
               discover:
-                implementation: unfurl.configurators.shell.ShellConfigurator
+                implementation: Shell
                 inputs:
                   # command: helm status -o json {{inputs.release_name}}
                   command: cat helm-release.json

@@ -129,7 +129,7 @@ spec:
               inputs:
                 ports: "{{ SELF['ports'] }}"
               implementation:
-                primary: SetAttributeConfigurator
+                primary: SetAttribute
         my_server:
           type: tosca.nodes.Compute
           properties:
@@ -153,7 +153,7 @@ spec:
            Standard:
             create:
               implementation:
-                primary: SetAttributeConfigurator
+                primary: SetAttribute
                 timeout: 120
 """
 
@@ -164,7 +164,9 @@ class ToscaSyntaxTest(unittest.TestCase):
         assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
         my_server = manifest.getRootResource().findResource("my_server")
         assert my_server
-        self.assertEqual("10 GB", my_server.query({"get_property": ["SELF", "host", "disk_size"] }))
+        self.assertEqual(
+            "10 GB", my_server.query({"get_property": ["SELF", "host", "disk_size"]})
+        )
         assert my_server.attributes["test"], "cpus: 2"
         # print(job.out.getvalue())
         testSensitive = manifest.getRootResource().findResource("testSensitive")
@@ -217,8 +219,8 @@ class ToscaSyntaxTest(unittest.TestCase):
 
     def test_import(self):
         """
-      Tests nested imports and url fragment resolution.
-      """
+        Tests nested imports and url fragment resolution.
+        """
         path = __file__ + "/../examples/testimport-manifest.yaml"
         manifest = YamlManifest(path=path)
         self.assertEqual(2, len(manifest.tosca.template.nested_tosca_tpls.keys()))
@@ -315,7 +317,7 @@ class AbstractTemplateTest(unittest.TestCase):
                Install:
                 operations:
                  check:
-                   implementation: SetAttributeConfigurator
+                   implementation: SetAttribute
       instances:
         anInstance:
          type: test.nodes.AbstractTest
@@ -388,7 +390,7 @@ spec:
                     [
                         {
                             "operation": "check",
-                            "configurator": "SetAttributeConfigurator",
+                            "configurator": "test_tosca.SetAttributeConfigurator",
                             "changed": True,
                             "priority": "required",
                             "reason": "check",

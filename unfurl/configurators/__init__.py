@@ -49,7 +49,7 @@ class TemplateConfigurator(Configurator):
         yield task.done(**done)
 
 
-class Delegate(Configurator):
+class DelegateConfigurator(Configurator):
     def canDryRun(self, task):
         return True  # ok because this will also be called on the subtask
 

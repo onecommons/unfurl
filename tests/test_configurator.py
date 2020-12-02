@@ -41,7 +41,7 @@ spec:
             operations:
               configure:
                 implementation:
-                  className: TestConfigurator
+                  className: Test
                   majorVersion: 0
                   preConditions:
                     properties:
@@ -78,8 +78,8 @@ class ConfiguratorTest(unittest.TestCase):
 
     def test_neededTasks(self):
         """
-    test that runner figures out the proper tasks to run
-    """
+        test that runner figures out the proper tasks to run
+        """
         runner = Runner(YamlManifest(manifest))
         test1 = runner.manifest.getRootResource().findResource("test1")
         assert test1

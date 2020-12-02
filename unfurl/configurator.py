@@ -5,7 +5,8 @@ import os
 from .support import Status, Defaults, ResourceChanges
 from .result import serializeValue, ChangeAware, Results, ResultsMap
 from .util import (
-    AutoRegisterClass,
+    registerClass,
+    API_VERSION,
     lookupClass,
     loadModule,
     validateSchema,
@@ -202,6 +203,16 @@ class ConfiguratorResult(object):
             + "\n   "
             + result
         )
+
+
+class AutoRegisterClass(type):
+    def __new__(mcls, name, bases, dct):
+        cls = type.__new__(mcls, name, bases, dct)
+        if name.endswith("Configurator"):
+            name = name[: -len("Configurator")]
+        if name:
+            registerClass(API_VERSION, name, cls)
+        return cls
 
 
 @six.add_metaclass(AutoRegisterClass)

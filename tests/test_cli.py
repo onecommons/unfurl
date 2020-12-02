@@ -131,9 +131,7 @@ class CliTest(unittest.TestCase):
         runner = CliRunner()
         result = runner.invoke(cli, ["version"])
         self.assertEqual(result.exit_code, 0, result)
-        self.assertIn(
-            unfurl.__version__(True), result.output.strip()
-        )
+        self.assertIn(unfurl.__version__(True), result.output.strip())
 
     def test_badargs(self):
         runner = CliRunner()
