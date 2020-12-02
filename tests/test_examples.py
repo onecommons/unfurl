@@ -166,3 +166,50 @@ class RunTest(unittest.TestCase):
         self.assertEqual(len(tasks), 1)
         assert "stdout" in tasks[0].result.result, tasks[0].result.result
         self.assertEqual(tasks[0].result.result["stdout"], "foo")
+
+    def test_remote(self):
+        """
+        test that ansible is invoked when operation_host is remote
+        """
+        try:
+            oldTmpDir = os.environ["UNFURL_TMPDIR"]
+            runner = CliRunner()
+            with runner.isolated_filesystem() as tempDir:
+                os.environ["UNFURL_TMPDIR"] = tempDir
+                path = __file__ + "/../examples/ansible-manifest.yaml"
+                manifest = YamlManifest(path=path)
+                runner = Runner(manifest)
+
+                output = six.StringIO()  # so we don't save the file
+                job = runner.run(
+                    JobOptions(
+                        workflow="deploy",
+                        # this instance doesn't exist so warning is output
+                        instance="test_remote",
+                        out=output,
+                    )
+                )
+                output = six.StringIO()  # so we don't save the file
+        finally:
+            os.environ["UNFURL_TMPDIR"] = oldTmpDir
+        tasks = list(job.workDone.values())
+        self.assertEqual(len(tasks), 1)
+        assert "stdout" in tasks[0].result.result, tasks[0].result.result
+        self.assertEqual(tasks[0].result.result["stdout"], "bar")
+        self.assertEqual(
+            job.jsonSummary()["tasks"],
+            [
+                {
+                    "status": "ok",
+                    "target": "test_remote",
+                    "operation": "configure",
+                    "template": "test_remote",
+                    "type": "tosca.nodes.Root",
+                    "targetStatus": "ok",
+                    "changed": True,
+                    "configurator": "unfurl.configurators.ansible.AnsibleConfigurator",
+                    "priority": "required",
+                    "reason": "add",
+                }
+            ],
+        )

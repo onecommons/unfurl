@@ -873,7 +873,7 @@ class Dependency(ChangeAware):
 
 def _setDefaultCommand(kw, implementation, inputs):
     # is it a shell script or a command line?
-    shell = inputs and inputs.get("shell")
+    shell = inputs.get("shell")
     if shell is None:
         # no special shell characters
         shell = not re.match(r"[\w.-]+\Z", implementation)

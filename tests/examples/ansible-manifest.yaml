@@ -21,6 +21,15 @@ spec:
         www.example.com: *example-with-endpoint
         staging.example.com: *example-with-endpoint
 
+        test_remote:
+          type: tosca:Root
+          interfaces:
+            Standard:
+              configure:
+                implementation:
+                  primary: echo bar
+                  operation_host: staging.example.com
+
       relationship_templates:
         ssh_connection:
           default_for: ANY # XXX example_group

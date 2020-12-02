@@ -357,7 +357,7 @@ class Plan(object):
             if inputs:
                 inputs = dict(iDef.inputs, **inputs)
             else:
-                inputs = iDef.inputs
+                inputs = iDef.inputs or {}
             kw = getConfigSpecArgsFromImplementation(iDef, inputs, resource.template)
         else:
             kw = None
@@ -451,7 +451,7 @@ class Plan(object):
         successStatus = self.getSuccessStatus(workflow)
         gen = Generate(configGenerator)
         while gen():
-            result = (yield gen.next)
+            result = yield gen.next
             gen.result = result
             task = gen.result
             if not task:  # this was skipped (not shouldRun() or filtered step)
@@ -668,7 +668,7 @@ class DeployPlan(Plan):
         Returns:
             (str, ConfigurationSpec): Returns a pair with reason why the task was included
               and the :class:`ConfigurationSpec` to run or `None` if it shound't be included.
-    """
+        """
         assert template and resource
         jobOptions = self.jobOptions
         if jobOptions.add and not resource.lastConfigChange:
@@ -772,8 +772,8 @@ class DeployPlan(Plan):
 class UndeployPlan(Plan):
     def executePlan(self):
         """
-    yields configSpec, target, reason
-    """
+        yields configSpec, target, reason
+        """
         gen = Generate(self.generateDeleteConfigurations(self.includeForDeletion))
         while gen():
             gen.result = yield gen.next
@@ -792,8 +792,8 @@ class ReadOnlyPlan(Plan):
 class WorkflowPlan(Plan):
     def executePlan(self):
         """
-    yields configSpec, target, reason
-    """
+        yields configSpec, target, reason
+        """
         workflow = self.tosca.getWorkflow(self.jobOptions.workflow)
         if not workflow:
             raise UnfurlError('workflow not found: "%s"' % self.jobOptions.workflow)
