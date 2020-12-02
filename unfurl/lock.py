@@ -1,5 +1,5 @@
 # Copyright (c) 2020 Adam Souzis
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 from ruamel.yaml.comments import CommentedMap
 from . import __version__
 from .util import getPackageDigest

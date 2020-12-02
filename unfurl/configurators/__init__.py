@@ -1,3 +1,5 @@
+# Copyright (c) 2020 Adam Souzis
+# SPDX-License-Identifier: MIT
 import six
 from ..configurator import Configurator, Status
 from ..result import ResultsMap

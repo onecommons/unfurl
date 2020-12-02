@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 # Copyright (c) 2020 Adam Souzis
 from __future__ import absolute_import, division, print_function
 

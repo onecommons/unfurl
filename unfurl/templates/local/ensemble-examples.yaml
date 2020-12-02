@@ -1,0 +1,22 @@
+# PLEASE NOTE: this template isn't intended to be used as is
+# It just has examples of node_templates you can copy in paste into your ensemble
+apiVersion: unfurl/v1alpha1
+kind: Ensemble
+spec:
+  service_template:
+    topology_template:
+      node_templates:
+        nodeExample:
+          type: tosca.nodes.Root
+          properties:
+            # you can add define adhoc properties here:
+            # example: "example"
+          interfaces:
+            Standard:
+              operations:
+                create:
+                  implementation: Ansible
+                  inputs:
+                    playbook:
+                      q: # quote so that jinja2 expressions aren't evaluated util later by ansible
+                         # define an ansible playbook here, it will run a OPERATION_HOST (default: localhost)

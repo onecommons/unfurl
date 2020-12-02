@@ -1,5 +1,5 @@
 # Copyright (c) 2020 Adam Souzis
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 from ..util import saveToFile, UnfurlTaskError
 from .shell import ShellConfigurator, which
 from ..support import getdir, abspath, Status, writeFile

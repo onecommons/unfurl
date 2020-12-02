@@ -1,5 +1,5 @@
 # Copyright (c) 2020 Adam Souzis
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 import six
 from .runtime import NodeInstance
 from .util import UnfurlError, Generate, toEnum
