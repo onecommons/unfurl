@@ -10,7 +10,7 @@ import warnings
 
 manifestScript = """
 apiVersion: unfurl/v1alpha1
-kind: Manifest
+kind: Ensemble
 spec:
   service_template:
     dsl_definitions:
@@ -23,7 +23,8 @@ spec:
           # target: k8sCluster
           type: unfurl.relationships.ConnectsTo.K8sCluster
           properties:
-            context: docker-desktop
+            context: {get_env: [UNFURL_TEST_KUBECONTEXT, docker-desktop]}
+            KUBECONFIG: {get_env: UNFURL_TEST_KUBECONFIG}
 
       node_templates:
         k8sCluster:
@@ -50,7 +51,8 @@ spec:
                uri: "{{ lookup('env', 'TEST_SECRET') }}"
 """
 
-@unittest.skipIf('k8s' in os.getenv('UNFURL_TEST_SKIP', ''), "UNFURL_TEST_SKIP set")
+
+@unittest.skipIf("k8s" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
 class k8sTest(unittest.TestCase):
     def setUp(self):
         try:

@@ -9,6 +9,9 @@ __pycache__/
 *.so
 *~
 .DS_Store
+.pytype
+.vscode
+.venv
 # due to using tox and pytest
 .tox
 .cache
