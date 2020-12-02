@@ -21,7 +21,7 @@ entries:
       name: viglesiasce
     name: mysql
     sources:
-    - https://github.com/kubernetes/charts
+    - https://charts.helm.sh/stable
     - https://github.com/docker-library/mysql
     urls:
     - https://kubernetes-charts.storage.googleapis.com/mysql-1.6.4.tgz

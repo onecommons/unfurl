@@ -3,6 +3,7 @@ tosca_definitions_version: tosca_simple_unfurl_1_0_0
 node_types:
   unfurl.nodes.HelmRepository:
     derived_from: tosca.nodes.Root
+    description: Represents a Helm repository
     properties:
       name:
         type: string
@@ -14,11 +15,20 @@ node_types:
         type: tosca.capabilities.Node
     interfaces:
       Standard:
-        create: "helm repo add {{ SELF.name }} {{ SELF.url }}"
+        create: helm repo add {{ SELF.name }} "{{ SELF.url }}"
         delete: "helm repo remove {{ SELF.name }}"
+      Install:
+        check:
+          implementation: helm repo list -o json
+          inputs:
+            done:
+              success: True # helm repo list returns error if there are no repos so set success true regardless
+            resultTemplate:
+              readyState: "{% if returncode == 0 and (stdout | from_json).name == SELF.name %}ok{%else%}absent{%endif%}"
 
   unfurl.nodes.HelmRelease:
     derived_from: unfurl.nodes.Installation
+    description: Represents a Helm release
     requirements:
       - host:
           node: unfurl.nodes.K8sNamespace
@@ -44,6 +54,7 @@ node_types:
               chart: { get_property: ["SELF", "chart"] }
               release_name: { get_property: ["SELF", "release_name"] }
               dryrun: "--dry-run"
+              chart_values: { get_property: ["SELF", "chart_values"] }
               command:
                 eval:
                   template: >-

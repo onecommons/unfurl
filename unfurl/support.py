@@ -66,10 +66,10 @@ def _mapArgs(args, ctx):
 
 class File(ExternalValue):
     """
-  Represents a local file.
-  get() returns the given file path (usually relative)
-  `encoding` can be "binary", "vault", "json", "yaml" or an encoding registered with the Python codec registry
-  """
+    Represents a local file.
+    get() returns the given file path (usually relative)
+    `encoding` can be "binary", "vault", "json", "yaml" or an encoding registered with the Python codec registry
+    """
 
     def __init__(self, name, baseDir="", loader=None, yaml=None, encoding=None):
         super(File, self).__init__("file", name)
@@ -108,12 +108,12 @@ class File(ExternalValue):
 
     def resolveKey(self, name=None, currentResource=None):
         """
-    Key can be one of:
+        Key can be one of:
 
-    path # absolute path
-    contents # file contents (None if it doesn't exist)
-    encoding
-    """
+        path # absolute path
+        contents # file contents (None if it doesn't exist)
+        encoding
+        """
         if not name:
             return self.get()
 
@@ -158,9 +158,9 @@ setEvalFunc("file", _fileFunc)
 
 class TempFile(ExternalValue):
     """
-  Represents a temporary local file.
-  get() returns the given file path (usually relative)
-  """
+    Represents a temporary local file.
+    get() returns the given file path (usually relative)
+    """
 
     def __init__(self, obj, suffix="", yaml=None, encoding=None):
         tp = saveToTempfile(obj, suffix, yaml=yaml, encoding=encoding)
@@ -169,9 +169,9 @@ class TempFile(ExternalValue):
 
     def resolveKey(self, name=None, currentResource=None):
         """
-    path # absolute path
-    contents # file contents (None if it doesn't exist)
-    """
+        path # absolute path
+        contents # file contents (None if it doesn't exist)
+        """
         if not name:
             return self.get()
 
@@ -187,7 +187,7 @@ class TempFile(ExternalValue):
 setEvalFunc(
     "tempfile",
     lambda arg, ctx: TempFile(
-        mapValue(arg, ctx),
+        mapValue(mapValue(arg, ctx), ctx),  # XXX
         ctx.kw.get("suffix"),
         ctx.currentResource.root.attributeManager.yaml,
         ctx.kw.get("encoding"),
@@ -197,19 +197,19 @@ setEvalFunc(
 
 def _getbaseDir(ctx, name=None):
     """
-  Returns an absolute path based on the given folder name:
+    Returns an absolute path based on the given folder name:
 
-  ".":   directory that contains the current instance's the ensemble
-  "src": directory of the source file this expression appears in
-  "home" The "home" directory for the current instance (committed to repository)
-  "local": The "local" directory for the current instance (excluded from repository)
-  "tmp":   A temporary directory for the instance (removed after unfurl exits)
-  "spec.src": The directory of the source file the current instance's template appears in.
-  "spec.home": The "home" directory of the source file the current instance's template.
-  "spec.local": The "local" directory of the source file the current instance's template.
+    ".":   directory that contains the current instance's the ensemble
+    "src": directory of the source file this expression appears in
+    "home" The "home" directory for the current instance (committed to repository)
+    "local": The "local" directory for the current instance (excluded from repository)
+    "tmp":   A temporary directory for the instance (removed after unfurl exits)
+    "spec.src": The directory of the source file the current instance's template appears in.
+    "spec.home": The "home" directory of the source file the current instance's template.
+    "spec.local": The "local" directory of the source file the current instance's template.
 
-  Otherwise look for a repository with the given name and return its path or None if not found.
-  """
+    Otherwise look for a repository with the given name and return its path or None if not found.
+    """
     instance = ctx.currentResource
     if not name or name == ".":
         # the folder of the current resource's ensemble
@@ -478,15 +478,15 @@ def runLookup(name, templar, *args, **kw):
 
 def lookupFunc(arg, ctx):
     """
-  Runs an ansible lookup plugin. Usage:
+    Runs an ansible lookup plugin. Usage:
 
-  .. code-block:: YAML
+    .. code-block:: YAML
 
-    lookup:
-        lookupFunctionName: 'arg' or ['arg1', 'arg2']
-        kw1: value
-        kw2: value
-  """
+      lookup:
+          lookupFunctionName: 'arg' or ['arg1', 'arg2']
+          kw1: value
+          kw2: value
+    """
     arg = mapValue(arg, ctx)
     assertForm(arg, test=arg)  # a map with at least one element
     name = None
@@ -688,8 +688,8 @@ setEvalFunc("get_artifact", lambda args, ctx: get_artifact(ctx, *args), True)
 
 def getImport(arg, ctx):
     """
-  Returns the external resource associated with the named import
-  """
+    Returns the external resource associated with the named import
+    """
     try:
         imported = ctx.currentResource.root.imports[arg]
     except KeyError:
@@ -736,8 +736,8 @@ class Imports(collections.OrderedDict):
 
 class ExternalResource(ExternalValue):
     """
-  Wraps a foreign resource
-  """
+    Wraps a foreign resource
+    """
 
     def __init__(self, name, importSpec):
         super(ExternalResource, self).__init__("external", name)
@@ -833,16 +833,16 @@ class DelegateAttributes(object):
 
 class ResourceChanges(collections.OrderedDict):
     """
-  Records changes made by configurations.
-  Serialized as the "modifications" properties
+    Records changes made by configurations.
+    Serialized as the "modifications" properties
 
-  changes:
-    resource1:
-      attribute1: newvalue
-      attribute2: %delete # if deleted
-      .added: # set if resource was added
-      .status: # set when status changes, including when removed (Status.absent)
-  """
+    changes:
+      resource1:
+        attribute1: newvalue
+        attribute2: %delete # if deleted
+        .added: # set if resource was added
+        .status: # set when status changes, including when removed (Status.absent)
+    """
 
     statusIndex = 0
     addedIndex = 1
@@ -908,16 +908,16 @@ class ResourceChanges(collections.OrderedDict):
 
 class AttributeManager(object):
     """
-  Tracks changes made to Resources
+    Tracks changes made to Resources
 
-  Configurator set attributes override spec attributes.
-  A configurator can delete an attribute but it will not affect the spec attributes
-  so deleting an attribute is essentially restoring the spec's definition of the attribute
-  (if it is defined in a spec.)
-  Changing an overridden attribute definition in the spec will have no effect
-  -- if a configurator wants to re-evaluate that attribute, it can create a dependency on it
-  so to treat that as changed configuration.
-  """
+    Configurator set attributes override spec attributes.
+    A configurator can delete an attribute but it will not affect the spec attributes
+    so deleting an attribute is essentially restoring the spec's definition of the attribute
+    (if it is defined in a spec.)
+    Changing an overridden attribute definition in the spec will have no effect
+    -- if a configurator wants to re-evaluate that attribute, it can create a dependency on it
+    so to treat that as changed configuration.
+    """
 
     # what about an attribute that is added to the spec that already exists in status?
     # XXX2 tests for the above behavior

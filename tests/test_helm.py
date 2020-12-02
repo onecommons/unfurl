@@ -2,6 +2,7 @@ import unittest
 import os
 from unfurl.yamlmanifest import YamlManifest
 from unfurl.job import Runner, JobOptions
+from six.moves import urllib
 
 manifest = """
 apiVersion: unfurl/v1alpha1
@@ -37,6 +38,8 @@ spec:
           properties:
             chart: stable/mysql
             release_name: mysql-test
+            chart_values:
+              args: []
 """
 
 import threading
@@ -44,7 +47,7 @@ import os.path
 from functools import partial
 
 # http://localhost:8000/fixtures/helmrepo
-@unittest.skipIf('helm' in os.getenv('UNFURL_TEST_SKIP', ''), "UNFURL_TEST_SKIP set")
+@unittest.skipIf("helm" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
 class HelmTest(unittest.TestCase):
     def setUp(self):
         server_address = ("", 8010)
@@ -85,6 +88,10 @@ class HelmTest(unittest.TestCase):
         self.httpd.socket.close()
 
     def test_helm(self):
+        # make sure this works
+        f = urllib.request.urlopen("http://localhost:8010/fixtures/helmrepo/index.yaml")
+        f.close()
+
         runner = Runner(YamlManifest(manifest))
 
         run1 = runner.run(JobOptions(dryrun=False, verbose=3, startTime=1))

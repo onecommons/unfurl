@@ -4,6 +4,9 @@ Getting Started
 
 Once you've installed `Unfurl`, you are ready to configure it and create your first Unfurl project.
 
+.. tip::
+  Before diving in, it is recommended that you read this high-level overview of `How it works`_.
+
 1. Configure your home environment
 ===================================
 
@@ -48,7 +51,7 @@ or just hard code the settings.
 6. Declare shared and default resources. For example, if several project will use a pre-existing Kubernetes cluster, you could add an template that models it here. You can use the `default directive` to indicate that template should only be used if it wasn't already declared in the main project.
 
 `~/.unfurl_home/ensemble.yaml` contains a template (`asdfBootstrap`) that will install
-the tools might Unfurl's `configurators` need (eg. Terraform, gCloud and Helm)
+local versions of the tools Unfurl's `configurators` need (eg. asdf, Terraform, gcloud, and Helm)
 It install these tools, run `unfurl deploy ~/.unfurl_home`.
 
 .. tip::

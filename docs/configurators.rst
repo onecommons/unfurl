@@ -279,13 +279,46 @@ Inputs
 Helm
 ====
 
-Inputs
--------
+The service template ``configurators/helm-template.yaml`` defines the node types for Helm releases and repositories.
+Releases supports the ``discover`` workflow and will add to the ensemble any Kubernetes resources that a pre-existing release created.
+Requires Helm 3, which will be installed automatically if the default ``.unfurl_home`` ensemble is deployed.
+
+unfurl.nodes.HelmRelease
+------------------------
+
+Represents a Helm release.
+
+Requirements
+~~~~~~~~~~~~
+
+  :host: A node template of type ``unfurl.nodes.K8sNamespace``
+  :repository: A node template of type ``unfurl.nodes.HelmRepository``
+
+Properties
+~~~~~~~~~~
 
   :release_name: (*required*) The name of the helm release
-  :chart: The name of the chart
+  :chart: The name of the chart (default: the instance name)
   :chart_values: A map of chart values
+
+Inputs
+~~~~~~
+
   :flags: A list of flags to pass to the ``helm`` command
+
+Deploying or discovering a Helm release will add any Kubernetes resources it created to the ensemble.
+
+unfurl.nodes.HelmRepository
+---------------------------
+
+Represents a Helm repository.
+
+Properties
+~~~~~~~~~~
+
+  :name: The name of the repostitory (default: the instance name)
+  :url: (*required*) The URL of the repository
+
 
 Kubernetes
 ==========
