@@ -3,42 +3,17 @@ apiVersion: unfurl/v1alpha1
 kind: Project
 +?include: local/unfurl.yaml
 contexts:
-  # the contexts defined here are merged with each project's and ensemble's contexts
-  # merge priority (from highest to lowest):
-  # (named context in project, named context in home,
-  #  defaults in project, defaults in home, context in ensemble)
   defaults:
+    # this exposes this project's ensemble as "localhost" to all the projects
+    # that inherit this context
     external:
       localhost:
         manifest:
           file: ensemble.yaml
         instance: localhost
-        # import all connection relationship_templates:
+        # export all the connection relationship_templates defined in this ensemble
         connections:
           "*": true
-    # the following local settings and environment variables are consumed by the localhost's
-    # connection templates, set as needed
-    # locals:
-    #  attributes:
-    #    kube_context: default
-    #    packet_project: project_id
-    # environment:
-    #   AWS_DEFAULT_REGION:
-    #   AWS_ACCESS_KEY_ID:
-    #   AWS_SECRET_ACCESS_KEY:
-    #   and more, see aws ~/unfurl_home/ensemble.yaml
-    #
-    #   AZURE_CLIENT_ID:
-    #   AZURE_SUBSCRIPTION_ID:
-    #   AZURE_SECRET:
-    #   and more, see azure in ~/unfurl_home/ensemble.yaml
-    #
-    #   GOOGLE_APPLICATION_CREDENTIALS:
-    #   CLOUDSDK_CORE_PROJECT:
-    #   CLOUDSDK_COMPUTE_REGION:
-    #   and more, see gcp in ~/unfurl_home/ensemble.yaml
-    #
-    #   PACKET_API_TOKEN:
 manifests:
   - file: ensemble.yaml
     default: true
