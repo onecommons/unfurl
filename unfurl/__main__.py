@@ -1,4 +1,6 @@
 #!/usr/bin/env python
+# Copyright (c) 2020 Adam Souzis
+# SPDX-License-Identifier: GPL-3.0-or-later
 """
 Applies a Unfurl ensemble
 

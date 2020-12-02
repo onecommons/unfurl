@@ -1,3 +1,5 @@
+# Copyright (c) 2020 Adam Souzis
+# SPDX-License-Identifier: GPL-3.0-or-later
 tosca_definitions_version: tosca_simple_unfurl_1_0_0
 node_types:
   unfurl.nodes.Container.Application.Docker:

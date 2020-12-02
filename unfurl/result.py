@@ -1,3 +1,5 @@
+# Copyright (c) 2020 Adam Souzis
+# SPDX-License-Identifier: GPL-3.0-or-later
 from collections import Mapping, MutableSequence, MutableMapping
 from datetime import datetime, timedelta
 
@@ -373,11 +375,11 @@ class Result(ChangeAware):
 
 class Results(object):
     """
-  Evaluating expressions are not guaranteed to be idempotent (consider quoting)
-  and resolving the whole tree up front can lead to evaluations of circular references unless the
-  order is carefully chosen. So evaluate lazily and memoize the results.
-  This also allows us to track changes to the returned structure.
-  """
+    Evaluating expressions are not guaranteed to be idempotent (consider quoting)
+    and resolving the whole tree up front can lead to evaluations of circular references unless the
+    order is carefully chosen. So evaluate lazily and memoize the results.
+    This also allows us to track changes to the returned structure.
+    """
 
     __slots__ = ("_attributes", "context", "_deleted")
 

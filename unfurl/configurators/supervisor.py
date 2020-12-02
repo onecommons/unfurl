@@ -1,3 +1,5 @@
+# Copyright (c) 2020 Adam Souzis
+# SPDX-License-Identifier: GPL-3.0-or-later
 from __future__ import absolute_import
 import os.path
 

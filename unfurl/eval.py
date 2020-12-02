@@ -1,3 +1,5 @@
+# Copyright (c) 2020 Adam Souzis
+# SPDX-License-Identifier: GPL-3.0-or-later
 """
 Public Api:
 
@@ -224,8 +226,7 @@ class Expr(object):
 
 
 class Ref(object):
-    """A Ref objects describes a path to metadata associated with a resource.
-    """
+    """A Ref objects describes a path to metadata associated with a resource."""
 
     def __init__(self, exp, vars=None):
         self.vars = {"true": True, "false": False, "null": None}
@@ -246,11 +247,11 @@ class Ref(object):
 
     def resolve(self, ctx, wantList=True, strict=_defaultStrictness):
         """
-    If wantList=True (default) returns a ResultList of matches
-    Note that values in the list can be a list or None
-    If wantList=False return `resolveOne` semantics
-    If wantList='result' return a Result
-    """
+        If wantList=True (default) returns a ResultList of matches
+        Note that values in the list can be a list or None
+        If wantList=False return `resolveOne` semantics
+        If wantList='result' return a Result
+        """
         ctx = ctx.copy(
             vars=self.vars, wantList=wantList, trace=self.trace, strict=strict
         )
@@ -284,14 +285,14 @@ class Ref(object):
 
     def resolveOne(self, ctx, strict=_defaultStrictness):
         """
-    If no match return None
-    If more than one match return a list of matches
-    Otherwise return the match
+        If no match return None
+        If more than one match return a list of matches
+        Otherwise return the match
 
-    Note: If you want to distinguish between None values and no match
-    or between single match that is a list and a list of matches
-    use resolve() which always returns a (possible empty) of matches
-    """
+        Note: If you want to distinguish between None values and no match
+        or between single match that is a list and a list of matches
+        use resolve() which always returns a (possible empty) of matches
+        """
         return self.resolve(ctx, False, strict)
 
     @staticmethod
@@ -588,7 +589,7 @@ def lookup(result, key, context):
 def evalItem(result, seg, context):
     """
     apply current item to current segment, return [] or [value]
-  """
+    """
     if seg.key != "":
         result = lookup(result, seg.key, context)
         if not result:
@@ -627,9 +628,9 @@ def _treatAsSingular(result, seg):
 
 def recursiveEval(v, exp, context):
     """
-  given a iterator of (previous) Result,
-  yields Result
-  """
+    given a iterator of (previous) Result,
+    yields Result
+    """
     context.trace("recursive evaluating", exp)
     matchFirst = exp[0].modifier == "?"
     useValue = exp[0].key == "*"

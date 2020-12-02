@@ -1,3 +1,5 @@
+# Copyright (c) 2020 Adam Souzis
+# SPDX-License-Identifier: GPL-3.0-or-later
 """
 This module implements creating and cloning project and ensembles as well Unfurl runtimes.
 """

@@ -1,4 +1,5 @@
-# Make coding more python3-ish
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (c) 2020 Adam Souzis
 from __future__ import absolute_import, division, print_function
 
 __metaclass__ = type

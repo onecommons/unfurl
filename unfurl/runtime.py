@@ -1,3 +1,5 @@
+# Copyright (c) 2020 Adam Souzis
+# SPDX-License-Identifier: GPL-3.0-or-later
 """
 This module defines the core model and implements the runtime operations of the model.
 
@@ -25,9 +27,9 @@ logger = logging.getLogger("unfurl")
 
 class Operational(ChangeAware):
     """
-  This is an abstract base class for Jobs, Resources, and Configurations all have a Status associated with them
-  and all use the same algorithm to compute their status from their dependent resouces, tasks, and configurations
-  """
+    This is an abstract base class for Jobs, Resources, and Configurations all have a Status associated with them
+    and all use the same algorithm to compute their status from their dependent resouces, tasks, and configurations
+    """
 
     # XXX3 add repairable, messages?
 
@@ -180,6 +182,7 @@ class OperationalInstance(Operational):
     """
     A concrete implementation of Operational
     """
+
     def __init__(
         self,
         status=None,
@@ -379,8 +382,7 @@ class EntityInstance(OperationalInstance, ResourceRef):
 
     @property
     def attributes(self):
-        """attributes are live values but _attributes will be the serialized value
-    """
+        """attributes are live values but _attributes will be the serialized value"""
         if not self.root.attributeManager:
             if not self.attributeManager:
                 # inefficient but create a local one for now
