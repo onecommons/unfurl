@@ -9,6 +9,10 @@ from unfurl.job import Runner, JobOptions, Status
 from unfurl.configurator import Configurator
 from unfurl.configurators import TemplateConfigurator
 
+# python 2.7 needs these:
+from unfurl.configurators.shell import ShellConfigurator
+from unfurl.configurators.ansible import AnsibleConfigurator
+
 
 class HelmConfigurator(Configurator):
     def run(self, task):

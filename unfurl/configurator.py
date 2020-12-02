@@ -285,8 +285,6 @@ class TaskView(object):
         self.target = target
         self.reason = reason
         self.logger = logger
-        host = self._findOperationHost(target, configSpec.operationHost)
-        self.operationHost = host
         self.cwd = os.path.abspath(self.target.baseDir)
         # private:
         self._errors = []  # UnfurlTaskError objects appends themselves to this list
@@ -298,6 +296,8 @@ class TaskView(object):
         self._dependenciesChanged = False
         self.dependencies = dependencies or {}
         self._resourceChanges = ResourceChanges()
+        # public:
+        self.operationHost = self._findOperationHost(target, configSpec.operationHost)
 
     @property
     def inputs(self):
