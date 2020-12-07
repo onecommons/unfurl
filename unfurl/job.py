@@ -19,7 +19,7 @@ from .runtime import OperationalInstance
 from .configurator import TaskView, ConfiguratorResult, TaskRequest, JobRequest
 from .plan import Plan
 from .localenv import LocalEnv
-from . import display, initLogging
+from . import display, initLogging, configurators
 
 try:
     from time import perf_counter

@@ -187,15 +187,21 @@ def assertForm(src, types=Mapping, test=True):
     return src
 
 
-# map< apiversion, map<kind, ctor> >
 _ClassRegistry = {}
-# only one class can be associated with an api interface
-def registerClass(apiVersion, kind, factory, replace=False):
-    api = _ClassRegistry.setdefault(apiVersion, {})
-    if not replace and kind in api:
-        if api[kind] is not factory:
-            raise UnfurlError("class already registered for %s.%s" % (apiVersion, kind))
-    api[kind] = factory
+_shortNameRegistry = {}
+
+
+def registerShortNames(shortNames):
+    _shortNameRegistry.update(shortNames)
+
+
+def registerClass(className, factory, shortName=None, replace=True):
+    if shortName:
+        _shortNameRegistry[shortName] = className
+    if not replace and className in _ClassRegistry:
+        if _ClassRegistry[className] is not factory:
+            raise UnfurlError("class already registered for %s" % className)
+    _ClassRegistry[className] = factory
 
 
 def loadModule(path, full_name=None):
@@ -230,24 +236,23 @@ def loadClass(klass, defaultModule="__main__"):
     return getattr(module, suffix, None)
 
 
+_shortNameRegistry = {}
+
+
 def lookupClass(kind, apiVersion=None, default=None):
-    version = apiVersion or API_VERSION
-    api = _ClassRegistry.get(version)
-    if api:
-        klass = api.get(kind, default)
+    if kind in _ClassRegistry:
+        return _ClassRegistry[kind]
+    elif kind in _shortNameRegistry:
+        className = _shortNameRegistry[kind]
     else:
-        klass = default
+        className = kind
+    try:
+        klass = loadClass(className)
+    except ImportError:
+        klass = None
 
-    if not klass:
-        try:
-            klass = loadClass(kind)
-        except ImportError:
-            klass = None
-
-        if klass:
-            registerClass(version, kind, klass, True)
-        else:
-            raise UnfurlError("Can not find class %s.%s" % (version, kind))
+    if klass:
+        registerClass(className, klass)
     return klass
 
 

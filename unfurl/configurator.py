@@ -8,7 +8,6 @@ from .support import Status, Defaults, ResourceChanges
 from .result import serializeValue, ChangeAware, Results, ResultsMap
 from .util import (
     registerClass,
-    API_VERSION,
     lookupClass,
     loadModule,
     validateSchema,
@@ -127,8 +126,11 @@ class ConfigurationSpec(object):
         return findSchemaErrors(expanded, self.preConditions)
 
     def create(self):
-        # XXX2 throw clearer exception if couldn't load class
-        return lookupClass(self.className)(self)
+        klass = lookupClass(self.className)
+        if not klass:
+            raise UnfurlError("Could not load configurator %s" % self.className)
+        else:
+            return klass(self)
 
     def shouldRun(self):
         return Defaults.shouldRun
@@ -210,15 +212,23 @@ class ConfiguratorResult(object):
 class AutoRegisterClass(type):
     def __new__(mcls, name, bases, dct):
         cls = type.__new__(mcls, name, bases, dct)
-        if name.endswith("Configurator"):
+        if cls.shortName:
+            name = cls.shortName
+        elif name.endswith("Configurator"):
             name = name[: -len("Configurator")]
         if name:
-            registerClass(API_VERSION, name, cls)
+            registerClass(cls.__module__ + "." + cls.__name__, cls, name)
         return cls
 
 
 @six.add_metaclass(AutoRegisterClass)
 class Configurator(object):
+
+    shortName = None
+    """shortName can be used to customize the "short name" of the configurator
+    as an alternative to using the full name ("module.class") when setting the implementation on an operation.
+    (Titlecase recommended)"""
+
     def __init__(self, configurationSpec):
         self.configSpec = configurationSpec
 
@@ -946,20 +956,20 @@ def getConfigSpecArgsFromImplementation(iDef, inputs, template):
             return None
         implementation = artifact.file
         try:
-            # try to treat implemenation as a python class
+            # see if implementation looks like a python class
             if "#" in implementation:
                 path, fragment = artifact.getPathAndFragment()
                 mod = loadModule(path)
                 kw["className"] = mod.__name__ + "." + fragment
-            else:
-                lookupClass(implementation)
+                return kw
+            elif lookupClass(implementation):
                 kw["className"] = implementation
+                return kw
         except:
-            # assume it's a command line
-            logger.debug(
-                "interpreting 'implementation' as a shell command: %s",
-                implementation,
-                exc_info=True,
-            )
-            _setDefaultCommand(kw, implementation, inputs)
+            pass
+        # assume it's a command line
+        logger.debug(
+            "interpreting 'implementation' as a shell command: %s", implementation
+        )
+        _setDefaultCommand(kw, implementation, inputs)
     return kw

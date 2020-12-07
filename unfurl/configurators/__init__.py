@@ -3,6 +3,16 @@
 import six
 from ..configurator import Configurator, Status
 from ..result import ResultsMap
+from ..util import registerShortNames
+
+# need to define these now because because these configurators are lazily imported
+# and so won't register themselves through AutoRegisterClass
+registerShortNames(
+    {
+        name: "unfurl.configurators.%s.%sConfigurator" % (name.lower(), name)
+        for name in "Ansible Shell Supervisor Terraform".split()
+    }
+)
 
 
 class TemplateConfigurator(Configurator):
