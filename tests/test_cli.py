@@ -133,6 +133,16 @@ class CliTest(unittest.TestCase):
         self.assertEqual(result.exit_code, 0, result)
         self.assertIn(unfurl.__version__(True), result.output.strip())
 
+    def test_runtime(self):
+        runner = CliRunner()
+        venvsrc = os.path.join(os.path.dirname(__file__), "fixtures/venv")
+        with runner.isolated_filesystem():
+            result = runner.invoke(
+                cli, ["--runtime=venv:" + venvsrc, "runtime", "--init"]
+            )
+        self.assertEqual(result.exit_code, 0, result)
+        self.assertIn("Created runtime", result.output)
+
     def test_badargs(self):
         runner = CliRunner()
         result = runner.invoke(cli, ["--badarg"])

@@ -10,7 +10,7 @@ from __future__ import print_function
 
 from .job import runJob
 from .support import Status
-from . import __version__, initLogging, getHomeConfigPath, DefaultNames
+from . import __version__, initLogging, getHomeConfigPath
 from . import init as initmod
 from .util import filterEnv, getPackageDigest
 from .localenv import LocalEnv, Project
@@ -171,16 +171,24 @@ def run(ctx, instance="root", cmdline=None, **options):
     return _run(options.pop("ensemble"), options, ctx.info_name)
 
 
+def _getRuntime(options, ensemblePath):
+    runtime = options.get("runtime")
+    localEnv = None
+    if not runtime:
+        localEnv = LocalEnv(ensemblePath, options.get("home"))
+        runtime = localEnv.getEngine()
+    return runtime, localEnv
+
+
 def _run(ensemble, options, workflow=None):
     if workflow:
         options["workflow"] = workflow
 
-    localEnv = LocalEnv(ensemble, options.get("home"))
     if not options.get("no_runtime"):
-        runtime = options.get("runtime")
-        if not runtime:
-            runtime = localEnv.getEngine()
+        runtime, localEnv = _getRuntime(options, ensemble)
         if runtime and runtime != ".":
+            if not localEnv:
+                localEnv = LocalEnv(ensemble, options.get("home"))
             return _runRemote(runtime, ensemble, options, localEnv)
     return _runLocal(ensemble, options)
 
@@ -443,7 +451,7 @@ def init(ctx, projectdir, **options):
 
 
 # XXX add --upgrade option
-@cli.command(short_help="Manage the unfurl home project")
+@cli.command(short_help="Print or manage the unfurl home project")
 @click.pass_context
 @click.option(
     "--render",
@@ -459,6 +467,9 @@ def init(ctx, projectdir, **options):
     help="Replace (and backup) current home project",
 )
 def home(ctx, init=False, render=False, replace=False, **options):
+    """If no options are set, display the location of current unfurl home.
+    To create a new home project use --init and the global --home option.
+    """
     options.update(ctx.obj)
     if not render and not init:
         # just display the current home location
@@ -475,6 +486,34 @@ def home(ctx, init=False, render=False, replace=False, **options):
             click.echo("Can't %s home, it already exists at %s" % (action, currentHome))
         else:
             click.echo("Error: home path is empty")
+
+
+@cli.command(short_help="Print or manage the project's runtime")
+@click.pass_context
+@click.option("--init", default=False, is_flag=True, help="Create a new runtime")
+@click.argument(
+    "project_folder",
+    type=click.Path(exists=False),
+    default=".",
+)
+def runtime(ctx, project_folder, init=False, **options):
+    """If no options are set, display the runtime currently used by the project. To create a new runtime in the project root
+    use --init and the global --runtime option.
+    """
+    options.update(ctx.obj)
+    project_folder = os.path.abspath(project_folder)
+    if not init:
+        # just display the current home location
+        runtime, localEnv = _getRuntime(options, project_folder)
+        click.echo(runtime)
+        return
+
+    runtime = options.get("runtime") or "venv:"
+    error = initmod.initEngine(project_folder, runtime)
+    if not error:
+        click.echo('Created runtime "%s" in "%s"' % (runtime, project_folder))
+    else:
+        click.echo('Failed to create runtime "%s": %s' % (runtime, error))
 
 
 @cli.command(short_help="Clone a project, ensemble or service template")

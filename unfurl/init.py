@@ -585,16 +585,20 @@ def _createInClonedProject(paths, clonedProject, dest, mono):
 def initEngine(projectDir, runtime):
     kind, sep, rest = runtime.partition(":")
     if kind == "venv":
-        return createVenv(projectDir, rest)
+        pipfileLocation, sep, unfurlLocation = rest.partition(":")
+        return createVenv(projectDir, pipfileLocation, unfurlLocation)
     # elif kind == 'docker'
-    # XXX return 'unrecoginized runtime string: "%s"'
-    return False
+    return "unrecognized runtime uri"
 
 
-def _addUnfurlToVenv(projectdir):
+def _addUnfurlToVenv(projectdir, unfurlLocation):
     # this is hacky
     # can cause confusion if it exposes more packages than unfurl
-    base = os.path.dirname(os.path.dirname(_templatePath))
+    if unfurlLocation:
+        base = unfurlLocation
+    else:
+        base = os.path.dirname(os.path.dirname(_templatePath))
+
     sitePackageDir = None
     libDir = os.path.join(projectdir, os.path.join(".venv", "lib"))
     for name in os.listdir(libDir):
@@ -602,18 +606,21 @@ def _addUnfurlToVenv(projectdir):
         if os.path.isdir(sitePackageDir):
             break
     else:
-        # XXX report error: can't find site-packages folder
-        return
+        return "can't find site-packages folder"
     _writeFile(sitePackageDir, "unfurl.pth", base)
     _writeFile(sitePackageDir, "unfurl.egg-link", base)
+    return ""
 
 
-def createVenv(projectDir, pipfileLocation):
+def createVenv(projectDir, pipfileLocation, unfurlLocation):
     """Create a virtual python environment for the given project."""
     os.environ["PIPENV_IGNORE_VIRTUALENVS"] = "1"
     os.environ["PIPENV_VENV_IN_PROJECT"] = "1"
     if "PIPENV_PYTHON" not in os.environ:
         os.environ["PIPENV_PYTHON"] = sys.executable
+
+    if pipfileLocation:
+        pipfileLocation = os.path.abspath(pipfileLocation)
 
     try:
         cwd = os.getcwd()
@@ -636,8 +643,7 @@ def createVenv(projectDir, pipfileLocation):
             )  # e.g. templates/python3.8
 
         if not os.path.isdir(pipfileLocation):
-            # XXX 'Pipfile location is not a valid directory: "%s" % pipfileLocation'
-            return False
+            return 'Pipfile location is not a valid directory: "%s"' % pipfileLocation
 
         # copy Pipfiles to project root
         if os.path.abspath(projectDir) != os.path.abspath(pipfileLocation):
@@ -649,7 +655,7 @@ def createVenv(projectDir, pipfileLocation):
         # create the virtualenv and install the dependencies specified in the Pipefiles
         sys_exit = sys.exit
         try:
-            retcode = -1
+            retcode = 0
 
             def noexit(code):
                 retcode = code
@@ -657,11 +663,15 @@ def createVenv(projectDir, pipfileLocation):
             sys.exit = noexit
 
             do_install(python=pythonPath)
-            # this doesn't actually install the unfurl so link to this one
-            _addUnfurlToVenv(projectDir)
+            # this doesn't actually install the unfurl package so link to this one
+            error = _addUnfurlToVenv(projectDir, unfurlLocation)
+            if error:
+                return error
         finally:
             sys.exit = sys_exit
 
-        return not retcode  # retcode means error
+        if retcode:
+            return "Pipenv failed: %s" % retcode
+        return ""
     finally:
         os.chdir(cwd)
