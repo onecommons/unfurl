@@ -420,6 +420,7 @@ def plan(ctx, ensemble=None, **options):
 @click.option(
     "--empty", default=False, is_flag=True, help="Don't create a default ensemble."
 )
+@click.option("--template", type=click.Path(exists=True))
 def init(ctx, projectdir, **options):
     """
     unfurl init [projectdir] Create a new project or, if [project_dir] exists or is inside a project, create a new ensemble"""

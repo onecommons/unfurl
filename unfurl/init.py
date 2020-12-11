@@ -138,20 +138,16 @@ def writeServiceTemplate(projectdir):
 
 
 def writeEnsembleManifest(
-    destDir, manifestName, specRepo, specDir=None, extraVars=None
+    destDir, manifestName, specRepo, specDir=None, extraVars=None, templateDir=None
 ):
-    if extraVars is None:
-        # default behaviour is to include the ensembleTemplate
-        # in the root of the specDir
-        extraVars = dict(ensembleTemplate=DefaultNames.EnsembleTemplate)
-
     if specDir:
         specDir = os.path.abspath(specDir)
     else:
         specDir = ""
     vars = dict(specRepoUrl=specRepo.getGitLocalUrl(specDir, "spec"))
-    vars.update(extraVars)
-    return writeTemplate(destDir, manifestName, "manifest.yaml.j2", vars)
+    if extraVars:
+        vars.update(extraVars)
+    return writeTemplate(destDir, manifestName, "manifest.yaml.j2", vars, templateDir)
 
 
 def addHiddenGitFiles(gitDir):
@@ -214,7 +210,11 @@ def createProjectRepo(
     if addDefaults:
         # write ensemble-template.yaml
         ensembleTemplatePath = writeTemplate(
-            projectdir, DefaultNames.EnsembleTemplate, "manifest-template.yaml.j2", {}
+            projectdir,
+            DefaultNames.EnsembleTemplate,
+            "manifest-template.yaml.j2",
+            {},
+            templateDir,
         )
         files.append(ensembleTemplatePath)
         ensembleDir = os.path.join(projectdir, DefaultNames.EnsembleDirectory)
@@ -226,11 +226,17 @@ def createProjectRepo(
         extraVars = dict(
             ensembleUri=ensembleRepo.getUrlWithPath(
                 os.path.abspath(os.path.join(ensembleDir, manifestName))
-            )
+            ),
+            # include the ensembleTemplate in the root of the specDir
+            ensembleTemplate=DefaultNames.EnsembleTemplate,
         )
         # write ensemble/ensemble.yaml
         manifestPath = writeEnsembleManifest(
-            ensembleDir, manifestName, repo, extraVars=extraVars
+            ensembleDir,
+            manifestName,
+            repo,
+            extraVars=extraVars,
+            templateDir=templateDir,
         )
         if mono:
             files.append(manifestPath)
@@ -251,6 +257,7 @@ def createProject(
     mono=False,
     existing=False,
     empty=False,
+    template=None,
     submodule=False,
     **kw
 ):
@@ -271,7 +278,7 @@ def createProject(
 
     # XXX add project to ~/.unfurl_home/unfurl.yaml
     projectConfigPath = createProjectRepo(
-        projectdir, repo, mono, not empty, submodule=submodule
+        projectdir, repo, mono, not empty, templateDir=template, submodule=submodule
     )
 
     if not newHome and not kw.get("no_runtime") and kw.get("runtime"):
