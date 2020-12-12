@@ -137,7 +137,7 @@ commonJobFilterOptions = option_group(
 )
 
 
-@cli.command(short_help="Record and run an ad-hoc command")
+@cli.command(short_help="Run and record an ad-hoc command")
 @click.pass_context
 # @click.argument("action", default="*:upgrade")
 @click.option("--ensemble", default="", type=click.Path(exists=False))
@@ -420,10 +420,14 @@ def plan(ctx, ensemble=None, **options):
 @click.option(
     "--empty", default=False, is_flag=True, help="Don't create a default ensemble."
 )
-@click.option("--template", type=click.Path(exists=True))
+@click.option(
+    "--template",
+    type=click.Path(exists=True),
+    help="Absolute path to a directory of project templates.",
+)
 def init(ctx, projectdir, **options):
     """
-    unfurl init [projectdir] Create a new project or, if [project_dir] exists or is inside a project, create a new ensemble"""
+    Create a new project or, if [project_dir] exists or is inside a project, create a new ensemble"""
     options.update(ctx.obj)
 
     if Project.findPath(projectdir):
@@ -445,7 +449,9 @@ def init(ctx, projectdir, **options):
                 'Can not create project in "' + projectdir + '": folder is not empty'
             )
 
-    homePath, projectPath = initmod.createProject(projectdir, **options)
+    homePath, projectPath, repo = initmod.createProject(
+        os.path.abspath(projectdir), **options
+    )
     if homePath:
         click.echo("unfurl home created at %s" % homePath)
     click.echo("New Unfurl project created at %s" % projectPath)

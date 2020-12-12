@@ -12,7 +12,7 @@ import shutil
 from . import DefaultNames, getHomeConfigPath
 from .tosca import TOSCA_VERSION
 from .repo import Repo, GitRepo, splitGitUrl, isURLorGitPath
-from .util import UnfurlError, getBaseDir
+from .util import UnfurlError
 from .localenv import LocalEnv, Project
 import random
 import string
@@ -53,7 +53,7 @@ def writeTemplate(folder, filename, template, vars, templateDir=None):
     if templateDir and not os.path.isabs(templateDir):
         templateDir = os.path.join(_templatePath, templateDir)
     if not templateDir or not os.path.exists(os.path.join(templateDir, template)):
-        templateDir = _templatePath  # default
+        templateDir = _templatePath  # use default file if missing from templateDir
 
     with open(os.path.join(templateDir, template)) as f:
         source = f.read()
@@ -76,16 +76,6 @@ def writeProjectConfig(
     return writeTemplate(projectdir, filename, templatePath, _vars, templateDir)
 
 
-def renderHome(homePath):
-    homedir, filename = os.path.split(homePath)
-    writeTemplate(homedir, DefaultNames.Ensemble, "manifest.yaml.j2", {}, "home")
-    configPath = writeProjectConfig(
-        homedir, filename, "unfurl.yaml.j2", templateDir="home"
-    )
-    writeTemplate(homedir, ".gitignore", "gitignore.j2", {})
-    return configPath
-
-
 def createHome(home=None, render=False, replace=False, **kw):
     """
     Create the home project if missing
@@ -99,19 +89,27 @@ def createHome(home=None, render=False, replace=False, **kw):
 
     homedir, filename = os.path.split(homePath)
     if render:  # just render
-        repo = None
+        repo = Repo.findContainingRepo(homedir)
+        # XXX if repo and update: git stash; git checkout rendered
+        ensembleDir = os.path.join(homedir, DefaultNames.EnsembleDirectory)
+        ensembleRepo = Repo.findContainingRepo(ensembleDir)
+        configPath, files = renderProject(homedir, repo, ensembleRepo, "home")
+        # XXX if repo and update: git commit -m"updated"; git checkout master; git stash pop
+        return configPath
     else:
         if exists:
             renameForBackup(homedir)
-        repo = _createRepo(homedir)
 
-    configPath = renderHome(homePath)
-    if not render and not kw.get("no_runtime"):
-        initEngine(homedir, kw.get("runtime") or "venv:")
+    # home="" disables (recursive) home creation
+    newHome, configPath, repo = createProject(
+        homedir,
+        home="",
+        template="home",
+        runtime=kw.get("runtime") or "venv:",
+        no_runtime=kw.get("no_runtime"),
+        msg="Create the unfurl home repository",
+    )
     if repo:
-        createProjectRepo(homedir, repo, True, addDefaults=False, templateDir="home")
-        repo.repo.git.add("--all")
-        repo.repo.index.commit("Create the unfurl home repository")
         repo.repo.git.branch("rendered")  # now create a branch
     return configPath
 
@@ -158,14 +156,11 @@ def addHiddenGitFiles(gitDir):
     return [os.path.abspath(gitIgnorePath), os.path.abspath(gitAttributesPath)]
 
 
-def createProjectRepo(
+def renderProject(
     projectdir,
     repo,
-    mono,
-    addDefaults=True,
-    projectConfigTemplate=None,
+    ensembleRepo,
     templateDir=None,
-    submodule=False,
 ):
     """
     Creates a folder named `projectdir` with a git repository with the following files:
@@ -177,14 +172,11 @@ def createProjectRepo(
 
     Returns the absolute path to unfurl.yaml
     """
+    assert os.path.isabs(projectdir), projectdir + " must be an absolute path"
     # write the project files
     localConfigFilename = DefaultNames.LocalConfig
-    manifestPath = os.path.join(DefaultNames.EnsembleDirectory, DefaultNames.Ensemble)
 
     vars = dict(vaultpass=get_random_password())
-    # manifestPath should be in local if ensemble is a separate repo and not a submodule
-    if addDefaults and not (mono or submodule):
-        vars["manifestPath"] = manifestPath
     writeProjectConfig(
         os.path.join(projectdir, "local"),
         localConfigFilename,
@@ -195,19 +187,16 @@ def createProjectRepo(
 
     localInclude = "+?include: " + os.path.join("local", localConfigFilename)
     vars = dict(include=localInclude)
-    # manifestPath should here if ensemble is part of the repo or a submodule
-    if addDefaults and (mono or submodule):
-        vars["manifestPath"] = manifestPath
     projectConfigPath = writeProjectConfig(
         projectdir,
         DefaultNames.LocalConfig,
-        projectConfigTemplate or DefaultNames.LocalConfig + ".j2",
+        "unfurl.yaml.j2",
         vars,
         templateDir,
     )
     files = [projectConfigPath]
 
-    if addDefaults:
+    if ensembleRepo:
         # write ensemble-template.yaml
         ensembleTemplatePath = writeTemplate(
             projectdir,
@@ -219,36 +208,22 @@ def createProjectRepo(
         files.append(ensembleTemplatePath)
         ensembleDir = os.path.join(projectdir, DefaultNames.EnsembleDirectory)
         manifestName = DefaultNames.Ensemble
-        if mono:
-            ensembleRepo = repo
-        else:
-            ensembleRepo = _createRepo(ensembleDir, not submodule)
         extraVars = dict(
             ensembleUri=ensembleRepo.getUrlWithPath(
-                os.path.abspath(os.path.join(ensembleDir, manifestName))
+                os.path.join(ensembleDir, manifestName)
             ),
             # include the ensembleTemplate in the root of the specDir
             ensembleTemplate=DefaultNames.EnsembleTemplate,
         )
         # write ensemble/ensemble.yaml
-        manifestPath = writeEnsembleManifest(
+        writeEnsembleManifest(
             ensembleDir,
             manifestName,
             repo,
             extraVars=extraVars,
             templateDir=templateDir,
         )
-        if mono:
-            files.append(manifestPath)
-        else:
-            ensembleRepo.repo.index.add([os.path.abspath(manifestPath)])
-            ensembleRepo.repo.index.commit("Default ensemble repository boilerplate")
-
-        if submodule:
-            repo.addSubModule(ensembleDir)
-
-    repo.commitFiles(files, "Create a new unfurl repository")
-    return projectConfigPath
+    return projectConfigPath, files
 
 
 def createProject(
@@ -277,16 +252,35 @@ def createProject(
         repo = _createRepo(projectdir)
 
     # XXX add project to ~/.unfurl_home/unfurl.yaml
-    projectConfigPath = createProjectRepo(
-        projectdir, repo, mono, not empty, templateDir=template, submodule=submodule
+    ensembleDir = os.path.join(projectdir, DefaultNames.EnsembleDirectory)
+    if mono:
+        ensembleRepo = repo
+    else:
+        ensembleRepo = _createRepo(ensembleDir, not submodule)
+
+    projectConfigPath, files = renderProject(
+        projectdir,
+        repo,
+        not empty and ensembleRepo,
+        template,
     )
+    if mono:
+        files.append(os.path.join(ensembleDir, DefaultNames.Ensemble))
+    else:
+        ensembleRepo.repo.index.add([os.path.join(ensembleDir, DefaultNames.Ensemble)])
+        ensembleRepo.repo.index.commit("Default ensemble repository boilerplate")
+
+    if submodule:
+        repo.addSubModule(ensembleDir)
+
+    repo.commitFiles(files, kw.get("msg") or "Create a new unfurl repository")
 
     if not newHome and not kw.get("no_runtime") and kw.get("runtime"):
         # if runtime was explicitly set and we aren't creating the home project
         # then initialize the runtime here
         initEngine(projectdir, kw.get("runtime"))
 
-    return newHome, projectConfigPath
+    return newHome, projectConfigPath, repo
 
 
 def cloneLocalRepos(manifest, sourceProject, targetProject):
@@ -516,7 +510,7 @@ def clone(source, dest, includeLocal=False, **options):
             #     raise UnfurlError(
             #         'Can not create a project in "%s": folder is not empty' % dest
             #     )
-            # newHome, projectConfigPath = createProject(
+            # newHome, projectConfigPath, repo = createProject(
             #     dest, emtpy=True, **options
             # )
             # sourceProject = Project(projectConfigPath)
@@ -590,6 +584,7 @@ def _createInClonedProject(paths, clonedProject, dest, mono):
 
 
 def initEngine(projectDir, runtime):
+    runtime = runtime or "venv:"
     kind, sep, rest = runtime.partition(":")
     if kind == "venv":
         pipfileLocation, sep, unfurlLocation = rest.partition(":")

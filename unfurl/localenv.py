@@ -384,8 +384,7 @@ class LocalEnv(object):
                 #    self.manifestPath = pathORproject.getInstance(manifestPath)
                 # else:
                 raise UnfurlError(
-                    "Ensemble manifest does not exist: '%s'"
-                    % os.path.abspath(manifestPath)
+                    "Ensemble manifest does not exist: '%s'" % manifestPath
                 )
             else:
                 pathORproject = self.findManifestPath(manifestPath)

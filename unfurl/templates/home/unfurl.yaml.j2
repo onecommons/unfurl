@@ -9,11 +9,8 @@ contexts:
     external:
       localhost:
         manifest:
-          file: ensemble.yaml
+          file: [% manifestPath | default("ensemble/ensemble.yaml", true) %]
         instance: localhost
         # export all the connection relationship_templates defined in this ensemble
         connections:
           "*": true
-manifests:
-  - file: ensemble.yaml
-    default: true
