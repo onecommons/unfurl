@@ -4,3 +4,27 @@ spec:
   service_template:
     topology_template:
       node_templates: {}
+        # # this is an example of a minimal node template
+        # # it is essentially defining an untyped node
+        # minimalNode:
+        #   type: tosca:Root  # base type for all nodes
+        #   properties:
+        #     # You can set arbitrary properties unless the node's type has
+        #     # the "additionalProperties" metadata attribute set to false
+        #     # If it is, the properties must conform to the type's definitions
+        #     property1: foo
+        #   requirements:
+        #     # "dependency" is the base relationship type between nodes
+        #     # use it if you want to set untyped dependencies between nodes
+        #     - dependency: anotherNode
+        #   interfaces:
+        #     # you need define these operation if they are missing from node's type definition
+        #     Standard:
+        #       # to deploy a node you need to at least define a configure operation
+        #       configure: echo "created and configured"
+        #       # if you want to be able to undeploy this node, define a delete operation
+        #       delete: echo "deleted"
+        #     Install:
+        #       # if you want to be able to check on the status of a deployed node,
+        #       # define a check operation
+        #       check: echo "check ok"

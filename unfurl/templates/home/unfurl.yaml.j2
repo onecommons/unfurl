@@ -6,11 +6,34 @@ contexts:
   defaults:
     # this exposes this project's ensemble as "localhost" to all the projects
     # that inherit this context
+    connections:
+    # Below we define a few for the most common cloud providers
+    # these connection types set their properties using
+    # environments variables commonly associated with each cloud provider.
+    # You can set or unset which environment variables are available
+    # in the "enviroment" section in your project
+    # or directly set the properties by adding them to your projects connections.
+    # You can also delete the connection by setting its key to null (e.g. aws: )
+    # or can add additional ones of the same type that can be explicitly referenced by name.
+      aws:
+        type: unfurl.relationships.ConnectsTo.AWSAccount
+
+      gcp:
+        type: unfurl.relationships.ConnectsTo.GCPProject
+
+      azure:
+        type: unfurl.relationships.ConnectsTo.Azure
+
+      k8s:
+        type: unfurl.relationships.ConnectsTo.K8sCluster
+
+      # packet:
+      #   type: unfurl.relationships.ConnectsTo.Packet
+      #   properties:
+      #     project: # required property, need to set this
+
     external:
       localhost:
         manifest:
           file: [% manifestPath | default("ensemble/ensemble.yaml", true) %]
         instance: localhost
-        # export all the connection relationship_templates defined in this ensemble
-        connections:
-          "*": true

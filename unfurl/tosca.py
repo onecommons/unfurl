@@ -252,21 +252,13 @@ class ToscaSpec(object):
             impl["requirements"] = [{"install": installer}]
         return impl
 
-    def importConnections(self, importedSpec, connections):
-        assert connections
+    def importConnections(self, importedSpec):
         # user-declared telationship templates, source and target will be None
-        importAll = connections.get("*")
         for template in importedSpec.template.relationship_templates:
-            if template.default_for:  # it's a default relationship template
-                if importAll or template.name in connections:
-                    relTemplate = RelationshipSpec(template, self)
-                    if not connections.get(template.name):
-                        name = template.name
-                    else:  # renamed
-                        name = connections[template.name]
-
-                    if name not in self.relationshipTemplates:  # not defined yet
-                        self.relationshipTemplates[name] = relTemplate
+            assert template.default_for  # it's a default relationship template
+            relTemplate = RelationshipSpec(template, self)
+            if template.name not in self.relationshipTemplates:  # not defined yet
+                self.relationshipTemplates[template.name] = relTemplate
 
 
 _defaultTopology = createDefaultTopology()

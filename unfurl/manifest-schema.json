@@ -39,8 +39,8 @@
       "description": "constrains how properties are named",
       "propertyNames": { "pattern": "^[A-Za-z_][A-Za-z0-9_:\\-]*$" },
       "$$target": [
-          "#/definitions/namedObjects",
-          "./manifest-schema.json#/definitions/namedObjects"
+        "#/definitions/namedObjects",
+        "./manifest-schema.json#/definitions/namedObjects"
       ]
     },
     "secret": {
@@ -75,16 +75,17 @@
     "context": {
       "title": "context",
       "$$target": [
-              "#/definitions/context",
-              "./manifest-schema.json#/definitions/context"
-            ],
+        "#/definitions/context",
+        "./manifest-schema.json#/definitions/context"
+      ],
       "type": "object",
       "properties": {
         "inputs": { "$ref": "#/definitions/attributes" },
-        "runtime": { "type": "string"},
+        "runtime": { "type": "string" },
         "environment": { "$ref": "#/definitions/attributes" },
         "locals": { "$ref": "#/definitions/external" },
         "secrets": { "$ref": "#/definitions/external" },
+        "connections": { "$ref": "#/definitions/namedObjects" },
         "external": {
           "type": "object",
           "allOf": [
@@ -113,7 +114,6 @@
         },
         "uri": { "type": "string", "format": "uri" },
         "instance": { "type": "string" },
-        "connections": {"anyOf": [{ "const": "*"}, { "type": "object" }]},
         "schema": { "$ref": "#/definitions/attributes" },
         "attributes": { "$ref": "#/definitions/attributes" }
       }
@@ -296,10 +296,11 @@
       "properties": {
         "uri": { "type": "string", "format": "uri" },
         "aliases": {
-            "type": "array",
-            "items": {
-              "type": "string", "format": "uri"
-            }
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uri"
+          }
         }
       },
       "required": ["uri"]
@@ -352,10 +353,10 @@
           "unfurl": {
             "type": "object",
             "properties": {
-                "version": { "type": "string" },
-                "digest": { "type": "string" }
+              "version": { "type": "string" },
+              "digest": { "type": "string" }
             }
-           },
+          },
           "toolVersions": { "type": "object" }
         }
       },
@@ -382,7 +383,7 @@
               "properties": {
                 "uri": { "type": "string", "format": "uri" },
                 "changeId": { "$ref": "#/definitions/changeId" },
-                "digest": { "type": "string"},
+                "digest": { "type": "string" },
                 "manifest": {
                   "type": "object",
                   "properties": {

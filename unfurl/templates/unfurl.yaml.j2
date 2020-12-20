@@ -3,30 +3,26 @@ apiVersion: unfurl/v1alpha1
 kind: Project
 [%include | default("") %]
 
-# the following local settings and environment variables are consumed
-# by the localhost's connection templates, set as needed
 # contexts:
 #  defaults:
-    # locals:
-    #  attributes:
-    #    kube_context: default
-    #    packet_project: project_id
-    #
     # environment:
+    #   environment variables are consumed by the default connections
+    #   set in ~/unfurl_home/unfurl.yaml, set or unset as needed 
+    #
     #   AWS_DEFAULT_REGION:
     #   AWS_ACCESS_KEY_ID:
     #   AWS_SECRET_ACCESS_KEY:
-    #   and more, see aws ~/unfurl_home/ensemble.yaml
+    #   and more, see ConnectsTo.AWSAccount in https://unfurl.run/docs/tosca.html
     #
     #   AZURE_CLIENT_ID:
     #   AZURE_SUBSCRIPTION_ID:
     #   AZURE_SECRET:
-    #   and more, see azure in ~/unfurl_home/ensemble.yaml
+    #   and more, see ConnectsTo.Azure in https://unfurl.run/docs/tosca.html
     #
     #   GOOGLE_APPLICATION_CREDENTIALS:
     #   CLOUDSDK_CORE_PROJECT:
     #   CLOUDSDK_COMPUTE_REGION:
-    #   and more, see gcp in ~/unfurl_home/ensemble.yaml
+    #   and more, see ConnectsTo.GCPProject in https://unfurl.run/docs/tosca.html
     #
     #   PACKET_API_TOKEN:
 

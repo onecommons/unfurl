@@ -22,7 +22,8 @@ You have two options for setting up your Unfurl home:
 A) Do nothing and use your system's current environment
 -------------------------------------------------------
 
-By default, the first time you create an Unfurl project it will automatically generate a home project if it is missing. The default configuration will look for standard environment variables
+By default, the first time you create an Unfurl project it will automatically generate a home project if it is missing.
+It will include configurations to the main cloud providers that will look for their standard environment variables
 such as ``AWS_ACCESS_KEY_ID`` and ``AWS_SECRET_ACCESS_KEY``.
 Individual unfurl projects can filter or set the variables in its environment
 through the `environment` subsection of the `context` in the project file.
@@ -42,10 +43,8 @@ Now you can customize your home project, for example:
 
 2. Add secrets or configure secret manager
 
-3. Edit the connections in `~/.unfurl_home/ensemble.yaml`.
-Add additional connections or change them
-from using environment variables to using secrets stored in a secret manager (see `secrets`)
-or just hard code the settings.
+3. Edit or add the connections in `unfurl.yaml`
+   to use environment variables or using secrets or just hard code the connection's properties.
 
 4. Bootstrap dev tools
 

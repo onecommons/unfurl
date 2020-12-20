@@ -6,8 +6,7 @@ kind: Ensemble
 # the local environment Unfurl runs inside of, e.g. the client machine or container,
 # its local network, etc.
 
-# By default it defines connections connections to the most common cloud providers
-# but it is a just a regular Ensemble. So you can configure your local environment
+# It is a regular Ensemble so you can configure your local environment
 # by adding your own templates and deploying this like any other Ensemble.
 
 spec:
@@ -74,81 +73,6 @@ spec:
         #   requirements:
         #   - host: localhost
 
-      relationship_templates:
-        # Connections to cloud providers and other services
-        # are modeled as TOSCA "connects-to" relationships
-
-        # Below we define a few for the most common cloud providers
-        # using the environments variables commonly associated with them.
-        # You can set or unset which environment variables are available
-        # in the "context" section in the unfurl.yaml project file.
-        # Or instead of using "get_env" to look up the environment variables
-        # you can edit these definitions to reference secrets
-        # or just use hard-coded values if this file is private.
-
-        # You can define as many connections as needed, they just need to have unique different names.
-        # When this ensemble is being imported as a project's "localhost" ensemble,
-        # you can specify which connections are available (and by what name)
-        # by adding a "connections" key to the context.
-
-        aws:
-          default_for: ANY
-          type: unfurl.relationships.ConnectsTo.AWSAccount
-          properties:
-            AWS_DEFAULT_REGION: {get_env: AWS_DEFAULT_REGION}
-            AWS_ACCESS_KEY_ID: {get_env: AWS_ACCESS_KEY_ID}
-            AWS_SECRET_ACCESS_KEY: {get_env: AWS_SECRET_ACCESS_KEY}
-
-            # other authentication options:
-            AWS_SESSION_TOKEN: {get_env: AWS_SESSION_TOKEN}
-            AWS_PROFILE: {get_env: AWS_PROFILE}
-            AWS_SHARED_CREDENTIALS_FILE: {get_env: AWS_SHARED_CREDENTIALS_FILE}
-            AWS_CONFIG_FILE: {get_env: AWS_CONFIG_FILE}
-
-        gcp:
-          default_for: ANY
-          type: unfurl.relationships.ConnectsTo.GCPProject
-          properties:
-            CLOUDSDK_CORE_PROJECT: {get_env: CLOUDSDK_CORE_PROJECT}
-            CLOUDSDK_COMPUTE_REGION: {get_env: CLOUDSDK_COMPUTE_REGION}
-            CLOUDSDK_COMPUTE_ZONE: {get_env: CLOUDSDK_COMPUTE_ZONE}
-            GOOGLE_APPLICATION_CREDENTIALS: {get_env: GOOGLE_APPLICATION_CREDENTIALS}
-
-            # other authentication options:
-            GOOGLE_OAUTH_ACCESS_TOKEN: {get_env: GOOGLE_OAUTH_ACCESS_TOKEN}
-            GCP_SERVICE_ACCOUNT_CONTENTS: {get_env: GCP_SERVICE_ACCOUNT_CONTENTS}
-            GCP_AUTH_KIND: {get_env: [GCP_AUTH_KIND, 'serviceaccount']}
-
-        azure:
-          default_for: ANY
-          type: unfurl.relationships.ConnectsTo.Azure
-          properties:
-            AZURE_CLIENT_ID: {get_env: AZURE_CLIENT_ID}
-            AZURE_SUBSCRIPTION_ID: {get_env: AZURE_SUBSCRIPTION_ID}
-            AZURE_SECRET: {get_env: AZURE_SECRET}
-
-            # other authentication options:
-            AZURE_TENANT: {get_env: AZURE_TENANT}
-            AZURE_AD_USER: {get_env: AZURE_AD_USER}
-            AZURE_PASSWORD: {get_env: AZURE_PASSWORD}
-            AZURE_ADFS_AUTHORITY_URL: {get_env: AZURE_ADFS_AUTHORITY_URL}
-
-        k8s:
-          default_for: ANY
-          type: unfurl.relationships.ConnectsTo.K8sCluster
-          properties:
-            KUBECONFIG: {get_env: KUBECONFIG}
-            # Your project needs a "local" value named "kube_context" set
-            # otherwise the current kube context will be used
-            context:
-              eval:
-                local: kube_context
-
-        packet:
-          default_for: ANY
-          type: unfurl.relationships.ConnectsTo.Packet
-          properties:
-            project:
-              eval:
-                local: packet_project
-            PACKET_API_TOKEN: {get_env: PACKET_API_TOKEN}
+      # Connections to cloud providers and other services
+      # are modeled as TOSCA "connects-to" relationships
+      relationship_templates: {}

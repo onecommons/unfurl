@@ -22,6 +22,7 @@ from .manifest import Manifest
 from .tosca import Artifact
 from .runtime import TopologyInstance
 from .eval import mapValue
+from .tosca import ToscaSpec, TOSCA_VERSION
 
 from ruamel.yaml.comments import CommentedMap
 from codecs import open
@@ -335,12 +336,36 @@ class YamlManifest(ReadOnlyManifest):
         importsSpec = self.context.get("external", {})
         # note: external "localhost" is defined in UNFURL_HOME's context by convention
         self.loadImports(importsSpec)
+        self.loadConnections(self.context.get("connections"))
 
         # need to set rootResource before createNodeInstance() is called
         self.rootResource = root
         for key, val in status.get("instances", {}).items():
             self.createNodeInstance(key, val, root)
         return root
+
+    def loadConnections(self, connections):
+        if connections:
+            # handle items like newname : oldname to rename merged connections
+            renames = {
+                (v if isinstance(v, six.string_types) else n): n
+                for n, v in connections.items()
+            }
+            tpl = {}
+            for name, c in connections.items():
+                if isinstance(c, dict):
+                    if "default_for" not in c:
+                        c["default_for"] = "ANY"
+                    tpl[renames[name]] = c
+            tosca = ToscaSpec(
+                dict(
+                    tosca_definitions_version=TOSCA_VERSION,
+                    topology_template=dict(
+                        node_templates={}, relationship_templates=tpl
+                    ),
+                )
+            )
+            self.tosca.importConnections(tosca)
 
     def loadImports(self, importsSpec):
         """
@@ -379,9 +404,6 @@ class YamlManifest(ReadOnlyManifest):
                 raise UnfurlError(
                     "Can not import '%s': instance '%s' not found" % (name, rname)
                 )
-            connections = value.get("connections")
-            if connections:
-                self.tosca.importConnections(importedManifest.tosca, connections)
             self.imports[name] = (resource, value)
             self._importedManifests[id(root)] = importedManifest
 

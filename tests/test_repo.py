@@ -75,10 +75,9 @@ awsTestManifest = """\
   context:
     environment:
       AWS_ACCESS_KEY_ID: mockAWS_ACCESS_KEY_ID
-    external:
-      localhost:
-        connections:
-          aws: aws_test
+    connections:
+      aws_test: aws
+
   spec:
     service_template:
       topology_template:
@@ -267,11 +266,11 @@ ensemble.yaml
                 "degraded",
             ]
             result = runner.invoke(cli, args)
-            # print("result.output", result.exit_code, result.output)
             assert not result.exception, "\n".join(
                 traceback.format_exception(*result.exc_info)
             )
             self.assertEqual(result.exit_code, 0, result)
+            # print("result.output", result.exit_code, result.output)
 
             assert _latestJobs
             job = _latestJobs[-1]

@@ -32,6 +32,13 @@ Secrets
 
 Secrets are like locals except they are marked `sensitive` and redacted or encrypted when necessary. They are accessed through the `secret` expression function. See `secrets` for more info.
 
+Connections
+-----------
+
+If set, either ``*`` or a map. ``*`` indicates all connection relationship templates should be imported. 
+If it is a map, each key, value pair the key will be the name of the template to import and the value, if not empty, will be a local name for the template.
+
+
 External
 --------
 
@@ -65,7 +72,6 @@ There are 3 instances that are always implicitly imported even if they are not d
 :instance: (default: "*") The name of the instance within the ensemble to make available.
   If ``*`` all instances in the ensemble will be available.
 :uri: The ``uri`` of the ensemble. If it is set and it doesn't match the retrieved ensemble's URI a validation error will occur.
-:connections: If set, either ``*`` or a map. ``*`` indicates all connection relationship templates should be imported. If it is a map, each key, value pair the key will be the name of the template to import and the value, if not empty, will be a local name for the template.
 
 Locals and secrets:
 

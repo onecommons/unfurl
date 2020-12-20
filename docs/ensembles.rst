@@ -57,6 +57,7 @@ At the core of Unfurl is an `Ensemble` manifest, a YAML file that includes:
 * A model of the cloud resources it manages (using the OASIS's `TOSCA` 1.3 ("Topology and Orchestration Specification for Cloud Applications") standard)
 * Implementations of operations and workflows that can be applied to those resources (via `configurators`)
 * A record of the operational status of those resources.
+* A record of the state of the repositories, artifacts, and runtime environment that were used during deployment.
 
 Ensembles can be part of an Unfurl project that manages one or more git repositories which contain code, artifacts, configuration and operational history.
 

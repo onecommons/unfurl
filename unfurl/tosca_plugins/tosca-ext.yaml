@@ -244,7 +244,7 @@ relationship_types:
         description: >
           Path to an existing Kubernetes config file. If not provided, and no other connection
           options are provided, and the KUBECONFIG environment variable is not set, the default location will be used (~/.kube/config.json).
-        required: false
+        default: {get_env: KUBECONFIG}
       context:
         type: string
         description: >
@@ -297,27 +297,29 @@ relationship_types:
       CLOUDSDK_CORE_PROJECT:
          description: id of the project
          type: unfurl.datatypes.EnvVar
-         required: false
+         default: {get_env: CLOUDSDK_CORE_PROJECT}
       CLOUDSDK_COMPUTE_REGION:
          description: default region to use
          type: unfurl.datatypes.EnvVar
-         required: false
+         default: {get_env: CLOUDSDK_COMPUTE_REGION}
       CLOUDSDK_COMPUTE_ZONE:
          description: default zone to use
          type: unfurl.datatypes.EnvVar
-         required: false
+         default: {get_env: CLOUDSDK_COMPUTE_ZONE}
       GOOGLE_APPLICATION_CREDENTIALS:
         description: "Path to file containing service account private keys in JSON format"
         type: unfurl.datatypes.EnvVar
-        required: false
+        default: {get_env: GOOGLE_APPLICATION_CREDENTIALS}
+
+      # other authentication options:
       GOOGLE_OAUTH_ACCESS_TOKEN:
         description: A temporary OAuth 2.0 access token obtained from the Google Authorization server
         type: unfurl.datatypes.EnvVar
-        required: false
+        default: {get_env: GOOGLE_OAUTH_ACCESS_TOKEN}
       GCP_SERVICE_ACCOUNT_CONTENTS:
         description: "Content of file containing service account private keys"
         type: tosca.datatypes.json
-        required: false
+        default: {get_env: GCP_SERVICE_ACCOUNT_CONTENTS}
         metadata:
           sensitive: true
         # some of the keys in the credential json:
@@ -329,7 +331,7 @@ relationship_types:
         type: unfurl.datatypes.EnvVar
         constraints:
           - valid_values: [application, machineaccount, serviceaccount]
-        default: serviceaccount
+        default: {get_env: [GCP_AUTH_KIND, 'serviceaccount']}
       scopes:
         type: list
         required: false
@@ -344,32 +346,33 @@ relationship_types:
       AWS_DEFAULT_REGION:
         description: "The default region to use, e.g. us-west-1, us-west-2, etc."
         type: unfurl.datatypes.EnvVar
-        required: false
+        default: {get_env: AWS_DEFAULT_REGION}
       AWS_ACCESS_KEY_ID:
         description: "The access key for your AWS account"
         type: unfurl.datatypes.EnvVar
-        required: false
+        default: {get_env: AWS_ACCESS_KEY_ID}
       AWS_SECRET_ACCESS_KEY:
         description: "The secret key for your AWS account."
         type: unfurl.datatypes.EnvVar
-        required: false
+        default: {get_env: AWS_SECRET_ACCESS_KEY}
         metadata:
           sensitive: true
+      # other authentication options:
       AWS_SESSION_TOKEN:
         description: "The session key for your AWS account."
         type: unfurl.datatypes.EnvVar
-        required: false
+        default: {get_env: AWS_SESSION_TOKEN}
         metadata:
           sensitive: true
       AWS_PROFILE:
         type: unfurl.datatypes.EnvVar
-        required: false
+        default: {get_env: AWS_PROFILE}
       AWS_SHARED_CREDENTIALS_FILE:
         type: unfurl.datatypes.EnvVar
-        required: false
+        default: {get_env: AWS_SHARED_CREDENTIALS_FILE}
       AWS_CONFIG_FILE:
         type: unfurl.datatypes.EnvVar
-        required: false
+        default: {get_env: AWS_CONFIG_FILE}
     # see https://boto3.amazonaws.com/v1/documentation/api/latest/guide/configuration.html#using-environment-variables
     # for more environment variables
 
@@ -378,34 +381,34 @@ relationship_types:
     properties:
       AZURE_CLIENT_ID:
         type: unfurl.datatypes.EnvVar
-        required: false
+        default: {get_env: AZURE_CLIENT_ID}
       AZURE_TENANT:
         type: unfurl.datatypes.EnvVar
-        required: false
+        default: {get_env: AZURE_TENANT}
       AZURE_SUBSCRIPTION_ID:
         description: for authentication with service principal
         type: unfurl.datatypes.EnvVar
-        required: false
+        default: {get_env: AZURE_SUBSCRIPTION_ID}
       AZURE_SECRET:
         description: for authentication with service principal
         type: unfurl.datatypes.EnvVar
-        required: false
+        default: {get_env: AZURE_SECRET}
         metadata:
           sensitive: true
       AZURE_AD_USER:
         description: for authentication with Active Directory
         type: unfurl.datatypes.EnvVar
-        required: false
+        default: {get_env: AZURE_AD_USER}
       AZURE_PASSWORD:
         description: for authentication with Active Directory
         type: unfurl.datatypes.EnvVar
-        required: false
+        default: {get_env: AZURE_PASSWORD}
         metadata:
           sensitive: true
       AZURE_ADFS_AUTHORITY_URL:
         description: set if you have your own ADFS authority
         type: unfurl.datatypes.EnvVar
-        required: false
+        default: {get_env: AZURE_ADFS_AUTHORITY_URL}
 
   unfurl.relationships.ConnectsTo.Packet:
     derived_from: unfurl.relationships.ConnectsTo.CloudAccount
@@ -415,6 +418,7 @@ relationship_types:
         type: string
       PACKET_API_TOKEN:
         type: unfurl.datatypes.EnvVar
+        default: {get_env: PACKET_API_TOKEN}
         metadata:
           sensitive: true
 
