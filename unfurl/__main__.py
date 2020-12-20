@@ -213,8 +213,9 @@ def _remoteCmd(runtime, cmdLine, localEnv):
         env = None
 
     if kind == "venv":
+        pipfileLocation, sep, unfurlLocation = rest.partition(":")
         return (
-            _venv(runtime, env),
+            _venv(rest, pipfileLocation),
             ["python", "-m", "unfurl", "--no-runtime"] + cmdLine,
             False,
         )
@@ -346,14 +347,14 @@ def check(ctx, ensemble=None, **options):
     return _run(ensemble, options, ctx.info_name)
 
 
-@cli.command(short_help="run the discover workflow")
+@cli.command(short_help="Run the discover workflow.")
 @click.pass_context
 @click.argument("ensemble", default="", type=click.Path(exists=False))
 @commonJobFilterOptions
 @jobControlOptions
 def discover(ctx, ensemble=None, **options):
     """
-    Update configuration by probing live instances associated with the ensemble
+    Run the "discover" workflow which updates the ensemble's spec by probing its live instances.
     """
     options.update(ctx.obj)
     return _run(ensemble, options, ctx.info_name)
@@ -508,17 +509,26 @@ def runtime(ctx, project_folder, init=False, **options):
     use --init and the global --runtime option.
     """
     options.update(ctx.obj)
-    project_folder = os.path.abspath(project_folder)
+    projectPath = os.path.abspath(project_folder)
     if not init:
         # just display the current home location
-        runtime, localEnv = _getRuntime(options, project_folder)
+        try:
+            runtime, localEnv = _getRuntime(options, projectPath)
+        except:
+            # if the current path isn't a folder
+            if project_folder == ".":
+                runtime, localEnv = _getRuntime(
+                    options, getHomeConfigPath(options.get("home"))
+                )
+            else:
+                raise
         click.echo(runtime)
         return
 
     runtime = options.get("runtime") or "venv:"
-    error = initmod.initEngine(project_folder, runtime)
+    error = initmod.initEngine(projectPath, runtime)
     if not error:
-        click.echo('Created runtime "%s" in "%s"' % (runtime, project_folder))
+        click.echo('Created runtime "%s" in "%s"' % (runtime, projectPath))
     else:
         click.echo('Failed to create runtime "%s": %s' % (runtime, error))
 

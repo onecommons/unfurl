@@ -9,7 +9,7 @@ import os.path
 import datetime
 import sys
 import shutil
-from . import DefaultNames, getHomeConfigPath
+from . import DefaultNames, getHomeConfigPath, __version__
 from .tosca import TOSCA_VERSION
 from .repo import Repo, GitRepo, splitGitUrl, isURLorGitPath
 from .util import UnfurlError
@@ -242,6 +242,7 @@ def createProject(
             raise UnfurlError("Could not find an existing repository")
     else:
         repo = None
+
     # creates home if it doesn't exist already:
     newHome = createHome(home, **kw)
 
@@ -581,40 +582,85 @@ def _createInClonedProject(paths, clonedProject, dest, mono):
         )
 
 
+def _getUnfurlRequirementUrl(spec):
+    """Expand the given string in an URL for installing the local Unfurl package.
+
+    If @ref is omitted the tag for the current release will be used,
+    if empty ("@") the latest revision will be used
+    If no path or url is specified https://github.com/onecommons/unfurl.git will be used.
+
+    For example:
+
+    @tag
+    ./path/to/local/repo
+    ./path/to/local/repo@tag
+    ./path/to/local/repo@
+    git+https://example.com/forked/unfurl.git
+    @
+
+    Args:
+        spec (str): can be a path to a git repo, git url or just a revision or tag.
+
+    Returns:
+      str: Description of returned object.
+
+    """
+    if not spec:
+        return spec
+    if "egg=unfurl" in spec:
+        # looks fully specified, just return it
+        return spec
+
+    url, sep, ref = spec.rpartition("@")
+    if sep:
+        if ref:
+            ref = "@" + ref
+    else:
+        ref = "@" + __version__(True)
+
+    if not url:
+        return "git+https://github.com/onecommons/unfurl.git" + ref + "#egg=unfurl"
+    if not url.startswith("git+"):
+        return "git+file://" + os.path.abspath(url) + ref + "#egg=unfurl"
+    else:
+        return url + ref + "#egg=unfurl"
+
+
 def initEngine(projectDir, runtime):
     runtime = runtime or "venv:"
     kind, sep, rest = runtime.partition(":")
     if kind == "venv":
         pipfileLocation, sep, unfurlLocation = rest.partition(":")
-        return createVenv(projectDir, pipfileLocation, unfurlLocation)
+        return createVenv(
+            projectDir, pipfileLocation, _getUnfurlRequirementUrl(unfurlLocation)
+        )
     # elif kind == 'docker'
     return "unrecognized runtime uri"
 
 
-def _addUnfurlToVenv(projectdir, unfurlLocation):
-    # this is hacky
-    # can cause confusion if it exposes more packages than unfurl
-    if unfurlLocation:
-        base = unfurlLocation
-    else:
-        base = os.path.dirname(os.path.dirname(_templatePath))
+def _runPipEnv(do_install, kw):
+    # create the virtualenv and install the dependencies specified in the Pipefiles
+    sys_exit = sys.exit
+    try:
+        retcode = 0
 
-    sitePackageDir = None
-    libDir = os.path.join(projectdir, os.path.join(".venv", "lib"))
-    for name in os.listdir(libDir):
-        sitePackageDir = os.path.join(libDir, name, "site-packages")
-        if os.path.isdir(sitePackageDir):
-            break
-    else:
-        return "can't find site-packages folder"
-    _writeFile(sitePackageDir, "unfurl.pth", base)
-    _writeFile(sitePackageDir, "unfurl.egg-link", base)
-    return ""
+        def noexit(code):
+            retcode = code
+
+        sys.exit = noexit
+
+        do_install(**kw)
+    finally:
+        sys.exit = sys_exit
+
+    return retcode
 
 
 def createVenv(projectDir, pipfileLocation, unfurlLocation):
     """Create a virtual python environment for the given project."""
+
     os.environ["PIPENV_IGNORE_VIRTUALENVS"] = "1"
+    VIRTUAL_ENV = os.environ.get("VIRTUAL_ENV")
     os.environ["PIPENV_VENV_IN_PROJECT"] = "1"
     if "PIPENV_PYTHON" not in os.environ:
         os.environ["PIPENV_PYTHON"] = sys.executable
@@ -628,6 +674,7 @@ def createVenv(projectDir, pipfileLocation, unfurlLocation):
         # need to set env vars and change current dir before importing pipenv
         from pipenv.core import do_install, ensure_python
         from pipenv.utils import python_version
+        from pipenv import environments
 
         pythonPath = str(ensure_python())
         assert pythonPath, pythonPath
@@ -652,26 +699,34 @@ def createVenv(projectDir, pipfileLocation, unfurlLocation):
                 if os.path.isfile(path):
                     shutil.copy(path, projectDir)
 
-        # create the virtualenv and install the dependencies specified in the Pipefiles
-        sys_exit = sys.exit
-        try:
-            retcode = 0
-
-            def noexit(code):
-                retcode = code
-
-            sys.exit = noexit
-
-            do_install(python=pythonPath)
-            # this doesn't actually install the unfurl package so link to this one
-            error = _addUnfurlToVenv(projectDir, unfurlLocation)
-            if error:
-                return error
-        finally:
-            sys.exit = sys_exit
-
+        kw = dict(python=pythonPath)
+        # need to run without args first so lock isn't overwritten
+        retcode = _runPipEnv(do_install, kw)
         if retcode:
-            return "Pipenv failed: %s" % retcode
+            return "Pipenv (step 1) failed: %s" % retcode
+
+        # we need to set these so pipenv doesn't try to recreate the virtual environment
+        environments.PIPENV_USE_SYSTEM = 1
+        environments.PIPENV_IGNORE_VIRTUALENVS = False
+        os.environ["VIRTUAL_ENV"] = os.path.join(projectDir, ".venv")
+        environments.PIPENV_VIRTUALENV = os.path.join(projectDir, ".venv")
+
+        # we need to set skip_lock or pipenv will not honor the existing lock
+        kw["skip_lock"] = True
+        if unfurlLocation:
+            kw["editable_packages"] = [unfurlLocation]
+        else:
+            kw["packages"] = [
+                "unfurl==" + __version__(True)
+            ]  # use the same version as current
+        retcode = _runPipEnv(do_install, kw)
+        if retcode:
+            return "Pipenv (step 2) failed: %s" % retcode
+
         return ""
     finally:
+        if VIRTUAL_ENV:
+            os.environ["VIRTUAL_ENV"] = VIRTUAL_ENV
+        else:
+            os.environ.pop("VIRTUAL_ENV", None)
         os.chdir(cwd)

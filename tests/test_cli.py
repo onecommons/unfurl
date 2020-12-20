@@ -135,13 +135,24 @@ class CliTest(unittest.TestCase):
 
     def test_runtime(self):
         runner = CliRunner()
-        venvsrc = os.path.join(os.path.dirname(__file__), "fixtures/venv")
+        venvSrc = os.path.join(os.path.dirname(__file__), "fixtures/venv")
+        repoPath = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
+        # instead of runtime = "venv:%s:%s@" % (venvSrc, repoPath)
+        # fully specify the runtime so we can point to our fake empty unfurl package
+        runtime = "venv:%s:git+file://%s#egg=unfurl&subdirectory=tests/fixtures" % (
+            venvSrc,
+            repoPath,
+        )
         with runner.isolated_filesystem():
-            result = runner.invoke(
-                cli, ["--runtime=venv:" + venvsrc, "runtime", "--init"]
+            result = runner.invoke(cli, ["--runtime=" + runtime, "runtime", "--init"])
+            assert not result.exception, "\n".join(
+                traceback.format_exception(*result.exc_info)
             )
-        self.assertEqual(result.exit_code, 0, result)
-        self.assertIn("Created runtime", result.output)
+            self.assertEqual(result.exit_code, 0, result)
+            self.assertIn("Created runtime", result.output)
+            self.assertIn("Installing dependencies from Pipfile.lock", result.output)
+            assert os.path.exists(".venv/src/unfurl")
+            assert os.path.exists(".venv/bin/unfurl")
 
     def test_badargs(self):
         runner = CliRunner()
