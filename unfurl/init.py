@@ -93,7 +93,7 @@ def createHome(home=None, render=False, replace=False, **kw):
         # XXX if repo and update: git stash; git checkout rendered
         ensembleDir = os.path.join(homedir, DefaultNames.EnsembleDirectory)
         ensembleRepo = Repo.findContainingRepo(ensembleDir)
-        configPath, files = renderProject(homedir, repo, ensembleRepo, "home")
+        configPath = renderProject(homedir, repo, ensembleRepo, "home")
         # XXX if repo and update: git commit -m"updated"; git checkout master; git stash pop
         return configPath
     else:
@@ -161,6 +161,7 @@ def renderProject(
     repo,
     ensembleRepo,
     templateDir=None,
+    names=DefaultNames,
 ):
     """
     Creates a folder named `projectdir` with a git repository with the following files:
@@ -174,7 +175,7 @@ def renderProject(
     """
     assert os.path.isabs(projectdir), projectdir + " must be an absolute path"
     # write the project files
-    localConfigFilename = DefaultNames.LocalConfig
+    localConfigFilename = names.LocalConfig
 
     vars = dict(vaultpass=get_random_password())
     writeProjectConfig(
@@ -189,31 +190,30 @@ def renderProject(
     vars = dict(include=localInclude)
     projectConfigPath = writeProjectConfig(
         projectdir,
-        DefaultNames.LocalConfig,
+        names.LocalConfig,
         "unfurl.yaml.j2",
         vars,
         templateDir,
     )
-    files = [projectConfigPath]
+
+    # write ensemble-template.yaml
+    writeTemplate(
+        projectdir,
+        names.EnsembleTemplate,
+        "manifest-template.yaml.j2",
+        {},
+        templateDir,
+    )
 
     if ensembleRepo:
-        # write ensemble-template.yaml
-        ensembleTemplatePath = writeTemplate(
-            projectdir,
-            DefaultNames.EnsembleTemplate,
-            "manifest-template.yaml.j2",
-            {},
-            templateDir,
-        )
-        files.append(ensembleTemplatePath)
-        ensembleDir = os.path.join(projectdir, DefaultNames.EnsembleDirectory)
-        manifestName = DefaultNames.Ensemble
+        ensembleDir = os.path.join(projectdir, names.EnsembleDirectory)
+        manifestName = names.Ensemble
         extraVars = dict(
             ensembleUri=ensembleRepo.getUrlWithPath(
                 os.path.join(ensembleDir, manifestName)
             ),
             # include the ensembleTemplate in the root of the specDir
-            ensembleTemplate=DefaultNames.EnsembleTemplate,
+            ensembleTemplate=names.EnsembleTemplate,
         )
         # write ensemble/ensemble.yaml
         writeEnsembleManifest(
@@ -223,7 +223,7 @@ def renderProject(
             extraVars=extraVars,
             templateDir=templateDir,
         )
-    return projectConfigPath, files
+    return projectConfigPath
 
 
 def createProject(
@@ -246,8 +246,7 @@ def createProject(
     newHome = createHome(home, **kw)
 
     if repo:
-        repo.repo.index.add(addHiddenGitFiles(projectdir))
-        repo.repo.index.commit("Adding Unfurl project")
+        addHiddenGitFiles(projectdir)
     else:
         repo = _createRepo(projectdir)
 
@@ -258,27 +257,26 @@ def createProject(
     else:
         ensembleRepo = _createRepo(ensembleDir, not submodule)
 
-    projectConfigPath, files = renderProject(
+    projectConfigPath = renderProject(
         projectdir,
         repo,
         not empty and ensembleRepo,
         template,
     )
-    if mono:
-        files.append(os.path.join(ensembleDir, DefaultNames.Ensemble))
-    else:
-        ensembleRepo.repo.index.add([os.path.join(ensembleDir, DefaultNames.Ensemble)])
+    if not mono:
+        ensembleRepo.addAll(ensembleDir)
         ensembleRepo.repo.index.commit("Default ensemble repository boilerplate")
 
     if submodule:
         repo.addSubModule(ensembleDir)
 
-    repo.commitFiles(files, kw.get("msg") or "Create a new unfurl repository")
-
     if not newHome and not kw.get("no_runtime") and kw.get("runtime"):
         # if runtime was explicitly set and we aren't creating the home project
         # then initialize the runtime here
         initEngine(projectdir, kw.get("runtime"))
+
+    repo.addAll(projectdir)
+    repo.repo.index.commit(kw.get("msg") or "Create a new Unfurl project")
 
     return newHome, projectConfigPath, repo
 

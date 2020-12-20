@@ -343,6 +343,10 @@ class GitRepo(Repo):
         firstCommit = next(self.repo.iter_commits("HEAD", max_parents=0))
         return firstCommit.hexsha
 
+    def addAll(self, path="."):
+        path = os.path.relpath(path, self.workingDir)
+        self.repo.git.add("--all", path)
+
     def commitFiles(self, files, msg):
         # note: this will also commit existing changes in the index
         index = self.repo.index
