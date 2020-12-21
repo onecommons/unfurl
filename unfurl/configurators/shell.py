@@ -46,8 +46,9 @@ class _PrintOnAppendList(list):
             pass
 
 
-def _run(input=None, *args, **kwargs):
+def _run(*args, **kwargs):
     timeout = kwargs.pop("timeout", None)
+    input = kwargs.pop("input", None)
     with subprocess.Popen(*args, **kwargs) as process:
         try:
             stdout = None
