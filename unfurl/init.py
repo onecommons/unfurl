@@ -100,10 +100,8 @@ def createHome(home=None, render=False, replace=False, **kw):
         if exists:
             renameForBackup(homedir)
 
-    # home="" disables (recursive) home creation
     newHome, configPath, repo = createProject(
         homedir,
-        home="",
         template="home",
         runtime=kw.get("runtime") or "venv:",
         no_runtime=kw.get("no_runtime"),
@@ -243,15 +241,18 @@ def createProject(
     else:
         repo = None
 
-    # creates home if it doesn't exist already:
-    newHome = createHome(home, **kw)
+    newHome = ""
+    homePath = getHomeConfigPath(home)
+    # don't try to create the home project if we are already creating the home project
+    if projectdir != os.path.dirname(homePath):
+        # create the home project (but only if it doesn't exist already)
+        newHome = createHome(home, **kw)
 
     if repo:
         addHiddenGitFiles(projectdir)
     else:
         repo = _createRepo(projectdir)
 
-    # XXX add project to ~/.unfurl_home/unfurl.yaml
     ensembleDir = os.path.join(projectdir, DefaultNames.EnsembleDirectory)
     if mono:
         ensembleRepo = repo
@@ -274,7 +275,10 @@ def createProject(
     if not newHome and not kw.get("no_runtime") and kw.get("runtime"):
         # if runtime was explicitly set and we aren't creating the home project
         # then initialize the runtime here
-        initEngine(projectdir, kw.get("runtime"))
+        try:
+            initEngine(projectdir, kw.get("runtime"))
+        except:
+            pass  # don't stop even if this fails
 
     repo.addAll(projectdir)
     repo.repo.index.commit(kw.get("msg") or "Create a new Unfurl project")
@@ -616,7 +620,7 @@ def _getUnfurlRequirementUrl(spec):
         if ref:
             ref = "@" + ref
     else:
-        ref = "@" + __version__(True)
+        ref = "@" + __version__()
 
     if not url:
         return "git+https://github.com/onecommons/unfurl.git" + ref + "#egg=unfurl"
@@ -717,7 +721,7 @@ def createVenv(projectDir, pipfileLocation, unfurlLocation):
             kw["editable_packages"] = [unfurlLocation]
         else:
             kw["packages"] = [
-                "unfurl==" + __version__(True)
+                "unfurl==" + __version__()
             ]  # use the same version as current
         retcode = _runPipEnv(do_install, kw)
         if retcode:

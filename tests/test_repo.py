@@ -241,6 +241,10 @@ ensemble.yaml
             assert not result.exception, "\n".join(
                 traceback.format_exception(*result.exc_info)
             )
+            assert os.path.isdir("./unfurl_home"), "home project not created"
+            assert os.path.isfile(
+                "./unfurl_home/unfurl.yaml"
+            ), "home unfurl.yaml not created"
 
             with open("ensemble/ensemble.yaml", "w") as f:
                 f.write(awsTestManifest)
