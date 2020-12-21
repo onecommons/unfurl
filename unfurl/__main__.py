@@ -26,6 +26,7 @@ import shlex
 import json
 
 _latestJobs = []  # for testing
+_args = []  # for testing
 
 
 def option_group(*options):
@@ -215,7 +216,7 @@ def _remoteCmd(runtime, cmdLine, localEnv):
     if kind == "venv":
         pipfileLocation, sep, unfurlLocation = rest.partition(":")
         return (
-            _venv(rest, pipfileLocation),
+            _venv(pipfileLocation, env),
             ["python", "-m", "unfurl", "--no-runtime"] + cmdLine,
             False,
         )
@@ -229,7 +230,9 @@ def _remoteCmd(runtime, cmdLine, localEnv):
 def _runRemote(runtime, ensemble, options, localEnv):
     logger = logging.getLogger("unfurl")
     logger.debug('running command remotely on "%s"', runtime)
-    cmdLine = sys.argv[1:]
+    cmdLine = _args or sys.argv[1:]
+    if _args:
+        print("TESTING: running remote with _args %s" % _args)
     env, remote, shell = _remoteCmd(runtime, cmdLine, localEnv)
     rv = subprocess.call(remote, env=env, shell=shell)
     if options.get("standalone_mode") is False:

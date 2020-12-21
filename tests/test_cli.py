@@ -4,7 +4,7 @@ import traceback
 import six
 from collections import MutableSequence
 from click.testing import CliRunner
-from unfurl.__main__ import cli
+from unfurl.__main__ import cli, _args
 import unfurl
 from unfurl.configurator import Configurator
 from unfurl.localenv import LocalEnv
@@ -153,6 +153,35 @@ class CliTest(unittest.TestCase):
             self.assertIn("Installing dependencies from Pipfile.lock", result.output)
             assert os.path.exists(".venv/src/unfurl")
             assert os.path.exists(".venv/bin/unfurl")
+
+            result = runner.invoke(cli, ["init", "--mono", "test"])
+            # uncomment this to see output:
+            # print("result.output", result.exit_code, result.output)
+            assert not result.exception, "\n".join(
+                traceback.format_exception(*result.exc_info)
+            )
+            self.assertEqual(result.exit_code, 0, result)
+
+            # invoke plan in the runtime we just created
+            try:
+                del os.environ["UNFURL_NORUNTIME"]
+                _args[:] = [
+                    "--quiet",
+                    "--runtime=venv:",
+                    "plan",
+                    "--output=none",
+                    "test",
+                ]
+                result = runner.invoke(cli, _args)
+                # uncomment this to see output:
+                # print("result.output", result.exit_code, result.output)
+                assert not result.exception, "\n".join(
+                    traceback.format_exception(*result.exc_info)
+                )
+                self.assertEqual(result.exit_code, 0, result)
+                self.assertIn("running remote with _args", result.output)
+            finally:
+                os.environ["UNFURL_NORUNTIME"] = "1"
 
     def test_badargs(self):
         runner = CliRunner()
