@@ -46,7 +46,7 @@ class _PrintOnAppendList(list):
             pass
 
 
-def _run(*args, **kwargs):
+def _run(input=None, *args, **kwargs):
     timeout = kwargs.pop("timeout", None)
     with subprocess.Popen(*args, **kwargs) as process:
         try:
@@ -136,6 +136,7 @@ class ShellConfigurator(TemplateConfigurator):
                 timeout=timeout,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
+                input=None,
             )
 
             # try to convert stdout and stderr to strings but leave as binary if that fails

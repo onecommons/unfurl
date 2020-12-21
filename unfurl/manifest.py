@@ -311,13 +311,10 @@ class Manifest(AttributeManager):
         return instance
 
     def findRepoFromGitUrl(self, path, isFile, importLoader):
-        repoURL = None
-        if not isFile or isURLorGitPath(path):
-            # only support urls to git repos for now
-            repoURL, filePath, revision = splitGitUrl(path)
-        if not repoURL or not self.localEnv:
-            return None, None, None, None
-
+        repoURL, filePath, revision = splitGitUrl(path)
+        if not repoURL:
+            raise UnfurlError("invalid git URL %s" % path)
+        assert self.localEnv
         basePath = getBaseDir(importLoader.path)  # checks if dir or not
         repo, revision, bare = self.localEnv.findOrCreateWorkingDir(
             repoURL, revision, basePath
@@ -398,11 +395,14 @@ class Manifest(AttributeManager):
             repositories["self"] = repository
         if "spec" not in repositories:
             # if not found assume it points the project root or self if not in a project
-            if (
-                self.localEnv
-                and self.localEnv.project
-                and self.localEnv.project is not self.localEnv.homeProject
-            ):
+            inProject = False
+            if self.localEnv and self.localEnv.project:
+                if self.localEnv.project is self.localEnv.homeProject:
+                    inProject = self.localEnv.project.projectRoot in self.path
+                else:
+                    inProject = True
+
+            if inProject:
                 repo = self.localEnv.project.projectRepo
                 path = self.localEnv.project.projectRoot
                 if repo:

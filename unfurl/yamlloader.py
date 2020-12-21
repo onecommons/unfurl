@@ -39,7 +39,7 @@ from .merge import (
     _cacheAnchors,
     restoreIncludes,
 )
-
+from .repo import isURLorGitPath
 from toscaparser.common.exception import URLException, ExceptionCollector
 from toscaparser.utils.gettextutils import _
 import toscaparser.imports
@@ -182,11 +182,14 @@ class ImportResolver(toscaparser.imports.ImportResolver):
             file_name = ""
         if not url_info:
             return url_info
+
         path, isFile, fragment = url_info
-        repo, filePath, revision, bare = self.manifest.findRepoFromGitUrl(
-            path, isFile, importLoader
-        )
-        if repo:
+        if not isFile or isURLorGitPath(path):  # only support urls to git repos for now
+            repo, filePath, revision, bare = self.manifest.findRepoFromGitUrl(
+                path, isFile, importLoader
+            )
+            if not repo:
+                raise UnfurlError("Could not resolve git URL: " + path)
             isFile = True
             if bare:
                 if not filePath:
