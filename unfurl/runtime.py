@@ -307,8 +307,10 @@ class EntityInstance(OperationalInstance, ResourceRef):
     _baseDir = ""
 
     def __init__(
-        self, name="", attributes=None, parent=None, template=None, status=None
+        self, name="", attributes=None, parent=None, template=None, status=Status.ok
     ):
+        # default to Status.ok because that has the semantics of only relying on dependents
+        # note: NodeInstances always a explicit status and so instead default to unknown
         OperationalInstance.__init__(self, status)
         self.name = name
         self._attributes = attributes or {}
@@ -470,11 +472,6 @@ class RelationshipInstance(EntityInstance):
     parentRelation = "_relationships"
     templateType = RelationshipSpec
     source = None
-
-    def __init__(
-        self, name="", attributes=None, parent=None, template=None, status=None
-    ):
-        EntityInstance.__init__(self, name, attributes, parent, template, status)
 
     @property
     def target(self):
@@ -648,12 +645,14 @@ class NodeInstance(EntityInstance):
         return "::%s" % self.name
 
     def getOperationalDependencies(self):
-        # XXX
-        # for instance in self.requirements:
-        #  yield instance
-        # else:
+        parent = None
         if self.parent and self.parent is not self.root:
-            yield self.parent
+            parent = self.parent
+            yield parent
+
+        for instance in self.requirements:
+            if instance is not parent:
+                yield instance
 
     def getSelfAndDescendents(self):
         "Recursive descendent including self"
@@ -743,7 +742,6 @@ class TopologyInstance(NodeInstance):
                 # template will be a RelationshipSpec
                 if template.toscaEntityTemplate.default_for:
                     # the constructor will add itself to _relationships
-                    # note: name might not equal template.name if from an external spec
                     RelationshipInstance(name, parent=self, template=template)
 
         return self._relationships

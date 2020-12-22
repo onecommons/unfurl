@@ -190,9 +190,15 @@ class ToscaSpec(object):
                 nodeTemplate = self.nodeTemplates.get(nodeName)
                 if not nodeTemplate:
                     return None
-                return nodeTemplate.getRequirement(requirement)
+                return nodeTemplate.getRelationship(requirement)
             else:
                 return self.relationshipTemplates.get(name)
+        elif "#q#" in name:
+            nodeName, requirement = name.split("#q#")
+            nodeTemplate = self.nodeTemplates.get(nodeName)
+            if not nodeTemplate:
+                return None
+            return nodeTemplate.getRequirement(requirement)
         else:
             return self.nodeTemplates.get(name)
 
@@ -469,6 +475,12 @@ class NodeSpec(EntitySpec):
     def getRequirement(self, name):
         return self.requirements.get(name)
 
+    def getRelationship(self, name):
+        req = self.requirements.get(name)
+        if not req:
+            return None
+        return req.relationship
+
     @property
     def relationships(self):
         """
@@ -588,7 +600,8 @@ class RelationshipSpec(EntitySpec):
         return self.capability.parentNode if self.capability else None
 
     def getUri(self):
-        return "#r#" + self.name
+        suffix = "#r#" + self.name
+        return self.source.name + suffix if self.source else suffix
 
     def matches_target(self, capability):
         defaultFor = self.toscaEntityTemplate.default_for
@@ -632,7 +645,7 @@ class RequirementSpec(object):
         return self.parentNode.artifacts
 
     def getUri(self):
-        return self.parentNode.name + "#r#" + self.name
+        return self.parentNode.name + "#q#" + self.name
 
     def getInterfaces(self):
         return self.relationship.getInterfaces() if self.relationship else []

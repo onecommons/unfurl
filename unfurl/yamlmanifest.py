@@ -15,7 +15,7 @@ from .util import UnfurlError, toYamlText, filterEnv
 from .merge import patchDict, intersectDict
 from .yamlloader import YamlConfig
 from .result import serializeValue
-from .support import ResourceChanges, Defaults, Imports
+from .support import ResourceChanges, Defaults, Imports, Status
 from .localenv import LocalEnv
 from .lock import Lock
 from .manifest import Manifest
@@ -425,7 +425,7 @@ class YamlManifest(ReadOnlyManifest):
         return (resource.name, status)
 
     def saveRequirement(self, resource):
-        if not hasStatus(resource):
+        if not resource.lastChange and resource.status == Status.ok:
             # no reason to serialize requirements that haven't been instantiated
             return None
         name, status = self.saveEntityInstance(resource)
@@ -433,7 +433,7 @@ class YamlManifest(ReadOnlyManifest):
         return (name, status)
 
     def saveCapability(self, resource):
-        if not hasStatus(resource):
+        if not resource.lastChange and resource.status == Status.ok:
             # no reason to serialize capabilities that haven't been instantiated
             return None
         return self.saveEntityInstance(resource)
