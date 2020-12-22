@@ -40,6 +40,8 @@ class Plan(object):
             discover=ReadOnlyPlan,
         ).get(workflow, WorkflowPlan)
 
+    interface = "None"
+
     def __init__(self, root, toscaSpec, jobOptions):
         self.jobOptions = jobOptions
         self.workflow = jobOptions.workflow
@@ -592,6 +594,7 @@ class Plan(object):
             orderTemplates(
                 {t.name: t for t in templates},
                 self.filterTemplate and self.filterTemplate.name,
+                self.interface,
             )
         )
 
@@ -645,6 +648,8 @@ class Plan(object):
 
 
 class DeployPlan(Plan):
+    interface = "Standard"
+
     def includeNotFound(self, template):
         if self.jobOptions.add or self.jobOptions.force:
             return "add"
@@ -788,7 +793,7 @@ class UndeployPlan(Plan):
 
 
 class ReadOnlyPlan(Plan):
-    pass
+    interface = "Install"
 
 
 class WorkflowPlan(Plan):
@@ -884,20 +889,47 @@ class RunNowPlan(Plan):
                     yield req
 
 
-def orderTemplates(templates, filter=None):
+def findExplicitOperationHosts(template, interface):
+    for iDef in template.getInterfaces():
+        if isinstance(iDef.implementation, dict):
+            operation_host = iDef.implementation.get("operation_host")
+            if operation_host and operation_host not in [
+                "localhost",
+                "ORCHESTRATOR",
+                "SELF",
+                "HOST",
+                "TARGET",
+                "SOURCE",
+            ]:
+                yield operation_host
+
+
+def orderTemplates(templates, filter=None, interface=None):
+    # templates is dict of NodeSpecs
     seen = set()
     for source in templates.values():
         if filter and source.name != filter:
             continue
         if source in seen:
             continue
+
+        if interface:
+            for operation_host in findExplicitOperationHosts(source, interface):
+                operationHostSpec = templates.get(operation_host)
+                if operationHostSpec:
+                    if operationHostSpec in seen:
+                        continue
+                    seen.add(operationHostSpec)
+                    yield operationHostSpec
+
         for ancestor in getAncestorTemplates(source.toscaEntityTemplate):
-            if ancestor in seen:
-                continue
-            seen.add(ancestor)
-            template = templates.get(ancestor.name)
-            if template:
-                yield template
+            spec = templates.get(ancestor.name)
+            if spec:
+                if spec in seen:
+                    continue
+                seen.add(spec)
+                if spec:
+                    yield spec
 
 
 def getAncestorTemplates(source):

@@ -18,9 +18,6 @@ spec:
 
     topology_template:
       node_templates:
-        www.example.com: *example-with-endpoint
-        staging.example.com: *example-with-endpoint
-
         test_remote:
           type: tosca:Root
           interfaces:
@@ -29,6 +26,10 @@ spec:
                 implementation:
                   primary: echo bar
                   operation_host: staging.example.com
+
+        www.example.com: *example-with-endpoint
+        # place this after test_remote to verify operation_host is ordered first:
+        staging.example.com: *example-with-endpoint
 
       relationship_templates:
         ssh_connection:
