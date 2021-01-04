@@ -1,6 +1,7 @@
 import unittest
 from unfurl.yamlmanifest import YamlManifest
 from unfurl.util import UnfurlError, UnfurlValidationError
+from unfurl.localenv import LocalConfig
 
 
 class ManifestSyntaxTest(unittest.TestCase):
@@ -20,7 +21,7 @@ class ManifestSyntaxTest(unittest.TestCase):
     """
         with self.assertRaises(UnfurlError) as err:
             YamlManifest(badVersion)
-        self.assertIn("'unfurl/v1alpha1'", str(err.exception))
+        self.assertIn("apiVersion", str(err.exception))
 
         missingVersion = """
     spec: {}
@@ -30,6 +31,9 @@ class ManifestSyntaxTest(unittest.TestCase):
         self.assertIn(
             "'apiVersion' is a required property", str(err.exception)
         )  # , <ValidationError: "'kind' is a required property">]''')
+
+    def test_projectconfig(self):
+        assert LocalConfig()
 
     @unittest.skip("TODO")
     def test_validResourceNames(self):

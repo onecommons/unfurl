@@ -1,10 +1,11 @@
 {
-  "$schema": "http://json-schema.org/draft-06/schema#",
+  "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "ensemble.yaml",
   "definitions": {
     "state": {
       "title": "state",
       "description": "the operational state of the instance",
+      "type": "string",
       "enum": [
         "initial",
         "creating",
@@ -24,6 +25,7 @@
     "readyState": {
       "title": "readyState",
       "description": "The operational status of the instance",
+      "type": "string",
       "enum": ["unknown", "ok", "degraded", "error", "pending", "absent"],
       "$$target": "#/definitions/readyState"
     },
@@ -63,6 +65,7 @@
     "attributes": {
       "title": "attributes",
       "$ref": "#/definitions/namedObjects",
+      "type": "object",
       "default": {},
       "$$target": "#/definitions/attributes"
     },
@@ -142,6 +145,7 @@
     "instances": {
       "title": "instances",
       "$$target": "#/definitions/instances",
+      "type": "object",
       "allOf": [
         { "$ref": "#/definitions/namedObjects" },
         {
@@ -164,7 +168,7 @@
             "state": { "$ref": "#/definitions/state" }
           }
         },
-        "priority": { "enum": ["ignore", "optional", "required"] },
+        "priority": { "type": "string", "enum": ["ignore", "optional", "required"] },
         "lastStateChange": { "$ref": "#/definitions/changeId" },
         "lastConfigChange": { "$ref": "#/definitions/changeId" }
       },
@@ -211,6 +215,7 @@
       ],
       "type": "array",
       "items": {
+        "type": "object",
         "anyOf": [
           { "$ref": "#/definitions/job" },
           { "$ref": "#/definitions/task" }
@@ -289,8 +294,8 @@
   },
   "type": "object",
   "properties": {
-    "apiVersion": { "const": "unfurl/v1alpha1" },
-    "kind": { "enum": ["Manifest", "Ensemble"] },
+    "apiVersion": { "type": "string", "const": "unfurl/v1alpha1" },
+    "kind": { "type": "string", "enum": ["Manifest", "Ensemble"] },
     "metadata": {
       "type": "object",
       "properties": {

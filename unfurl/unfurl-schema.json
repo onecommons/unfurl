@@ -1,5 +1,5 @@
 {
-  "$schema": "http://json-schema.org/draft-04/schema#",
+  "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "unfurl.yaml",
   "description": "Unfurl configuration file",
   "type": "object",
@@ -13,7 +13,7 @@
         "properties": {
           "file": { "type": "string" },
           "default": { "type": "boolean" },
-          "context": {"type": "string"}
+          "context": { "type": "string" }
         },
         "required": ["file"]
       }
