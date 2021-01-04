@@ -440,9 +440,9 @@ ensemble.yaml
                 for line in [
                     "url: " + normalizeGitUrl(gitUrl),
                     "initial: " + initial,
-                    "origin: " + gitUrl,
                 ]:
                     self.assertIn(line, contents)
+                self.assertNotIn("origin:", contents)
 
             externalProjectManifest = """
 apiVersion: unfurl/v1alpha1

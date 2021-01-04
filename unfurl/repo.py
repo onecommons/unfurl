@@ -211,7 +211,7 @@ class RepoView(object):
     def origin(self):
         if (
             self.repo
-            and self.repo.url != self.url
+            and normalizeGitUrl(self.repo.url) != self.url
             and self.repo.url != self.repo.workingDir
         ):
             return self.repo.url
