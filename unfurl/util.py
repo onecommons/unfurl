@@ -61,8 +61,16 @@ try:
 except ImportError:
     from importlib_metadata import files
 
+_basepath = os.path.abspath(os.path.dirname(__file__))
+
 
 def getPackageDigest():
+    from git import Repo
+
+    basedir = os.path.dirname(_basepath)
+    if os.path.isdir(os.path.join(basedir, ".git")):
+        return Repo(basedir).git.describe("--dirty")
+
     try:
         pbr = [p for p in files("unfurl") if "pbr.json" in str(p)][0]
         return json.loads(pbr.read_text())["git_version"]

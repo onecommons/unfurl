@@ -190,7 +190,7 @@ def _run(ensemble, options, workflow=None):
         if runtime and runtime != ".":
             if not localEnv:
                 localEnv = LocalEnv(ensemble, options.get("home"))
-            return _runRemote(runtime, ensemble, options, localEnv)
+            return _runRemote(runtime, options, localEnv)
     return _runLocal(ensemble, options)
 
 
@@ -227,7 +227,7 @@ def _remoteCmd(runtime, cmdLine, localEnv):
         return env, cmd + ["--no-runtime"] + cmdLine, True
 
 
-def _runRemote(runtime, ensemble, options, localEnv):
+def _runRemote(runtime, options, localEnv):
     logger = logging.getLogger("unfurl")
     logger.debug('running command remotely on "%s"', runtime)
     cmdLine = _args or sys.argv[1:]
@@ -514,7 +514,7 @@ def runtime(ctx, project_folder, init=False, **options):
     options.update(ctx.obj)
     projectPath = os.path.abspath(project_folder)
     if not init:
-        # just display the current home location
+        # just display the current runtime
         try:
             runtime, localEnv = _getRuntime(options, projectPath)
         except:
@@ -673,18 +673,30 @@ def status(ctx, ensemble, dirty, **options):
 
 
 @cli.command()
+@click.pass_context
 @click.option(
     "--semver",
     default=False,
     is_flag=True,
     help="Print only the semantic version",
 )
-def version(semver=False):
+@click.option(
+    "--remote",
+    default=False,
+    is_flag=True,
+    help="Also print the version installed in the current runtime.",
+)
+def version(ctx, semver=False, remote=False, **options):
     "Print the current version"
+    options.update(ctx.obj)
     if semver:
         click.echo(__version__())
     else:
         click.echo("unfurl version %s (%s)" % (__version__(True), getPackageDigest()))
+
+    if remote and not options.get("no_runtime"):
+        click.echo("Remote:")
+        _run(getHomeConfigPath(options.get("home")), options)
 
 
 @cli.command()
