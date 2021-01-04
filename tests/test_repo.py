@@ -10,6 +10,8 @@ from git import Repo
 from unfurl.configurator import Configurator, Status
 from toscaparser.common.exception import URLException
 import unfurl.configurators  # python2.7 workaround
+import unfurl.configurators.shell
+import unfurl.yamlmanifest  # python2.7 workaround
 
 
 def createUnrelatedRepo(gitDir):
@@ -417,11 +419,13 @@ ensemble.yaml
             self.assertEqual(result.exit_code, 0, result)
 
             # assert added to projects
+            basedir = os.path.dirname(os.path.dirname(__file__))
+            gitUrl = Repo(basedir).remotes["origin"].url
             with open("./unfurl_home/unfurl.yaml") as f:
                 contents = f.read()
                 for line in [
                     "_examples:",
-                    "url: git@github.com:onecommons/unfurl.git",
+                    "url: " + gitUrl,
                     "initial: b6004392384f80ba0e4bce74fab10974fa0f99c0",
                     "file: tests/examples",
                 ]:
@@ -431,9 +435,9 @@ ensemble.yaml
             with open("./unfurl_home/local/unfurl.yaml") as f:
                 contents = f.read()
                 for line in [
-                    "url: ssh://git@github.com/onecommons/unfurl.git",
+                    "url: " + normalizeGitUrl(gitUrl),
                     "initial: b6004392384f80ba0e4bce74fab10974fa0f99c0",
-                    "origin: git@github.com:onecommons/unfurl.git",
+                    "origin: " + gitUrl,
                 ]:
                     self.assertIn(line, contents)
 
