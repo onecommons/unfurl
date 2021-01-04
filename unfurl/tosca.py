@@ -176,16 +176,16 @@ class ToscaSpec(object):
             return None
 
     def getTemplate(self, name):
-        if name == "#topology":
+        if name == "~topology":
             return self.topology
-        elif "#c#" in name:
-            nodeName, capability = name.split("#c#")
+        elif "~c~" in name:
+            nodeName, capability = name.split("~c#~")
             nodeTemplate = self.nodeTemplates.get(nodeName)
             if not nodeTemplate:
                 return None
             return nodeTemplate.getCapability(capability)
-        elif "#r#" in name:
-            nodeName, requirement = name.split("#r#")
+        elif "~r~" in name:
+            nodeName, requirement = name.split("~r~")
             if nodeName:
                 nodeTemplate = self.nodeTemplates.get(nodeName)
                 if not nodeTemplate:
@@ -193,8 +193,8 @@ class ToscaSpec(object):
                 return nodeTemplate.getRelationship(requirement)
             else:
                 return self.relationshipTemplates.get(name)
-        elif "#q#" in name:
-            nodeName, requirement = name.split("#q#")
+        elif "~q~" in name:
+            nodeName, requirement = name.split("~q~")
             nodeTemplate = self.nodeTemplates.get(nodeName)
             if not nodeTemplate:
                 return None
@@ -600,7 +600,7 @@ class RelationshipSpec(EntitySpec):
         return self.capability.parentNode if self.capability else None
 
     def getUri(self):
-        suffix = "#r#" + self.name
+        suffix = "~r~" + self.name
         return self.source.name + suffix if self.source else suffix
 
     def matches_target(self, capability):
@@ -645,7 +645,7 @@ class RequirementSpec(object):
         return self.parentNode.artifacts
 
     def getUri(self):
-        return self.parentNode.name + "#q#" + self.name
+        return self.parentNode.name + "~q~" + self.name
 
     def getInterfaces(self):
         return self.relationship.getInterfaces() if self.relationship else []
@@ -687,7 +687,7 @@ class CapabilitySpec(EntitySpec):
     def getUri(self):
         # capabilities aren't standalone templates
         # this is demanagled by getTemplate()
-        return self.parentNode.name + "#c#" + self.name
+        return self.parentNode.name + "~c~" + self.name
 
     @property
     def relationships(self):
@@ -731,8 +731,8 @@ class TopologySpec(EntitySpec):
 
         inputs = inputs or {}
         self.toscaEntityTemplate = template
-        self.name = "#topology"
-        self.type = "#topology"
+        self.name = "~topology"
+        self.type = "~topology"
         self.inputs = {
             input.name: inputs.get(input.name, input.default)
             for input in template.inputs
