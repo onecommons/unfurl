@@ -170,6 +170,8 @@ def saveTask(task):
 
 
 class ReadOnlyManifest(Manifest):
+    """Loads an ensemble from a manifest but doesn't instantiate the instance model."""
+
     def __init__(
         self, manifest=None, path=None, validate=True, localEnv=None, vault=None
     ):
@@ -194,6 +196,7 @@ class ReadOnlyManifest(Manifest):
         if localEnv:
             self.context = localEnv.getContext(self.context)
         spec["inputs"] = self.context.get("inputs", spec.get("inputs", {}))
+        # instantiate the tosca template, adding any external repositories we'll need
         self._setSpec(manifest)
         assert self.tosca
 
@@ -240,10 +243,7 @@ class ReadOnlyManifest(Manifest):
     #     self._getRepositories(self.manifest.config)[name] = repo
 
     def dump(self, out=sys.stdout):
-        try:
-            self.manifest.dump(out)
-        except:
-            raise UnfurlError("Error saving manifest %s" % self.manifest.path, True)
+        self.manifest.dump(out)
 
 
 def clone(localEnv, destPath):
@@ -369,10 +369,8 @@ class YamlManifest(ReadOnlyManifest):
 
     def loadImports(self, importsSpec):
         """
-        :file: local/path # for now
-        :repository: uri or repository name in TOSCA template
+        :manifest: artifact template (file and optional repository name)
         :instance: "*" or name # default is root
-        :connections: "*" or map
         :schema: # expected schema for attributes
         """
         for name, value in importsSpec.items():
@@ -380,14 +378,25 @@ class YamlManifest(ReadOnlyManifest):
             location = value.get("manifest")
             if not location:
                 raise UnfurlError("Can not import '%s': no manifest specified" % (name))
-            baseDir = getattr(location, "baseDir", self.getBaseDir())
-            artifact = Artifact(location, path=baseDir, spec=self.tosca)
-            path = artifact.getPath()
-            if self.isPathToSelf(path):
-                # don't import self (might happen when context is shared)
-                continue
-            localEnv = self.localEnv or LocalEnv(path)
-            importedManifest = localEnv.getManifest(path)
+
+            if "project" in location:
+                importedManifest = self.localEnv.getExternalManifest(location)
+                if not importedManifest:
+                    raise UnfurlError(
+                        "Can not import '%s': can't find project '%s'"
+                        % (name, location["project"])
+                    )
+            else:
+                # ensemble is in the same project
+                baseDir = getattr(location, "baseDir", self.getBaseDir())
+                artifact = Artifact(location, path=baseDir, spec=self.tosca)
+                path = artifact.getPath()
+                if self.isPathToSelf(path):
+                    # don't import self (might happen when context is shared)
+                    continue
+                localEnv = self.localEnv or LocalEnv(path)
+                importedManifest = localEnv.getManifest(path)
+
             uri = value.get("uri")
             if uri and not importedManifest.hasUri(uri):
                 raise UnfurlError(
@@ -556,12 +565,7 @@ class YamlManifest(ReadOnlyManifest):
         if job.out:
             self.dump(job.out)
         else:
-            output = six.StringIO()
-            self.dump(output)
-            job.out = output
-            if self.manifest.path:
-                with open(self.manifest.path, "w") as f:
-                    f.write(output.getvalue())
+            job.out = self.manifest.save()
         return jobRecord, changes
 
     def commitJob(self, job):

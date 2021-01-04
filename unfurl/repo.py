@@ -7,6 +7,8 @@ from git.repo.fun import is_git_dir
 import logging
 from six.moves.urllib.parse import urlparse
 from unfurl.util import UnfurlError
+import toscaparser.repositories
+from ruamel.yaml.comments import CommentedMap
 
 logger = logging.getLogger("unfurl")
 
@@ -14,6 +16,13 @@ logger = logging.getLogger("unfurl")
 def normalizeGitUrl(url):
     if url.startswith("git-local://"):  # truncate url after commit digest
         return "git-local://" + urlparse(url).netloc.partition(":")[0]
+
+    if "://" not in url:  # not an absolute URL, convert some common patterns
+        if url.startswith("/"):
+            return "file://" + url
+        elif "@" in url:  # scp style used by git: user@server:project.git
+            # convert to ssh://user@server/project.git
+            return "ssh://" + url.replace(":", "/", 1)
     return url
 
 
@@ -82,7 +91,7 @@ class Repo(object):
             assert os.path.isdir(root), root
             repo = GitRepo(git.Repo(root))
             key = os.path.abspath(root)
-            workingDirs[key] = (repo.url, repo)
+            workingDirs[key] = repo.asRepoView()
             return key
         return None
 
@@ -122,6 +131,12 @@ class Repo(object):
             return abspath[len(repoRoot) + 1 :], revision, bare
         return None, None, None
 
+    def asRepoView(self, name=""):
+        return RepoView(dict(name=name, url=self.url), self)
+
+    def isLocalOnly(self):
+        return self.url.startswith("git-local://") or os.path.isabs(self.url)
+
     @staticmethod
     def getPathForGitRepo(gitUrl):
         parts = urlparse(gitUrl)
@@ -146,7 +161,7 @@ class Repo(object):
                     "couldn't create directory, it already exists and isn't empty: %s"
                     % localRepoPath
                 )
-        branch = revision or "master"
+        branch = revision or "master"  # XXX
         logger.info("Fetching %s (%s) to %s", gitUrl, branch, localRepoPath)
         progress = _ProgressPrinter()
         progress.gitUrl = gitUrl
@@ -162,11 +177,17 @@ class Repo(object):
         return GitRepo(repo)
 
 
-class Repository(object):
+class RepoView(object):
     # view of Repo optionally filtered by path
     # XXX and revision too
     def __init__(self, repository, repo, path=""):
-        self.repository = repository  # toscaparser.Repository
+        if isinstance(repository, dict):
+            # required keys: name, url
+            tpl = repository.copy()
+            name = tpl.pop("name")
+            tpl["url"] = normalizeGitUrl(tpl["url"])
+            repository = toscaparser.repositories.Repository(name, tpl)
+        self.repository = repository
         self.repo = repo
         self.path = path
         self.readOnly = not repo
@@ -180,11 +201,11 @@ class Repository(object):
 
     @property
     def name(self):
-        return self.repository.name
+        return self.repository.name if self.repository else ""
 
     @property
     def url(self):
-        return self.repository.url
+        return self.repository.url if self.repository else self.repo.url
 
     @property
     def origin(self):
@@ -224,6 +245,19 @@ class Repository(object):
             return self.repo.revision + "-dirty"
         else:
             return self.repo.revision
+
+    def lock(self):
+        record = CommentedMap(
+            [
+                ("name", self.name),
+                ("url", self.url),
+                ("revision", self.getCurrentRevision()),
+                ("initial", self.getInitialRevision()),
+            ]
+        )
+        if self.origin:
+            record["origin"] = self.origin
+        return record
 
 
 class GitRepo(Repo):

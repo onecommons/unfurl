@@ -91,6 +91,8 @@ class JobOptions(object):
     def __init__(self, **kw):
         options = self.defaults.copy()
         options["instance"] = kw.get("resource")  # old option name
+        if kw.get("starttime"):
+            options["startTime"] = kw["starttime"]
         options.update(kw)
         self.__dict__.update(options)
         self.userConfig = kw

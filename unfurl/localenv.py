@@ -9,14 +9,17 @@ By convention, the "home" project defines a localhost instance and adds it to it
 """
 import os
 import os.path
+import datetime
 
 import six
-from .repo import Repo, normalizeGitUrl, splitGitUrl
+from .repo import Repo, normalizeGitUrl, splitGitUrl, RepoView
 from .util import UnfurlError
 from .merge import mergeDicts
 from .yamlloader import YamlConfig, makeVaultLib
 from . import DefaultNames, getHomeConfigPath
 from six.moves.urllib.parse import urlparse
+
+_basepath = os.path.abspath(os.path.dirname(__file__))
 
 
 class Project(object):
@@ -33,27 +36,39 @@ class Project(object):
             self.localConfig = LocalConfig(path, parentConfig)
         else:
             self.localConfig = LocalConfig(parentConfig=parentConfig)
+        self._setRepos()
+        if self.projectRepo and homeProject:
+            homeProject.localConfig.registerProject(self)
 
+    def _setRepos(self):
+        # abspath => RepoView:
         self.workingDirs = Repo.findGitWorkingDirs(self.projectRoot)
         # the project repo if it exists manages the project config (unfurl.yaml)
         projectRoot = self.projectRoot
         if projectRoot in self.workingDirs:
-            self.projectRepo = self.workingDirs[projectRoot][1]
+            self.projectRepo = self.workingDirs[projectRoot].repo
         else:
             # project maybe part of a containing repo (if created with --existing option)
             repo = Repo.findContainingRepo(self.projectRoot)
             # make sure projectroot isn't excluded from the containing repo
             if repo and not repo.isPathExcluded(self.projectRoot):
                 self.projectRepo = repo
-                self.workingDirs[repo.workingDir] = (repo.url, repo)
+                self.workingDirs[repo.workingDir] = repo.asRepoView()
             else:
                 self.projectRepo = None
 
         if self.projectRepo:
+            # Repo.findGitWorkingDirs() doesn't look inside git working dirs
+            # so look for repos in dirs that might be excluded from git
             for dir in self.projectRepo.findExcludedDirs(self.projectRoot):
-                # look for repos that might be in its
                 if projectRoot in dir and os.path.isdir(dir):
                     Repo.updateGitWorkingDirs(self.workingDirs, dir, os.listdir(dir))
+
+        # add referenced local repositories outside of the project
+        for path in self.localConfig.localRepositories:
+            if os.path.isdir(path):
+                # XXX assumes its a git repo, should compare and validate lock metadata
+                Repo.updateGitWorkingDirs(self.workingDirs, path, os.listdir(path))
 
     @staticmethod
     def normalizePath(path):
@@ -113,7 +128,7 @@ class Project(object):
         return paths
 
     def getRepos(self):
-        repos = [repo for (gitUrl, repo) in self.workingDirs.values()]
+        repos = [r.repo for r in self.workingDirs.values()]
         if self.projectRepo and self.projectRepo not in repos:
             repos.append(self.projectRepo)
         return repos
@@ -170,12 +185,13 @@ class Project(object):
 
     def findGitRepo(self, repoURL, revision=None):
         candidate = None
-        for dir, (url, repo) in self.workingDirs.items():
+        for dir, repository in self.workingDirs.items():
+            repo = repository.repo
             if repoURL.startswith("git-local://"):
                 initialCommit = urlparse(repoURL).netloc.partition(":")[0]
                 match = initialCommit == repo.getInitialRevision()
             else:
-                match = normalizeGitUrl(repoURL) == normalizeGitUrl(url)
+                match = normalizeGitUrl(repoURL) == normalizeGitUrl(repo.url)
             if match:
                 if revision:
                     if repo.revision == repo.resolveRevSpec(revision):
@@ -191,7 +207,7 @@ class Project(object):
         # importloader is unused until pinned revisions are supported
         candidate = None
         for dir in sorted(self.workingDirs.keys()):
-            (url, repo) = self.workingDirs[dir]
+            repo = self.workingDirs[dir].repo
             filePath = repo.findRepoPath(path)
             if filePath is not None:
                 return repo, filePath, repo.revision, False
@@ -209,10 +225,10 @@ class Project(object):
         localRepoPath = self._createPathForGitRepo(gitUrl)
         repo = Repo.createWorkingDir(gitUrl, localRepoPath, ref)
         # add to workingDirs
-        self.workingDirs[os.path.abspath(localRepoPath)] = (gitUrl, repo)
+        self.workingDirs[os.path.abspath(localRepoPath)] = repo.asRepoView()
         return repo
 
-    def findRepository(self, repoSpec):
+    def findGitRepoFromRepository(self, repoSpec):
         repoUrl = repoSpec.url
         return self.findGitRepo(splitGitUrl(repoUrl)[0])
 
@@ -227,12 +243,9 @@ class Project(object):
             self._createPathForGitRepo(repo.workingDir or gitUrl)
         )
         newRepo = repo.clone(localRepoPath)
-        # add to workingDirs
-        self.workingDirs[localRepoPath] = (gitUrl, newRepo)
+        # use gitUrl to preserve original origin
+        self.workingDirs[localRepoPath] = RepoView(dict(name="", url=gitUrl), newRepo)
         return newRepo
-
-
-_basepath = os.path.abspath(os.path.dirname(__file__))
 
 
 class LocalConfig(object):
@@ -254,21 +267,13 @@ class LocalConfig(object):
         "environment",
     ]
 
-    # XXX add list of projects to config
-    # projects:
-    #   - path:
-    #     default: True
-    #     instance: instances/current
-    #     spec: spec
-
     def __init__(self, path=None, parentConfig=None, validate=True):
         defaultConfig = {"apiVersion": "unfurl/v1alpha1", "kind": "Project"}
         self.config = YamlConfig(
             defaultConfig, path, validate, os.path.join(_basepath, "unfurl-schema.json")
         )
-        self.manifests = self.config.config.get(
-            "manifests", self.config.config.get("instances", [])  # backward compat
-        )
+        self.manifests = self.config.expanded.get("manifests") or []
+        self.projects = self.config.expanded.get("projects") or {}
         contexts = self.config.expanded.get("contexts", {})
         if parentConfig:
             parentContexts = parentConfig.config.expanded.get("contexts", {})
@@ -277,6 +282,7 @@ class LocalConfig(object):
             )
         self.contexts = contexts
         self.parentConfig = parentConfig
+        self.localRepositories = self.config.expanded.get("localRepositories") or {}
 
     def getContext(self, manifestPath, context):
         localContext = self.contexts.get("defaults") or {}
@@ -326,6 +332,52 @@ class LocalConfig(object):
         instance = NodeInstance(localName, attributes)
         instance._baseDir = self.config.getBaseDir()
         return instance
+
+    def registerProject(self, project):
+        # update, if necessary, localRepositories and projects
+        key, local = self.config.searchIncludes(key="localRepositories")
+        if not key and "localRepositories" not in self.config.config:
+            # localRepositories doesn't exist, see if we are including a file inside "local"
+            pathPrefix = os.path.join(self.config.getBaseDir(), "local")
+            key, local = self.config.searchIncludes(pathPrefix=pathPrefix)
+        if not key:
+            local = self.config.config
+
+        repo = project.projectRepo
+        localRepositories = local.setdefault("localRepositories", {})
+        lock = repo.asRepoView().lock()
+        if localRepositories.get(repo.workingDir) != lock:
+            localRepositories[repo.workingDir] = lock
+        else:
+            return False  # no change
+
+        if not repo.isLocalOnly():
+            for name, val in self.projects.items():
+                if normalizeGitUrl(val["url"]) == normalizeGitUrl(repo.url):
+                    break
+            else:
+                # if project isn't already in projects, use generated name
+                name = "_" + os.path.basename(project.projectRoot)
+                counter = 0
+                while name in self.projects:
+                    counter += 1
+                    name += "-%s" % counter
+
+            externalProject = dict(
+                url=repo.url,
+                initial=repo.getInitialRevision(),
+            )
+            file = os.path.relpath(project.projectRoot, repo.workingDir)
+            if file and file != ".":
+                externalProject["file"] = file
+
+            self.projects[name] = externalProject
+            self.config.config.setdefault("projects", {})[name] = externalProject
+
+        if key:
+            self.config.saveInclude(key)
+        self.config.save()
+        return True
 
 
 class LocalEnv(object):
@@ -428,7 +480,8 @@ class LocalEnv(object):
         from .yamlmanifest import YamlManifest
 
         if path and path != self.manifestPath:
-            localEnv = LocalEnv(path, self.homeConfigPath, self)
+            # share projects and ensembles
+            localEnv = LocalEnv(path, parent=self)
             return localEnv.getManifest()
         else:
             manifest = self._manifests.get(self.manifestPath)
@@ -450,6 +503,25 @@ class LocalEnv(object):
             project = Project(path, homeProject)
             self._projects[path] = project
         return project
+
+    def getExternalManifest(self, location):
+        assert "project" in location
+        project = None
+        if self.project:
+            project = self.project.localConfig.projects.get(location["project"])
+        if not project and self.homeProject:
+            project = self.homeProject.localConfig.projects.get(location["project"])
+        if not project:
+            return None
+        repo = self.findGitRepo(project["url"])
+        if not repo:
+            return None
+
+        projectRoot = os.path.join(repo.workingDir, project.get("file") or "")
+        localEnv = LocalEnv(
+            os.path.join(projectRoot, location.get("file") or ""), parent=self
+        )
+        return localEnv.getManifest()
 
     # manifestPath specified
     #  doesn't exist: error
@@ -480,7 +552,7 @@ class LocalEnv(object):
     def _getInstanceRepo(self):
         instanceDir = os.path.dirname(self.manifestPath)
         if self.project and instanceDir in self.project.workingDirs:
-            return self.project.workingDirs[instanceDir][1]
+            return self.project.workingDirs[instanceDir].repo
         else:
             return Repo.findContainingRepo(instanceDir)
 
@@ -525,7 +597,7 @@ class LocalEnv(object):
         """
         return self.config.getContext(self.manifestPath, context or {})
 
-    def getEngine(self):
+    def getRuntime(self):
         context = self.getContext()
         runtime = context.get("runtime")
         if runtime:

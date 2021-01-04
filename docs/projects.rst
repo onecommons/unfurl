@@ -35,9 +35,8 @@ Secrets are like locals except they are marked `sensitive` and redacted or encry
 Connections
 -----------
 
-If set, either ``*`` or a map. ``*`` indicates all connection relationship templates should be imported. 
-If it is a map, each key, value pair the key will be the name of the template to import and the value, if not empty, will be a local name for the template.
-
+A map of connection templates containing account credentials to use. Inherited connection templates
+can be renamed locally by including an item with the new name as its key and old name as its the value.
 
 External
 --------
@@ -68,7 +67,7 @@ There are 3 instances that are always implicitly imported even if they are not d
 
 - The `localhost` instance that represents the machine Unfurl is currently executing on. This instance is accessed through the `ORCHESTRATOR` keyword in TOSCA and is defined in the home manifest that resides in your Unfurl home folder.
 
-:manifest: A map specifying the location of the manifest. It must contain a ``file`` key with the path to the ensemble and optionally a ``repository`` key indicating the name of the repository where the file is located.
+:manifest: A map specifying the location of the manifest. It must contain a ``file`` key with the path to the ensemble and optionally either a ``repository`` key indicating the name of the repository where the file is located or a ``project`` key to indicate the project the ensemble is in.
 :instance: (default: "*") The name of the instance within the ensemble to make available.
   If ``*`` all instances in the ensemble will be available.
 :uri: The ``uri`` of the ensemble. If it is set and it doesn't match the retrieved ensemble's URI a validation error will occur.

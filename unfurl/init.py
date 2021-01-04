@@ -292,7 +292,7 @@ def cloneLocalRepos(manifest, sourceProject, targetProject):
     for repoSpec in manifest.tosca.template.repositories.values():
         if repoSpec.name == "self":
             continue
-        repo = sourceProject.findRepository(repoSpec)
+        repo = sourceProject.findGitRepoFromRepository(repoSpec)
         if repo:
             targetProject.findOrClone(repo)
 

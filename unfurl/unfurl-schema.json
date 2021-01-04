@@ -28,6 +28,29 @@
           }
         }
       ]
+    },
+    "externalProjects": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "./manifest-schema.json#/definitions/namedObjects" },
+        {
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "url": { "type": "string", "format": "uri" },
+              "initial": { "type": "string" },
+              "file": { "type": "string" }
+             }
+          }
+        }
+      ]
+    },
+    "localRepositories": {
+      "description": "Map of file paths located outside of the project",
+      "type": "object",
+      "additionalProperties": {
+            "$ref": "./manifest-schema.json#/definitions/repositories"
+      }
     }
   },
   "required": ["apiVersion", "kind"]

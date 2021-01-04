@@ -135,6 +135,7 @@ commonJobFilterOptions = option_group(
         default="text",
         help="How to print summary of job run",
     ),
+    click.option("--starttime", help="Set the start time of the job."),
 )
 
 
@@ -177,7 +178,7 @@ def _getRuntime(options, ensemblePath):
     localEnv = None
     if not runtime:
         localEnv = LocalEnv(ensemblePath, options.get("home"))
-        runtime = localEnv.getEngine()
+        runtime = localEnv.getRuntime()
     return runtime, localEnv
 
 

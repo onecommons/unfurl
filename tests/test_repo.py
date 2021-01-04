@@ -5,9 +5,10 @@ import six
 from click.testing import CliRunner
 from unfurl.__main__ import cli, _latestJobs
 from unfurl.localenv import LocalEnv
-from unfurl.repo import splitGitUrl, isURLorGitPath
+from unfurl.repo import splitGitUrl, isURLorGitPath, RepoView, normalizeGitUrl
 from git import Repo
 from unfurl.configurator import Configurator, Status
+from toscaparser.common.exception import URLException
 import unfurl.configurators  # python2.7 workaround
 
 
@@ -351,10 +352,19 @@ ensemble.yaml
         }
         for url, expected in urls.items():
             if expected:
+                isurl = expected[0] != "foo/repo.git"
                 assert isURLorGitPath(url), url
                 self.assertEqual(splitGitUrl(url), expected)
             else:
+                isurl = url[0] == "/" or ":" in url
                 assert not isURLorGitPath(url), url
+
+            if isurl:
+                # relative urls aren't allowed here, skip those
+                rv = RepoView(dict(name="", url=url), None)
+                self.assertEqual(normalizeGitUrl(rv.url), normalizeGitUrl(url))
+            else:
+                self.assertRaises(URLException, RepoView, dict(name="", url=url), None)
 
     def test_home_template(self):
         runner = CliRunner()
@@ -385,11 +395,89 @@ ensemble.yaml
             self.assertEqual(result.exit_code, 0, result)
 
             assert os.path.exists("unfurl_home/.tool-versions")
-            LocalEnv("unfurl_home").getManifest()
+            assert LocalEnv("unfurl_home").getManifest()
             paths = os.environ["PATH"].split(os.pathsep)
             assert len(paths) >= len(installDirs)
             for dirs, path in zip(installDirs, paths):
                 self.assertIn(os.sep.join(dirs), path)
+
+            # test that projects are registered in the home
+            # use this project because the repository it is in has a non-local origin set:
+            project = os.path.join(
+                os.path.dirname(__file__), "examples/testimport-manifest.yaml"
+            )
+            # set starttime to suppress job logging to file
+            result = runner.invoke(
+                cli, ["--home", "./unfurl_home", "plan", "--starttime=1", project]
+            )
+            # print("result.output", result.exit_code, result.output)
+            assert not result.exception, "\n".join(
+                traceback.format_exception(*result.exc_info)
+            )
+            self.assertEqual(result.exit_code, 0, result)
+
+            # assert added to projects
+            with open("./unfurl_home/unfurl.yaml") as f:
+                contents = f.read()
+                for line in [
+                    "_examples:",
+                    "url: git@github.com:onecommons/unfurl.git",
+                    "initial: b6004392384f80ba0e4bce74fab10974fa0f99c0",
+                    "file: tests/examples",
+                ]:
+                    self.assertIn(line, contents)
+
+            # assert added to localRepositories
+            with open("./unfurl_home/local/unfurl.yaml") as f:
+                contents = f.read()
+                for line in [
+                    "url: ssh://git@github.com/onecommons/unfurl.git",
+                    "initial: b6004392384f80ba0e4bce74fab10974fa0f99c0",
+                    "origin: git@github.com:onecommons/unfurl.git",
+                ]:
+                    self.assertIn(line, contents)
+
+            externalProjectManifest = """
+apiVersion: unfurl/v1alpha1
+kind: Ensemble
+context:
+ external:
+  test:
+    manifest:
+      file: testimport-manifest.yaml
+      project: _examples
+spec:
+  service_template:
+    topology_template:
+      node_templates:
+        testNode:
+          type: tosca.nodes.Root
+          properties:
+            externalEnsemble:
+              eval:
+                external: test
+"""
+            with open("externalproject.yaml", "w") as f:
+                f.write(externalProjectManifest)
+
+            result = runner.invoke(
+                cli, ["--home", "./unfurl_home", "plan", "externalproject.yaml"]
+            )
+            # print("result.output", result.exit_code, result.output)
+            assert not result.exception, "\n".join(
+                traceback.format_exception(*result.exc_info)
+            )
+            self.assertEqual(result.exit_code, 0, result)
+
+            # assert that we loaded the external ensemble from test "_examples" project
+            # and we're able to reference its outputs
+            assert _latestJobs
+            testNode = _latestJobs[-1].rootResource.findResource("testNode")
+            assert testNode and testNode.attributes["externalEnsemble"]
+            externalEnsemble = testNode.attributes["externalEnsemble"]
+            assert "aOutput" in externalEnsemble.outputs.attributes
+            # make sure we loaded it from the source (not a local checkout)
+            assert externalEnsemble.baseDir.startswith(os.path.dirname(__file__))
 
     def test_remote_git_repo(self):
         runner = CliRunner()

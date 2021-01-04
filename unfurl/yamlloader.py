@@ -284,9 +284,12 @@ class YamlConfig(object):
             self.vault = vault
             self.path = None
             self.schema = schema
+            self.lastModified = None
             if path:
                 self.path = os.path.abspath(path)
                 if os.path.isfile(self.path):
+                    statinfo = os.stat(self.path)
+                    self.lastModified = statinfo.st_mtime
                     with open(self.path, "r") as f:
                         config = f.read()
                 # otherwise use default config
@@ -320,8 +323,6 @@ class YamlConfig(object):
                 self.config, cls=makeMapWithBase(self.config, self.baseDirs[0])
             )
             self.expanded = expandedConfig
-            # print('expanded')
-            # yaml.dump(config, sys.stdout)
             errors = schema and self.validate(expandedConfig)
             if errors and validate:
                 (message, schemaErrors) = errors
@@ -355,7 +356,27 @@ class YamlConfig(object):
         restoreIncludes(self.includes, self.config, changed, cls=CommentedMap)
 
     def dump(self, out=sys.stdout):
-        self.yaml.dump(self.config, out)
+        try:
+            self.yaml.dump(self.config, out)
+        except:
+            raise UnfurlError("Error saving %s" % self.path, True)
+
+    def save(self):
+        output = six.StringIO()
+        self.dump(output)
+        if self.path:
+            if self.lastModified:
+                statinfo = os.stat(self.path)
+                if statinfo.st_mtime > self.lastModified:
+                    raise UnfurlError(
+                        'Not saving "%s", it was unexpectedly modified after it was loaded'
+                        % self.path
+                    )
+            with open(self.path, "w") as f:
+                f.write(output.getvalue())
+            statinfo = os.stat(self.path)
+            self.lastModified = statinfo.st_mtime
+        return output
 
     @property
     def yaml(self):
@@ -382,6 +403,28 @@ class YamlConfig(object):
         if path:
             baseUri = urljoin("file:", pathname2url(path))
         return findSchemaErrors(config, self.schema, baseUri)
+
+    def searchIncludes(self, key=None, pathPrefix=None):
+        for k in self._cachedDocIncludes:
+            path, template = self._cachedDocIncludes[k]
+            candidate = True
+            if pathPrefix is not None:
+                candidate = path.startswith(pathPrefix)
+            if candidate and key is not None:
+                candidate = key in template
+            if candidate:
+                return k, template
+        return None, None
+
+    def saveInclude(self, key):
+        path, template = self._cachedDocIncludes[key]
+        output = six.StringIO()
+        try:
+            self.yaml.dump(template, output)
+        except:
+            raise UnfurlError("Error saving include %s" % path, True)
+        with open(path, "w") as f:
+            f.write(output.getvalue())
 
     def loadInclude(self, templatePath, warnWhenNotFound=False):
         if templatePath == self.baseDirs[-1]:  # pop hack

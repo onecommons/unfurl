@@ -15,11 +15,11 @@ from .runtime import (
     RelationshipInstance,
 )
 from .util import UnfurlError, toEnum, sensitive_str, getBaseDir
-from .repo import RevisionManager, splitGitUrl, isURLorGitPath, Repository
+from .repo import RevisionManager, splitGitUrl, RepoView
 from .yamlloader import YamlConfig, yaml, ImportResolver
 from .job import ConfigChange
 import toscaparser.imports
-import toscaparser.repositories
+from toscaparser.repositories import Repository
 
 # from .configurator import Dependency
 import logging
@@ -31,7 +31,8 @@ _basepath = os.path.abspath(os.path.dirname(__file__))
 
 class Manifest(AttributeManager):
     """
-    Loads a model from dictionary representing the manifest
+    Base class for managing an ensemble.
+    Derived classes handle loading and serialization.
     """
 
     rootResource = None
@@ -48,8 +49,11 @@ class Manifest(AttributeManager):
         self.specDigest = None
         self.repositories = {}
 
-    def _setSpec(self, config):
-        repositories = self.updateRepositories(config, None)
+    def _setSpec(self, config, projectRepositories=None):
+        """
+        Set the TOSCA service template.
+        """
+        repositories = self.updateRepositories(config, projectRepositories or [])
         spec = config.get("spec", {})
         self.tosca = self._loadSpec(spec, self.path, repositories)
         self.specDigest = self.getSpecDigest(spec)
@@ -98,6 +102,9 @@ class Manifest(AttributeManager):
         return m.hexdigest()
 
     def _ready(self, rootResource):
+        """
+        Set the instance model.
+        """
         self.rootResource = rootResource
         if rootResource:
             rootResource.attributeManager = self
@@ -310,18 +317,16 @@ class Manifest(AttributeManager):
             self.imports.setShadow(importName, instance)
         return instance
 
-    def findRepoFromGitUrl(self, path, isFile, importLoader):
-        repoURL, filePath, revision = splitGitUrl(path)
-        if not repoURL:
-            raise UnfurlError("invalid git URL %s" % path)
-        assert self.localEnv
-        basePath = getBaseDir(importLoader.path)  # checks if dir or not
-        repo, revision, bare = self.localEnv.findOrCreateWorkingDir(
-            repoURL, revision, basePath
-        )
-        return repo, filePath, revision, bare
+    def statusSummary(self):
+        def summary(instance, indent):
+            print(" " * indent, instance)
+            indent += 4
+            for child in instance.instances:
+                summary(child, indent)
 
-    def findPathInRepos(self, path, importLoader=None):
+        summary(self.rootResource, 0)
+
+    def findPathInRepos(self, path, importLoader=None):  # currently unused
         """
         Check if the file path is inside a folder that is managed by a repository.
         If the revision is pinned and doesn't match the repo, it might be bare
@@ -335,6 +340,18 @@ class Manifest(AttributeManager):
                 return repo, filePath, repo.revision, False
         return None, None, None, None
 
+    # NOTE: all the methods below may be called during config parse time via loadYamlInclude()
+    def findRepoFromGitUrl(self, path, isFile, importLoader):
+        repoURL, filePath, revision = splitGitUrl(path)
+        if not repoURL:
+            raise UnfurlError("invalid git URL %s" % path)
+        assert self.localEnv
+        basePath = getBaseDir(importLoader.path)  # checks if dir or not
+        repo, revision, bare = self.localEnv.findOrCreateWorkingDir(
+            repoURL, revision, basePath
+        )
+        return repo, filePath, revision, bare
+
     def addRepository(self, repo, toscaRepository, file_name):
         repository = self.repositories.get(toscaRepository.name)
         if repository:
@@ -344,21 +361,20 @@ class Manifest(AttributeManager):
                 raise UnfurlError(
                     'Repository "%s" already defined' % toscaRepository.name
                 )
-            repository = Repository(toscaRepository, repo, file_name)
+            repository = RepoView(toscaRepository, repo, file_name)
         self.repositories[repository.name] = repository
         return repository
 
-    def updateRepositories(self, config, inlineRepository):
+    def updateRepositories(self, config, inlineRepositories):
         repositories = self._getRepositories(config)
         for name, tpl in repositories.items():
             if name not in self.repositories:
-                toscaRepository = toscaparser.repositories.Repository(name, tpl)
-                self.repositories[name] = Repository(toscaRepository, None)
-        if inlineRepository:
-            toscaRepository = toscaparser.repositories.Repository(
-                inlineRepository.pop("name"), inlineRepository
-            )
-            self.addRepository(None, toscaRepository, "")
+                toscaRepository = Repository(name, tpl)
+                self.repositories[name] = RepoView(toscaRepository, None)
+        for repository in inlineRepositories:
+            if isinstance(repository, dict):
+                repository = Repository(repository.pop("name"), repository)
+            self.addRepository(None, repository, "")
         return self._setRepositories()
 
     @staticmethod
@@ -371,10 +387,8 @@ class Manifest(AttributeManager):
         repositories = self.repositories
         if "unfurl" not in repositories:
             # add a repository that points to this package
-            repository = Repository(
-                toscaparser.repositories.Repository(
-                    "unfurl", dict(url="file:" + _basepath)
-                ),
+            repository = RepoView(
+                Repository("unfurl", dict(url="file:" + _basepath)),
                 None,
                 "",
             )
@@ -387,8 +401,8 @@ class Manifest(AttributeManager):
                 path = os.path.relpath(path, self.repo.workingDir)
             else:
                 url = "file:" + path
-            repository = Repository(
-                toscaparser.repositories.Repository("self", dict(url=url)),
+            repository = RepoView(
+                Repository("self", dict(url=url)),
                 self.repo,
                 path,
             )
@@ -412,8 +426,8 @@ class Manifest(AttributeManager):
                 else:
                     url = "file:" + path
 
-                repository = Repository(
-                    toscaparser.repositories.Repository("spec", dict(url=url)),
+                repository = RepoView(
+                    Repository("spec", dict(url=url)),
                     self.localEnv.project.projectRepo,
                     path,
                 )
@@ -447,7 +461,7 @@ class Manifest(AttributeManager):
 
         tpl = CommentedMap()
         tpl["repositories"] = self.updateRepositories(
-            yamlConfig.config, inlineRepository
+            yamlConfig.config, [inlineRepository] if inlineRepository else []
         )
         loader = toscaparser.imports.ImportsLoader(
             None,
@@ -456,15 +470,6 @@ class Manifest(AttributeManager):
             resolver=self.getImportResolver(warnWhenNotFound),
         )
         return loader._load_import_template(None, artifact.asImportSpec())
-
-    def statusSummary(self):
-        def summary(instance, indent):
-            print(" " * indent, instance)
-            indent += 4
-            for child in instance.instances:
-                summary(child, indent)
-
-        summary(self.rootResource, 0)
 
     def getImportResolver(self, ignoreFileNotFound=False):
         return ImportResolver(self, ignoreFileNotFound)

@@ -4,7 +4,6 @@ from ruamel.yaml.comments import CommentedMap
 from . import __version__
 from .util import getPackageDigest
 
-
 class Lock(object):
     def __init__(self, ensemble):
         self.ensemble = ensemble
@@ -33,7 +32,7 @@ class Lock(object):
         lock = CommentedMap()
         lock["runtime"] = self.lockRuntime()
         lock["repositories"] = [
-            self.lockRepository(repo) for repo in self.ensemble.repositories.values()
+            repo.lock() for repo in self.ensemble.repositories.values()
         ]
         ensembles = self.lockEnsembles()
         if ensembles:
@@ -59,19 +58,6 @@ class Lock(object):
                 n: list(v) for n, v in ensemble.localEnv.toolVersions.items()
             }
         # XXX Pipfile.lock: _meta.hash, python version
-        return record
-
-    def lockRepository(self, repo):
-        record = CommentedMap(
-            [
-                ("name", repo.name),
-                ("url", repo.url),
-                ("revision", repo.getCurrentRevision()),
-                ("initial", repo.getInitialRevision()),
-            ]
-        )
-        if repo.origin:
-            record["origin"] = repo.origin
         return record
 
     def lockEnsembles(self):
