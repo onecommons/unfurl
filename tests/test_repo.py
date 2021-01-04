@@ -5,7 +5,7 @@ import six
 from click.testing import CliRunner
 from unfurl.__main__ import cli, _latestJobs
 from unfurl.localenv import LocalEnv
-from unfurl.repo import splitGitUrl, isURLorGitPath, RepoView, normalizeGitUrl
+from unfurl.repo import splitGitUrl, isURLorGitPath, RepoView, normalizeGitUrl, GitRepo
 from git import Repo
 from unfurl.configurator import Configurator, Status
 from toscaparser.common.exception import URLException
@@ -420,13 +420,16 @@ ensemble.yaml
 
             # assert added to projects
             basedir = os.path.dirname(os.path.dirname(__file__))
-            gitUrl = Repo(basedir).remotes["origin"].url
+            repo = GitRepo(Repo(basedir))
+            gitUrl = repo.url
+            # travis-ci does a shallow clone so it doesn't have the initial initial revision
+            initial = repo.getInitialRevision()
             with open("./unfurl_home/unfurl.yaml") as f:
                 contents = f.read()
                 for line in [
                     "_examples:",
                     "url: " + gitUrl,
-                    "initial: b6004392384f80ba0e4bce74fab10974fa0f99c0",
+                    "initial: " + initial,
                     "file: tests/examples",
                 ]:
                     self.assertIn(line, contents)
@@ -436,7 +439,7 @@ ensemble.yaml
                 contents = f.read()
                 for line in [
                     "url: " + normalizeGitUrl(gitUrl),
-                    "initial: b6004392384f80ba0e4bce74fab10974fa0f99c0",
+                    "initial: " + initial,
                     "origin: " + gitUrl,
                 ]:
                     self.assertIn(line, contents)
