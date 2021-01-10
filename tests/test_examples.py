@@ -12,6 +12,7 @@ from unfurl.configurators import TemplateConfigurator
 # python 2.7 needs these:
 from unfurl.configurators.shell import ShellConfigurator
 from unfurl.configurators.ansible import AnsibleConfigurator
+from unfurl.configurators.k8s import ClusterConfigurator
 
 
 class HelmConfigurator(Configurator):
@@ -47,6 +48,7 @@ class RunTest(unittest.TestCase):
         path = __file__ + "/../examples/helm-manifest.yaml"
         manifest = YamlManifest(path=path)
         runner = Runner(manifest)
+
         assert not manifest.lastJob, "expected new manifest"
         output = six.StringIO()  # so we don't save the file
         job = runner.run(JobOptions(add=True, out=output, startTime="test"))

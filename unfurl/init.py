@@ -30,7 +30,7 @@ def renameForBackup(dir):
 def get_random_password(count=12, prefix="uv"):
     srandom = random.SystemRandom()
     start = string.ascii_letters + string.digits
-    source = string.ascii_letters + string.digits + "%&()*+,-./:<>?=@[]^_`{}~"
+    source = string.ascii_letters + string.digits + "%&()*+,-./:<>?=@^_`~"
     return prefix + "".join(
         srandom.choice(source if i else start) for i in range(count)
     )
