@@ -25,8 +25,32 @@ node_types:
           inputs:
             done:
               success: True # helm repo list returns error if there are no repos so set success true regardless
-            resultTemplate:
-              readyState: "{% if returncode == 0 and (stdout | from_json).name == SELF.name %}ok{%else%}absent{%endif%}"
+            resultTemplate: |
+                - readyState: absent
+                {%if returncode == 0 %}
+                  {%for json in stdout | from_json %}
+                    {%if json.name == SELF.name %}
+                - readyState: {%if json.url == json.url %}ok{%else%}error{%endif%}
+                    {%endif%}
+                  {% endfor%}
+                {%endif%}
+        discover:
+          implementation: helm repo list -o json
+          inputs:
+            done:
+              success: True # helm repo list returns error if there are no repos so set success true regardless
+            resultTemplate: |
+              {%if returncode == 0 %}
+                {%for json in stdout | from_json %}
+                  - name: {{ json.name }}-helm-repo
+                    template:
+                      type: unfurl.nodes.HelmRepository
+                      properties:
+                        name: {{ json.name }}
+                        url: {{ json.url }}
+                    readyState: ok
+                {% endfor%}
+              {%endif%}
 
   unfurl.nodes.HelmRelease:
     derived_from: unfurl.nodes.Installation
@@ -60,7 +84,7 @@ node_types:
               command:
                 eval:
                   template: >-
-                    helm {{inputs.helmcmd}} {{inputs.release_name}} {{inputs.chart}}
+                    helm {{inputs.helmcmd}} {{inputs.release_name}} {{inputs.chart }}
                       -o json --namespace {{"namespace" | eval }}
                       {% if "context" | eval %}
                        --kubecontext {{ "context" | eval }}
@@ -145,12 +169,36 @@ node_types:
 
       Install:
         operations:
-          discover:
+          check:
             implementation: Delegate
             inputs:
               operation: Helm.execute
               helmcmd: status
-              dryrun: true
+              dryrun: "--dry-run"
+              # don't pass these as cmd arguments
+              chart: ""
+              chart_values: ""
+          discover:
+            implementation: Delegate
+            inputs:
+              operation: Helm.execute
+              helmcmd: list
+              dryrun: "--dry-run"
+              # don't pass these as cmd arguments
+              chart: ""
+              chart_values: ""
+              resultTemplate: |
+                {%if returncode == 0 %}
+                  {%for json in stdout | from_json %}
+                    - name: {{ json.name }}-release
+                      template:
+                        type: unfurl.nodes.HelmRelease
+                        properties:
+                          chart: {{ json.chart }}
+                          release_name: {{ json.name }}
+                      readyState: unknown
+                  {% endfor%}
+                {%endif%}
 
 interface_types:
   unfurl.interfaces.Helm:

@@ -319,7 +319,7 @@ class Manifest(AttributeManager):
 
     def statusSummary(self):
         def summary(instance, indent):
-            print(" " * indent, instance)
+            print(" " * indent, instance, instance.status)
             indent += 4
             for child in instance.instances:
                 summary(child, indent)

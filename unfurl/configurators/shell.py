@@ -80,6 +80,12 @@ def _run(*args, **kwargs):
     return subprocess.CompletedProcess(process.args, retcode, stdout, stderr)
 
 
+def _truncate(s):
+    if len(s) > 1000:
+        return "%s [%s omitted...]  %s" % (s[:500], len(s), s[-500:])
+    return s
+
+
 # XXX we should know if cmd if not os.access(implementation, os.X):
 class ShellConfigurator(TemplateConfigurator):
     _defaultCmd = None
@@ -182,11 +188,11 @@ class ShellConfigurator(TemplateConfigurator):
                 task.logger.info(
                     "shell task return code: %s, stderr: %s",
                     result.returncode,
-                    result.stderr,
+                    _truncate(result.stderr),
                 )
         else:
             task.logger.info("shell task run success: %s", result.cmd)
-            task.logger.debug("shell task output: %s", result.stdout)
+            task.logger.debug("shell task output: %s", _truncate(result.stdout))
         # strips terminal escapes after we printed output via logger
         result.stdout = unstyle(result.stdout or "")
         result.stderr = unstyle(result.stderr or "")

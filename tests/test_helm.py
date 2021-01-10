@@ -1,5 +1,6 @@
 import unittest
 import os
+import sys
 from unfurl.yamlmanifest import YamlManifest
 from unfurl.job import Runner, JobOptions
 from six.moves import urllib
@@ -23,7 +24,7 @@ spec:
 
         k8sNamespace:
          type: unfurl.nodes.K8sNamespace
-         # requirements:
+         # requirements: # XXX
          #   - host: k8sCluster
          properties:
            name: unfurl-helm-unittest
@@ -52,12 +53,12 @@ class HelmTest(unittest.TestCase):
     def setUp(self):
         server_address = ("", 8010)
         directory = os.path.dirname(__file__)
-        try:
+        if sys.version_info[0] >= 3:
             from http.server import HTTPServer, SimpleHTTPRequestHandler
 
             handler = partial(SimpleHTTPRequestHandler, directory=directory)
             self.httpd = HTTPServer(server_address, handler)
-        except ImportError:  # for python 2.7
+        else:  # for python 2.7
             from SimpleHTTPServer import SimpleHTTPRequestHandler
             import SocketServer
             import urllib
@@ -76,18 +77,23 @@ class HelmTest(unittest.TestCase):
                         path = os.path.join(path, word)
                     return path
 
-            self.httpd = SocketServer.TCPServer(
-                server_address, RootedHTTPRequestHandler
-            )
+            try:
+                self.httpd = SocketServer.TCPServer(
+                    server_address, RootedHTTPRequestHandler
+                )
+            except:  # close() doesn't work on 2.7 so address might still be in use
+                self.httpd = None
+                return
 
         t = threading.Thread(name="http_thread", target=self.httpd.serve_forever)
         t.daemon = True
         t.start()
 
     def tearDown(self):
-        self.httpd.socket.close()
+        if self.httpd:
+            self.httpd.socket.close()
 
-    def test_helm(self):
+    def test_deploy(self):
         # make sure this works
         f = urllib.request.urlopen("http://localhost:8010/fixtures/helmrepo/index.yaml")
         f.close()
@@ -97,6 +103,8 @@ class HelmTest(unittest.TestCase):
         run1 = runner.run(JobOptions(dryrun=False, verbose=3, startTime=1))
         assert not run1.unexpectedAbort, run1.unexpectedAbort.getStackTrace()
         summary = run1.jsonSummary()
+        # runner.manifest.statusSummary()
+        # print(summary)
         self.assertEqual(
             summary["job"],
             {
@@ -113,17 +121,36 @@ class HelmTest(unittest.TestCase):
         assert all(task["targetStatus"] == "ok" for task in summary["tasks"]), summary[
             "tasks"
         ]
+        # runner.manifest.dump()
 
-        run2 = runner.run(JobOptions(workflow="undeploy", startTime=2))
+    def test_undeploy(self):
+        runner = Runner(YamlManifest(manifest))
+        # runner.manifest.statusSummary()
+        run = runner.run(JobOptions(workflow="check", startTime=2))
+        summary = run.jsonSummary()
+        assert not run.unexpectedAbort, run.unexpectedAbort.getStackTrace()
+
+        # runner.manifest.statusSummary()
+        run2 = runner.run(
+            JobOptions(workflow="undeploy", startTime=3, destroyunmanaged=True)
+        )
+
         assert not run2.unexpectedAbort, run2.unexpectedAbort.getStackTrace()
         summary = run2.jsonSummary()
 
-        # note! if tests fail need to run: helm uninstall mysql-test  -n unfurl-helm-unittest
+        # note! if tests fail may need to run:
+        #      helm uninstall mysql-test -n unfurl-helm-unittest
+        #  and kubectl delete namespace unfurl-helm-unittest
 
+        # note: this test relies on stable_repo being place in the helm cache by test_deploy()
+        # comment out the repository requirement to run this test standalone
+        assert all(
+            task["targetStatus"] == "absent" for task in summary["tasks"]
+        ), summary["tasks"]
         self.assertEqual(
             summary["job"],
             {
-                "id": "A01120000000",
+                "id": "A01130000000",
                 "status": "ok",
                 "total": 3,
                 "ok": 3,
@@ -133,6 +160,3 @@ class HelmTest(unittest.TestCase):
                 "changed": 3,
             },
         )
-        assert all(
-            task["targetStatus"] == "absent" for task in summary["tasks"]
-        ), summary["tasks"]
