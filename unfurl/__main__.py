@@ -136,6 +136,12 @@ commonJobFilterOptions = option_group(
         help="How to print summary of job run",
     ),
     click.option("--starttime", help="Set the start time of the job."),
+    click.option(
+        "--destroyunmanaged",
+        default=False,
+        is_flag=True,
+        help="include unmanaged instances for consideration when destroying",
+    ),
 )
 
 
@@ -319,7 +325,7 @@ deployFilterOptions = option_group(
         "--prune",
         default=False,
         is_flag=True,
-        help="delete instances that are no longer used",
+        help="destroy instances that are no longer used",
     ),
 )
 

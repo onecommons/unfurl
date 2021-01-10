@@ -167,16 +167,17 @@ class UndeployTest(unittest.TestCase):
         assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
         summary = job.jsonSummary()
         # print(json.dumps(summary, indent=2))
+        # installerNode gets deleted, orphaning "managed"
         self.assertEqual(
             {
                 "id": "A01130000000",
                 "status": "ok",
-                "total": 2,
-                "ok": 2,
+                "total": 1,
+                "ok": 1,
                 "error": 0,
                 "unknown": 0,
                 "skipped": 0,
-                "changed": 2,
+                "changed": 1,
             },
             summary["job"],
         )
@@ -185,7 +186,6 @@ class UndeployTest(unittest.TestCase):
             "preexisting", targets, "discovered instances should not be deleted"
         )
         self.assertIn("installerNode", targets, "installerNode should be deleted")
-        self.assertIn("managed", targets, "managed should be deleted now")
 
         # XXX more tests:
         # check / discover only sets creator = False if instance is found and created wasn't set before

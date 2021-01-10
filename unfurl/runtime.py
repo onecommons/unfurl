@@ -49,6 +49,9 @@ class Operational(ChangeAware):
     def getOperationalDependencies(self):
         return ()
 
+    def getOperationalDependents(self):
+        return ()
+
     @property
     def manualOverideStatus(self):
         return None
@@ -652,6 +655,20 @@ class NodeInstance(EntityInstance):
 
         for instance in self.requirements:
             if instance is not parent:
+                yield instance
+
+    def getOperationalDependents(self):
+        seen = set()
+        for cap in self.capabilities:
+            for rel in cap.relationships:
+                dep = rel.source
+                if dep and id(dep) not in seen:
+                    seen.add(id(dep))
+                    yield dep
+
+        for instance in self.instances:
+            if id(instance) not in seen:
+                seen.add(id(instance))
                 yield instance
 
     def getSelfAndDescendents(self):

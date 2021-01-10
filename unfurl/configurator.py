@@ -457,6 +457,8 @@ class TaskView(object):
         if operation_host == "SELF":
             return target
         if operation_host == "HOST":
+            # XXX should search all ancestors to find parent that can handle the given operation
+            # e.g. ansible configurator should find ancestor compute node
             return target.parent
         if operation_host == "SOURCE":
             return target.source

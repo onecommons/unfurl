@@ -80,6 +80,7 @@ class JobOptions(object):
         planOnly=False,
         requiredOnly=False,
         prune=False,
+        destroyunmanaged=False,
         append=None,
         replace=None,
         commit=False,
@@ -590,7 +591,7 @@ class Job(ConfigChange):
                     dep for dep in dependencies if not dep.operational and dep.required
                 ]
             if missing:
-                reason = "required dependencies not operational: %s" % ",".join(
+                reason = "required dependencies not operational: %s" % ", ".join(
                     ["%s is %s" % (dep.name, dep.status.name) for dep in missing]
                 )
             else:

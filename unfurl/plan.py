@@ -333,7 +333,7 @@ class Plan(object):
         if self.workflow == "stop":
             return
 
-        if resource.created:
+        if resource.created or self.jobOptions.destroyunmanaged:
             nodeState = NodeState.deleting
             op = "Standard.delete"
         else:
@@ -394,33 +394,29 @@ class Plan(object):
         return TaskRequest(configSpec, resource, reason or action)
 
     def generateDeleteConfigurations(self, include):
-        for parents in self.root.getOperationalDependencies():
+        for resource in getOperationalDependents(self.root):
             # reverse to teardown leaf nodes first
-            for resource in reversed(parents.descendents):
-                logger.debug("checking instance for removal: %s", resource.name)
-                if resource.shadow or resource.template.abstract:  # readonly resource
-                    continue
-                # check if creation and deletion is managed externally
-                if not resource.created:
-                    continue
-                if isinstance(resource.created, six.string_types):
-                    # creation and deletion is managed by another instance
-                    creator = resource.query(resource.created)
-                    # don't try to delete this if the owner still exists
-                    if creator and creator.present:
-                        continue
+            logger.debug("checking instance for removal: %s", resource.name)
+            if resource.shadow or resource.template.abstract:  # readonly resource
+                continue
+            # check if creation and deletion is managed externally
+            if not resource.created and not self.jobOptions.destroyunmanaged:
+                continue
+            if isinstance(resource.created, six.string_types):
+                # creation and deletion is managed by another instance
+                continue
 
-                # if resource exists (or unknown)
-                if resource.status not in [Status.absent, Status.pending]:
-                    reason = include(resource)
-                    if reason:
-                        logger.debug("%s instance %s", reason, resource.name)
-                        workflow = "undeploy" if reason == "prune" else self.workflow
-                        gen = Generate(
-                            self._generateConfigurations(resource, reason, workflow)
-                        )
-                        while gen():
-                            gen.result = yield gen.next
+            # if resource exists (or unknown)
+            if resource.status not in [Status.absent, Status.pending]:
+                reason = include(resource)
+                if reason:
+                    logger.debug("%s instance %s", reason, resource.name)
+                    workflow = "undeploy" if reason == "prune" else self.workflow
+                    gen = Generate(
+                        self._generateConfigurations(resource, reason, workflow)
+                    )
+                    while gen():
+                        gen.result = yield gen.next
 
     def _getDefaultGenerator(self, workflow, resource, reason=None, inputs=None):
         if workflow == "deploy":
@@ -945,6 +941,17 @@ def findParentTemplate(source):
         if rel.type == "tosca.relationships.HostedOn":
             return rel.target
         return None
+
+
+def getOperationalDependents(resource, seen=None):
+    if seen is None:
+        seen = set()
+    for dep in resource.getOperationalDependents():
+        if id(dep) not in seen:
+            seen.add(id(dep))
+            for child in getOperationalDependents(dep, seen):
+                yield child
+            yield dep
 
 
 # XXX!:
