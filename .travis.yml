@@ -9,7 +9,6 @@ env:
     - TOX_SKIP_ENV=.+(docker|lock)
     - tf_version=0.12.29
     - helm_version=3.3.4
-    - UNFURL_TEST_KUBECONTEXT=k3d-default
 before_install:
   - wget https://releases.hashicorp.com/terraform/"$tf_version"/terraform_"$tf_version"_linux_amd64.zip
   - unzip terraform_"$tf_version"_linux_amd64.zip
@@ -23,10 +22,9 @@ before_install:
   - chmod +x k3d-linux-amd64 kubectl
   - sudo mv k3d-linux-amd64 /usr/local/bin/k3d
   - sudo mv kubectl /usr/local/bin
-  - k3d --version
 install: pip install tox-travis
 script:
-  - k3d cluster create "$UNFURL_TEST_KUBECONTEXT"
+  - k3d cluster create
   - kubectl get node
   - k3d kubeconfig merge --all -d
   - kubectl config view
