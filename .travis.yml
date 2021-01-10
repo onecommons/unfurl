@@ -27,6 +27,7 @@ before_install:
 install: pip install tox-travis
 script:
   - k3d cluster create "$UNFURL_TEST_KUBECONTEXT"
-  - k3d kubeconfig merge
   - kubectl get node
+  - k3d kubeconfig merge --all -d
+  - kubectl config view
   - tox

@@ -23,7 +23,7 @@ spec:
           # target: k8sCluster
           type: unfurl.relationships.ConnectsTo.K8sCluster
           properties:
-            context: {get_env: [UNFURL_TEST_KUBECONTEXT, docker-desktop]}
+            context: {get_env: [UNFURL_TEST_KUBECONTEXT]}
             KUBECONFIG: {get_env: UNFURL_TEST_KUBECONFIG}
 
       node_templates:
@@ -66,8 +66,10 @@ class k8sTest(unittest.TestCase):
         os.environ["TEST_SECRET"] = "a secret"
         manifest = YamlManifest(manifestScript)
         job = Runner(manifest).run(JobOptions(add=True, startTime=1))
-        print(job.summary())
-        print(job.out.getvalue())
+        assert not job.unexpectedAbort
+        assert job.status == Status.ok, job.summary()
+        # print(job.summary())
+        # print(job.out.getvalue())
 
         # verify secret contents isn't saved in config
         self.assertNotIn("a secret", job.out.getvalue())

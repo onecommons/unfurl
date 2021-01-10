@@ -571,7 +571,7 @@ def getEnv(args, ctx):
 
     if isinstance(args, list):
         name = args[0]
-        default = args[1]
+        default = args[1] if len(args) > 1 else None
     else:
         name = args
         default = None
