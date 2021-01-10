@@ -81,7 +81,7 @@ class HelmTest(unittest.TestCase):
                 self.httpd = SocketServer.TCPServer(
                     server_address, RootedHTTPRequestHandler
                 )
-        except OSError:  # address might still be in use
+        except:  # address might still be in use
             self.httpd = None
             return
 

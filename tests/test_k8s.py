@@ -66,8 +66,8 @@ class k8sTest(unittest.TestCase):
         os.environ["TEST_SECRET"] = "a secret"
         manifest = YamlManifest(manifestScript)
         job = Runner(manifest).run(JobOptions(add=True, startTime=1))
-        # print(job.summary())
-        # print(job.out.getvalue())
+        print(job.summary())
+        print(job.out.getvalue())
 
         # verify secret contents isn't saved in config
         self.assertNotIn("a secret", job.out.getvalue())
