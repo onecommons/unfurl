@@ -6,13 +6,27 @@ python:
   - "3.9"
 env:
   global:
-    - UNFURL_TEST_SKIP=k8s+helm
     - TOX_SKIP_ENV=.+(docker|lock)
     - tf_version=0.12.29
+    - helm_version=3.3.4
 before_install:
   - wget https://releases.hashicorp.com/terraform/"$tf_version"/terraform_"$tf_version"_linux_amd64.zip
   - unzip terraform_"$tf_version"_linux_amd64.zip
   - sudo mv terraform /usr/local/bin/
   - rm terraform_"$tf_version"_linux_amd64.zip
+  - wget https://get.helm.sh/helm-v"$helm_version"-linux-amd64.tar.gz
+  - tar -zxvf helm-v"$helm_version"-linux-amd64.tar.gz
+  - sudo mv linux-amd64/helm /usr/local/bin/helm
+  - wget https://storage.googleapis.com/kubernetes-release/release/v1.17.14/bin/linux/amd64/kubectl
+  - wget https://github.com/rancher/k3d/releases/download/v3.4.0/k3d-linux-amd64
+  - chmod +x k3d-linux-amd64 kubectl
+  - sudo mv k3d-linux-amd64 /usr/local/bin/k3d
+  - sudo mv kubectl /usr/local/bin
+  - k3d --version
 install: pip install tox-travis
-script: tox
+script:
+  - k3d cluster create k3s-default
+  - sleep 15
+  - k3d kubeconfig merge
+  - kubectl get node
+  - tox
