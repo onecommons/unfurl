@@ -31,9 +31,12 @@ You can apply any of these techniques to different secrets and projects can inhe
       # (assumes VAULT_TOKEN etc. environment variables are set)
       default: "{{ lookup('hashi_vault', 'secret='+key) }}" # "key" will be set to the secret name
 
-The "unfurl-vault-client" script outputs the vault password for the current project
- so you can encrypt secrets using the "ansible-vault" utility like this:
- ansible-vault encrypt_string --vault-id default@unfurl-vault-client "secret1" "secret2"
+
+The "unfurl-vault-client" script outputs the vault password for the current project so you can encrypt secrets using the ``ansible-vault`` utility like this:
+
+.. code-block::
+
+  ansible-vault encrypt_string --vault-id default@unfurl-vault-client "secret1" "secret2"
 
 Sensitive Values
 ----------------

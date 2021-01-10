@@ -30,18 +30,26 @@ extensions = [
     "sphinx.ext.autodoc.typehints",
     "sphinxcontrib.documentedlist",
     "sphinx.ext.autosectionlabel",
+    "sphinx.ext.extlinks",
 ]
 
 autodoc_typehints = "description"
 modindex_common_prefix = ["unfurl."]
 
+# :unfurl_site:`title <page>` or :unfurl_site:`page`
+extlinks = {
+    "onecommons": ("https://onecommons.org/%s", None),
+    "unfurl_site": ("https://unfurl.run/%s", None),
+    "tosca_spec": (
+        "https://docs.oasis-open.org/tosca/TOSCA-Simple-Profile-YAML/v1.3/os/TOSCA-Simple-Profile-YAML-v1.3-os.html#%s",
+        "TOSCA 1.3 Specification",
+    ),
+}
+
 rst_epilog = """
 .. _How it works: https://unfurl.run/howitworks.html
 """
 
-# sphinx.ext.extlinks
-# extlinks = {'issue': ('https://github.com/sphinx-doc/sphinx/issues/%s',
-#                      'issue ')}
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ["_templates"]

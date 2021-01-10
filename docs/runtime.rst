@@ -2,6 +2,37 @@
 Runtime Environment
 ===================
 
+Job Variables
+==============
+
+When a task is being evaluated the following variables are available as an `expression <Eval Expressions>` variable or a jinja2 template variable.
+Instances are represented as a dictionary containing its properties and attributes and its `special keys`.
+
+  :inputs: A dictionary containing the inputs passed to the task's operation.
+  :connections: See `connections` below.
+  :allConnections:  See `connections` below.
+  :SELF: The current task's target instance.
+  :HOST: The host of SELF.
+  :ORCHESTRATOR: The instance Unfurl is running on (``localhost``)
+  :ORCHESTRATOR_HOST: Current task's ``operation_host``. If it is not declared, defaults to ``localhost``.
+  :SOURCE: If the task's target instance is a relationship, its source instance
+  :TARGET: If the task's target instance is a relationship, its target instance
+  :task: A dictionary containing the current task's settings. Its keys include:
+
+``task`` Keys
+~~~~~~~~~~~~~
+
+  :name: Name of the current task
+  :workflow: The current workflow (e.g. ``deploy``, ``undeploy``, or ``discover``)
+  :target: The name of instance the task is operating on.
+  :operation: The name of the operation the task is running.
+  :dryrun: (boolean) Whether the current job has the ``--dryrun`` flag set.
+  :reason: Reason the current task was selected, e.g. "add", "update", "prune", "repair"
+  :cwd: The current working directory the task process is executing in.
+  :verbose: An integer indicating log verbosity level: 0 (INFO) (the default), -1 CRITICAL (set by ``--quiet``), >= 1 DEBUG (set by ``-v``, ``-vv``, or ``-vvv``)
+  :timeout: The task's timeout value if set,
+
+
 Connections
 ===========
 
@@ -17,7 +48,7 @@ must be, but instead is applied to any target node that matches the relationship
 Because credentials likely are specific to the user or machine running Unfurl
 you can define them with the ``localhost`` ensemble in `.unfurl_home` and by default they will be imported into the current ensemble. This can be explicitly specified when importing an external ensemble using the `connections` key as described in the `external ensembles` section.
 
-As described in the `getting_started_guide`, the ``localhost`` ensemble provides several connection relationship templates for connecting to the the most common cloud providers.
+As described in `Getting Started`, the ``localhost`` ensemble provides several connection relationship templates for connecting to the the most common cloud providers.
 
 When Unfurl executes an operation it looks for relationship templates between the `OPERATION_HOST` and the node that the operation is targeting, including any connection relationship templates that apply. If those templates contain any environment variables they will be set otherwise they can be accessed through to variables:
 

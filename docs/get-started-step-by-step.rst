@@ -31,8 +31,8 @@ through the `environment` subsection of the `context` in the project file.
 B) Explicitly create and edit your home project
 -----------------------------------------------
 
-Before you create your first Unfurl project, run `unfurl home --init` to create the home project.
-It will be placed in `~/.unfurl_home` unless you specify otherwise using the `--home` option.
+Before you create your first Unfurl project, run ``unfurl home --init`` to create the home project.
+It will be placed in ``~/.unfurl_home`` unless you specify otherwise using the ``--home`` option.
 
 Or if you have an existing home project you can just clone it like any other project and then create a new runtime
 using the ``runtime`` command, for example: ``unfurl runtime --init ~/.unfurl_home``.
@@ -52,9 +52,9 @@ Now you can customize your home project, for example:
 
 6. Declare shared and default resources. For example, if several project will use a pre-existing Kubernetes cluster, you could add a template that models it here. You can use the `default directive` to indicate that template should only be used if it wasn't already declared in the main project.
 
-`~/.unfurl_home/ensemble.yaml` contains a template (`asdfBootstrap`) that will install
+``~/.unfurl_home/ensemble.yaml`` contains a template (``asdfBootstrap``) that will install
 local versions of the tools Unfurl's `configurators` need (eg. asdf, Terraform, gcloud, and Helm)
-It install these tools, run `unfurl deploy ~/.unfurl_home`.
+It install these tools, run ``unfurl deploy ~/.unfurl_home``.
 
 .. tip::
    Don't worry about making mistakes -- as a regular Unfurl project, your `.unfurl_home`

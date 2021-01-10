@@ -40,8 +40,8 @@ Stand-alone functions don't need to be wrapped in an "eval"
   =================== ========================================================
   Key                 Value
   =================== ========================================================
-  `concat1`           ``[ string* ]``
-  `get_artifact1`     ``[ instance_name, artifact_name]``
+  `concat`            ``[ string* ]``
+  `get_artifact`      ``[ instance_name, artifact_name]``
   `get_attribute`     ``[ instance_name, req_or_cap_name?, property_name, index_or_key* ]``
   `get_env`           :regexp:`[ name, default? return ] | name`
   `get_input`         ``name``
@@ -53,14 +53,10 @@ Stand-alone functions don't need to be wrapped in an "eval"
   `token`             ``[ string, token, index]``
   =================== ========================================================
 
-.. _concat1:
-
 concat
 ^^^^^^
 
-  The concat function is used to concatenate two or more string values. See `concat <https://docs.oasis-open.org/tosca/TOSCA-Simple-Profile-YAML/v1.3/os/TOSCA-Simple-Profile-YAML-v1.3-os.html#_Toc454458585>`_.
-
-.. _get_artifact1:
+  The concat function is used to concatenate two or more string values. See :tosca_spec:`concat <_Toc454458585>`.
 
 get_artifact
 ^^^^^^^^^^^^
@@ -72,17 +68,13 @@ get_artifact
 
   If entity_name or artifact_name is not found return ``null``.
 
-  See `get_artifact <https://docs.oasis-open.org/tosca/TOSCA-Simple-Profile-YAML/v1.3/os/TOSCA-Simple-Profile-YAML-v1.3-os.html#_Toc26969460>`_
-
-.. _get_attribute:
+  See :tosca_spec:`get_artifact <_Toc26969460>`.
 
 get_attribute
 ^^^^^^^^^^^^^
 
   The get_attribute function is used to retrieve the values of named attributes declared by the referenced node or relationship template name.
-  See `TOSCA Attribute Functions <https://docs.oasis-open.org/tosca/TOSCA-Simple-Profile-YAML/v1.3/os/TOSCA-Simple-Profile-YAML-v1.3-os.html#_Toc26969456>`_
-
-.. _get_env:
+  See :tosca_spec:`TOSCA Attribute Functions <_Toc26969456>`.
 
 get_env
 ^^^^^^^
@@ -94,44 +86,32 @@ get_env
 
   If the value of its argument is empty (e.g. [] or null), return the entire dictionary.
 
-.. _get_input:
-
 get_input
 ^^^^^^^^^
 
   The get_input function is used to retrieve the values of properties declared within the inputs section of a TOSCA Service Template.
-  See `TOSCA Property Functions <https://docs.oasis-open.org/tosca/TOSCA-Simple-Profile-YAML/v1.3/os/TOSCA-Simple-Profile-YAML-v1.3-os.html#_Toc26969456>`_
-
-.. _get_nodes_of_type:
+  See :tosca_spec:``TOSCA Property Functions <_Toc26969456>`
 
 get_nodes_of_type
 ^^^^^^^^^^^^^^^^^
 
   The get_nodes_of_type function can be used to retrieve a list of all known instances of nodes of the declared Node Type.
 
-.. _get_property:
-
 get_property
 ^^^^^^^^^^^^
 
   The get_property function is used to retrieve property values between modelable entities defined in the same service template.
-  See `TOSCA Property Functions <https://docs.oasis-open.org/tosca/TOSCA-Simple-Profile-YAML/v1.3/os/TOSCA-Simple-Profile-YAML-v1.3-os.html#_Toc26969456>`_
-
-.. _has_env:
+  See :tosca_spec:`TOSCA Property Functions <_Toc26969456>`
 
 has_env
 ^^^^^^^
 
   The ``has_env`` function returns a boolean indicating whether the given variable is found in the current environment.
 
-.. _join:
-
 join
 ^^^^
 
   The join function is used to join an array of strings into a single string with optional delimiter. See
-
-.. _q:
 
 q
 ^
@@ -153,8 +133,6 @@ q
        this will not be evaluated
 
   without any further evaluation.
-
-.. _token:
 
 token
 ^^^^^
@@ -186,8 +164,6 @@ Expression Functions
   validate    [contents, schema]
   =========== ================================
 
-.. _abspath:
-
 abspath
 ^^^^^^^
 
@@ -196,27 +172,19 @@ abspath
   Get the absolute path.
   Also available as a jinja2 filter.
 
-.. _and:
-
 and
 ^^^
 
   Evaluates each expression in the list until an expression evaluates as false and
   returns the result of the last expression evaluated.
 
-.. _eq:
-
 eq
 ^^
-
-.. _external:
 
 external
 ^^^^^^^^
 
   Return an instance
-
-.. _file:
 
 file
 ^^^^
@@ -247,8 +215,6 @@ file
   contents # file contents (None if it doesn't exist)
   encoding
 
-.. _get_dir:
-
 get_dir
 ^^^^^^^
 
@@ -264,8 +230,6 @@ get_dir
   :spec.local: The "local" directory of the source file the current instance's template.
 
   Otherwise look for a repository with the given name and return its path or None if not found.
-
-.. _if:
 
 if
 ^^
@@ -292,8 +256,6 @@ if
     vars:
       a: true
 
-.. _lookup:
-
 lookup
 ^^^^^^
 
@@ -319,38 +281,26 @@ lookup
           url: https://example.com/foo.txt
           validate_certs: true
 
-.. _local:
-
 local
 ^^^^^
-
-.. _or:
 
 or
 ^^
 
   Evaluates each item until an item evaluates as true, returns that value or false.
 
-.. _not:
-
 not
 ^^^
-
-.. _secret:
 
 secret
 ^^^^^^
 
   Return the value of the given secret. It will be marked as sensitive.
 
-.. _sensitive:
-
 sensitive
 ^^^^^^^^^
 
   Mark the given value as sensitive.
-
-.. _tempfile:
 
 tempfile
 ^^^^^^^^
@@ -376,14 +326,10 @@ tempfile
   If ``encoding`` isn't specified, the file extension specified by ``suffix`` is used;
   if neither is specified, the encoding will be determined by the content, either utf8 text, binary or json or a 0 byte file if the content is null.
 
-.. _template:
-
 template
 ^^^^^^^^
 
   Evaluate contents as an Ansible-flavored Jinja2 template
-
-.. _validate:
 
 validate
 ^^^^^^^^
@@ -460,6 +406,10 @@ Built-in keys start with a leading **.**:
 **..**         parent
 .name          name of this instance
 .type          name of instance's TOSCA type
+.tosca_id      unique id of this instance
+.tosca_name    name of the instance's TOSCA template
+.status        the instance's :class:`unfurl.support.Status`
+.state         the instance's :class:`unfurl.support.NodeState`
 .parents       list of parents
 .ancestors     self and parents
 .root          root ancestor

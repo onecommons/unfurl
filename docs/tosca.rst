@@ -21,8 +21,8 @@ Extensions
 * allow workflow to be imported
 * workflow "target" accepts type names
 * groups can have other groups as members
-* operation_host can also refer to a node template name
-* add OPERATION_HOST reserved function keywords
+* An operation's ``operation_host`` field can also be set to a node template's name.
+* added ``OPERATION_HOST`` as a reserved function keyword.
 * add "discover" and "default" directives
 * add "default_for" keyword to relationship templates
 * add "defaults" section to interface definitions
@@ -30,11 +30,11 @@ Extensions
 Not yet implemented and non-conformance with the TOSCA 1.3 specification
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-* Operation outputs and `get_operation_output` function (use `resultTemplate` instead)
-* "copy" keyword (use dsl or `merge directives` instead)
+* The ``get_operation_output`` function (use `resultTemplate` instead)
+* "copy" keyword (use the ``dsl`` section or `merge directives` instead)
 * `get_artifact` function (only implemented for artifacts that are container images)
 * CSAR manifests and archives (implemented but untested)
-* substitution mapping (mostly implemented but untested)
+* substitution mapping
 * triggers
 * notifications
 * node_filters
