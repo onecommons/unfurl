@@ -179,7 +179,7 @@ class ToscaSpec(object):
         if name == "~topology":
             return self.topology
         elif "~c~" in name:
-            nodeName, capability = name.split("~c#~")
+            nodeName, capability = name.split("~c~")
             nodeTemplate = self.nodeTemplates.get(nodeName)
             if not nodeTemplate:
                 return None

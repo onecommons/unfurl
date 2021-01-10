@@ -53,37 +53,37 @@ class HelmTest(unittest.TestCase):
     def setUp(self):
         server_address = ("", 8010)
         directory = os.path.dirname(__file__)
-        if sys.version_info[0] >= 3:
-            from http.server import HTTPServer, SimpleHTTPRequestHandler
+        try:
+            if sys.version_info[0] >= 3:
+                from http.server import HTTPServer, SimpleHTTPRequestHandler
 
-            handler = partial(SimpleHTTPRequestHandler, directory=directory)
-            self.httpd = HTTPServer(server_address, handler)
-        else:  # for python 2.7
-            from SimpleHTTPServer import SimpleHTTPRequestHandler
-            import SocketServer
-            import urllib
+                handler = partial(SimpleHTTPRequestHandler, directory=directory)
+                self.httpd = HTTPServer(server_address, handler)
+            else:  # for python 2.7
+                from SimpleHTTPServer import SimpleHTTPRequestHandler
+                import SocketServer
+                import urllib
 
-            class RootedHTTPRequestHandler(SimpleHTTPRequestHandler):
-                def translate_path(self, path):
-                    path = os.path.normpath(urllib.unquote(path))
-                    words = path.split("/")
-                    words = filter(None, words)
-                    path = directory
-                    for word in words:
-                        drive, word = os.path.splitdrive(word)
-                        head, word = os.path.split(word)
-                        if word in (os.curdir, os.pardir):
-                            continue
-                        path = os.path.join(path, word)
-                    return path
+                class RootedHTTPRequestHandler(SimpleHTTPRequestHandler):
+                    def translate_path(self, path):
+                        path = os.path.normpath(urllib.unquote(path))
+                        words = path.split("/")
+                        words = filter(None, words)
+                        path = directory
+                        for word in words:
+                            drive, word = os.path.splitdrive(word)
+                            head, word = os.path.split(word)
+                            if word in (os.curdir, os.pardir):
+                                continue
+                            path = os.path.join(path, word)
+                        return path
 
-            try:
                 self.httpd = SocketServer.TCPServer(
                     server_address, RootedHTTPRequestHandler
                 )
-            except:  # close() doesn't work on 2.7 so address might still be in use
-                self.httpd = None
-                return
+        except OSError:  # address might still be in use
+            self.httpd = None
+            return
 
         t = threading.Thread(name="http_thread", target=self.httpd.serve_forever)
         t.daemon = True
