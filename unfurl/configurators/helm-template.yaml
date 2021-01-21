@@ -65,11 +65,15 @@ node_types:
     properties:
       chart:
         type: string
+      chart_values:
+        type: map
+        required: false
       release_name:
         type: string
       namespace:
         type: string
         default: {eval: ".::.requirements::[.name=host]::.target::name" }
+
     interfaces:
       Helm:
         type: unfurl.interfaces.Helm

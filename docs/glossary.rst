@@ -2,20 +2,20 @@
 Glossary
 ===============
 
-TOSCA Terminology
+Terminology from TOSCA
 ============================
 
 Service Template
-  Services templates specify how resources should be configured using the `TOSCA standard`. Templates can live in their own git repositories.
+  Services templates specify how resources should be configured using the `TOSCA` standard. Templates can live in their own git repositories.
 
 Node Template
-  A Node Template specifies the occurrence of a component node as part of a Topology Template. Each Node Template refers to a Node Type that defines the semantics of the node (e.g., properties, attributes, requirements, capabilities, interfaces). Node Types are defined separately for reuse purposes.
+  A Node Template specifies the occurrence of a component node as part of a `Topology` Template. Each Node Template refers to a Node Type that defines the semantics of the node (e.g., properties, attributes, requirements, capabilities, interfaces). Node Types are defined separately for reuse purposes.
 
 Entity Types
   Every entity in TOSCA (Nodes, Relationships, Artifacts and Data) has a declared type and custom type hierarchies can be defined in the *Service Template*.
 
 Instance
-  The running instance of a *Node template*, typically instantiated when running the deployment workflow.
+  The running instance of a `Node template`, typically instantiated when running the deployment workflow.
 
 Properties
   Name values that are declared in the specification of the node and relationship templates.
@@ -66,7 +66,7 @@ Job
 Tasks
   Instantiates a configurator to carry out the given *operation*.
 
-ConfigChange
+Config Change
   A persistent record of the changes made by a task.
 
 Changelog
@@ -84,5 +84,5 @@ External values
 External instances
   External instances are instances that are part of a separate ensemble. They are only accessible through the `external` expression function unless the service template has corresponding node template with a ``select`` or ``substitute`` directive.
 
-Dependencies
-  Tracking dependencies between instances enable the incremental update of ensembles. Dependencies can be inferred through the relationships defined in TOSCA service template, by the expressions that define an instance's properties and attributes, or dynamically by configurators using the Task API.
+.. Dependencies
+..  Tracking dependencies between instances enable the incremental update of ensembles. Dependencies can be inferred through the relationships defined in TOSCA service template, by the expressions that define an instance's properties and attributes, or dynamically by configurators using the Task API.

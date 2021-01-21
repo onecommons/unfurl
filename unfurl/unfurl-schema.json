@@ -29,7 +29,7 @@
         }
       ]
     },
-    "externalProjects": {
+    "projects": {
       "type": "object",
       "allOf": [
         { "$ref": "./manifest-schema.json#/definitions/namedObjects" },

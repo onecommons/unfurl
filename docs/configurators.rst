@@ -3,7 +3,8 @@ Configurators
 ===============
 
 To use a configurator, set it as the ``implementation`` field of an `operation`
-and set its inputs as documented below.
+and set its inputs as documented below. Configurator names are case-sensitive;
+if a configurator name isn't found it is treated as an external command.
 
 If you set an external command line directly as the ``implementation``, Unfurl will choose the appropriate one to use.
 If ``operation_host`` is local it will use the `Shell` configurator, if it is remote,
@@ -245,9 +246,9 @@ Multiple provisioners become a list:
 Installers
 ==================
 
-Installation types don't need configurators because they already have Interface defaults defined.
+Installation types already have operations defined.
 You just need to import the service template containing the TOSCA type definitions and
-declare node templates with the needed properties and inputs.
+declare node templates with the needed properties and operation inputs.
 
 .. contents::
    :local:
@@ -256,16 +257,17 @@ declare node templates with the needed properties and inputs.
 Docker
 ======
 
-imports:
-  - repository: unfurl
-    file: configurators/docker-template.yaml
+Required TOSCA import: ``configurators/docker-template.yaml`` (in the ``unfurl`` repository)
 
 unfurl.nodes.Container.Application.Docker
+-----------------------------------------
 
-artifacts:
-  image:
-    type: tosca.artifacts.Deployment.Image.Container.Docker
-    file: busybox
+TOSCA node type that represents a Docker container.
+
+artifacts
+~~~~~~~~~
+
+  :image: (*required*) An artifact of type ``tosca.artifacts.Deployment.Image.Container.Docker``
 
 By default, the configurator will assume the image is in `<https://registry.hub.docker.com>`_.
 If the image is in a different registry you can declare it as a repository and have the ``image`` artifact reference that repository.
@@ -279,14 +281,15 @@ Inputs
 Helm
 ====
 
-The service template ``configurators/helm-template.yaml`` defines the node types for Helm releases and repositories.
-Releases supports the ``discover`` workflow and will add to the ensemble any Kubernetes resources that a pre-existing release created.
 Requires Helm 3, which will be installed automatically if the default ``.unfurl_home`` ensemble is deployed.
+
+Required TOSCA import: ``configurators/helm-template.yaml`` (in the ``unfurl`` repository)
 
 unfurl.nodes.HelmRelease
 ------------------------
 
-Represents a Helm release.
+TOSCA type that represents a Helm release.
+Deploying or discovering a Helm release will add to the ensemble any Kubernetes resources managed by that release.
 
 Requirements
 ~~~~~~~~~~~~
@@ -303,28 +306,147 @@ Properties
 
 Inputs
 ~~~~~~
+  All operations can be passed the following input parameters:
 
   :flags: A list of flags to pass to the ``helm`` command
-
-Deploying or discovering a Helm release will add any Kubernetes resources it created to the ensemble.
 
 unfurl.nodes.HelmRepository
 ---------------------------
 
-Represents a Helm repository.
+TOSCA node type that represents a Helm repository.
 
 Properties
 ~~~~~~~~~~
 
-  :name: The name of the repostitory (default: the instance name)
+  :name: The name of the repository (default: the instance name)
   :url: (*required*) The URL of the repository
 
 
 Kubernetes
 ==========
 
+Use these types to manage Kubernetes resources.
+
+unfurl.nodes.K8sCluster
+-----------------------
+
+TOSCA type that represents a Kubernetes cluster. Its attributes are set by introspecting the current Kubernetes connection (``unfurl.relationships.ConnectsTo.K8sCluster``).
+There are no default implementations defined for creating or destroying a cluster.
+
+Attributes
+~~~~~~~~~~
+
+ :apiServer: The url used to connect to the cluster's api server.
+
+unfurl.nodes.K8sNamespace
+-------------------------
+
+Represents a Kubernetes namespace. Destroying a namespace deletes any resources in it.
+Derived from ``unfurl.nodes.K8sRawResource``.
+
+Requirements
+~~~~~~~~~~~~
+
+  :host: A node template of type ``unfurl.nodes.K8sCluster``
+
+Properties
+~~~~~~~~~~
+
+  :name: The name of the namespace.
+
+
+unfurl.nodes.K8sResource
+------------------------
+
+Requirements
+~~~~~~~~~~~~
+
+  :host: A node template of type ``unfurl.nodes.K8sNamespace``
+
+Properties
+~~~~~~~~~~
+
+  :definition: (map or string) The YAML definition for the Kubernetes resource.
+
+Attributes
+~~~~~~~~~~
+
+  :apiResource: (map) The YAML representation for the resource as retrieved from the Kubernetes cluster.
+  :name: (string) The Kubernetes name of the resource.
+
+unfurl.nodes.K8sSecretResource
+------------------------------
+
+Represents a Kubernetes secret. Derived from ``unfurl.nodes.K8sResource``.
+
+Requirements
+~~~~~~~~~~~~
+
+  :host: A node template of type ``unfurl.nodes.K8sNamespace``
+
+Properties
+~~~~~~~~~~
+
+  :data: (map) Name/value pairs that define the secret. Values will be marked as sensitive.
+
+Attributes
+~~~~~~~~~~
+
+  :apiResource: (map) The YAML representation for the resource as retrieved from the Kubernetes cluster.  Data values will be marked as sensitive.
+  :name: (string) The Kubernetes name of the resource.
+
+unfurl.nodes.K8sRawResource
+---------------------------
+
+A Kubernetes resource that isn't part of a namespace.
+
+Requirements
+~~~~~~~~~~~~
+
+  :host: A node template of type ``unfurl.nodes.K8sCluster``
+
+Properties
+~~~~~~~~~~
+
+  :definition: (map or string) The YAML definition for the Kubernetes resource.
+
+Attributes
+~~~~~~~~~~
+
+  :apiResource: (map) The YAML representation for the resource as retrieved from the Kubernetes cluster.
+  :name: (string) The Kubernetes name of the resource.
+
 Supervisor
 ==========
 
-Supervisor is a light-weight process manager that is useful when you want to run a local development instance of server applications.
-The supervisor configurator will.
+`Supervisor <http://supervisord.org>`_ is a light-weight process manager that is useful when you want to run local development instances of server applications.
+
+Required TOSCA import: ``configurators/supervisor-template.yaml`` (in the ``unfurl`` repository)
+
+unfurl.nodes.Supervisor
+-----------------------
+
+TOSCA type that represents an instance of Supervisor process manager. Derived from ``tosca.nodes.SoftwareComponent``.
+
+properties
+~~~~~~~~~~
+
+ :homeDir: (string) The location the Supervisor configuration directory (default: ``{get_dir: local}``)
+ :confFile: (string) Name of the confiration file to create (default: ``supervisord.conf``)
+ :conf: (string) The `supervisord configuration <http://supervisord.org/configuration.html>`_. A default one will be generated if omitted.
+
+unfurl.nodes.ProcessController.Supervisor
+-----------------------------------------
+
+TOSCA type that represents a process ("program" in supervisord terminology) that is managed by a Supervisor instance. Derived from ``unfurl.nodes.ProcessController``.
+
+requirements
+~~~~~~~~~~~~
+
+  :host: A node template of type ``unfurl.nodes.Supervisor``.
+
+properties
+~~~~~~~~~~
+
+  :name: (string) The name of this program.
+  :program: (map) A map of `settings <http://supervisord.org/configuration.html#program-x-section-values>`_ for this program.
