@@ -444,7 +444,12 @@ def applyTemplate(value, ctx, overrides=None):
                         return wrapSensitiveValue(
                             value, templar._loader._vault
                         )  # mark the template result as sensitive
-                # otherwise wrap result as AnsibleUnsafeText so it isn't evaluated again
+
+                if isinstance(value, Results):
+                    # mapValue now because wrap_var() fails with Results types
+                    value = mapValue(value, ctx, applyTemplates=False)
+
+                # wrap result as AnsibleUnsafe so it isn't evaluated again
                 return wrap_var(value)
     finally:
         ctx.referenced.stop()

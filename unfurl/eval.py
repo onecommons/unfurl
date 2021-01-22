@@ -25,13 +25,13 @@ from .util import validateSchema, UnfurlError, assertForm
 from .result import ResultsList, Result, Results, ExternalValue, ResourceRef
 
 
-def mapValue(value, resourceOrCxt):
+def mapValue(value, resourceOrCxt, applyTemplates=True):
     if not isinstance(resourceOrCxt, RefContext):
         resourceOrCxt = RefContext(resourceOrCxt)
-    return _mapValue(value, resourceOrCxt)
+    return _mapValue(value, resourceOrCxt, False, applyTemplates)
 
 
-def _mapValue(value, ctx, wantList=False):
+def _mapValue(value, ctx, wantList=False, applyTemplates=True):
     from .support import isTemplate, applyTemplate
 
     if Ref.isRef(value):
@@ -44,12 +44,15 @@ def _mapValue(value, ctx, wantList=False):
             ctx.baseDir = getattr(value, "baseDir", oldBaseDir)
             if ctx.baseDir and ctx.baseDir != oldBaseDir:
                 ctx.trace("found baseDir", ctx.baseDir)
-            return dict((key, _mapValue(v, ctx, wantList)) for key, v in value.items())
+            return dict(
+                (key, _mapValue(v, ctx, wantList, applyTemplates))
+                for key, v in value.items()
+            )
         finally:
             ctx.baseDir = oldBaseDir
     elif isinstance(value, (MutableSequence, tuple)):
-        return [_mapValue(item, ctx, wantList) for item in value]
-    elif isTemplate(value, ctx):
+        return [_mapValue(item, ctx, wantList, applyTemplates) for item in value]
+    elif applyTemplates and isTemplate(value, ctx):
         return applyTemplate(value, ctx)
     return value
 

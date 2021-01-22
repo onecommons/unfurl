@@ -517,6 +517,9 @@ class ResultsMap(Results, MutableMapping):
             if isinstance(v, Result)
         )
 
+    def __contains__(self, key):
+        return key in self._attributes
+
     def _values(self):
         return self._attributes.values()
 
