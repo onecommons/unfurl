@@ -144,12 +144,9 @@ else:
     # Display is a singleton which we can't subclass so monkey patch instead
     _super_display = ansible.utils.display.Display.display
 
-    def _display(
-        self, msg, color=None, stderr=False, screen_only=False, log_only=False
-    ):
+    def _display(self, msg, color=None, stderr=False, screen_only=False, log_only=True):
         if screen_only:
             return
-        log_only = True
         return _super_display(self, msg, color, stderr, screen_only, log_only)
 
     ansible.utils.display.Display.display = _display

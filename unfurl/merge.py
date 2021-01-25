@@ -87,7 +87,7 @@ def mergeDicts(b, a, cls=None, replaceKeys=None, defaultStrategy="merge"):
                         continue
                     if strategy == "error":
                         raise UnfurlError(
-                            "merging %s is not allowed, +%: error was set" % key
+                            "merging %s is not allowed, +%%: error was set" % key
                         )
                 # otherwise we ignore bval because key is already in a
             if strategy == "delete":

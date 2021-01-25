@@ -612,12 +612,12 @@ class Job(ConfigChange):
             UnfurlTaskError(task, "cantRunTask failed unexpectedly")
             reason = "unexpected exception in cantRunTask"
             canRun = False
-        finally:
-            if canRun:
-                return False
-            else:
-                logger.info("could not run task %s: %s", task, reason)
-                return "could not run: " + reason
+
+        if canRun:
+            return False
+        else:
+            logger.info("could not run task %s: %s", task, reason)
+            return "could not run: " + reason
 
     def shouldAbort(self, task):
         return False  # XXX3

@@ -241,7 +241,6 @@ def _getbaseDir(ctx, name=None):
                     return os.path.join(specHome, "local")
             # XXX elif start == 'project' and rest == 'local'
         return instance.template.spec.getRepositoryPath(name)
-    return None  # unknown
 
 
 def abspath(ctx, path, relativeTo=None, mkdir=True):

@@ -154,7 +154,7 @@ class ConfigurationSpec(object):
             and self.timeout == other.timeout
             and self.environment == other.environment
             and self.inputs == other.inputs
-            and self.inputSchema == self.inputSchema
+            and self.inputSchema == other.inputSchema
             and self.outputs == other.outputs
             and self.preConditions == other.preConditions
             and self.postConditions == other.postConditions
