@@ -6,7 +6,7 @@ from unfurl.localenv import LocalEnv
 from unfurl.job import Runner, JobOptions
 from unfurl.support import Status, _getbaseDir, RefContext
 from unfurl.configurator import Configurator
-from unfurl.util import sensitive_str, API_VERSION
+from unfurl.util import sensitive_str, API_VERSION, UnfurlValidationError
 from unfurl.yamlloader import makeVaultLib
 import six
 from click.testing import CliRunner
@@ -32,12 +32,11 @@ class SetAttributeConfigurator(Configurator):
         yield task.done(True, Status.ok)
 
 
-manifestDoc = """
+_manifestDoc = """
 apiVersion: unfurl/v1alpha1
 kind: Manifest
 context:
-  inputs:
-    cpus: 2
+  inputs: %s
 spec:
   service_template:
     node_types:
@@ -157,6 +156,9 @@ spec:
                 timeout: 120
 """
 
+manifestDoc = _manifestDoc % "{cpus: 2}"
+missingInputsDoc = _manifestDoc % "{}"
+
 
 class ToscaSyntaxTest(unittest.TestCase):
     def _runInputAndOutputs(self, manifest):
@@ -191,6 +193,9 @@ class ToscaSyntaxTest(unittest.TestCase):
         return outputIp, job
 
     def test_inputAndOutputs(self):
+        with self.assertRaises(UnfurlValidationError) as err:
+            manifest = YamlManifest(missingInputsDoc)
+
         manifest = YamlManifest(manifestDoc)
         outputIp, job = self._runInputAndOutputs(manifest)
         self.assertEqual(
