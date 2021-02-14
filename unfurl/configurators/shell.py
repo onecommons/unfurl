@@ -174,13 +174,9 @@ class ShellConfigurator(TemplateConfigurator):
             err.error = err
             return err
 
-    def _getStatusFromResult(self, task, result):
-        status = (
-            Status.error
-            if result.error or result.returncode or result.timeout
-            else Status.ok
-        )
-        if status == Status.error:
+    def _handleResult(self, task, result):
+        error = result.error or result.returncode or result.timeout
+        if error:
             task.logger.warning("shell task run failure: %s", result.cmd)
             if result.error:
                 task.logger.info("shell task error", exc_info=result.error)
@@ -196,16 +192,16 @@ class ShellConfigurator(TemplateConfigurator):
         # strips terminal escapes after we printed output via logger
         result.stdout = unstyle(result.stdout or "")
         result.stderr = unstyle(result.stderr or "")
-        return status
+        return not error
 
-    def _handleResult(self, task, result):
-        status = self._getStatusFromResult(task, result)
+    def _processResult(self, task, result):
+        success = self._handleResult(task, result)
         resultDict = result.__dict__.copy()
-        resultDict["success"] = status == Status.ok
+        resultDict["success"] = success
         self.processResultTemplate(task, resultDict)
         if task._errors:
-            status = Status.error
-        return status
+            return False
+        return success
 
     def canRun(self, task):
         params = task.inputs
@@ -264,7 +260,7 @@ class ShellConfigurator(TemplateConfigurator):
             keeplines=keeplines,
             echo=echo,
         )
-        status = self._handleResult(task, result)
+        success = self._processResult(task, result)
         done = task.inputs.get("done", {})
-        success = done.pop("success", status == Status.ok)
+        success = done.pop("success", success)
         yield task.done(success, result=result.__dict__, **done)

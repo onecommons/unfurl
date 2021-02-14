@@ -152,6 +152,13 @@ class TerraformConfigurator(ShellConfigurator):
             writeFile(ctx, state, jsonPath)
         return jsonPath
 
+    def _getPlanPath(self, task, ctx):
+        # the terraform state file is associate with the current instance
+        # read the (possible encrypted) version from the repository
+        # and write out it as plaintext json into the local directory
+        jobId = task.getJobId(task.changeId)
+        return abspath(ctx, jobId + ".plan", "local", False)
+
     def run(self, task):
         ctx = task.inputs.context
         echo = task.verbose > -1
@@ -183,17 +190,26 @@ class TerraformConfigurator(ShellConfigurator):
             else:
                 raise UnfurlTaskError(task, "terraform init failed")
 
+        planPath = self._getPlanPath(task, ctx)
         # build the command line and run it
-        if task.dryRun:
-            action = ["plan", "-state=" + statePath, "-detailed-exitcode"]
+        if task.dryRun or task.configSpec.operation == "check":
+            action = [
+                "plan",
+                "-state=" + statePath,
+                "-detailed-exitcode",
+                "-out",
+                planPath,
+            ]
             if task.configSpec.operation == "delete":
                 action.append("-destroy")
-        elif task.configSpec.operation == "check":
-            action = ["refresh", "-state=" + statePath]
         elif task.configSpec.operation == "delete":
             action = ["destroy", "-auto-approve", "-state=" + statePath]
         elif task.configSpec.workflow == "deploy":
             action = ["apply", "-auto-approve", "-state=" + statePath]
+            if os.path.isfile(planPath):
+                action.append(
+                    planPath
+                )  # use plan created by previous operation in this job
         else:
             raise UnfurlTaskError(
                 task, "unexpected operation: " + task.configSpec.operation
@@ -218,12 +234,14 @@ class TerraformConfigurator(ShellConfigurator):
                 raise UnfurlTaskError(task, "terrform init failed")
 
         # process the result
+        status = None
+        success = self._handleResult(task, result)
         if result.returncode == 2:
+            # plan -detailed-exitcode: 2 - Succeeded, but there is a diff
+            success = True
             status = Status.ok
-        else:
-            status = self._getStatusFromResult(task, result)
 
-        if status == Status.ok and not task.dryRun:
+        if success and not task.dryRun:
             # read state file
             with open(statePath) as sf:
                 state = json.load(sf)
@@ -236,9 +254,11 @@ class TerraformConfigurator(ShellConfigurator):
         else:
             outputs = None
 
-        # XXX how to tell if modified?
-        # requires calling plan with -detailed-exitcode to set modified: 0 no change, 1 error, 2 modified (plan only)
-        yield task.done(status == Status.ok, result=result.__dict__, outputs=outputs)
+        # XXX is there a "Changing..." to check for?
+        modified = "Creating..." in result.stdout or "Destroying..." in result.stdout
+        yield task.done(
+            success, modified, status, result=result.__dict__, outputs=outputs
+        )
 
 
 # XXX implement discover:
