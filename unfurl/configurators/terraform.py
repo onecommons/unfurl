@@ -89,12 +89,12 @@ class TerraformConfigurator(ShellConfigurator):
         timeout = task.configSpec.timeout
         cmd = terraform + ["init"]
         result = self.runProcess(cmd, timeout=timeout, env=env, cwd=cwd, echo=echo)
-        if self._getStatusFromResult(task, result) != Status.ok:
+        if not self._handleResult(task, result):
             return None
 
         cmd = terraform + "providers schema -json".split(" ")
         result = self.runProcess(cmd, timeout=timeout, env=env, cwd=cwd, echo=False)
-        if self._getStatusFromResult(task, result) != Status.ok:
+        if not self._handleResult(task, result):
             return None
 
         try:
