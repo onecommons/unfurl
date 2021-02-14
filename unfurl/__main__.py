@@ -74,26 +74,29 @@ def cli(ctx, verbose=0, quiet=False, logfile=None, loglevel=None, tmp=None, **kw
     if tmp is not None:
         os.environ["UNFURL_TMPDIR"] = tmp
 
-    levels = [logging.INFO, logging.DEBUG, 5, 5, 5]
+    levels = [logging.INFO, 15, logging.DEBUG, 5, 5]
     if quiet:
-        logLevel = logging.CRITICAL
+        effectiveLogLevel = logging.CRITICAL
     else:
         # TRACE (5)
-        logLevel = levels[min(verbose, 3)]
+        effectiveLogLevel = levels[min(verbose, 3)]
 
-    if loglevel:  # UNFURL_LOGGING overrides command line
-        logLevel = dict(CRITICAL=50, ERROR=40, WARNING=30, INFO=20, DEBUG=10)[
+    if loglevel:  # UNFURL_LOGGING overrides command line -v
+        effectiveLogLevel = dict(CRITICAL=50, ERROR=40, WARNING=30, INFO=20, DEBUG=10)[
             loglevel.upper()
         ]
     # verbose: 0 == INFO, -1 == CRITICAL, >= 1 == DEBUG
-    if logLevel == logging.CRITICAL:
+    if effectiveLogLevel == logging.CRITICAL:
         verbose = -1
-    elif logLevel >= logging.INFO:
+    elif effectiveLogLevel >= logging.INFO:
         verbose = 0
-    else:  # must be DEBUG
+    elif effectiveLogLevel == 15:
+        effectiveLogLevel = logging.DEBUG  # XXX add logging.VERBOSE and start using it
         verbose = 1
+    else:  # must be DEBUG
+        verbose = 2
     ctx.obj["verbose"] = verbose
-    initLogging(logLevel, logfile)
+    initLogging(effectiveLogLevel, logfile)
 
 
 jobControlOptions = option_group(
