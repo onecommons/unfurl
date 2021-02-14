@@ -41,23 +41,25 @@ def getAnsibleResults(result, extraKeys=(), facts=()):
     result = result.clean_copy()
     logger.debug("playbook task result: %s", str(result._result))
     resultDict = {}
+    ignoredKeys = []
     # map keys in results to match the names that ShellConfigurator uses
     keyMap = {
-        "returncode": ["returncode"],
-        "msg": ["msg"],
-        "error": ["exception"],
-        "stdout": ["stdout", "module_stdout"],
-        "stderr": ["module_stderr"],
+        "returncode": "returncode",
+        "msg": "msg",
+        "exception": "error",
+        "stdout": "stdout",
+        "stderr": "stderr",
+        "module_stdout": "stdout",
+        "module_stderr": "stderr",
     }
     # other common keys: "result", "method", "diff", "invocation"
-    for name, keys in keyMap.items():
-        for key in keys:
-            if key in result._result:
-                resultDict[name] = result._result[key]
-                break
-    for key in extraKeys:
-        if key in result._result:
+    for key in result._result:
+        if key in keyMap:
+            resultDict[keyMap[key]] = result._result[key]
+        elif key in extraKeys:
             resultDict[key] = result._result[key]
+        else:
+            ignoredKeys.append(key)
 
     outputs = {}
     if facts:
@@ -66,6 +68,7 @@ def getAnsibleResults(result, extraKeys=(), facts=()):
             for fact in facts:
                 if fact in ansible_facts:
                     outputs[fact] = ansible_facts[fact]
+    resultDict["ignored"] = ignoredKeys
     return resultDict, outputs
 
 
@@ -243,7 +246,7 @@ class AnsibleConfigurator(TemplateConfigurator):
         return args
 
     def getResultKeys(self, task, results):
-        return []
+        return task.inputs.get("resultKeys", [])
 
     def processResult(self, task, result):
         self.processResultTemplate(

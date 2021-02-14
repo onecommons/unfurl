@@ -103,13 +103,13 @@ class AnsibleConfiguratorTest(unittest.TestCase):
 
     def test_configurator(self):
         """
-    test that runner figures out the proper tasks to run
-    """
+        test that runner figures out the proper tasks to run
+        """
         runner = Runner(YamlManifest(manifest))
         run1 = runner.run(JobOptions(resource="test1"))
         assert not run1.unexpectedAbort, run1.unexpectedAbort.getStackTrace()
         assert len(run1.workDone) == 1, run1.workDone
         result = list(run1.workDone.values())[0].result
         self.assertEqual(result.outputs, {"fact1": "test1", "fact2": "test"})
-        self.assertEqual(result.result, {"stdout": sys.executable})
+        self.assertEqual(result.result.get("stdout"), sys.executable)
         assert run1.status == Status.ok, run1.summary()
