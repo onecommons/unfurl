@@ -196,9 +196,7 @@ class ReadOnlyManifest(Manifest):
         if localEnv:
             self.context = localEnv.getContext(self.context)
         spec["inputs"] = self.context.get("inputs", spec.get("inputs", {}))
-        # instantiate the tosca template, adding any external repositories we'll need
-        self._setSpec(manifest)
-        assert self.tosca
+        self.updateRepositories(manifest)
 
     @property
     def uris(self):
@@ -265,7 +263,10 @@ class YamlManifest(ReadOnlyManifest):
         self, manifest=None, path=None, validate=True, localEnv=None, vault=None
     ):
         super(YamlManifest, self).__init__(manifest, path, validate, localEnv, vault)
+        # instantiate the tosca template
         manifest = self.manifest.expanded
+        self._setSpec(manifest)
+        assert self.tosca
         spec = manifest.get("spec", {})
         status = manifest.get("status", {})
 
@@ -434,7 +435,7 @@ class YamlManifest(ReadOnlyManifest):
         return (resource.name, status)
 
     def saveRequirement(self, resource):
-        if not resource.lastChange and resource.status == Status.ok:
+        if not resource.lastChange and not resource.localStatus > Status.ok:
             # no reason to serialize requirements that haven't been instantiated
             return None
         name, status = self.saveEntityInstance(resource)
@@ -442,7 +443,7 @@ class YamlManifest(ReadOnlyManifest):
         return (name, status)
 
     def saveCapability(self, resource):
-        if not resource.lastChange and resource.status == Status.ok:
+        if not resource.lastChange and not resource.localStatus > Status.ok:
             # no reason to serialize capabilities that haven't been instantiated
             return None
         return self.saveEntityInstance(resource)

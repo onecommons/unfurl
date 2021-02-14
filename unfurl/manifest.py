@@ -49,11 +49,13 @@ class Manifest(AttributeManager):
         self.specDigest = None
         self.repositories = {}
 
-    def _setSpec(self, config, projectRepositories=None):
+    def _setSpec(self, config):
         """
         Set the TOSCA service template.
         """
-        repositories = self.updateRepositories(config, projectRepositories or [])
+        repositories = {
+            name: repo.repository.tpl for name, repo in self.repositories.items()
+        }
         spec = config.get("spec", {})
         self.tosca = self._loadSpec(spec, self.path, repositories)
         self.specDigest = self.getSpecDigest(spec)
@@ -365,16 +367,17 @@ class Manifest(AttributeManager):
         self.repositories[repository.name] = repository
         return repository
 
-    def updateRepositories(self, config, inlineRepositories):
+    def updateRepositories(self, config, inlineRepositories=None):
         repositories = self._getRepositories(config)
         for name, tpl in repositories.items():
             if name not in self.repositories:
                 toscaRepository = Repository(name, tpl)
                 self.repositories[name] = RepoView(toscaRepository, None)
-        for repository in inlineRepositories:
-            if isinstance(repository, dict):
-                repository = Repository(repository.pop("name"), repository)
-            self.addRepository(None, repository, "")
+        if inlineRepositories:
+            for repository in inlineRepositories:
+                if isinstance(repository, dict):
+                    repository = Repository(repository.pop("name"), repository)
+                self.addRepository(None, repository, "")
         return self._setRepositories()
 
     @staticmethod
@@ -434,7 +437,7 @@ class Manifest(AttributeManager):
                 repositories["spec"] = repository
             else:
                 repositories["spec"] = repositories["self"]
-        return {name: repo.repository.tpl for name, repo in repositories.items()}
+        return {name: repo.repository.tpl for name, repo in self.repositories.items()}
 
     def loadYamlInclude(
         self, yamlConfig, templatePath, baseDir, warnWhenNotFound=False
@@ -485,6 +488,7 @@ class SnapShotManifest(Manifest):
         self.manifest = YamlConfig(
             oldManifest, manifest.path, loadHook=self.loadYamlInclude
         )
+        self.updateRepositories(oldManifest)
         expanded = self.manifest.expanded
         # just needs the spec, not root resource
         self._setSpec(expanded)

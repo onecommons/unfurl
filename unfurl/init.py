@@ -10,7 +10,6 @@ import datetime
 import sys
 import shutil
 from . import DefaultNames, getHomeConfigPath, __version__
-from .tosca import TOSCA_VERSION
 from .repo import Repo, GitRepo, splitGitUrl, isURLorGitPath
 from .util import UnfurlError
 from .localenv import LocalEnv, Project
@@ -127,6 +126,8 @@ def _createRepo(gitDir, ignore=True):
 
 
 def writeServiceTemplate(projectdir):
+    from .tosca import TOSCA_VERSION
+
     vars = dict(version=TOSCA_VERSION)
     return writeTemplate(
         projectdir, "service-template.yaml", "service-template.yaml.j2", vars
@@ -289,7 +290,8 @@ def createProject(
 def cloneLocalRepos(manifest, sourceProject, targetProject):
     # We need to clone repositories that are local to the source project
     # otherwise we won't be able to find them
-    for repoSpec in manifest.tosca.template.repositories.values():
+    for repoView in manifest.repositories.values():
+        repoSpec = repoView.repository
         if repoSpec.name == "self":
             continue
         repo = sourceProject.findGitRepoFromRepository(repoSpec)
@@ -493,7 +495,7 @@ def clone(source, dest, includeLocal=False, **options):
         dest = Repo.getPathForGitRepo(source)  # choose dest based on source url
     # XXX else: # we're assuming dest is directory, handle case where filename is included
 
-    mono = "mono" in options or "existing" in options
+    mono = options.get("mono") or options.get("existing")
     isRemote = isURLorGitPath(source)
     if isRemote:
         clonedProject, source = cloneRemoteProject(source, dest)
