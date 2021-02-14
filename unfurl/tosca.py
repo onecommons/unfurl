@@ -120,6 +120,10 @@ class ToscaSpec(object):
         self.groups = {
             g.name: GroupSpec(g, self) for g in self.template.topology_template.groups
         }
+        self.policies = {
+            p.name: PolicySpec(p, self)
+            for p in self.template.topology_template.policies
+        }
 
     @property
     def baseDir(self):
@@ -361,7 +365,7 @@ class EntitySpec(object):
 
     def __reflookup__(self, key):
         """Make attributes available to expressions"""
-        if key in ["name", "type", "uri", "groups"]:
+        if key in ["name", "type", "uri", "groups", "policies"]:
             return getattr(self, key)
         raise KeyError(key)
 
@@ -375,6 +379,10 @@ class EntitySpec(object):
         for g in self.spec.groups.values():
             if self.name in g.members:
                 yield g
+
+    @property
+    def policies(self):
+        return []
 
     def isCompatibleTarget(self, targetStr):
         if self.name == targetStr:
@@ -454,6 +462,19 @@ class NodeSpec(EntitySpec):
                 for name, artifact in self.toscaEntityTemplate.artifacts.items()
             }
         return self._artifacts
+
+    @property
+    def policies(self):
+        if not self.spec:
+            return
+        for p in self.spec.policies.values():
+            if p.toscaEntityTemplate.targets_type == "groups":
+                # the policy has groups as members, see if this node's groups is one of them
+                if p.members & set(g.name for g in self.groups):
+                    yield p
+            elif p.toscaEntityTemplate.targets_type == "node_templates":
+                if self.name in p.members:
+                    yield p
 
     @property
     def requirements(self):
@@ -846,3 +867,18 @@ class GroupSpec(EntitySpec):
     @property
     def memberGroups(self):
         return [self.spec.groups[m] for m in self.members if m in self.spec.groups]
+
+    @property
+    def policies(self):
+        if not self.spec:
+            return
+        for p in self.spec.policies.values():
+            if p.toscaEntityTemplate.targets_type == "groups":
+                if self.name in p.members:
+                    yield p
+
+
+class PolicySpec(EntitySpec):
+    def __init__(self, template, spec):
+        EntitySpec.__init__(self, template, spec)
+        self.members = set(template.targets_list)
