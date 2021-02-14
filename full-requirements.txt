@@ -1,7 +1,7 @@
 subprocess32;python_version<'3'
 docker[tls] # Apache 2.0
 openshift # Apache 2.0
-octodns # MIT
+# octodns==0.9.11 # MIT # currently unused
 ansible[azure]>=2.9.10,<2.10.0 # GPL 3
 boto # Apache 2.0
 boto3 # Apache 2.0

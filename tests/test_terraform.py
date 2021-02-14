@@ -9,6 +9,7 @@ from click.testing import CliRunner
 # python2.7 workarounds:
 import unfurl.configurators
 import unfurl.configurators.terraform
+import unfurl.yamlmanifest
 
 ensembleConfig = """
 apiVersion: unfurl/v1alpha1
@@ -89,8 +90,8 @@ class TerraformTest(unittest.TestCase):
 
     def test_terraform(self):
         """
-    test that runner figures out the proper tasks to run
-    """
+        test that runner figures out the proper tasks to run
+        """
         runner = CliRunner()
         with runner.isolated_filesystem():
             with open("unfurl.yaml", "w") as f:
