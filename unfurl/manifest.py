@@ -245,26 +245,29 @@ class Manifest(AttributeManager):
 
         resource = self._createEntityInstance(NodeInstance, rname, resourceSpec, parent)
 
-        resource._capabilities = []
-        for key, val in resourceSpec.get("capabilities", {}).items():
-            self._createEntityInstance(CapabilityInstance, key, val, resource)
+        # XXX need to merge serialized capabilities and requirements with inferred ones created at runtime
+        if resourceSpec.get("capabilities"):
+            resource._capabilities = []
+            for key, val in resourceSpec["capabilities"].items():
+                self._createEntityInstance(CapabilityInstance, key, val, resource)
 
-        resource._requirements = []
-        for key, val in resourceSpec.get("requirements", {}).items():
-            # parent will be the capability, should have already been created
-            capabilityId = val.get("capability")
-            if not capabilityId:
-                raise UnfurlError("requirement is missing capability %s" % key)
-            capability = capabilityId and self.getRootResource().query(capabilityId)
-            if not capability or not isinstance(capability, CapabilityInstance):
-                raise UnfurlError("can not find capability %s" % capabilityId)
-            if capability._relationships is None:
-                capability._relationships = []
-            requirement = self._createEntityInstance(
-                RelationshipInstance, key, val, capability
-            )
-            requirement.source = resource
-            resource.requirements.append(requirement)
+        if resourceSpec.get("requirements"):
+            resource._requirements = []
+            for key, val in resourceSpec["requirements"].items():
+                # parent will be the capability, should have already been created
+                capabilityId = val.get("capability")
+                if not capabilityId:
+                    raise UnfurlError("requirement is missing capability %s" % key)
+                capability = capabilityId and self.getRootResource().query(capabilityId)
+                if not capability or not isinstance(capability, CapabilityInstance):
+                    raise UnfurlError("can not find capability %s" % capabilityId)
+                if capability._relationships is None:
+                    capability._relationships = []
+                requirement = self._createEntityInstance(
+                    RelationshipInstance, key, val, capability
+                )
+                requirement.source = resource
+                resource.requirements.append(requirement)
 
         for key, val in resourceSpec.get("instances", {}).items():
             self.createNodeInstance(key, val, resource)
