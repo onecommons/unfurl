@@ -23,6 +23,7 @@ def serializeValue(value, **kw):
 
 class ResourceRef(object):
     # ABC requires 'parent', and '_resolve'
+    _templar = None
 
     def _getProp(self, name):
         if name == ".":

@@ -541,7 +541,7 @@ class YamlManifest(ReadOnlyManifest):
         if not self.manifest.config["lock"]:
             self.manifest.config["lock"] = lock
         else:
-            patchDict(self.manifest.config["lock"], lock, cls=CommentedMap)
+            patchDict(self.manifest.config["lock"], lock)
 
         # modify original to preserve structure and comments
         if "status" not in self.manifest.config:
@@ -549,7 +549,7 @@ class YamlManifest(ReadOnlyManifest):
         if not self.manifest.config["status"]:
             self.manifest.config["status"] = changed
         else:
-            patchDict(self.manifest.config["status"], changed, cls=CommentedMap)
+            patchDict(self.manifest.config["status"], changed)
 
         jobRecord = self.saveJobRecord(job)
         if job.workDone:

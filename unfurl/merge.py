@@ -449,7 +449,7 @@ def diffDicts(old, new, cls=dict):
 
 
 # XXX rename function, confusing name
-def patchDict(old, new, cls=dict):
+def patchDict(old, new, preserve=False):
     """
     Transform old into new while preserving old as much as possible.
     """
@@ -459,7 +459,7 @@ def patchDict(old, new, cls=dict):
             newval = new[key]
             if val != newval:
                 if isinstance(val, Mapping) and isinstance(newval, Mapping):
-                    old[key] = patchDict(val, newval, cls)
+                    old[key] = patchDict(val, newval, preserve)
                 elif isinstance(val, MutableSequence) and isinstance(
                     newval, MutableSequence
                 ):
@@ -470,7 +470,7 @@ def patchDict(old, new, cls=dict):
                     ]
                 else:
                     old[key] = newval
-        else:
+        elif not preserve:
             del old[key]
 
     for key in new:

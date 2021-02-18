@@ -4,8 +4,10 @@
 TOSCA implementation
 """
 from .tosca_plugins import TOSCA_VERSION
-from .util import UnfurlValidationError, getBaseDir
-from .eval import Ref
+from .util import UnfurlError, UnfurlValidationError, getBaseDir
+from .eval import Ref, RefContext
+from .result import ResourceRef, ResultsList
+from .merge import patchDict
 from toscaparser.tosca_template import ToscaTemplate
 from toscaparser.properties import Property
 from toscaparser.elements.entity_type import EntityType
@@ -13,7 +15,7 @@ from toscaparser.elements.statefulentitytype import StatefulEntityType
 import toscaparser.workflow
 import toscaparser.imports
 import toscaparser.artifacts
-from toscaparser.common.exception import ExceptionCollector, ValidationError
+from toscaparser.common.exception import ExceptionCollector
 import six
 import logging
 from ruamel.yaml.comments import CommentedMap
@@ -70,35 +72,44 @@ class ToscaSpec(object):
     ConfiguratorType = "unfurl.nodes.Configurator"
     InstallerType = "unfurl.nodes.Installer"
 
-    def __init__(self, toscaDef, inputs=None, instances=None, path=None, resolver=None):
-        self.discovered = None
-        if isinstance(toscaDef, ToscaTemplate):
-            self.template = toscaDef
-        else:
-            topology_tpl = toscaDef.get("topology_template")
-            if not topology_tpl:
-                toscaDef["topology_template"] = dict(
-                    node_templates={}, relationship_templates={}
-                )
+    def _overlay(self, overlays):
+        def _findMatches():
+            ExceptionCollector.start()  # clears previous errors
+            for expression, _tpl in overlays.items():
+                try:
+                    match = Ref(expression).resolveOne(
+                        RefContext(self.topology, trace=0)
+                    )
+                    if not match:
+                        continue
+                    if isinstance(match, ResultsList):
+                        for item in match:
+                            yield (item, _tpl)
+                    else:
+                        yield (match, _tpl)
+                except:
+                    ExceptionCollector.appendException(
+                        UnfurlError(
+                            'error evaluating decorator match expression "%s"'
+                            % expression,
+                            True,
+                        )
+                    )
 
-            if instances:
-                self.loadInstances(toscaDef, instances)
+        matches = list(_findMatches())
+        return [
+            patchDict(m[0].toscaEntityTemplate.entity_tpl, m[1], True) for m in matches
+        ]
 
-            logger.info("Validating TOSCA template at %s", path)
-            try:
-                # need to set a path for the import loader
-                self.template = ToscaTemplate(
-                    path=path,
-                    parsed_params=inputs,
-                    yaml_dict_tpl=toscaDef,
-                    import_resolver=resolver,
-                )
-            except ValidationError:
-                message = "\n".join(ExceptionCollector.getExceptionsReport(False))
-                raise UnfurlValidationError(
-                    "TOSCA validation failed for %s: \n%s" % (path, message),
-                    ExceptionCollector.getExceptions(),
-                )
+    def _parseTemplate(self, path, inputs, toscaDef, resolver):
+        # need to set a path for the import loader
+        self.template = ToscaTemplate(
+            path=path,
+            parsed_params=inputs,
+            yaml_dict_tpl=toscaDef,
+            import_resolver=resolver,
+            verify=False,
+        )
 
         self.nodeTemplates = {}
         self.installers = {}
@@ -108,15 +119,14 @@ class ToscaSpec(object):
             if template.is_derived_from(self.InstallerType):
                 self.installers[template.name] = nodeTemplate
             self.nodeTemplates[template.name] = nodeTemplate
-
         if hasattr(self.template, "relationship_templates"):
             # user-declared RelationshipTemplates, source and target will be None
             for template in self.template.relationship_templates:
                 relTemplate = RelationshipSpec(template, self)
                 self.relationshipTemplates[template.name] = relTemplate
-
+        self.loadImportedDefaultTemplates()
         self.topology = TopologySpec(self, inputs)
-        self.load_workflows()
+        self.loadWorkflows()
         self.groups = {
             g.name: GroupSpec(g, self) for g in self.template.topology_template.groups
         }
@@ -125,8 +135,69 @@ class ToscaSpec(object):
             for p in self.template.topology_template.policies
         }
 
+    def __init__(
+        self,
+        toscaDef,
+        spec=None,
+        path=None,
+        resolver=None,
+    ):
+        self.discovered = None
+        if spec:
+            inputs = spec.get("inputs")
+        else:
+            inputs = None
+
+        if isinstance(toscaDef, ToscaTemplate):
+            self.template = toscaDef
+        else:
+            topology_tpl = toscaDef.get("topology_template")
+            if not topology_tpl:
+                toscaDef["topology_template"] = dict(
+                    node_templates={}, relationship_templates={}
+                )
+
+            if spec:
+                self.loadInstances(toscaDef, spec)
+
+            logger.info("Validating TOSCA template at %s", path)
+            self._parseTemplate(path, inputs, toscaDef, resolver)
+            decorators = self.loadDecorators()
+            if decorators:
+                # copy errors before we clear them in _overlay
+                errorsSoFar = ExceptionCollector.exceptions[:]
+                self._overlay(decorators)
+                if ExceptionCollector.exceptionsCaught():
+                    # abort if overlay caused errors
+                    # report previously collected errors too
+                    ExceptionCollector.exceptions[:0] = errorsSoFar
+                    message = "\n".join(
+                        ExceptionCollector.getExceptionsReport(
+                            logger.getEffectiveLevel() < logging.INFO
+                        )
+                    )
+                    raise UnfurlValidationError(
+                        "TOSCA validation failed for %s: \n%s" % (path, message),
+                        ExceptionCollector.getExceptions(),
+                    )
+                # overlay modifies tosaDef in-place, try reparsing it
+                self._parseTemplate(path, inputs, toscaDef, resolver)
+
+            if ExceptionCollector.exceptionsCaught():
+                message = "\n".join(
+                    ExceptionCollector.getExceptionsReport(
+                        logger.getEffectiveLevel() < logging.INFO
+                    )
+                )
+                raise UnfurlValidationError(
+                    "TOSCA validation failed for %s: \n%s" % (path, message),
+                    ExceptionCollector.getExceptions(),
+                )
+
     @property
     def baseDir(self):
+        if self.template.path is None:
+            return None
         return getBaseDir(self.template.path)
 
     def _getProjectDir(self):
@@ -146,21 +217,35 @@ class ToscaSpec(object):
         self.discovered[name] = tpl
         return nodeSpec
 
-    def load_workflows(self):
+    def loadDecorators(self):
+        decorators = {}
+        for import_tpl in self.template.nested_tosca_tpls.values():
+            decorators.update(import_tpl.get("decorators") or {})
+        decorators.update(self.template.tpl.get("decorators") or {})
+        return decorators
+
+    def loadImportedDefaultTemplates(self):
+        decorators = {}
+        for topology in self.template.nested_topologies.values():
+            for nodeTemplate in topology.nodetemplates:
+                if (
+                    "default" in nodeTemplate.directives
+                    and nodeTemplate.name not in self.nodeTemplates
+                ):
+                    nodeSpec = NodeSpec(nodeTemplate, self)
+                    self.nodeTemplates[nodeSpec.name] = nodeSpec
+        return decorators
+
+    def loadWorkflows(self):
         # we want to let different types defining standard workflows like deploy
         # so we need to support importing workflows
         workflows = {
             name: [Workflow(w)]
             for name, w in self.template.topology_template.workflows.items()
         }
-        for import_tpl in self.template.nested_tosca_tpls.values():
-            importedWorkflows = import_tpl.get("topology_template", {}).get("workflows")
-            if importedWorkflows:
-                for name, val in importedWorkflows.items():
-                    workflows.setdefault(name, []).append(
-                        Workflow(toscaparser.workflow.Workflow(name, val))
-                    )
-
+        for topology in self.template.nested_topologies.values():
+            for name, w in topology.workflows.items():
+                workflows.setdefault(name, []).append(Workflow(w))
         self._workflows = workflows
 
     def getWorkflow(self, workflow):
@@ -323,7 +408,7 @@ def findProps(attributes, attributeDefs, matchfn):
 
 
 # represents a node, capability or relationship
-class EntitySpec(object):
+class EntitySpec(ResourceRef):
     # XXX need to define __eq__ for spec changes
     def __init__(self, toscaNodeTemplate, spec=None):
         self.toscaEntityTemplate = toscaNodeTemplate
@@ -363,8 +448,12 @@ class EntitySpec(object):
         else:
             self.defaultAttributes = {}
 
+    parent = None
+
     def __reflookup__(self, key):
         """Make attributes available to expressions"""
+        if key[0] == ".":
+            return self._getProp(key)
         if key in ["name", "type", "uri", "groups", "policies"]:
             return getattr(self, key)
         raise KeyError(key)
@@ -453,6 +542,15 @@ class NodeSpec(EntitySpec):
         self._requirements = None
         self._relationships = None
         self._artifacts = None
+
+    def __reflookup__(self, key):
+        try:
+            return super(NodeSpec, self).__reflookup__(key)
+        except KeyError:
+            relationship = self.getRelationship(key)
+            if not relationship:
+                raise KeyError(key)
+            return relationship
 
     @property
     def artifacts(self):
@@ -620,6 +718,17 @@ class RelationshipSpec(EntitySpec):
     def target(self):
         return self.capability.parentNode if self.capability else None
 
+    def __reflookup__(self, key):
+        try:
+            return super(RelationshipSpec, self).__reflookup__(key)
+        except KeyError:
+            if self.capability:
+                if self.capability.parentNode.isCompatibleTarget(key):
+                    return self.capability.parentNode
+                if self.capability.isCompatibleTarget(key):
+                    return self.capability
+            raise KeyError(key)
+
     def getUri(self):
         suffix = "~r~" + self.name
         return self.source.name + suffix if self.source else suffix
@@ -698,6 +807,10 @@ class CapabilitySpec(EntitySpec):
         self._defaultRelationships = None
 
     @property
+    def parent(self):
+        return self.parentNode
+
+    @property
     def artifacts(self):
         return self.parentNode.artifacts
 
@@ -732,11 +845,6 @@ class CapabilitySpec(EntitySpec):
             for relSpec in self.defaultRelationships
             if relSpec.isCompatibleType(relation)
         ]
-
-
-# XXX
-# class GroupSpec(EntitySpec):
-#  getNodeTemplates() getInstances(), getChildren()
 
 
 class TopologySpec(EntitySpec):
@@ -774,6 +882,24 @@ class TopologySpec(EntitySpec):
 
     def isCompatibleType(self, typeStr):
         return False
+
+    @property
+    def baseDir(self):
+        return self.spec.baseDir
+
+    def __reflookup__(self, key):
+        """Make attributes available to expressions"""
+        try:
+            return super(TopologySpec, self).__reflookup__(key)
+        except KeyError:
+            nodeTemplates = self.spec.nodeTemplates
+            nodeSpec = nodeTemplates.get(key)
+            if nodeSpec:
+                return nodeSpec
+            matches = [n for n in nodeTemplates.values() if n.isCompatibleType(key)]
+            if not matches:
+                raise KeyError(key)
+            return matches
 
 
 class Workflow(object):
@@ -836,6 +962,13 @@ class Artifact(EntitySpec):
     def file(self):
         return self.toscaEntityTemplate.file
 
+    @property
+    def baseDir(self):
+        if self.toscaEntityTemplate._source:
+            return getBaseDir(self.toscaEntityTemplate._source)
+        else:
+            return super(Artifact, self).baseDir
+
     def getPath(self, resolver=None):
         return self.getPathAndFragment(resolver)[0]
 
@@ -863,6 +996,8 @@ class GroupSpec(EntitySpec):
     def __init__(self, template, spec):
         EntitySpec.__init__(self, template, spec)
         self.members = template.members
+
+    # XXX getNodeTemplates() getInstances(), getChildren()
 
     @property
     def memberGroups(self):

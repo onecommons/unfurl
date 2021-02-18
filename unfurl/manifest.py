@@ -92,9 +92,7 @@ class Manifest(AttributeManager):
         ):
             # note: we only recorded the baseDir not the name of the included file
             path = toscaDef.baseDir
-        return ToscaSpec(
-            toscaDef, spec.get("inputs"), spec, path, self.getImportResolver()
-        )
+        return ToscaSpec(toscaDef, spec, path, self.getImportResolver())
 
     def getSpecDigest(self, spec):
         m = hashlib.sha1()  # use same digest function as git
