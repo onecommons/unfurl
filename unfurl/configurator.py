@@ -111,6 +111,7 @@ class ConfigurationSpec(object):
         self.outputs = outputs or {}
         self.preConditions = preConditions
         self.postConditions = postConditions
+        self.artifact = primary
 
     def findInvalidateInputs(self, inputs):
         if not self.inputSchema:
@@ -347,7 +348,10 @@ class TaskView(object):
                 vars["SOURCE"] = self.target.source.attributes
                 vars["TARGET"] = target.attributes
             # expose inputs lazily to allow self-referencee
-            self._inputs = ResultsMap(inputs, RefContext(self.target, vars))
+            ctx = RefContext(self.target, vars)
+            if self.configSpec.artifact and self.configSpec.artifact.baseDir:
+                ctx.baseDir = self.configSpec.artifact.baseDir
+            self._inputs = ResultsMap(inputs, ctx)
         return self._inputs
 
     @property
