@@ -161,13 +161,18 @@ class Repo(object):
                     "couldn't create directory, it already exists and isn't empty: %s"
                     % localRepoPath
                 )
-        branch = revision or "master"  # XXX
-        logger.info("Fetching %s (%s) to %s", gitUrl, branch, localRepoPath)
+        logger.info("Fetching %s %s to %s", gitUrl, revision or "", localRepoPath)
         progress = _ProgressPrinter()
         progress.gitUrl = gitUrl
         try:
+            kwargs = dict(recurse_submodules=True)
+            if revision:
+                kwargs["branch"] = revision
             repo = git.Repo.clone_from(
-                gitUrl, localRepoPath, progress, branch=branch, recurse_submodules=True
+                gitUrl,
+                localRepoPath,
+                progress,
+                **kwargs
             )
         except git.exc.GitCommandError as err:
             raise UnfurlError(
