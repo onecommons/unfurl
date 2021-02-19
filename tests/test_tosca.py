@@ -447,11 +447,11 @@ spec:
   service_template:
     topology_template:
       node_templates:
+        myCluster:
+          type: unfurl.nodes.K8sCluster
         defaultCluster:
           directives:
             - default
-          type: unfurl.nodes.K8sCluster
-        myCluster:
           type: unfurl.nodes.K8sCluster
         localhost:
           type: unfurl.nodes.Default

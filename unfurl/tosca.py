@@ -89,7 +89,7 @@ class ToscaSpec(object):
                         yield (match, _tpl)
                 except:
                     ExceptionCollector.appendException(
-                        UnfurlError(
+                        UnfurlValidationError(
                             'error evaluating decorator match expression "%s"'
                             % expression,
                             True,
@@ -696,6 +696,8 @@ class RelationshipSpec(EntitySpec):
                 if c.toscaEntityTemplate is template.capability:
                     self.capability = c
                     break
+            else:
+                raise UnfurlError('capability %s not found in %s for %s' % (template.capability.name, [c.name for c in targetNode.capabilities.values()], targetNode.name))
 
     @property
     def source(self):
