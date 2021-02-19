@@ -319,7 +319,8 @@ class EntityInstance(OperationalInstance, ResourceRef):
         self._attributes = attributes or {}
         self.parent = parent
         if parent:
-            getattr(parent, self.parentRelation).append(self)
+            p = getattr(parent, self.parentRelation)
+            p.append(self)
 
         self.template = template or self.templateType()
 
@@ -446,20 +447,21 @@ class CapabilityInstance(EntityInstance):
 
     @property
     def relationships(self):
-        # create relationship instances from the corresponding relationship templates
         if self._relationships is None:
             self._relationships = []
+        if len(self._relationships) != len(self.template.relationships):
+            # instantiate missing relationships (they are only added, never deleted)
+            instantiated = set(id(c.template) for c in self._relationships)
             for template in self.template.relationships:
-                # template will be a RelationshipSpec
-                assert template.source
-                # the constructor will add itself to _relationships
-                rel = RelationshipInstance(
-                    template.name, parent=self, template=template
-                )
-                # find the node instance that uses this requirement
-                sourceNode = self.root.findResource(template.source.name)
-                if sourceNode:
-                    rel.source = sourceNode
+                if id(template) not in instantiated:
+                    rel = RelationshipInstance(
+                        template.name, parent=self, template=template
+                    )
+                    assert rel in self._relationships
+                    # find the node instance that uses this requirement
+                    sourceNode = self.root.findResource(template.source.name)
+                    if sourceNode:
+                        rel.source = sourceNode
 
         return self._relationships
 
@@ -519,8 +521,8 @@ class NodeInstance(EntityInstance):
                 )
 
         # next two maybe initialized either by Manifest.createNodeInstance or by its property
-        self._capabilities = None
-        self._requirements = None
+        self._capabilities = []
+        self._requirements = []
         self.instances = []
         EntityInstance.__init__(self, name, attributes, parent, template, status)
 
@@ -533,44 +535,42 @@ class NodeInstance(EntityInstance):
         self.getInterface("inherit")
         self.getInterface("default")
 
+    def _findRelationship(self, relationship):
+        """
+        Find RelationshipInstance that has the give relationship template
+        """
+        assert relationship and relationship.capability and relationship.target
+        # find the Capability instance that corresponds to this relationship template's capability
+        targetNodeInstance = self.root.findResource(relationship.target.name)
+        assert targetNodeInstance, (
+            "target instance %s should have been already created"
+            % relationship.target.name
+        )
+        for cap in targetNodeInstance.capabilities:
+            if cap.template is relationship.capability:
+                for relInstance in cap.relationships:
+                    if relInstance.template is relationship:
+                        return relInstance
+        return None
+
     @property
     def requirements(self):
-        if self._requirements is None:
-
-            def findRelationship(name, template):
-                assert template.relationship  # template is a RequirementSpec
-                relationship = template.relationship
-                assert relationship and relationship.capability and relationship.target
-                # find the Capability instance that corresponds to this relationship template's capability
-                targetNodeInstance = self.root.findResource(relationship.target.name)
-                assert targetNodeInstance, (
-                    "target instance %s should have been already created"
-                    % relationship.target.name
-                )
-                # calling getCapabilities() will create any needed capability instances
-                capabilities = targetNodeInstance.getCapabilities(
-                    relationship.capability.name
-                )
-                if capabilities:  # they should have already been created
-                    # invoking the relationships property will create any needed relationship instances
-                    for relInstance in capabilities[0].relationships:
-                        if relInstance.source:
-                            if relInstance.source is self:
-                                return relInstance
-                        else:
-                            if relInstance.template.source == self.template:
-                                # this instance didn't exist when relInstance was created, assign source now
-                                relInstance.source = self
-                                return relInstance
-
-                raise UnfurlError(
-                    'can not find relation instance for requirement "%s" on node "%s"'
-                    % (name, self.name)
-                )
-
-            self._requirements = [
-                findRelationship(k, v) for (k, v) in self.template.requirements.items()
-            ]
+        # if self._requirements is None:
+        if len(self._requirements) != len(self.template.requirements):
+            # instantiate missing relationships (they are only added, never deleted)
+            instantiated = set(id(r.template) for r in self._requirements)
+            for name, template in self.template.requirements.items():
+                assert template.relationship
+                if id(template.relationship) not in instantiated:
+                    relInstance = self._findRelationship(template.relationship)
+                    if not relInstance:
+                        raise UnfurlError(
+                            'can not find relation instance for requirement "%s" on node "%s"'
+                            % (name, self.name)
+                        )
+                    assert template.relationship is relInstance.template
+                    assert self.template is relInstance.template.source
+                    self._requirements.append(relInstance)
 
         return self._requirements
 
@@ -586,14 +586,19 @@ class NodeInstance(EntityInstance):
 
     @property
     def capabilities(self):
-        if self._capabilities is None:
-            self._capabilities = []
+        if len(self._capabilities) != len(self.template.capabilities):
+            # instantiate missing capabilities (they are only added, never deleted)
+            instantiated = set(id(c.template) for c in self._capabilities)
             for name, template in self.template.capabilities.items():
-                # if capabilities:
-                #    # append index to name if multiple Capabilities exist for that name
-                #    name += str(len(capabilities))
-                # the new instance will be added to _capabilities
-                CapabilityInstance(template.name, parent=self, template=template)
+                if id(template) not in instantiated:
+                    # if capabilities:
+                    #    # append index to name if multiple Capabilities exist for that name
+                    #    name += str(len(capabilities))
+                    # the new instance will be added to _capabilities
+                    cap = CapabilityInstance(
+                        template.name, parent=self, template=template
+                    )
+                    assert cap in self._capabilities
 
         return self._capabilities
 
@@ -736,7 +741,6 @@ class TopologyInstance(NodeInstance):
         # add these as special child resources so they can be accessed like "::inputs::foo"
         self.inputs = NodeInstance("inputs", template.inputs, self)
         self.outputs = NodeInstance("outputs", template.outputs, self)
-        self._capabilities = []
         self._relationships = None
         self._tmpDir = None
 

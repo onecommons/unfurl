@@ -540,7 +540,7 @@ class NodeSpec(EntitySpec):
         EntitySpec.__init__(self, template, spec)
         self._capabilities = None
         self._requirements = None
-        self._relationships = None
+        self._relationships = []
         self._artifacts = None
 
     def __reflookup__(self, key):
@@ -579,10 +579,8 @@ class NodeSpec(EntitySpec):
         if self._requirements is None:
             self._requirements = {}
             nodeTemplate = self.toscaEntityTemplate
-            for req in nodeTemplate.requirements:
+            for (relTpl, req, reqDef) in nodeTemplate.relationships:
                 name, values = next(iter(req.items()))
-                # _get_explicit_relationship should add this the target's relationship_tpl if needed
-                reqDef, relTpl = nodeTemplate._get_explicit_relationship(req)
                 reqSpec = RequirementSpec(name, reqDef, self)
                 if relTpl.target:
                     nodeSpec = self.spec.getTemplate(relTpl.target.name)
@@ -612,12 +610,12 @@ class NodeSpec(EntitySpec):
         return self._getRelationshipSpecs()
 
     def _getRelationshipSpecs(self):
-        if self._relationships is None:
+        if len(self._relationships) != len(self.toscaEntityTemplate.relationship_tpl):
             # relationship_tpl is a list of RelationshipTemplates that target the node
-            self._relationships = [
-                RelationshipSpec(r, self.spec)
-                for r in self.toscaEntityTemplate.relationship_tpl
-            ]
+            rIds = set(id(r.toscaEntityTemplate) for r in self._relationships)
+            for r in self.toscaEntityTemplate.relationship_tpl:
+                if id(r) not in rIds:
+                    self._relationships.append(RelationshipSpec(r, self.spec, self))
         return self._relationships
 
     def getCapabilityInterfaces(self):
@@ -642,7 +640,6 @@ class NodeSpec(EntitySpec):
 
     def addRelationship(self, reqSpec):
         # find the relationship for this requirement:
-        self._relationships = None
         for relSpec in self._getRelationshipSpecs():
             # the RelationshipTemplate should have had the source node assigned by the tosca parser
             # XXX this won't distinguish between more than one relationship between the same two nodes
@@ -663,23 +660,6 @@ class NodeSpec(EntitySpec):
             )
             raise UnfurlValidationError(msg)
 
-        # figure out which capability the relationship targets:
-        for capability in self.capabilities.values():
-            if reqSpec.isCapable(capability):
-                assert reqSpec.relationship
-                assert (
-                    not reqSpec.relationship.capability
-                    or reqSpec.relationship.capability is capability
-                )
-                reqSpec.relationship.capability = capability
-                break
-        else:
-            capabilities = [c.name for c in self.capabilities.values()]
-            raise UnfurlValidationError(
-                'capabilities %s not found for requirement "%s" on node "%s"'
-                % (capabilities, reqSpec.name, self.name)
-            )
-
     @property
     def abstract(self):
         for name in ("select", "substitute"):
@@ -697,9 +677,10 @@ class RelationshipSpec(EntitySpec):
     Links a RequirementSpec to a CapabilitySpec.
     """
 
-    def __init__(self, template=None, spec=None):
+    def __init__(self, template=None, spec=None, targetNode=None):
         # template is a RelationshipTemplate
         # It is a full-fledged entity with a name, type, properties, attributes, interfaces, and metadata.
+        # its connected through target, source, capability
         # its RelationshipType has valid_target_types
         if not template:
             template = _defaultTopology.topology_template.relationship_templates[0]
@@ -709,6 +690,12 @@ class RelationshipSpec(EntitySpec):
         EntitySpec.__init__(self, template, spec)
         self.requirement = None
         self.capability = None
+        if targetNode:
+            assert targetNode.toscaEntityTemplate is template.target
+            for c in targetNode.capabilities.values():
+                if c.toscaEntityTemplate is template.capability:
+                    self.capability = c
+                    break
 
     @property
     def source(self):
@@ -779,19 +766,6 @@ class RequirementSpec(object):
 
     def getInterfaces(self):
         return self.relationship.getInterfaces() if self.relationship else []
-
-    def isCapable(self, capability):
-        # XXX consider self.requirements_tpl.node, node_filter
-        capabilityName = self.requirements_tpl.get("capability")
-        if capabilityName:
-            if capability.name == capabilityName or capability.isCompatibleType(
-                capabilityName
-            ):
-                return True
-        if self.relationship:
-            t = self.relationship.toscaEntityTemplate.type_definition
-            return any(capability.isCompatibleType(cap) for cap in t.valid_target_types)
-        return False
 
 
 class CapabilitySpec(EntitySpec):
@@ -870,6 +844,7 @@ class TopologySpec(EntitySpec):
         self.properties = {}
         self.defaultAttributes = {}
         self.attributeDefs = {}
+        self.capabilities = []
 
     def getInterfaces(self):
         # doesn't have any interfaces

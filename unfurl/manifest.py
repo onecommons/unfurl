@@ -244,15 +244,11 @@ class Manifest(AttributeManager):
                 raise UnfurlError("can not find parent instance %s" % pname)
 
         resource = self._createEntityInstance(NodeInstance, rname, resourceSpec, parent)
-
-        # XXX need to merge serialized capabilities and requirements with inferred ones created at runtime
         if resourceSpec.get("capabilities"):
-            resource._capabilities = []
             for key, val in resourceSpec["capabilities"].items():
                 self._createEntityInstance(CapabilityInstance, key, val, resource)
 
         if resourceSpec.get("requirements"):
-            resource._requirements = []
             for key, val in resourceSpec["requirements"].items():
                 # parent will be the capability, should have already been created
                 capabilityId = val.get("capability")

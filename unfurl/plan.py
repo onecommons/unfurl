@@ -930,14 +930,14 @@ def orderTemplates(templates, filter=None, interface=None):
 
 def getAncestorTemplates(source):
     # note: opposite direction as NodeSpec.relationships
-    for (rel, req) in source.relationships:
+    for (rel, req, reqDef) in source.relationships:
         for ancestor in getAncestorTemplates(rel.target):
             yield ancestor
     yield source
 
 
 def findParentTemplate(source):
-    for rel, req in source.relationships:
+    for rel, req, reqDef in source.relationships:
         if rel.type == "tosca.relationships.HostedOn":
             return rel.target
         return None

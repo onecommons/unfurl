@@ -99,8 +99,18 @@ class HelmTest(unittest.TestCase):
         f.close()
 
         runner = Runner(YamlManifest(manifest))
+        run1 = runner.run(
+            JobOptions(planOnly=True, verbose=3, startTime=1)
+        )
+        mysql_release = runner.manifest.rootResource.findResource("mysql_release")
+        query = ".::.requirements::[.name=host]::.target::name"
+        res = mysql_release.query(query)
+        assert res == 'unfurl-helm-unittest'
 
-        run1 = runner.run(JobOptions(dryrun=False, verbose=3, startTime=1))
+        runner = Runner(YamlManifest(manifest))
+        run1 = runner.run(
+            JobOptions(dryrun=False, verbose=3, startTime=1)
+        )
         assert not run1.unexpectedAbort, run1.unexpectedAbort.getStackTrace()
         summary = run1.jsonSummary()
         # runner.manifest.statusSummary()
@@ -125,18 +135,19 @@ class HelmTest(unittest.TestCase):
 
     def test_undeploy(self):
         runner = Runner(YamlManifest(manifest))
-        # runner.manifest.statusSummary()
+        # print('load');  runner.manifest.statusSummary()
         run = runner.run(JobOptions(workflow="check", startTime=2))
         summary = run.jsonSummary()
         assert not run.unexpectedAbort, run.unexpectedAbort.getStackTrace()
 
-        # runner.manifest.statusSummary()
+        # print('check'); runner.manifest.statusSummary()
         run2 = runner.run(
             JobOptions(workflow="undeploy", startTime=3, destroyunmanaged=True)
         )
 
         assert not run2.unexpectedAbort, run2.unexpectedAbort.getStackTrace()
         summary = run2.jsonSummary()
+        # print('undeploy'); runner.manifest.statusSummary()
 
         # note! if tests fail may need to run:
         #      helm uninstall mysql-test -n unfurl-helm-unittest
