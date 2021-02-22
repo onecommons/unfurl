@@ -16,7 +16,13 @@ from .result import serializeValue, ChangeRecord
 from .util import UnfurlError, UnfurlTaskError, toEnum
 from .merge import mergeDicts
 from .runtime import OperationalInstance
-from .configurator import TaskView, ConfiguratorResult, TaskRequest, JobRequest
+from .configurator import (
+    TaskView,
+    ConfiguratorResult,
+    TaskRequest,
+    JobRequest,
+    Dependency,
+)
 from .plan import Plan
 from .localenv import LocalEnv
 from . import display, initLogging, configurators
@@ -265,35 +271,33 @@ class ConfigTask(ConfigChange, TaskView):
         self.changeList.append(changes)
         return changes
 
-    # currently unused...
-    # def hasInputsChanged(self):
-    #     """
-    # Evaluate configuration spec's inputs and compare with the current inputs' values
-    # """
-    #     # XXX this isn't set right now
-    #     _parameters = None
-    #     if self.lastConfigChange:
-    #         changeset = self._manifest.loadConfigChange(self.lastConfigChange)
-    #         _parameters = changeset.inputs
-    #     if not _parameters:
-    #         return not not self.inputs
-    #
-    #     if set(self.inputs.keys()) != set(_parameters.keys()):
-    #         return True  # params were added or removed
-    #
-    #     # XXX3 not all parameters need to be live
-    #     # add an optional liveParameters attribute to config spec to specify which ones to check
-    #
-    #     # compare old with new
-    #     for name, val in self.inputs.items():
-    #         if serializeValue(val) != _parameters[name]:
-    #             return True
-    #         # XXX if the value changed since the last time we checked
-    #         # if Dependency.hasValueChanged(val, lastChecked):
-    #         #  return True
-    #     return False
+    def hasInputsChanged(self):
+        """
+        Evaluate configuration spec's inputs and compare with the current inputs' values
+        """
+        return False
+
+        # XXX
+        _parameters = None
+        lastConfigChange = self.findLastConfigureOperation()
+        if lastConfigChange:
+            changeset = self._manifest.loadConfigChange(lastConfigChange)
+            _parameters = changeset.inputs
+        if not _parameters:
+            return not not self.inputs
+
+        # isn't it too early for this??
+        inputs = self.getCurrentInputs(lastConfigChange)
+        if set(inputs.keys()) != set(_parameters.keys()):
+            return True  # params were added or removed
+
+        # XXX calculate and compare digests
+        return False
 
     def hasDependenciesChanged(self):
+        # XXX artifacts
+        # XXX identity of requirements (how? what about imported nodes? instance keys?)
+        # dynamic dependencies:
         return any(d.hasChanged(self) for d in self.dependencies.values())
 
     def refreshDependencies(self):
@@ -445,9 +449,16 @@ class Job(ConfigChange):
                     result = oldResult
                     continue
 
-                result = yield self.createTask(
-                    configSpec, req.target, reason=req.reason
-                )
+                task = self.createTask(configSpec, req.target, reason=req.reason)
+                if (
+                    req.reason == "config changed"
+                    and not task.hasInputsChanged()
+                    and not task.hasDependenciesChanged()
+                ):
+                    result = None  # nothing change we don't need to run this task
+                    continue
+
+                result = yield task
         except StopIteration:
             pass
 
@@ -642,7 +653,7 @@ class Job(ConfigChange):
         tasks = sorted(tasks, key=key)
         stats = dict(total=len(tasks), ok=0, error=0, unknown=0, skipped=0)
         for k, g in itertools.groupby(tasks, key):
-            if not k:
+            if not k:  # is a Status
                 stats["skipped"] = len(list(g))
             else:
                 stats[k.name] = len(list(g))

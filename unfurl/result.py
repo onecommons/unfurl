@@ -518,6 +518,11 @@ class ResultsMap(Results, MutableMapping):
             if isinstance(v, Result)
         )
 
+    def getResolved(self):
+        return dict(
+            (key, v) for key, v in self._attributes.items() if isinstance(v, Result)
+        )
+
     def __contains__(self, key):
         return key in self._attributes
 
