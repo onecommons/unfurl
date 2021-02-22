@@ -354,14 +354,14 @@ class Manifest(AttributeManager):
     def addRepository(self, repo, toscaRepository, file_name):
         repository = self.repositories.get(toscaRepository.name)
         if repository:
+            repo = repo or repository.repo
             if (
                 repository.repo and repository.repo != repo
             ) or repository.repository.tpl != toscaRepository.tpl:
                 raise UnfurlError(
                     'Repository "%s" already defined' % toscaRepository.name
                 )
-            repository = RepoView(toscaRepository, repo, file_name)
-        self.repositories[repository.name] = repository
+        self.repositories[repository.name] = RepoView(toscaRepository, repo, file_name)
         return repository
 
     def updateRepositories(self, config, inlineRepositories=None):
@@ -437,7 +437,13 @@ class Manifest(AttributeManager):
         return {name: repo.repository.tpl for name, repo in self.repositories.items()}
 
     def loadYamlInclude(
-        self, yamlConfig, templatePath, baseDir, warnWhenNotFound=False
+        self,
+        yamlConfig,
+        templatePath,
+        baseDir,
+        warnWhenNotFound=False,
+        expanded=None,
+        check=False,
     ):
         """
         This is called while the YAML config is being loaded.
@@ -455,13 +461,27 @@ class Manifest(AttributeManager):
                 # replace spec with just its name
                 artifactTpl["repository"] = reponame
                 inlineRepository = repo
-            artifact = Artifact(artifactTpl, path=baseDir)
         else:
-            artifact = Artifact(dict(file=templatePath), path=baseDir)
+            artifactTpl = dict(file=templatePath)
+
+        if check:
+            if not inlineRepository and "repository" in artifactTpl:
+                reponame = artifactTpl["repository"]
+                if reponame in ["spec", "self", "unfurl"]:  # builtin
+                    return True
+                repositories = self._getRepositories(expanded)
+                return reponame in repositories
+            return True
+
+        artifact = Artifact(artifactTpl, path=baseDir)
+
+        extraRepos = []
+        if inlineRepository:
+            extraRepos.append(inlineRepository)
 
         tpl = CommentedMap()
         tpl["repositories"] = self.updateRepositories(
-            yamlConfig.config, [inlineRepository] if inlineRepository else []
+            expanded or yamlConfig.config, extraRepos
         )
         loader = toscaparser.imports.ImportsLoader(
             None,

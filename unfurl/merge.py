@@ -168,11 +168,11 @@ def _jsonPointerValidate(pointer):
     return None
 
 
-def getTemplate(doc, key, value, path, cls):
+def getTemplate(doc, key, value, path, cls, includes=None):
     template = doc
     templatePath = None
     if key.include:
-        value, template, baseDir = doc.loadTemplate(value, key.maybe)
+        value, template, baseDir = doc.loadTemplate(value, key.maybe, doc)
         if template is None:  # include wasn't not found and key.maybe
             return None
         cls = makeMapWithBase(doc, baseDir)
@@ -202,7 +202,8 @@ def getTemplate(doc, key, value, path, cls):
                         'recursive include "%s" in "%s" when including %s'
                         % (templatePath, path, key.key)
                     )
-            includes = CommentedMap()
+            if includes is None:
+                includes = CommentedMap()
             template = expandDict(doc, path, includes, template, cls=cls)
     finally:
         if key.include:
@@ -256,9 +257,12 @@ def _findTemplate(doc, key, path, cls, fail):
     return template, templatePath
 
 
-def hasTemplate(doc, key, path, cls):
+def hasTemplate(doc, key, value, path, cls):
     if key.include:
-        return hasattr(doc, "loadTemplate")
+        loadTemplate = getattr(doc, "loadTemplate", None)
+        if not loadTemplate:
+            return False
+        return doc.loadTemplate(value, key.maybe, doc, True)
     return _findTemplate(doc, key, path, cls, False) is not None
 
 
@@ -267,6 +271,7 @@ class _MissingInclude(object):
         self.key = key
         self.value = value
 
+    # only include key so the doc will doc look like the original string (for round-trip parsing)
     def __repr__(self):
         return self.key.key
 
@@ -331,13 +336,13 @@ def expandDict(doc, path, includes, current, cls=dict):
             if not mergeKey:
                 cp[key] = value
                 continue
-            foundTemplate = hasTemplate(doc, mergeKey, path, cls)
+            foundTemplate = hasTemplate(doc, mergeKey, value, path, cls)
             if not foundTemplate:
                 includes.setdefault(path, []).append(_MissingInclude(mergeKey, value))
                 cp[key] = value
                 continue
             includes.setdefault(path, []).append((mergeKey, value))
-            template = getTemplate(doc, mergeKey, value, path, cls)
+            template = getTemplate(doc, mergeKey, value, path, cls, includes)
             if isinstance(template, Mapping):
                 templates.append(template)
             elif mergeKey.include and template is None:
@@ -558,11 +563,13 @@ def restoreIncludes(includes, originalDoc, changedDoc, cls=dict):
             if includeKey.include:
                 ref = None
                 continue
-            stillHasTemplate = hasTemplate(changedDoc, includeKey, key, cls)
+            stillHasTemplate = hasTemplate(
+                changedDoc, includeKey, includeValue, key, cls
+            )
             if stillHasTemplate:
                 template = getTemplate(changedDoc, includeKey, includeValue, key, cls)
             else:
-                if hasTemplate(originalDoc, includeKey, key, cls):
+                if hasTemplate(originalDoc, includeKey, includeValue, key, cls):
                     template = getTemplate(
                         originalDoc, includeKey, includeValue, key, cls
                     )
@@ -588,7 +595,7 @@ def restoreIncludes(includes, originalDoc, changedDoc, cls=dict):
 
             if not stillHasTemplate:
                 if includeValue != "raw":
-                    if hasTemplate(originalDoc, includeKey, key, cls):
+                    if hasTemplate(originalDoc, includeKey, includeValue, key, cls):
                         template = getTemplate(originalDoc, includeKey, "raw", key, cls)
                     else:
                         template = getTemplate(

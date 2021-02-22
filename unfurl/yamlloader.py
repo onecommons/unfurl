@@ -426,7 +426,22 @@ class YamlConfig(object):
         with open(path, "w") as f:
             f.write(output.getvalue())
 
-    def loadInclude(self, templatePath, warnWhenNotFound=False):
+    def loadInclude(
+        self, templatePath, warnWhenNotFound=False, expanded=None, check=False
+    ):
+        if check:
+            if self.loadHook:
+                return self.loadHook(
+                    self,
+                    templatePath,
+                    self.baseDirs[-1],
+                    warnWhenNotFound,
+                    expanded,
+                    check,
+                )
+            else:
+                return True
+
         if templatePath == self.baseDirs[-1]:  # pop hack
             self.baseDirs.pop()
             return
@@ -452,7 +467,7 @@ class YamlConfig(object):
             baseDir = self.baseDirs[-1]
             if self.loadHook:
                 path, template = self.loadHook(
-                    self, templatePath, baseDir, warnWhenNotFound
+                    self, templatePath, baseDir, warnWhenNotFound, expanded
                 )
             else:
                 path, template = self.loadYaml(key, baseDir, warnWhenNotFound)
