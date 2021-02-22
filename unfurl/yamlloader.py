@@ -31,6 +31,7 @@ from .util import (
     UnfurlError,
     UnfurlValidationError,
     findSchemaErrors,
+    getBaseDir,
 )
 from .merge import (
     expandDoc,
@@ -348,7 +349,7 @@ class YamlConfig(object):
 
     def getBaseDir(self):
         if self.path:
-            return os.path.dirname(self.path)
+            return getBaseDir(self.path)
         else:
             return "."
 
