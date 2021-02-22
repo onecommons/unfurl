@@ -109,12 +109,13 @@ node_types:
                       tempfile:
                         eval:
                           $inputs::chart_values
+              # XXX if still deploying readyState should be set to pending instead of ok but delegate the check to this release
               resultTemplate: |
                 {%if returncode == 0 %}
                 {% set json = stdout | from_json %}
                 {%for doc in json.manifest | from_yaml_all %}
                   {%if doc.kind is defined %}
-                  - name: {{doc.kind}}-{{doc.metadata.namespace }}-{{ doc.metadata.name }}
+                  - name: {{doc.kind}}-{{doc.metadata.namespace | default('') }}-{{ doc.metadata.name }}
                     {%if doc.metadata.namespace is not defined %}
                     parent: HOST
                     {% endif %}
@@ -138,7 +139,7 @@ node_types:
                                 {%- elif json.info.status=='superseded' %}degraded
                                 {%- elif json.info.status=='deployed' %}ok
                                 {%- elif json.info.status=='failed' %}error
-                                {%- else %}unknown{%- endif%}
+                                {%- else %}ok{%- endif%}
                   {%endif%}
                 {% endfor %}
                   - name: SELF
@@ -151,7 +152,7 @@ node_types:
             implementation: Delegate
             inputs:
               operation: Helm.execute
-              helmcmd: '{{ "update" if ".::.present" | eval else "install"}}'
+              helmcmd: '{{ "upgrade" if ".::.present" | eval else "install"}}'
           delete:
             implementation: unfurl.configurators.ShellConfigurator
             inputs:

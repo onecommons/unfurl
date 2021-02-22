@@ -691,11 +691,13 @@ class DeployPlan(Plan):
                 if True:  # XXX if isMinorDifference(template, oldTemplate)
                     return "update"
 
+        reason = self.checkForRepair(resource)
         # there isn't a new config to run, see if the last applied config needs to be re-run
-        # XXX: if (jobOptions.upgrade or jobOptions.update or jobOptions.force):
-        #  if (configTask.hasInputsChanged() or configTask.hasDependenciesChanged()) and
-        #    return 'config changed', configTask.configSpec
-        return self.checkForRepair(resource)
+        if not reason and (
+            jobOptions.upgrade or jobOptions.update
+        ):  # note: update is true by default
+            return "config changed"
+        return reason
 
     def checkForRepair(self, instance):
         jobOptions = self.jobOptions
@@ -985,38 +987,6 @@ def getOperationalDependents(resource, seen=None):
 #     """
 #   First make sure the resource conforms to the expected template (type, properties, attributes, capabilities, requirements, etc.)
 #   Then for each dependency that corresponds to a required relationship, call validateNode() on those resources with the declared type or template for the relationship
-#   """
-#
-#
-# def buildCreateExecutionPlan(self):
-#     """
-#   move Configurator nodes to separate list
-#   start with root node template,
-#   configuratorTemplate = find Configurator node for creation,
-#   self.add(self.buildCreateExecutionPlan(configuratorTemplate))
-#   return # that's all we need, the rest is dynamic, for each new resource, find Configurator for every missing capability and requirement
-#   """
-#
-#
-# def buildCreateStaticExecutionPlan(self):
-#     """
-#   Build a static plan by using the 'provides' property to estimate what the
-#   configuration will create and then recursively find missing capabilities and requirements and then the configurators to run
-#   """
-#     start = self.buildCreateExecutionPlan(self.rootNodeTemplate)
-#
-#
-# def buildUpgradeExecutionPlan():
-#     """
-#   Same as buildCreateExecutionPlan except look for existing resources
-#   if it exists, see if it needs upgrading, if it doesn't then find create configurator
-#   Upgrading:
-#     compare resource with spec,
-#     if different add configurators to replace exisiting configuration
-#     for each requirement not in dependencies, add configurator
-#     for each dependency on requirement, see if corresponding requirement in spec
-#       if not, remove dependency
-#       if it is, call buildUpgradeExecutionPlan on the target resource with the target node type or template
 #   """
 #
 #

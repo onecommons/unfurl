@@ -24,7 +24,8 @@ spec:
 
         k8sNamespace:
          type: unfurl.nodes.K8sNamespace
-         # requirements: # XXX
+         # these unittests don't define a k8sCluster so we need to comment this out
+         # requirements:
          #   - host: k8sCluster
          properties:
            name: unfurl-helm-unittest
