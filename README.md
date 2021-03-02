@@ -35,7 +35,7 @@ Unfurl integrates with the deployment tools you are already using, like Ansible,
 
 # Installation
 
-`unfurl` is available on [PyPI](https://pypi.org/project/unfurl/). You can install using `pip`:
+`unfurl` is available on [PyPI](https://pypi.org/project/unfurl/). You can install using `pip` (or `pip3`):
 
 `pip install unfurl`
 
@@ -47,11 +47,9 @@ By default `unfurl` creates a virtual Python environment to run in so it only in
 
 Linux or MacOs
 
-Python (2.7, 3.7, 3.8, or 3.9); git
+Python (2.7, 3.6, 3.7, 3.8, or 3.9); git
 
 Optional: docker
-
-If needed, Unfurl will download and install local copies of the following: Ansible, Terraform, gCloud, Supervisor, Helm, and asdf.
 
 ## Developing
 
@@ -65,7 +63,7 @@ To build a distribution package run:
 
 You can now install this package with pip, for example:
 
-`pip install ./dist/unfurl-0.0.1.dev183-py2.py3-none-any.whl`
+`pip install ./dist/unfurl-0.2.2.dev3-py2.py3-none-any.whl`
 
 ### Running unit tests
 
