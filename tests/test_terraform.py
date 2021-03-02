@@ -10,6 +10,7 @@ from click.testing import CliRunner
 import unfurl.configurators
 import unfurl.configurators.terraform
 import unfurl.yamlmanifest
+import ansible.utils.unsafe_proxy
 
 ensembleConfig = """
 apiVersion: unfurl/v1alpha1
@@ -53,7 +54,7 @@ spec:
                     resultTemplate:
                         attributes:
                           id: "{{ resources[0].instances[0].attributes.id }}"
-                          availability_zone: "{{ outputs.availability_zone.value }}"
+                          availability_zone: "{{ outputs.availability_zone }}"
                           tags: "{{ resources[0].instances[0].attributes.tags }}"
 """
 

@@ -1,14 +1,13 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
 from ..util import saveToFile, UnfurlTaskError
-from .shell import ShellConfigurator, which
+from .shell import ShellConfigurator
 from ..support import getdir, abspath, Status, writeFile
 import json
 import os
 import os.path
 import six
 import re
-from ansible.utils.unsafe_proxy import wrap_var
 
 
 def _getEnv(env, verbose, dataDir):
@@ -249,10 +248,7 @@ class TerraformConfigurator(ShellConfigurator):
             state = markSensitive(providerSchema, state, task, self.sensitiveNames)
             # save state file in home as yaml, encrypting sensitive values
             writeFile(ctx, state, "terraform.tfstate.yaml", "home")
-            outputs = {
-                name: wrap_var(attrs["value"])
-                for name, attrs in state["outputs"].items()
-            }
+            outputs = {name: attrs["value"] for name, attrs in state["outputs"].items()}
             state.update(result.__dict__)
             state["outputs"] = outputs  # replace outputs
             self.processResultTemplate(task, state)
