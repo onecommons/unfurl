@@ -28,7 +28,7 @@ def createUnrelatedRepo(gitDir):
 
 
 installDirs = [
-    ("terraform", "0.12.29", "bin"),
+    ("terraform", "0.13.6", "bin"),
     ("gcloud", "313.0.0", "bin"),
     ("helm", "3.3.4", "bin"),
 ]

@@ -717,6 +717,9 @@ class TaskView(object):
         newResources = []
         newResourceSpecs = []
         for resourceSpec in resources:
+            # we might have items that aren't resource specs
+            if not isinstance(resourceSpec, collections.Mapping):
+                continue
             originalResourceSpec = resourceSpec
             try:
                 rname = resourceSpec.get("name", "SELF")
@@ -726,6 +729,7 @@ class TaskView(object):
                     existingResource = self.findInstance(rname)
 
                 if existingResource:
+                    updated = False
                     # XXX2 if spec is defined (not just status), there should be a way to
                     # indicate this should replace an existing resource or throw an error
                     if "readyState" in resourceSpec:
@@ -736,6 +740,7 @@ class TaskView(object):
                             existingResource.localStatus = operational.localStatus
                         if operational.state is not None:
                             existingResource.state = operational.state
+                        updated = True
 
                     attributes = resourceSpec.get("attributes")
                     if attributes:
@@ -749,7 +754,10 @@ class TaskView(object):
                                 value,
                                 existingResource.name,
                             )
-                    logger.info("updating resources %s", existingResource.name)
+                        updated = True
+
+                    if updated:
+                        logger.info("updating resources %s", existingResource.name)
                     continue
 
                 pname = resourceSpec.get("parent")

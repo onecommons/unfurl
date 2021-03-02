@@ -157,6 +157,32 @@ node_types:
   unfurl.nodes.AWSAccount:
     derived_from: unfurl.nodes.CloudAccount
 
+  # https://cloud.google.com/resource-manager/docs/cloud-platform-resource-hierarchy
+  # https://cloud.google.com/resource-manager/docs/super-admin-best-practices
+  unfurl.nodes.GoogleCloudObject:
+    derived_from: tosca.nodes.Root
+
+  unfurl.nodes.unfurl.nodes.GoogleCloudResource:
+    derived_from: unfurl.nodes.GoogleCloudObject
+
+  unfurl.nodes.GoogleCloudOrganization:
+    derived_from: unfurl.nodes.GoogleCloudResource
+
+  unfurl.nodes.GoogleCloudFolder:
+    derived_from: unfurl.nodes.GoogleCloudResource
+    requirements:
+      host: unfurl.nodes.GoogleCloudResource
+
+  unfurl.nodes.GoogleCloudProject:
+    derived_from: unfurl.nodes.GoogleCloudObject
+    requirements:
+      host: unfurl.nodes.GoogleCloudResource
+      occurrences: [0, 1]
+    properties:
+      billing_account:
+        type: string
+        required: false
+
 data_types:
   unfurl.datatypes.EnvVar:
     derived_from: tosca.datatypes.Root
