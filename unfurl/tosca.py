@@ -200,12 +200,16 @@ class ToscaSpec(object):
             return None
         return getBaseDir(self.template.path)
 
-    def _getProjectDir(self):
+    def _getProjectDir(self, home=False):
         # hacky
         if self.template.import_resolver:
             manifest = self.template.import_resolver.manifest
-            if manifest.localEnv and manifest.localEnv.project:
-                return manifest.localEnv.project.projectRoot
+            if manifest.localEnv:
+                if home:
+                    if manifest.localEnv.homeProject:
+                        return manifest.localEnv.homeProject.projectRoot
+                elif manifest.localEnv.project:
+                    return manifest.localEnv.project.projectRoot
         return None
 
     def addNodeTemplate(self, name, tpl):
@@ -697,7 +701,14 @@ class RelationshipSpec(EntitySpec):
                     self.capability = c
                     break
             else:
-                raise UnfurlError('capability %s not found in %s for %s' % (template.capability.name, [c.name for c in targetNode.capabilities.values()], targetNode.name))
+                raise UnfurlError(
+                    "capability %s not found in %s for %s"
+                    % (
+                        template.capability.name,
+                        [c.name for c in targetNode.capabilities.values()],
+                        targetNode.name,
+                    )
+                )
 
     @property
     def source(self):

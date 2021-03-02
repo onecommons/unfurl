@@ -208,7 +208,9 @@ def _getbaseDir(ctx, name=None):
     "tmp":   A temporary directory for the instance (removed after unfurl exits)
     "spec.src": The directory of the source file the current instance's template appears in.
     "spec.home": The "home" directory of the source file the current instance's template.
-    "spec.local": The "local" directory of the source file the current instance's template.
+    "spec.local": The "local" directory of the source file the current instance's template
+    "project": The root directory of the current project.
+    "unfurl.home": The location of home project (UNFURL_HOME).
 
     Otherwise look for a repository with the given name and return its path or None if not found.
     """
@@ -227,6 +229,8 @@ def _getbaseDir(ctx, name=None):
         return os.path.join(instance.baseDir, instance.name, "local")
     elif name == "project":
         return instance.template.spec._getProjectDir() or instance.baseDir
+    elif name == "unfurl.home":
+        return instance.template.spec._getProjectDir(True) or instance.baseDir
     else:
         start, sep, rest = name.partition(".")
         if sep:
