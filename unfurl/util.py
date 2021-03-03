@@ -26,7 +26,7 @@ from ruamel.yaml.scalarstring import ScalarString, FoldedScalarString
 from ansible.parsing.yaml.objects import AnsibleVaultEncryptedUnicode
 from ansible.parsing.vault import VaultEditor
 from ansible.module_utils._text import to_text, to_bytes, to_native  # BSD licensed
-from ansible.utils.unsafe_proxy import AnsibleUnsafeText, AnsibleUnsafeBytes
+from ansible.utils.unsafe_proxy import AnsibleUnsafeText, AnsibleUnsafeBytes, wrap_var
 import warnings
 import codecs
 import io

@@ -1,6 +1,6 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
-from ..util import saveToFile, UnfurlTaskError
+from ..util import saveToFile, UnfurlTaskError, wrap_var
 from .shell import ShellConfigurator
 from ..support import getdir, abspath, Status, writeFile
 import json
@@ -8,7 +8,6 @@ import os
 import os.path
 import six
 import re
-from ansible.utils.unsafe_proxy import wrap_var
 
 
 def _getEnv(env, verbose, dataDir):

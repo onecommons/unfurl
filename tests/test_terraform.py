@@ -10,7 +10,6 @@ from click.testing import CliRunner
 import unfurl.configurators
 import unfurl.configurators.terraform
 import unfurl.yamlmanifest
-import ansible.utils.unsafe_proxy
 
 ensembleConfig = """
 apiVersion: unfurl/v1alpha1
