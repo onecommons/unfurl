@@ -26,6 +26,7 @@ from ruamel.yaml.scalarstring import ScalarString, FoldedScalarString
 from ansible.parsing.yaml.objects import AnsibleVaultEncryptedUnicode
 from ansible.parsing.vault import VaultEditor
 from ansible.module_utils._text import to_text, to_bytes, to_native  # BSD licensed
+from ansible.utils.unsafe_proxy import AnsibleUnsafeText, AnsibleUnsafeBytes
 import warnings
 import codecs
 import io
@@ -155,20 +156,22 @@ def isSensitive(obj):
     return False
 
 
-class sensitive_bytes(six.binary_type, sensitive):
+# also mark AnsibleUnsafe so wrap_var doesn't strip out sensitive status
+class sensitive_bytes(AnsibleUnsafeBytes, sensitive):
     """Transparent wrapper class to mark bytes as sensitive"""
 
-
-if six.PY3:
-
-    class sensitive_str(str, sensitive):
-        """Transparent wrapper class to mark a str as sensitive"""
+    def decode(self, *args, **kwargs):
+        """Wrapper method to ensure type conversions maintain sensitive context"""
+        return sensitive_str(super(sensitive_bytes, self).decode(*args, **kwargs))
 
 
-else:
+# also mark AnsibleUnsafe so wrap_var doesn't strip out sensitive status
+class sensitive_str(AnsibleUnsafeText, sensitive):
+    """Transparent wrapper class to mark a str as sensitive"""
 
-    class sensitive_str(unicode, sensitive):
-        """Transparent wrapper class to mark a str as sensitive"""
+    def encode(self, *args, **kwargs):
+        """Wrapper method to ensure type conversions maintain sensitive context"""
+        return sensitive_bytes(super(sensitive_str, self).encode(*args, **kwargs))
 
 
 class sensitive_dict(dict, sensitive):

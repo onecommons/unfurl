@@ -8,6 +8,7 @@ import os
 import os.path
 import six
 import re
+from ansible.utils.unsafe_proxy import wrap_var
 
 
 def _getEnv(env, verbose, dataDir):
@@ -248,7 +249,10 @@ class TerraformConfigurator(ShellConfigurator):
             state = markSensitive(providerSchema, state, task, self.sensitiveNames)
             # save state file in home as yaml, encrypting sensitive values
             writeFile(ctx, state, "terraform.tfstate.yaml", "home")
-            outputs = {name: attrs["value"] for name, attrs in state["outputs"].items()}
+            outputs = {
+                name: wrap_var(attrs["value"])
+                for name, attrs in state["outputs"].items()
+            }
             state.update(result.__dict__)
             state["outputs"] = outputs  # replace outputs
             self.processResultTemplate(task, state)
