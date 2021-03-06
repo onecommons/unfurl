@@ -12,6 +12,10 @@ spec:
       node_templates:
         testPrefix:
           type: A.Test
+          properties:
+            testExpressionFunc:
+              eval:
+                python: spec/configurators.py#expressionFunc
           interfaces:
             Standard:
               create:

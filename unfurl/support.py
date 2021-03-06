@@ -26,6 +26,8 @@ from .util import (
     saveToTempfile,
     saveToFile,
     isSensitive,
+    loadModule,
+    loadClass,
 )
 from .merge import intersectDict, mergeDicts
 import ansible.template
@@ -273,6 +275,34 @@ setEvalFunc("abspath", lambda arg, ctx: abspath(ctx, *_mapArgs(arg, ctx)))
 
 setEvalFunc("get_dir", lambda arg, ctx: getdir(ctx, *_mapArgs(arg, ctx)))
 
+
+def evalPython(arg, ctx):
+    """
+    eval:
+      python: path/to/src.py#func
+
+    or
+
+    eval:
+      python: mod.func
+
+    Where ``func`` is python function that receives a `RefContext` argument.
+    If path is a relative, it will be treated as relative to the current source file.
+    """
+    arg = mapValue(arg, ctx)
+    if "#" in arg:
+        path, sep, fragment = arg.partition("#")
+        # if path is relative, treat as relative to current src location
+        path = abspath(ctx, path, "src", False)
+        mod = loadModule(path)
+        funcName = mod.__name__ + "." + fragment
+    else:
+        funcName = arg
+    func = loadClass(funcName)
+    return func(ctx)
+
+
+setEvalFunc("python", evalPython)
 
 # XXX need an api check if an object was marked sensitive
 # _secrets = weakref.WeakValueDictionary()

@@ -5,7 +5,7 @@ TOSCA implementation
 """
 from .tosca_plugins import TOSCA_VERSION
 from .util import UnfurlError, UnfurlValidationError, getBaseDir
-from .eval import Ref, RefContext
+from .eval import Ref, RefContext, mapValue
 from .result import ResourceRef, ResultsList
 from .merge import patchDict
 from toscaparser.tosca_template import ToscaTemplate
@@ -97,9 +97,14 @@ class ToscaSpec(object):
                     )
 
         matches = list(_findMatches())
-        return [
-            patchDict(m[0].toscaEntityTemplate.entity_tpl, m[1], True) for m in matches
-        ]
+
+        def _patch(m):
+            node = m[0]
+            tpl = node.toscaEntityTemplate.entity_tpl
+            patch = mapValue(m[1], RefContext(node, dict(template=tpl)))
+            return patchDict(tpl, patch, True)
+
+        return [_patch(m) for m in matches]
 
     def _parseTemplate(self, path, inputs, toscaDef, resolver):
         # need to set a path for the import loader

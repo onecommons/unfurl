@@ -49,7 +49,7 @@ Linux or MacOs
 
 Python (2.7, 3.7, 3.8, or 3.9); git
 
-Python 3.6 is not tests automatically but should work. However you should make sure you have the latest version of pip installed (`pip install -U pip`) and may need to have Rust installed for the [crytography library](https://github.com/pyca/cryptography/blob/main/docs/installation.rst)
+Python 3.6 is not tested automatically but should work. However you should make sure you have the latest version of pip installed (`pip install -U pip`) and may need to have Rust installed for the [crytography library](https://github.com/pyca/cryptography/blob/main/docs/installation.rst).
 
 Optional: docker
 

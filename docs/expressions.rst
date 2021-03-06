@@ -151,17 +151,18 @@ Expression Functions
   external    name
   `file`      (see below)
   foreach     {key?, value?}
-  get_dir     location | [location, mkdir?]
-  if          (see below)
+  `get_dir`   location | [location, mkdir?]
+  `if`        (see below)
   local       name
-  lookup      (see below)
-  or          [test+]
-  not         expr
-  secret      name
-  sensitive   any
-  tempfile    (see below)
-  template    contents
-  validate    [contents, schema]
+  `lookup`    (see below)
+  `or`        [test+]
+  `not`       expr
+  `python`    path#function_name | module.function_name
+  `secret`    name
+  `sensitive` any
+  `tempfile`  (see below)
+  `template`  contents
+  `validate`  [contents, schema]
   =========== ================================
 
 abspath
@@ -215,6 +216,9 @@ file
   contents # file contents (None if it doesn't exist)
   encoding
 
+foreach
+^^^^^^^
+
 get_dir
 ^^^^^^^
 
@@ -228,6 +232,8 @@ get_dir
   :spec.src: The directory of the source file the current instance's template appears in.
   :spec.home: The "home" directory of the source file the current instance's template.
   :spec.local: The "local" directory of the source file the current instance's template.
+  :project: The root directory of the current project.
+  :unfurl.home: The location of home project (``UNFURL_HOME``).
 
   Otherwise look for a repository with the given name and return its path or None if not found.
 
@@ -291,6 +297,25 @@ or
 
 not
 ^^^
+
+  Evaluates the item and returns its negation.
+
+python
+^^^^^^
+
+  .. code-block:: YAML
+
+    eval:
+      python: path/to/src.py#func
+
+    # or:
+
+    eval:
+      python: python_module.func
+
+  Execute the given python function and evaluate to its return value.
+  The function will being invoke the current `RefContext` as an argument.
+  If path is a relative, it will be treated as relative to the current source file.
 
 secret
 ^^^^^^

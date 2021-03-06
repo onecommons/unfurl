@@ -92,6 +92,10 @@ _defaultStrictness = True
 
 
 class RefContext(object):
+    """
+    The context of the expression being evaluated.
+    """
+
     def __init__(
         self,
         currentResource,

@@ -43,7 +43,7 @@ Utility classes and functions
 -----------------------------
 
 .. automodule:: unfurl.eval
-  :members: Ref, mapValue, evalRef
+  :members: Ref, mapValue, evalRef, RefContext
 
 .. automodule:: unfurl.util
   :members: UnfurlError, UnfurlTaskError, wrapSensitiveValue, isSensitive,

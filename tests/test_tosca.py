@@ -240,6 +240,8 @@ class ToscaSyntaxTest(unittest.TestCase):
         # print(output.getvalue())
         anInstance = job.rootResource.findResource("testPrefix")
         assert anInstance
+        self.assertEqual(anInstance.attributes["testExpressionFunc"], "foo")
+
         ctx = RefContext(anInstance)
 
         # .: <ensemble>/
