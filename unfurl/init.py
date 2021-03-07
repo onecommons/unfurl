@@ -239,6 +239,11 @@ def createProject(
         repo = Repo.findContainingRepo(projectdir)
         if not repo:
             raise UnfurlError("Could not find an existing repository")
+        if not repo.repo.head.is_valid():
+            raise UnfurlError(
+                "Existing repository is empty: unable to create project in empty git repositories"
+            )
+
     else:
         repo = None
 

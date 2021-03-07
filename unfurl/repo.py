@@ -168,12 +168,7 @@ class Repo(object):
             kwargs = dict(recurse_submodules=True)
             if revision:
                 kwargs["branch"] = revision
-            repo = git.Repo.clone_from(
-                gitUrl,
-                localRepoPath,
-                progress,
-                **kwargs
-            )
+            repo = git.Repo.clone_from(gitUrl, localRepoPath, progress, **kwargs)
         except git.exc.GitCommandError as err:
             raise UnfurlError(
                 "couldn't create working dir, clone failed: " + err._cmdline
@@ -287,6 +282,8 @@ class GitRepo(Repo):
 
     @property
     def revision(self):
+        if not self.repo.head.is_valid():
+            return ""
         return self.repo.head.commit.hexsha
 
     def resolveRevSpec(self, revision):
@@ -379,6 +376,8 @@ class GitRepo(Repo):
         return success
 
     def getInitialRevision(self):
+        if not self.repo.head.is_valid():
+            return ""  # an uninitialized repo
         firstCommit = next(self.repo.iter_commits("HEAD", max_parents=0))
         return firstCommit.hexsha
 

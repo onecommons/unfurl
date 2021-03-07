@@ -32,6 +32,7 @@ class DefaultNames(object):
     LocalConfig = "unfurl.yaml"
     HomeDirectory = ".unfurl_home"
     JobsLog = "jobs.tsv"
+    ProjectDirectory = ".unfurl"
 
 
 def getHomeConfigPath(homepath):

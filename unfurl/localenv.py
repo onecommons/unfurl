@@ -357,6 +357,7 @@ class LocalConfig(object):
                     break
             else:
                 # if project isn't already in projects, use generated name
+                # XXX need to replace characters that don't match our namedObjects pattern manifest-schema.json
                 name = "_" + os.path.basename(project.projectRoot)
                 counter = 0
                 while name in self.projects:
@@ -442,7 +443,9 @@ class LocalEnv(object):
                 pathORproject = self.findManifestPath(manifestPath)
         else:
             # not specified: search current directory and parents for either a manifest or a project
-            pathORproject = self.searchForManifestOrProject(".")
+            pathORproject = self.searchForManifestOrProject(
+                DefaultNames.ProjectDirectory
+            )
 
         if isinstance(pathORproject, Project):
             self.project = pathORproject

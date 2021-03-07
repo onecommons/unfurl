@@ -4,6 +4,7 @@ from ruamel.yaml.comments import CommentedMap
 from . import __version__
 from .util import getPackageDigest
 
+
 class Lock(object):
     def __init__(self, ensemble):
         self.ensemble = ensemble
@@ -84,8 +85,8 @@ class Lock(object):
         artifactName = "image"
         artifact = instance.artifacts.get(artifactName)
         if artifact:
-            docker_container = task.outputs.get("docker_container")
-            if docker_container:
+            docker_container = task.outputs and task.outputs.get("docker_container")
+            if docker_container and "Image" in docker_container:
                 spec = dict(
                     instance=instance.name,
                     artifact=artifactName,

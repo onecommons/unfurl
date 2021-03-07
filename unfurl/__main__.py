@@ -10,7 +10,7 @@ from __future__ import print_function
 
 from .job import runJob
 from .support import Status
-from . import __version__, initLogging, getHomeConfigPath
+from . import __version__, initLogging, getHomeConfigPath, DefaultNames
 from . import init as initmod
 from .util import filterEnv, getPackageDigest
 from .localenv import LocalEnv, Project
@@ -415,7 +415,7 @@ def plan(ctx, ensemble=None, **options):
 
 @cli.command(short_help="Create a new unfurl project or ensemble")
 @click.pass_context
-@click.argument("projectdir", default=".", type=click.Path(exists=False))
+@click.argument("projectdir", default="", type=click.Path(exists=False))
 @click.option(
     "--mono", default=False, is_flag=True, help="Create one repository for the project."
 )
@@ -443,6 +443,12 @@ def init(ctx, projectdir, **options):
     """
     Create a new project or, if [project_dir] exists or is inside a project, create a new ensemble"""
     options.update(ctx.obj)
+    if not projectdir:
+        # if adding a project to an existing repository is '.unfurl' as the default name
+        if options.get("existing"):
+            projectdir = DefaultNames.ProjectDirectory
+        else:  # otherwise use the current directory
+            projectdir = "."
 
     if Project.findPath(projectdir):
         # dest is already in a project, so create a new ensemble in it instead of a new project
@@ -669,7 +675,7 @@ def commit(ctx, message, ensemble, skip_add, no_edit, **options):
     is_flag=True,
     help="Only show repositories with uncommitted changes",
 )
-def status(ctx, ensemble, dirty, **options):
+def git_status(ctx, ensemble, dirty, **options):
     "Show the git status for repository paths that are relevant to this ensemble."
     options.update(ctx.obj)
     localEnv = LocalEnv(ensemble, options.get("home"))
