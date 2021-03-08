@@ -297,7 +297,7 @@ class GitRepo(Repo):
             if os.path.isabs(path):
                 # get path relative to repository's root
                 path = os.path.relpath(path, self.workingDir)
-            return self.url + "#:" + path
+            return normalizeGitUrl(self.url) + "#:" + path
         else:
             return self.getGitLocalUrl(path)
 

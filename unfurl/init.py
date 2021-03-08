@@ -141,7 +141,7 @@ def writeEnsembleManifest(
         specDir = os.path.abspath(specDir)
     else:
         specDir = ""
-    vars = dict(specRepoUrl=specRepo.getGitLocalUrl(specDir, "spec"))
+    vars = dict(specRepoUrl=specRepo.getUrlWithPath(specDir))
     if extraVars:
         vars.update(extraVars)
     return writeTemplate(destDir, manifestName, "manifest.yaml.j2", vars, templateDir)

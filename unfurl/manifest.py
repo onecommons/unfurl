@@ -399,7 +399,7 @@ class Manifest(AttributeManager):
             # this is called too early to use self.getBaseDir()
             path = getBaseDir(self.path) if self.path else "."
             if self.repo:
-                url = self.repo.getGitLocalUrl(path, "self")
+                url = self.repo.getUrlWithPath(path)
                 path = os.path.relpath(path, self.repo.workingDir)
             else:
                 url = "file:" + path
@@ -423,7 +423,7 @@ class Manifest(AttributeManager):
                 path = self.localEnv.project.projectRoot
                 if repo:
                     assert path
-                    url = repo.getGitLocalUrl(path, "spec")
+                    url = repo.getUrlWithPath(path)
                     path = os.path.relpath(path, repo.workingDir)
                 else:
                     url = "file:" + path

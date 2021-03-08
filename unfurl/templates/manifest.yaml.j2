@@ -16,7 +16,11 @@ spec:
       file: {{ serviceTemplate }}
       repository: spec
     {% endif %}
+    {%- if specRepoUrl is defined %}
     repositories:
     # Files that are shared across ensemble instances should be placed in this "spec" repository
       spec:
         url: {{ specRepoUrl }}
+    {% else %}
+    repositories: {}
+    {% endif %}
