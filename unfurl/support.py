@@ -12,7 +12,7 @@ import six
 import re
 import ast
 import codecs
-from enum import IntEnum
+from enum import IntEnum, Enum
 
 from .eval import RefContext, setEvalFunc, Ref, mapValue
 from .result import Results, ResultsMap, Result, ExternalValue, serializeValue
@@ -53,6 +53,14 @@ NodeState = IntEnum(
 Priority = IntEnum(
     "Priority", "ignore optional required critical", start=0, module=__name__
 )
+
+
+class Reason(object):
+    pass
+
+
+for r in "add reconfigure force upgrade update missing error degraded prune".split():
+    setattr(Reason, r, r)
 
 
 class Defaults(object):

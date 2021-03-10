@@ -3,7 +3,7 @@
 import six
 from .runtime import NodeInstance
 from .util import UnfurlError, Generate, toEnum
-from .support import Status, NodeState
+from .support import Status, NodeState, Reason
 from .configurator import (
     ConfigurationSpec,
     getConfigSpecArgsFromImplementation,
@@ -411,7 +411,7 @@ class Plan(object):
                 reason = include(resource)
                 if reason:
                     logger.debug("%s instance %s", reason, resource.name)
-                    workflow = "undeploy" if reason == "prune" else self.workflow
+                    workflow = "undeploy" if reason == Reason.prune else self.workflow
                     gen = Generate(
                         self._generateConfigurations(resource, reason, workflow)
                     )
@@ -637,7 +637,9 @@ class Plan(object):
                         gen.result = yield gen.next
 
         if opts.prune:
-            test = lambda resource: "prune" if id(resource) not in visited else False
+            test = (
+                lambda resource: Reason.prune if id(resource) not in visited else False
+            )
             gen = Generate(self.generateDeleteConfigurations(test))
             while gen():
                 gen.result = yield gen.next
@@ -648,7 +650,7 @@ class DeployPlan(Plan):
 
     def includeNotFound(self, template):
         if self.jobOptions.add or self.jobOptions.force:
-            return "add"
+            return Reason.add
         return None
 
     def includeTask(self, template, resource):
@@ -676,27 +678,27 @@ class DeployPlan(Plan):
         jobOptions = self.jobOptions
         if jobOptions.add and not resource.lastConfigChange:
             # add if it's a new resource
-            return "add"
+            return Reason.add
 
         if jobOptions.force:
-            return "force"
+            return Reason.force
 
         # if the specification changed:
         oldTemplate = resource.template
         if template != oldTemplate:
             if jobOptions.upgrade:
-                return "upgrade"
+                return Reason.upgrade
             if jobOptions.update:
                 # only apply the new configuration if doesn't result in a major version change
                 if True:  # XXX if isMinorDifference(template, oldTemplate)
-                    return "update"
+                    return Reason.update
 
         reason = self.checkForRepair(resource)
         # there isn't a new config to run, see if the last applied config needs to be re-run
         if not reason and (
             jobOptions.upgrade or jobOptions.update
         ):  # note: update is true by default
-            return "config changed"
+            return Reason.reconfigure
         return reason
 
     def checkForRepair(self, instance):
@@ -708,7 +710,7 @@ class DeployPlan(Plan):
 
         if status in [Status.unknown, Status.pending]:
             if jobOptions.repair == "missing":
-                return "repair missing"
+                return Reason.missing
             elif instance.required:
                 status = Status.error  # treat as error
             else:
@@ -719,7 +721,7 @@ class DeployPlan(Plan):
 
         if jobOptions.repair == "degraded":
             assert status > Status.ok, status
-            return "repair degraded"  # repair this
+            return Reason.degraded  # repair this
         elif status == Status.degraded:
             assert jobOptions.repair == "error", jobOptions.repair
             return None  # skip repairing this
@@ -728,7 +730,7 @@ class DeployPlan(Plan):
                 jobOptions.repair,
                 instance.status,
             )
-            return "repair error"  # repair this
+            return Reason.error  # repair this
 
     def isInstanceReadOnly(self, instance):
         return instance.shadow or "discover" in instance.template.directives
@@ -743,7 +745,7 @@ class DeployPlan(Plan):
                 )
                 return
         else:  # this is newly created resource
-            reason = "add"
+            reason = Reason.add
 
         if instance.status == Status.unknown or instance.shadow:
             installOp = "check"

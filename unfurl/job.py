@@ -11,7 +11,7 @@ import types
 import itertools
 import os
 import json
-from .support import Status, Priority, Defaults, AttributeManager
+from .support import Status, Priority, Defaults, AttributeManager, Reason
 from .result import serializeValue, ChangeRecord
 from .util import UnfurlError, UnfurlTaskError, toEnum
 from .merge import mergeDicts
@@ -451,7 +451,7 @@ class Job(ConfigChange):
 
                 task = self.createTask(configSpec, req.target, reason=req.reason)
                 if (
-                    req.reason == "config changed"
+                    req.reason == Reason.reconfigure
                     and not task.hasInputsChanged()
                     and not task.hasDependenciesChanged()
                 ):
