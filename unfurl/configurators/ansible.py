@@ -5,6 +5,7 @@ import sys
 import collections
 import functools
 import logging
+from .. import getLogLevel
 from ..util import assertForm, saveToTempfile
 from ..configurator import Status
 from ..result import serializeValue
@@ -436,7 +437,7 @@ def runPlaybooks(playbooks, _inventory, params=None, args=None, vault_secrets=No
     cli._play_prereqs = hook_play_prereqs
 
     oldVerbosity = display.verbosity
-    if logging.getLogger("unfurl.ansible").getEffectiveLevel() <= 10:  # debug
+    if getLogLevel() <= 10:  # debug
         display.verbosity = 2
     try:
         resultsCB.exit_code = cli.run()

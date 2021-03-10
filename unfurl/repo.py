@@ -6,7 +6,8 @@ import git
 from git.repo.fun import is_git_dir
 import logging
 from six.moves.urllib.parse import urlparse
-from unfurl.util import UnfurlError
+from .util import UnfurlError
+from . import getLogLevel
 import toscaparser.repositories
 from ruamel.yaml.comments import CommentedMap
 
@@ -60,7 +61,7 @@ def splitGitUrl(url):
 class _ProgressPrinter(git.RemoteProgress):
     def update(self, op_code, cur_count, max_count=None, message=""):
         # print update to stdout but only if logging is INFO or more verbose
-        if message and logger.getEffectiveLevel() <= logging.INFO:
+        if message and getLogLevel() <= logging.INFO:
             print("fetching from %s, received: %s " % (self.gitUrl, message))
 
 

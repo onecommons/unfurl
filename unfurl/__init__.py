@@ -62,6 +62,7 @@ import logging
 
 logging.captureWarnings(True)
 _logHandler = None
+_logLevel = logging.NOTSET
 
 
 class sensitive(object):
@@ -81,12 +82,16 @@ class SensitiveLogFilter(logging.Filter):
         return True
 
 
-# def addFileLogger():
+def getLogLevel():
+    global _logLevel
+    return _logLevel
 
 
 def initLogging(level=None, logfile=None):
     rootLogger = logging.getLogger()
-    oldLevel = rootLogger.getEffectiveLevel()
+    global _logLevel
+    if _logLevel == logging.NOTSET:
+        _logLevel = rootLogger.getEffectiveLevel()
     f = SensitiveLogFilter()
 
     # global _logHandler so we can call initLogging multiple times
@@ -111,7 +116,9 @@ def initLogging(level=None, logfile=None):
         ch.addFilter(f)
         rootLogger.addHandler(ch)
 
+    oldLevel = _logLevel
     if level is not None:
+        _logLevel = level
         _logHandler.setLevel(level)
     return _logHandler, oldLevel
 

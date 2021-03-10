@@ -98,11 +98,12 @@ class TerraformConfigurator(ShellConfigurator):
             return None
 
         try:
-            providerSchema = json.loads(result.stdout.strip())["provider_schemas"]
+            providerSchema = json.loads(result.stdout.strip())
             # XXX add to ensemble "lock" section
             # os.path.join(env['TF_DATA_DIR'], "modules", "modules.json")
             # os.path.join(env['TF_DATA_DIR'], "plugins", "plugins.json")
-            return providerSchema
+            # missing if there are no providers:
+            return providerSchema.get("provider_schemas", {})
         except:
             task.logger.debug("failed to load provider schema", exc_info=True)
             return None
@@ -185,10 +186,10 @@ class TerraformConfigurator(ShellConfigurator):
                 providerSchema = json.load(psf)
         else:  # first time
             providerSchema = self._initTerraform(task, terraform, cwd, env)
-            if providerSchema:
+            if providerSchema is not None:
                 saveToFile(providerSchemaPath, providerSchema)
             else:
-                raise UnfurlTaskError(task, "terraform init failed")
+                raise UnfurlTaskError(task, "terraform init failed in %s" % cwd)
 
         planPath = self._getPlanPath(task, ctx)
         # build the command line and run it
@@ -231,7 +232,7 @@ class TerraformConfigurator(ShellConfigurator):
                     cmd, timeout=task.configSpec.timeout, env=env, cwd=cwd, echo=echo
                 )
             else:
-                raise UnfurlTaskError(task, "terrform init failed")
+                raise UnfurlTaskError(task, "terrform init failed in %s" % cwd)
 
         # process the result
         status = None
