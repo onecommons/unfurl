@@ -55,7 +55,7 @@ Optional: docker
 
 ## Developing
 
-Clone https://github.com/onecommons/unfurl
+`git clone --recurse-submodules https://github.com/onecommons/unfurl`
 
 To build documentation: Run `tox -e docs`.
 

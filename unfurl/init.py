@@ -360,6 +360,8 @@ def _getEnsemblePaths(sourcePath, sourceProject):
     # so if sourcePath was a directory try for one of the default template files
     if isServiceTemplate or os.path.isdir(sourcePath):
         # look for an ensemble-template or service-template in source path
+        if os.path.isdir(os.path.join(sourcePath, DefaultNames.ProjectDirectory)):
+            sourcePath = os.path.join(sourcePath, DefaultNames.ProjectDirectory)
         template = _looksLike(sourcePath, DefaultNames.EnsembleTemplate)
         if template:
             sourceDir = sourceProject.getRelativePath(template[0])

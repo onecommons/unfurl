@@ -427,7 +427,7 @@ ensemble.yaml
             with open("./unfurl_home/unfurl.yaml") as f:
                 contents = f.read()
                 for line in [
-                    "_examples:",
+                    "examples:",
                     "url: " + gitUrl,
                     "initial: " + initial,
                     "file: tests/examples",
@@ -452,7 +452,7 @@ context:
   test:
     manifest:
       file: testimport-manifest.yaml
-      project: _examples
+      project: examples
 spec:
   service_template:
     topology_template:

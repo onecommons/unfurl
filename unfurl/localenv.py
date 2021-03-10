@@ -93,6 +93,11 @@ class Project(object):
             test = os.path.join(current, DefaultNames.LocalConfig)
             if os.path.exists(test):
                 return test
+            test = os.path.join(
+                current, DefaultNames.ProjectDirectory, DefaultNames.LocalConfig
+            )
+            if os.path.exists(test):
+                return test
             current = os.path.dirname(current)
         return None
 
@@ -358,7 +363,9 @@ class LocalConfig(object):
             else:
                 # if project isn't already in projects, use generated name
                 # XXX need to replace characters that don't match our namedObjects pattern manifest-schema.json
-                name = "_" + os.path.basename(project.projectRoot)
+                dirname, name = os.path.split(project.projectRoot)
+                if name == DefaultNames.ProjectDirectory:
+                    name = os.path.basename(dirname)
                 counter = 0
                 while name in self.projects:
                     counter += 1
@@ -443,9 +450,7 @@ class LocalEnv(object):
                 pathORproject = self.findManifestPath(manifestPath)
         else:
             # not specified: search current directory and parents for either a manifest or a project
-            pathORproject = self.searchForManifestOrProject(
-                DefaultNames.ProjectDirectory
-            )
+            pathORproject = self.searchForManifestOrProject(".")
 
         if isinstance(pathORproject, Project):
             self.project = pathORproject
@@ -544,11 +549,15 @@ class LocalEnv(object):
                 if os.path.exists(test):
                     return self.getProject(test, self.homeProject)
                 else:
-                    message = (
-                        "Can't find an Unfurl ensemble or project in folder '%s'"
-                        % manifestPath
-                    )
-                    raise UnfurlError(message)
+                    test = os.path.join(manifestPath, DefaultNames.ProjectDirectory)
+                    if os.path.exists(test):
+                        return self.getProject(test, self.homeProject)
+                    else:
+                        message = (
+                            "Can't find an Unfurl ensemble or project in folder '%s'"
+                            % manifestPath
+                        )
+                        raise UnfurlError(message)
         else:
             return manifestPath
 
@@ -577,6 +586,10 @@ class LocalEnv(object):
                 return test
 
             test = os.path.join(current, DefaultNames.LocalConfig)
+            if os.path.exists(test):
+                return self.getProject(test, self.homeProject)
+
+            test = os.path.join(current, DefaultNames.ProjectDirectory)
             if os.path.exists(test):
                 return self.getProject(test, self.homeProject)
 
