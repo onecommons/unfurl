@@ -444,17 +444,20 @@ def init(ctx, projectdir, **options):
     Create a new project or, if [project_dir] exists or is inside a project, create a new ensemble"""
     options.update(ctx.obj)
     if not projectdir:
-        # if adding a project to an existing repository is '.unfurl' as the default name
+        # if adding a project to an existing repository use '.unfurl' as the default name
         if options.get("existing"):
             projectdir = DefaultNames.ProjectDirectory
         else:  # otherwise use the current directory
             projectdir = "."
 
-    if Project.findPath(projectdir):
+    projectPath = Project.findPath(projectdir)
+    if projectPath:
         # dest is already in a project, so create a new ensemble in it instead of a new project
-        message = initmod.clone(
-            os.path.dirname(Project.findPath(projectdir)), projectdir, **options
-        )
+        projectPath = os.path.dirname(projectPath)  # strip out unfurl.yaml
+        # if projectPath is deeper than projectDir (happens if it is .unfurl) set projectDir to that
+        if len(os.path.abspath(projectPath)) > len(os.path.abspath(projectdir)):
+            projectdir = projectPath
+        message = initmod.clone(projectPath, projectdir, **options)
         click.echo(message)
         return
     if os.path.exists(projectdir):
