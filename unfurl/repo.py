@@ -172,7 +172,8 @@ class Repo(object):
             repo = git.Repo.clone_from(gitUrl, localRepoPath, progress, **kwargs)
         except git.exc.GitCommandError as err:
             raise UnfurlError(
-                "couldn't create working dir, clone failed: " + err._cmdline
+                'couldn\'t create working directory, clone failed: "%s"\nTry re-running that command to diagnose the problem.'
+                % err._cmdline
             )
         Repo.ignoreDir(localRepoPath)
         return GitRepo(repo)
