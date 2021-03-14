@@ -633,6 +633,49 @@ class Job(ConfigChange):
     def shouldAbort(self, task):
         return False  # XXX3
 
+    def runTask(self, task, depth=0):
+        """
+        During each task run:
+        * Notification of metadata changes that reflect changes made to resources
+        * Notification of add or removing dependency on a resource or properties of a resource
+        * Notification of creation or deletion of a resource
+        * Requests a resource with requested metadata, if it doesn't exist, a task is run to make it so
+        (e.g. add a dns entry, install a package).
+        """
+        errors = self.cantRunTask(task)
+        if errors:
+            return task.finished(ConfiguratorResult(False, False, result=errors))
+
+        task.start()
+        change = None
+        while True:
+            try:
+                result = task.send(change)
+            except Exception:
+                UnfurlTaskError(task, "configurator.run failed")
+                return task.finished(ConfiguratorResult(False, None, Status.error))
+            if isinstance(result, TaskRequest):
+                if depth >= self.MAX_NESTED_SUBTASKS:
+                    UnfurlTaskError(task, "too many subtasks spawned")
+                    change = task.finished(ConfiguratorResult(False, None))
+                else:
+                    subtask = self.createTask(result.configSpec, result.target)
+                    self.runner.addWork(subtask)
+                    # returns the subtask with result
+                    change = self.runTask(subtask, depth + 1)
+            elif isinstance(result, JobRequest):
+                job = self.runJobRequest(result)
+                change = job
+            elif isinstance(result, ConfiguratorResult):
+                retVal = task.finished(result)
+                logger.info(
+                    "finished running task %s: %s; %s", task, task.target.status, result
+                )
+                return retVal
+            else:
+                UnfurlTaskError(task, "unexpected result from configurator")
+                return task.finished(ConfiguratorResult(False, None, Status.error))
+
     def jsonSummary(self, pprint=False):
         job = dict(id=self.changeId, status=self.status.name)
         job.update(self.stats())
@@ -707,49 +750,6 @@ class Job(ConfigChange):
         from .eval import evalForFunc, RefContext
 
         return evalForFunc(query, RefContext(self.rootResource, trace=trace))
-
-    def runTask(self, task, depth=0):
-        """
-        During each task run:
-        * Notification of metadata changes that reflect changes made to resources
-        * Notification of add or removing dependency on a resource or properties of a resource
-        * Notification of creation or deletion of a resource
-        * Requests a resource with requested metadata, if it doesn't exist, a task is run to make it so
-        (e.g. add a dns entry, install a package).
-        """
-        errors = self.cantRunTask(task)
-        if errors:
-            return task.finished(ConfiguratorResult(False, False, result=errors))
-
-        task.start()
-        change = None
-        while True:
-            try:
-                result = task.send(change)
-            except Exception:
-                UnfurlTaskError(task, "configurator.run failed")
-                return task.finished(ConfiguratorResult(False, None, Status.error))
-            if isinstance(result, TaskRequest):
-                if depth >= self.MAX_NESTED_SUBTASKS:
-                    UnfurlTaskError(task, "too many subtasks spawned")
-                    change = task.finished(ConfiguratorResult(False, None))
-                else:
-                    subtask = self.createTask(result.configSpec, result.target)
-                    self.runner.addWork(subtask)
-                    # returns the subtask with result
-                    change = self.runTask(subtask, depth + 1)
-            elif isinstance(result, JobRequest):
-                job = self.runJobRequest(result)
-                change = job
-            elif isinstance(result, ConfiguratorResult):
-                retVal = task.finished(result)
-                logger.info(
-                    "finished running task %s: %s; %s", task, task.target.status, result
-                )
-                return retVal
-            else:
-                UnfurlTaskError(task, "unexpected result from configurator")
-                return task.finished(ConfiguratorResult(False, None, Status.error))
 
 
 class Runner(object):
