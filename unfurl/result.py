@@ -275,7 +275,7 @@ class Result(ChangeAware):
         if self.external:
             ref = self.external.asRef(options)
             if self.select and not options.get("resolveExternal"):
-                ref["foreach"] = "." + "::".join(self.select)
+                ref["select"] = "." + "::".join(self.select)
             return ref
         else:
             val = serializeValue(self.resolved, **options)

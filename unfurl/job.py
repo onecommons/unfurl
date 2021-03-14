@@ -267,7 +267,7 @@ class ConfigTask(ConfigChange, TaskView):
         This can be called multiple times if the configurator yields multiple times.
         Save the changes made each time.
         """
-        changes = self._attributeManager.commitChanges()
+        changes, liveDependencies = self._attributeManager.commitChanges()
         self.changeList.append(changes)
         return changes
 

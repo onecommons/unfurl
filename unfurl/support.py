@@ -998,10 +998,12 @@ class AttributeManager(object):
     def getAttributes(self, resource):
         if resource.key not in self.attributes:
             if resource.template:
-                specd = resource.template.properties
-                defaultAttributes = resource.template.defaultAttributes
+                specAttributes = resource.template.defaultAttributes
                 _attributes = ChainMap(
-                    copy.deepcopy(resource._attributes), specd, defaultAttributes
+                    copy.deepcopy(resource._attributes),
+                    resource.template.properties,
+                    specAttributes,
+                    track=specAttributes,
                 )
             else:
                 _attributes = ChainMap(copy.deepcopy(resource._attributes))
@@ -1017,11 +1019,23 @@ class AttributeManager(object):
     #   # for resource, old, new in self.statuses.values():
     #   #   resource._localStatus = old
 
+    def _isSensitive(self, defs, key, value):
+        defSchema = (key in defs and defs[key].schema) or {}
+        defMeta = defSchema.get("metadata", {})
+
+        if defMeta.get("sensitive"):
+            # attribute marked as sensitive and value isn't a secret so mark value as sensitive
+            if not value.external:  # externalvalues are ok since they don't reveal much
+                return True
+        return False
+
     def commitChanges(self):
         changes = {}
+        liveDependencies = {}
         for resource, attributes in self.attributes.values():
             # save in _attributes in serialized form
             overrides, specd = attributes._attributes.split()
+            live = attributes._attributes.accessed
             resource._attributes = {}
             defs = resource.template and resource.template.attributeDefs or {}
             foundSensitive = []
@@ -1031,24 +1045,18 @@ class AttributeManager(object):
                     resource._attributes[key] = value
                 elif key not in specd or value.hasDiff():
                     # value is a Result and it is either new or different from the original value, so save
-                    defSchema = (key in defs and defs[key].schema) or {}
-                    defMeta = defSchema.get("metadata", {})
-
+                    live.add(key)  # value changed during task so treat as a live
+                    sensitive = self._isSensitive(defs, key, value)
+                    if sensitive:
+                        savedValue = wrapSensitiveValue(
+                            value.resolved, resource.templar._loader._vault
+                        )
+                        foundSensitive.append(key)
+                    else:
+                        savedValue = value.asRef()  # serialize Result
                     # XXX if defMeta.get('immutable') and key in specd:
                     #  error('value of attribute "%s" changed but is marked immutable' % key)
-
-                    if defMeta.get("sensitive"):
-                        # attribute marked as sensitive and value isn't a secret so mark value as sensitive
-                        if (
-                            not value.external
-                        ):  # externalvalues are ok since they don't reveal much
-                            # we won't be able to restore this value since we can't save it
-                            resource._attributes[key] = wrapSensitiveValue(
-                                value.resolved, resource.templar._loader._vault
-                            )
-                            foundSensitive.append(key)
-                            continue
-                    resource._attributes[key] = value.asRef()  # serialize Result
+                    resource._attributes[key] = savedValue
 
             # save changes
             diff = attributes.getDiff()
@@ -1058,7 +1066,9 @@ class AttributeManager(object):
                 if key in diff:
                     diff[key] = resource._attributes[key]
             changes[resource.key] = diff
+            if live:
+                liveDependencies[resource.key] = live
 
         self.attributes = {}
         # self.statuses = {}
-        return changes
+        return changes, liveDependencies

@@ -436,8 +436,10 @@ class ChainMap(Mapping):
     Combine multiple mappings for sequential lookup.
     """
 
-    def __init__(self, *maps):
+    def __init__(self, *maps, **kw):
         self._maps = maps
+        self._track = kw.get("track")
+        self.accessed = set()
 
     def split(self):
         return self._maps[0], ChainMap(*self._maps[1:])
@@ -448,6 +450,9 @@ class ChainMap(Mapping):
                 return mapping[key]
             except KeyError:
                 pass
+            else:
+                if self._track is mapping:
+                    self.accessed.add(key)
         raise KeyError(key)
 
     def __setitem__(self, key, value):
