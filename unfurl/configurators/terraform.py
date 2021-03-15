@@ -157,7 +157,7 @@ class TerraformConfigurator(ShellConfigurator):
         # read the (possible encrypted) version from the repository
         # and write out it as plaintext json into the local directory
         jobId = task.getJobId(task.changeId)
-        return abspath(ctx, jobId + ".plan", "local", False)
+        return abspath(ctx, jobId + ".plan", "local")
 
     def run(self, task):
         ctx = task.inputs.context
