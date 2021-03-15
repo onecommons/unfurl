@@ -580,12 +580,14 @@ class YamlManifest(ReadOnlyManifest):
         if not changes:
             logger.info("job run didn't make any changes; nothing to commit")
             return
-        if job.dryRun:
-            return
 
         if self.changeLogPath:
             jobLogPath = self.saveChangeLog(jobRecord, changes)
-            self.appendLog(job, jobRecord, jobLogPath)
+            if not job.dryRun:
+                self.appendLog(job, jobRecord, jobLogPath)
+
+        if job.dryRun:
+            return
 
         if job.commit and self.repo:
             if job.message is not None:

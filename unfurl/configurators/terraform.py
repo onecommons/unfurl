@@ -114,7 +114,6 @@ class TerraformConfigurator(ShellConfigurator):
             Write out tf.json if necessary.
         """
         # generated tf.json get written to as main.unfurl.tmp.tf.json
-        # (add *.tmp.* to git ignore)
         main = task.inputs.getCopy("main")
         if main:
             if isinstance(main, six.string_types):
@@ -133,11 +132,11 @@ class TerraformConfigurator(ShellConfigurator):
         if tfvars:
             if isinstance(tfvars, six.string_types):
                 # assume the contents of a tfvars file
-                path = "vars.tfvars"
+                path = "vars.tmp.tfvars"
             else:
-                path = "vars.tfvars.json"
+                path = "vars.tmp.tfvars.json"
             ctx = task.inputs.context
-            return writeFile(ctx, tfvars, path, "local")
+            return writeFile(ctx, tfvars, path, "home")
         return None
 
     def _prepareState(self, task, ctx):
@@ -145,7 +144,7 @@ class TerraformConfigurator(ShellConfigurator):
         # read the (possible encrypted) version from the repository
         # and write out it as plaintext json into the local directory
         yamlPath = abspath(ctx, "terraform.tfstate.yaml", "home", False)
-        jsonPath = abspath(ctx, "terraform.tfstate.json", "local", False)
+        jsonPath = abspath(ctx, "terraform.tfstate.json", "home", False)
         if not os.path.exists(jsonPath) and os.path.exists(yamlPath):
             # if exists in home, load and write out state file as json
             with open(yamlPath, "r") as f:
@@ -167,7 +166,7 @@ class TerraformConfigurator(ShellConfigurator):
         _, terraform = self._cmd(
             task.inputs.get("command", self._defaultCmd), task.inputs.get("keeplines")
         )
-        cwd = os.path.abspath(task.inputs.get("dir") or getdir(ctx, "spec.home"))
+        cwd = os.path.abspath(task.inputs.get("dir") or getdir(ctx, "home"))
         dataDir = os.getenv("TF_DATA_DIR", os.path.join(cwd, ".terraform"))
 
         # write out any needed files to cwd, eg. main.tf.json
