@@ -65,7 +65,7 @@ Node Types
 ``node_types`` are used to define reusable properties, interfaces and capabilities for each node. These definitions can be inherited for further use.
 
 Schema
-^^^^^^
+------
 
 The table below walks you through the various options available in the schema.
 
@@ -93,7 +93,7 @@ The table below walks you through the various options available in the schema.
      - Refers to the node requirements such as ``installer``. 
 
 Example
-^^^^^^^
+-------
 
 The example below shows the definition of node types used with Unfurl.
 
@@ -149,7 +149,7 @@ The example below shows the definition of node types used with Unfurl.
 
 
 Description
-^^^^^^^^^^^
+-----------
 
 * As we can see ``unfurl.nodes.Installer`` derives the interfaces from ``tosca.nodes.Root`` which was defined in the definition above it. ``tosca.nodes.Root`` has also been derived in the subsequent examples.
 * ``unfurl.nodes.Installer.Terraform`` makes use of the ``defaults``, ``Standard`` and ``Install`` interfaces.
