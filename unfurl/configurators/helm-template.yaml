@@ -98,6 +98,7 @@ node_types:
                       {% endif %}
                       {% if task.verbose > 0 %}--debug{%endif%}
                       {% if task.timeout %}--timeout {{task.timeout}}{%endif%}
+                      {% if inputs.helmcmd == 'upgrade' %}--reuse-values{%endif%}
                       {% if inputs.flags is defined -%}
                         {% for flag, value in inputs.flags.items() %}
                           --{{flag}} "{{value | quote }}"
