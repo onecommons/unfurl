@@ -79,7 +79,8 @@ def markSensitive(schemas, state, task, sensitiveNames=()):
 class TerraformConfigurator(ShellConfigurator):
     _defaultCmd = "terraform"
 
-    sensitiveNames = ["access_token", "key_material", "password"]
+    # provider schemas don't always mark keys as sensitive that they should, so just in case:
+    sensitiveNames = ["access_token", "key_material", "password", "private_key"]
 
     def canDryRun(self, task):
         return True
@@ -235,12 +236,11 @@ class TerraformConfigurator(ShellConfigurator):
 
         # process the result
         status = None
+        success = self._handleResult(task, result, (0, 2))
         if result.returncode == 2:
             # plan -detailed-exitcode: 2 - Succeeded, but there is a diff
             success = True
             status = Status.ok
-        else:
-            success = self._handleResult(task, result)
 
         if success and not task.dryRun:
             # read state file

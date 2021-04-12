@@ -174,8 +174,8 @@ class ShellConfigurator(TemplateConfigurator):
             err.error = err
             return err
 
-    def _handleResult(self, task, result):
-        error = result.error or result.returncode or result.timeout
+    def _handleResult(self, task, result, successCodes=(0,)):
+        error = result.error or result.returncode not in successCodes or result.timeout
         if error:
             task.logger.warning("shell task run failure: %s", result.cmd)
             if result.error:
