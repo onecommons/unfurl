@@ -4,7 +4,7 @@ import six
 import collections
 import re
 import os
-from .support import Status, Defaults, ResourceChanges
+from .support import Status, Defaults, ResourceChanges, Priority
 from .result import serializeValue, ChangeAware, Results, ResultsMap
 from .util import (
     registerClass,
@@ -21,7 +21,7 @@ from .util import (
 )
 from . import merge
 from .eval import Ref, mapValue, RefContext
-from .runtime import RelationshipInstance
+from .runtime import RelationshipInstance, Operational
 from .yamlloader import yaml
 
 import logging
@@ -307,7 +307,7 @@ class TaskView(object):
         self.messages = []
         self._addedResources = []
         self._dependenciesChanged = False
-        self.dependencies = dependencies or {}
+        self.dependencies = dependencies or []
         self._resourceChanges = ResourceChanges()
         # public:
         self.operationHost = self._findOperationHost(target, configSpec.operationHost)
@@ -610,7 +610,7 @@ class TaskView(object):
             expr = Ref(getter()).source
 
         dependency = Dependency(expr, expected, schema, name, required, wantList)
-        self.dependencies[name or expr] = dependency
+        self.dependencies.append(dependency)
         self.dependenciesChanged = True
         return dependency
 
@@ -821,7 +821,7 @@ class TaskView(object):
         return None
 
 
-class Dependency(ChangeAware):
+class Dependency(Operational):
     """Represents a runtime dependency for a configuration.
 
 
@@ -855,9 +855,17 @@ class Dependency(ChangeAware):
 
         self.expected = expected
         self.schema = schema
-        self.required = required
+        self._required = required
         self.name = name
         self.wantList = wantList
+
+    @property
+    def localStatus(self):
+        return Status.ok
+
+    @property
+    def priority(self):
+        return Priority.required if self._required else Priority.optional
 
     def refresh(self, config):
         if self.expected is not None:

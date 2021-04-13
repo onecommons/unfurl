@@ -190,17 +190,17 @@ class Manifest(AttributeManager):
 
         configChange.inputs = changeSet.get("inputs")
 
-        configChange.dependencies = {}
+        configChange.dependencies = []
         for val in changeSet.get("dependencies", []):
-            key = val.get("name") or val["ref"]
-            assert key not in configChange.dependencies
-            configChange.dependencies[key] = Dependency(
-                val["ref"],
-                val.get("expected"),
-                val.get("schema"),
-                val.get("name"),
-                val.get("required"),
-                val.get("wantList", False),
+            configChange.dependencies.append(
+                Dependency(
+                    val["ref"],
+                    val.get("expected"),
+                    val.get("schema"),
+                    val.get("name"),
+                    val.get("required"),
+                    val.get("wantList", False),
+                )
             )
 
         if "changes" in changeSet:

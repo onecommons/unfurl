@@ -155,7 +155,7 @@ def saveTask(task):
         output["changes"] = changes
     if task.messages:
         output["messages"] = task.messages
-    dependencies = [saveDependency(val) for val in task.dependencies.values()]
+    dependencies = [saveDependency(val) for val in task.dependencies]
     if dependencies:
         output["dependencies"] = dependencies
     if task.result:

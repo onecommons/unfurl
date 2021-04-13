@@ -269,6 +269,10 @@ class ConfigTask(ConfigChange, TaskView):
         """
         changes, liveDependencies = self._attributeManager.commitChanges()
         self.changeList.append(changes)
+        # record the live attributes that we are dependent on
+        for key, attributes in liveDependencies.items():
+            for name, value in attributes.items():
+                self.addDependency(key + "::" + name, value)
         return changes
 
     def hasInputsChanged(self):
@@ -298,10 +302,10 @@ class ConfigTask(ConfigChange, TaskView):
         # XXX artifacts
         # XXX identity of requirements (how? what about imported nodes? instance keys?)
         # dynamic dependencies:
-        return any(d.hasChanged(self) for d in self.dependencies.values())
+        return any(d.hasChanged(self) for d in self.dependencies)
 
     def refreshDependencies(self):
-        for d in self.dependencies.values():
+        for d in self.dependencies:
             d.refresh(self)
 
     @property
