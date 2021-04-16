@@ -20,7 +20,7 @@ stevedore = ">=1.20.0"
 requests = ">=2.14.2"
 enum34 = "*"
 subprocess32 = "*"
-ansible = {extras = ["azure"], version = "==2.9.14"}
+ansible = {extras = ["azure"], version = "==2.9.20"}
 mitogen = "==0.2.7"
 openshift = "*"
 octodns = "*"
