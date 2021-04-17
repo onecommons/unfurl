@@ -1,0 +1,29 @@
+.master_on_push: &master_on_push
+  - if: '($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "push") && $CI_COMMIT_REF_NAME == "ci"'
+    when: on_success
+
+image: registry.gitlab.com/onecommons/unfurl-test-docker-image:tf_0.13.6-helm_3.3.4-kubectl_1.17.14-k3d_3.4.0
+
+stages:
+  - test
+
+test:
+  services:
+    - name: docker:19.03.12-dind
+      entrypoint: ["env", "-u", "DOCKER_HOST"]
+      command: ["dockerd-entrypoint.sh"]
+  variables:
+    DOCKER_HOST: tcp://docker:2375/
+    DOCKER_DRIVER: overlay2
+    # See https://github.com/docker-library/docker/pull/166
+    DOCKER_TLS_CERTDIR: ""
+  rules: *master_on_push
+  stage: test
+  script:
+    - k3d cluster create
+    - kubectl get node
+    - k3d kubeconfig merge --all -d
+    - kubectl config view
+    - tox
+
+
