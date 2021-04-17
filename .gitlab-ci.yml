@@ -25,5 +25,7 @@ test:
     - k3d kubeconfig merge --all -d
     - kubectl config view
     - tox -vvvvv
+  tags:
+    - tox_with_dind
 
 
