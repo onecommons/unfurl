@@ -26,6 +26,6 @@ test:
     - kubectl config view
     - tox -vvvvv
   tags:
-    - zsAN8Ktx
+    - kubernetes
 
 
