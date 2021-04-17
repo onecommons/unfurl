@@ -24,7 +24,7 @@ test:
     - kubectl get node
     - k3d kubeconfig merge --all -d
     - kubectl config view
-    - tox -vvvvv
+    - tox -r -vvvvv
   tags:
     - kubernetes
 
