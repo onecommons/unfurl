@@ -26,6 +26,6 @@ test:
     - kubectl config view
     - tox -vvvvv
   tags:
-    - tox_with_dind
+    - zsAN8Ktx
 
 
