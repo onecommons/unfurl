@@ -2,6 +2,9 @@
   - if: '($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "push") && $CI_COMMIT_REF_NAME == "ci"'
     when: on_success
 
+variables:
+  GIT_SUBMODULE_STRATEGY: "recursive"
+  
 image: registry.gitlab.com/onecommons/unfurl-test-docker-image:tf_0.13.6-helm_3.3.4-kubectl_1.17.14-k3d_3.4.0
 
 stages:
@@ -24,7 +27,7 @@ test:
     - kubectl get node
     - k3d kubeconfig merge --all -d
     - kubectl config view
-    - tox -r -vvvvv
+    - tox
   tags:
     - kubernetes
 
