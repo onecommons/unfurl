@@ -6,146 +6,58 @@ Introduction
 
 Topology and Orchestration Specification for Cloud Applications also abbreviated as TOSCA is an OASIS open standard that defines the interoperable description of services and applications hosted on the cloud and elsewhere. This includes their components, relationships, dependencies, requirements, and capabilities, thereby enabling portability and automated management across cloud providers regardless of underlying platform or infrastructure. 
 
+TOSCA sepcification allows the user to define service template. The service generally refers either to an application or an application component. This may include a firewall, database config, etc or any other configuration following some set of rules. In order to successfully author a TOSCA template, it is important to understand the various terms used within this specification and how are they interlinked.
 
 .. seealso:: For more information, please refer to the `TOSCA Documentation. <https://www.oasis-open.org/standard/tosca/>`_
 
 
+Components of TOSCA Specification
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Using TOSCA with Unfurl
-~~~~~~~~~~~~~~~~~~~~~~~~
+A Node Template and a Relationship Template are the building blocks of any TOSCA Specification.The diagram figure below provides a high level overview of how different components involved within the TOSCA sepcification.
 
-TOSCA supports the automatic matching of cloud service provider capabilities, with application/service requirements, thus enabling a competitive ecosystem. Unfurl makes use of service templates defined using OASIS's `TOSCA <https://www.oasis-open.org/committees/tc_home.php?wg_abbrev=tosca>`_ simple profile in YAML version 1.3 format. These service templates are used with the local unfurl configuration YAML file and secrets to form an Ensemble which then stores all the essential information regarding the model of cloud resources that it manages from the TOSCA spec apart from other things it records.
-
-.. image:: images/tosca_unfurl.png
+.. image:: images/service_template.png
    :width: 100px
-   
 
-.. seealso:: For more information, please refer to the `HTML <https://docs.oasis-open.org/tosca/TOSCA-Simple-Profile-YAML/v1.3/TOSCA-Simple-Profile-YAML-v1.3.html>`_ and `PDF <https://docs.oasis-open.org/tosca/TOSCA-Simple-Profile-YAML/v1.3/TOSCA-Simple-Profile-YAML-v1.3.pdf>`_ version of the TOSCA Simple Profile YAML documentation.
+Service Template
+^^^^^^^^^^^^^^^^^
 
-Authoring TOSCA Templates
-~~~~~~~~~~~~~~~~~~~~~~~~~~
+A Service Template consists of all the application or topology specific information and important configuration that is required to move the application from one cloud platform or infrastructure to another. For example, a service template can be created for a database server or a router. All this configuration can be defined in the form of schema. The figure shown above displays the components of a service template. In order to deploy a service template, the node and relationship information is needed to deploy a Service template. We will go through each of these in the sections below.
 
-In order to work with the TOSCA templates, it is important to familiarize yourself with various options of the topology blueprint that can be put together in a template. In this section,we will go through all the essential components.
-
-Version
-^^^^^^^
-
-``tosca_definitions_version`` is a top level property of the blueprint which is used to specify the DSL version used.
-
-.. code:: 
- 
- tosca_definitions_version: tosca_simple_unfurl_1_0_0
-
-The other tosca supported unfurl definition includes:
-
-* tosca_simple_unfurls_1_0_0
-
-.. note:: TOSCA definition version needs to be declared at the start of the main file.
-
-Metadata
-^^^^^^^^
-
-Metadata includes the templates details such as template name, author and version.
-
-
-.. code::
-
- metadata:
-   template_name: Unfurl types
-   template_author: onecommons.org
-   template_version: 1.0.0
-
-A list of unfurl supported template names are as follows:
-
-* Unfurl types
-
-Node Types
+Node Type
 ^^^^^^^^^^
 
-``node_types`` are used to define reusable properties, interfaces and capabilities for each node. These definitions can be inherited for further use.
+A Node Type includes all the operational details required to create, start, stop or delete a component or an event. All the operational possibilities, operations, properties, capabilities and requirements of resources or components which will be consumed during a deployment are defined within a node type. This information can then later be reused in a node or a relationship template.
 
-Schema
-------
+Relationship Type
+^^^^^^^^^^^^^^^^^
 
-The table below walks you through the various options available in the schema.
-
-.. list-table:: 
-   :widths: 25 25 50
-   :header-rows: 1
-
-   * - Parameter
-     - Type
-     - Description
-   * - ``derived_from``
-     - String
-     - Used to reuse a common node template or build on top of the existing one.
-   * - ``interfaces``
-     - Definition
-     - Existing interfaces available for use such as ``Install``, ``Standard``, ``defaults``, etc
-   * - ``properties``
-     - Definition
-     - Refers to the properties that a node can adopt. The common things to be defined as a property include a description, type, default and required.
-   * - ``capabilities``
-     - Definition
-     - Refers to the capability associated with a node such as ``installer``, ``host``, ``endpoint``, etc.   
-   * - ``requirements``
-     - Definition
-     - Refers to the node requirements such as ``installer``. 
-
-Example
--------
-
-The example below shows the definition of node types used with Unfurl.
+A Relationship Template defines the interconnections that can take place between node types or node templates. In other words, it is a reuseable entity contaning definations of the relationships and the details on the nature of connectivity that can be used by an orchestration engine while working with various components of a service template.
 
 
-.. code::
+Topology Template
+^^^^^^^^^^^^^^^^^^
 
- node_types:
-   tosca.nodes.Root:
-     interfaces:
-       Install: # all nodes can implement this interface
-         type: unfurl.interfaces.Install
+Topology Template refers to the topology model of a service. This model consists of node template and relationship template that are linked together to translate and structure the application in the form of TOSCA specification. A topoloigy template consists of reusable patterns of information defined in the node and relationship type.
 
-   unfurl.nodes.Installer:
-     derived_from: tosca.nodes.Root
-     capabilities:
-       installer:
-         type: unfurl.capabilities.Installer
 
-   unfurl.nodes.Installation:
-     derived_from: tosca.nodes.Root
-     requirements:
-       - installer:
-           capability: unfurl.capabilities.Installer
-           node: unfurl.nodes.Installer
-           relationship: unfurl.relationships.InstalledBy
-           occurrences: [0, 1] # it isn't necessarily required
+Node Template
+^^^^^^^^^^^^^
 
-   unfurl.nodes.Default:
-     derived_from: unfurl.nodes.Installation
-     description: "Used if pre-existing instances are declared with no TOSCA template"
+A Node Template defines an instance or a component of the application translated in the service template. Where a node type refers to the class or family of component at a high level that your resource belongs to, a node template makes use of the components defined in the node type and customizes the predefined properties and operations based upon the use case. The node templates also include operations such as deploy(), connect() to successfully and efficiently manage this component. Example: Shutting down an instance on the application server or hosting a container.
 
-   unfurl.nodes.Installer.Terraform:
-     derived_from: unfurl.nodes.Installer
-     properties:
-       dir:
-         type: string
-         default:
-           eval:
-             get_dir: spec.home
-     interfaces:
-       defaults:
-         implementation:
-           className: unfurl.configurators.terraform.TerraformConfigurator
-         inputs:
-           dir: { get_property: [SELF, dir] }
-       Standard:
-         operations:
-           delete:
-           create:
-       Install:
-         operations:
-           check:
+.. seealso:: To know more about these terminologies, refer to the :ref:`Glossary<glossary>` section.
+
+The definitions of the application components within a node template have a potential to be reused later in the TOSCA specification by exporting the node dependencies using requirements and capabilities. The idea is to spcify the characteristics and the available functions of the components of a particular service in the form of nodes for future use.
+
+
+Relationship Template
+^^^^^^^^^^^^^^^^^^^^^
+
+A Relationship Template specifies the relationship between the components defined in the node templates and how the various nodes are connected to each other. Apart from the connections, relationship templates also include information regarding the dependencies and the order of the deployment that should be followed to instantiate a service template.
+
+An important thing to notice here is, in a relationship, it is important for the node requirements of a component to match the capabilities of the node it is being linked to.
+
 
 
 Description
