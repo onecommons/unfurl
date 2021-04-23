@@ -39,11 +39,12 @@ Table of Contents
 
    expressions.rst
 
-
    cli.rst
 
    jsonschema.rst
 
+   toscaref.rst
+ 
    glossary.rst
 
    api.rst
