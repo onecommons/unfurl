@@ -97,7 +97,6 @@ build:
 release:
   rules: *on_tag
   stage: release
-  when: on_success
   script:
     - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
     - 'docker pull unfurl:${CI_COMMIT_SHA}'
