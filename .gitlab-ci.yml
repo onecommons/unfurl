@@ -2,20 +2,21 @@
   - if: '($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "push") && $CI_COMMIT_REF_NAME == "ci"'
     when: on_success
 
-variables:
-  GIT_SUBMODULE_STRATEGY: "recursive"
-  
-image: registry.gitlab.com/onecommons/unfurl-test-docker-image:tf_0.13.6-helm_3.3.4-kubectl_1.17.14-k3d_3.4.0
+.set_up_cluster: &set_up_cluster
+  - k3d cluster create
+  - kubectl get node
+  - k3d kubeconfig merge --all -d
+  - kubectl config view
 
 stages:
   - test
+  - build
+  - deploy
 
-test:
-  services:
-    - name: docker:19.03.12-dind
-      entrypoint: ["env", "-u", "DOCKER_HOST"]
-      command: ["dockerd-entrypoint.sh"]
+
+default:
   variables:
+    GIT_SUBMODULE_STRATEGY: "recursive"
     DOCKER_HOST: tcp://docker:2375/
     DOCKER_DRIVER: overlay2
     TOX_TESTENV_PASSENV: DOCKER_HOST
@@ -24,15 +25,58 @@ test:
     LC_ALL: C.UTF-8
     LANG: C.UTF-8
     LC_CTYPE: C.UTF-8
+  services:
+    - name: docker:19.03.12-dind
+      entrypoint: ["env", "-u", "DOCKER_HOST"]
+      command: ["dockerd-entrypoint.sh"]
+  image: registry.gitlab.com/onecommons/unfurl-test-docker-image:tf_0.13.6-helm_3.3.4-kubectl_1.17.14-k3d_3.4.0
+
+
+test_py27:
   rules: *master_on_push
   stage: test
   script:
-    - k3d cluster create
-    - kubectl get node
-    - k3d kubeconfig merge --all -d
-    - kubectl config view
-    - tox
+    - set_up_cluster
+    - tox -e 27  
   tags:
     - kubernetes
+
+test_py36:
+  rules: *master_on_push
+  stage: test
+  script:
+    - set_up_cluster
+    - tox -e 36  
+  tags:
+    - kubernetes
+
+
+test_py37:
+  rules: *master_on_push
+  stage: test
+  script:
+    - set_up_cluster
+    - tox -e 37  
+  tags:
+    - kubernetes
+
+test_py38:
+  rules: *master_on_push
+  stage: test
+  script:
+    - set_up_cluster
+    - tox -e 38 
+  tags:
+    - kubernetes
+
+test_py39:
+  rules: *master_on_push
+  stage: test
+  script:
+    - set_up_cluster
+    - tox -e 39  
+  tags:
+    - kubernetes
+
 
 

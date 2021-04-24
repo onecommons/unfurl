@@ -6,10 +6,9 @@ RUN apt -qq update && \
 
 RUN mkdir -p unfurl 
 WORKDIR /unfurl 
+
 COPY . .
 
-RUN python setup.py sdist bdist_wheel
-
-RUN pip install ./dist/unfurl-0.2.2.dev3-py2.py3-none-any.whl
+RUN pip3 install git+file:$PWD
 
 RUN cd ../ && rm -rf unfurl
