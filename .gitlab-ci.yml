@@ -23,7 +23,7 @@ variables:
     LC_ALL: C.UTF-8
     LANG: C.UTF-8
     LC_CTYPE: C.UTF-8
-    
+
 default:
   services:
     - name: docker:19.03.12-dind
@@ -36,7 +36,7 @@ test_py27:
   rules: *master_on_push
   stage: test
   script:
-    - set_up_cluster
+    - *set_up_cluster
     - tox -e 27  
   tags:
     - kubernetes
@@ -45,7 +45,7 @@ test_py36:
   rules: *master_on_push
   stage: test
   script:
-    - set_up_cluster
+    - *set_up_cluster
     - tox -e 36  
   tags:
     - kubernetes
@@ -55,7 +55,7 @@ test_py37:
   rules: *master_on_push
   stage: test
   script:
-    - set_up_cluster
+    - *set_up_cluster
     - tox -e 37  
   tags:
     - kubernetes
@@ -64,7 +64,7 @@ test_py38:
   rules: *master_on_push
   stage: test
   script:
-    - set_up_cluster
+    - *set_up_cluster
     - tox -e 38 
   tags:
     - kubernetes
@@ -73,7 +73,7 @@ test_py39:
   rules: *master_on_push
   stage: test
   script:
-    - set_up_cluster
+    - *set_up_cluster
     - tox -e 39  
   tags:
     - kubernetes
