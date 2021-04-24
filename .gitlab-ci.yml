@@ -2,6 +2,11 @@
   - if: '($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "push") && $CI_COMMIT_REF_NAME == "ci"'
     when: on_success
 
+.on_tag: &on_tag
+  - if: '($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "push") && [ -z $CI_COMMIT_TAG ] && [ $CI_COMMIT_TAG -ne ""]'
+    when: on_success
+
+
 .set_up_cluster: &set_up_cluster
   - k3d cluster create
   - kubectl get node
@@ -82,10 +87,23 @@ test_py39:
 build:
   rules: *master_on_push
   stage: build
-  when: on_success
   script:
     - 'docker build -t unfurl:${CI_COMMIT_SHA} -f ./docker/Dockerfile .'
     - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
     - docker push unfurl:${CI_COMMIT_SHA}
+    tags:
+      - kubernetes
+
+release:
+  rules: *on_tag
+  stage: release
+  when: on_success
+  script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+    - 'docker pull unfurl:${CI_COMMIT_SHA}'
+    - docker logout $CI_REGISTRY
+    - 'docker tag  unfurl:${CI_COMMIT_SHA} unfurl:{CI_COMMIT_TAG}'
+    - docker login -u $DOCKERHUB_USER -p $DOCKERHUB_TOKEN
+    - docker push unfurl:${CI_COMMIT_TAG}
   tags:
     - kubernetes
