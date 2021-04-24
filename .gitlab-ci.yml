@@ -13,9 +13,7 @@ stages:
   - build
   - deploy
 
-
-default:
-  variables:
+variables:
     GIT_SUBMODULE_STRATEGY: "recursive"
     DOCKER_HOST: tcp://docker:2375/
     DOCKER_DRIVER: overlay2
@@ -25,6 +23,8 @@ default:
     LC_ALL: C.UTF-8
     LANG: C.UTF-8
     LC_CTYPE: C.UTF-8
+    
+default:
   services:
     - name: docker:19.03.12-dind
       entrypoint: ["env", "-u", "DOCKER_HOST"]
