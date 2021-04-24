@@ -21,8 +21,9 @@ test:
     TOX_TESTENV_PASSENV: DOCKER_HOST
     # See https://github.com/docker-library/docker/pull/166
     DOCKER_TLS_CERTDIR: ""
-    LC_ALL: C.utf-8
-    LANG: C.utf-8
+    LC_ALL: C.UTF-8
+    LANG: C.UTF-8
+    LC_CTYPE: C.UTF-8
   rules: *master_on_push
   stage: test
   script:
