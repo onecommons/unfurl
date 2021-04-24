@@ -11,7 +11,7 @@
 stages:
   - test
   - build
-  - deploy
+  - release
 
 variables:
     GIT_SUBMODULE_STRATEGY: "recursive"
@@ -37,7 +37,7 @@ test_py27:
   stage: test
   script:
     - *set_up_cluster
-    - tox -e 27  
+    - tox -e py27  
   tags:
     - kubernetes
 
@@ -46,7 +46,7 @@ test_py36:
   stage: test
   script:
     - *set_up_cluster
-    - tox -e 36  
+    - tox -e py36  
   tags:
     - kubernetes
 
@@ -56,7 +56,7 @@ test_py37:
   stage: test
   script:
     - *set_up_cluster
-    - tox -e 37  
+    - tox -e py37  
   tags:
     - kubernetes
 
@@ -65,7 +65,7 @@ test_py38:
   stage: test
   script:
     - *set_up_cluster
-    - tox -e 38 
+    - tox -e py38 
   tags:
     - kubernetes
 
@@ -74,9 +74,18 @@ test_py39:
   stage: test
   script:
     - *set_up_cluster
-    - tox -e 39  
+    - tox -e py39  
   tags:
     - kubernetes
 
 
-
+build:
+  rules: *master_on_push
+  stage: build
+  when: on_success
+  script:
+    - 'docker build -t unfurl:${CI_COMMIT_SHA} -f ./docker/Dockerfile .'
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+    - docker push unfurl:${CI_COMMIT_SHA}
+  tags:
+    - kubernetes
