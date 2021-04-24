@@ -91,7 +91,7 @@ build:
     - 'docker build -t unfurl:${CI_COMMIT_SHA} -f ./docker/Dockerfile .'
     - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
     - docker push unfurl:${CI_COMMIT_SHA}
-    tags:
+  tags:
       - kubernetes
 
 release:
