@@ -18,6 +18,7 @@ test:
   variables:
     DOCKER_HOST: tcp://docker:2375/
     DOCKER_DRIVER: overlay2
+    TOX_TESTENV_PASSENV: DOCKER_HOST
     # See https://github.com/docker-library/docker/pull/166
     DOCKER_TLS_CERTDIR: ""
   rules: *master_on_push
