@@ -48,6 +48,12 @@ build:
     - name: docker:19.03.12-dind
       entrypoint: ["env", "-u", "DOCKER_HOST"]
       command: ["dockerd-entrypoint.sh"]
+  variables:
+    GIT_SUBMODULE_STRATEGY: "recursive"
+    DOCKER_HOST: tcp://docker:2375/
+    DOCKER_DRIVER: overlay2
+    # See https://github.com/docker-library/docker/pull/166
+    DOCKER_TLS_CERTDIR: ""
   rules: *master_on_push
   stage: build
   script:
