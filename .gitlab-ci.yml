@@ -58,24 +58,30 @@ build:
   rules: *master_on_push
   stage: build
   script:
-    - 'docker build -t unfurl:${CI_COMMIT_SHA} -f ./docker/Dockerfile .'
+    - 'docker build -t registry.gitlab.com/onecommons/unfurl:${CI_COMMIT_SHA} -f ./docker/Dockerfile .'
     - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
-    - docker push unfurl:${CI_COMMIT_SHA}
+    - docker push registry.gitlab.com/onecommons/unfurl:${CI_COMMIT_SHA}
   tags:
       - kubernetes
 
 release:
+  image: docker:19.03.12
   services:
     - name: docker:19.03.12-dind
       entrypoint: ["env", "-u", "DOCKER_HOST"]
       command: ["dockerd-entrypoint.sh"]
+  variables:
+    DOCKER_HOST: tcp://docker:2375/
+    DOCKER_DRIVER: overlay2
+    # See https://github.com/docker-library/docker/pull/166
+    DOCKER_TLS_CERTDIR: ""
   rules: *on_tag
   stage: release
   script:
     - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
-    - 'docker pull unfurl:${CI_COMMIT_SHA}'
+    - 'docker pull registry.gitlab.com/onecommons/unfurl:${CI_COMMIT_SHA}'
     - docker logout $CI_REGISTRY
-    - 'docker tag  unfurl:${CI_COMMIT_SHA} unfurl:{CI_COMMIT_TAG}'
+    - 'docker tag  registry.gitlab.com/onecommons/unfurl:${CI_COMMIT_SHA} onecommons/unfurl:{CI_COMMIT_TAG}'
     - docker login -u $DOCKERHUB_USER -p $DOCKERHUB_TOKEN
     - docker push unfurl:${CI_COMMIT_TAG}
   tags:
