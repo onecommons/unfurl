@@ -83,7 +83,7 @@ release:
     - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
     - 'docker pull registry.gitlab.com/onecommons/unfurl:${CI_COMMIT_SHA}'
     - docker logout $CI_REGISTRY
-    - 'docker tag  registry.gitlab.com/onecommons/unfurl:${CI_COMMIT_SHA} onecommons/unfurl:{CI_COMMIT_TAG}'
+    - 'docker tag  registry.gitlab.com/onecommons/unfurl:${CI_COMMIT_SHA} onecommons/unfurl:${CI_COMMIT_TAG}'
     - docker login -u $DOCKERHUB_USER -p $DOCKERHUB_TOKEN
     - docker push unfurl:${CI_COMMIT_TAG}
   tags:
