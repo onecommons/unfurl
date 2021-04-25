@@ -8,7 +8,6 @@
   - if: '($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "push") && $CI_COMMIT_TAG '
     when: on_success
 
-
 .set_up_cluster: &set_up_cluster
   - k3d cluster create
   - kubectl get node
@@ -20,7 +19,16 @@ stages:
   - build
   - release
 
-variables:
+
+
+
+test:
+  image: registry.gitlab.com/onecommons/unfurl-test-docker-image:tf_0.13.6-helm_3.3.4-kubectl_1.17.14-k3d_3.4.0
+  services:
+    - name: docker:19.03.12-dind
+      entrypoint: ["env", "-u", "DOCKER_HOST"]
+      command: ["dockerd-entrypoint.sh"]
+  variables:
     GIT_SUBMODULE_STRATEGY: "recursive"
     DOCKER_HOST: tcp://docker:2375/
     DOCKER_DRIVER: overlay2
@@ -30,19 +38,13 @@ variables:
     LC_ALL: C.UTF-8
     LANG: C.UTF-8
     LC_CTYPE: C.UTF-8
-
-default:
-  image: registry.gitlab.com/onecommons/unfurl-test-docker-image:tf_0.13.6-helm_3.3.4-kubectl_1.17.14-k3d_3.4.0
-
-
-# test:
-#   rules: *master_on_push
-#   stage: test
-#   script:
-#     - *set_up_cluster
-#     - tox
-#   tags:
-#     - kubernetes
+  rules: *master_on_push
+  stage: test
+  script:
+    - *set_up_cluster
+    - tox
+  tags:
+    - kubernetes
 
 
 build:
