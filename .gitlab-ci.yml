@@ -30,10 +30,6 @@ variables:
     LC_CTYPE: C.UTF-8
 
 default:
-  services:
-    - name: docker:19.03.12-dind
-      entrypoint: ["env", "-u", "DOCKER_HOST"]
-      command: ["dockerd-entrypoint.sh"]
   image: registry.gitlab.com/onecommons/unfurl-test-docker-image:tf_0.13.6-helm_3.3.4-kubectl_1.17.14-k3d_3.4.0
 
 
@@ -48,6 +44,10 @@ default:
 
 
 build:
+  services:
+    - name: docker:19.03.12-dind
+      entrypoint: ["env", "-u", "DOCKER_HOST"]
+      command: ["dockerd-entrypoint.sh"]
   rules: *master_on_push
   stage: build
   script:
@@ -58,6 +58,10 @@ build:
       - kubernetes
 
 release:
+  services:
+    - name: docker:19.03.12-dind
+      entrypoint: ["env", "-u", "DOCKER_HOST"]
+      command: ["dockerd-entrypoint.sh"]
   rules: *on_tag
   stage: release
   script:
