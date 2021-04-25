@@ -37,14 +37,14 @@ default:
   image: registry.gitlab.com/onecommons/unfurl-test-docker-image:tf_0.13.6-helm_3.3.4-kubectl_1.17.14-k3d_3.4.0
 
 
-test:
-  rules: *master_on_push
-  stage: test
-  script:
-    - *set_up_cluster
-    - tox
-  tags:
-    - kubernetes
+# test:
+#   rules: *master_on_push
+#   stage: test
+#   script:
+#     - *set_up_cluster
+#     - tox
+#   tags:
+#     - kubernetes
 
 
 build:
