@@ -44,6 +44,7 @@ default:
 
 
 build:
+  image: docker:19.03.12
   services:
     - name: docker:19.03.12-dind
       entrypoint: ["env", "-u", "DOCKER_HOST"]
