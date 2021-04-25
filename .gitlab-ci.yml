@@ -85,6 +85,6 @@ release:
     - docker logout $CI_REGISTRY
     - 'docker tag  registry.gitlab.com/onecommons/unfurl:${CI_COMMIT_SHA} onecommons/unfurl:${CI_COMMIT_TAG}'
     - docker login -u $DOCKERHUB_USER -p $DOCKERHUB_TOKEN
-    - docker push unfurl:${CI_COMMIT_TAG}
+    - docker push onecommons/unfurl:${CI_COMMIT_TAG}
   tags:
     - kubernetes
