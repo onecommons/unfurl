@@ -1,5 +1,5 @@
 .master_on_push: &master_on_push
-  - if: '($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "push") && $CI_COMMIT_REF_NAME == "ci"'
+  - if: '($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "push") && $CI_COMMIT_REF_NAME == "master"'
     when: on_success
   - if: '$CI_COMMIT_TAG'
     when: never
@@ -18,8 +18,6 @@ stages:
   - test
   - build
   - release
-
-
 
 
 test:
@@ -67,6 +65,7 @@ build:
     - docker push registry.gitlab.com/onecommons/unfurl:${CI_COMMIT_SHA}
   tags:
       - kubernetes
+
 
 release:
   image: docker:19.03.12
