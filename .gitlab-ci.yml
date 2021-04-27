@@ -1,5 +1,5 @@
 .master_on_push: &master_on_push
-  - if: '($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "push") && $CI_COMMIT_REF_NAME == "master"'
+  - if: '($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "push") && $CI_COMMIT_REF_NAME == "ci"'
     when: on_success
   - if: '$CI_COMMIT_TAG'
     when: never
