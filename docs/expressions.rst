@@ -68,13 +68,13 @@ get_artifact
 
   If entity_name or artifact_name is not found return ``null``.
 
-  See :tosca_spec:`get_artifact <_Toc26969460>`.
+  See :tosca_spec:`get_artifact <_Toc50125538>`.
 
 get_attribute
 ^^^^^^^^^^^^^
 
   The get_attribute function is used to retrieve the values of named attributes declared by the referenced node or relationship template name.
-  See :tosca_spec:`TOSCA Attribute Functions <_Toc26969456>`.
+  See :tosca_spec:`TOSCA Attribute Functions <_Toc50125522>`.
 
 get_env
 ^^^^^^^
@@ -90,7 +90,7 @@ get_input
 ^^^^^^^^^
 
   The get_input function is used to retrieve the values of properties declared within the inputs section of a TOSCA Service Template.
-  See :tosca_spec:``TOSCA Property Functions <_Toc26969456>`
+  See :tosca_spec:``TOSCA Property Functions <_Toc50125513>`
 
 get_nodes_of_type
 ^^^^^^^^^^^^^^^^^

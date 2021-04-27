@@ -41,7 +41,7 @@ extlinks = {
     "onecommons": ("https://onecommons.org/%s", None),
     "unfurl_site": ("https://unfurl.run/%s", None),
     "tosca_spec": (
-        "https://docs.oasis-open.org/tosca/TOSCA-Simple-Profile-YAML/v1.3/os/TOSCA-Simple-Profile-YAML-v1.3-os.html#%s",
+        "_static/TOSCA-Simple-Profile-YAML-v1.3-os-toc.html#%s",
         "TOSCA 1.3 Specification",
     ),
 }
