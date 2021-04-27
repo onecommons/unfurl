@@ -2,8 +2,6 @@
 
 `node_templates` represent the actual instances of [node types]({{< relref "blueprints/spec-node-types.md" >}}) which would eventually represent a running application/service as described in the blueprint.
 
-`node_types` are more commonly referred to as `nodes`. nodes can comprise more than one instance. For example, you could define a node which contains two vms. Each vm will then be called a `node_instance`.
-
 ## Declaration
 
 The `node_templates` section in the DSL is a dictionary where each key is a node template.
