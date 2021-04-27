@@ -9,6 +9,6 @@ WORKDIR /unfurl
 
 COPY . .
 
-RUN pip3 install git+file:$PWD
+RUN pip3 install git+file:$PWD#egg=unfurl[full]
 
 RUN cd ../ && rm -rf unfurl
