@@ -18,7 +18,8 @@ A Node Template and a Relationship Template are the building blocks of any TOSCA
 
 .. https://app.diagrams.net/#G1rbe28yAmiULdCV2mtNJ_b0AWJFiG0iVi
 .. image:: images/service_template.png
-   :width: 100px
+   :width: 500px
+   :align: center
 
 Service Template
 ^^^^^^^^^^^^^^^^^

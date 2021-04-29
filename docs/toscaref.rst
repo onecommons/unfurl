@@ -62,9 +62,11 @@ Node Types
 
 node_types are used for defining common properties and behaviors for node-templates. node-templates can then be created based on these types, inheriting their definitions.
 
+For more info, see :ref:`Node Types <node_types>`
+
 Node Templates
 ++++++++++++++
 
 node_templates represent the actual instances of node types which would eventually represent a running application/service as described in the service template.
 
-For more info see :doc:`toscaref/spec-node-templates`
+For more info, see :ref:`Node Templates <node_templates>`
