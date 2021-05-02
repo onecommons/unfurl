@@ -12,3 +12,4 @@ GitPython # BSD
 -r tosca-parser/requirements.txt
 enum34; python_version<'3'
 importlib-metadata; python_version<'3.8' # Apache
+cryptography==3.3.2; python_version<'3.7' # last version before requiring rust and dropping python 2
