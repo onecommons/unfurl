@@ -3,12 +3,11 @@
 Node Types
 ===========
 
-
 ``node_types`` are used for defining common properties and behaviors for :ref:`Node Templates <node_templates>`.
 ``node-templates`` can then be created based on these types, inheriting their definitions.
 
 Declaration
-===========
+++++++++++++
 
 .. code:: yaml
 
@@ -28,7 +27,7 @@ Declaration
 
 
 Definition
-----------
+++++++++++++
 
 ============ ======== ========== ===================================
 Keyname      Required Type       Description
@@ -39,7 +38,7 @@ properties   no       dictionary A dictionary of node properties.
 ============ ======== ========== ===================================
 
 derived_from
-~~~~~~~~~~~~
+------------
 
 The ``derived_from`` property may be used to build over and extend an
 existing type. This is useful for further extracting common properties
@@ -60,15 +59,15 @@ section <#examples>`__ for more on this.
 
 
 interfaces
-~~~~~~~~~~
+------------
 
 The ``interfaces`` property may be used to define common behaviors for
 node templates. 
 
-For more informaiton, please refer to the :ref:`Interfaces<interfaces>` section.
+For more information, please refer to the :ref:`Interfaces<interfaces>` section.
 
 properties
-~~~~~~~~~~
+------------
 
 The ``properties`` property may be used to define a common properties
 schema for node templates.
@@ -105,19 +104,19 @@ keys:
 
 
 Examples
-========
+*********
 
 .. code:: yaml
 
  node_types:
    nodecellar.nodes.MongoDatabase:
-     derived_from: abc.nodes.DBMS
+     derived_from: tosca.nodes.DBMS
      properties:
        port:
          description: MongoDB port
          type: integer
      interfaces:
-       abc.interfaces.lifecycle:
+       Standard:
          create: scripts/mongo/install-mongo.sh
          start: scripts/mongo/start-mongo.sh
          stop: scripts/mongo/stop-mongo.sh
@@ -148,7 +147,7 @@ Finally, an example on how to extend an existing type by deriving from it:
          type: boolean
          default: false
      interfaces:
-       abc.interfaces.lifecycle:
+       Standard:
          create: scripts/mongo/install-mongo-extended.sh
          configure: scripts/mongo/configure-mongo-extended.sh
 
@@ -160,7 +159,7 @@ A node template whose type is ``nodecellar.nodes.MongoDatabaseExtended`` will th
 .. code:: yaml
 
      interfaces:
-       abc.interfaces.lifecycle:
+       Standard:
          create: scripts/mongo/install-mongo-extended.sh
          configure: scripts/mongo/configure-mongo-extended.sh
          start: scripts/mongo/start-mongo.sh

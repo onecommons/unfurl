@@ -24,7 +24,7 @@ is a node template.
          ...
        interfaces:
          ...
-       relationships:
+       requirements:
          ...
 
      node_template_2:
@@ -57,10 +57,10 @@ Definition
      - no
      - interfaces
      - Used for mapping plugins to :ref:`interfaces<interfaces>` operation or for specifying inputs for already mapped node type operations.
-   * - relationships
+   * - requirements
      - no
-     - relationships
-     - Used for specifying the :ref:`relationships<relationships>` this node template has with other node templates.
+     - requirements
+     - Used for specifying the :ref:`requirements<requirements>` this node template has.
 
 
 Example
@@ -71,13 +71,13 @@ Example
    node_types:
      # The following node type is used in the node templates section
      nodes.Nginx:
-       derived_from: cloudify.nodes.WebServer
+       derived_from: tosca.nodes.WebServer
        properties:
          port:
            description: The default listening port for the Nginx server.
            type: integer
        interfaces:
-         cloudify.interfaces.lifecycle:
+         Standard:
            create:
              implementation: scripts/install-nginx.sh
              inputs:
@@ -89,7 +89,7 @@ Example
 
    node_templates:
      vm:
-       type: cloudify.nodes.Compute
+       type: tosca.nodes.Compute
        instances:
          deploy: 2
        properties:
@@ -102,15 +102,15 @@ Example
        properties:
          port: 80
        interfaces:
-         cloudify.interfaces.lifecycle:
+         Standard:
            create:
              # inputs should match the inputs schema defined in nodes.Nginx for the create operation
              inputs:
                process:
                  env:
                    port: { get_property: [SELF, port] }
-       relationships:
-         - type: cloudify.relationships.contained_in
+       requirements:
+         - type: tosca.requirements.contained_in
            target: vm
 
 Instances Configuration
@@ -140,7 +140,7 @@ Example:
  
  node_templates:
    vm:
-     type: cloudify.openstack.nodes.Compute
+     type: tosca.openstack.nodes.Compute
      instances:
        deploy: 5
 
