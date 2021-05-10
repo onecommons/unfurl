@@ -17,19 +17,21 @@ A service template is comprised of several high level sections:
 .. toctree::
    :maxdepth: 2
 
-   DSL Definitions<toscaref/spec-dsldef.rst>
-   Requirements<toscaref/spec-requirements.rst>
-   Node Types<toscaref/spec-node-types.rst>
-   Node Templates<toscaref/spec-node-templates.rst>
-   Data Types<toscaref/spec-data-types.rst>
-   Inputs<toscaref/spec-inputs.rst>
-   Outputs<toscaref/spec-outputs.rst>
-   Groups<toscaref/spec-groups.rst>
    Imports<toscaref/spec-imports.rst>
+   Inputs<toscaref/spec-inputs.rst>
+   Node Templates<toscaref/spec-node-templates.rst>
+   Node Types<toscaref/spec-node-types.rst>
+   Requirements<toscaref/spec-requirements.rst>
+   Outputs<toscaref/spec-outputs.rst>
    Interfaces<toscaref/spec-interfaces.rst>
+   Groups<toscaref/spec-groups.rst>
+   DSL Definitions<toscaref/spec-dsldef.rst>
+   Data Types<toscaref/spec-data-types.rst>
 
-|
-|
+
+
+
+
 
 
 

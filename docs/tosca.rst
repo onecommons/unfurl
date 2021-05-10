@@ -61,14 +61,6 @@ A Relationship Template specifies the relationship between the components define
 An important thing to notice here is, in a relationship, it is important for the node requirements of a component to match the capabilities of the node it is being linked to.
 
 
-
-Description
------------
-
-* As we can see ``unfurl.nodes.Installer`` derives the interfaces from ``tosca.nodes.Root`` which was defined in the definition above it. ``tosca.nodes.Root`` has also been derived in the subsequent examples.
-* ``unfurl.nodes.Installer.Terraform`` makes use of the ``defaults``, ``Standard`` and ``Install`` interfaces.
-
-
 Extensions
 ~~~~~~~~~~
 

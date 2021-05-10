@@ -86,11 +86,13 @@ get_env
 
   If the value of its argument is empty (e.g. [] or null), return the entire dictionary.
 
+.. _get_input:
+
 get_input
 ^^^^^^^^^
 
   The get_input function is used to retrieve the values of properties declared within the inputs section of a TOSCA Service Template.
-  See :tosca_spec:``TOSCA Property Functions <_Toc50125513>``
+  See :tosca_spec:`TOSCA Property Functions <_Toc50125513>`
 
 get_nodes_of_type
 ^^^^^^^^^^^^^^^^^

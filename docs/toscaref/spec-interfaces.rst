@@ -363,4 +363,5 @@ Here, we added an input to the ``deploy`` operation under the ``my_deployment_in
 
 .. note:: Note that interface inputs are NOT the same type of objects as the inputs defined in the ``inputs`` section of the service template. Interface inputs are passed directly to a plugin’s operation (as \**kwargs to our ``deploy`` operation in the ``deployer`` plugin) or, in the case of our ``start`` operations, to the Script Plugin.
 
+.. seealso:: For more information, refer to :tosca_spec2:`TOSCA Interface Section <_Toc50125307>`
 

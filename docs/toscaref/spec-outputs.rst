@@ -68,14 +68,26 @@ Example
 Outputs
 +++++++
 
-You can view the outputs either by using the CLI.
+Outputs are recorded in the :ref:`ensemble.yaml<ensemble_yaml>` and is printed in the console after a job has completed as part of the job summary.
 
 .. code:: yaml
 
- cfy deployments outputs DEPLOYMENT_ID
-
-or by making a REST call
+ status:
+   outputs:
+     url: https://demo.example.com
+   webapp_endpoint:
+        description: ip and port of the web application
+        value:
+            ip: { get_attribute: [webserver_vm, ip] }
+            port
+ 
+Example
+-------
 
 .. code:: yaml
 
- curl -XGET http://MANAGER_IP/deployments/<DEPLOYMENT_ID>/outputs
+ status:
+   outputs:
+     webapp_endpoint:
+       ip: 127.0.0.1
+       port: 8080

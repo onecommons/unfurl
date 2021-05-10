@@ -46,3 +46,6 @@ A few important things to know about importing YAML files:
    * :ref:`Outputs<outputs>`
 
 * The ``tosca_definitions_version`` must match between imported files.
+
+.. seealso:: For more information, refer to :tosca_spec2:`TOSCA Import Section <_Toc50125256>`
+

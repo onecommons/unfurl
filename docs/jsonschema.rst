@@ -7,6 +7,8 @@ Unfurl's configuration files are validated according to the JSON schemas describ
 Files
 -----
 
+.. _ensemble_yaml:
+
 ensemble.yaml
 ~~~~~~~~~~~~~
 

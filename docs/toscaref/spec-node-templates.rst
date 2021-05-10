@@ -20,8 +20,6 @@ is a node template.
        type: ...
        properties:
          ...
-       instances:
-         ...
        interfaces:
          ...
        requirements:
@@ -49,10 +47,6 @@ Definition
      - no
      - dict
      - The properties of the node template matching its node type properties schema.
-   * - instances
-     - no
-     - dict
-     - Instances configuration
    * - interfaces
      - no
      - interfaces
@@ -90,8 +84,6 @@ Example
    node_templates:
      vm:
        type: tosca.nodes.Compute
-       instances:
-         deploy: 2
        properties:
          ip: 192.168.0.11
 
@@ -113,38 +105,3 @@ Example
          - type: tosca.requirements.contained_in
            target: vm
 
-Instances Configuration
------------------------
-
-The ``instances`` key is used for configuring the deployment
-characteristics of the node template.
-
-Instances Definition
-~~~~~~~~~~~~~~~~~~~~
-
-+--------------------+--------------+------+----------+--------------------+
-| Keyname            | Required     | Type | Default  | Description        |
-+====================+==============+======+==========+====================+
-| deploy             | no           | int  | 1        | The number of      |
-|                    |              | eger |          | node-instances     |
-|                    |              |      |          | this node template |
-|                    |              |      |          | will have.         |
-+--------------------+--------------+------+----------+--------------------+
-
-.. _example-1:
-
-Example:
-~~~~~~~~
-
-.. code:: yaml
- 
- node_templates:
-   vm:
-     type: tosca.openstack.nodes.Compute
-     instances:
-       deploy: 5
-
-
-In the previous example, the `vm` node would have 5 instances when deployed.
-
-More informatiom about number of instances combined with relationships can be found in the :doc:`spec-relationships.rst`

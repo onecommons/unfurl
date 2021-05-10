@@ -67,4 +67,4 @@ Example
           image_name: { get_input: image_name }
 
 
-``get_input`` is a special function which allows the user to use inputs throughout the service templates. 
+.. seealso:: :ref:`get_input<get_input>` is a TOSCA function which allows the user to use inputs throughout the service templates. For more information, refer to the :tosca_spec2:`TOSCA get_input section <_Toc50125513>`

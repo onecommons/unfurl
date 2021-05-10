@@ -167,3 +167,5 @@ A node template whose type is ``nodecellar.nodes.MongoDatabaseExtended`` will th
 
 
 As it is evident, the ``configure`` operation, which is mapped only in the extending type, got merged with the ``start`` and ``stop`` operations which are only mapped in the parent type, while the ``create`` operation, which is defined on both types, will be mapped to the value set in the extending type.
+
+.. seealso:: For more information, refer to :tosca_spec2:`TOSCA node_types Section <_Toc50125490>`
