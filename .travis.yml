@@ -35,9 +35,9 @@ jobs:
       if: branch == master
       python: 3.9
       script: # build, tag and push to docker hub
-       - docker build -f ./docker/Dockerfile .
+       - docker build -t "onecommons/unfurl:${TRAVIS_TAG:-$TRAVIS_COMMIT}"" -f ./docker/Dockerfile .
        - echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USER" --password-stdin
-       - docker push onecommons/unfurl:${TRAVIS_TAG:-$TRAVIS_COMMIT}
+       - docker push "onecommons/unfurl:${TRAVIS_TAG:-$TRAVIS_COMMIT}"
       deploy:
         on:
           tags: true
