@@ -391,7 +391,9 @@ class YamlManifest(ReadOnlyManifest):
                 artifact = Artifact(location, path=baseDir, spec=self.tosca)
                 path = artifact.getPath()
                 localEnv = LocalEnv(path, parent=self.localEnv)
-                if os.path.abspath(self.path) == os.path.abspath(localEnv.manifestPath):
+                if self.path and os.path.abspath(self.path) == os.path.abspath(
+                    localEnv.manifestPath
+                ):
                     # don't import self (might happen when context is shared)
                     continue
                 importedManifest = localEnv.getManifest()
