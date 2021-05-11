@@ -71,9 +71,9 @@ class Manifest(AttributeManager):
 
     def _loadSpec(self, spec, path, repositories):
         if "service_template" in spec:
-            toscaDef = spec["service_template"]
+            toscaDef = spec["service_template"] or {}
         elif "tosca" in spec:  # backward compat
-            toscaDef = spec["tosca"]
+            toscaDef = spec["tosca"] or {}
         else:
             toscaDef = {}
 

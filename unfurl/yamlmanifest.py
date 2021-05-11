@@ -233,8 +233,6 @@ class ReadOnlyManifest(Manifest):
     def isPathToSelf(self, path):
         if self.path is None or path is None:
             return False
-        if isinstance(path, Artifact):
-            path = path.getPath()
         return os.path.abspath(self.path) == os.path.abspath(path)
 
     # def addRepo(self, name, repo):
@@ -392,11 +390,11 @@ class YamlManifest(ReadOnlyManifest):
                 baseDir = getattr(location, "baseDir", self.getBaseDir())
                 artifact = Artifact(location, path=baseDir, spec=self.tosca)
                 path = artifact.getPath()
-                if self.isPathToSelf(path):
+                localEnv = LocalEnv(path, parent=self.localEnv)
+                if os.path.abspath(self.path) == os.path.abspath(localEnv.manifestPath):
                     # don't import self (might happen when context is shared)
                     continue
-                localEnv = self.localEnv or LocalEnv(path)
-                importedManifest = localEnv.getManifest(path)
+                importedManifest = localEnv.getManifest()
 
             uri = value.get("uri")
             if uri and not importedManifest.hasUri(uri):
