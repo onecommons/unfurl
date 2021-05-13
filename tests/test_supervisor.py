@@ -1,57 +1,28 @@
-import unittest
 import os
-import json
+import signal
 import time
-from six.moves import urllib
+import unittest
+
 from click.testing import CliRunner
+from six.moves import urllib
 
 import unfurl.configurators  # python2.7 workaround
 import unfurl.configurators.shell  # python2.7 workaround
 import unfurl.configurators.supervisor  # python2.7 workaround
+from unfurl.job import JobOptions, Runner
 from unfurl.yamlmanifest import YamlManifest
-from unfurl.job import Runner, JobOptions
-
-manifest = """\
-apiVersion: unfurl/v1alpha1
-kind: Ensemble
-spec:
-  service_template:
-    imports:
-      - repository: unfurl
-        file: configurators/supervisor-template.yaml
-
-    topology_template:
-      node_templates:
-        # localhost:
-        #   directives:
-        #   - select
-        #   type: tosca.nodes.Compute
-
-        supervisord:
-          type: unfurl.nodes.Supervisor
-          properties:
-            homeDir: . # unix socket paths can't be > 100 characters
-          # requirements:
-          # - host: localhost
-
-        unfurl_run_runner:
-          type: unfurl.nodes.ProcessController.Supervisor
-          properties:
-            name: test
-            program:
-              command: python3 -m http.server -b 127.0.0.1 8012
-              redirect_stderr: true
-              stdout_logfile: '%(here)s/test.log'
-          requirements:
-          - host: supervisord
-"""
 
 
 class SupervisorTest(unittest.TestCase):
+    def setUp(self):
+        path = os.path.join(os.path.dirname(__file__), "examples", "supervisor-manifest.yaml")
+        with open(path) as f:
+            self.manifest = f.read()
+
     def test_supervisor(self):
         cliRunner = CliRunner()
         with cliRunner.isolated_filesystem():
-            runner = Runner(YamlManifest(manifest))
+            runner = Runner(YamlManifest(self.manifest))
             try:
                 job = runner.run(JobOptions(startTime=1))  # deploy
                 assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
@@ -97,6 +68,6 @@ class SupervisorTest(unittest.TestCase):
             finally:
                 if os.path.exists("supervisord/local/supervisord.pid"):
                     with open("supervisord/local/supervisord.pid") as f:
-                        pid = f.read()
+                        pid = int(f.read())
                         print("killing", pid)
-                        os.kill(pid)
+                        os.kill(pid, signal.SIGINT)

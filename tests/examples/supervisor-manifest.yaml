@@ -1,0 +1,32 @@
+apiVersion: unfurl/v1alpha1
+kind: Ensemble
+spec:
+  service_template:
+    imports:
+      - repository: unfurl
+        file: configurators/supervisor-template.yaml
+
+    topology_template:
+      node_templates:
+        # localhost:
+        #   directives:
+        #   - select
+        #   type: tosca.nodes.Compute
+
+        supervisord:
+          type: unfurl.nodes.Supervisor
+          properties:
+            homeDir: . # unix socket paths can't be > 100 characters
+          # requirements:
+          # - host: localhost
+
+        unfurl_run_runner:
+          type: unfurl.nodes.ProcessController.Supervisor
+          properties:
+            name: test
+            program:
+              command: python3 -m http.server -b 127.0.0.1 8012
+              redirect_stderr: true
+              stdout_logfile: '%(here)s/test.log'
+          requirements:
+            - host: supervisord
