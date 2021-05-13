@@ -1,75 +1,17 @@
-import unittest
 import os
-from unfurl.job import Runner, JobOptions
-from unfurl.util import sensitive_str
-from unfurl.support import Status
-from unfurl.localenv import LocalEnv
+import unittest
+
 from click.testing import CliRunner
+
+from unfurl.job import JobOptions, Runner
+from unfurl.localenv import LocalEnv
+from unfurl.support import Status
+from unfurl.util import sensitive_str
 
 # python2.7 workarounds:
 import unfurl.configurators
 import unfurl.configurators.terraform
 import unfurl.yamlmanifest
-
-ensembleConfig = """
-apiVersion: unfurl/v1alpha1
-kind: Ensemble
-spec:
-  service_template:
-    topology_template:
-      node_templates:
-        example:
-          type: unfurl.nodes.Installer.Terraform
-          interfaces:
-            defaults:
-              inputs:
-                tfvars:
-                  tag: test
-                main:
-                  provider:
-                    aws:
-                      version: "~> 3.2"
-                      endpoints:
-                        ec2: http://localhost:5000
-                        sts: http://localhost:5000
-                  output:
-                     availability_zone:
-                        value: "${aws_instance.example.availability_zone}"
-                        sensitive: true
-                  resource:
-                    aws_instance:
-                      example:
-                        ami: "ami-2757f631"
-                        instance_type: "t2.micro"
-                        tags:
-                          Name: "${var.tag}"
-                  variable:
-                    tag:
-                      type: string
-            Standard:
-              operations:
-                create:
-                  inputs:
-                    resultTemplate:
-                        attributes:
-                          id: "{{ resources[0].instances[0].attributes.id }}"
-                          availability_zone: "{{ outputs.availability_zone }}"
-                          tags: "{{ resources[0].instances[0].attributes.tags }}"
-"""
-
-projectConfig = """
-apiVersion: unfurl/v1alpha1
-kind: Project
-contexts:
-  defaults:
-    environment:
-      AWS_DEFAULT_REGION: us-east-1
-      AWS_ACCESS_KEY_ID: dummy
-      AWS_SECRET_ACCESS_KEY: not_so_secret
-    secrets:
-      attributes:
-        vault_default_password: testing
-"""
 
 
 @unittest.skipIf(
@@ -78,12 +20,19 @@ contexts:
 class TerraformTest(unittest.TestCase):
     def setUp(self):
         import threading
+
         from moto.server import main
 
         t = threading.Thread(name="moto_thread", target=lambda: main([]))
         t.daemon = True
         # UI lives at http://localhost:5000/moto-api
         t.start()
+
+        path = os.path.join(os.path.dirname(__file__), "examples")
+        with open(os.path.join(path, "terraform-ensemble.yaml")) as f:
+            self.ensemble_config = f.read()
+        with open(os.path.join(path, "terraform-project-config.yaml")) as f:
+            self.project_config = f.read()
 
     def tearDown(self):
         pass  # XXX how to shut down the moto server?
@@ -95,10 +44,10 @@ class TerraformTest(unittest.TestCase):
         runner = CliRunner()
         with runner.isolated_filesystem():
             with open("unfurl.yaml", "w") as f:
-                f.write(projectConfig)
+                f.write(self.project_config)
 
             with open("ensemble.yaml", "w") as f:
-                f.write(ensembleConfig)
+                f.write(self.ensemble_config)
 
             manifest = LocalEnv().getManifest()
             assert manifest.manifest.vault and manifest.manifest.vault.secrets
