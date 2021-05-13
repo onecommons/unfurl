@@ -1,57 +1,24 @@
-import unittest
 import os
+import os.path
 import sys
-from unfurl.yamlmanifest import YamlManifest
-from unfurl.job import Runner, JobOptions
+import threading
+import unittest
+from functools import partial
+
 from six.moves import urllib
 
-manifest = """
-apiVersion: unfurl/v1alpha1
-kind: Manifest
-spec:
-  service_template:
-    imports:
-      - repository: unfurl
-        file: configurators/helm-template.yaml
+from unfurl.job import JobOptions, Runner
+from unfurl.yamlmanifest import YamlManifest
 
-    topology_template:
-      node_templates:
-        stable_repo:
-          type: unfurl.nodes.HelmRepository
-          properties:
-            name: stable
-            url:  http://localhost:8010/fixtures/helmrepo/
-
-        k8sNamespace:
-         type: unfurl.nodes.K8sNamespace
-         # these unittests don't define a k8sCluster so we need to comment this out
-         # requirements:
-         #   - host: k8sCluster
-         properties:
-           name: unfurl-helm-unittest
-
-        mysql_release:
-          type: unfurl.nodes.HelmRelease
-          requirements:
-            - repository:
-                node: stable_repo
-            - host:
-                node: k8sNamespace
-          properties:
-            chart: stable/mysql
-            release_name: mysql-test
-            chart_values:
-              args: []
-"""
-
-import threading
-import os.path
-from functools import partial
 
 # http://localhost:8000/fixtures/helmrepo
 @unittest.skipIf("helm" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
 class HelmTest(unittest.TestCase):
     def setUp(self):
+        path = os.path.join(os.path.dirname(__file__), "examples", "helm-simple-manifest.yaml")
+        with open(path) as f:
+            self.manifest = f.read()
+
         server_address = ("", 8010)
         directory = os.path.dirname(__file__)
         try:
@@ -61,9 +28,10 @@ class HelmTest(unittest.TestCase):
                 handler = partial(SimpleHTTPRequestHandler, directory=directory)
                 self.httpd = HTTPServer(server_address, handler)
             else:  # for python 2.7
-                from SimpleHTTPServer import SimpleHTTPRequestHandler
-                import SocketServer
                 import urllib
+
+                import SocketServer
+                from SimpleHTTPServer import SimpleHTTPRequestHandler
 
                 class RootedHTTPRequestHandler(SimpleHTTPRequestHandler):
                     def translate_path(self, path):
@@ -99,7 +67,7 @@ class HelmTest(unittest.TestCase):
         f = urllib.request.urlopen("http://localhost:8010/fixtures/helmrepo/index.yaml")
         f.close()
 
-        runner = Runner(YamlManifest(manifest))
+        runner = Runner(YamlManifest(self.manifest))
         run1 = runner.run(
             JobOptions(planOnly=True, verbose=3, startTime=1)
         )
@@ -108,7 +76,7 @@ class HelmTest(unittest.TestCase):
         res = mysql_release.query(query)
         assert res == 'unfurl-helm-unittest'
 
-        runner = Runner(YamlManifest(manifest))
+        runner = Runner(YamlManifest(self.manifest))
         run1 = runner.run(
             JobOptions(dryrun=False, verbose=3, startTime=1)
         )
@@ -135,7 +103,7 @@ class HelmTest(unittest.TestCase):
         # runner.manifest.dump()
 
     def test_undeploy(self):
-        runner = Runner(YamlManifest(manifest))
+        runner = Runner(YamlManifest(self.manifest))
         # print('load');  runner.manifest.statusSummary()
         run = runner.run(JobOptions(workflow="check", startTime=2))
         summary = run.jsonSummary()
