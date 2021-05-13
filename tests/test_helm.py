@@ -15,7 +15,9 @@ from unfurl.yamlmanifest import YamlManifest
 @unittest.skipIf("helm" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
 class HelmTest(unittest.TestCase):
     def setUp(self):
-        path = os.path.join(os.path.dirname(__file__), "examples", "helm-simple-manifest.yaml")
+        path = os.path.join(
+            os.path.dirname(__file__), "examples", "helm-simple-manifest.yaml"
+        )
         with open(path) as f:
             self.manifest = f.read()
 
@@ -68,18 +70,14 @@ class HelmTest(unittest.TestCase):
         f.close()
 
         runner = Runner(YamlManifest(self.manifest))
-        run1 = runner.run(
-            JobOptions(planOnly=True, verbose=3, startTime=1)
-        )
+        run1 = runner.run(JobOptions(planOnly=True, verbose=3, startTime=1))
         mysql_release = runner.manifest.rootResource.findResource("mysql_release")
         query = ".::.requirements::[.name=host]::.target::name"
         res = mysql_release.query(query)
-        assert res == 'unfurl-helm-unittest'
+        assert res == "unfurl-helm-unittest"
 
         runner = Runner(YamlManifest(self.manifest))
-        run1 = runner.run(
-            JobOptions(dryrun=False, verbose=3, startTime=1)
-        )
+        run1 = runner.run(JobOptions(dryrun=False, verbose=3, startTime=1))
         assert not run1.unexpectedAbort, run1.unexpectedAbort.getStackTrace()
         summary = run1.jsonSummary()
         # runner.manifest.statusSummary()
