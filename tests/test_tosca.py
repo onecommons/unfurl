@@ -397,7 +397,7 @@ spec:
                     [
                         {
                             "operation": "check",
-                            "configurator": "test_tosca.SetAttributeConfigurator",
+                            "configurator": "tests.test_tosca.SetAttributeConfigurator",
                             "changed": True,
                             "priority": "required",
                             "reason": "check",
