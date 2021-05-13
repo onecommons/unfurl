@@ -11,7 +11,10 @@ __pycache__/
 .DS_Store
 .pytype
 .vscode
+.idea/
 .venv
 # due to using tox and pytest
 .tox
 .cache
+.coverage
+htmlcov/
