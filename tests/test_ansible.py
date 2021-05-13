@@ -1,13 +1,13 @@
-import unfurl.util
-import unittest
-from unfurl.yamlmanifest import YamlManifest
-from unfurl.job import Runner, JobOptions
-from unfurl.configurators.ansible import runPlaybooks
-from unfurl.runtime import Status
 import os
 import os.path
-import warnings
 import sys
+import unittest
+import warnings
+
+from unfurl.configurators.ansible import runPlaybooks
+from unfurl.job import JobOptions, Runner
+from unfurl.runtime import Status
+from unfurl.yamlmanifest import YamlManifest
 
 
 class AnsibleTest(unittest.TestCase):
@@ -61,39 +61,14 @@ class AnsibleTest(unittest.TestCase):
         assert not results.resultsByStatus.skipped.get("test-verbosity")
 
 
-manifest = """
-apiVersion: unfurl/v1alpha1
-kind: Manifest
-configurations:
-  create:
-    implementation: unfurl.configurators.ansible.AnsibleConfigurator
-    outputs:
-      fact1:
-      fact2:
-    inputs:
-      playbook:
-        q:
-          - set_fact:
-              fact1: "{{ '.name' | ref }}"
-              fact2: "{{ SELF.testProp }}"
-          - name: Hello
-            command: echo "{{hostvars['localhost'].ansible_python_interpreter}}"
-spec:
-  service_template:
-    topology_template:
-      node_templates:
-        test1:
-          type: tosca.nodes.Root
-          properties:
-            testProp: "test"
-          interfaces:
-            Standard:
-              +/configurations:
-"""
-
-
 class AnsibleConfiguratorTest(unittest.TestCase):
     def setUp(self):
+        path = os.path.join(
+            os.path.dirname(__file__), "examples", "ansible-simple-manifest.yaml"
+        )
+        with open(path) as f:
+            self.manifest = f.read()
+
         try:
             # Ansible generates tons of ResourceWarnings
             warnings.simplefilter("ignore", ResourceWarning)
@@ -105,7 +80,7 @@ class AnsibleConfiguratorTest(unittest.TestCase):
         """
         test that runner figures out the proper tasks to run
         """
-        runner = Runner(YamlManifest(manifest))
+        runner = Runner(YamlManifest(self.manifest))
         run1 = runner.run(JobOptions(resource="test1"))
         assert not run1.unexpectedAbort, run1.unexpectedAbort.getStackTrace()
         assert len(run1.workDone) == 1, run1.workDone
