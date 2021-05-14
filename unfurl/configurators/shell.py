@@ -226,30 +226,13 @@ class ShellConfigurator(TemplateConfigurator):
         cwd = params.get("cwd")
         if cwd:
             # if cwd is relative, make it relative to task.cwd
-            assert isinstance(cmd, six.string_types)
+            assert isinstance(cwd, six.string_types)
             cwd = os.path.abspath(os.path.join(task.cwd, cwd))
         else:
             cwd = task.cwd
         keeplines = params.get("keeplines")
 
-        if task.dryRun and isinstance(task.inputs.get("dryrun"), six.string_types):
-            dryrunArg = task.inputs["dryrun"]
-            if "%dryrun%" in cmd:  # replace %dryrun%
-                if isString:
-                    cmd = cmd.replace("%dryrun%", dryrunArg)
-                else:
-                    cmd[cmd.index("%dryrun%")] = dryrunArg
-            else:  # append dryrunArg
-                if isString:
-                    cmd += " " + dryrunArg
-                else:
-                    cmd.append(dryrunArg)
-        elif "%dryrun%" in cmd:
-            if isString:
-                cmd = cmd.replace("%dryrun%", "")
-            else:
-                cmd.remove("%dryrun%")
-
+        cmd = self.resolve_dry_run(cmd, task)
         echo = params.get("echo")  # task.verbose > -1)
         result = self.runProcess(
             cmd,
@@ -264,3 +247,24 @@ class ShellConfigurator(TemplateConfigurator):
         done = task.inputs.get("done", {})
         success = done.pop("success", success)
         yield task.done(success, result=result.__dict__, **done)
+
+    def resolve_dry_run(self, cmd, task):
+        is_string = isinstance(cmd, six.string_types)
+        if task.dryRun and isinstance(task.inputs.get("dryrun"), six.string_types):
+            dry_run_arg = task.inputs["dryrun"]
+            if "%dryrun%" in cmd:  # replace %dryrun%
+                if is_string:
+                    cmd = cmd.replace("%dryrun%", dry_run_arg)
+                else:
+                    cmd[cmd.index("%dryrun%")] = dry_run_arg
+            else:  # append dry_run_arg
+                if is_string:
+                    cmd += " " + dry_run_arg
+                else:
+                    cmd.append(dry_run_arg)
+        elif "%dryrun%" in cmd:
+            if is_string:
+                cmd = cmd.replace("%dryrun%", "")
+            else:
+                cmd.remove("%dryrun%")
+        return cmd

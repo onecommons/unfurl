@@ -587,48 +587,47 @@ class Job(ConfigChange):
         * check pre-conditions to see if it can be run
         * check task if it can be run
         """
-        canRun = False
+        can_run = False
         reason = ""
         try:
             if task._errors:
-                canRun = False
+                can_run = False
                 reason = "could not create task"
-                return
-            if task.dryRun and not task.configurator.canDryRun(task):
-                canRun = False
+            elif task.dryRun and not task.configurator.canDryRun(task):
+                can_run = False
                 reason = "dry run not supported"
-                return
-            missing = []
-            skipDependencyCheck = False
-            if not skipDependencyCheck:
-                dependencies = list(task.target.getOperationalDependencies())
-                missing = [
-                    dep for dep in dependencies if not dep.operational and dep.required
-                ]
-            if missing:
-                reason = "required dependencies not operational: %s" % ", ".join(
-                    ["%s is %s" % (dep.name, dep.status.name) for dep in missing]
-                )
             else:
-                errors = task.configSpec.findInvalidateInputs(task.inputs)
-                if errors:
-                    reason = "invalid inputs: %s" % str(errors)
+                missing = []
+                skipDependencyCheck = False
+                if not skipDependencyCheck:
+                    dependencies = list(task.target.getOperationalDependencies())
+                    missing = [
+                        dep for dep in dependencies if not dep.operational and dep.required
+                    ]
+                if missing:
+                    reason = "required dependencies not operational: %s" % ", ".join(
+                        ["%s is %s" % (dep.name, dep.status.name) for dep in missing]
+                    )
                 else:
-                    preErrors = task.configSpec.findInvalidPreconditions(task.target)
-                    if preErrors:
-                        reason = "invalid preconditions: %s" % str(preErrors)
+                    errors = task.configSpec.findInvalidateInputs(task.inputs)
+                    if errors:
+                        reason = "invalid inputs: %s" % str(errors)
                     else:
-                        errors = task.configurator.canRun(task)
-                        if not errors or not isinstance(errors, bool):
-                            reason = "configurator declined: %s" % str(errors)
+                        preErrors = task.configSpec.findInvalidPreconditions(task.target)
+                        if preErrors:
+                            reason = "invalid preconditions: %s" % str(preErrors)
                         else:
-                            canRun = True
+                            errors = task.configurator.canRun(task)
+                            if not errors or not isinstance(errors, bool):
+                                reason = "configurator declined: %s" % str(errors)
+                            else:
+                                can_run = True
         except Exception:
             UnfurlTaskError(task, "cantRunTask failed unexpectedly")
             reason = "unexpected exception in cantRunTask"
-            canRun = False
+            can_run = False
 
-        if canRun:
+        if can_run:
             return False
         else:
             logger.info("could not run task %s: %s", task, reason)
