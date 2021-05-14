@@ -1,4 +1,4 @@
-import unittest
+from datetime import datetime, timedelta
 
 import pytest
 
@@ -6,77 +6,31 @@ from unfurl.configurator import Status
 from unfurl.job import JobOptions, Runner
 from unfurl.yamlmanifest import YamlManifest
 
-manifest = """
-apiVersion: unfurl/v1alpha1
-kind: Manifest
-configurations:
-  create:
-    implementation:
-      className: unfurl.configurators.shell.ShellConfigurator
-      environment:
-        FOO: "{{inputs.foo}}"
-    inputs:
-       # test that self-references works in jinja2 templates
-       command: "echo ${{inputs.envvar}}"
-       timeout: 9999
-       foo:     helloworld
-       envvar:  FOO
-       resultTemplate: |
-         - name: SELF
-           attributes:
-             stdout: "{{ stdout | trim }}"
-spec:
-  service_template:
-    topology_template:
-      node_templates:
-        test1:
-          type: tosca.nodes.Root
-          interfaces:
-            Standard:
-              +/configurations:
-"""
 
-
-class ShellConfiguratorTest(unittest.TestCase):
+class TestShellConfigurator:
     def test_shell(self):
         """
         test that runner figures out the proper tasks to run
         """
-        runner = Runner(YamlManifest(manifest))
+        runner = Runner(YamlManifest(ENSEMBLE_GENERAL))
 
-        run1 = runner.run(JobOptions(instance="test1"))
-        assert len(run1.workDone) == 1, run1.workDone
-        self.assertEqual(
-            runner.manifest.getRootResource()
-            .findResource("test1")
-            .attributes["stdout"],
-            "helloworld",
-        )
-        assert not run1.unexpectedAbort, run1.unexpectedAbort.getStackTrace()
+        job = runner.run(JobOptions(instance="test1"))
+
+        assert len(job.workDone) == 1, job.workDone
+        assert runner.manifest.getRootResource().findResource("test1").attributes["stdout"] == "helloworld"
+        assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
+
+    def test_timeout(self):
+        runner = Runner(YamlManifest(ENSEMBLE_TIMEOUT))
+        start_time = datetime.now()
+
+        job = runner.run(JobOptions(instance="test_node"))
+
+        assert job.status == Status.error
+        assert datetime.now() - start_time < timedelta(seconds=1.5)
 
 
 class TestDryRun:
-    MANIFEST = """
-apiVersion: unfurl/v1alpha1
-kind: Manifest
-configurations:
-  create:
-    implementation:
-      className: unfurl.configurators.shell.ShellConfigurator
-    inputs:
-      {command}
-      {dryrun}
-spec:
-  service_template:
-    topology_template:
-      node_templates:
-        test_node:
-          type: tosca.nodes.Root
-          interfaces:
-            Standard:
-              +/configurations:
-"""
-
     @pytest.mark.parametrize(
         "command,dryrun",
         [
@@ -103,8 +57,8 @@ spec:
         ],
     )
     def test_run_without_dry_run(self, command, dryrun):
-        manifest = self.MANIFEST.format(command=command, dryrun=dryrun)
-        runner = Runner(YamlManifest(manifest))
+        ensemble = ENSEMBLE_DRY_RUN.format(command=command, dryrun=dryrun)
+        runner = Runner(YamlManifest(ensemble))
 
         job = runner.run(JobOptions(instance="test_node", dryrun=False))
 
@@ -138,8 +92,8 @@ spec:
         ],
     )
     def test_run_with_dry_run(self, command, dryrun):
-        manifest = self.MANIFEST.format(command=command, dryrun=dryrun)
-        runner = Runner(YamlManifest(manifest))
+        ensemble = ENSEMBLE_DRY_RUN.format(command=command, dryrun=dryrun)
+        runner = Runner(YamlManifest(ensemble))
 
         job = runner.run(JobOptions(instance="test_node", dryrun=True))
 
@@ -149,11 +103,84 @@ spec:
         assert cmd == "echo hello world --use-dry-run"
 
     def test_error_if_dry_run_not_defined_for_task(self):
-        manifest = self.MANIFEST.format(command="command: echo hello world", dryrun="")
-        runner = Runner(YamlManifest(manifest))
+        ensemble = ENSEMBLE_DRY_RUN.format(command="command: echo hello world", dryrun="")
+        runner = Runner(YamlManifest(ensemble))
 
         job = runner.run(JobOptions(instance="test_node", dryrun=True))
 
         task = list(job.workDone.values())[0]
         assert job.status == Status.error
         assert task.result.result == "could not run: dry run not supported"
+
+
+ENSEMBLE_GENERAL = """
+apiVersion: unfurl/v1alpha1
+kind: Ensemble
+configurations:
+  create:
+    implementation:
+      className: unfurl.configurators.shell.ShellConfigurator
+      environment:
+        FOO: "{{inputs.foo}}"
+    inputs:
+       # test that self-references works in jinja2 templates
+       command: "echo ${{inputs.envvar}}"
+       timeout: 9999
+       foo:     helloworld
+       envvar:  FOO
+       resultTemplate: |
+         - name: SELF
+           attributes:
+             stdout: "{{ stdout | trim }}"
+spec:
+  service_template:
+    topology_template:
+      node_templates:
+        test1:
+          type: tosca.nodes.Root
+          interfaces:
+            Standard:
+              +/configurations:
+"""
+
+ENSEMBLE_TIMEOUT = """
+apiVersion: unfurl/v1alpha1
+kind: Ensemble
+configurations:
+  create:
+    implementation:
+      className: unfurl.configurators.shell.ShellConfigurator
+      timeout: 1
+    inputs:
+      command: sleep 42
+spec:
+  service_template:
+    topology_template:
+      node_templates:
+        test_node:
+          type: tosca.nodes.Root
+          interfaces:
+            Standard:
+              +/configurations:
+"""
+
+ENSEMBLE_DRY_RUN = """
+apiVersion: unfurl/v1alpha1
+kind: Ensemble
+configurations:
+  create:
+    implementation:
+      className: unfurl.configurators.shell.ShellConfigurator
+    inputs:
+      {command}
+      {dryrun}
+spec:
+  service_template:
+    topology_template:
+      node_templates:
+        test_node:
+          type: tosca.nodes.Root
+          interfaces:
+            Standard:
+              +/configurations:
+"""
