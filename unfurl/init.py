@@ -669,6 +669,27 @@ def _runPipEnv(do_install, kw):
     return retcode
 
 
+# XXX provide an option for an uUfurl installation can be shared across runtimes.
+def _addUnfurlToVenv(projectdir):
+    """
+    Set the virtualenv inside `projectdir` to use the unfurl package currently being executed.
+    """
+    # this should only be used when the current unfurl is installed in editor mode
+    # otherwise it will be exposing all packages in the current python's site-packages
+    base = os.path.dirname(os.path.dirname(_templatePath))
+    sitePackageDir = None
+    libDir = os.path.join(projectdir, os.path.join(".venv", "lib"))
+    for name in os.listdir(libDir):
+        sitePackageDir = os.path.join(libDir, name, "site-packages")
+        if os.path.isdir(sitePackageDir):
+            break
+    else:
+        # XXX report error: can't find site-package folder
+        return
+    _writeFile(sitePackageDir, "unfurl.pth", base)
+    _writeFile(sitePackageDir, "unfurl.egg-link", base)
+
+
 def createVenv(projectDir, pipfileLocation, unfurlLocation):
     """Create a virtual python environment for the given project."""
 
