@@ -1,6 +1,8 @@
 import os
+from datetime import datetime, timedelta
 
 import pytest
+import six
 
 from unfurl.configurator import Status
 from unfurl.configurators.shell import ShellConfigurator, subprocess
@@ -34,9 +36,20 @@ class TestShellConfigurator:
     def test_timeout(self):
         configurator = ShellConfigurator(None)
 
-        err = configurator.runProcess(cmd="sleep 42", timeout=1)
+        err = configurator.runProcess(cmd="sleep 15", timeout=1)
 
         assert isinstance(err, subprocess.TimeoutExpired)
+
+    @pytest.mark.skipif(six.PY2, reason="requires Python 3")
+    def test_timeout_with_ensemble(self):
+        runner = Runner(YamlManifest(ENSEMBLE_TIMEOUT))
+        start_time = datetime.now()
+
+        job = runner.run(JobOptions(instance="test_node"))
+
+        delta = datetime.now() - start_time
+        assert job.status == Status.error
+        assert delta < timedelta(seconds=1.5)
 
 
 class TestDryRun:
@@ -123,6 +136,27 @@ class TestDryRun:
         assert job.status == Status.error
         assert task.result.result == "could not run: dry run not supported"
 
+
+ENSEMBLE_TIMEOUT = """
+apiVersion: unfurl/v1alpha1
+kind: Ensemble
+configurations:
+  create:
+    implementation:
+      className: unfurl.configurators.shell.ShellConfigurator
+      timeout: 1
+    inputs:
+      command: sleep 15 
+spec:
+  service_template:
+    topology_template:
+      node_templates:
+        test_node:
+          type: tosca.nodes.Root
+          interfaces:
+            Standard:
+              +/configurations:
+"""
 
 ENSEMBLE_DRY_RUN = """
 apiVersion: unfurl/v1alpha1
