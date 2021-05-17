@@ -448,7 +448,8 @@ class YamlManifest(ReadOnlyManifest):
         if self._operationIndex is None:
             operationIndex = dict()
             if self.changeSets:
-                for change in reversed(self.changeSets.values()):
+                # add list() for 3.7
+                for change in reversed(list(self.changeSets.values())):
                     key = (change.target, change.operation)
                     last = operationIndex.setdefault(key, change.changeId)
                     if last < change.changeId:
