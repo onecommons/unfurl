@@ -1,16 +1,15 @@
 import os
-from subprocess import TimeoutExpired
 
 import pytest
 
 from unfurl.configurator import Status
-from unfurl.configurators.shell import ShellConfigurator
+from unfurl.configurators.shell import ShellConfigurator, subprocess
 from unfurl.job import JobOptions, Runner
 from unfurl.yamlmanifest import YamlManifest
 
 
 class TestShellConfigurator:
-    def setUp(self):
+    def setup(self):
         path = os.path.join(
             os.path.dirname(__file__), "examples", "shell-ensemble.yaml"
         )
@@ -37,7 +36,7 @@ class TestShellConfigurator:
 
         err = configurator.runProcess(cmd="sleep 42", timeout=1)
 
-        assert isinstance(err, TimeoutExpired)
+        assert isinstance(err, subprocess.TimeoutExpired)
 
 
 class TestDryRun:
