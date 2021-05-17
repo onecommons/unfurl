@@ -314,9 +314,6 @@ class ConfigTask(ConfigChange, TaskView):
         changeset = self._manifest.findLastOperation(
             self.target.key, self.configSpec.operation
         )
-        logger.warning(
-            "NOT? FUND %s %s, %s", changeset, self.target.key, self.configSpec.operation
-        )
         if not changeset:
             return False
 

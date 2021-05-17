@@ -151,7 +151,7 @@ class JobTest(unittest.TestCase):
 class PickleTest(unittest.TestCase):
     @unittest.skipIf(six.PY2, "XXX fix pickling in 2.7")
     def test_pickle(self):
-        path = __file__ + "/../examples/helm-manifest.yaml"
+        path = __file__ + "/../examples/helm-ensemble.yaml"
         manifest = YamlManifest(path=path)
         pickled = pickle.dumps(manifest, -1)
         manifest2 = pickle.loads(pickled)

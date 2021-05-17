@@ -436,7 +436,7 @@ class YamlManifest(ReadOnlyManifest):
                     self.changeSets = {
                         c.changeId: c
                         for c in (
-                            (logger.warning(line) or ChangeRecord(parse=line.strip()))
+                            ChangeRecord(parse=line.strip())
                             for line in f.readlines()
                             if not line.strip().startswith("#")
                         )
@@ -450,7 +450,6 @@ class YamlManifest(ReadOnlyManifest):
             if self.changeSets:
                 for change in reversed(self.changeSets.values()):
                     key = (change.target, change.operation)
-                    logging.warning("adding %s %s", change.changeId, key)
                     last = operationIndex.setdefault(key, change.changeId)
                     if last < change.changeId:
                         operationIndex[key] = change
