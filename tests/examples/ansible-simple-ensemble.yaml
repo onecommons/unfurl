@@ -1,5 +1,5 @@
 apiVersion: unfurl/v1alpha1
-kind: Manifest
+kind: Ensemble
 configurations:
   create:
     implementation: unfurl.configurators.ansible.AnsibleConfigurator

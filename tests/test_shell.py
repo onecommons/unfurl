@@ -8,7 +8,7 @@ from unfurl.yamlmanifest import YamlManifest
 class ShellConfiguratorTest(unittest.TestCase):
     def setUp(self):
         path = os.path.join(
-            os.path.dirname(__file__), "examples", "shell-manifest.yaml"
+            os.path.dirname(__file__), "examples", "shell-ensemble.yaml"
         )
         with open(path) as f:
             self.manifest = f.read()

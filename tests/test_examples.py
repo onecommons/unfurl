@@ -45,7 +45,7 @@ class DummyShellConfigurator(TemplateConfigurator):
 class RunTest(unittest.TestCase):
     @unittest.skipIf("k8s" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
     def test_manifest(self):
-        path = __file__ + "/../examples/helm-manifest.yaml"
+        path = __file__ + "/../examples/helm-ensemble.yaml"
         manifest = YamlManifest(path=path)
         runner = Runner(manifest)
 
@@ -84,7 +84,7 @@ class RunTest(unittest.TestCase):
 
     @unittest.skipIf("k8s" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
     def test_discover(self):
-        path = __file__ + "/../examples/helm-manifest.yaml"
+        path = __file__ + "/../examples/helm-ensemble.yaml"
         manifest = YamlManifest(path=path)
         runner = Runner(manifest)
         assert not manifest.lastJob, "expected new manifest"
@@ -125,7 +125,7 @@ class RunTest(unittest.TestCase):
             runner = CliRunner()
             with runner.isolated_filesystem() as tempDir:
                 os.environ["UNFURL_TMPDIR"] = tempDir
-                path = __file__ + "/../examples/ansible-manifest.yaml"
+                path = __file__ + "/../examples/ansible-ensemble.yaml"
                 manifest = YamlManifest(path=path)
                 runner = Runner(manifest)
 
@@ -185,7 +185,7 @@ class RunTest(unittest.TestCase):
             runner = CliRunner()
             with runner.isolated_filesystem() as tempDir:
                 os.environ["UNFURL_TMPDIR"] = tempDir
-                path = __file__ + "/../examples/ansible-manifest.yaml"
+                path = __file__ + "/../examples/ansible-ensemble.yaml"
                 manifest = YamlManifest(path=path)
                 runner = Runner(manifest)
 

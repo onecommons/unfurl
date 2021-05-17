@@ -64,7 +64,7 @@ class AnsibleTest(unittest.TestCase):
 class AnsibleConfiguratorTest(unittest.TestCase):
     def setUp(self):
         path = os.path.join(
-            os.path.dirname(__file__), "examples", "ansible-simple-manifest.yaml"
+            os.path.dirname(__file__), "examples", "ansible-simple-ensemble.yaml"
         )
         with open(path) as f:
             self.manifest = f.read()

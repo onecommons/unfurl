@@ -16,7 +16,7 @@ from unfurl.yamlmanifest import YamlManifest
 class HelmTest(unittest.TestCase):
     def setUp(self):
         path = os.path.join(
-            os.path.dirname(__file__), "examples", "helm-simple-manifest.yaml"
+            os.path.dirname(__file__), "examples", "helm-simple-ensemble.yaml"
         )
         with open(path) as f:
             self.manifest = f.read()

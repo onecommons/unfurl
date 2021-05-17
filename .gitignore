@@ -17,4 +17,5 @@ __pycache__/
 .tox
 .cache
 .coverage
+.coverage.*
 htmlcov/
