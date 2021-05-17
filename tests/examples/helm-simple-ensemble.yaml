@@ -1,0 +1,36 @@
+apiVersion: unfurl/v1alpha1
+kind: Ensemble
+spec:
+  service_template:
+    imports:
+      - repository: unfurl
+        file: configurators/helm-template.yaml
+
+    topology_template:
+      node_templates:
+        stable_repo:
+          type: unfurl.nodes.HelmRepository
+          properties:
+            name: stable
+            url:  http://localhost:8010/fixtures/helmrepo/
+
+        k8sNamespace:
+          type: unfurl.nodes.K8sNamespace
+          # these unittests don't define a k8sCluster so we need to comment this out
+          # requirements:
+          #   - host: k8sCluster
+          properties:
+            name: unfurl-helm-unittest
+
+        mysql_release:
+          type: unfurl.nodes.HelmRelease
+          requirements:
+            - repository:
+                node: stable_repo
+            - host:
+                node: k8sNamespace
+          properties:
+            chart: stable/mysql
+            release_name: mysql-test
+            chart_values:
+              args: []

@@ -1,0 +1,27 @@
+apiVersion: unfurl/v1alpha1
+kind: Ensemble
+configurations:
+  create:
+    implementation: unfurl.configurators.ansible.AnsibleConfigurator
+    outputs:
+      fact1:
+      fact2:
+    inputs:
+      playbook:
+        q:
+          - set_fact:
+              fact1: "{{ '.name' | ref }}"
+              fact2: "{{ SELF.testProp }}"
+          - name: Hello
+            command: echo "{{hostvars['localhost'].ansible_python_interpreter}}"
+spec:
+  service_template:
+    topology_template:
+      node_templates:
+        test1:
+          type: tosca.nodes.Root
+          properties:
+            testProp: "test"
+          interfaces:
+            Standard:
+              +/configurations:

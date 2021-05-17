@@ -1,5 +1,5 @@
 apiVersion: unfurl/v1alpha1
-kind: Manifest
+kind: Ensemble
 spec:
   service_template:
     dsl_definitions:

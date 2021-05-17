@@ -1,0 +1,43 @@
+apiVersion: unfurl/v1alpha1
+kind: Ensemble
+spec:
+  service_template:
+    topology_template:
+      node_templates:
+        example:
+          type: unfurl.nodes.Installer.Terraform
+          interfaces:
+            defaults:
+              inputs:
+                tfvars:
+                  tag: test
+                main:
+                  provider:
+                    aws:
+                      version: "~> 3.2"
+                      endpoints:
+                        ec2: http://localhost:5000
+                        sts: http://localhost:5000
+                  output:
+                    availability_zone:
+                      value: "${aws_instance.example.availability_zone}"
+                      sensitive: true
+                  resource:
+                    aws_instance:
+                      example:
+                        ami: "ami-2757f631"
+                        instance_type: "t2.micro"
+                        tags:
+                          Name: "${var.tag}"
+                  variable:
+                    tag:
+                      type: string
+            Standard:
+              operations:
+                create:
+                  inputs:
+                    resultTemplate:
+                      attributes:
+                        id: "{{ resources[0].instances[0].attributes.id }}"
+                        availability_zone: "{{ outputs.availability_zone }}"
+                        tags: "{{ resources[0].instances[0].attributes.tags }}"
