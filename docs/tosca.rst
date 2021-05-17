@@ -26,6 +26,7 @@ Extensions
 * add "discover" and "default" directives
 * add "default_for" keyword to relationship templates
 * add "defaults" section to interface definitions
+* add "types" section to the service template can contain any entity type definition.
 
 Not yet implemented and non-conformance with the TOSCA 1.3 specification
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
