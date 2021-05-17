@@ -3,7 +3,7 @@
 Inputs
 ======
 
-``inputs`` are parameters injected into the service template upon deployment creation/initiation. These parameters can be referenced by using the ``get_input`` intrinsic function.
+``inputs`` are parameters injected into the service template upon deployment creation/initiation. These parameters can be referenced by using the :ref:`get_input<get_input>` TOSCA function.
 
 Inputs are useful when there's a need to inject parameters to the service template which were unknown when the service template was created and can be used for distinction between different deployments of the same service template.
 
@@ -67,4 +67,4 @@ Example
           image_name: { get_input: image_name }
 
 
-.. seealso:: :ref:`get_input<get_input>` is a TOSCA function which allows the user to use inputs throughout the service templates. For more information, refer to the :tosca_spec2:`TOSCA get_input section <_Toc50125513>`
+.. seealso:: :ref:`get_input<get_input>` is a TOSCA function which allows the user to use inputs throughout the service templates. For more information, refer to the :tosca_spec2:`TOSCA Input section <_Toc50125461>`

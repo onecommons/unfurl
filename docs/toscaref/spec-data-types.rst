@@ -485,7 +485,5 @@ After the service template is parsed, the ``my_app`` node template properties wi
    prop2: prop2_override
    prop3: prop3_override
 
-The nested merging semantics described in the previous section is not yet defined in the `TOSCA simplified YAML
-profile <https://www.oasis-open.org/committees/tc_home.php?wg_abbrev=tosca>`_
 
 .. seealso:: For more information, refer to :tosca_spec2:`TOSCA Data Types Section <_Toc50125486>`

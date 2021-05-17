@@ -105,3 +105,5 @@ Example
          - type: tosca.requirements.contained_in
            target: vm
 
+
+.. seealso:: For more information, refer to :tosca_spec2:`TOSCA Node Templates Section <_Toc50125410>`

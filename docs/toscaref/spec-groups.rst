@@ -85,4 +85,4 @@ instance id or the CPU average in the last five minutes, before
 processing its triggers. An ``execute_workflow`` trigger, for example,
 may pass these properties to the workflow it executes.
 
-
+.. seealso:: For more information, refer to :tosca_spec2:`TOSCA Groups Section <_Toc373867852>`

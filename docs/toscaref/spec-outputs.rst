@@ -91,3 +91,7 @@ Example
      webapp_endpoint:
        ip: 127.0.0.1
        port: 8080
+
+
+.. seealso:: For more information, refer to :tosca_spec2:`TOSCA Output Section <_Toc50125464>`
+

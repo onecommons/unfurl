@@ -1,0 +1,2 @@
+Capability Types
+================
