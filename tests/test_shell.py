@@ -1,3 +1,4 @@
+import os
 from subprocess import TimeoutExpired
 
 import pytest
@@ -9,11 +10,18 @@ from unfurl.yamlmanifest import YamlManifest
 
 
 class TestShellConfigurator:
+    def setUp(self):
+        path = os.path.join(
+            os.path.dirname(__file__), "examples", "shell-ensemble.yaml"
+        )
+        with open(path) as f:
+            self.ensemble = f.read()
+
     def test_shell(self):
         """
         test that runner figures out the proper tasks to run
         """
-        runner = Runner(YamlManifest(ENSEMBLE_GENERAL))
+        runner = Runner(YamlManifest(self.ensemble))
 
         job = runner.run(JobOptions(instance="test1"))
 
@@ -116,36 +124,6 @@ class TestDryRun:
         assert job.status == Status.error
         assert task.result.result == "could not run: dry run not supported"
 
-
-ENSEMBLE_GENERAL = """
-apiVersion: unfurl/v1alpha1
-kind: Ensemble
-configurations:
-  create:
-    implementation:
-      className: unfurl.configurators.shell.ShellConfigurator
-      environment:
-        FOO: "{{inputs.foo}}"
-    inputs:
-       # test that self-references works in jinja2 templates
-       command: "echo ${{inputs.envvar}}"
-       timeout: 9999
-       foo:     helloworld
-       envvar:  FOO
-       resultTemplate: |
-         - name: SELF
-           attributes:
-             stdout: "{{ stdout | trim }}"
-spec:
-  service_template:
-    topology_template:
-      node_templates:
-        test1:
-          type: tosca.nodes.Root
-          interfaces:
-            Standard:
-              +/configurations:
-"""
 
 ENSEMBLE_DRY_RUN = """
 apiVersion: unfurl/v1alpha1

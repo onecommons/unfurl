@@ -1,0 +1,27 @@
+apiVersion: unfurl/v1alpha1
+kind: Ensemble
+configurations:
+  create:
+    implementation:
+      className: unfurl.configurators.shell.ShellConfigurator
+      environment:
+        FOO: "{{inputs.foo}}"
+    inputs:
+      # test that self-references works in jinja2 templates
+      command: "echo ${{inputs.envvar}}"
+      timeout: 9999
+      foo:     helloworld
+      envvar:  FOO
+      resultTemplate: |
+        - name: SELF
+          attributes:
+            stdout: "{{ stdout | trim }}"
+spec:
+  service_template:
+    topology_template:
+      node_templates:
+        test1:
+          type: tosca.nodes.Root
+          interfaces:
+            Standard:
+              +/configurations:

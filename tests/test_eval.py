@@ -203,9 +203,7 @@ class EvalTest(unittest.TestCase):
 
         os.environ[
             "TEST_ENV"
-        ] = (
-            "testEnv"
-        )  # note: tox doesn't pass on environment variables so we need to set one now
+        ] = "testEnv"  # note: tox doesn't pass on environment variables so we need to set one now
         self.assertEqual(
             mapValue("{{ lookup('env', 'TEST_ENV') }}", resource), "testEnv"
         )
@@ -337,9 +335,7 @@ a_dict:
         resource = self._getTestResource()
         os.environ[
             "TEST_ENV"
-        ] = (
-            "testEnv"
-        )  # note: tox doesn't pass on environment variables so we need to set one now
+        ] = "testEnv"  # note: tox doesn't pass on environment variables so we need to set one now
         query = {"eval": {"lookup": {"env": "TEST_ENV"}}}
         self.assertEqual(mapValue(query, resource), "testEnv")
 

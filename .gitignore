@@ -16,5 +16,5 @@ __pycache__/
 # due to using tox and pytest
 .tox
 .cache
-.coverage
+.coverage*
 htmlcov/
