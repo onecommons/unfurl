@@ -1,8 +1,9 @@
-from datetime import datetime, timedelta
+from subprocess import TimeoutExpired
 
 import pytest
 
 from unfurl.configurator import Status
+from unfurl.configurators.shell import ShellConfigurator
 from unfurl.job import JobOptions, Runner
 from unfurl.yamlmanifest import YamlManifest
 
@@ -17,17 +18,18 @@ class TestShellConfigurator:
         job = runner.run(JobOptions(instance="test1"))
 
         assert len(job.workDone) == 1, job.workDone
-        assert runner.manifest.getRootResource().findResource("test1").attributes["stdout"] == "helloworld"
+        assert (
+            runner.manifest.getRootResource().findResource("test1").attributes["stdout"]
+            == "helloworld"
+        )
         assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
 
     def test_timeout(self):
-        runner = Runner(YamlManifest(ENSEMBLE_TIMEOUT))
-        start_time = datetime.now()
+        configurator = ShellConfigurator(None)
 
-        job = runner.run(JobOptions(instance="test_node"))
+        err = configurator.runProcess(cmd="sleep 42", timeout=1)
 
-        assert job.status == Status.error
-        assert datetime.now() - start_time < timedelta(seconds=1.5)
+        assert isinstance(err, TimeoutExpired)
 
 
 class TestDryRun:
@@ -103,7 +105,9 @@ class TestDryRun:
         assert cmd == "echo hello world --use-dry-run"
 
     def test_error_if_dry_run_not_defined_for_task(self):
-        ensemble = ENSEMBLE_DRY_RUN.format(command="command: echo hello world", dryrun="")
+        ensemble = ENSEMBLE_DRY_RUN.format(
+            command="command: echo hello world", dryrun=""
+        )
         runner = Runner(YamlManifest(ensemble))
 
         job = runner.run(JobOptions(instance="test_node", dryrun=True))
@@ -137,27 +141,6 @@ spec:
     topology_template:
       node_templates:
         test1:
-          type: tosca.nodes.Root
-          interfaces:
-            Standard:
-              +/configurations:
-"""
-
-ENSEMBLE_TIMEOUT = """
-apiVersion: unfurl/v1alpha1
-kind: Ensemble
-configurations:
-  create:
-    implementation:
-      className: unfurl.configurators.shell.ShellConfigurator
-      timeout: 1
-    inputs:
-      command: sleep 42
-spec:
-  service_template:
-    topology_template:
-      node_templates:
-        test_node:
           type: tosca.nodes.Root
           interfaces:
             Standard:
