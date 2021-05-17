@@ -5,7 +5,7 @@ from ..configurator import Configurator, Status
 from ..result import ResultsMap
 from ..util import registerShortNames
 
-# need to define these now because because these configurators are lazily imported
+# need to define these now because these configurators are lazily imported
 # and so won't register themselves through AutoRegisterClass
 registerShortNames(
     {
@@ -16,6 +16,8 @@ registerShortNames(
 
 
 class TemplateConfigurator(Configurator):
+    excludeFromDigest = ("resultTemplate", "done", "run", "dryrun")
+
     def processResultTemplate(self, task, result):
         """
         for both the ansible and shell configurators

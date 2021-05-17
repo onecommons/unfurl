@@ -5,7 +5,7 @@ import collections
 import re
 import os
 from .support import Status, Defaults, ResourceChanges, Priority
-from .result import serializeValue, ChangeAware, Results, ResultsMap
+from .result import serializeValue, ChangeAware, Results, ResultsMap, getDigest
 from .util import (
     registerClass,
     lookupClass,
@@ -230,6 +230,8 @@ class Configurator(object):
     as an alternative to using the full name ("module.class") when setting the implementation on an operation.
     (Titlecase recommended)"""
 
+    excludeFromDigest = ()
+
     def __init__(self, configurationSpec):
         self.configSpec = configurationSpec
 
@@ -283,10 +285,56 @@ class Configurator(object):
         """Does this configuration need to be run?"""
         return self.configSpec.shouldRun()
 
-    # XXX3 should be called during when checking dependencies
-    # def checkConfigurationStatus(self, task):
-    #   """Is this configuration still valid?"""
-    #   return Status.ok
+    def saveDigest(self, task):
+        """
+        Generate a compact, deterministic representation of the current configuration.
+        This is saved in the job log and used by `checkDigest` in subsequent jobs to
+        determine if the configuration changed the operation needs to be re-run.
+
+        The default implementation calculates a SHA1 digest of the values of the inputs
+        that where accessed while that task was run, with the exception of
+        the input parameters listed in `excludeFromDigest`.
+
+        Args:
+            task (:class:`TaskView`) The task that executed this operation.
+
+        Returns:
+            dict: A dictionary whose keys are strings that start with "digest"
+        """
+        # XXX user definition should be able to exclude inputs from digest
+        inputs = task.inputs.getResolved()
+        keys = sorted([k for k in inputs.keys() if k not in self.excludeFromDigest])
+        if keys:
+            inputdigest = getDigest([inputs[key] for key in keys])
+        else:
+            inputdigest = ""
+        return dict(digestKeys=",".join(keys), digestValue=inputdigest)
+
+    def checkDigest(self, task, changeset):
+        """
+        Generate a compact, deterministic representation of the current configuration.
+        This is saved in the job log and used by `checkDigest` in subsequent jobs to
+        determine if the configuration changed the operation needs to be re-run.
+
+        The default implementation recalculates the digest of input parameters that
+        were accessed in the previous run.
+
+        Args:
+            task (:class:`TaskView`) The task that might execute this operation.
+
+        Returns:
+            bool: True if configuration's digest has changed, false if it the same.
+        """
+        _parameters = changeset.digestKeys
+        if not _parameters:
+            return False
+        keys = _parameters.split(",")
+        # an old input was removed
+        if set(keys) - set(task.inputs.keys()):
+            return True
+        # only resolve the inputs that were resolved before
+        values = [task.inputs[key] for key in keys]
+        return changeset.digestValue != getDigest(values)
 
 
 class TaskView(object):

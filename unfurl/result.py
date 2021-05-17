@@ -2,20 +2,64 @@
 # SPDX-License-Identifier: MIT
 from collections import Mapping, MutableSequence, MutableMapping
 from datetime import datetime, timedelta
+import six
+import hashlib
 
 from .merge import diffDicts
-from .util import UnfurlError, isSensitive, sensitive, sensitive_dict, sensitive_list
+from .util import (
+    UnfurlError,
+    isSensitive,
+    sensitive,
+    sensitive_dict,
+    sensitive_list,
+    dump,
+)
+
+
+def _getDigest(value, **kw):
+    getter = getattr(value, "__digestable__", None)
+    if getter:
+        value = getter(kw)
+    isSensitive = isinstance(value, sensitive)
+    if isSensitive:
+        yield sensitive.redacted_str
+    else:
+        if isinstance(value, Mapping):
+            for k in sorted(value.keys()):
+                yield k
+                for d in _getDigest(value[k], **kw):
+                    yield d
+        elif isinstance(value, (MutableSequence, tuple)):
+            for v in value:
+                for d in _getDigest(v, **kw):
+                    yield d
+        else:
+            out = six.BytesIO()
+            dump(value, out)
+            yield out.getvalue()
+
+
+def getDigest(tpl):
+    m = hashlib.sha1()  # use same digest function as git
+    for contents in _getDigest(tpl):
+        if not isinstance(contents, bytes):
+            contents = contents.encode("utf-8")
+        m.update(contents)
+    return m.hexdigest()
 
 
 def serializeValue(value, **kw):
     getter = getattr(value, "asRef", None)
     if getter:
         return getter(kw)
+    isSensitive = isinstance(value, sensitive)
+    if isSensitive and kw.get("redact"):
+        return sensitive.redacted_str
     if isinstance(value, Mapping):
-        ctor = sensitive_dict if isinstance(value, sensitive) else dict
+        ctor = sensitive_dict if isSensitive else dict
         return ctor((key, serializeValue(v, **kw)) for key, v in value.items())
     if isinstance(value, (MutableSequence, tuple)):
-        ctor = sensitive_list if isinstance(value, sensitive) else list
+        ctor = sensitive_list if isSensitive else list
         return ctor(serializeValue(item, **kw) for item in value)
     else:
         return value
@@ -193,20 +237,22 @@ class ChangeRecord(object):
                 attributes[left] = right
         self.__dict__.update(attributes)
 
+    @classmethod
+    def formatLog(klass, changeId, attributes):
+        r"format: changeid\tkey=value\tkey=value"
+        terms = [changeId] + ["{}={}".format(k, v) for k, v in attributes.items()]
+        return "\t".join(terms) + "\n"
+
     def log(self, attributes=None):
         r"changeid\tkey=value\tkey=value"
-        # if self.parentId:
-        #     start = [str(self.changeId), str(self.parentId)]
-        # else:
-        start = [self.changeId]
-        terms = start + [
-            "{}={}".format(k, getattr(self, k))
+        default = {
+            k: getattr(self, k)
             for k in self.LogAttributes
             if getattr(self, k, None) is not None
-        ]
+        }
         if attributes:
-            terms += ["{}={}".format(k, v) for k, v in attributes.items()]
-        return "\t".join(terms) + "\n"
+            default.update(attributes)
+        return self.formatLog(self.changeId, default)
 
 
 class ChangeAware(object):
@@ -280,6 +326,9 @@ class Result(ChangeAware):
         else:
             val = serializeValue(self.resolved, **options)
             return val
+
+    def __digestable__(self, options):
+        return self.resolved
 
     def hasDiff(self):
         if self.original is _Deleted:  # this is a new item
