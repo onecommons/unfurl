@@ -1,8 +1,8 @@
 import os
+import sys
 from datetime import datetime, timedelta
 
 import pytest
-import six
 
 from unfurl.configurator import Status
 from unfurl.configurators.shell import ShellConfigurator, subprocess
@@ -40,7 +40,7 @@ class TestShellConfigurator:
 
         assert isinstance(err, subprocess.TimeoutExpired)
 
-    @pytest.mark.skipif(six.PY2, reason="requires Python 3")
+    @pytest.mark.skipif(sys.version_info < (3, 7, 5), reason="requires Python 3.7.5")
     def test_timeout_with_ensemble(self):
         runner = Runner(YamlManifest(ENSEMBLE_TIMEOUT))
         start_time = datetime.now()
