@@ -487,7 +487,7 @@ class Job(ConfigChange):
                     continue
 
                 if self.jobOptions.planOnly:
-                    errors = self.cantRunTask(task)
+                    errors = self.canRunTask(task)
                     if errors:
                         result = task.finished(
                             ConfiguratorResult(False, False, result=errors)
@@ -579,7 +579,7 @@ class Job(ConfigChange):
             task.priority = priority
         return priority > Priority.ignore
 
-    def cantRunTask(self, task):
+    def canRunTask(self, task):
         """
         Checked at runtime right before each task is run
 
@@ -645,7 +645,7 @@ class Job(ConfigChange):
         * Requests a resource with requested metadata, if it doesn't exist, a task is run to make it so
         (e.g. add a dns entry, install a package).
         """
-        errors = self.cantRunTask(task)
+        errors = self.canRunTask(task)
         if errors:
             return task.finished(ConfiguratorResult(False, False, result=errors))
 
