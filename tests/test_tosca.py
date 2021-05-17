@@ -226,7 +226,7 @@ class ToscaSyntaxTest(unittest.TestCase):
         """
         Tests nested imports and url fragment resolution.
         """
-        path = __file__ + "/../examples/testimport-manifest.yaml"
+        path = __file__ + "/../examples/testimport-ensemble.yaml"
         manifest = YamlManifest(path=path)
         self.assertEqual(2, len(manifest.tosca.template.nested_tosca_tpls.keys()))
 
@@ -286,7 +286,7 @@ class ToscaSyntaxTest(unittest.TestCase):
 
     def test_workflows(self):
         manifest = YamlManifest(
-            path=__file__ + "/../examples/test-workflow-manifest.yaml"
+            path=__file__ + "/../examples/test-workflow-ensemble.yaml"
         )
         # print(manifest.tosca.template.nested_tosca_tpls)
         self.assertEqual(len(manifest.tosca._workflows), 3)

@@ -1,0 +1,11 @@
+apiVersion: unfurl/v1alpha1
+kind: Project
+contexts:
+  defaults:
+    environment:
+      AWS_DEFAULT_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: dummy
+      AWS_SECRET_ACCESS_KEY: not_so_secret
+    secrets:
+      attributes:
+        vault_default_password: testing
