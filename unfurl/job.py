@@ -510,8 +510,8 @@ class Job(ConfigChange):
                     continue
 
                 if self.jobOptions.planOnly:
-                    errors = self.canRunTask(task)
-                    if errors:
+                    ok, errors = self.canRunTask(task)
+                    if not ok:
                         result = task.finished(
                             ConfiguratorResult(False, False, result=errors)
                         )
@@ -651,10 +651,10 @@ class Job(ConfigChange):
             can_run = False
 
         if can_run:
-            return False
+            return True, ""
         else:
             logger.info("could not run task %s: %s", task, reason)
-            return "could not run: " + reason
+            return False, "could not run: " + reason
 
     def shouldAbort(self, task):
         return False  # XXX3
@@ -668,8 +668,8 @@ class Job(ConfigChange):
         * Requests a resource with requested metadata, if it doesn't exist, a task is run to make it so
         (e.g. add a dns entry, install a package).
         """
-        errors = self.canRunTask(task)
-        if errors:
+        ok, errors = self.canRunTask(task)
+        if not ok:
             return task.finished(ConfiguratorResult(False, False, result=errors))
 
         task.start()
