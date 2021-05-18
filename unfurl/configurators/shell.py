@@ -88,6 +88,7 @@ def _truncate(s):
 
 # XXX we should know if cmd if not os.access(implementation, os.X):
 class ShellConfigurator(TemplateConfigurator):
+    excludeFromDigest = TemplateConfigurator.excludeFromDigest + ("cwd", "echo")
     _defaultCmd = None
 
     @staticmethod
@@ -233,7 +234,7 @@ class ShellConfigurator(TemplateConfigurator):
         keeplines = params.get("keeplines")
 
         cmd = self.resolve_dry_run(cmd, task)
-        echo = params.get("echo")  # task.verbose > -1)
+        echo = params.get("echo",  task.verbose > -1)
         result = self.runProcess(
             cmd,
             shell=shell,

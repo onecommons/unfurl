@@ -25,6 +25,8 @@ from .configurator import (
 )
 from .plan import Plan
 from .localenv import LocalEnv
+
+# note: need to import configurators even though it is unused
 from . import display, initLogging, configurators
 
 try:
@@ -217,7 +219,19 @@ class ConfigTask(ConfigChange, TaskView):
         if result.modified or self._resourceChanges.getAttributeChanges(
             self.target.key
         ):
+            if self.target.lastChange != self.changeId:
+                # save to create a linked list of tasks that modified the target
+                self.previousId = self.target.lastChange
             self.target._lastStateChange = self.changeId
+
+    def finishedWorkflow(self, successStatus):
+        instance = self.target
+        if self.target.lastChange != self.changeId:
+            # save to create a linked list of tasks that modified the target
+            self.previousId = instance.lastChange
+        instance._lastConfigChange = self.changeId
+        if successStatus == Status.ok and instance.created is None:
+            instance.created = True
 
     def finished(self, result):
         assert result
@@ -241,6 +255,7 @@ class ConfigTask(ConfigChange, TaskView):
             while changes:
                 accum = mergeDicts(accum, changes.pop(0))
 
+            # note: this might set _lastConfigChange on instances other than this target
             self._resourceChanges.updateChanges(
                 accum, self._attributeManager.statuses, self.target, self.changeId
             )
@@ -275,38 +290,46 @@ class ConfigTask(ConfigChange, TaskView):
                 self.addDependency(key + "::" + name, value)
         return changes
 
+    def findLastConfigureOperation(self):
+        if not self._manifest.changeSets:
+            return None
+        previousId = self.target.lastChange
+        while previousId:
+            previousChange = self._manifest.changeSets.get(previousId)
+            if not previousChange:
+                return None
+            if previousChange.target != self.target.key:
+                return (
+                    None  # XXX handle case where lastChange was set by another target
+                )
+            if previousChange.operation == self.configSpec.operation:
+                return previousChange
+            previousId = previousChange.previousId
+        return None
+
     def hasInputsChanged(self):
         """
         Evaluate configuration spec's inputs and compare with the current inputs' values
         """
-        return False
+        changeset = self._manifest.findLastOperation(
+            self.target.key, self.configSpec.operation
+        )
+        if not changeset:
+            return False
 
-        # XXX
-        _parameters = None
-        lastConfigChange = self.findLastConfigureOperation()
-        if lastConfigChange:
-            changeset = self._manifest.loadConfigChange(lastConfigChange)
-            _parameters = changeset.inputs
-        if not _parameters:
-            return not not self.inputs
-
-        # isn't it too early for this??
-        inputs = self.getCurrentInputs(lastConfigChange)
-        if set(inputs.keys()) != set(_parameters.keys()):
-            return True  # params were added or removed
-
-        # XXX calculate and compare digests
-        return False
+        return self.configurator.checkDigest(self, changeset)
 
     def hasDependenciesChanged(self):
+        return False
         # XXX artifacts
         # XXX identity of requirements (how? what about imported nodes? instance keys?)
         # dynamic dependencies:
-        return any(d.hasChanged(self) for d in self.dependencies)
+        # return any(d.hasChanged(self) for d in self.dependencies)
 
-    def refreshDependencies(self):
-        for d in self.dependencies:
-            d.refresh(self)
+    # XXX unused
+    # def refreshDependencies(self):
+    #     for d in self.dependencies:
+    #         d.refresh(self)
 
     @property
     def name(self):

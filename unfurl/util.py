@@ -279,7 +279,7 @@ def toEnum(enum, value, default=None):
         return value
 
 
-def _dump(obj, tp, suffix="", yaml=None, encoding=None):
+def dump(obj, tp, suffix="", yaml=None, encoding=None):
     from .yamlloader import yaml as _yaml
 
     try:
@@ -312,7 +312,7 @@ def _dump(obj, tp, suffix="", yaml=None, encoding=None):
 
         # try to dump any other object as json
         if obj is not None:  # treat None as 0 byte file
-            json.dump(obj, f, indent=2)
+            json.dump(obj, f, indent=2, sort_keys=True)
     finally:
         if six.PY3:
             f.detach()
@@ -325,7 +325,7 @@ def _saveToVault(path, obj, yaml=None, encoding=None, fd=None):
         vault = VaultEditor(yaml.representer.vault)
         f = io.BytesIO()
         vpath = path[: -len(".vault")] if vaultExt else path
-        _dump(obj, f, vpath, yaml, encoding)
+        dump(obj, f, vpath, yaml, encoding)
         b_vaulttext = yaml.representer.vault.encrypt(f.getvalue())
         vault.write_data(b_vaulttext, fd or path)
         return True
@@ -338,7 +338,7 @@ def saveToFile(path, obj, yaml=None, encoding=None):
         os.makedirs(dir)
     if not _saveToVault(path, obj, yaml, encoding):
         with open(path, "wb") as f:
-            _dump(obj, f, path, yaml, encoding)
+            dump(obj, f, path, yaml, encoding)
 
 
 def saveToTempfile(obj, suffix="", delete=True, dir=None, yaml=None, encoding=None):
@@ -353,7 +353,7 @@ def saveToTempfile(obj, suffix="", delete=True, dir=None, yaml=None, encoding=No
 
     if not _saveToVault(suffix or "", obj, yaml, encoding, tp.fileno()):
         try:
-            _dump(obj, tp, suffix or "", yaml, encoding)
+            dump(obj, tp, suffix or "", yaml, encoding)
         finally:
             tp.close()
     return tp

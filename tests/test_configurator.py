@@ -203,7 +203,7 @@ class ConfiguratorTest(unittest.TestCase):
                     resultTemplate: |
                       - name: .self
                         attributes:
-                          outputVar: {{ outputVar }}
+                          outputVar: "{{ outputVar }}"
   """
         runner = Runner(YamlManifest(manifest))
         job = runner.run()
