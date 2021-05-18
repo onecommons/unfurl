@@ -36,7 +36,7 @@ class TestShellConfigurator:
     def test_timeout(self):
         configurator = ShellConfigurator(None)
 
-        err = configurator.runProcess(cmd="sleep 15", timeout=1)
+        err = configurator.runProcess(cmd="sleep 5", timeout=1)
 
         assert isinstance(err, subprocess.TimeoutExpired)
 
