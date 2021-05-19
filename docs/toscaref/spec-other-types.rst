@@ -1,7 +1,6 @@
 Other Types
 ===========
 
-
 .. toctree::
    :maxdepth: 2
 
