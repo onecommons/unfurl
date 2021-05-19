@@ -302,6 +302,13 @@ class ToscaSyntaxTest(unittest.TestCase):
         self.assertEqual(job.stats()["ok"], 4)
         self.assertEqual(job.stats()["changed"], 4)
 
+    def test_missing_key_is_handled_by_unfurl(self):
+        """Instead of raising uncatched exception"""
+        with self.assertRaises(UnfurlValidationError) as err:
+            YamlManifest(ENSEMBLE_MISSING_TYPE)
+
+        assert 'missing required field "type"' in str(err.exception)
+
 
 class AbstractTemplateTest(unittest.TestCase):
     def test_import(self):
@@ -478,3 +485,17 @@ spec:
         )
         # chooses myCluster instead of the cluster with the "default" directive
         assert relationshipSpec.target.name == "myCluster"
+
+
+ENSEMBLE_MISSING_TYPE = """
+apiVersion: unfurl/v1alpha1
+kind: Ensemble
+spec:
+  service_template:
+    topology_template:
+      node_templates:
+        test_node:
+          # type: tosca.nodes.Root
+          interfaces:
+            Standard:
+"""

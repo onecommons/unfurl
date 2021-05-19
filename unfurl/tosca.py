@@ -114,8 +114,11 @@ class ToscaSpec(object):
             parsed_params=inputs,
             yaml_dict_tpl=toscaDef,
             import_resolver=resolver,
-            verify=False,
+            verify=False,        # we display the error messages ourselves so we don’t need to verify here
         )
+
+        if ExceptionCollector.exceptionsCaught():
+            return
 
         self.nodeTemplates = {}
         self.installers = {}
