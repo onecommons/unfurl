@@ -17,7 +17,8 @@ Components of TOSCA Specification
 A Node Template and a Relationship Template are the building blocks of any TOSCA Specification.The diagram figure below provides a high level overview of how different components involved within the TOSCA sepcification.
 
 .. https://app.diagrams.net/#G1rbe28yAmiULdCV2mtNJ_b0AWJFiG0iVi
-.. image:: images/service_template.png
+
+.. image:: images/service_template.svg
    :width: 500px
    :align: center
 
