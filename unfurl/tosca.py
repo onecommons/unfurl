@@ -114,11 +114,8 @@ class ToscaSpec(object):
             parsed_params=inputs,
             yaml_dict_tpl=toscaDef,
             import_resolver=resolver,
-            verify=False,        # we display the error messages ourselves so we don’t need to verify here
+            verify=False,        # we display the error messages ourselves so we don't need to verify here
         )
-
-        if ExceptionCollector.exceptionsCaught():
-            return
 
         self.nodeTemplates = {}
         self.installers = {}
@@ -170,7 +167,12 @@ class ToscaSpec(object):
                 self.loadInstances(toscaDef, spec)
 
             logger.info("Validating TOSCA template at %s", path)
-            self._parseTemplate(path, inputs, toscaDef, resolver)
+            try:
+                self._parseTemplate(path, inputs, toscaDef, resolver)
+            except Exception as exc:
+                # catch exception not handled by ExceptionCollector
+                raise UnfurlValidationError("Parsing of YAML has failed: %s" % exc)
+
             decorators = self.loadDecorators()
             if decorators:
                 # copy errors before we clear them in _overlay
