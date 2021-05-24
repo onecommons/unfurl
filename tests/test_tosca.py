@@ -302,6 +302,49 @@ class ToscaSyntaxTest(unittest.TestCase):
         self.assertEqual(job.stats()["ok"], 4)
         self.assertEqual(job.stats()["changed"], 4)
 
+    def test_missing_type_is_handled_by_unfurl(self):
+        ensemble = """
+        apiVersion: unfurl/v1alpha1
+        kind: Ensemble
+        configurations:
+          create:
+            implementation:
+              className: unfurl.configurators.shell.ShellConfigurator
+            inputs:
+              command: echo hello
+        spec:
+          service_template:
+            topology_template:
+              node_templates:
+                test_node:
+                  # type: tosca.nodes.Root
+                  interfaces:
+                    Standard:
+                      +/configurations:
+        """
+        with self.assertRaises(UnfurlValidationError) as err:
+            YamlManifest(ensemble)
+
+        assert 'MissingRequiredFieldError: Template "test_node" is missing required field "type"' in str(err.exception)
+
+    def test_missing_interface_definition_is_handled_by_unfurl(self):
+        ensemble = """
+        apiVersion: unfurl/v1alpha1
+        kind: Ensemble
+        spec:
+          service_template:
+            topology_template:
+              node_templates:
+                test_node:
+                  type: tosca.nodes.Root
+                  interfaces:
+                    Standard:      # missing missing implementation - raises error:
+        """
+        with self.assertRaises(UnfurlValidationError) as err:
+            YamlManifest(ensemble)
+
+        assert 'Missing value for "interfaces". Must contain one of:' in str(err.exception)
+
 
 class AbstractTemplateTest(unittest.TestCase):
     def test_import(self):
