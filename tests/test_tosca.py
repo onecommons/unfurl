@@ -325,7 +325,7 @@ class ToscaSyntaxTest(unittest.TestCase):
         with self.assertRaises(UnfurlValidationError) as err:
             YamlManifest(ensemble)
 
-        assert "Parsing of YAML has failed" in str(err.exception)
+        assert 'MissingRequiredFieldError: Template "test_node" is missing required field "type"' in str(err.exception)
 
     def test_missing_interface_definition_is_handled_by_unfurl(self):
         ensemble = """

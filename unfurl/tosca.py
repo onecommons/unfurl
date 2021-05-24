@@ -170,8 +170,8 @@ class ToscaSpec(object):
             try:
                 self._parseTemplate(path, inputs, toscaDef, resolver)
             except Exception as exc:
-                # catch exception not handled by ExceptionCollector
-                raise UnfurlValidationError("Parsing of YAML has failed: %s" % exc)
+                if not ExceptionCollector.exceptionsCaught():
+                    raise UnfurlValidationError("Parsing of YAML has failed: %s" % exc)
 
             decorators = self.loadDecorators()
             if decorators:
