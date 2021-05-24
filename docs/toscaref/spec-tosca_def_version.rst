@@ -8,7 +8,7 @@ Example
 
 .. code:: yaml
 
- tosca_definitions_version: tosca_dsl_1_3
+ tosca_definitions_version: tosca_simple_unfurl_1_0_0
 
  node_templates:
      ...

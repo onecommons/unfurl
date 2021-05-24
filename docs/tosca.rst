@@ -6,9 +6,9 @@ Introduction
 
 Topology and Orchestration Specification for Cloud Applications also abbreviated as TOSCA is an OASIS open standard that defines the interoperable description of services and applications hosted on the cloud and elsewhere. This includes their components, relationships, dependencies, requirements, and capabilities, thereby enabling portability and automated management across cloud providers regardless of underlying platform or infrastructure. 
 
-TOSCA sepcification allows the user to define service template. The service generally refers either to an application or an application component. This may include a firewall, database config, etc or any other configuration following some set of rules. In order to successfully author a TOSCA template, it is important to understand the various terms used within this specification and how are they interlinked.
+TOSCA sepcification allows the user to define service template. The service generally refers either to an application or an application component. This may include a firewall, database config, etc or any other configuration following some set of rules. In order to successfully author a TOSCA template, it is important to understand the various terms used within the TOSCA specification and how are they interlinked.
 
-.. seealso:: For more information, please refer to the `TOSCA Documentation. <http://docs.oasis-open.org/tosca/TOSCA/v1.0/TOSCA-v1.0.html>`_
+.. seealso:: For more information, please refer to the :tosca_spec:`TOSCA Documentation <Generator>` 
 
 
 Components of TOSCA Specification
