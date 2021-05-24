@@ -1,2 +1,0 @@
-Relationship Types
-==================

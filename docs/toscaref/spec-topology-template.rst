@@ -13,7 +13,7 @@ Topology Template
    Requirements<spec-requirements.rst>
    Substitution Mapping<spec-substitution-mapping.rst>
    Groups<spec-groups.rst>
-   Policies<spec-policies.rst>
+   Policy<spec-policy.rst>
    Imperative Workflow<spec-imperative-workflow.rst>
 
 
