@@ -66,7 +66,7 @@ node templates.
 
 .. seealso::
 
-For more information, please refer to the :ref:`Interfaces<interfaces>` section.
+ For more information, please refer to the :ref:`Interfaces<interfaces2>` section.
 
 properties
 ------------

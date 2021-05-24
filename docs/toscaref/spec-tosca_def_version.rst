@@ -30,10 +30,18 @@ Example
  metadata:
 
    creation_date: 2015-04-14
-
    date_updated: 2015-05-01
-
    status: developmental 
+
+While this is just an example, it is recommended that you set the following ``metadata``:
+
+.. code:: yaml
+
+ metadata:
+
+  template_name: example
+  template_author: <author>
+  template_version: 1.0.0
 
 
 DSL Definitions
