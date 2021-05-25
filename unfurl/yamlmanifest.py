@@ -14,7 +14,7 @@ from . import DefaultNames
 from .util import UnfurlError, toYamlText, filterEnv
 from .merge import patchDict, intersectDict
 from .yamlloader import YamlConfig
-from .result import serializeValue
+from .result import serializeValue, ChangeRecord
 from .support import ResourceChanges, Defaults, Imports, Status
 from .localenv import LocalEnv
 from .lock import Lock
@@ -144,6 +144,8 @@ def saveTask(task):
     """
     output = CommentedMap()
     output["changeId"] = task.changeId
+    if task.previousId:
+        output["previousId"] = task.previousId
     if task.target:
         output["target"] = task.target.key
     saveStatus(task, output)
@@ -155,7 +157,7 @@ def saveTask(task):
         output["changes"] = changes
     if task.messages:
         output["messages"] = task.messages
-    dependencies = [saveDependency(val) for val in task.dependencies.values()]
+    dependencies = [saveDependency(val) for val in task.dependencies]
     if dependencies:
         output["dependencies"] = dependencies
     if task.result:
@@ -165,7 +167,8 @@ def saveTask(task):
             output["result"] = saveResult(task.result.result)
     else:
         output["result"] = "skipped"
-
+    output.update(task.configurator.saveDigest(task))
+    output["summary"] = task.summary()
     return output
 
 
@@ -233,8 +236,6 @@ class ReadOnlyManifest(Manifest):
     def isPathToSelf(self, path):
         if self.path is None or path is None:
             return False
-        if isinstance(path, Artifact):
-            path = path.getPath()
         return os.path.abspath(self.path) == os.path.abspath(path)
 
     # def addRepo(self, name, repo):
@@ -259,6 +260,8 @@ def clone(localEnv, destPath):
 
 
 class YamlManifest(ReadOnlyManifest):
+    _operationIndex = None
+
     def __init__(
         self, manifest=None, path=None, validate=True, localEnv=None, vault=None
     ):
@@ -275,6 +278,7 @@ class YamlManifest(ReadOnlyManifest):
         if not self.changeLogPath and localEnv:
             # save changes to a separate file if we're in a local environment
             self.changeLogPath = DefaultNames.JobsLog
+        self.loadChanges(manifest.get("changes"), self.changeLogPath)
 
         self.lastJob = manifest.get("lastJob")
 
@@ -392,11 +396,13 @@ class YamlManifest(ReadOnlyManifest):
                 baseDir = getattr(location, "baseDir", self.getBaseDir())
                 artifact = Artifact(location, path=baseDir, spec=self.tosca)
                 path = artifact.getPath()
-                if self.isPathToSelf(path):
+                localEnv = LocalEnv(path, parent=self.localEnv)
+                if self.path and os.path.abspath(self.path) == os.path.abspath(
+                    localEnv.manifestPath
+                ):
                     # don't import self (might happen when context is shared)
                     continue
-                localEnv = self.localEnv or LocalEnv(path)
-                importedManifest = localEnv.getManifest(path)
+                importedManifest = localEnv.getManifest()
 
             uri = value.get("uri")
             if uri and not importedManifest.hasUri(uri):
@@ -416,6 +422,43 @@ class YamlManifest(ReadOnlyManifest):
                 )
             self.imports[name] = (resource, value)
             self._importedManifests[id(root)] = importedManifest
+
+    def loadChanges(self, changes, changeLogPath):
+        if changes is not None:
+            self.changeSets = {
+                c.changeId: c
+                for c in (self.loadConfigChange(changeSet) for changeSet in changes)
+            }
+        elif changeLogPath:
+            fullLogPath = self.getChangeLogPath()
+            if os.path.isfile(fullLogPath):
+                with open(fullLogPath) as f:
+                    self.changeSets = {
+                        c.changeId: c
+                        for c in (
+                            ChangeRecord(parse=line.strip())
+                            for line in f.readlines()
+                            if not line.strip().startswith("#")
+                        )
+                        if not hasattr(c, "startCommit")  # not a job record
+                    }
+        return self.changeSets is not None
+
+    def findLastOperation(self, target, operation):
+        if self._operationIndex is None:
+            operationIndex = dict()
+            if self.changeSets:
+                # add list() for 3.7
+                for change in reversed(list(self.changeSets.values())):
+                    key = (change.target, change.operation)
+                    last = operationIndex.setdefault(key, change.changeId)
+                    if last < change.changeId:
+                        operationIndex[key] = change
+            self._operationIndex = operationIndex
+        changeId = self._operationIndex.get((target, operation))
+        if changeId is not None:
+            return self.changeSets[changeId]
+        return None
 
     def saveEntityInstance(self, resource):
         status = CommentedMap()
@@ -554,7 +597,7 @@ class YamlManifest(ReadOnlyManifest):
         jobRecord = self.saveJobRecord(job)
         if job.workDone:
             self.manifest.config["lastJob"] = jobRecord
-            changes = map(saveTask, job.workDone.values())
+            changes = list(map(saveTask, job.workDone.values()))
             if self.changeLogPath:
                 self.manifest.config["changeLog"] = self.changeLogPath
             else:
@@ -581,10 +624,11 @@ class YamlManifest(ReadOnlyManifest):
             logger.info("job run didn't make any changes; nothing to commit")
             return
 
+        logger.debug("CHANGES %s", changes)
         if self.changeLogPath:
             jobLogPath = self.saveChangeLog(jobRecord, changes)
             if not job.dryRun:
-                self.appendLog(job, jobRecord, jobLogPath)
+                self._appendLog(job, jobRecord, changes, jobLogPath)
 
         if job.dryRun:
             return
@@ -649,13 +693,12 @@ class YamlManifest(ReadOnlyManifest):
         fileName = prefix + "job" + startTime + suffix + ext
         return os.path.join(self.jobsFolder, fileName)
 
-    def appendLog(self, job, jobRecord, jobLogPath):
+    def _appendLog(self, job, jobRecord, changes, jobLogPath):
         logPath = self.getChangeLogPath()
         jobLogRelPath = os.path.relpath(jobLogPath, os.path.dirname(logPath))
         if not os.path.isdir(os.path.dirname(logPath)):
             os.makedirs(os.path.dirname(logPath))
         logger.info("saving changelog to %s", logPath)
-        tasks = job.workDone.values()
         with open(logPath, "a") as f:
             attrs = dict(status=job.status.name)
             attrs.update(
@@ -674,13 +717,21 @@ class YamlManifest(ReadOnlyManifest):
             attrs["changelog"] = jobLogRelPath
             f.write(job.log(attrs))
 
-            for task in tasks:
+            for change in changes:
+                status = change["readyState"]
                 attrs = dict(
-                    status=task.status.name,
-                    target=task.target.key,
-                    summary=task.summary(),
+                    previousId=change.get("previousId", ""),
+                    status=status.get("effective") or status.get("local"),
+                    target=change["target"],
+                    operation=change["implementation"]["operation"],
                 )
-                f.write(task.log(attrs))
+                for key in change.keys():
+                    if key.startswith("digest"):
+                        attrs[key] = change[key]
+                attrs["summary"] = change["summary"]
+                line = ChangeRecord.formatLog(change["changeId"], attrs)
+                logger.debug("LOG %s", line)
+                f.write(line)
 
     def saveChangeLog(self, jobRecord, newChanges):
         try:

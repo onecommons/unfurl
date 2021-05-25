@@ -2,78 +2,60 @@ apiVersion: unfurl/v1alpha1
 kind: Ensemble
 # the context will be merged with the corresponding context in the project config:
 context:
-  inputs:
   # local and secret are special cases that must be defined in the local config
   local:
-   schemas:
+   schema:
      name1:
        type: string
-       default
   secret:
-   schemas:
+   schema: # expected JSON schema for attributes
      name1:
        type: string
-       default
-  environment:
-  runtime:
+  # environment:
+  # runtime:
   external:
     name: # manifest to represent as a resource
-      file:
-      repository:
-      instance: name or "*" # default is root
-      schemas: # expected JSON schema for attributes
+      manifest:
+        file: .
+      instance: "*" # name or "*", default is "root"
 
 spec:
   service_template:
-    # <tosca service template>
-  instances:
-    name:
-      template:
-      implementations:
-        action: implementationName
-  implementations:
-    name1:
-      className
-      version
-      operation
-      inputs:
+    topology_template:
+      node_templates:
+        aNodeTemplate:
+          type: tosca:Root
+    # tosca service template goes here
 status:
-  topology: repo:topology_template:revision
-  inputs:
-  outputs:
-  readyState: #, etc.
+  # inputs:
+  # outputs:
   instances:
     name: # root resource is always named "root"
-      template: repo:templateName:revision
+      template: aNodeTemplate
       attributes:
         .interfaces:
           interfaceName: foo.bar.ClassName
-      capabilities:
-        - name:
-          attributes:
-          operatingStatus
-          lastChange: changeId
-      requirements:
-       - name:
-         operatingStatus
-         lastChange
+      priority: required
       readyState:
-        effective:
-        local:
-        lastConfigChange: changeId
-        lastStateChange: changeId
-      priority
-    resources:
-      child1:
-        # ...
+        local: ok
+        state: created
+      lastConfigChange: A1312XNB0001
+      lastStateChange: A1312XNB0001
+      created: true
+      instances:
+        child1:
+          template: aNodeTemplate
+          # ...
 changeLog: changes.yaml
 lastJob:
-  changeId: 1
-  previousId:
-  startCommit:
-  startTime:
-  specDigest:
-  lastChangeId:
+  changeId: A0920aMf0000
+  startTime: 2020-09-02-00-36-22-664763
+  workflow: deploy
+  options:
+    force: true
+  summary: 1 tasks (1 changed, 1 ok, 0 failed, 0 unknown, 0 skipped)
+  startCommit: 628c2a4b633a26c1e8b1c116d3fdeef9bca89716
+  specDigest: 037815dc8b56254219a96f359fd996c65e7d0754
+  priority: required
   readyState:
-    effective: error
     local: ok

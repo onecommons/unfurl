@@ -183,6 +183,8 @@ class EvalTest(unittest.TestCase):
         serialized = serializeValue(src)
         self.assertEqual(serialized, {"a": ["b", {"ref": "::test"}]})
         self.assertEqual(src, mapValue(serialized, resource))
+        serialized = serializeValue(dict(foo=sensitive_str("sensitive")), redact=True)
+        self.assertEqual(json.dumps(serialized), '{"foo": "<<REDACTED>>"}')
 
     def test_jinjaTemplate(self):
         resource = NodeInstance("test", attributes=dict(a1="hello"))
@@ -203,9 +205,7 @@ class EvalTest(unittest.TestCase):
 
         os.environ[
             "TEST_ENV"
-        ] = (
-            "testEnv"
-        )  # note: tox doesn't pass on environment variables so we need to set one now
+        ] = "testEnv"  # note: tox doesn't pass on environment variables so we need to set one now
         self.assertEqual(
             mapValue("{{ lookup('env', 'TEST_ENV') }}", resource), "testEnv"
         )
@@ -337,9 +337,7 @@ a_dict:
         resource = self._getTestResource()
         os.environ[
             "TEST_ENV"
-        ] = (
-            "testEnv"
-        )  # note: tox doesn't pass on environment variables so we need to set one now
+        ] = "testEnv"  # note: tox doesn't pass on environment variables so we need to set one now
         query = {"eval": {"lookup": {"env": "TEST_ENV"}}}
         self.assertEqual(mapValue(query, resource), "testEnv")
 

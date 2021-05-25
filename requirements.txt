@@ -4,10 +4,13 @@ click>=7.1.2 # BSD 3-clause
 click-log  # MIT
 pyrsistent==0.15.7; python_version<'3' # last version with 2.7 support (needed for jsonschema)
 jsonschema[format_nongpl]==3.2 # MIT
-ruamel.yaml>=0.16.8 # MIT
+ruamel.yaml==0.16.13; python_version<'3'
+ruamel.yaml>= 0.16.13; python_version>='3'  # MIT
 ansible>=2.9.10,<2.10.0 # gpl 3
 GitPython # BSD
 # the following are all Apache 2.0 (note: don't put comments on -r lines)
 -r tosca-parser/requirements.txt
 enum34; python_version<'3'
 importlib-metadata; python_version<'3.8' # Apache
+cryptography==3.3.2; python_version<'3.7' # last version before requiring rust and dropping python 2
+jinja2==2.11.3

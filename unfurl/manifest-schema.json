@@ -39,7 +39,7 @@
       "title": "namedObject",
       "type": "object",
       "description": "constrains how properties are named",
-      "propertyNames": { "pattern": "^[A-Za-z_][A-Za-z0-9._:\\-]*$" },
+      "propertyNames": { "pattern": "^[A-Za-z._][A-Za-z0-9._:\\-]*$" },
       "$$target": [
         "#/definitions/namedObjects",
         "./manifest-schema.json#/definitions/namedObjects"
@@ -85,7 +85,7 @@
       "properties": {
         "inputs": { "$ref": "#/definitions/attributes" },
         "runtime": { "type": "string" },
-        "environment": { "$ref": "#/definitions/attributes" },
+        "environment": { "type": "object" },
         "locals": { "$ref": "#/definitions/external" },
         "secrets": { "$ref": "#/definitions/external" },
         "connections": { "$ref": "#/definitions/namedObjects" },
@@ -350,7 +350,6 @@
       "allOf": [
         {
           "properties": {
-            "topology": { "type": "string" },
             "inputs": { "$ref": "#/definitions/attributes" },
             "outputs": { "$ref": "#/definitions/attributes" },
             "instances": { "$ref": "#/definitions/instances" }

@@ -43,6 +43,10 @@ By default `unfurl` creates a virtual Python environment to run in so it only in
 
 `pip install unfurl[full]`
 
+You can also install `unfurl` directly from this repository to get the latest code:
+
+`pip3 install -e git+https://github.com/onecommons/unfurl.git#egg=unfurl`
+
 ### Requirements
 
 Linux or MacOs

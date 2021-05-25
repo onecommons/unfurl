@@ -71,9 +71,9 @@ class Manifest(AttributeManager):
 
     def _loadSpec(self, spec, path, repositories):
         if "service_template" in spec:
-            toscaDef = spec["service_template"]
+            toscaDef = spec["service_template"] or {}
         elif "tosca" in spec:  # backward compat
-            toscaDef = spec["tosca"]
+            toscaDef = spec["tosca"] or {}
         else:
             toscaDef = {}
 
@@ -165,42 +165,47 @@ class Manifest(AttributeManager):
         if changes:
             for k, change in changes.items():
                 status = change.pop(".status", None)
+                if isinstance(status, dict):
+                    status = Manifest.loadStatus(status).localStatus
+                else:
+                    status = toEnum(Status, status)
                 resourceChanges[k] = [
-                    None if status is None else Manifest.loadStatus(status).localStatus,
+                    status,
                     change.pop(".added", None),
                     change,
                 ]
         return resourceChanges
 
-    def loadConfigChange(self, changeId):
+    def loadConfigChange(self, changeSet):
         """
         Reconstruct the Configuration that was applied in the past
         """
         from .configurator import Dependency
 
-        changeSet = self.changeSets.get(changeId)
-        if not changeSet:
-            raise UnfurlError("can not find changeset for changeid %s" % changeId)
-
         configChange = ConfigChange()
         Manifest.loadStatus(changeSet, configChange)
-        # XXX update to latest schema but only what we need
         configChange.changeId = changeSet.get("changeId", 0)
-        configChange.parentId = changeSet.get("parentId")
+        configChange.previousId = changeSet.get("previousId")
+        configChange.target = changeSet.get("target")
+        configChange.operation = changeSet.get("implementation", {}).get("operation")
 
         configChange.inputs = changeSet.get("inputs")
+        # 'digestKeys', 'digestValue' but configurator can set more:
+        for key in changeSet.keys():
+            if key.startswith("digest"):
+                setattr(configChange, key, changeSet[key])
 
-        configChange.dependencies = {}
+        configChange.dependencies = []
         for val in changeSet.get("dependencies", []):
-            key = val.get("name") or val["ref"]
-            assert key not in configChange.dependencies
-            configChange.dependencies[key] = Dependency(
-                val["ref"],
-                val.get("expected"),
-                val.get("schema"),
-                val.get("name"),
-                val.get("required"),
-                val.get("wantList", False),
+            configChange.dependencies.append(
+                Dependency(
+                    val["ref"],
+                    val.get("expected"),
+                    val.get("schema"),
+                    val.get("name"),
+                    val.get("required"),
+                    val.get("wantList", False),
+                )
             )
 
         if "changes" in changeSet:

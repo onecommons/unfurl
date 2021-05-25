@@ -25,6 +25,8 @@ from .configurator import (
 )
 from .plan import Plan
 from .localenv import LocalEnv
+
+# note: need to import configurators even though it is unused
 from . import display, initLogging, configurators
 
 try:
@@ -217,7 +219,19 @@ class ConfigTask(ConfigChange, TaskView):
         if result.modified or self._resourceChanges.getAttributeChanges(
             self.target.key
         ):
+            if self.target.lastChange != self.changeId:
+                # save to create a linked list of tasks that modified the target
+                self.previousId = self.target.lastChange
             self.target._lastStateChange = self.changeId
+
+    def finishedWorkflow(self, successStatus):
+        instance = self.target
+        if self.target.lastChange != self.changeId:
+            # save to create a linked list of tasks that modified the target
+            self.previousId = instance.lastChange
+        instance._lastConfigChange = self.changeId
+        if successStatus == Status.ok and instance.created is None:
+            instance.created = True
 
     def finished(self, result):
         assert result
@@ -241,6 +255,7 @@ class ConfigTask(ConfigChange, TaskView):
             while changes:
                 accum = mergeDicts(accum, changes.pop(0))
 
+            # note: this might set _lastConfigChange on instances other than this target
             self._resourceChanges.updateChanges(
                 accum, self._attributeManager.statuses, self.target, self.changeId
             )
@@ -269,40 +284,52 @@ class ConfigTask(ConfigChange, TaskView):
         """
         changes, liveDependencies = self._attributeManager.commitChanges()
         self.changeList.append(changes)
+        # record the live attributes that we are dependent on
+        for key, attributes in liveDependencies.items():
+            for name, value in attributes.items():
+                self.addDependency(key + "::" + name, value)
         return changes
+
+    def findLastConfigureOperation(self):
+        if not self._manifest.changeSets:
+            return None
+        previousId = self.target.lastChange
+        while previousId:
+            previousChange = self._manifest.changeSets.get(previousId)
+            if not previousChange:
+                return None
+            if previousChange.target != self.target.key:
+                return (
+                    None  # XXX handle case where lastChange was set by another target
+                )
+            if previousChange.operation == self.configSpec.operation:
+                return previousChange
+            previousId = previousChange.previousId
+        return None
 
     def hasInputsChanged(self):
         """
         Evaluate configuration spec's inputs and compare with the current inputs' values
         """
-        return False
+        changeset = self._manifest.findLastOperation(
+            self.target.key, self.configSpec.operation
+        )
+        if not changeset:
+            return False
 
-        # XXX
-        _parameters = None
-        lastConfigChange = self.findLastConfigureOperation()
-        if lastConfigChange:
-            changeset = self._manifest.loadConfigChange(lastConfigChange)
-            _parameters = changeset.inputs
-        if not _parameters:
-            return not not self.inputs
-
-        # isn't it too early for this??
-        inputs = self.getCurrentInputs(lastConfigChange)
-        if set(inputs.keys()) != set(_parameters.keys()):
-            return True  # params were added or removed
-
-        # XXX calculate and compare digests
-        return False
+        return self.configurator.checkDigest(self, changeset)
 
     def hasDependenciesChanged(self):
+        return False
         # XXX artifacts
         # XXX identity of requirements (how? what about imported nodes? instance keys?)
         # dynamic dependencies:
-        return any(d.hasChanged(self) for d in self.dependencies.values())
+        # return any(d.hasChanged(self) for d in self.dependencies)
 
-    def refreshDependencies(self):
-        for d in self.dependencies.values():
-            d.refresh(self)
+    # XXX unused
+    # def refreshDependencies(self):
+    #     for d in self.dependencies:
+    #         d.refresh(self)
 
     @property
     def name(self):
@@ -483,8 +510,8 @@ class Job(ConfigChange):
                     continue
 
                 if self.jobOptions.planOnly:
-                    errors = self.cantRunTask(task)
-                    if errors:
+                    ok, errors = self.canRunTask(task)
+                    if not ok:
                         result = task.finished(
                             ConfiguratorResult(False, False, result=errors)
                         )
@@ -575,7 +602,7 @@ class Job(ConfigChange):
             task.priority = priority
         return priority > Priority.ignore
 
-    def cantRunTask(self, task):
+    def canRunTask(self, task):
         """
         Checked at runtime right before each task is run
 
@@ -583,52 +610,51 @@ class Job(ConfigChange):
         * check pre-conditions to see if it can be run
         * check task if it can be run
         """
-        canRun = False
+        can_run = False
         reason = ""
         try:
             if task._errors:
-                canRun = False
+                can_run = False
                 reason = "could not create task"
-                return
-            if task.dryRun and not task.configurator.canDryRun(task):
-                canRun = False
+            elif task.dryRun and not task.configurator.canDryRun(task):
+                can_run = False
                 reason = "dry run not supported"
-                return
-            missing = []
-            skipDependencyCheck = False
-            if not skipDependencyCheck:
-                dependencies = list(task.target.getOperationalDependencies())
-                missing = [
-                    dep for dep in dependencies if not dep.operational and dep.required
-                ]
-            if missing:
-                reason = "required dependencies not operational: %s" % ", ".join(
-                    ["%s is %s" % (dep.name, dep.status.name) for dep in missing]
-                )
             else:
-                errors = task.configSpec.findInvalidateInputs(task.inputs)
-                if errors:
-                    reason = "invalid inputs: %s" % str(errors)
+                missing = []
+                skipDependencyCheck = False
+                if not skipDependencyCheck:
+                    dependencies = list(task.target.getOperationalDependencies())
+                    missing = [
+                        dep for dep in dependencies if not dep.operational and dep.required
+                    ]
+                if missing:
+                    reason = "required dependencies not operational: %s" % ", ".join(
+                        ["%s is %s" % (dep.name, dep.status.name) for dep in missing]
+                    )
                 else:
-                    preErrors = task.configSpec.findInvalidPreconditions(task.target)
-                    if preErrors:
-                        reason = "invalid preconditions: %s" % str(preErrors)
+                    errors = task.configSpec.findInvalidateInputs(task.inputs)
+                    if errors:
+                        reason = "invalid inputs: %s" % str(errors)
                     else:
-                        errors = task.configurator.canRun(task)
-                        if not errors or not isinstance(errors, bool):
-                            reason = "configurator declined: %s" % str(errors)
+                        preErrors = task.configSpec.findInvalidPreconditions(task.target)
+                        if preErrors:
+                            reason = "invalid preconditions: %s" % str(preErrors)
                         else:
-                            canRun = True
+                            errors = task.configurator.canRun(task)
+                            if not errors or not isinstance(errors, bool):
+                                reason = "configurator declined: %s" % str(errors)
+                            else:
+                                can_run = True
         except Exception:
             UnfurlTaskError(task, "cantRunTask failed unexpectedly")
             reason = "unexpected exception in cantRunTask"
-            canRun = False
+            can_run = False
 
-        if canRun:
-            return False
+        if can_run:
+            return True, ""
         else:
             logger.info("could not run task %s: %s", task, reason)
-            return "could not run: " + reason
+            return False, "could not run: " + reason
 
     def shouldAbort(self, task):
         return False  # XXX3
@@ -642,8 +668,8 @@ class Job(ConfigChange):
         * Requests a resource with requested metadata, if it doesn't exist, a task is run to make it so
         (e.g. add a dns entry, install a package).
         """
-        errors = self.cantRunTask(task)
-        if errors:
+        ok, errors = self.canRunTask(task)
+        if not ok:
             return task.finished(ConfiguratorResult(False, False, result=errors))
 
         task.start()

@@ -473,10 +473,8 @@ class Plan(object):
         # use case: configure succeeds but start fails
         if successStatus is not None and successes and not failures:
             resource.localStatus = successStatus
-            if oldStatus != successStatus:
-                resource._lastConfigChange = task.changeId
-                if successStatus == Status.ok and resource.created is None:
-                    resource.created = True
+            if oldStatus != successStatus and task and task.target is resource:
+                task.finishedWorkflow(successStatus)
 
     def executeWorkflow(self, workflowName, resource):
         workflow = self.tosca.getWorkflow(workflowName)

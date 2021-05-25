@@ -1003,7 +1003,6 @@ class AttributeManager(object):
                     copy.deepcopy(resource._attributes),
                     resource.template.properties,
                     specAttributes,
-                    track=specAttributes,
                 )
             else:
                 _attributes = ChainMap(copy.deepcopy(resource._attributes))
@@ -1019,15 +1018,19 @@ class AttributeManager(object):
     #   # for resource, old, new in self.statuses.values():
     #   #   resource._localStatus = old
 
-    def _isSensitive(self, defs, key, value):
+    def _saveSensitive(self, defs, key, value, resource):
         defSchema = (key in defs and defs[key].schema) or {}
         defMeta = defSchema.get("metadata", {})
-
-        if defMeta.get("sensitive"):
-            # attribute marked as sensitive and value isn't a secret so mark value as sensitive
-            if not value.external:  # externalvalues are ok since they don't reveal much
-                return True
-        return False
+        # attribute marked as sensitive and value isn't a secret so mark value as sensitive
+        # but externalvalues are ok since they don't reveal much
+        sensitive = defMeta.get("sensitive") and not value.external
+        if sensitive:
+            savedValue = wrapSensitiveValue(
+                value.resolved, resource.templar._loader._vault
+            )
+        else:
+            savedValue = value.asRef()  # serialize Result
+        return savedValue, sensitive
 
     def commitChanges(self):
         changes = {}
@@ -1035,28 +1038,30 @@ class AttributeManager(object):
         for resource, attributes in self.attributes.values():
             # save in _attributes in serialized form
             overrides, specd = attributes._attributes.split()
-            live = attributes._attributes.accessed
             resource._attributes = {}
             defs = resource.template and resource.template.attributeDefs or {}
             foundSensitive = []
+            live = {}
             for key, value in overrides.items():
                 if not isinstance(value, Result):
                     # hasn't been touched so keep it as is
                     resource._attributes[key] = value
-                elif key not in specd or value.hasDiff():
+                else:
                     # value is a Result and it is either new or different from the original value, so save
-                    live.add(key)  # value changed during task so treat as a live
-                    sensitive = self._isSensitive(defs, key, value)
-                    if sensitive:
-                        savedValue = wrapSensitiveValue(
-                            value.resolved, resource.templar._loader._vault
-                        )
-                        foundSensitive.append(key)
-                    else:
-                        savedValue = value.asRef()  # serialize Result
-                    # XXX if defMeta.get('immutable') and key in specd:
-                    #  error('value of attribute "%s" changed but is marked immutable' % key)
-                    resource._attributes[key] = savedValue
+                    changed = key not in specd or value.hasDiff()
+                    isLive = key in resource.template.defaultAttributes
+                    if not (changed or isLive):
+                        continue
+                    savedValue, sensitive = self._saveSensitive(
+                        defs, key, value, resource
+                    )
+                    live[key] = savedValue
+                    if changed:
+                        if sensitive:
+                            foundSensitive.append(key)
+                        # XXX if defMeta.get('immutable') and key in specd:
+                        #  error('value of attribute "%s" changed but is marked immutable' % key)
+                        resource._attributes[key] = savedValue
 
             # save changes
             diff = attributes.getDiff()

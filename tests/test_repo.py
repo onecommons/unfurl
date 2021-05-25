@@ -406,7 +406,7 @@ ensemble.yaml
             # test that projects are registered in the home
             # use this project because the repository it is in has a non-local origin set:
             project = os.path.join(
-                os.path.dirname(__file__), "examples/testimport-manifest.yaml"
+                os.path.dirname(__file__), "examples/testimport-ensemble.yaml"
             )
             # set starttime to suppress job logging to file
             result = runner.invoke(
@@ -451,7 +451,7 @@ context:
  external:
   test:
     manifest:
-      file: testimport-manifest.yaml
+      file: testimport-ensemble.yaml
       project: examples
 spec:
   service_template:
