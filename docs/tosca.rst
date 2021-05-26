@@ -27,6 +27,35 @@ Service Template
 
 A Service Template consists of all the application or topology specific information and important configuration that is required to move the application from one cloud platform or infrastructure to another. For example, a service template can be created for a database server or a router. All this configuration can be defined in the form of schema. The figure shown above displays the components of a service template. In order to deploy a service template, the node and relationship information is needed to deploy a Service template. We will go through each of these in the sections below.
 
+Example
+-------
+
+.. code::
+
+ tosca_definitions_version: tosca_simple_unfurl_1_0_0
+ metadata:
+   template_name: Unfurl types
+   template_author: onecommons.org
+   template_version: 1.0.0
+ repositories:
+   docker_hub:
+     url: https://registry.hub.docker.com/
+     credential:
+         user: a_user
+         token: a_password
+ imports:
+ - namespace_prefix: k8s
+   file: profiles/kubernetes/1.0/profile.yaml
+ - namespace_prefix: o11n
+   file: profiles/orchestration/1.0/profile.yaml
+   repository: tosca-community-contributions
+ node_types:
+   # ... see the “node types” section below
+ topology_template:
+   # ... see the “topology_templates” section below
+ node_templates:
+   # ... see the “node_templates” section below
+
 Node Type
 ^^^^^^^^^^
 
