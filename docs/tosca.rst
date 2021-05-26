@@ -32,6 +32,35 @@ Node Type
 
 A Node Type includes all the operational details required to create, start, stop or delete a component or an event. All the operational possibilities, operations, properties, capabilities and requirements of resources or components which will be consumed during a deployment are defined within a node type. This information can then later be reused in a node or a relationship template.
 
+Example
+-------
+
+.. code::
+
+ node_types:
+
+  # The Kubernetes profile comprises capability types, not node types
+  # You need to create your own node type that is an assemblage of capabilities
+  # In other words, the node is where we logically relate Kubernetes resources together
+  Application:
+    capabilities:
+      # The Metadata capability will be shared with all resources
+      # Only one should be used per node type
+      metadata: k8s:Metadata
+      # Other capabilities can be added to represent Kubernetes resources
+      # (The same capability type can be used multiple times, e.g. two LoadBalancer)
+      deployment: k8s:Deployment
+      web: k8s:LoadBalancer
+    interfaces:
+      # Interfaces are used to achieve service modes
+      # The name of the interface is used by default as the name of the mode
+      # (Anything after "." in the name is ignored for this purpose)
+      normal.1:
+        type: k8s:ContainerCommand
+      normal.2:
+        type: o11n:Scriptlet
+
+
 Relationship Type
 ^^^^^^^^^^^^^^^^^
 
@@ -43,6 +72,29 @@ Topology Template
 
 Topology Template refers to the topology model of a service. This model consists of node template and relationship template that are linked together to translate and structure the application in the form of TOSCA specification. A topoloigy template consists of reusable patterns of information defined in the node and relationship type.
 
+Example
+-------
+
+.. code::
+
+ topology_template:
+
+  inputs:
+
+    namespace:
+      type: string
+      default: workspace
+
+  outputs:
+    url:
+      # Before a real attribute value arrives this will evaluate to "http://<unknown>:80"
+      type: string
+      value: { concat: [ http://, { get_attribute: [ hello-world, web, ingress, 0, ip ] }, ':80' ] }
+
+    initialized:
+      type: boolean
+      value: false
+
 
 Node Template
 ^^^^^^^^^^^^^
@@ -53,6 +105,84 @@ A Node Template defines an instance or a component of the application translated
 
 The definitions of the application components within a node template have a potential to be reused later in the TOSCA specification by exporting the node dependencies using requirements and capabilities. The idea is to spcify the characteristics and the available functions of the components of a particular service in the form of nodes for future use.
 
+Example
+-------
+
+.. code::
+
+ node_templates:
+
+    hello-world:
+      type: Application
+      capabilities:
+        metadata:
+          properties:
+            # If "name" is not specified, the TOSCA node template name will be used
+            # If "namespace" is not set, resources will be created in the same namespace as
+            # the Turandot operator 
+            namespace: { get_input: namespace }
+            labels:
+              app.kubernetes.io/name: hello-world
+        deployment:
+          properties:
+            metadataNamePostfix: ''
+            template:
+              containers:
+              - name: hello-world
+                # You can, of course, specify any container image URL
+                # (from the Docker Hub default or some other container image registry)
+                # In this case, because the "image" is a ContainerImage, get_artifact will return
+                # a URL for the Turandot inventory *after* the container image is pushed to it
+                image: { get_artifact: [ SELF, image ] }
+                imagePullPolicy: Always
+        web:
+          properties:
+            ports:
+            - { name: http, protocol: TCP, port: 80, targetPort: 8080 }
+          attributes:
+            # We're initializing this attribute to make sure the call to get_attribute in the ouput
+            # won't fail before a real value arrives
+            ingress:
+            - ip: <unknown>
+      interfaces:
+        # The interfaces are executed in alphabetical order
+        # The previous execution must succeed before moving on to the next
+        normal.1:
+          inputs:
+            # The command is executed with the contents of the Clout in stdin
+            # If the command has a non-empty stdout, it will be used to replace the current Clout
+            # This combination allows the command to manipulate the Clout if desired
+            command:
+            - /tmp/configure.sh
+            - $$nodeTemplate # argument beginning with "$$" will be replaced with local values
+            # Artifacts are copied to the target container before execution
+            artifacts:
+            - configure # See below
+        normal.2:
+          inputs:
+            scriptlet: hello-world.set-output
+            arguments:
+              name: initialized
+              value: 'true'
+      artifacts:
+        # In this case all our artifacts are in the CSAR
+        # But we can also use URLs to other locations
+        image:
+          # Container images will be published on the inventory before deployment 
+          type: k8s:ContainerImage
+          # Note that the container image tarball must be "portable"
+          # (You can use the included "save-portable-container-image" script to create it)
+          file: artifacts/images/hello-world.tar.gz
+          properties:
+            # The tag is required for publishing the image
+            tag: hello-world
+        configure:
+          # The Executable type will set executable permissions on the file
+          type: o11n:Executable
+          file: artifacts/scripts/configure.sh
+          deploy_path: /tmp/configure.sh
+
+
 
 Relationship Template
 ^^^^^^^^^^^^^^^^^^^^^
@@ -61,6 +191,12 @@ A Relationship Template specifies the relationship between the components define
 
 An important thing to notice here is, in a relationship, it is important for the node requirements of a component to match the capabilities of the node it is being linked to.
 
+
+Putting Service Template Components Together
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+.. include:: examples/service-template.yaml
+   :literal:
 
 Extensions
 ~~~~~~~~~~
@@ -95,8 +231,4 @@ Not yet implemented and non-conformance with the TOSCA 1.3 specification
 * node_filters
 * xml schema constraints
 
-Extensions to built-in definitions
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-.. include:: tosca-ext.yaml
-   :code: YAML
