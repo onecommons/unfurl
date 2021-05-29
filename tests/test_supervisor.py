@@ -35,8 +35,8 @@ class SupervisorTest(unittest.TestCase):
                     {
                         "id": "A01110000000",
                         "status": "ok",
-                        "total": 4,
-                        "ok": 4,
+                        "total": 5,
+                        "ok": 5,
                         "error": 0,
                         "unknown": 0,
                         "skipped": 0,
