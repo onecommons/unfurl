@@ -118,8 +118,8 @@ def initLogging(level=None, logfile=None):
 
     oldLevel = _logLevel
     if level is not None:
-        _logLevel = level
         _logHandler.setLevel(level)
+        _logLevel = _logHandler.level
     return _logHandler, oldLevel
 
 
