@@ -103,8 +103,8 @@ class UndeployTest(unittest.TestCase):
             {
                 "id": "A01110000000",
                 "status": "ok",
-                "total": 5,
-                "ok": 5,
+                "total": 7,
+                "ok": 7,
                 "error": 0,
                 "unknown": 0,
                 "skipped": 0,
@@ -123,8 +123,10 @@ class UndeployTest(unittest.TestCase):
         self.assertEqual(
             job.rootResource.findResource("managed").created, "::installerNode"
         )
-        self.assertIs(job.rootResource.findResource("unmanaged").created, True)
-        self.assertIs(job.rootResource.findResource("preexisting").created, False)
+        self.assertEqual(
+            job.rootResource.findResource("unmanaged").created, "A01110000008"
+        )
+        self.assertIs(job.rootResource.findResource("preexisting").created, None)
         self.assertNotIn(
             "external", targets, "missing external instances should not be created"
         )
@@ -259,6 +261,7 @@ class UndeployTest(unittest.TestCase):
             summary["job"],
         )
 
+        # undeploy: should stop and delete
         manifest4 = YamlManifest(job.out.getvalue())
         job = Runner(manifest4).run(JobOptions(workflow="undeploy", startTime=4))
         assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
@@ -269,8 +272,8 @@ class UndeployTest(unittest.TestCase):
             {
                 "id": "A01140000000",
                 "status": "ok",
-                "total": 1,
-                "ok": 1,
+                "total": 2,
+                "ok": 2,
                 "error": 0,
                 "unknown": 0,
                 "skipped": 0,
@@ -280,6 +283,18 @@ class UndeployTest(unittest.TestCase):
         )
         self.assertEqual(
             [
+                {
+                    "status": "ok",
+                    "target": "simple",
+                    "operation": "stop",
+                    "template": "simple",
+                    "type": "test.nodes.simple",
+                    "targetStatus": "absent",
+                    "changed": False,
+                    "configurator": "unfurl.configurators.TemplateConfigurator",
+                    "priority": "required",
+                    "reason": "undeploy",
+                },
                 {
                     "status": "ok",
                     "target": "simple",

@@ -84,4 +84,4 @@ class k8sTest(unittest.TestCase):
         results = job2.jsonSummary()
         assert not job2.unexpectedAbort
         assert job2.status == Status.ok, job2.summary()
-        assert len(results["tasks"]) == 1, results
+        assert len(results["tasks"]) == 2, results

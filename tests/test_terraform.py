@@ -1,5 +1,7 @@
 import os
 import unittest
+import time
+from six.moves import urllib
 
 from click.testing import CliRunner
 
@@ -25,14 +27,18 @@ class TerraformTest(unittest.TestCase):
 
         t = threading.Thread(name="moto_thread", target=lambda: main([]))
         t.daemon = True
-        # UI lives at http://localhost:5000/moto-api
         t.start()
+
+        time.sleep(0.25)
+        url = "http://localhost:5000/moto-api"  # UI lives here
+        f = urllib.request.urlopen(url)
 
         path = os.path.join(os.path.dirname(__file__), "examples")
         with open(os.path.join(path, "terraform-ensemble.yaml")) as f:
             self.ensemble_config = f.read()
         with open(os.path.join(path, "terraform-project-config.yaml")) as f:
             self.project_config = f.read()
+        self.maxDiff = None
 
     def tearDown(self):
         pass  # XXX how to shut down the moto server?
@@ -70,8 +76,8 @@ class TerraformTest(unittest.TestCase):
                     "job": {
                         "id": "A01110000000",
                         "status": "ok",
-                        "total": 1,
-                        "ok": 1,
+                        "total": 2,
+                        "ok": 2,
                         "error": 0,
                         "unknown": 0,
                         "skipped": 0,
@@ -79,6 +85,18 @@ class TerraformTest(unittest.TestCase):
                     },
                     "outputs": {},
                     "tasks": [
+                        {
+                            "status": "ok",
+                            "target": "example",
+                            "operation": "check",
+                            "template": "example",
+                            "type": "unfurl.nodes.Installer.Terraform",
+                            "targetStatus": "ok",
+                            "changed": False,
+                            "configurator": "unfurl.configurators.terraform.TerraformConfigurator",
+                            "priority": "required",
+                            "reason": "check",
+                        },
                         {
                             "status": "ok",
                             "target": "example",
@@ -90,7 +108,7 @@ class TerraformTest(unittest.TestCase):
                             "configurator": "unfurl.configurators.terraform.TerraformConfigurator",
                             "priority": "required",
                             "reason": "add",
-                        }
+                        },
                     ],
                 },
             )
@@ -106,7 +124,6 @@ class TerraformTest(unittest.TestCase):
                 JobOptions(workflow="check", verbose=-1, startTime=2)
             )
             assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
-            assert job.status == Status.ok, job.summary()
             self.assertEqual(
                 job.jsonSummary(),
                 {
@@ -137,17 +154,21 @@ class TerraformTest(unittest.TestCase):
                     ],
                 },
             )
+            assert job.status == Status.ok, job.summary()
 
             # reload and undeploy:
             manifest3 = LocalEnv().getManifest()
             assert manifest3.lastJob
-            manifest3.rootResource.findResource("example")
+            example = manifest3.rootResource.findResource("example")
+            assert example
+            print("example", manifest3.path, example.status, example.state)
             self.assertEqual(
                 type(example.attributes["availability_zone"]), sensitive_str
             )
-            job = Runner(manifest2).run(
-                JobOptions(workflow="undeploy", verbose=-1, startTime=3)
+            job = Runner(manifest3).run(
+                JobOptions(workflow="undeploy", verbose=2, startTime=3)
             )
+            print("TRRRRR", job.taskRequests)
             assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
             assert job.status == Status.ok, job.summary()
             self.assertEqual(

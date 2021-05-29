@@ -70,7 +70,8 @@ class HelmTest(unittest.TestCase):
         f.close()
 
         runner = Runner(YamlManifest(self.manifest))
-        run1 = runner.run(JobOptions(planOnly=True, verbose=3, startTime=1))
+        run1 = runner.run(JobOptions(verbose=3, startTime=1))
+
         mysql_release = runner.manifest.rootResource.findResource("mysql_release")
         query = ".::.requirements::[.name=host]::.target::name"
         res = mysql_release.query(query)
@@ -87,8 +88,8 @@ class HelmTest(unittest.TestCase):
             {
                 "id": "A01110000000",
                 "status": "ok",
-                "total": 4,
-                "ok": 4,
+                "total": 8,
+                "ok": 8,
                 "error": 0,
                 "unknown": 0,
                 "skipped": 0,

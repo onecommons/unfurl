@@ -34,13 +34,59 @@ class TaskRequest(object):
     Yield this to run a child task. (see :py:meth:`unfurl.configurator.TaskView.createSubTask`)
     """
 
-    def __init__(self, configSpec, resource, reason, persist=False, required=None):
+    def __init__(
+        self,
+        configSpec,
+        resource,
+        reason,
+        persist=False,
+        required=None,
+        startState=None,
+    ):
         self.configSpec = configSpec
         self.target = resource
         self.reason = reason
         self.persist = persist
         self.required = required
         self.error = configSpec.name == "#error"
+        self.startState = startState
+
+    @property
+    def name(self):
+        name = self.configSpec.name
+        if self.configSpec.operation and self.configSpec.operation not in name:
+            name = name + ":" + self.configSpec.operation
+        if self.reason and self.reason not in name:
+            return name + ":" + self.reason
+        return name
+
+    def __repr__(self):
+        return "TaskRequest(%s(%s,%s):%s)" % (
+            self.target,
+            self.target.status,
+            self.target.state,
+            self.name,
+        )
+
+
+class SetStateRequest(object):
+    def __init__(self, target, state):
+        self.target = target
+        self.set_state = state
+
+
+class TaskRequestGroup(object):
+    def __init__(self, target, workflow):
+        self.target = target
+        self.workflow = workflow
+        self.children = []
+
+    def __repr__(self):
+        return "TaskRequestGroup(%s:%s:%s)" % (
+            self.target,
+            self.workflow,
+            self.children,
+        )
 
 
 class JobRequest(object):

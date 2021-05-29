@@ -95,6 +95,7 @@ class ConfigChangeTest(unittest.TestCase):
             assert _latestJobs
             job = _latestJobs[-1]
             summary = job.jsonSummary()
+            # print("deployed")
             # print(json.dumps(summary, indent=2))
             # print(job.out.getvalue())
             self.assertEqual(

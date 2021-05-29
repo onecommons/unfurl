@@ -10,6 +10,7 @@ from unfurl.util import sensitive_str, API_VERSION, UnfurlValidationError
 from unfurl.yamlloader import makeVaultLib
 import six
 from click.testing import CliRunner
+import json
 
 # python 2.7 needs these:
 from unfurl.configurators.shell import ShellConfigurator
@@ -294,13 +295,13 @@ class ToscaSyntaxTest(unittest.TestCase):
         runner = Runner(manifest)
         output = six.StringIO()
         job = runner.run(
-            JobOptions(add=True, planOnly=True, out=output, startTime="test")
+            JobOptions(add=True, planOnly=False, out=output, startTime="test")
         )
-        # print(job.jsonSummary())
+        # print(json.dumps(job.jsonSummary(), indent=2))
         assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
         self.assertEqual(job.status.name, "ok")
-        self.assertEqual(job.stats()["ok"], 4)
-        self.assertEqual(job.stats()["changed"], 4)
+        self.assertEqual(job.stats()["ok"], 5)
+        self.assertEqual(job.stats()["changed"], 3)
 
     def test_missing_type_is_handled_by_unfurl(self):
         ensemble = """
@@ -325,7 +326,10 @@ class ToscaSyntaxTest(unittest.TestCase):
         with self.assertRaises(UnfurlValidationError) as err:
             YamlManifest(ensemble)
 
-        assert 'MissingRequiredFieldError: Template "test_node" is missing required field "type"' in str(err.exception)
+        assert (
+            'MissingRequiredFieldError: Template "test_node" is missing required field "type"'
+            in str(err.exception)
+        )
 
     def test_missing_interface_definition_is_handled_by_unfurl(self):
         ensemble = """
@@ -343,7 +347,9 @@ class ToscaSyntaxTest(unittest.TestCase):
         with self.assertRaises(UnfurlValidationError) as err:
             YamlManifest(ensemble)
 
-        assert 'Missing value for "interfaces". Must contain one of:' in str(err.exception)
+        assert 'Missing value for "interfaces". Must contain one of:' in str(
+            err.exception
+        )
 
 
 class AbstractTemplateTest(unittest.TestCase):
