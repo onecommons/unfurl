@@ -2,6 +2,7 @@ import os
 import signal
 import time
 import unittest
+import json
 
 from click.testing import CliRunner
 from six.moves import urllib
@@ -29,6 +30,7 @@ class SupervisorTest(unittest.TestCase):
                 job = runner.run(JobOptions(startTime=1))  # deploy
                 assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
                 summary = job.jsonSummary()
+                # print(json.dumps(summary, indent=2))
                 self.assertEqual(
                     {
                         "id": "A01110000000",
@@ -43,7 +45,6 @@ class SupervisorTest(unittest.TestCase):
                     summary["job"],
                 )
 
-                # print(json.dumps(summary, indent=2))
                 time.sleep(0.25)
                 f = urllib.request.urlopen("http://127.0.0.1:8012/")
                 expected = b"Directory listing for /"

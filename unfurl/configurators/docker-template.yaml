@@ -24,7 +24,7 @@ node_types:
             {% set status = outputs.docker_container.State.Status | d("") %}
             {% set error = outputs.docker_container.State.Error | d("") %}
             readyState:
-              state: {{ {'created': 'created', 'restarting': 'starting',
+              state: {{ {'created': 'created', 'restarting': 'starting', '': 'initial',
                         'running': 'started', 'removing': 'deleting',
                         'paused': 'stopped',  'stopped': 'stopped', 'exited': 'deleted', 'dead': 'deleted'}[status] }}
               local: {%if error %}error

@@ -97,5 +97,7 @@ class SupervisorConfigurator(Configurator):
                 )
             ):
                 error = "supervisor error: " + str(err)
+            else:
+                task.logger.debug("ignoring supervisord error: %s", str(err))
 
         yield task.done(success=not error, modified=modified, result=error)
