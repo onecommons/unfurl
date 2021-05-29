@@ -192,7 +192,7 @@ class ReadOnlyManifest(Manifest):
             vault,
         )
         if self.manifest.path:
-            logging.debug("loaded ensemble manifest at %s", self.manifest.path)
+            logger.debug("loaded ensemble manifest at %s", self.manifest.path)
         manifest = self.manifest.expanded
         spec = manifest.get("spec", {})
         self.context = manifest.get("context", CommentedMap())
@@ -624,7 +624,6 @@ class YamlManifest(ReadOnlyManifest):
             logger.info("job run didn't make any changes; nothing to commit")
             return
 
-        logger.debug("CHANGES %s", changes)
         if self.changeLogPath:
             jobLogPath = self.saveChangeLog(jobRecord, changes)
             if not job.dryRun:
@@ -730,7 +729,6 @@ class YamlManifest(ReadOnlyManifest):
                         attrs[key] = change[key]
                 attrs["summary"] = change["summary"]
                 line = ChangeRecord.formatLog(change["changeId"], attrs)
-                logger.debug("LOG %s", line)
                 f.write(line)
 
     def saveChangeLog(self, jobRecord, newChanges):

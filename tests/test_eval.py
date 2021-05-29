@@ -1,7 +1,7 @@
 import unittest
 import os
 import json
-from unfurl.result import ResultsList, serializeValue
+from unfurl.result import ResultsList, serializeValue, ChangeRecord
 from unfurl.eval import Ref, mapValue, RefContext
 from unfurl.support import applyTemplate
 from unfurl.util import sensitive_str
@@ -351,6 +351,12 @@ a_dict:
         result = mapValue(template, resource)
         with open(result) as tp:
             self.assertEqual(tp.read(), json.dumps(value, indent=2))
+
+    def test_changerecord(self):
+        assert ChangeRecord.isChangeId("A01110000005")
+        assert not ChangeRecord.isChangeId("A0111000000"), "too short"
+        assert not ChangeRecord.isChangeId(None), "not a string"
+        assert not ChangeRecord.isChangeId(True), "not a string"
 
     def test_binaryvault(self):
         import six
