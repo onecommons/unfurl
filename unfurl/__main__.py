@@ -10,7 +10,7 @@ from __future__ import print_function
 
 from .job import runJob
 from .support import Status
-from . import __version__, initLogging, getHomeConfigPath, DefaultNames
+from . import __version__, versionTuple, initLogging, getHomeConfigPath, DefaultNames
 from . import init as initmod
 from .util import filterEnv, getPackageDigest
 from .localenv import LocalEnv, Project
@@ -65,7 +65,21 @@ def option_group(*options):
     help="Directory for saving temporary files",
 )
 @click.option("--loglevel", envvar="UNFURL_LOGGING", help="log level (overrides -v)")
-def cli(ctx, verbose=0, quiet=False, logfile=None, loglevel=None, tmp=None, **kw):
+@click.option(
+    "--version-check",
+    envvar="UNFURL_VERSION_CHECK",
+    help="warn if older than the given version",
+)
+def cli(
+    ctx,
+    verbose=0,
+    quiet=False,
+    logfile=None,
+    loglevel=None,
+    tmp=None,
+    version_check=None,
+    **kw
+):
     # ensure that ctx.obj exists and is a dict (in case `cli()` is called
     # by means other than the `if` block below
     ctx.ensure_object(dict)
@@ -97,6 +111,12 @@ def cli(ctx, verbose=0, quiet=False, logfile=None, loglevel=None, tmp=None, **kw
         verbose = 2
     ctx.obj["verbose"] = verbose
     initLogging(effectiveLogLevel, logfile)
+    if version_check and versionTuple() < versionTuple(version_check):
+        logging.warning(
+            "current version %s older than expected version %s",
+            __version__(True),
+            version_check,
+        )
 
 
 jobControlOptions = option_group(
@@ -227,14 +247,26 @@ def _remoteCmd(runtime, cmdLine, localEnv):
         pipfileLocation, sep, unfurlLocation = rest.partition(":")
         return (
             _venv(pipfileLocation, env),
-            ["python", "-m", "unfurl", "--no-runtime"] + cmdLine,
+            [
+                "python",
+                "-m",
+                "unfurl",
+                "--no-runtime",
+                "--version-check",
+                __version__(True),
+            ]
+            + cmdLine,
             False,
         )
     # elif docker: docker $container -it run $cmdline
     else:
         # treat as shell command
         cmd = shlex.split(runtime)
-        return env, cmd + ["--no-runtime"] + cmdLine, True
+        return (
+            env,
+            cmd + ["--no-runtime", "--version-check", __version__(True)] + cmdLine,
+            True,
+        )
 
 
 def _runRemote(runtime, options, localEnv):

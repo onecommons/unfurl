@@ -9,10 +9,16 @@ import pbr.version
 
 def __version__(release=False):
     # a function because this is expensive
-    if release:
+    if release:  # appends .devNNN
         return pbr.version.VersionInfo(__name__).release_string()
-    else:
+    else:  # semver only
         return pbr.version.VersionInfo(__name__).version_string()
+
+
+def versionTuple(v=None):
+    if v is None:
+        v = __version__(True)
+    return tuple(int(x.lstrip("dev") or 0) for x in v.split("."))
 
 
 import os
