@@ -325,12 +325,23 @@ class Manifest(AttributeManager):
 
     def statusSummary(self):
         def summary(instance, indent):
-            print(" " * indent, instance, instance.status)
+            output.append(
+                "%s%s %s %s %s"
+                % (
+                    " " * indent,
+                    instance,
+                    instance.status,
+                    instance.state,
+                    instance.created,
+                )
+            )
             indent += 4
             for child in instance.instances:
                 summary(child, indent)
 
+        output = []
         summary(self.rootResource, 0)
+        return "\n".join(output)
 
     def findPathInRepos(self, path, importLoader=None):  # currently unused
         """

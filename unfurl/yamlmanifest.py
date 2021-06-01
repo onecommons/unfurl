@@ -1,6 +1,6 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
-"""Loads and saves a ensemble manifest with the following format
+"""Loads and saves a ensemble manifest.
 """
 from __future__ import absolute_import
 import six

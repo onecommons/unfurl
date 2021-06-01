@@ -310,6 +310,26 @@ class UndeployTest(unittest.TestCase):
             ],
             summary["tasks"],
         )
+        self.assertEqual(
+            job._jsonPlanSummary(),
+            [
+                {
+                    "name": "simple",
+                    "status": "Status.absent",
+                    "state": "NodeState.deleted",
+                    "managed": "A01110000001",
+                    "plan": [
+                        {
+                            "workflow": "undeploy",
+                            "sequence": [
+                                {"operation": "stop", "reason": "undeploy"},
+                                {"operation": "delete", "reason": "undeploy"},
+                            ],
+                        }
+                    ],
+                }
+            ],
+        )
 
     # XXX fix and test Install.revert:
     # def test_revert(self): pass

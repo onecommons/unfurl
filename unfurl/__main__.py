@@ -311,8 +311,8 @@ def _runLocal(ensemble, options):
             else:
                 click.echo("query: " + query)
                 click.echo(result)
-        if jsonSummary:
-            click.echo(json.dumps(jsonSummary))
+        if jsonSummary is not None:
+            click.echo(json.dumps(jsonSummary, indent=2))
 
     if not job or (
         "jobexitcode" in options

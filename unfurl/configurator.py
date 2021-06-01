@@ -53,11 +53,12 @@ class TaskRequest(object):
 
     @property
     def name(self):
-        name = self.configSpec.name
-        if self.configSpec.operation and self.configSpec.operation not in name:
-            name = name + ":" + self.configSpec.operation
+        if self.configSpec.operation:
+            name = self.configSpec.operation
+        else:
+            name = self.configSpec.name
         if self.reason and self.reason not in name:
-            return name + ":" + self.reason
+            return name + " (reason: " + self.reason + ")"
         return name
 
     def __repr__(self):
@@ -73,6 +74,10 @@ class SetStateRequest(object):
     def __init__(self, target, state):
         self.target = target
         self.set_state = state
+
+    @property
+    def name(self):
+        return self.set_state
 
 
 class TaskRequestGroup(object):

@@ -302,6 +302,66 @@ class ToscaSyntaxTest(unittest.TestCase):
         self.assertEqual(job.status.name, "ok")
         self.assertEqual(job.stats()["ok"], 5)
         self.assertEqual(job.stats()["changed"], 3)
+        self.assertEqual(
+            job._jsonPlanSummary(),
+            [
+                {
+                    "name": "stagingCluster",
+                    "status": "Status.ok",
+                    "state": "None",
+                    "managed": None,
+                    "plan": [
+                        {"operation": "check", "reason": "check"},
+                        {
+                            "name": "defaultNamespace",
+                            "status": "Status.ok",
+                            "state": "NodeState.configured",
+                            "managed": "A01100000003",
+                            "plan": [
+                                {"operation": "check", "reason": "check"},
+                                {
+                                    "workflow": "deploy",
+                                    "sequence": [
+                                        {"operation": "configure", "reason": "add"}
+                                    ],
+                                },
+                                {
+                                    "name": "gitlab-release",
+                                    "status": "Status.ok",
+                                    "state": "None",
+                                    "managed": "A01100000005",
+                                    "plan": [
+                                        {
+                                            "workflow": "deploy",
+                                            "sequence": [
+                                                {
+                                                    "workflow": "Workflow(deploy)",
+                                                    "sequence": [
+                                                        {
+                                                            "operation": "execute",
+                                                            "reason": "step:helm",
+                                                        },
+                                                        {
+                                                            "workflow": "Workflow(discover)",
+                                                            "sequence": [
+                                                                {
+                                                                    "operation": "discover",
+                                                                    "reason": "step:helm",
+                                                                }
+                                                            ],
+                                                        },
+                                                    ],
+                                                }
+                                            ],
+                                        }
+                                    ],
+                                },
+                            ],
+                        },
+                    ],
+                }
+            ],
+        )
 
     def test_missing_type_is_handled_by_unfurl(self):
         ensemble = """

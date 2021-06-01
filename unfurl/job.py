@@ -11,7 +11,6 @@ import types
 import itertools
 import os
 import json
-import pprint
 from .support import Status, Priority, Defaults, AttributeManager, Reason, NodeState
 from .result import serializeValue, ChangeRecord
 from .util import UnfurlError, UnfurlTaskError, toEnum
@@ -766,7 +765,52 @@ class Job(ConfigChange):
                 UnfurlTaskError(task, "unexpected result from configurator")
                 return task.finished(ConfiguratorResult(False, None, Status.error))
 
-    def jsonSummary(self, pprint=False):
+    def _jsonPlanSummary(self, pretty=False):
+        def _summary(requests, target, parent):
+            for request in requests:
+                isGroup = isinstance(request, TaskRequestGroup)
+                if isGroup and not request.children:
+                    continue
+                if request.target is not target:
+                    target = request.target
+                    children = []
+                    node = dict(
+                        name=target.name,
+                        status=str(target.status),
+                        state=str(target.state),
+                        managed=target.created,
+                        plan=children,
+                    )
+                    parent.append(node)
+                    parent = children
+                if isGroup:
+                    children = []
+                    group = {}
+                    if request.workflow:
+                        group["workflow"] = str(request.workflow)
+                    group["sequence"] = children
+                    parent.append(group)
+                    _summary(request.children, target, children)
+                else:
+                    parent.append(
+                        dict(
+                            operation=request.configSpec.operation
+                            or request.configSpec.name,
+                            reason=request.reason,
+                        )
+                    )
+
+        summary = []
+        _summary(self.taskRequests, None, summary)
+        if not pretty:
+            return summary
+        else:
+            return json.dumps(summary, indent=2)
+
+    def jsonSummary(self, pretty=False):
+        if self.jobOptions.planOnly:
+            return self._jsonPlanSummary(pretty)
+
         job = dict(id=self.changeId, status=self.status.name)
         job.update(self.stats())
         if not self.startTime:  # skip if startTime was explicitly set
@@ -776,7 +820,7 @@ class Job(ConfigChange):
             outputs=serializeValue(self.getOutputs()),
             tasks=[task.summary(True) for task in self.workDone.values()],
         )
-        if pprint:
+        if pretty:
             return json.dumps(summary, indent=2)
         return summary
 
@@ -797,12 +841,56 @@ class Job(ConfigChange):
             )
         return stats
 
-    def planSummary(self, asJson):
-        return pprint.pformat(self.taskRequests)
+    def _planSummary(self):
+        """
+        Node "site" (status, state, created):
+          check: Install.check
+          workflow: # if group
+            Standard.create (reason add)
+            Standard.configure (reason add)
+        """
+
+        def _summary(requests, target, indent):
+            for request in requests:
+                isGroup = isinstance(request, TaskRequestGroup)
+                if isGroup and not request.children:
+                    continue
+                if request.target is not target:
+                    target = request.target
+                    status = ", ".join(
+                        filter(
+                            None,
+                            (
+                                target.status.name if target.status is not None else "",
+                                target.state.name if target.state is not None else "",
+                                "managed" if target.created else "",
+                            ),
+                        )
+                    )
+                    nodeStr = 'Node "%s" (%s):' % (target.name, status)
+                    output.append(" " * indent + nodeStr)
+                if isGroup:
+                    output.append(
+                        "%s- %s:" % (" " * indent, (request.workflow or "sequence"))
+                    )
+                    _summary(request.children, target, indent + 4)
+                else:
+                    output.append(" " * indent + "- " + request.name)
+
+        opts = self.jobOptions.getUserSettings()
+        options = ",".join(["%s = %s" % (k, opts[k]) for k in opts if k != "planOnly"])
+        header = "Plan for %s" % self.workflow
+        if options:
+            header += " (%s)" % options
+        output = [header + ":\n"]
+        _summary(self.taskRequests, None, 0)
+        if len(output) <= 1:
+            output.append("Nothing to do.")
+        return "\n".join(output)
 
     def summary(self):
         if self.jobOptions.planOnly:
-            return self.planSummary(False)
+            return self._planSummary()
 
         outputString = ""
         outputs = self.getOutputs()

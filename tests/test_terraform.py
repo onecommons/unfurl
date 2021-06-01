@@ -161,14 +161,12 @@ class TerraformTest(unittest.TestCase):
             assert manifest3.lastJob
             example = manifest3.rootResource.findResource("example")
             assert example
-            print("example", manifest3.path, example.status, example.state)
             self.assertEqual(
                 type(example.attributes["availability_zone"]), sensitive_str
             )
             job = Runner(manifest3).run(
                 JobOptions(workflow="undeploy", verbose=2, startTime=3)
             )
-            print("TRRRRR", job.taskRequests)
             assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
             assert job.status == Status.ok, job.summary()
             self.assertEqual(

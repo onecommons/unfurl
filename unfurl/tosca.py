@@ -903,6 +903,9 @@ class Workflow(object):
     def __init__(self, workflow):
         self.workflow = workflow
 
+    def __str__(self):
+        return "Workflow(%s)" % self.workflow.name
+
     def initialSteps(self):
         preceeding = set()
         for step in self.workflow.steps.values():
