@@ -4,6 +4,9 @@ Python API
 .. contents::
     :depth: 2
 
+
+.. _python:
+
 API for writing configurators
 -----------------------------
 
