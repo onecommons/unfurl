@@ -37,7 +37,7 @@ node_types:
         type: string
         default:
           eval:
-            get_dir: spec.home
+            get_dir: home
     interfaces:
       defaults:
         implementation:

@@ -246,7 +246,10 @@ class TerraformConfigurator(ShellConfigurator):
         if result.returncode == 2:
             # plan -detailed-exitcode: 2 - Succeeded, but there is a diff
             success = True
-            status = Status.ok
+            if task.configSpec.operation == "check":
+                status = Status.absent
+            else:
+                status = Status.ok
 
         if success and not (task.dryRun or task.configSpec.operation == "check"):
             # read state file
