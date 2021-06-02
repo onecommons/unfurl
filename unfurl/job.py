@@ -19,7 +19,7 @@ from .runtime import OperationalInstance
 from .configurator import (
     TaskView,
     ConfiguratorResult,
-    TaskRequest,
+    PlanRequest,
     TaskRequestGroup,
     SetStateRequest,
     JobRequest,
@@ -371,6 +371,7 @@ class ConfigTask(ConfigChange, TaskView):
             template=self.target.template.name,
             type=self.target.template.type,
             targetStatus=self.target.status.name,
+            targetState=self.target.state and self.target.state.name or None,
             changed=self.modifiedTarget(),
             configurator=configurator,
             priority=self.priority.name,
@@ -409,6 +410,20 @@ class Job(ConfigChange):
         self.unexpectedAbort = None
         self.workDone = collections.OrderedDict()
         self.timeElapsed = 0
+
+    def getOperationalDependencies(self):
+        # XXX3 this isn't right, root job might have too many and child job might not have enough
+        # plus dynamic configurations probably shouldn't be included if yielded by a configurator
+        for task in self.workDone.values():
+            yield task
+
+    def getOutputs(self):
+        return self.rootResource.outputs.attributes
+
+    def runQuery(self, query, trace=0):
+        from .eval import evalForFunc, RefContext
+
+        return evalForFunc(query, RefContext(self.rootResource, trace=trace))
 
     def createTask(self, configSpec, target, reason=None):
         # XXX2 if operation_host set, create remote task instead
@@ -473,9 +488,9 @@ class Job(ConfigChange):
             return self.plan.getSuccessStatus(workflow)
         return None
 
-    def applyGroup(self, groupRequest):
+    def applyGroup(self, depth, groupRequest):
         workflow = groupRequest.workflow
-        task, success = self.apply(groupRequest.children, groupRequest)
+        task, success = self.apply(groupRequest.children, depth, groupRequest)
         if task:
             successStatus = self._getSuccessStatus(workflow, success)
             # logging.debug("successStatus %s for %s", task.target.state, workflow)
@@ -485,7 +500,7 @@ class Job(ConfigChange):
                 task.finishedWorkflow(successStatus)
         return task
 
-    def apply(self, taskRequests, parent=None):
+    def apply(self, taskRequests, depth=0, parent=None):
         failed = False
         task = None
         successStatus = False
@@ -500,9 +515,9 @@ class Job(ConfigChange):
             logger.info("Running task %s", taskRequest)
 
             if isinstance(taskRequest, TaskRequestGroup):
-                _task = self.applyGroup(taskRequest)
+                _task = self.applyGroup(depth, taskRequest)
             else:
-                _task = self._runOperation(taskRequest, workflow)
+                _task = self._runOperation(taskRequest, workflow, depth)
             if not _task:
                 continue
             task = _task
@@ -543,7 +558,7 @@ class Job(ConfigChange):
         except Exception:
             # unexpected error don't run this
             UnfurlTaskError(task, "shouldRun failed unexpectedly")
-            return False
+            return False, "unexpected failure"
 
         if isinstance(priority, bool):
             priority = priority and Priority.required or Priority.ignore
@@ -558,15 +573,15 @@ class Job(ConfigChange):
             )
             task.priority = priority
         if not priority > Priority.ignore:
-            return False
+            return False, "configurator cancelled"
 
         if task.reason == Reason.reconfigure:
             if task.hasInputsChanged() or task.hasDependenciesChanged():
-                return True
+                return True, "change detected"
             else:
-                return False
+                return False, "no change detected"
 
-        return True
+        return True, "proceed"
 
     def canRunTask(self, task):
         """
@@ -641,14 +656,20 @@ class Job(ConfigChange):
                 resource.localStatus = toEnum(Status, req.set_state)
 
     def _entryTest(self, req, workflow):
+        """
+        Operations can dynamically advance the state of a instance so that an operation
+        added by the plan no longer needs to run.
+        For example, a check operation may determine a resource is already created
+        or a create operation may also configure and start an instance.
+        """
         resource = req.target
-        # logging.debug(
-        #     "_entryTest current state %s start state %s op %s workflow %s",
-        #     resource.state,
-        #     req.startState,
-        #     req.configSpec.operation,
-        #     workflow,
-        # )
+        logging.debug(
+            "_entryTest current state %s start state %s op %s workflow %s",
+            resource.state,
+            req.startState,
+            req.configSpec.operation,
+            workflow,
+        )
         if req.configSpec.operation == "check" and not workflow:
             if (
                 self.isChangeId(resource.parent.created)
@@ -662,12 +683,13 @@ class Job(ConfigChange):
             else:
                 return True, "passed"
 
-        if (
-            not self.jobOptions.force
-            and req.startState
-            and resource.state
-            and workflow == "deploy"
-        ):
+        if self.jobOptions.force:  # always run
+            return True, "passed"
+
+        if self.plan.getSuccessStatus(workflow) == resource.status:
+            return False, "instance already has desired status"
+
+        if req.startState and resource.state and workflow == "deploy":
             # if we set a startState and force isn't set then only run
             # if we haven't already advanced to that state by another operation
             entryTest = NodeState(req.startState + 1)
@@ -683,7 +705,7 @@ class Job(ConfigChange):
                 return False, "instance already entered state"
         return True, "passed"
 
-    def _runOperation(self, req, workflow):
+    def _runOperation(self, req, workflow, depth):
         if isinstance(req, SetStateRequest):
             self._setState(req)
             return None
@@ -693,33 +715,71 @@ class Job(ConfigChange):
         test, msg = self._entryTest(req, workflow)
         if not test:
             logger.debug(
-                "skipping operation %s for instance %s with state %s: %s",
+                "skipping operation %s for instance %s with state %s and status %s: %s",
                 req.configSpec.operation,
                 req.target.name,
                 req.target.state,
+                req.target.status,
                 msg,
             )
             return None
         task = self.createTask(req.configSpec, req.target, reason=req.reason)
         if task:
-            if not self.shouldRunTask(task):
+            proceed, msg = self.shouldRunTask(task)
+            if not proceed:
+                logger.debug(
+                    "skipping task %s for instance %s with state %s and status %s: %s",
+                    req.configSpec.operation,
+                    req.target.name,
+                    req.target.state,
+                    req.target.status,
+                    msg,
+                )
                 return None
             resource = req.target
-            startingState = req.startState
-            if startingState is not None:
-                resource.state = startingState
+            startingStatus = resource._localStatus
+            if req.startState is not None:
+                resource.state = req.startState
+            startingState = resource.state
             self.runner.addWork(task)
-            self.runTask(task)
+            self.runTask(task, depth)
+
             if workflow == "deploy" and resource.created is None:
                 resource.created = task.changeId
-            # if the state hasn't been set by the task, advance the state
-            if (
-                startingState is not None
-                and task.result.success
-                and resource.state == startingState
-            ):
-                # task succeeded but didn't update nodestate
-                resource.state = NodeState(startingState + 1)
+
+            # if # task succeeded but didn't update nodestate
+            if task.result.success and resource.state == startingState:
+                if req.startState is not None:
+                    # advance the state if a startState was set in the TaskRequest
+                    resource.state = NodeState(req.startState + 1)
+                elif (
+                    req.configSpec.operation == "check"
+                    and startingStatus != resource._localStatus
+                ):
+                    # if check operation set status but didn't update state, set a default state
+                    state = {
+                        Status.ok: NodeState.started,
+                        Status.error: NodeState.error,
+                        Status.absent: NodeState.deleted,
+                        Status.pending: NodeState.initial,
+                    }.get(resource._localStatus)
+                    if state is not None:
+                        resource.state = state
+
+            # logger.debug(
+            #     "changed %s to %s, wanted %s",
+            #     startingState,
+            #     task.target.state,
+            #     req.startState,
+            # )
+            logger.info(
+                "finished taskrequest %s: %s %s %s",
+                task,
+                "success" if task.result.success else "failed",
+                task.target.status.name,
+                task.target.state and task.target.state.name or "",
+            )
+
         return task
 
     def runTask(self, task, depth=0):
@@ -730,6 +790,8 @@ class Job(ConfigChange):
         * Notification of creation or deletion of a resource
         * Requests a resource with requested metadata, if it doesn't exist, a task is run to make it so
         (e.g. add a dns entry, install a package).
+
+        Returns a task.
         """
         ok, errors = self.canRunTask(task)
         if not ok:
@@ -743,28 +805,28 @@ class Job(ConfigChange):
             except Exception:
                 UnfurlTaskError(task, "configurator.run failed")
                 return task.finished(ConfiguratorResult(False, None, Status.error))
-            if isinstance(result, TaskRequest):
+            if isinstance(result, PlanRequest):
                 if depth >= self.MAX_NESTED_SUBTASKS:
                     UnfurlTaskError(task, "too many subtasks spawned")
                     change = task.finished(ConfiguratorResult(False, None))
                 else:
-                    subtask = self.createTask(result.configSpec, result.target)
-                    self.runner.addWork(subtask)
-                    # returns the subtask with result
-                    change = self.runTask(subtask, depth + 1)
+                    change, success = self.apply([result], depth + 1)
             elif isinstance(result, JobRequest):
                 job = self.runJobRequest(result)
                 change = job
             elif isinstance(result, ConfiguratorResult):
                 retVal = task.finished(result)
-                logger.info(
-                    "finished running task %s: %s; %s", task, task.target.status, result
+                logger.debug(
+                    "completed task %s: %s; %s", task, task.target.status, result
                 )
                 return retVal
             else:
                 UnfurlTaskError(task, "unexpected result from configurator")
                 return task.finished(ConfiguratorResult(False, None, Status.error))
 
+    ###########################################################################
+    ### Reporting methods
+    ###########################################################################
     def _jsonPlanSummary(self, pretty=False):
         def _summary(requests, target, parent):
             for request in requests:
@@ -920,20 +982,6 @@ class Job(ConfigChange):
             format(i + 1, task) for i, task in enumerate(self.workDone.values())
         )
         return line1 + tasks + outputString
-
-    def getOperationalDependencies(self):
-        # XXX3 this isn't right, root job might have too many and child job might not have enough
-        # plus dynamic configurations probably shouldn't be included if yielded by a configurator
-        for task in self.workDone.values():
-            yield task
-
-    def getOutputs(self):
-        return self.rootResource.outputs.attributes
-
-    def runQuery(self, query, trace=0):
-        from .eval import evalForFunc, RefContext
-
-        return evalForFunc(query, RefContext(self.rootResource, trace=trace))
 
 
 class Runner(object):

@@ -32,9 +32,6 @@ version1 = """
               operations:
                 create:
                   implementation: Template
-                  inputs:
-                    done:
-                      status: ok
                 configure:
                   implementation: Template
                   inputs:
@@ -126,6 +123,8 @@ class ConfigChangeTest(unittest.TestCase):
             # print("no change")
             # print(json.dumps(summary, indent=2))
             # print(job.out.getvalue())
+            # with open("ensemble/jobs.tsv") as f:
+            #     print(f.read())
             self.assertEqual(
                 {
                     "id": "A01100GC0000",

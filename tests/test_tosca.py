@@ -162,6 +162,9 @@ missingInputsDoc = _manifestDoc % "{}"
 
 
 class ToscaSyntaxTest(unittest.TestCase):
+    def setUp(self):
+        self.maxDiff = None
+
     def _runInputAndOutputs(self, manifest):
         job = Runner(manifest).run(JobOptions(add=True, startTime="time-to-test"))
         assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
@@ -300,23 +303,24 @@ class ToscaSyntaxTest(unittest.TestCase):
         # print(json.dumps(job.jsonSummary(), indent=2))
         assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
         self.assertEqual(job.status.name, "ok")
-        self.assertEqual(job.stats()["ok"], 5)
+        self.assertEqual(job.stats()["ok"], 4)
         self.assertEqual(job.stats()["changed"], 3)
+        # print(job._jsonPlanSummary(True))
         self.assertEqual(
             job._jsonPlanSummary(),
             [
                 {
                     "name": "stagingCluster",
                     "status": "Status.ok",
-                    "state": "None",
+                    "state": "NodeState.started",
                     "managed": None,
                     "plan": [
                         {"operation": "check", "reason": "check"},
                         {
                             "name": "defaultNamespace",
                             "status": "Status.ok",
-                            "state": "NodeState.configured",
-                            "managed": "A01100000003",
+                            "state": "NodeState.started",
+                            "managed": None,
                             "plan": [
                                 {"operation": "check", "reason": "check"},
                                 {
@@ -329,7 +333,7 @@ class ToscaSyntaxTest(unittest.TestCase):
                                     "name": "gitlab-release",
                                     "status": "Status.ok",
                                     "state": "None",
-                                    "managed": "A01100000005",
+                                    "managed": "A01100000004",
                                     "plan": [
                                         {
                                             "workflow": "deploy",
@@ -513,6 +517,7 @@ spec:
                             "status": "ok",
                             "target": "foreign:anInstance",
                             "targetStatus": "ok",
+                            "targetState": "started",
                             "template": "anInstance",
                             "type": "test.nodes.AbstractTest",
                         }

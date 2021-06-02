@@ -29,7 +29,12 @@ import logging
 logger = logging.getLogger("unfurl.task")
 
 
-class TaskRequest(object):
+class PlanRequest(object):
+    def __init__(self, target):
+        self.target = target
+
+
+class TaskRequest(PlanRequest):
     """
     Yield this to run a child task. (see :py:meth:`unfurl.configurator.TaskView.createSubTask`)
     """
@@ -37,14 +42,14 @@ class TaskRequest(object):
     def __init__(
         self,
         configSpec,
-        resource,
+        target,
         reason,
         persist=False,
         required=None,
         startState=None,
     ):
+        super(TaskRequest, self).__init__(target)
         self.configSpec = configSpec
-        self.target = resource
         self.reason = reason
         self.persist = persist
         self.required = required
@@ -70,9 +75,9 @@ class TaskRequest(object):
         )
 
 
-class SetStateRequest(object):
+class SetStateRequest(PlanRequest):
     def __init__(self, target, state):
-        self.target = target
+        super(SetStateRequest, self).__init__(target)
         self.set_state = state
 
     @property
@@ -80,9 +85,9 @@ class SetStateRequest(object):
         return self.set_state
 
 
-class TaskRequestGroup(object):
+class TaskRequestGroup(PlanRequest):
     def __init__(self, target, workflow):
-        self.target = target
+        super(TaskRequestGroup, self).__init__(target)
         self.workflow = workflow
         self.children = []
 
