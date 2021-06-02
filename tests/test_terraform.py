@@ -314,7 +314,7 @@ class TerraformMotoTest(unittest.TestCase):
                             "template": "example",
                             "type": "unfurl.nodes.Installer.Terraform",
                             "targetStatus": "ok",
-                            "targetStatus": "started",
+                            "targetStatus": "created",
                             "changed": False,
                             "configurator": "unfurl.configurators.terraform.TerraformConfigurator",
                             "priority": "required",
