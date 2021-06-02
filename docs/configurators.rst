@@ -14,6 +14,8 @@ it will use the ``Ansible`` configurator and generate a playbook that invokes it
    :local:
    :depth: 1
 
+.. _ansible:
+
 Ansible
 ========
 
@@ -83,6 +85,7 @@ Inputs
   :operation:  (*required*) The operation to delegate to.
   :target: The name of the instance to delegate to. If omitted the current target will be used.
 
+.. _shell:
 
 Shell
 =====
@@ -131,6 +134,8 @@ Inputs
   :dryrun: During a ``--dryrun`` job used instead of ``run``.
   :done:  If set, a map whose values passed as arguments to :py:meth:`unfurl.configurator.TaskView.done`
   :resultTemplate: A Jinja2 template that is processed with results of ``run`` as its variables.
+
+.. _terraform:
 
 Terraform
 ==========
@@ -254,6 +259,8 @@ declare node templates with the needed properties and operation inputs.
    :local:
    :depth: 1
 
+.. _docker:
+
 Docker
 ======
 
@@ -277,6 +284,8 @@ Inputs
 
  :configuration:  A map that will included as parameters to Ansible's Docker container module
     They are enumerated `here <https://docs.ansible.com/ansible/latest/modules/docker_container_module.html#docker-container-module>`_
+
+.. _helm:
 
 Helm
 ====
@@ -321,6 +330,8 @@ Properties
   :name: The name of the repository (default: the instance name)
   :url: (*required*) The URL of the repository
 
+
+.. _kubernetes:
 
 Kubernetes
 ==========
@@ -415,6 +426,8 @@ Attributes
 
   :apiResource: (map) The YAML representation for the resource as retrieved from the Kubernetes cluster.
   :name: (string) The Kubernetes name of the resource.
+
+.. _supervisor:
 
 Supervisor
 ==========

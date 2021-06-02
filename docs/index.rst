@@ -19,6 +19,8 @@ Table of Contents
 
    README.md
 
+   solution-overview.rst
+
    get-started-step-by-step.rst
 
    ensembles.rst
