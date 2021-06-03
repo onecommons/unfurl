@@ -31,6 +31,7 @@ extensions = [
     "sphinxcontrib.documentedlist",
     "sphinx.ext.autosectionlabel",
     "sphinx.ext.extlinks",
+    "sphinx_rtd_theme",
 ]
 
 autodoc_typehints = "description"
@@ -82,10 +83,12 @@ html_theme_options = {
 # default theme:
 # html_theme = "alabaster"
 
-import sphinxbootstrap4theme
+import sphinx_rtd_theme
+html_theme = "sphinx_rtd_theme"
 
-html_theme = "sphinxbootstrap4theme"
-html_theme_path = [sphinxbootstrap4theme.get_path()]
+# import sphinxbootstrap4theme
+# html_theme = "sphinxbootstrap4theme"
+# html_theme_path = [sphinxbootstrap4theme.get_path()]
 
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,
