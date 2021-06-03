@@ -13,9 +13,9 @@ from unfurl.yamlmanifest import YamlManifest
 
 # http://localhost:8000/fixtures/helmrepo
 @unittest.skipIf("helm" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
-@unittest.skip("TODO: fix helm check operation")
 class HelmTest(unittest.TestCase):
     def setUp(self):
+        self.maxDiff = None
         path = os.path.join(
             os.path.dirname(__file__), "examples", "helm-simple-ensemble.yaml"
         )
@@ -72,30 +72,84 @@ class HelmTest(unittest.TestCase):
 
         runner = Runner(YamlManifest(self.manifest))
         run1 = runner.run(JobOptions(verbose=3, startTime=1))
-
+        assert not run1.unexpectedAbort, run1.unexpectedAbort.getStackTrace()
         mysql_release = runner.manifest.rootResource.findResource("mysql_release")
         query = ".::.requirements::[.name=host]::.target::name"
         res = mysql_release.query(query)
         assert res == "unfurl-helm-unittest"
 
-        runner = Runner(YamlManifest(self.manifest))
-        run1 = runner.run(JobOptions(dryrun=False, verbose=3, startTime=1))
-        assert not run1.unexpectedAbort, run1.unexpectedAbort.getStackTrace()
         summary = run1.jsonSummary()
-        print(runner.manifest.statusSummary())
-        print(run1.jsonSummary(True))
-        print(run1._jsonPlanSummary(True))
+        # print(runner.manifest.statusSummary())
+        # print(run1.jsonSummary(True))
+        # print(run1._jsonPlanSummary(True))
         self.assertEqual(
-            summary["job"],
+            summary,
             {
-                "id": "A01110000000",
-                "status": "ok",
-                "total": 8,
-                "ok": 8,
-                "error": 0,
-                "unknown": 0,
-                "skipped": 0,
-                "changed": 4,
+                "job": {
+                    "id": "A01110000000",
+                    "status": "ok",
+                    "total": 4,
+                    "ok": 4,
+                    "error": 0,
+                    "unknown": 0,
+                    "skipped": 0,
+                    "changed": 3,
+                },
+                "outputs": {},
+                "tasks": [
+                    {
+                        "status": "ok",
+                        "target": "stable_repo",
+                        "operation": "create",
+                        "template": "stable_repo",
+                        "type": "unfurl.nodes.HelmRepository",
+                        "targetStatus": "ok",
+                        "targetState": "created",
+                        "changed": True,
+                        "configurator": "unfurl.configurators.shell.ShellConfigurator",
+                        "priority": "required",
+                        "reason": "add",
+                    },
+                    {
+                        "status": "ok",
+                        "target": "k8sNamespace",
+                        "operation": "configure",
+                        "template": "k8sNamespace",
+                        "type": "unfurl.nodes.K8sNamespace",
+                        "targetStatus": "ok",
+                        "targetState": "configured",
+                        "changed": True,
+                        "configurator": "unfurl.configurators.k8s.ResourceConfigurator",
+                        "priority": "required",
+                        "reason": "add",
+                    },
+                    {
+                        "status": "ok",
+                        "target": "mysql_release",
+                        "operation": "configure",
+                        "template": "mysql_release",
+                        "type": "unfurl.nodes.HelmRelease",
+                        "targetStatus": "ok",
+                        "targetState": "configured",
+                        "changed": False,
+                        "configurator": "unfurl.configurators.DelegateConfigurator",
+                        "priority": "required",
+                        "reason": "add",
+                    },
+                    {
+                        "status": "ok",
+                        "target": "mysql_release",
+                        "operation": "execute",
+                        "template": "mysql_release",
+                        "type": "unfurl.nodes.HelmRelease",
+                        "targetStatus": "ok",
+                        "targetState": "configured",
+                        "changed": True,
+                        "configurator": "unfurl.configurators.shell.ShellConfigurator",
+                        "priority": "required",
+                        "reason": "for subtask: for add: Standard.configure",
+                    },
+                ],
             },
         )
         assert all(task["targetStatus"] == "ok" for task in summary["tasks"]), summary[
@@ -104,22 +158,99 @@ class HelmTest(unittest.TestCase):
         # runner.manifest.dump()
 
     def test_undeploy(self):
+        ###########################################
+        #### WARNING test_undeploy() will not succeed if called individually because test_deploy
+        #### installs the chart repo in a tox's tmp directly and will be deleted after the test run
+        #### so test_undeploy will not find it
+        ###########################################
         runner = Runner(YamlManifest(self.manifest))
-        # print('load');  runner.manifest.statusSummary()
         run = runner.run(JobOptions(workflow="check", startTime=2))
         summary = run.jsonSummary()
         assert not run.unexpectedAbort, run.unexpectedAbort.getStackTrace()
 
-        print("check")
-        print(runner.manifest.statusSummary())
-        print(run.jsonSummary(True))
+        # print("check")
+        # print(runner.manifest.statusSummary())
+        # print(run.jsonSummary(True))
+        summary = run.jsonSummary()
+        self.assertEqual(
+            summary,
+            {
+                "job": {
+                    "id": "A01120000000",
+                    "status": "ok",
+                    "total": 4,
+                    "ok": 4,
+                    "error": 0,
+                    "unknown": 0,
+                    "skipped": 0,
+                    "changed": 3,
+                },
+                "outputs": {},
+                "tasks": [
+                    {
+                        "status": "ok",
+                        "target": "stable_repo",
+                        "operation": "check",
+                        "template": "stable_repo",
+                        "type": "unfurl.nodes.HelmRepository",
+                        "targetStatus": "ok",
+                        "targetState": "started",
+                        "changed": True,
+                        "configurator": "unfurl.configurators.shell.ShellConfigurator",
+                        "priority": "required",
+                        "reason": "check",
+                    },
+                    {
+                        "status": "ok",
+                        "target": "k8sNamespace",
+                        "operation": "check",
+                        "template": "k8sNamespace",
+                        "type": "unfurl.nodes.K8sNamespace",
+                        "targetStatus": "ok",
+                        "targetState": "started",
+                        "changed": True,
+                        "configurator": "unfurl.configurators.k8s.ResourceConfigurator",
+                        "priority": "required",
+                        "reason": "check",
+                    },
+                    {
+                        "status": "ok",
+                        "target": "mysql_release",
+                        "operation": "check",
+                        "template": "mysql_release",
+                        "type": "unfurl.nodes.HelmRelease",
+                        "targetStatus": "ok",
+                        "targetState": "started",
+                        "changed": False,
+                        "configurator": "unfurl.configurators.DelegateConfigurator",
+                        "priority": "required",
+                        "reason": "check",
+                    },
+                    {
+                        "status": "ok",
+                        "target": "mysql_release",
+                        "operation": "execute",
+                        "template": "mysql_release",
+                        "type": "unfurl.nodes.HelmRelease",
+                        "targetStatus": "ok",
+                        "targetState": "started",
+                        "changed": True,
+                        "configurator": "unfurl.configurators.shell.ShellConfigurator",
+                        "priority": "required",
+                        "reason": "for subtask: for check: Install.check",
+                    },
+                ],
+            },
+        )
+        # reuse the same runner because the manifest's status has been updated
         run2 = runner.run(
             JobOptions(workflow="undeploy", startTime=3, destroyunmanaged=True)
         )
-
         assert not run2.unexpectedAbort, run2.unexpectedAbort.getStackTrace()
-        summary = run2.jsonSummary()
-        # print('undeploy'); runner.manifest.statusSummary()
+        # print("undeploy")
+        # print(runner.manifest.statusSummary())
+        # print(run2.jsonSummary(True))
+        summary2 = run2.jsonSummary()
 
         # note! if tests fail may need to run:
         #      helm uninstall mysql-test -n unfurl-helm-unittest
@@ -128,18 +259,62 @@ class HelmTest(unittest.TestCase):
         # note: this test relies on stable_repo being place in the helm cache by test_deploy()
         # comment out the repository requirement to run this test standalone
         assert all(
-            task["targetStatus"] == "absent" for task in summary["tasks"]
-        ), summary["tasks"]
+            task["targetStatus"] == "absent" for task in summary2["tasks"]
+        ), summary2["tasks"]
         self.assertEqual(
-            summary["job"],
+            summary2,
             {
-                "id": "A01130000000",
-                "status": "ok",
-                "total": 3,
-                "ok": 3,
-                "error": 0,
-                "unknown": 0,
-                "skipped": 0,
-                "changed": 3,
+                "job": {
+                    "id": "A01130000000",
+                    "status": "ok",
+                    "total": 3,
+                    "ok": 3,
+                    "error": 0,
+                    "unknown": 0,
+                    "skipped": 0,
+                    "changed": 3,
+                },
+                "outputs": {},
+                "tasks": [
+                    {
+                        "status": "ok",
+                        "target": "mysql_release",
+                        "operation": "delete",
+                        "template": "mysql_release",
+                        "type": "unfurl.nodes.HelmRelease",
+                        "targetStatus": "absent",
+                        "targetState": "deleted",
+                        "changed": True,
+                        "configurator": "unfurl.configurators.shell.ShellConfigurator",
+                        "priority": "required",
+                        "reason": "undeploy",
+                    },
+                    {
+                        "status": "ok",
+                        "target": "stable_repo",
+                        "operation": "delete",
+                        "template": "stable_repo",
+                        "type": "unfurl.nodes.HelmRepository",
+                        "targetStatus": "absent",
+                        "targetState": "deleted",
+                        "changed": True,
+                        "configurator": "unfurl.configurators.shell.ShellConfigurator",
+                        "priority": "required",
+                        "reason": "undeploy",
+                    },
+                    {
+                        "status": "ok",
+                        "target": "k8sNamespace",
+                        "operation": "delete",
+                        "template": "k8sNamespace",
+                        "type": "unfurl.nodes.K8sNamespace",
+                        "targetStatus": "absent",
+                        "targetState": "deleted",
+                        "changed": True,
+                        "configurator": "unfurl.configurators.k8s.ResourceConfigurator",
+                        "priority": "required",
+                        "reason": "undeploy",
+                    },
+                ],
             },
         )

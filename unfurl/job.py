@@ -547,6 +547,17 @@ class Job(ConfigChange):
         childJob.run()
         return childJob
 
+    def _dependencyCheck(self, instance):
+        dependencies = list(instance.getOperationalDependencies())
+        missing = [dep for dep in dependencies if not dep.operational and dep.required]
+        if missing:
+            reason = "required dependencies not operational: %s" % ", ".join(
+                ["%s is %s" % (dep.name, dep.status.name) for dep in missing]
+            )
+        else:
+            reason = ""
+        return missing, reason
+
     def shouldRunTask(self, task):
         """
         Checked at runtime right before each task is run
@@ -603,19 +614,9 @@ class Job(ConfigChange):
                 reason = "dry run not supported"
             else:
                 missing = []
-                skipDependencyCheck = False
-                if not skipDependencyCheck:
-                    dependencies = list(task.target.getOperationalDependencies())
-                    missing = [
-                        dep
-                        for dep in dependencies
-                        if not dep.operational and dep.required
-                    ]
-                if missing:
-                    reason = "required dependencies not operational: %s" % ", ".join(
-                        ["%s is %s" % (dep.name, dep.status.name) for dep in missing]
-                    )
-                else:
+                if task.configSpec.operation != "check":
+                    missing, reason = self._dependencyCheck(task.target)
+                if not missing:
                     errors = task.configSpec.findInvalidateInputs(task.inputs)
                     if errors:
                         reason = "invalid inputs: %s" % str(errors)
@@ -671,18 +672,22 @@ class Job(ConfigChange):
             req.configSpec.operation,
             workflow,
         )
-        if req.configSpec.operation == "check" and not workflow:
-            if (
-                self.isChangeId(resource.parent.created)
-                and self.getJobId(resource.parent.created) == self.changeId
-            ):
-                # optimization:
-                # if parent was created during this job we don't need to run check operation
-                # we know we couldn't have existed
-                resource._localStatus = Status.pending
-                return False, "skipping check on a new instance"
-            else:
-                return True, "passed"
+        if req.configSpec.operation == "check":
+            missing, reason = self._dependencyCheck(resource)
+            if missing:
+                return False, reason
+            if not workflow:
+                if (
+                    self.isChangeId(resource.parent.created)
+                    and self.getJobId(resource.parent.created) == self.changeId
+                ):
+                    # optimization:
+                    # if parent was created during this job we don't need to run check operation
+                    # we know we couldn't have existed
+                    resource._localStatus = Status.pending
+                    return False, "skipping check on a new instance"
+                else:
+                    return True, "passed"
 
         if self.jobOptions.force:  # always run
             return True, "passed"

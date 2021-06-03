@@ -21,7 +21,7 @@ node_types:
         delete: "helm repo remove {{ SELF.name }}"
       Install:
         check:
-          implementation: helm repo list -o json
+          implementation: helm repo list -o json {% if task.verbose > 0 %}--debug{%endif%}
           inputs:
             done:
               success: True # helm repo list returns error if there are no repos so set success true regardless
@@ -35,7 +35,7 @@ node_types:
                   {% endfor%}
                 {%endif%}
         discover:
-          implementation: helm repo list -o json
+          implementation: helm repo list -o json {% if task.verbose > 0 %}--debug{%endif%}
           inputs:
             done:
               success: True # helm repo list returns error if there are no repos so set success true regardless
