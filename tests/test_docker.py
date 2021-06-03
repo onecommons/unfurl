@@ -93,7 +93,7 @@ class DockerTest(unittest.TestCase):
         # pickled = pickle.dumps(runner.manifest, -1)
         # manifest2 = pickle.loads(pickled)
 
-        run1 = runner.run(JobOptions(template="container1"))
+        run1 = runner.run(JobOptions(check=True, template="container1"))
         # configure (start op shouldn't run since docker_container sets state to started)
         assert len(run1.workDone) == 2, run1.workDone
         tasks = list(run1.workDone.values())

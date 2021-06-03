@@ -84,4 +84,48 @@ class k8sTest(unittest.TestCase):
         results = job2.jsonSummary()
         assert not job2.unexpectedAbort
         assert job2.status == Status.ok, job2.summary()
-        assert len(results["tasks"]) == 1, results
+        self.assertEqual(
+            results,
+            {
+                "job": {
+                    "id": "A01120000000",
+                    "status": "ok",
+                    "total": 2,
+                    "ok": 2,
+                    "error": 0,
+                    "unknown": 0,
+                    "skipped": 0,
+                    "changed": 2,
+                },
+                "outputs": {},
+                "tasks": [
+                    {
+                        "status": "ok",
+                        "target": "testSecret",
+                        "operation": "delete",
+                        "template": "testSecret",
+                        "type": "unfurl.nodes.K8sSecretResource",
+                        "targetStatus": "absent",
+                        "targetState": "deleted",
+                        "changed": True,
+                        "configurator": "unfurl.configurators.k8s.ResourceConfigurator",
+                        "priority": "required",
+                        "reason": "undeploy",
+                    },
+                    {
+                        "status": "ok",
+                        "target": "k8sNamespace",
+                        "operation": "delete",
+                        "template": "k8sNamespace",
+                        "type": "unfurl.nodes.K8sNamespace",
+                        "targetStatus": "absent",
+                        "targetState": "deleted",
+                        "changed": True,
+                        "configurator": "unfurl.configurators.k8s.ResourceConfigurator",
+                        "priority": "required",
+                        "reason": "undeploy",
+                    },
+                ],
+            },
+        )
+        assert len(results["tasks"]) == 2, results
