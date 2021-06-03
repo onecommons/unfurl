@@ -34,7 +34,7 @@ class TerraformTest(unittest.TestCase):
                 f.write(manifestContent)
             manifest = LocalEnv().getManifest()
             runner = Runner(manifest)
-            job = runner.run(JobOptions(startTime=1))  # deploy
+            job = runner.run(JobOptions(startTime=1, check=True))  # deploy
             assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
             example = job.rootResource.findResource("example")
             self.assertEqual(example.attributes["tag"], "Hello, test!")
@@ -221,7 +221,7 @@ class TerraformMotoTest(unittest.TestCase):
             assert manifest.manifest.vault and manifest.manifest.vault.secrets
             assert not manifest.lastJob
 
-            job = Runner(manifest).run(JobOptions(startTime=1, verbose=-1))
+            job = Runner(manifest).run(JobOptions(startTime=1, check=True, verbose=-1))
             # print(job.out.getvalue())
             # print(job.jsonSummary(True))
             assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()

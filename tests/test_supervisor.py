@@ -27,7 +27,7 @@ class SupervisorTest(unittest.TestCase):
         with cliRunner.isolated_filesystem():
             runner = Runner(YamlManifest(self.manifest))
             try:
-                job = runner.run(JobOptions(startTime=1))  # deploy
+                job = runner.run(JobOptions(startTime=1, check=True))  # deploy
                 assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
                 summary = job.jsonSummary()
                 # print(json.dumps(summary, indent=2))

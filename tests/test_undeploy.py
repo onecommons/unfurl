@@ -94,7 +94,7 @@ class UndeployTest(unittest.TestCase):
     def test_check(self):
         manifest = YamlManifest(manifestContent)
         runner = Runner(manifest)
-        job = runner.run(JobOptions(startTime=1))  # deploy
+        job = runner.run(JobOptions(startTime=1, check=True))  # deploy
         assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
         summary = job.jsonSummary()
         # print(json.dumps(summary, indent=2))
@@ -194,7 +194,7 @@ class UndeployTest(unittest.TestCase):
         job = Runner(manifest5).run(JobOptions(workflow="check", startTime=4))
         assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
         summary2 = job.jsonSummary()
-        print(summary2)
+        # print(summary2)
         self.assertEqual(
             {
                 "id": "A01140000000",

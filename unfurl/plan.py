@@ -140,8 +140,12 @@ class Plan(object):
             "could not find instance of template: %s" % parentTemplate.name
         )
 
-    def createResource(self, template, status=Status.unknown):
+    def createResource(self, template):
         parent = self.findParentResource(template)
+        if self.jobOptions.check:
+            status = Status.unknown
+        else:
+            status = Status.pending
         return NodeInstance(template.name, None, parent, template, status)
 
     def findImplementation(self, interface, operation, template):

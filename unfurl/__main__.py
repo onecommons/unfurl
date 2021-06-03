@@ -362,6 +362,12 @@ deployFilterOptions = option_group(
         is_flag=True,
         help="destroy instances that are no longer used",
     ),
+    click.option(
+        "--check",
+        default=False,
+        is_flag=True,
+        help="check if new instances exist before deploying",
+    ),
 )
 
 

@@ -298,7 +298,9 @@ class ToscaSyntaxTest(unittest.TestCase):
         runner = Runner(manifest)
         output = six.StringIO()
         job = runner.run(
-            JobOptions(add=True, planOnly=False, out=output, startTime="test")
+            JobOptions(
+                add=True, check=True, planOnly=False, out=output, startTime="test"
+            )
         )
         # print(json.dumps(job.jsonSummary(), indent=2))
         assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
