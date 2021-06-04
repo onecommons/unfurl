@@ -1,14 +1,11 @@
-import unittest
-import os
-import unfurl.manifest
-from unfurl.yamlmanifest import YamlManifest
-from unfurl.eval import Ref, mapValue, RefContext
-
-manifestDoc = """
 apiVersion: unfurl/v1alpha1
-kind: Manifest
+kind: Ensemble
 spec:
   service_template:
+    # XXX parsing decorators fails here
+    # imports:
+    # - file: spec/decorators-import-template.yaml
+    +include: spec/decorators-import-template.yaml
     decorators:
       missing:
         properties:
@@ -70,27 +67,3 @@ spec:
             foo: bar
           requirements:
             - dependency: my_server
-"""
-
-# expressions evaluate on tosca nodespecs (ignore validation errors)
-# a compute instant that supports cloudinit and hosts a DockerComposeApp
-# root __reflookup__ matches node templates by compatible type or template name
-# nodes match relationships by requirement names
-# relationships match source by compatible type or template name
-class OverlayTest(unittest.TestCase):
-    def test_inputAndOutputs(self):
-        manifest = YamlManifest(manifestDoc)
-
-        ctx = RefContext(manifest.tosca.topology)
-        result1 = Ref("my_server::dependency::tosca.nodes.Compute").resolve(ctx)
-        self.assertEqual("my_server", result1[0].name)
-
-        self.assertEqual(
-            {"foo": "bar", "test": "annotated"},
-            manifest.tosca.nodeTemplates["my_server"].properties,
-        )
-        for name in ["anode", "anothernode"]:
-            node = manifest.tosca.nodeTemplates[name]
-            self.assertEqual(
-                {"ports": [], "private_address": "annotated"}, node.properties
-            )

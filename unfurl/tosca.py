@@ -100,9 +100,11 @@ class ToscaSpec(object):
         matches = list(_findMatches())
 
         def _patch(m):
-            node = m[0]
+            node, patchsrc = m
             tpl = node.toscaEntityTemplate.entity_tpl
-            patch = mapValue(m[1], RefContext(node, dict(template=tpl)))
+            ctx = RefContext(node, dict(template=tpl))
+            ctx.baseDir = getattr(patchsrc, "baseDir", ctx.baseDir)
+            patch = mapValue(patchsrc, ctx)
             return patchDict(tpl, patch, True)
 
         return [_patch(m) for m in matches]
@@ -231,14 +233,15 @@ class ToscaSpec(object):
         return nodeSpec
 
     def loadDecorators(self):
-        decorators = {}
-        for import_tpl in self.template.nested_tosca_tpls.values():
-            decorators.update(import_tpl.get("decorators") or {})
+        decorators = CommentedMap()
+        for path, import_tpl in self.template.nested_tosca_tpls.items():
+            imported = import_tpl.get("decorators")
+            if imported:
+                decorators.update(imported)
         decorators.update(self.template.tpl.get("decorators") or {})
         return decorators
 
     def loadImportedDefaultTemplates(self):
-        decorators = {}
         for topology in self.template.nested_topologies.values():
             for nodeTemplate in topology.nodetemplates:
                 if (
@@ -247,7 +250,6 @@ class ToscaSpec(object):
                 ):
                     nodeSpec = NodeSpec(nodeTemplate, self)
                     self.nodeTemplates[nodeSpec.name] = nodeSpec
-        return decorators
 
     def loadWorkflows(self):
         # we want to let different types defining standard workflows like deploy
