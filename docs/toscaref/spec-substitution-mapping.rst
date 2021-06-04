@@ -3,8 +3,6 @@ Substitution Mapping
 
 A substitution mapping allows a given topology template to be used as an implementation of abstract node templates of a specific node type. This allows the consumption of complex systems using a simplified vision.
 
-.. note:: The substitution mapping must provide mapping for every property, capability and requirement defined in the specified ``node_type``
-
 Declaration
 ++++++++++++
 

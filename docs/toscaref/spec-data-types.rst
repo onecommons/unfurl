@@ -1,7 +1,7 @@
 Data Types
 ==========
 
-``data_types`` are useful for grouping together and re-using a common set of properties, along with their types and default values.
+The ``data_types`` section allows you to define custom datatypes that you can use as the value for properties, attributes, and parameters (inputs and outputs).
 
 
 Declaration
@@ -173,7 +173,7 @@ that also includes a user name.
 
 .. code:: yaml
 
- tosca_definitions_version: tosca_dsl_1_2
+ tosca_definitions_version: tosca_simple_unfurl_1_0_0
 
  data_types:
 

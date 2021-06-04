@@ -1,7 +1,13 @@
-Versioning
-==========
+=========================
+Metadata Elements
+=========================
 
-``tosca_definitions_version`` is a top level property of the service template which is used to specify the DSL version used. 
+Version
+=========================
+
+``tosca_definitions_version`` is a top level element of the service template which is used to specify the version of TOSCA to be used. 
+
+Use ``tosca_simple_unfurl_1_0_0`` to enable Unfurl extensions or the standard ``tosca_simple_yaml_1_3``.
 
 Example
 +++++++
@@ -14,6 +20,22 @@ Example
      ...
 
 The version declaration must be included in the main service template file.
+
+Description
+===========
+
+This optional element provides a means to include single or multiline description of the template.
+
+Example
++++++++
+
+.. code:: yaml
+
+    description: >
+
+    This is an example of a multi-line description using YAML. It permits line       
+
+      breaks for easier readability...
 
 
 Metadata

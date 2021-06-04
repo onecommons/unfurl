@@ -33,8 +33,12 @@ Definition
 Keyname      Required Type       Description
 ============ ======== ========== ===================================
 derived_from no       string     A string referencing a parent type.
-interfaces   no       dictionary A dictionary of node interfaces.
+metadata     no       dictionary A dictionary of node metadata.
 properties   no       dictionary A dictionary of node properties.
+attributes   no       dictionary A dictionary of node attributes.
+capabilities no       dictionary A dictionary of node capabilities.
+requirements no       dictionary A dictionary of node requirements.
+interfaces   no       dictionary A dictionary of node interfaces.
 ============ ======== ========== ===================================
 
 derived_from
