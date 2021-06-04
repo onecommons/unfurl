@@ -77,7 +77,7 @@ You can use `tox` to run the unit tests inside the supported python environments
 Install tox `pip install tox` and then run `tox` in source root. To install the dependencies you may need header files installed by the following OS packages: `python-dev`, `libcrypt-dev`, `openssl-dev`. (Note: if installation of a dependency fails, reinvoke `tox` with `-r` to recreate the test environment.)
 If you use ``asdf`` to manage multiple versions of Python, also install `tox-asdf`: `pip install tox-asdf`.
 
-Arguments after `--` are passed to the test runner, e.g. to run an individual test: `tox -- -p test_runtime.py`.
+Arguments after `--` are passed to the test runner, e.g. to run an individual test: `tox -- tests/test_runtime.py`.
 
 ## Getting Started
 

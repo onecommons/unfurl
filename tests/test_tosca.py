@@ -23,11 +23,11 @@ class SetAttributeConfigurator(Configurator):
         if "ports" in task.inputs:
             ports = task.inputs["ports"]
             # target:source
-            assert str(PortSpec(ports[0])) == "50000:9000", PortSpec(ports[0])
-            assert str(PortSpec(ports[1])) == "20000-60000:1000-10000/udp", PortSpec(
+            assert PortSpec(ports[0]).spec == "50000:9000", PortSpec(ports[0]).spec
+            assert PortSpec(ports[1]).spec == "20000-60000:1000-10000/udp", PortSpec(
                 ports[1]
-            )
-            assert str(PortSpec(ports[2])) == "8000", PortSpec(ports[2])
+            ).spec
+            assert PortSpec(ports[2]).spec == "8000", PortSpec(ports[2]).spec
 
         task.target.attributes["private_address"] = "10.0.0.1"
         yield task.done(True, Status.ok)
