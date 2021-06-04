@@ -254,9 +254,9 @@ Extensions
 Not yet implemented and non-conformance with the TOSCA 1.3 specification
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-* The ``get_operation_output`` function (use `resultTemplate` instead)
-* "copy" keyword (use the ``dsl`` section or `merge directives` instead)
-* `get_artifact` function (only implemented for artifacts that are container images)
+* The ``get_operation_output`` function (use ``resultTemplate`` instead)
+* "copy" keyword (use the ``dsl`` section or ``merge directives`` instead)
+* ``get_artifact`` function (only implemented for artifacts that are container images)
 * CSAR manifests and archives (implemented but untested)
 * substitution mapping
 * triggers

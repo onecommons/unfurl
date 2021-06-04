@@ -8,7 +8,7 @@ Unfurl allows you to store secrets separately from the rest for your configurati
 * Store them in a secrets manager such as HashiCorp Vault or Amazon Secrets Manager or your OS's keyring. You can use any secrets manager that has an `Ansible Lookup Plugin <https://docs.ansible.com/ansible/latest/plugins/lookup.html>`_ available for it.
 * If your ensemble repository is private and the secrets not highly sensitive you can just commit it into the repository in plain text.
 
-You can apply any of these techniques to different secrets and projects can inherit the secrets configuration from `unfurl_home`.
+You can apply any of these techniques to different secrets and projects can inherit the secrets configuration from ``unfurl_home``.
 
 .. code-block:: YAML
 
