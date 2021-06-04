@@ -15,7 +15,7 @@ Contexts can contain:
 Runtime
 -------
 
-An isolated execution environment to run the ensemble's job in. This can be directory to a Python virtual environment or a Docker container. If this is missing, it will look a Python virtual environment directory (``.venv``) in the project's directory. By default, Unfurl will create a Python virtual environment in ``~/unfurl_home`` when the home project is created.
+An isolated execution environment to run the ensemble's job in. This can be directory to a Python virtual environment or a Docker container. If this is missing, it will look a Python virtual environment directory (``.venv``) in the project's directory. By default, Unfurl will create a Python virtual environment in `~/unfurl_home` when the home project is created.
 
 
 The format for the ``venv:`` runtime specifier is one of:
@@ -35,9 +35,9 @@ You can also specify the version of unfurl to use when the runtime is invoked.
 
 The format for the unfurl version specifier is: ``[URL or path to an Unfurl git repository] ['@' [tag]]``
 
-If ``@tag`` is omitted the tag for the current release will be used.
-If ``@`` included without a tag the latest revision will be used
-If no path or url is specified ``git+https://github.com/onecommons/unfurl.git`` will be used.
+If `@tag` is omitted the tag for the current release will be used.
+If `@` included without a tag the latest revision will be used
+If no path or url is specified `git+https://github.com/onecommons/unfurl.git` will be used.
 
 Some examples:
 
@@ -76,7 +76,7 @@ Locals are properties specific to the local environment (e.g. proxy settings) an
 Secrets
 -------
 
-Secrets are like locals except they are marked `sensitive` and redacted or encrypted when necessary. They are accessed through the ``secret`` expression function. See `secrets` for more info.
+Secrets are like locals except they are marked `sensitive` and redacted or encrypted when necessary. They are accessed through the `secret` expression function. See `secrets` for more info.
 
 Connections
 -----------
@@ -111,7 +111,7 @@ The `external` section of the manifest lets you declare instances that are impor
 
 There are 3 instances that are always implicitly imported even if they are not declared:
 
-- The ``localhost`` instance that represents the machine Unfurl is currently executing on. This instance is accessed through the ``ORCHESTRATOR`` keyword in TOSCA and is defined in the home manifest that resides in your Unfurl home folder.
+- The `localhost` instance that represents the machine Unfurl is currently executing on. This instance is accessed through the `ORCHESTRATOR` keyword in TOSCA and is defined in the home manifest that resides in your Unfurl home folder.
 
 :manifest: A map specifying the location of the manifest. It must contain a ``file`` key with the path to the ensemble and optionally either a ``repository`` key indicating the name of the repository where the file is located or a ``project`` key to indicate the project the ensemble is in.
 :instance: (default: "*") The name of the instance within the ensemble to make available.

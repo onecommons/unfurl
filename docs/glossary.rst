@@ -9,7 +9,7 @@ Service Template
   Services templates specify how resources should be configured using the `TOSCA` standard. Templates can live in their own git repositories.
 
 Node Template
-  A Node Template specifies the occurrence of a component node as part of a ``Topology`` Template. Each Node Template refers to a Node Type that defines the semantics of the node (e.g., properties, attributes, requirements, capabilities, interfaces). Node Types are defined separately for reuse purposes.
+  A Node Template specifies the occurrence of a component node as part of a `Topology` Template. Each Node Template refers to a Node Type that defines the semantics of the node (e.g., properties, attributes, requirements, capabilities, interfaces). Node Types are defined separately for reuse purposes.
 
 Entity Types
   Every entity in TOSCA (Nodes, Relationships, Artifacts and Data) has a declared type and custom type hierarchies can be defined in the *Service Template*.

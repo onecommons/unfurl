@@ -11,7 +11,7 @@ VERSION = unfurl.__version__()
 # -- Project information -----------------------------------------------------
 
 project = "Unfurl"
-copyright = "2021, Adam Souzis"
+copyright = "2020, Adam Souzis"
 author = "Adam Souzis"
 release = VERSION
 

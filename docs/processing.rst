@@ -60,7 +60,7 @@ Ansible Jinja2 Templates
 Filters
 -------
 
-  :eval: Evaluates the given ``expression`` or function
+  :eval: Evaluates the given `expression` or function
   :mapValue: Resolves any expressions or template strings in the give map or list.
   :abspath: see `abspath`,
   :get_dir: see `get_dir`
@@ -69,5 +69,5 @@ Filters
 Lookup plugins
 --------------
 
-  :unfurl: Evaluates the given ``expression``
+  :unfurl: Evaluates the given `expression`
            For example: ``{{ lookup("unfurl", "::instance1::anAttribute") }}``
