@@ -22,4 +22,3 @@ Furthermore, a topology template allows for defining input parameters, output pa
 
 
 .. seealso:: For more information, refer to :tosca_spec2:`Topology Template Section <_Toc50125458>`
-

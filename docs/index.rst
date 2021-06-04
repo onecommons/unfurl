@@ -47,6 +47,8 @@ Table of Contents
 
    toscaref.rst
  
+   toscadef.rst
+
    glossary.rst
 
    api.rst
