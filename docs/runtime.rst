@@ -46,13 +46,13 @@ doesn't need to be explicitly referenced in the ``requirements`` section of a no
 must be, but instead is applied to any target node that matches the relationship type's specification.
 
 Because credentials likely are specific to the user or machine running Unfurl
-you can define them with the ``localhost`` ensemble in `.unfurl_home` and by default they will be imported into the current ensemble. This can be explicitly specified when importing an external ensemble using the `connections` key as described in the `external ensembles` section.
+you can define them with the ``localhost`` ensemble in ``.unfurl_home`` and by default they will be imported into the current ensemble. This can be explicitly specified when importing an external ensemble using the ``connections`` key as described in the ``external ensembles`` section.
 
-As described in `Getting Started`, the ``localhost`` ensemble provides several connection relationship templates for connecting to the the most common cloud providers.
+As described in ``Getting Started``, the ``localhost`` ensemble provides several connection relationship templates for connecting to the the most common cloud providers.
 
-When Unfurl executes an operation it looks for relationship templates between the `OPERATION_HOST` and the node that the operation is targeting, including any connection relationship templates that apply. If those templates contain any environment variables they will be set otherwise they can be accessed through to variables:
+When Unfurl executes an operation it looks for relationship templates between the ``OPERATION_HOST`` and the node that the operation is targeting, including any connection relationship templates that apply. If those templates contain any environment variables they will be set otherwise they can be accessed through to variables:
 
-:$allConnections: all connections available to the `OPERATION_HOST` as a dictionary where the key is the (mapped) name of the relationship template.
+:$allConnections: all connections available to the ``OPERATION_HOST`` as a dictionary where the key is the (mapped) name of the relationship template.
 :$connections:  the current connections between the OPERATION_HOST and the target or the target's HOSTs as a list
 
 For example, both these expressions evaluate to the same value:
@@ -68,11 +68,11 @@ Environment Variables
 =====================
 
 You can control the environment variables are available while Unfurl is running
-by the setting the `environment` directive.
-When set in a `context` object it is applied globally or it can be appear in
-the operation's `implementation` declaration where it will only be applied to that operation.
+by the setting the ``environment`` directive.
+When set in a ``context`` object it is applied globally or it can be appear in
+the operation's ``implementation`` declaration where it will only be applied to that operation.
 
-In either case, `environment` makes a copy of the current environment and applied each of its keys
+In either case, ``environment`` makes a copy of the current environment and applied each of its keys
 in the order they are declared, adding the given key and value as
 environment variables except keys starting with "+" and "-"
 will copy or remove the variable from the current into environment
@@ -104,4 +104,4 @@ The following environment variables will always be copied from the parent enviro
    :header: "Name"
 
 If the ``ASDF_DATA_DIR`` environment variable is set or the ``https://github.com/asdf-vm/asdf.git`` repository is part of a current project
-and a `.tool-versions` file exists (or ``$ASDF_DEFAULT_TOOL_VERSIONS_FILENAME``) in the root of a current project, then ``PATH`` environment variable will be configured to include the paths to the tools listed in that file.
+and a ``.tool-versions`` file exists (or ``$ASDF_DEFAULT_TOOL_VERSIONS_FILENAME``) in the root of a current project, then ``PATH`` environment variable will be configured to include the paths to the tools listed in that file.

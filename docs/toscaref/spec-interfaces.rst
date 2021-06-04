@@ -236,7 +236,7 @@ Configuring the master server:
 In this example, we’ve:
 
 * Declared a ``deployer`` plugin which, `by default <#overriding-the-executor>`__, should execute its operations on the TOSCA manager.
-* Declared a :ref:`node type<node_type>` with a ``my_deployment_interface`` interface that has a single ``configure`` operation which is mapped to the ``deployer.config_in_master.configure`` task.
+* Declared a :ref:`node type<node_types>` with a ``my_deployment_interface`` interface that has a single ``configure`` operation which is mapped to the ``deployer.config_in_master.configure`` task.
 * Declared a ``nodejs`` node template of type ``nodejs_app``.
 
 Overriding the executor
