@@ -113,11 +113,8 @@ class UnfurlTaskError(UnfurlError):
 
 
 class UnfurlAddingResourceError(UnfurlTaskError):
-    def __init__(self, task, resourceSpec, log=logging.WARNING):
-        resourcename = isinstance(resourceSpec, Mapping) and resourceSpec.get(
-            "name", ""
-        )
-        message = "error creating resource %s" % resourcename
+    def __init__(self, task, resourceSpec, name, log=logging.DEBUG):
+        message = "error updating resource %s" % name
         super(UnfurlAddingResourceError, self).__init__(task, message, log)
         self.resourceSpec = resourceSpec
 

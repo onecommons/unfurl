@@ -681,6 +681,7 @@ class TaskView(object):
         resolveExternal=True,
         strict=True,
         vars=None,
+        throw=False
     ):
         # XXX pass resolveExternal to context?
         try:
@@ -688,10 +689,12 @@ class TaskView(object):
                 self.inputs.context, wantList, strict
             )
         except:
-            UnfurlTaskError(
-                self, "error while evaluating query: %s" % query, logging.WARNING
-            )
-            return None
+            if not throw:
+              UnfurlTaskError(
+                  self, "error while evaluating query: %s" % query, logging.WARNING
+              )
+              return None
+            raise
 
         if dependency:
             self.addDependency(
@@ -804,18 +807,18 @@ class TaskView(object):
             try:
                 resources = yaml.load(resources)
             except:
-                UnfurlTaskError(self, "unable to parse as YAML: %s" % resources)
-                return None
+                err = UnfurlTaskError(self, "unable to parse as YAML: %s" % resources)
+                return None, [err]
 
         if isinstance(resources, collections.Mapping):
             resources = [resources]
         elif not isinstance(resources, collections.MutableSequence):
-            UnfurlTaskError(
+            err = UnfurlTaskError(
                 self,
                 "updateResources requires a list of updates, not a %s"
                 % type(resources),
             )
-            return None
+            return None, [err]
 
         errors = []
         newResources = []
@@ -825,12 +828,13 @@ class TaskView(object):
             if not isinstance(resourceSpec, collections.Mapping):
                 continue
             originalResourceSpec = resourceSpec
+            rname = resourceSpec.get("name", "SELF")
+            if rname == ".self" or rname == "SELF":
+                existingResource = self.target
+                rname = existingResource.name
+            else:
+                existingResource = self.findInstance(rname)
             try:
-                rname = resourceSpec.get("name", "SELF")
-                if rname == ".self" or rname == "SELF":
-                    existingResource = self.target
-                else:
-                    existingResource = self.findInstance(rname)
 
                 if existingResource:
                     updated = False
@@ -852,7 +856,7 @@ class TaskView(object):
                             attributes, existingResource
                         ).items():
                             existingResource.attributes[key] = value
-                            logger.debug(
+                            self.logger.debug(
                                 "setting attribute %s with %s on %s",
                                 key,
                                 value,
@@ -861,7 +865,7 @@ class TaskView(object):
                         updated = True
 
                     if updated:
-                        logger.info("updating resources %s", existingResource.name)
+                        self.logger.info("updating resources %s", existingResource.name)
                     continue
 
                 pname = resourceSpec.get("parent")
@@ -908,7 +912,7 @@ class TaskView(object):
                 # if resource.required or resourceSpec.get("dependent"):
                 #    self.addDependency(resource, required=resource.required)
             except:
-                errors.append(UnfurlAddingResourceError(self, originalResourceSpec))
+                errors.append(UnfurlAddingResourceError(self, originalResourceSpec, rname))
             else:
                 newResourceSpecs.append(originalResourceSpec)
                 newResources.append(resource)
@@ -916,13 +920,13 @@ class TaskView(object):
         if newResourceSpecs:
             self._resourceChanges.addResources(newResourceSpecs)
             self._addedResources.extend(newResources)
-            logger.info("add resources %s", newResources)
+            self.logger.info("add resources %s", newResources)
 
             jobRequest = JobRequest(newResources, errors)
             if self.job:
                 self.job.jobRequestQueue.append(jobRequest)
-            return jobRequest
-        return None
+            return jobRequest, errors
+        return None, errors
 
 
 class Dependency(Operational):

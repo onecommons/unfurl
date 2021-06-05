@@ -175,10 +175,10 @@ class ShellConfigurator(TemplateConfigurator):
             err.error = err
             return err
 
-    def _handleResult(self, task, result, successCodes=(0,)):
+    def _handleResult(self, task, result, cwd, successCodes=(0,)):
         error = result.error or result.returncode not in successCodes or result.timeout
         if error:
-            task.logger.warning("shell task run failure: %s", result.cmd)
+            task.logger.warning('shell task run failure: "%s" in %s', result.cmd, cwd)
             if result.error:
                 task.logger.info("shell task error", exc_info=result.error)
             else:
@@ -195,8 +195,8 @@ class ShellConfigurator(TemplateConfigurator):
         result.stderr = unstyle(result.stderr or "")
         return not error
 
-    def _processResult(self, task, result):
-        success = self._handleResult(task, result)
+    def _processResult(self, task, result, cwd):
+        success = self._handleResult(task, result, cwd)
         resultDict = result.__dict__.copy()
         resultDict["success"] = success
         self.processResultTemplate(task, resultDict)
@@ -244,7 +244,7 @@ class ShellConfigurator(TemplateConfigurator):
             keeplines=keeplines,
             echo=echo,
         )
-        success = self._processResult(task, result)
+        success = self._processResult(task, result, cwd)
         done = task.inputs.get("done", {})
         success = done.pop("success", success)
         yield task.done(success, result=result.__dict__, **done)

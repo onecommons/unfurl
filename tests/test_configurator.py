@@ -20,7 +20,7 @@ class TestConfigurator(Configurator):
 
             updateSpec = dict(name=".self", status=dict(attributes={"newAttribute": 1}))
             task.logger.info("updateResources: %s", [resourceSpec, updateSpec])
-            jobrequest = task.updateResources([resourceSpec, updateSpec])
+            jobrequest, errors = task.updateResources([resourceSpec, updateSpec])
             if shouldYield:
                 job = yield jobrequest
                 assert job, jobrequest
@@ -214,25 +214,52 @@ class ConfiguratorTest(unittest.TestCase):
         )
         assert job.rootResource.findResource("testNode").attributes["outputVar"]
 
+
+def test_result_template_errors(caplog):
+    manifest = """\
+apiVersion: unfurl/v1alpha1
+kind: Ensemble
+spec:
+  service_template:
+    topology_template:
+      node_templates:
+        testNode:
+          type: tosca.nodes.Root
+          interfaces:
+           Standard:
+            operations:
+              configure:
+                implementation:
+                  className: unfurl.configurators.TemplateConfigurator
+                inputs:
+                  resultTemplate: |
+                    - name: .self
+                      attributes:
+                        outputVar: "{{ SELF.missing }}"
+"""
+    runner = Runner(YamlManifest(manifest))
+    job = runner.run()
+    assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
+    for record in caplog.records:
+        if record.levelname == "WARNING":
+            assert (
+                record.getMessage()
+                == 'error processing resultTemplate for testNode: <<Error rendering template: missing attribute or key: "missing">>'
+            )
+            break
+    else:
+        assert False, "log message not found"
+
     # def test_shouldRun(self):
     #   pass
     #   #assert should_run
     #   # run()
     #   #assert not should_run
     #
-    # def test_provides(self):
-    #   #test that it provides as expected
-    #   #test that there's an error if provides fails
-    #   pass
-    #
     # def test_update(self):
     #   #test version changed
     #   pass
-    #
-    # def test_configChanged(self):
-    #   #test version changed
-    #   pass
-    #
+    #    #
     # def test_revert(self):
-    #   # assert provides is removed
+    #   # assert changes are removed
     #   pass

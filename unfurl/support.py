@@ -466,7 +466,11 @@ def applyTemplate(value, ctx, overrides=None):
         try:
             value = templar.template(value, fail_on_undefined=fail_on_undefined)
         except Exception as e:
-            value = "<<Error rendering template: %s>>" % str(e)
+            msg = str(e)
+            match = re.search(r"has no attribute '(\w+)'", msg)
+            if match:
+                msg = 'missing attribute or key: "%s"' % match.group(1)
+            value = "<<Error rendering template: %s>>" % msg
             if ctx.strict:
                 logger.debug(value, exc_info=True)
                 raise UnfurlError(value)

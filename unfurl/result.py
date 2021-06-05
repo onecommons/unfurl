@@ -232,6 +232,8 @@ class ChangeRecord(object):
 
     def parse(self, log):
         terms = log.split("\t")
+        if not terms:
+            raise UnfurlError('can not parse ChangeRecord from "%s"' % log)
         attributes = dict(startTime=None)
         for i, term in enumerate(terms):
             if i == 0:

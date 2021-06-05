@@ -14,7 +14,6 @@ spec:
                 main:
                   provider:
                     aws:
-                      version: "~> 3.2"
                       endpoints:
                         ec2: http://localhost:5000
                         sts: http://localhost:5000

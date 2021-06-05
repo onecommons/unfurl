@@ -450,6 +450,8 @@ class YamlManifest(ReadOnlyManifest):
             if self.changeSets:
                 # add list() for 3.7
                 for change in reversed(list(self.changeSets.values())):
+                    if not hasattr(change, 'target') or not hasattr(change, 'operation'):
+                        continue
                     key = (change.target, change.operation)
                     last = operationIndex.setdefault(key, change.changeId)
                     if last < change.changeId:

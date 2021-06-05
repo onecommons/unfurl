@@ -38,9 +38,23 @@ class TemplateConfigurator(Configurator):
                 vars.doFullResolve = True
             else:
                 vars = result
-            results = task.query({"eval": query}, vars=vars)
+            try:
+                results = task.query({"eval": query}, vars=vars, throw=True)
+            except Exception as e:
+                task.logger.warning(
+                    "error processing resultTemplate for %s: %s",
+                    task.target.name,
+                    str(e),
+                )
+                return
             if results:
-                task.updateResources(results)
+                jr, errors = task.updateResources(results)
+                if errors:
+                    task.logger.warning(
+                        "error processing resultTemplate for %s: %s",
+                        task.target.name,
+                        errors[0],
+                    )
 
     def canDryRun(self, task):
         return not not task.inputs.get("dryrun")

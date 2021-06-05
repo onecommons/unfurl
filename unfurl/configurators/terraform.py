@@ -90,12 +90,12 @@ class TerraformConfigurator(ShellConfigurator):
         timeout = task.configSpec.timeout
         cmd = terraform + ["init"]
         result = self.runProcess(cmd, timeout=timeout, env=env, cwd=cwd, echo=echo)
-        if not self._handleResult(task, result):
+        if not self._handleResult(task, result, cwd):
             return None
 
         cmd = terraform + "providers schema -json".split(" ")
         result = self.runProcess(cmd, timeout=timeout, env=env, cwd=cwd, echo=False)
-        if not self._handleResult(task, result):
+        if not self._handleResult(task, result, cwd):
             task.logger.warning(
                 "terraform providers schema failed: %s %s",
                 result.returncode,
@@ -242,7 +242,7 @@ class TerraformConfigurator(ShellConfigurator):
 
         # process the result
         status = None
-        success = self._handleResult(task, result, (0, 2))
+        success = self._handleResult(task, result, cwd, (0, 2))
         if result.returncode == 2:
             # plan -detailed-exitcode: 2 - Succeeded, but there is a diff
             success = True
