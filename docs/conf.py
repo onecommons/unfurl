@@ -73,6 +73,7 @@ exclude_patterns = ["_build", "Thumbs.db", ".DS_Store", "todo"]
 # The theme to use for HTML and HTML Help pages.  See the documentation for
 # a list of builtin themes.
 html_theme_options = {
+    "logo_only": True,
     # "show_sidebar": True,
     # "navbar_bg_class": 'faded',
     # "navbar_color_class": 'light',
@@ -80,7 +81,7 @@ html_theme_options = {
     # "main_width": "90%",
 }
 
-# default theme:
+# default theme:    
 # html_theme = "alabaster"
 
 import sphinx_rtd_theme

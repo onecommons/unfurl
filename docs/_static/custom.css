@@ -1,7 +1,9 @@
+/*
 table.align-default {
     margin-left: inherit;
     margin-right: inherit;
 }
+*/
 
 /*Side nav bar text color*/
 
@@ -107,6 +109,7 @@ a {
 
         background: #fcfcfc;
     }
+}
 
 /*In line code color*/
 
