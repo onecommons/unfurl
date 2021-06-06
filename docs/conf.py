@@ -74,22 +74,11 @@ exclude_patterns = ["_build", "Thumbs.db", ".DS_Store", "todo"]
 # a list of builtin themes.
 html_theme_options = {
     "logo_only": True,
-    # "show_sidebar": True,
-    # "navbar_bg_class": 'faded',
-    # "navbar_color_class": 'light',
-    # "sidebar_fixed": False,
-    # "main_width": "90%",
+    # "sticky_navigation": True,
 }
-
-# default theme:    
-# html_theme = "alabaster"
 
 import sphinx_rtd_theme
 html_theme = "sphinx_rtd_theme"
-
-# import sphinxbootstrap4theme
-# html_theme = "sphinxbootstrap4theme"
-# html_theme_path = [sphinxbootstrap4theme.get_path()]
 
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,
@@ -103,4 +92,3 @@ html_favicon = "favicon32.png"
 # default: {"**":['globaltoc.html', 'sourcelink.html', 'searchbox.html'],
 html_sidebars = {"**": ["globaltoc.html"], "index": []}
 html_title = "Unfurl Documentation"
-# XXX fix search

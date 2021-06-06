@@ -1,9 +1,11 @@
-/*
 table.align-default {
     margin-left: inherit;
     margin-right: inherit;
 }
-*/
+
+.logo {
+    height: 3rem !important ;
+}
 
 /*Side nav bar text color*/
 
@@ -70,6 +72,7 @@ a {
     max-width: 850px;
     margin-left: 7%;
 }
+
 
 /*Extra left background*/
 
