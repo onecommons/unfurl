@@ -16,7 +16,7 @@ A service template is comprised of several high level sections:
    Data Types<toscaref/spec-data-types.rst>
    Other Types<toscaref/spec-other-types.rst>
    Topology Templates<toscaref/spec-topology-template.rst>
-   toscadef.rst
+   Type Definitions<toscadef.rst>
 
 
 

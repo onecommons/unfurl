@@ -19,8 +19,6 @@ Table of Contents
 
    README.md
 
-   solution-overview.rst
-
    get-started-step-by-step.rst
 
    ensembles.rst
@@ -47,8 +45,6 @@ Table of Contents
 
    toscaref.rst
  
-   toscadef.rst
-
    glossary.rst
 
    api.rst

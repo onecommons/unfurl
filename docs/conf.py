@@ -68,13 +68,10 @@ exclude_patterns = ["_build", "Thumbs.db", ".DS_Store", "todo"]
 
 
 # -- Options for HTML output -------------------------------------------------
-# see https://github.com/myyasuda/sphinxbootstrap4theme#html-theme-options
-
 # The theme to use for HTML and HTML Help pages.  See the documentation for
 # a list of builtin themes.
 html_theme_options = {
     "logo_only": True,
-    # "sticky_navigation": True,
 }
 
 import sphinx_rtd_theme
