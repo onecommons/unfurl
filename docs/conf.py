@@ -73,11 +73,11 @@ exclude_patterns = ["_build", "Thumbs.db", ".DS_Store", "todo"]
 # The theme to use for HTML and HTML Help pages.  See the documentation for
 # a list of builtin themes.
 html_theme_options = {
-    "show_sidebar": True,
+    # "show_sidebar": True,
     # "navbar_bg_class": 'faded',
     # "navbar_color_class": 'light',
-    "sidebar_fixed": False,
-    "main_width": "90%",
+    # "sidebar_fixed": False,
+    # "main_width": "90%",
 }
 
 # default theme:
