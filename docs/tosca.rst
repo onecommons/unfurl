@@ -41,6 +41,12 @@ Example
    template_name: hello world
    template_author: onecommons
    template_version: 1.0.0
+ node_types:
+   # ... see the “node types” section below
+ topology_template:
+   # ... see the “topology_templates” section below
+ node_templates:
+   # ... see the “node_templates” section below
 
 
 Node Type
