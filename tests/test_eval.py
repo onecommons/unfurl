@@ -3,9 +3,9 @@ import os
 import json
 from unfurl.result import ResultsList, serializeValue, ChangeRecord
 from unfurl.eval import Ref, mapValue, RefContext
-from unfurl.support import applyTemplate
+from unfurl.support import applyTemplate, TopologyMap
 from unfurl.util import sensitive_str
-from unfurl.runtime import NodeInstance
+from unfurl.runtime import NodeInstance, _ChildResources
 from ruamel.yaml.comments import CommentedMap
 
 
@@ -263,6 +263,13 @@ a_dict:
         self.assertEqual(result, expected)
         result = mapValue(query2, ctx)
         self.assertEqual(result, expected)
+
+    def test_templateNodes(self):
+        resource = self._getTestResource()
+        NODES = TopologyMap(resource)
+        assert resource.attributes is NODES['test']
+        ctx = RefContext(resource, dict(NODES=NODES))
+        self.assertEqual("va", applyTemplate("{{ NODES.test.d.a }}", ctx))
 
     def test_innerReferences(self):
         resourceDef = {

@@ -4,7 +4,7 @@ import six
 import collections
 import re
 import os
-from .support import Status, Defaults, ResourceChanges, Priority
+from .support import Status, Defaults, ResourceChanges, Priority, TopologyMap
 from .result import serializeValue, ChangeAware, Results, ResultsMap, getDigest
 from .util import (
     registerClass,
@@ -441,6 +441,8 @@ class TaskView(object):
                 task=self.getSettings(),
                 connections=list(self._getConnections()),
                 allConnections=self._getAllConnections(),
+                TOPOLOGY=dict(inputs=target.root.inputs._attributes),
+                NODES=TopologyMap(target.root),
                 SELF=self.target.attributes,
                 HOST=HOST,
                 ORCHESTRATOR=ORCHESTRATOR and ORCHESTRATOR.attributes or {},
@@ -681,7 +683,7 @@ class TaskView(object):
         resolveExternal=True,
         strict=True,
         vars=None,
-        throw=False
+        throw=False,
     ):
         # XXX pass resolveExternal to context?
         try:
@@ -690,10 +692,10 @@ class TaskView(object):
             )
         except:
             if not throw:
-              UnfurlTaskError(
-                  self, "error while evaluating query: %s" % query, logging.WARNING
-              )
-              return None
+                UnfurlTaskError(
+                    self, "error while evaluating query: %s" % query, logging.WARNING
+                )
+                return None
             raise
 
         if dependency:
@@ -912,7 +914,9 @@ class TaskView(object):
                 # if resource.required or resourceSpec.get("dependent"):
                 #    self.addDependency(resource, required=resource.required)
             except:
-                errors.append(UnfurlAddingResourceError(self, originalResourceSpec, rname))
+                errors.append(
+                    UnfurlAddingResourceError(self, originalResourceSpec, rname)
+                )
             else:
                 newResourceSpecs.append(originalResourceSpec)
                 newResources.append(resource)
