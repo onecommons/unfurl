@@ -35,16 +35,13 @@ Example
 
 .. code::
 
- tosca_definitions_version: tosca_simple_unfurl_1_0_0
- metadata: ...
- repositories: ...
- imports: ...
- node_types:
-   # ... see the “node types” section below
- topology_template:
-   # ... see the “topology_templates” section below
- node_templates:
-   # ... see the “node_templates” section below
+ tosca_definitions_version: tosca_simple_unfurl_1_0_0 # or use the standard tosca_simple_yaml_1_3
+ description: An illustrative TOSCA service template 
+ metadata: # the following metadata keys are defined in the TOSCA specification:
+   template_name: hello world
+   template_author: onecommons
+   template_version: 1.0.0
+
 
 Node Type
 ^^^^^^^^^^
@@ -57,27 +54,30 @@ Example
 .. code::
 
  node_types:
-
-  # The Kubernetes profile comprises capability types, not node types
-  # You need to create your own node type that is an assemblage of capabilities
-  # In other words, the node is where we logically relate Kubernetes resources together
-  Application:
-    capabilities:
-      # The Metadata capability will be shared with all resources
-      # Only one should be used per node type
-      metadata: k8s:Metadata
-      # Other capabilities can be added to represent Kubernetes resources
-      # (The same capability type can be used multiple times, e.g. two LoadBalancer)
-      deployment: k8s:Deployment
-      web: k8s:LoadBalancer
-    interfaces:
-      # Interfaces are used to achieve service modes
-      # The name of the interface is used by default as the name of the mode
-      # (Anything after "." in the name is ignored for this purpose)
-      normal.1:
-        type: k8s:ContainerCommand
-      normal.2:
-        type: o11n:Scriptlet
+      myApplication:
+        derived_from: tosca.nodes.SoftwareComponent
+        attributes:
+          private_address:
+            type: string
+        properties:
+         domain:
+          type: string
+          default: { get_input: domain }
+          ports:
+            type: tosca.datatypes.network.PortSpec
+        requirements:
+          - host:
+              capabilities: tosca.capabilities.Compute
+              relationship: tosca.relationships.HostedOn
+          - db:
+              capabilities: base:capabilities.postgresdb
+              relationship: tosca.relationships.ConnectsTo
+        interfaces:
+          # TOSCA defines Standard interface for lifecycle management but you can define your own too
+          Standard:
+            create: create.sh
+            configure: configure.sh
+            delete: delete.sh
 
 
 Relationship Type
@@ -98,21 +98,16 @@ Example
 
  topology_template:
 
-  inputs:
+   inputs:
+     domain:
+       type: string
 
-    namespace:
-      type: string
-      default: workspace
-
-  outputs:
-    url:
-      # Before a real attribute value arrives this will evaluate to "http://<unknown>:80"
-      type: string
-      value: { concat: [ http://, { get_attribute: [ hello-world, web, ingress, 0, ip ] }, ':80' ] }
-
-    initialized:
-      type: boolean
-      value: false
+   outputs:
+     url:
+       type: string
+       value: { concat: [ https://, { get_input: domain }, ':',  { get_attribute: [ myapp, portspec, source ] }, '/api/events'] }
+       # Unfurl also support ansible-enhanced jinja2 template so you could write this instead:
+       value: https://{{ TOPOLOGY.inputs.domain }}:{{ NODES.myApp.portspec.source }}/api/events
 
 
 Node Template
@@ -129,78 +124,38 @@ Example
 
 .. code:: yaml
 
- node_templates:
+   node_templates:
 
-    hello-world:
-      type: Application
-      capabilities:
-        metadata:
-          properties:
-            # If "name" is not specified, the TOSCA node template name will be used
-            # If "namespace" is not set, resources will be created in the same namespace as
-            # the Turandot operator 
-            namespace: { get_input: namespace }
-            labels:
-              app.kubernetes.io/name: hello-world
-        deployment:
-          properties:
-            metadataNamePostfix: ''
-            template:
-              containers:
-              - name: hello-world
-                # You can, of course, specify any container image URL
-                # (from the Docker Hub default or some other container image registry)
-                # In this case, because the "image" is a ContainerImage, get_artifact will return
-                # a URL for the Turandot inventory *after* the container image is pushed to it
-                image: { get_artifact: [ SELF, image ] }
-                imagePullPolicy: Always
-        web:
-          properties:
-            ports:
-            - { name: http, protocol: TCP, port: 80, targetPort: 8080 }
-          attributes:
-            # We're initializing this attribute to make sure the call to get_attribute in the ouput
-            # won't fail before a real value arrives
-            ingress:
-            - ip: <unknown>
-      interfaces:
-        # The interfaces are executed in alphabetical order
-        # The previous execution must succeed before moving on to the next
-        normal.1:
-          inputs:
-            # The command is executed with the contents of the Clout in stdin
-            # If the command has a non-empty stdout, it will be used to replace the current Clout
-            # This combination allows the command to manipulate the Clout if desired
-            command:
-            - /tmp/configure.sh
-            - $$nodeTemplate # argument beginning with "$$" will be replaced with local values
-            # Artifacts are copied to the target container before execution
-            artifacts:
-            - configure # See below
-        normal.2:
-          inputs:
-            scriptlet: hello-world.set-output
-            arguments:
-              name: initialized
-              value: 'true'
-      artifacts:
-        # In this case all our artifacts are in the CSAR
-        # But we can also use URLs to other locations
-        image:
-          # Container images will be published on the inventory before deployment 
-          type: k8s:ContainerImage
-          # Note that the container image tarball must be "portable"
-          # (You can use the included "save-portable-container-image" script to create it)
-          file: artifacts/images/hello-world.tar.gz
-          properties:
-            # The tag is required for publishing the image
-            tag: hello-world
-        configure:
-          # The Executable type will set executable permissions on the file
-          type: o11n:Executable
-          file: artifacts/scripts/configure.sh
-          deploy_path: /tmp/configure.sh
+     myApp:
+       type: myApplication
+       artifacts:
+         image:
+           type: tosca.artifacts.Deployment.Image.Container.Docker
+           file: myapp:latest
+           repository: docker_hub
+       requirements:
+         - host: compute
+         - db:
+             node: db 
+             relationship: # inline relationship template
+               properties:
+                 username: myapp
+                 password:
+                   eval:
+                     secret:
+                       myapp_db_pw
+              
+     db:
+       type: base:postgresdb
 
+     compute:
+       type: unfurl.nodes.Compute
+       capabilities:
+         host:
+           properties:
+             num_cpus: 1
+             disk_size: 200GB
+             mem_size: 512MB
 
 
 Relationship Template
