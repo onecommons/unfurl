@@ -268,7 +268,7 @@ The ``resultTemplate`` (shared with ``create``) maps Google Compute ["status" en
 We can see that it uses TOSCA's functions with Ansible's Jinja2 expressions and filters, glued together using Unfurl's expression syntax (``eval``)
 https://docs.ansible.com/ansible/latest/user_guide/playbooks_filters.html
 
-4 Activate your ensemble
+5 Activate your ensemble
 ========================
 
 1. Run deploy
@@ -276,7 +276,7 @@ https://docs.ansible.com/ansible/latest/user_guide/playbooks_filters.html
 
 .. _publish_project:
 
-5. Publish your project
+6. Publish your project
 =======================
 
 You can publish and share your projects like any git repository.

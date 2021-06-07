@@ -285,6 +285,25 @@ Inputs
  :configuration:  A map that will included as parameters to Ansible's Docker container module
     They are enumerated `here <https://docs.ansible.com/ansible/latest/modules/docker_container_module.html#docker-container-module>`_
 
+.. code-block:: YAML
+
+  node_templates:
+    hello-world-container:
+      type: unfurl.nodes.Container.Application.Docker
+      requirements:
+        - host: compute
+      artifacts:
+        image:
+          type: tosca.artifacts.Deployment.Image.Container.Docker
+          file: busybox
+      interfaces:
+        Standard:
+          inputs:
+            configuration:
+              command: ["echo", "hello world"]
+              detach:  no
+              output_logs: yes
+
 .. _helm:
 
 Helm

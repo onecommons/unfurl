@@ -7,7 +7,7 @@ TOSCA
 Introduction
 ~~~~~~~~~~~~
 
-Topology and Orchestration Specification for Cloud Applications also abbreviated as TOSCA is an OASIS open standard that defines the interoperable description of services and applications hosted on the cloud and elsewhere. This includes their components, relationships, dependencies, requirements, and capabilities, thereby enabling portability and automated management across cloud providers regardless of underlying platform or infrastructure. 
+Topology and Orchestration Specification for Cloud Applications abbreviated as TOSCA is an OASIS open standard that defines the interoperable description of services and applications hosted on the cloud and elsewhere. This includes their components, relationships, dependencies, requirements, and capabilities, thereby enabling portability and automated management across cloud providers regardless of underlying platform or infrastructure. 
 
 TOSCA specification allows the user to define service template. The service generally refers either to an application or an application component. This may include a firewall, database config, etc or any other configuration following some set of rules. In order to successfully author a TOSCA template, it is important to understand the various terms used within the TOSCA specification and how are they interlinked.
 
@@ -36,22 +36,9 @@ Example
 .. code::
 
  tosca_definitions_version: tosca_simple_unfurl_1_0_0
- metadata:
-   template_name: Unfurl types
-   template_author: onecommons.org
-   template_version: 1.0.0
- repositories:
-   docker_hub:
-     url: https://registry.hub.docker.com/
-     credential:
-         user: a_user
-         token: a_password
- imports:
- - namespace_prefix: k8s
-   file: profiles/kubernetes/1.0/profile.yaml
- - namespace_prefix: o11n
-   file: profiles/orchestration/1.0/profile.yaml
-   repository: tosca-community-contributions
+ metadata: ...
+ repositories: ...
+ imports: ...
  node_types:
    # ... see the “node types” section below
  topology_template:
@@ -107,7 +94,7 @@ Topology Template refers to the topology model of a service. This model consists
 Example
 -------
 
-.. code::
+.. code:: yaml
 
  topology_template:
 
@@ -140,7 +127,7 @@ The definitions of the application components within a node template have a pote
 Example
 -------
 
-.. code::
+.. code:: yaml
 
  node_templates:
 
@@ -229,9 +216,15 @@ Putting Service Template Components Together
 
 .. include:: examples/service-template.yaml
    :literal:
+   :code: YAML
+
+Unfurl Specific
+~~~~~~~~~~~~~~~
+
+See also the built-in `Unfurl types`.
 
 Extensions
-~~~~~~~~~~
+^^^^^^^^^^^
 
 * add 'any' schema type for properties and attributes definitions
 * 'additionalProperties' field in type metadata
@@ -241,8 +234,8 @@ Extensions
 * add "environment" keyword to implementation definition
 * add "eval" function
 * add "type" in capability assignment
-* allow workflow to be imported
-* workflow "target" accepts type names
+* allow workflows to be imported
+* workflow "target" keyword also accepts type names
 * groups can have other groups as members
 * An operation's ``operation_host`` field can also be set to a node template's name.
 * added ``OPERATION_HOST`` as a reserved function keyword.
@@ -252,7 +245,7 @@ Extensions
 * add "types" section to the service template can contain any entity type definition.
 
 Not yet implemented and non-conformance with the TOSCA 1.3 specification
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 * The ``get_operation_output`` function (use `resultTemplate` instead)
 * "copy" keyword (use the ``dsl`` section or `merge directives` instead)
@@ -263,5 +256,3 @@ Not yet implemented and non-conformance with the TOSCA 1.3 specification
 * notifications
 * node_filters
 * xml schema constraints
-
-

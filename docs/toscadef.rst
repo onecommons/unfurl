@@ -10,12 +10,15 @@ TOSCA 1.3
 -------------------
 
 .. include:: TOSCA_definition_1_0.yaml
-   :code: YAML
+   :literal:
+   :code: yaml
 
-Unfurl specific
---------------------
+Unfurl types
+------------
 
 .. include:: tosca-ext.yaml
-   :code: YAML
+   :literal:
+   :code: yaml
+
  
  
