@@ -4,7 +4,7 @@ import six
 import collections
 import re
 import os
-from .support import Status, Defaults, ResourceChanges, Priority
+from .support import Status, Defaults, ResourceChanges, Priority, TopologyMap
 from .result import serializeValue, ChangeAware, Results, ResultsMap, getDigest
 from .util import (
     registerClass,
@@ -29,18 +29,74 @@ import logging
 logger = logging.getLogger("unfurl.task")
 
 
-class TaskRequest(object):
+class PlanRequest(object):
+    def __init__(self, target):
+        self.target = target
+
+
+class TaskRequest(PlanRequest):
     """
     Yield this to run a child task. (see :py:meth:`unfurl.configurator.TaskView.createSubTask`)
     """
 
-    def __init__(self, configSpec, resource, reason, persist=False, required=None):
+    def __init__(
+        self,
+        configSpec,
+        target,
+        reason,
+        persist=False,
+        required=None,
+        startState=None,
+    ):
+        super(TaskRequest, self).__init__(target)
         self.configSpec = configSpec
-        self.target = resource
         self.reason = reason
         self.persist = persist
         self.required = required
         self.error = configSpec.name == "#error"
+        self.startState = startState
+
+    @property
+    def name(self):
+        if self.configSpec.operation:
+            name = self.configSpec.operation
+        else:
+            name = self.configSpec.name
+        if self.reason and self.reason not in name:
+            return name + " (reason: " + self.reason + ")"
+        return name
+
+    def __repr__(self):
+        return "TaskRequest(%s(%s,%s):%s)" % (
+            self.target,
+            self.target.status,
+            self.target.state,
+            self.name,
+        )
+
+
+class SetStateRequest(PlanRequest):
+    def __init__(self, target, state):
+        super(SetStateRequest, self).__init__(target)
+        self.set_state = state
+
+    @property
+    def name(self):
+        return self.set_state
+
+
+class TaskRequestGroup(PlanRequest):
+    def __init__(self, target, workflow):
+        super(TaskRequestGroup, self).__init__(target)
+        self.workflow = workflow
+        self.children = []
+
+    def __repr__(self):
+        return "TaskRequestGroup(%s:%s:%s)" % (
+            self.target,
+            self.workflow,
+            self.children,
+        )
 
 
 class JobRequest(object):
@@ -385,6 +441,8 @@ class TaskView(object):
                 task=self.getSettings(),
                 connections=list(self._getConnections()),
                 allConnections=self._getAllConnections(),
+                TOPOLOGY=dict(inputs=target.root.inputs._attributes),
+                NODES=TopologyMap(target.root),
                 SELF=self.target.attributes,
                 HOST=HOST,
                 ORCHESTRATOR=ORCHESTRATOR and ORCHESTRATOR.attributes or {},
@@ -625,6 +683,7 @@ class TaskView(object):
         resolveExternal=True,
         strict=True,
         vars=None,
+        throw=False,
     ):
         # XXX pass resolveExternal to context?
         try:
@@ -632,10 +691,12 @@ class TaskView(object):
                 self.inputs.context, wantList, strict
             )
         except:
-            UnfurlTaskError(
-                self, "error while evaluating query: %s" % query, logging.WARNING
-            )
-            return None
+            if not throw:
+                UnfurlTaskError(
+                    self, "error while evaluating query: %s" % query, logging.WARNING
+                )
+                return None
+            raise
 
         if dependency:
             self.addDependency(
@@ -748,18 +809,18 @@ class TaskView(object):
             try:
                 resources = yaml.load(resources)
             except:
-                UnfurlTaskError(self, "unable to parse as YAML: %s" % resources)
-                return None
+                err = UnfurlTaskError(self, "unable to parse as YAML: %s" % resources)
+                return None, [err]
 
         if isinstance(resources, collections.Mapping):
             resources = [resources]
         elif not isinstance(resources, collections.MutableSequence):
-            UnfurlTaskError(
+            err = UnfurlTaskError(
                 self,
                 "updateResources requires a list of updates, not a %s"
                 % type(resources),
             )
-            return None
+            return None, [err]
 
         errors = []
         newResources = []
@@ -769,12 +830,13 @@ class TaskView(object):
             if not isinstance(resourceSpec, collections.Mapping):
                 continue
             originalResourceSpec = resourceSpec
+            rname = resourceSpec.get("name", "SELF")
+            if rname == ".self" or rname == "SELF":
+                existingResource = self.target
+                rname = existingResource.name
+            else:
+                existingResource = self.findInstance(rname)
             try:
-                rname = resourceSpec.get("name", "SELF")
-                if rname == ".self" or rname == "SELF":
-                    existingResource = self.target
-                else:
-                    existingResource = self.findInstance(rname)
 
                 if existingResource:
                     updated = False
@@ -796,7 +858,7 @@ class TaskView(object):
                             attributes, existingResource
                         ).items():
                             existingResource.attributes[key] = value
-                            logger.debug(
+                            self.logger.debug(
                                 "setting attribute %s with %s on %s",
                                 key,
                                 value,
@@ -805,7 +867,7 @@ class TaskView(object):
                         updated = True
 
                     if updated:
-                        logger.info("updating resources %s", existingResource.name)
+                        self.logger.info("updating resources %s", existingResource.name)
                     continue
 
                 pname = resourceSpec.get("parent")
@@ -852,7 +914,9 @@ class TaskView(object):
                 # if resource.required or resourceSpec.get("dependent"):
                 #    self.addDependency(resource, required=resource.required)
             except:
-                errors.append(UnfurlAddingResourceError(self, originalResourceSpec))
+                errors.append(
+                    UnfurlAddingResourceError(self, originalResourceSpec, rname)
+                )
             else:
                 newResourceSpecs.append(originalResourceSpec)
                 newResources.append(resource)
@@ -860,13 +924,13 @@ class TaskView(object):
         if newResourceSpecs:
             self._resourceChanges.addResources(newResourceSpecs)
             self._addedResources.extend(newResources)
-            logger.info("add resources %s", newResources)
+            self.logger.info("add resources %s", newResources)
 
             jobRequest = JobRequest(newResources, errors)
             if self.job:
                 self.job.jobRequestQueue.append(jobRequest)
-            return jobRequest
-        return None
+            return jobRequest, errors
+        return None, errors
 
 
 class Dependency(Operational):

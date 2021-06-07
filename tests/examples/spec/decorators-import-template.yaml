@@ -1,0 +1,7 @@
+tosca_definitions_version: tosca_simple_unfurl_1_0_0
+decorators:
+  testy.nodes.aNodeType:
+    properties:
+      imported:
+        eval:
+          python: configurators.py#expressionFunc

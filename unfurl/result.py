@@ -4,6 +4,7 @@ from collections import Mapping, MutableSequence, MutableMapping
 from datetime import datetime, timedelta
 import six
 import hashlib
+import re
 
 from .merge import diffDicts
 from .util import (
@@ -186,6 +187,12 @@ class ChangeRecord(object):
             + _decodeChr(7, changeId[7])
         )
 
+    @staticmethod
+    def isChangeId(test):
+        if not isinstance(test, six.string_types):
+            return None
+        return re.match("^A[A-Za-z0-9]{11}$", test)
+
     @classmethod
     def makeChangeId(self, timestamp=None, taskid=0, previousId=None):
         b62 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
@@ -225,6 +232,8 @@ class ChangeRecord(object):
 
     def parse(self, log):
         terms = log.split("\t")
+        if not terms:
+            raise UnfurlError('can not parse ChangeRecord from "%s"' % log)
         attributes = dict(startTime=None)
         for i, term in enumerate(terms):
             if i == 0:

@@ -90,12 +90,17 @@ class TerraformConfigurator(ShellConfigurator):
         timeout = task.configSpec.timeout
         cmd = terraform + ["init"]
         result = self.runProcess(cmd, timeout=timeout, env=env, cwd=cwd, echo=echo)
-        if not self._handleResult(task, result):
+        if not self._handleResult(task, result, cwd):
             return None
 
         cmd = terraform + "providers schema -json".split(" ")
         result = self.runProcess(cmd, timeout=timeout, env=env, cwd=cwd, echo=False)
-        if not self._handleResult(task, result):
+        if not self._handleResult(task, result, cwd):
+            task.logger.warning(
+                "terraform providers schema failed: %s %s",
+                result.returncode,
+                result.stderr,
+            )
             return None
 
         try:
@@ -198,6 +203,7 @@ class TerraformConfigurator(ShellConfigurator):
                 "plan",
                 "-state=" + statePath,
                 "-detailed-exitcode",
+                "-refresh=true",
                 "-out",
                 planPath,
             ]
@@ -207,7 +213,7 @@ class TerraformConfigurator(ShellConfigurator):
             action = ["destroy", "-auto-approve", "-state=" + statePath]
         elif task.configSpec.workflow == "deploy":
             action = ["apply", "-auto-approve", "-state=" + statePath]
-            if os.path.isfile(planPath):
+            if os.path.isfile(planPath) and os.path.isfile(statePath):
                 action.append(
                     planPath
                 )  # use plan created by previous operation in this job
@@ -236,13 +242,16 @@ class TerraformConfigurator(ShellConfigurator):
 
         # process the result
         status = None
-        success = self._handleResult(task, result, (0, 2))
+        success = self._handleResult(task, result, cwd, (0, 2))
         if result.returncode == 2:
             # plan -detailed-exitcode: 2 - Succeeded, but there is a diff
             success = True
-            status = Status.ok
+            if task.configSpec.operation == "check":
+                status = Status.absent
+            else:
+                status = Status.ok
 
-        if success and not task.dryRun:
+        if success and not (task.dryRun or task.configSpec.operation == "check"):
             # read state file
             with open(statePath) as sf:
                 state = json.load(sf)

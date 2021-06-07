@@ -466,7 +466,11 @@ def applyTemplate(value, ctx, overrides=None):
         try:
             value = templar.template(value, fail_on_undefined=fail_on_undefined)
         except Exception as e:
-            value = "<<Error rendering template: %s>>" % str(e)
+            msg = str(e)
+            match = re.search(r"has no attribute '(\w+)'", msg)
+            if match:
+                msg = 'missing attribute or key: "%s"' % match.group(1)
+            value = "<<Error rendering template: %s>>" % msg
             if ctx.strict:
                 logger.debug(value, exc_info=True)
                 raise UnfurlError(value)
@@ -954,6 +958,25 @@ class ResourceChanges(collections.OrderedDict):
         self.clear()
 
 
+class TopologyMap(dict):
+    # need to subtype dict directly to make jinja2 happy
+    def __init__(self, resource):
+        self.resource = resource
+
+    def __getitem__(self, key):
+        r = self.resource.findResource(key)
+        if r:
+            return r.attributes
+        else:
+            raise KeyError(key)
+
+    def __iter__(self):
+        return iter(r.name for r in self.resource.getSelfAndDescendents())
+
+    def __len__(self):
+        return len(tuple(self.resource.getSelfAndDescendents()))
+
+
 class AttributeManager(object):
     """
     Tracks changes made to Resources
@@ -1007,7 +1030,11 @@ class AttributeManager(object):
             else:
                 _attributes = ChainMap(copy.deepcopy(resource._attributes))
 
-            attributes = ResultsMap(_attributes, RefContext(resource))
+            vars = dict(NODES=TopologyMap(resource.root))
+            if hasattr(resource.root, "inputs"):
+                vars["TOPOLOGY"] = dict(inputs=resource.root.inputs._attributes)
+            ctx = RefContext(resource, vars)
+            attributes = ResultsMap(_attributes, ctx)
             self.attributes[resource.key] = (resource, attributes)
             return attributes
         else:

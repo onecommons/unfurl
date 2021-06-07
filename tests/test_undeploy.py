@@ -94,7 +94,7 @@ class UndeployTest(unittest.TestCase):
     def test_check(self):
         manifest = YamlManifest(manifestContent)
         runner = Runner(manifest)
-        job = runner.run(JobOptions(startTime=1))  # deploy
+        job = runner.run(JobOptions(startTime=1, check=True))  # deploy
         assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
         summary = job.jsonSummary()
         # print(json.dumps(summary, indent=2))
@@ -103,8 +103,8 @@ class UndeployTest(unittest.TestCase):
             {
                 "id": "A01110000000",
                 "status": "ok",
-                "total": 5,
-                "ok": 5,
+                "total": 7,
+                "ok": 7,
                 "error": 0,
                 "unknown": 0,
                 "skipped": 0,
@@ -123,8 +123,10 @@ class UndeployTest(unittest.TestCase):
         self.assertEqual(
             job.rootResource.findResource("managed").created, "::installerNode"
         )
-        self.assertIs(job.rootResource.findResource("unmanaged").created, True)
-        self.assertIs(job.rootResource.findResource("preexisting").created, False)
+        self.assertEqual(
+            job.rootResource.findResource("unmanaged").created, "A01110000008"
+        )
+        self.assertIs(job.rootResource.findResource("preexisting").created, None)
         self.assertNotIn(
             "external", targets, "missing external instances should not be created"
         )
@@ -187,6 +189,25 @@ class UndeployTest(unittest.TestCase):
         )
         self.assertIn("installerNode", targets, "installerNode should be deleted")
 
+        # check: instance should still be absent
+        manifest5 = YamlManifest(job.out.getvalue())
+        job = Runner(manifest5).run(JobOptions(workflow="check", startTime=4))
+        assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
+        summary2 = job.jsonSummary()
+        # print(summary2)
+        self.assertEqual(
+            {
+                "id": "A01140000000",
+                "status": "ok",
+                "total": 5,
+                "ok": 5,
+                "error": 0,
+                "unknown": 0,
+                "skipped": 0,
+                "changed": 0,
+            },
+            summary2["job"],
+        )
         # XXX more tests:
         # check / discover only sets creator = False if instance is found and created wasn't set before
         # config sets creator = True only if created wasn't set before
@@ -196,7 +217,8 @@ class UndeployTest(unittest.TestCase):
     def test_stop(self):
         manifest = YamlManifest(manifest2Content)
         runner = Runner(manifest)
-        job = runner.run(JobOptions(startTime=1))  # deploy
+        # deploy
+        job = runner.run(JobOptions(startTime=1))
         assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
         summary = job.jsonSummary()
         # print(json.dumps(summary, indent=2))
@@ -214,6 +236,8 @@ class UndeployTest(unittest.TestCase):
             },
             summary["job"],
         )
+
+        # stop
         manifest2 = YamlManifest(job.out.getvalue())
         job = Runner(manifest2).run(JobOptions(workflow="stop", startTime=2))
         assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
@@ -221,21 +245,35 @@ class UndeployTest(unittest.TestCase):
         # print(json.dumps(summary, indent=2))
         # print(job.out.getvalue())
         self.assertEqual(
-            [
-                {
+            {
+                "job": {
+                    "id": "A01120000000",
                     "status": "ok",
-                    "target": "simple",
-                    "operation": "stop",
-                    "template": "simple",
-                    "type": "test.nodes.simple",
-                    "targetStatus": "pending",
-                    "changed": True,
-                    "configurator": "unfurl.configurators.TemplateConfigurator",
-                    "priority": "required",
-                    "reason": "stop",
-                }
-            ],
-            summary["tasks"],
+                    "total": 1,
+                    "ok": 1,
+                    "error": 0,
+                    "unknown": 0,
+                    "skipped": 0,
+                    "changed": 1,
+                },
+                "outputs": {},
+                "tasks": [
+                    {
+                        "status": "ok",
+                        "target": "simple",
+                        "operation": "stop",
+                        "template": "simple",
+                        "type": "test.nodes.simple",
+                        "targetStatus": "pending",
+                        "targetState": "stopped",
+                        "changed": True,
+                        "configurator": "unfurl.configurators.TemplateConfigurator",
+                        "priority": "required",
+                        "reason": "stop",
+                    }
+                ],
+            },
+            summary,
         )
 
         # start again
@@ -259,6 +297,7 @@ class UndeployTest(unittest.TestCase):
             summary["job"],
         )
 
+        # undeploy: should stop and delete
         manifest4 = YamlManifest(job.out.getvalue())
         job = Runner(manifest4).run(JobOptions(workflow="undeploy", startTime=4))
         assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
@@ -269,8 +308,8 @@ class UndeployTest(unittest.TestCase):
             {
                 "id": "A01140000000",
                 "status": "ok",
-                "total": 1,
-                "ok": 1,
+                "total": 2,
+                "ok": 2,
                 "error": 0,
                 "unknown": 0,
                 "skipped": 0,
@@ -283,10 +322,24 @@ class UndeployTest(unittest.TestCase):
                 {
                     "status": "ok",
                     "target": "simple",
+                    "operation": "stop",
+                    "template": "simple",
+                    "type": "test.nodes.simple",
+                    "targetStatus": "absent",
+                    "targetState": "deleted",
+                    "changed": False,
+                    "configurator": "unfurl.configurators.TemplateConfigurator",
+                    "priority": "required",
+                    "reason": "undeploy",
+                },
+                {
+                    "status": "ok",
+                    "target": "simple",
                     "operation": "delete",
                     "template": "simple",
                     "type": "test.nodes.simple",
                     "targetStatus": "absent",
+                    "targetState": "deleted",
                     "changed": True,
                     "configurator": "unfurl.configurators.TemplateConfigurator",
                     "priority": "required",
@@ -294,6 +347,26 @@ class UndeployTest(unittest.TestCase):
                 },
             ],
             summary["tasks"],
+        )
+        self.assertEqual(
+            job._jsonPlanSummary(),
+            [
+                {
+                    "name": "simple",
+                    "status": "Status.absent",
+                    "state": "NodeState.deleted",
+                    "managed": "A01110000001",
+                    "plan": [
+                        {
+                            "workflow": "undeploy",
+                            "sequence": [
+                                {"operation": "stop", "reason": "undeploy"},
+                                {"operation": "delete", "reason": "undeploy"},
+                            ],
+                        }
+                    ],
+                }
+            ],
         )
 
     # XXX fix and test Install.revert:

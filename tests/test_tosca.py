@@ -10,6 +10,7 @@ from unfurl.util import sensitive_str, API_VERSION, UnfurlValidationError
 from unfurl.yamlloader import makeVaultLib
 import six
 from click.testing import CliRunner
+import json
 
 # python 2.7 needs these:
 from unfurl.configurators.shell import ShellConfigurator
@@ -22,11 +23,11 @@ class SetAttributeConfigurator(Configurator):
         if "ports" in task.inputs:
             ports = task.inputs["ports"]
             # target:source
-            assert str(PortSpec(ports[0])) == "50000:9000", PortSpec(ports[0])
-            assert str(PortSpec(ports[1])) == "20000-60000:1000-10000/udp", PortSpec(
+            assert PortSpec(ports[0]).spec == "50000:9000", PortSpec(ports[0]).spec
+            assert PortSpec(ports[1]).spec == "20000-60000:1000-10000/udp", PortSpec(
                 ports[1]
-            )
-            assert str(PortSpec(ports[2])) == "8000", PortSpec(ports[2])
+            ).spec
+            assert PortSpec(ports[2]).spec == "8000", PortSpec(ports[2]).spec
 
         task.target.attributes["private_address"] = "10.0.0.1"
         yield task.done(True, Status.ok)
@@ -161,6 +162,9 @@ missingInputsDoc = _manifestDoc % "{}"
 
 
 class ToscaSyntaxTest(unittest.TestCase):
+    def setUp(self):
+        self.maxDiff = None
+
     def _runInputAndOutputs(self, manifest):
         job = Runner(manifest).run(JobOptions(add=True, startTime="time-to-test"))
         assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
@@ -294,13 +298,76 @@ class ToscaSyntaxTest(unittest.TestCase):
         runner = Runner(manifest)
         output = six.StringIO()
         job = runner.run(
-            JobOptions(add=True, planOnly=True, out=output, startTime="test")
+            JobOptions(
+                add=True, check=True, planOnly=False, out=output, startTime="test"
+            )
         )
-        # print(job.jsonSummary())
+        # print(json.dumps(job.jsonSummary(), indent=2))
         assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
         self.assertEqual(job.status.name, "ok")
         self.assertEqual(job.stats()["ok"], 4)
-        self.assertEqual(job.stats()["changed"], 4)
+        self.assertEqual(job.stats()["changed"], 3)
+        # print(job._jsonPlanSummary(True))
+        self.assertEqual(
+            job._jsonPlanSummary(),
+            [
+                {
+                    "name": "stagingCluster",
+                    "status": "Status.ok",
+                    "state": "NodeState.started",
+                    "managed": None,
+                    "plan": [
+                        {"operation": "check", "reason": "check"},
+                        {
+                            "name": "defaultNamespace",
+                            "status": "Status.ok",
+                            "state": "NodeState.started",
+                            "managed": None,
+                            "plan": [
+                                {"operation": "check", "reason": "check"},
+                                {
+                                    "workflow": "deploy",
+                                    "sequence": [
+                                        {"operation": "configure", "reason": "add"}
+                                    ],
+                                },
+                                {
+                                    "name": "gitlab-release",
+                                    "status": "Status.ok",
+                                    "state": "None",
+                                    "managed": "A01100000004",
+                                    "plan": [
+                                        {
+                                            "workflow": "deploy",
+                                            "sequence": [
+                                                {
+                                                    "workflow": "Workflow(deploy)",
+                                                    "sequence": [
+                                                        {
+                                                            "operation": "execute",
+                                                            "reason": "step:helm",
+                                                        },
+                                                        {
+                                                            "workflow": "Workflow(discover)",
+                                                            "sequence": [
+                                                                {
+                                                                    "operation": "discover",
+                                                                    "reason": "step:helm",
+                                                                }
+                                                            ],
+                                                        },
+                                                    ],
+                                                }
+                                            ],
+                                        }
+                                    ],
+                                },
+                            ],
+                        },
+                    ],
+                }
+            ],
+        )
 
     def test_missing_type_is_handled_by_unfurl(self):
         ensemble = """
@@ -325,7 +392,10 @@ class ToscaSyntaxTest(unittest.TestCase):
         with self.assertRaises(UnfurlValidationError) as err:
             YamlManifest(ensemble)
 
-        assert 'MissingRequiredFieldError: Template "test_node" is missing required field "type"' in str(err.exception)
+        assert (
+            'MissingRequiredFieldError: Template "test_node" is missing required field "type"'
+            in str(err.exception)
+        )
 
     def test_missing_interface_definition_is_handled_by_unfurl(self):
         ensemble = """
@@ -343,7 +413,9 @@ class ToscaSyntaxTest(unittest.TestCase):
         with self.assertRaises(UnfurlValidationError) as err:
             YamlManifest(ensemble)
 
-        assert 'Missing value for "interfaces". Must contain one of:' in str(err.exception)
+        assert 'Missing value for "interfaces". Must contain one of:' in str(
+            err.exception
+        )
 
 
 class AbstractTemplateTest(unittest.TestCase):
@@ -447,6 +519,7 @@ spec:
                             "status": "ok",
                             "target": "foreign:anInstance",
                             "targetStatus": "ok",
+                            "targetState": "started",
                             "template": "anInstance",
                             "type": "test.nodes.AbstractTest",
                         }

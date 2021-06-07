@@ -1,6 +1,6 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
-"""Loads and saves a ensemble manifest with the following format
+"""Loads and saves a ensemble manifest.
 """
 from __future__ import absolute_import
 import six
@@ -192,7 +192,7 @@ class ReadOnlyManifest(Manifest):
             vault,
         )
         if self.manifest.path:
-            logging.debug("loaded ensemble manifest at %s", self.manifest.path)
+            logger.debug("loaded ensemble manifest at %s", self.manifest.path)
         manifest = self.manifest.expanded
         spec = manifest.get("spec", {})
         self.context = manifest.get("context", CommentedMap())
@@ -450,6 +450,8 @@ class YamlManifest(ReadOnlyManifest):
             if self.changeSets:
                 # add list() for 3.7
                 for change in reversed(list(self.changeSets.values())):
+                    if not hasattr(change, 'target') or not hasattr(change, 'operation'):
+                        continue
                     key = (change.target, change.operation)
                     last = operationIndex.setdefault(key, change.changeId)
                     if last < change.changeId:
@@ -624,7 +626,6 @@ class YamlManifest(ReadOnlyManifest):
             logger.info("job run didn't make any changes; nothing to commit")
             return
 
-        logger.debug("CHANGES %s", changes)
         if self.changeLogPath:
             jobLogPath = self.saveChangeLog(jobRecord, changes)
             if not job.dryRun:
@@ -730,7 +731,6 @@ class YamlManifest(ReadOnlyManifest):
                         attrs[key] = change[key]
                 attrs["summary"] = change["summary"]
                 line = ChangeRecord.formatLog(change["changeId"], attrs)
-                logger.debug("LOG %s", line)
                 f.write(line)
 
     def saveChangeLog(self, jobRecord, newChanges):

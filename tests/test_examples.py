@@ -213,6 +213,7 @@ class RunTest(unittest.TestCase):
                     "target": "test_remote",
                     "operation": "configure",
                     "template": "test_remote",
+                    "targetState": "configured",
                     "type": "tosca.nodes.Root",
                     "targetStatus": "ok",
                     "changed": True,

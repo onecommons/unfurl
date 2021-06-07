@@ -339,6 +339,11 @@ class LocalConfig(object):
         return instance
 
     def registerProject(self, project):
+        """
+        Register an external project with current project.
+        If the external project's repository is only local (without a remote origin repository) then save it in the local config if it exists.
+        Otherwise, add it to the "projects" section of the current project's config.
+        """
         # update, if necessary, localRepositories and projects
         key, local = self.config.searchIncludes(key="localRepositories")
         if not key and "localRepositories" not in self.config.config:
@@ -710,7 +715,12 @@ class LocalEnv(object):
         return mapValue(val, instance)
 
     def getPaths(self):
+        """
+        If asdf is installed, build a PATH list from .toolversions
+        found in the current project and the home project.
+        """
         paths = []
+        # check if asdf is installed
         asdfDataDir = os.getenv("ASDF_DATA_DIR")
         if not asdfDataDir:
             # check if an ensemble previously installed asdf via git
@@ -721,8 +731,8 @@ class LocalEnv(object):
                 homeAsdf = os.path.expanduser("~/.asdf")
                 if os.path.isdir(homeAsdf):
                     asdfDataDir = homeAsdf
-        if asdfDataDir:
-            # project has higher priority over home project
+        if asdfDataDir:  # asdf is installed
+            # current project has higher priority over home project
             if self.project:
                 paths = self.project.getAsdfPaths(asdfDataDir, self.toolVersions)
             if self.homeProject:

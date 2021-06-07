@@ -100,9 +100,11 @@ class ToscaSpec(object):
         matches = list(_findMatches())
 
         def _patch(m):
-            node = m[0]
+            node, patchsrc = m
             tpl = node.toscaEntityTemplate.entity_tpl
-            patch = mapValue(m[1], RefContext(node, dict(template=tpl)))
+            ctx = RefContext(node, dict(template=tpl))
+            ctx.baseDir = getattr(patchsrc, "baseDir", ctx.baseDir)
+            patch = mapValue(patchsrc, ctx)
             return patchDict(tpl, patch, True)
 
         return [_patch(m) for m in matches]
@@ -114,7 +116,7 @@ class ToscaSpec(object):
             parsed_params=inputs,
             yaml_dict_tpl=toscaDef,
             import_resolver=resolver,
-            verify=False,        # we display the error messages ourselves so we don't need to verify here
+            verify=False,  # we display the error messages ourselves so we don't need to verify here
         )
 
         self.nodeTemplates = {}
@@ -169,9 +171,9 @@ class ToscaSpec(object):
             logger.info("Validating TOSCA template at %s", path)
             try:
                 self._parseTemplate(path, inputs, toscaDef, resolver)
-            except Exception as exc:
+            except:
                 if not ExceptionCollector.exceptionsCaught():
-                    raise UnfurlValidationError("Parsing of YAML has failed: %s" % exc)
+                    raise  # unexpected error
 
             decorators = self.loadDecorators()
             if decorators:
@@ -231,14 +233,15 @@ class ToscaSpec(object):
         return nodeSpec
 
     def loadDecorators(self):
-        decorators = {}
-        for import_tpl in self.template.nested_tosca_tpls.values():
-            decorators.update(import_tpl.get("decorators") or {})
+        decorators = CommentedMap()
+        for path, import_tpl in self.template.nested_tosca_tpls.items():
+            imported = import_tpl.get("decorators")
+            if imported:
+                decorators.update(imported)
         decorators.update(self.template.tpl.get("decorators") or {})
         return decorators
 
     def loadImportedDefaultTemplates(self):
-        decorators = {}
         for topology in self.template.nested_topologies.values():
             for nodeTemplate in topology.nodetemplates:
                 if (
@@ -247,7 +250,6 @@ class ToscaSpec(object):
                 ):
                     nodeSpec = NodeSpec(nodeTemplate, self)
                     self.nodeTemplates[nodeSpec.name] = nodeSpec
-        return decorators
 
     def loadWorkflows(self):
         # we want to let different types defining standard workflows like deploy
@@ -902,6 +904,9 @@ class TopologySpec(EntitySpec):
 class Workflow(object):
     def __init__(self, workflow):
         self.workflow = workflow
+
+    def __str__(self):
+        return "Workflow(%s)" % self.workflow.name
 
     def initialSteps(self):
         preceeding = set()

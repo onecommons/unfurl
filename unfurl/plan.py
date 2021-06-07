@@ -2,12 +2,15 @@
 # SPDX-License-Identifier: MIT
 import six
 from .runtime import NodeInstance
-from .util import UnfurlError, Generate, toEnum
+from .util import UnfurlError, Generate
+from .result import ChangeRecord
 from .support import Status, NodeState, Reason
 from .configurator import (
     ConfigurationSpec,
     getConfigSpecArgsFromImplementation,
     TaskRequest,
+    TaskRequestGroup,
+    SetStateRequest,
 )
 from .tosca import findStandardInterface
 
@@ -139,13 +142,10 @@ class Plan(object):
 
     def createResource(self, template):
         parent = self.findParentResource(template)
-        # XXX if joboption.check: status = Status.unknown
-        if not parent.parent or parent.missing:
-            # parent is root or parent doesn't exist so this can't exist either, set to pending
-            status = Status.pending
-        else:
+        if self.jobOptions.check:
             status = Status.unknown
-        # Set the initial status of new resources to status instead of defaulting to "unknown"
+        else:
+            status = Status.pending
         return NodeInstance(template.name, None, parent, template, status)
 
     def findImplementation(self, interface, operation, template):
@@ -159,25 +159,7 @@ class Plan(object):
         return default
 
     def _runOperation(self, startState, op, resource, reason=None, inputs=None):
-        ran = False
-        req = self.createTaskRequest(op, resource, reason, inputs)
-        if not req.error:
-            if startState is not None and (
-                not resource.state or startState > resource.state
-            ):
-                resource.state = startState
-            task = yield req
-            if task:
-                ran = True
-                # if the state hasn't been set by the task, advance the state
-                if (
-                    startState is not None
-                    and task.result.success
-                    and resource.state == startState
-                ):
-                    # task succeeded but didn't update nodestate
-                    resource.state = NodeState(resource.state + 1)
-        yield ran
+        return self.createTaskRequest(op, resource, reason, inputs, startState)
 
     def _executeDefaultConfigure(self, resource, reason=None, inputs=None):
         # 5.8.5.4 Node-Relationship configuration sequence p. 229
@@ -192,15 +174,14 @@ class Plan(object):
                 for relationship in capability.relationships:
                     # we're the target, source may not have been created yet
                     # XXX if not relationship.source create the instance
-                    gen = self._runOperation(
+                    req = self._runOperation(
                         NodeState.configuring,
                         "Configure.pre_configure_target",
                         relationship,
                         reason,
                     )
-                    req = gen.send(None)
                     if req:
-                        gen.send((yield req))
+                        yield req
 
         # we're the source, target has already started
         sourceConfigOps = resource.template.getRequirementInterfaces()
@@ -208,34 +189,31 @@ class Plan(object):
             if resource.template.getRequirementInterfaces():
                 # Operation to pre-configure the target endpoint
                 for relationship in resource.requirements:
-                    gen = self._runOperation(
+                    req = self._runOperation(
                         NodeState.configuring,
                         "Configure.pre_configure_source",
                         relationship,
                         reason,
                     )
-                    req = gen.send(None)
                     if req:
-                        gen.send((yield req))
+                        yield req
 
-        gen = self._runOperation(
+        req = self._runOperation(
             NodeState.configuring, "Standard.configure", resource, reason, inputs
         )
-        req = gen.send(None)
         if req:
-            gen.send((yield req))
+            yield req
 
         if sourceConfigOps:
             for requirement in resource.requirements:
-                gen = self._runOperation(
+                req = self._runOperation(
                     NodeState.configuring,
                     "Configure.post_configure_source",
                     requirement,
                     reason,
                 )
-                req = gen.send(None)
                 if req:
-                    gen.send((yield req))
+                    yield req
 
         if targetConfigOps:
             for capability in resource.capabilities:
@@ -243,20 +221,18 @@ class Plan(object):
                 # Operation to post-configure the target endpoint.
                 for relationship in capability.relationships:
                     # XXX if not relationship.source create the instance
-                    gen = self._runOperation(
+                    req = self._runOperation(
                         NodeState.configuring,
                         "Configure.post_configure_target",
                         relationship,
                         reason,
                     )
-                    req = gen.send(None)
                     if req:
-                        gen.send((yield req))
+                        yield req
 
     def executeDefaultDeploy(self, resource, reason=None, inputs=None):
         # 5.8.5.2 Invocation Conventions p. 228
         # 7.2 Declarative workflows p.249
-        ran = False
         missing = (
             resource.status in [Status.unknown, Status.absent, Status.pending]
             and resource.state != NodeState.stopped  # stop sets Status back to pending
@@ -268,28 +244,20 @@ class Plan(object):
             or self.jobOptions.force
             or (resource.status == Status.error and initialState)
         ):
-            gen = self._runOperation(
+            taskRequest = self._runOperation(
                 NodeState.creating, "Standard.create", resource, reason, inputs
             )
-            req = gen.send(None)
-            if req and gen.send((yield req)):
-                ran = True
-                if resource.created is None:
-                    resource.created = True
+            if taskRequest:
+                yield taskRequest
 
         if (
-            not ran and resource.state != NodeState.stopped
-        ) or resource.state == NodeState.created:
-            if resource.state and resource.state > NodeState.configured:
-                # rerunning configuration, reset state
-                assert not ran
-                resource.state = NodeState.creating
+            initialState
+            or resource.state < NodeState.configured
+            or (self.jobOptions.force and resource.state != NodeState.started)
+        ):
             gen = Generate(self._executeDefaultConfigure(resource, reason, inputs))
             while gen():
                 gen.result = yield gen.next
-            ran = gen.next
-            if ran and resource.created is None:
-                resource.created = True
 
             # XXX if the resource had already existed, call target_changed
             # "Operation to notify source some property or attribute of the target changed"
@@ -297,17 +265,13 @@ class Plan(object):
             #   for requirement in requirements:
             #     call target_changed
 
-        if resource.state in [NodeState.configured, NodeState.stopped] or (
-            not ran and resource.state == NodeState.created
-        ):
+        if initialState or resource.state != NodeState.started or self.jobOptions.force:
             # configured or if no configure operation exists then node just needs to have been created
-            gen = self._runOperation(
+            taskRequest = self._runOperation(
                 NodeState.starting, "Standard.start", resource, reason, inputs
             )
-            req = gen.send(None)
-            if req and gen.send((yield req)):
-                ran = True
-
+            if taskRequest:
+                yield taskRequest
         # XXX these are only called when adding instances
         # add_source: Operation to notify the target node of a source node which is now available via a relationship.
         # add_target: Operation to notify source some property or attribute of the target changed
@@ -325,10 +289,9 @@ class Plan(object):
             nodeState = NodeState.stopping
             op = "Standard.stop"
 
-            gen = self._runOperation(nodeState, op, resource, reason, inputs)
-            req = gen.send(None)
+            req = self._runOperation(nodeState, op, resource, reason, inputs)
             if req:
-                gen.send((yield req))
+                yield req
 
         if self.workflow == "stop":
             return
@@ -340,18 +303,51 @@ class Plan(object):
             nodeState = None
             op = "Install.revert"
 
-        gen = self._runOperation(nodeState, op, resource, reason, inputs)
-        req = gen.send(None)
+        req = self._runOperation(nodeState, op, resource, reason, inputs)
         if req:
-            gen.send((yield req))
-        # Note: Status.absent is set in _generateConfigurations
+            yield req
 
     def executeDefaultInstallOp(self, operation, resource, reason=None, inputs=None):
         req = self.createTaskRequest("Install." + operation, resource, reason, inputs)
-        if not req.error:
+        if req:
             yield req
 
-    def createTaskRequest(self, operation, resource, reason=None, inputs=None):
+    def filterConfig(self, config, target):
+        opts = self.jobOptions
+        if opts.readonly and config.workflow != "discover":
+            return None, "read only"
+        if opts.requiredOnly and not config.required:
+            return None, "required"
+        if opts.instance and target.name != opts.instance:
+            return None, "instance"
+        if opts.instances and target.name not in opts.instances:
+            return None, "instances"
+        return config, None
+
+    def filterTaskRequest(self, req):
+        configSpec = req.configSpec
+        configSpecName = configSpec.name
+        configSpec, filterReason = self.filterConfig(configSpec, req.target)
+        if not configSpec:
+            logger.debug(
+                "skipping configspec %s for %s: doesn't match %s filter",
+                configSpecName,
+                req.target.name,
+                filterReason,
+            )
+            return None  # treat as filtered step
+
+        return req
+
+    def createTaskRequest(
+        self,
+        operation,
+        resource,
+        reason=None,
+        inputs=None,
+        startState=None,
+        operation_host=None,
+    ):
         """implementation can either be a named artifact (including a python configurator class),
         or a file path"""
         interface, sep, action = operation.rpartition(".")
@@ -375,6 +371,8 @@ class Plan(object):
             else:
                 name = "%s.%s" % (interface, action)
             configSpec = ConfigurationSpec(name, action, **kw)
+            if operation_host:
+                configSpec.operation_host = operation_host
             logger.debug(
                 "creating configuration %s with %s to run for %s: %s",
                 configSpec.name,
@@ -387,11 +385,16 @@ class Plan(object):
                 'unable to find an implementation for operation "%s" on node "%s"'
                 % (action, resource.template.name)
             )
-            configSpec = ConfigurationSpec("#error", action, className=errorMsg)
             logger.debug(errorMsg)
-            reason = "error"
+            return None
 
-        return TaskRequest(configSpec, resource, reason or action)
+        req = TaskRequest(
+            configSpec,
+            resource,
+            reason or action,
+            startState=startState,
+        )
+        return self.filterTaskRequest(req)
 
     def generateDeleteConfigurations(self, include):
         for resource in getOperationalDependents(self.root):
@@ -402,8 +405,10 @@ class Plan(object):
             # check if creation and deletion is managed externally
             if not resource.created and not self.jobOptions.destroyunmanaged:
                 continue
-            if isinstance(resource.created, six.string_types):
-                # creation and deletion is managed by another instance
+            # check if creation and deletion is managed by another instance
+            if isinstance(
+                resource.created, six.string_types
+            ) and not ChangeRecord.isChangeId(resource.created):
                 continue
 
             # if resource exists (or unknown)
@@ -445,36 +450,22 @@ class Plan(object):
             if not configGenerator:
                 raise UnfurlError("can not get default for workflow " + workflow)
 
-        oldStatus = resource.localStatus
-        successes = 0
-        failures = 0
-        successStatus = self.getSuccessStatus(workflow)
+        # if the workflow is one that can modify a target, create a TaskRequestGroup
+        if self.getSuccessStatus(workflow):
+            group = TaskRequestGroup(resource, workflow)
+        else:
+            group = None
         gen = Generate(configGenerator)
         while gen():
-            result = yield gen.next
-            gen.result = result
-            task = gen.result
-            if not task:  # this was skipped (not shouldRun() or filtered step)
-                continue
-            if task.configSpec.workflow == workflow and task.target is resource:
-                if task.result.success:
-                    successes += 1
-                    # if task explicitly set the status use that
-                    if task.result.status is not None:
-                        successStatus = task.result.status
+            gen.result = gen.next
+            if gen.result:
+                taskRequest = gen.result
+                if group:
+                    group.children.append(taskRequest)
                 else:
-                    failures += 1
-
-        # note: in ConfigTask.finished():
-        # if any task failed and (maybe) modified, target.localStatus will be set to error or unknown
-        # if any task succeeded and modified, target.lastStateChange will be set, but not localStatus
-        # XXX we should apply ConfigTask.finished() logic here in aggregate (use aggregateStatus?):
-        # e.g. if any task failed and any task modified but none didn't explicily set status, set error state
-        # use case: configure succeeds but start fails
-        if successStatus is not None and successes and not failures:
-            resource.localStatus = successStatus
-            if oldStatus != successStatus and task and task.target is resource:
-                task.finishedWorkflow(successStatus)
+                    yield taskRequest
+        if group:
+            yield group
 
     def executeWorkflow(self, workflowName, resource):
         workflow = self.tosca.getWorkflow(workflowName)
@@ -506,7 +497,7 @@ class Plan(object):
                     "step did not match filter %s with %s", step.name, resource.name
                 )
                 continue
-            stepGenerator = self.executeStep(step, resource)
+            stepGenerator = self.executeStep(step, resource, workflow)
             result = None
             try:
                 while True:
@@ -519,9 +510,9 @@ class Plan(object):
             except StopIteration:
                 pass
 
-    def executeStep(self, step, resource):
+    def executeStep(self, step, resource, workflow):
         logger.debug("executing step %s for %s", step.name, resource.name)
-        result = None
+        reqGroup = TaskRequestGroup(resource, workflow)
         for activity in step.activities:
             if activity.type == "inline":
                 # XXX inputs
@@ -530,29 +521,23 @@ class Plan(object):
                     continue
                 gen = Generate(workflowGenerator)
                 while gen():
-                    gen.result = yield gen.next
-                if gen.result:
-                    result = gen.result
+                    gen.result = gen.next
+                    if gen.result:
+                        reqGroup.children.append(gen.result)
             elif activity.type == "call_operation":
                 # XXX need to pass operation_host (see 3.6.27 Workflow step definition p188)
                 # if target is a group can be value can be node_type or node template name
                 # if its a node_type select nodes matching the group
-                result = yield self.createTaskRequest(
+                req = self.createTaskRequest(
                     activity.call_operation,
                     resource,
                     "step:" + step.name,
                     activity.inputs,
                 )
+                if req:
+                    reqGroup.children.append(req)
             elif activity.type == "set_state":
-                if "managed" in activity.set_state:
-                    resource.created = (
-                        False if activity.set_state == "unmanaged" else True
-                    )
-                else:
-                    try:
-                        resource.state = activity.set_state
-                    except KeyError:
-                        resource.localStatus = toEnum(Status, activity.set_state)
+                reqGroup.children.append(SetStateRequest(resource, activity.set_state))
             elif activity.type == "delegate":
                 # XXX inputs
                 configGenerator = self._getDefaultGenerator(
@@ -562,15 +547,13 @@ class Plan(object):
                     continue
                 gen = Generate(configGenerator)
                 while gen():
-                    gen.result = yield gen.next
-                if gen.result:
-                    result = gen.result
+                    gen.result = gen.next
+                    if gen.result:
+                        reqGroup.children.append(gen.result)
 
-            if not result or not result.result.success:
-                yield step.on_failure
-                break
-        else:
-            yield step.on_success
+        # XXX  yield step.on_failure  # list of steps
+        yield reqGroup
+        yield step.on_success  # list of steps
 
     def _getTemplates(self):
         templates = (
@@ -753,7 +736,6 @@ class DeployPlan(Plan):
             installOp = None
 
         if installOp:
-            status = instance.status
             configGenerator = self._generateConfigurations(
                 instance, installOp, installOp
             )
@@ -765,13 +747,18 @@ class DeployPlan(Plan):
             if self.isInstanceReadOnly(instance):
                 return  # we're done
 
-            if instance.operational and status != instance.status:
-                return  # it checked out! we're done
-
-        configGenerator = self._generateConfigurations(instance, reason)
-        gen = Generate(configGenerator)
-        while gen():
-            gen.result = yield gen.next
+        if reason == Reason.reconfigure:
+            # XXX generate configurations: may need to stop, start, etc.
+            req = self.createTaskRequest(
+                "Standard.configure", instance, reason, startState=NodeState.configuring
+            )
+            if req:
+                yield req
+        else:
+            configGenerator = self._generateConfigurations(instance, reason)
+            gen = Generate(configGenerator)
+            while gen():
+                gen.result = yield gen.next
 
 
 class UndeployPlan(Plan):
@@ -879,11 +866,13 @@ class RunNowPlan(Plan):
                 operation = findStandardInterface(operation) + "." + operation
         for resource in resources:
             if configSpec:
-                yield TaskRequest(configSpec, resource, "run")
+                req = TaskRequest(configSpec, resource, "run")
+                yield self.filterTaskRequest(req)
             else:
-                req = self.createTaskRequest(operation, resource, "run")
-                if not req.error:  # if operation was found:
-                    req.configSpec.operation_host = operation_host
+                req = self.createTaskRequest(
+                    operation, resource, "run", operation_host=operation_host
+                )
+                if req:  # if operation was found:
                     yield req
 
 

@@ -244,7 +244,7 @@ class AnsibleConfigurator(TemplateConfigurator):
             args.append("--timeout=%s" % task.configSpec.timeout)
         if task.verbose > 0:
             args.append("-" + ("v" * task.verbose))
-        return args
+        return list(args)
 
     def getResultKeys(self, task, results):
         return task.inputs.get("resultKeys", [])

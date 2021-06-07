@@ -317,7 +317,8 @@ python
 
   Execute the given python function and evaluate to its return value.
   The function will being invoke the current `RefContext` as an argument.
-  If path is a relative, it will be treated as relative to the current source file.
+  If the path to the python script is a relative path, it will be treated as relative to the current source file
+  (ie. the template file that is invoking the expression).
 
 secret
 ^^^^^^

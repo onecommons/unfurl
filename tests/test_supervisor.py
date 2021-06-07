@@ -2,6 +2,7 @@ import os
 import signal
 import time
 import unittest
+import json
 
 from click.testing import CliRunner
 from six.moves import urllib
@@ -26,15 +27,16 @@ class SupervisorTest(unittest.TestCase):
         with cliRunner.isolated_filesystem():
             runner = Runner(YamlManifest(self.manifest))
             try:
-                job = runner.run(JobOptions(startTime=1))  # deploy
+                job = runner.run(JobOptions(startTime=1, check=True))  # deploy
                 assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
                 summary = job.jsonSummary()
+                # print(json.dumps(summary, indent=2))
                 self.assertEqual(
                     {
                         "id": "A01110000000",
                         "status": "ok",
-                        "total": 4,
-                        "ok": 4,
+                        "total": 5,
+                        "ok": 5,
                         "error": 0,
                         "unknown": 0,
                         "skipped": 0,
@@ -43,7 +45,6 @@ class SupervisorTest(unittest.TestCase):
                     summary["job"],
                 )
 
-                # print(json.dumps(summary, indent=2))
                 time.sleep(0.25)
                 f = urllib.request.urlopen("http://127.0.0.1:8012/")
                 expected = b"Directory listing for /"
