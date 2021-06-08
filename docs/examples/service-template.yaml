@@ -76,16 +76,10 @@ topology_template:
       requirements:
         - host: compute
         - db:
-            node: db 
-            relationship: # inline relationship template
-              properties:
-                username: myapp
-                password:
-                  eval:
-                    secret:
-                      myapp_db_pw
+            node: mydb 
+            relationship: mydb_connection
               
-    db:
+    mydb:
       type: base:postgresdb
 
     compute:
@@ -96,3 +90,13 @@ topology_template:
             num_cpus: 1
             disk_size: 200GB
             mem_size: 512MB
+
+relationship_templates:
+  mydb_connection:
+    type: base:relationships.dbconnection
+    properties:
+      username: myapp
+      password:
+        eval:
+          secret:
+            myapp_db_pw

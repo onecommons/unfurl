@@ -12,7 +12,7 @@ Node Template
   A Node Template specifies the occurrence of a component node as part of a `Topology` Template. Each Node Template refers to a Node Type that defines the semantics of the node (e.g., properties, attributes, requirements, capabilities, interfaces). Node Types are defined separately for reuse purposes.
 
 Entity Types
-  Every entity in TOSCA (Nodes, Relationships, Artifacts and Data) has a declared type and custom type hierarchies can be defined in the *Service Template*.
+  Every entity in TOSCA (including Nodes, Relationships, Artifacts and Data) has a declared type and custom type hierarchies can be defined in the `Service Template`.
 
 Instance
   The running instance of a `Node template`, typically instantiated when running the deployment workflow.
