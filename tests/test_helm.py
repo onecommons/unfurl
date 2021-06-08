@@ -82,6 +82,9 @@ class HelmTest(unittest.TestCase):
         # print(runner.manifest.statusSummary())
         # print(run1.jsonSummary(True))
         # print(run1._jsonPlanSummary(True))
+
+        if sys.version_info[0] < 3:
+            return # task order not guaranteed in python 2.7
         self.assertEqual(
             summary,
             {
@@ -163,6 +166,11 @@ class HelmTest(unittest.TestCase):
         #### installs the chart repo in a tox's tmp directly and will be deleted after the test run
         #### so test_undeploy will not find it
         ###########################################
+
+        # note! if tests fail may need to run:
+        #      helm uninstall mysql-test -n unfurl-helm-unittest
+        #  and kubectl delete namespace unfurl-helm-unittest
+
         runner = Runner(YamlManifest(self.manifest))
         run = runner.run(JobOptions(workflow="check", startTime=2))
         summary = run.jsonSummary()
@@ -172,6 +180,8 @@ class HelmTest(unittest.TestCase):
         # print(runner.manifest.statusSummary())
         # print(run.jsonSummary(True))
         summary = run.jsonSummary()
+        if sys.version_info[0] < 3:
+            return # task order not guaranteed in python 2.7
         self.assertEqual(
             summary,
             {
@@ -251,10 +261,6 @@ class HelmTest(unittest.TestCase):
         # print(runner.manifest.statusSummary())
         # print(run2.jsonSummary(True))
         summary2 = run2.jsonSummary()
-
-        # note! if tests fail may need to run:
-        #      helm uninstall mysql-test -n unfurl-helm-unittest
-        #  and kubectl delete namespace unfurl-helm-unittest
 
         # note: this test relies on stable_repo being place in the helm cache by test_deploy()
         # comment out the repository requirement to run this test standalone
