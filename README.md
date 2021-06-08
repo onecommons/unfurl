@@ -82,3 +82,10 @@ Arguments after `--` are passed to the test runner, e.g. to run an individual te
 ## Getting Started
 
 Check out the rest of Unfurl's documentation [here](https://unfurl.run/docs/get-started-step-by-step.html)
+
+### Status and Caveats
+
+Unfurl is in early stages of development and should not be used in production. In particular be mindful of these limitations:
+
+* Locking is not implemented to prevent multiple instances of unfurl running at the same time from modifying the same resources.
+* Incremental updates are only partially implemented. You can incrementally update an ensemble by explicitly limit jobs with the `--force` and `--instance` [command line options](docs/cli.html#unfurl-deploy).
