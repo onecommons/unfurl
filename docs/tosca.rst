@@ -9,17 +9,17 @@ TOSCA
 Introduction
 ^^^^^^^^^^^^
 
-Topology and Orchestration Specification for Cloud Applications (TOSCA) is an `OASIS open standard <https://www.oasis-open.org/committees/tc_home.php?wg_abbrev=tosca>`_ that provides language to describe a topology of cloud based web services, their components, relationships, and the processes that manage them. TOSCA provides mechanisms for abstraction and composition, thereby enabling portability and automated management across cloud providers regardless of underlying platform or infrastructure. 
+The Topology and Orchestration Specification for Cloud Applications (TOSCA) is an `OASIS open standard <https://www.oasis-open.org/committees/tc_home.php?wg_abbrev=tosca>`_ that provides language to describe a topology of cloud based web services, their components, relationships, and the processes that manage them. TOSCA provides mechanisms for abstraction and composition, thereby enabling portability and automated management across cloud providers regardless of underlying platform or infrastructure. 
  
 The TOSCA specification allows the user to define a `service template` which describes an online application or service and how to deploy it. In order to successfully author a TOSCA service template, it is important to understand the various components used within the TOSCA specification and how are they interlinked:
 
-* Node templates describe the resources that will be instantiated when the service template is deployed. They are linked to other nodes through relationships.
-* Relationship templates can be used to provide additional information about those relationships, for example how to establish a connection between two nodes.
-* Interfaces that define operations. TOSCA defines a standard interface for lifecycle management (deploying, starting, stopping and destroying resources) and the user can define additional interfaces for "Day Two" operations, such as maintainence tasks.
-* Artifacts such as container images, software packages, or files that need to be deployed or used as an implementation for an operation. 
-* Policy: Defines a condition or a set of actions for a Node. The orchestrator evaluates the conditions within the Policy against events that trigger. The required actions are then performed against the corresponding Interfaces.
-* Workflows: Allows you to define a set of manually defined tasks to run in a sequential order.
-* Type definitons: TOSCA provides an object-oriented type system that lets you declare types for all of the above components as well as custom data types.
+* *Node templates* describe the resources that will be instantiated when the service template is deployed. They are linked to other nodes through relationships.
+* *Relationship templates* can be used to provide additional information about those relationships, for example how to establish a connection between two nodes.
+* *Interfaces* that define operations on nodes that are invoked by a TOSCA orchestrator like Unfurl. TOSCA defines a standard interface for lifecycle management (deploying, starting, stopping and destroying resources) and the user can define additional interfaces for "Day Two" operations, such as maintainence tasks.
+* *Artifacts* such as container images, software packages, or files that need to be deployed or used as an implementation for an operation. 
+* *Policies* which define a condition or a set of actions for a Node. The orchestrator evaluates the conditions within the Policy against events that trigger. The required actions are then performed against the corresponding Interfaces.
+* *Workflows* allows you to define a set of manually defined tasks to run in a sequential order.
+* *Type definitons* TOSCA provides an object-oriented type system that lets you declare types for all of the above components as well as custom data types.
 
 .. seealso:: For more information, see the full `TOSCA Language Reference`.
 
@@ -43,10 +43,10 @@ A TOSCA service template contains all the information needed to deploy the servi
 
 A service template has the following sections:
 
-* Metadata sections, which includes the ``tosca_definitions_version``, ``description``, ``metadata``, ``dsl_definitions``
+* :doc:`Metadata <toscaref/spec-tosca_def_version>` sections, which includes the ``tosca_definitions_version``, ``description``, ``metadata``, ``dsl_definitions``
 * `imports` and `repositories` sections 
 * Types sections that contain types of Node, Relationships, Capabilities, Artifacts, Interfaces, Policy and Groups
-* Topology Template which include sections for `inputs`, `outputs`, Node and relationship templates, `substitution_mappings`, `groups`, `policies` and `workflows`.
+* Topology Template which include sections for ``inputs``, ``outputs``, Node and relationship templates, `substitution_mappings`, `groups`, `policies` and `workflows`.
 
 Example
 -------
@@ -182,6 +182,8 @@ Example
                
      mydb:
        type: base:postgresdb
+       properties:
+          name: mydb
 
      compute:
        type: unfurl.nodes.Compute

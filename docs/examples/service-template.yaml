@@ -81,6 +81,8 @@ topology_template:
               
     mydb:
       type: base:postgresdb
+      properties:
+        name: mydb
 
     compute:
       type: unfurl.nodes.Compute
