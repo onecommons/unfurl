@@ -28,7 +28,7 @@ script:
   - kubectl get node
   - k3d kubeconfig merge --all -d
   - kubectl config view
-  - tox
+  - tox -- -s
 jobs:
   include:
     - stage: deploy # only run after test jobs complete
