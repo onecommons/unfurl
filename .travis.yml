@@ -33,7 +33,7 @@ script:
 jobs:
   include:
     - stage: deploy # only run after test jobs complete
-      if: branch == master
+      if: branch == master OR tag =~ /^\d+\.\d+\.\d+$/
       python: 3.9
       script: # build, tag and push to docker hub
        - echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USER" --password-stdin
