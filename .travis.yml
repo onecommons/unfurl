@@ -9,6 +9,7 @@ env:
     - TOX_SKIP_ENV=.+(docker|lock)
     - tf_version=0.13.6
     - helm_version=3.3.4
+    - UNFURL_LOGGING=info
 before_install:
   - wget https://releases.hashicorp.com/terraform/"$tf_version"/terraform_"$tf_version"_linux_amd64.zip
   - unzip terraform_"$tf_version"_linux_amd64.zip
