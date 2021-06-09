@@ -70,6 +70,10 @@ logging.captureWarnings(True)
 _logHandler = None
 _logLevel = logging.NOTSET
 
+logging.addLevelName(5, 'TRACE')
+logging.TRACE = 5
+logging.addLevelName(15, 'VERBOSE')
+logging.VERBOSE = 15
 
 class sensitive(object):
     redacted_str = "<<REDACTED>>"
@@ -103,7 +107,7 @@ def initLogging(level=None, logfile=None):
     # global _logHandler so we can call initLogging multiple times
     global _logHandler
     if not _logHandler:
-        rootLogger.setLevel(logging.DEBUG)  # need to set this first
+        rootLogger.setLevel(logging.TRACE)  # need to set this first
         rootLogger.addFilter(f)
 
         _logHandler = logging.StreamHandler()
@@ -118,7 +122,7 @@ def initLogging(level=None, logfile=None):
             "[%(asctime)s] %(name)s:%(levelname)s: %(message)s"
         )
         ch.setFormatter(formatter)
-        ch.setLevel(logging.DEBUG)
+        ch.setLevel(logging.TRACE)
         ch.addFilter(f)
         rootLogger.addHandler(ch)
 
