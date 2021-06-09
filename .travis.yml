@@ -41,7 +41,8 @@ jobs:
        - docker push onecommons/unfurl:${TRAVIS_TAG:-$TRAVIS_COMMIT}
       deploy:
         on:
-          condition: $TRAVIS_TAG =~ /^\d+\.\d+\.\d+$/
+          all_branches: true
+          condition: $TRAVIS_TAG =~ ^\d+\.\d+\.\d+$
         provider: pypi
         username: __token__
         password: $PYPI_TOKEN
