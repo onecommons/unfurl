@@ -71,7 +71,7 @@ as the host. The inventory will include groups and variables derived from the fo
   type ``unfurl.relationships.ConnectsTo.Ansible`` uses its ``connection`` and ``hostvars`` properties.
 * If the operation_host is declared as a member of group of type ``unfurl.groups.AnsibleInventoryGroup`` in the service template,
   the group's name will be added as an ansible group along with the contents of the group's ``hostvars`` property.
-* If ``ansible_host`` wasn't previously set, the host name will be set to the operation_host's `public_ip` or ``private_ip`` in that order, otherwise set it to ``localhost``.
+* If ``ansible_host`` wasn't previously set, the host name will be set to the operation_host's :ref:`public_ip<tosca_types>` or ``private_ip`` in that order, otherwise set it to ``localhost``.
 * If the host is a Google compute instance the host name will be set to ``INSTANCE_NAME.ZONE.PROJECT`` e.g. ``instance-1.us-central1-a.purple-sanctum-25912``. This is for compatibility with the ``gcloud compute config-ssh`` command to enable Unfurl to use those credentials.
 
 Delegate
@@ -140,8 +140,8 @@ Inputs
 Terraform
 ==========
 
-The Terraform configurator will be invoked on any `node template` with the type `unfurl.nodes.Installer.Terraform`.
-It can also be used to implement any operation regardless of the node type by setting the `implementation` to `unfurl.configurators.terraform.TerraformConfigurator`.
+The Terraform configurator will be invoked on any `node template` with the type :ref:`unfurl.nodes.Installer.Terraform<unfurl_types>`.
+It can also be used to implement any operation regardless of the node type by setting the `implementation` to :ref:`unfurl.configurators.terraform.TerraformConfigurator<unfurl_types>`.
 It will invoke the appropriate terraform command (e.g "apply" or "destroy") based on the job's workflow.
 
 The Terraform configurator manages the Terraform state file itself
