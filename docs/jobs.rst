@@ -24,7 +24,7 @@ a job is created and run. Running a job entails these steps:
 5. After the job completes, `ensemble.yaml` is updated with any changes to its instances status.
    ``jobs.tsv`` will also be updated with line for each task run and a new `job.yaml` file is created in the ``jobs`` folder.
 6. Depending on the commit options of the job, the ensemble's git repository will see a new commit,
-   along with any other repository that had changes to it (e.g. files in `spec` directory).
+   along with any other repository that had changes to it (e.g. files in the `spec` directory).
 
 Operational status and state
 =============================
@@ -41,17 +41,20 @@ its relationship to its specification:
   :Absent:   Instance confirmed to not exist.
 
 When a workflow is applied to an instance it will be skipped if it already has
-the desired status (either "OK" or "Absent"). If its status is `Unknown`,
+the desired status (either "OK" or "Absent"). If its status is ``Unknown``,
 `check` will be run first. Otherwise the workflow will be applied by executing one or more `operations` on a target instance.
 
-If it succeeds, the target instance status will be set to either `OK` or `Absent`
+If it succeeds, the target instance status will be set to either ``OK`` or ``Absent``
 for `deploy` and `undeploy`, respectively.
 If it fails, the status will depend on whether the instance was modified by the operation.
-If it has been, the status is set to `Error` (or to `Degraded` the task was optional);
-if the operation didn't report whether or not it was modified, it is set to `Unknown`.
+If it has been, the status is set to ``Error`` (or to ``Degraded`` the task was optional);
+if the operation didn't report whether or not it was modified, it is set to ``Unknown``.
 Otherwise, the status won't be changed.
 
-In addition, each instance has a "node state" which indicates where the instance is in
+Node state
+~~~~~~~~~~
+
+In addition, each instance has a ``node state`` which indicates where the instance is in
 it deployment lifecycle. Node states are defined by TOSCA and include:
 ``initial``, ``creating``, ``created``, ``configuring``, ``configured``,
 ``starting``, ``started``, ``stopping``, ``deleting``, ``deleted``, and ``error``.

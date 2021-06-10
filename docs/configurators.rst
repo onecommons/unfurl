@@ -102,7 +102,7 @@ Inputs
            If it is not set, the task will not be executed at all during a dry run job.
   :shell: If a string, the executable of the shell to execute the command in (e.g. ``/usr/bin/bash``).
           A boolean indicates whether the command if invoked through the default shell or not.
-          If omitted, it will be set to true if `command` is a string or false if it is a list.
+          If omitted, it will be set to true if ``command`` is a string or false if it is a list.
   :echo: (*Default: true*) Whether or not should be standard output (and stderr)
          should be echod to Unfurl's stdout while the command is being run.
          (Doesn't affect the capture of stdout and stderr.)
