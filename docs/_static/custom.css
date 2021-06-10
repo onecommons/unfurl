@@ -54,21 +54,18 @@ table.align-default {
 .wy-nav-side {
 
     color: #9b9b9b;
-    background: #fcfcfc; 
+    background: #fcfcfc;
 
 }
 
 /*Side nav bar on hover selection*/
-
 a {
     color: #00D2D9;
-
 }
 
 /*Main RST body content*/
 
 .wy-nav-content {
-
     max-width: 850px;
     margin-left: 7%;
 }
@@ -77,13 +74,15 @@ a {
 /*Extra left background*/
 
 @media screen and (min-width: 1400px) {
-    .wy-nav-content-wrap {
-    background: #fcfcfc; 
-    }
-    .wy-nav-content {
-
+    .wy-nav-content, .wy-nav-content-wrap  {
         background: #fcfcfc;
     }
+}
+
+@media screen and (min-width: 1100px) {
+  .wy-nav-content, .wy-nav-content-wrap  {
+      background: #fcfcfc;
+  }
 }
 
 /*In line code color*/
