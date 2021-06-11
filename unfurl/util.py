@@ -185,6 +185,8 @@ def toYamlText(val):
     # convert or copy string (copy to deal with things like AnsibleUnsafeText)
     val = str(val)
     if "\n" in val:
+        if six.PY2 and isinstance(val, str):
+            val = val.decode("utf-8")
         return FoldedScalarString(val)
     return val
 
