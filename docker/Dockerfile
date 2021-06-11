@@ -1,14 +1,9 @@
-FROM python:3.9.4-slim-buster
+FROM python:3.9.5-slim
 
-RUN apt -qq update && \
-    apt install -qq -y git && \
+RUN apt-get -qq update && \
+    apt-get install -qq -y git && \
     rm -rf /var/lib/apt/lists/*
 
-RUN mkdir -p unfurl 
-WORKDIR /unfurl 
+COPY . /unfurl
 
-COPY . .
-
-RUN pip3 install git+file:$PWD#egg=unfurl[full]
-
-RUN cd ../ && rm -rf unfurl
+RUN pip install git+file:/unfurl#egg=unfurl[full]
