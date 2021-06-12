@@ -275,7 +275,7 @@ class YamlManifest(ReadOnlyManifest):
 
         self.changeLogPath = manifest.get("changeLog")
         self.jobsFolder = manifest.get("jobsFolder", "jobs")
-        if not self.changeLogPath and localEnv:
+        if not self.changeLogPath and localEnv and manifest.get("changes") is None:
             # save changes to a separate file if we're in a local environment
             self.changeLogPath = DefaultNames.JobsLog
         self.loadChanges(manifest.get("changes"), self.changeLogPath)
@@ -450,7 +450,9 @@ class YamlManifest(ReadOnlyManifest):
             if self.changeSets:
                 # add list() for 3.7
                 for change in reversed(list(self.changeSets.values())):
-                    if not hasattr(change, 'target') or not hasattr(change, 'operation'):
+                    if not hasattr(change, "target") or not hasattr(
+                        change, "operation"
+                    ):
                         continue
                     key = (change.target, change.operation)
                     last = operationIndex.setdefault(key, change.changeId)
@@ -602,6 +604,10 @@ class YamlManifest(ReadOnlyManifest):
             changes = list(map(saveTask, job.workDone.values()))
             if self.changeLogPath:
                 self.manifest.config["changeLog"] = self.changeLogPath
+
+                jobLogPath = self.getJobLogPath(jobRecord["startTime"])
+                jobLogRelPath = os.path.relpath(jobLogPath, os.path.dirname(self.path))
+                jobRecord["changes"] = jobLogRelPath
             else:
                 self.manifest.config.setdefault("changes", []).extend(changes)
         else:
@@ -683,7 +689,7 @@ class YamlManifest(ReadOnlyManifest):
         return committed
 
     def getChangeLogPath(self):
-        return os.path.join(self.getBaseDir(), self.changeLogPath)
+        return os.path.join(self.getBaseDir(), self.changeLogPath or DefaultNames.JobsLog)
 
     def getJobLogPath(self, startTime, ext=".yaml"):
         name = os.path.basename(self.getChangeLogPath())
@@ -715,7 +721,7 @@ class YamlManifest(ReadOnlyManifest):
                     if k in jobRecord
                 }
             )
-            attrs["changelog"] = jobLogRelPath
+            attrs["changes"] = jobLogRelPath
             f.write(job.log(attrs))
 
             for change in changes:

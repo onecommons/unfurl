@@ -254,7 +254,10 @@
             "options": { "type": "object" },
             "summary": { "type": "string" },
             "specDigest": { "type": "string" },
-            "endCommit": { "type": "string" }
+            "endCommit": { "type": "string" },
+            "changes": { "type": "string",
+                "description": "path to the full job record"
+            }
           }
         }
       ],
