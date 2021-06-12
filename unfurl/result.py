@@ -308,14 +308,16 @@ class ExternalValue(ChangeAware):
 
 
 _Deleted = object()
-
+_Get = object()
 
 class Result(ChangeAware):
+    # ``original`` is managed by the Results that owns this Result
+    # in __getitem__ and __setitem__
     __slots__ = ("original", "resolved", "external", "select")
 
     def __init__(self, resolved):
         self.select = ()
-        self.original = _Deleted
+        self.original = _Deleted # assume this is new to start
         if isinstance(resolved, ExternalValue):
             self.resolved = resolved.get()
             assert not isinstance(self.resolved, Result), self.resolved
@@ -340,27 +342,23 @@ class Result(ChangeAware):
         return self.resolved
 
     def hasDiff(self):
-        if self.original is _Deleted:  # this is a new item
-            return True
-        else:
+        if self.original is not _Get:
+            # this Result is a new or modified
             if isinstance(self.resolved, Results):
                 return self.resolved.hasDiff()
             else:
-                newval = self.asRef()
-                if self.original != newval:
-                    return True
+                return self.original != self.resolved
         return False
 
     def getDiff(self):
         if isinstance(self.resolved, Results):
             return self.resolved.getDiff()
         else:
-            val = self.asRef()
-            if not self.external and isinstance(val, Mapping):
+            new = self.asRef()
+            if isinstance(self.resolved, Mapping) and isinstance(self.original, Mapping):
                 old = serializeValue(self.original)
-                if isinstance(old, Mapping):
-                    return diffDicts(old, val)
-            return val
+                return diffDicts(old, new)
+            return new
 
     def __sensitive__(self):
         if self.external:
@@ -473,7 +471,7 @@ class Results(object):
         else:
             if isinstance(val, Result):
                 assert not isinstance(val.resolved, Result), val
-                if val.original is _Deleted:
+                if val.original is _Deleted or val.original is _Get:
                     val = val.asRef()
                 else:
                     val = val.original
@@ -511,6 +509,7 @@ class Results(object):
 
         val = self._attributes[key]
         if isinstance(val, Result):
+            # already resolved
             assert not isinstance(val.resolved, Result), val
             return val.resolved
         else:
@@ -526,18 +525,29 @@ class Results(object):
             # will return a Result if val was an expression that was evaluated
             if isinstance(resolved, Result):
                 result = resolved
-                result.original = val
                 resolved = result.resolved
             else:
                 result = Result(resolved)
-                result.original = val
+            result.original = _Get
             self._attributes[key] = result
             assert not isinstance(resolved, Result), val
             return resolved
 
     def __setitem__(self, key, value):
         assert not isinstance(value, Result), (key, value)
-        self._attributes[key] = Result(value)
+        if key in self._attributes:
+            resolved = self[key]
+            if resolved != value:
+                # exisiting value changed
+                result = self._attributes[key]
+                if result.original is _Get:
+                    # we haven't saved the original value yet
+                    result.original = result.resolved
+                result.resolved = value
+        else:
+            self._attributes[key] = Result(value)
+
+        # remove from deleted if it's there
         self._deleted.pop(key, None)
 
     def __delitem__(self, index):

@@ -80,7 +80,7 @@ awsTestManifest = """\
       AWS_ACCESS_KEY_ID: mockAWS_ACCESS_KEY_ID
     connections:
       aws_test: aws
-
+  changes: [] # set this so we save changes here instead of the job changelog files
   spec:
     service_template:
       topology_template:
@@ -95,7 +95,7 @@ awsTestManifest = """\
                     className: unfurl.configurators.TemplateConfigurator
                   inputs:
                     # test that the aws connection (defined in the home manifest and renamed in the context to aws_test)
-                    # set its AWS_ACCESS_KEY_ID to the environment variable
+                    # set its AWS_ACCESS_KEY_ID to the environment variable set in the current context
                     resultTemplate: |
                       - name: SELF
                         attributes:
@@ -187,7 +187,7 @@ class GitRepoTest(unittest.TestCase):
 
     def test_split_repos(self):
         """
-        test that we can connect to AWS account
+        test that the init cli command sets git repos correctly in "polyrepo" mode.
         """
         runner = CliRunner()
         with runner.isolated_filesystem():
@@ -289,6 +289,16 @@ ensemble.yaml
                 "access_key2"
             ]
             self.assertEqual(access_key2, "mockAWS_ACCESS_KEY_ID")
+
+            # check that these are the only changes are the only recorded changes
+            changes = {'::testNode': {'access_key': 'mockAWS_ACCESS_KEY_ID', 'access_key2': 'mockAWS_ACCESS_KEY_ID'}}
+            self.assertEqual(changes, job.runner.manifest.manifest.config["changes"][0]["changes"])
+
+            # changeLogPath = (
+            #     "ensemble/" + job.runner.manifest.manifest.config["lastJob"]["changes"]
+            # )
+            # with open(changeLogPath) as f:
+            #     print(f.read())
 
             # tasks = list(job.workDone.values())
             # print("task", tasks[0].summary())
