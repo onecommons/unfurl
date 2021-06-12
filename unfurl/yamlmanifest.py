@@ -273,7 +273,7 @@ class YamlManifest(ReadOnlyManifest):
         spec = manifest.get("spec", {})
         status = manifest.get("status", {})
 
-        self.changeLogPath = manifest.get("changeLog")
+        self.changeLogPath = manifest.get("jobsLog")
         self.jobsFolder = manifest.get("jobsFolder", "jobs")
         if not self.changeLogPath and localEnv and manifest.get("changes") is None:
             # save changes to a separate file if we're in a local environment
@@ -603,11 +603,11 @@ class YamlManifest(ReadOnlyManifest):
             self.manifest.config["lastJob"] = jobRecord
             changes = list(map(saveTask, job.workDone.values()))
             if self.changeLogPath:
-                self.manifest.config["changeLog"] = self.changeLogPath
+                self.manifest.config["jobsLog"] = self.changeLogPath
 
                 jobLogPath = self.getJobLogPath(jobRecord["startTime"])
                 jobLogRelPath = os.path.relpath(jobLogPath, os.path.dirname(self.path))
-                jobRecord["changes"] = jobLogRelPath
+                jobRecord["changelog"] = jobLogRelPath
             else:
                 self.manifest.config.setdefault("changes", []).extend(changes)
         else:
@@ -721,7 +721,7 @@ class YamlManifest(ReadOnlyManifest):
                     if k in jobRecord
                 }
             )
-            attrs["changes"] = jobLogRelPath
+            attrs["changelog"] = jobLogRelPath
             f.write(job.log(attrs))
 
             for change in changes:

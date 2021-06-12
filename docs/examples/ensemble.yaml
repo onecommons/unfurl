@@ -46,10 +46,10 @@ status:
         child1:
           template: aNodeTemplate
           # ...
-changeLog: changes.yaml
 lastJob:
   changeId: A0920aMf0000
   startTime: 2020-09-02-00-36-22-664763
+  changelog: jobs/job2020-09-02-00-36-22-664763.yaml
   workflow: deploy
   options:
     force: true
@@ -59,3 +59,4 @@ lastJob:
   priority: required
   readyState:
     local: ok
+jobLog: jobs.tsv

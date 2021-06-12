@@ -426,7 +426,7 @@ def findSchemaErrors(obj, schema, baseUri=None):
     error = jsonschema.exceptions.best_match(errors)
     if not error:
         return None
-    message = "%s in %s" % (error.message, "/".join(error.absolute_path))
+    message = "%s in %s" % (error.message, "/".join([str(p) for p in error.absolute_path]))
     return message, errors
 
 

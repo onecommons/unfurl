@@ -255,7 +255,7 @@
             "summary": { "type": "string" },
             "specDigest": { "type": "string" },
             "endCommit": { "type": "string" },
-            "changes": { "type": "string",
+            "changelog": { "type": "string",
                 "description": "path to the full job record"
             }
           }
@@ -363,7 +363,7 @@
       "default": {}
     },
     "lastJob": { "$ref": "#/definitions/job" },
-    "changeLog": { "type": "string" },
+    "jobsLog": { "type": "string" },
     "jobsFolder": { "type": "string" },
     "changes": { "$ref": "#/definitions/changes" }
   },
