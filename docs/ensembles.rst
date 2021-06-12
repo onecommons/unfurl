@@ -31,7 +31,7 @@ Reproducibility deployments is a major goal of Unfurl but because live service a
 As the above diagram illustrates, if we execute the Unfurl engine within a clean, isolated environment and have it target a well-defined, isolated cloud environment it is a lot easier to create consistent, reproducible deployments.
 Then we can view it as an atomic entity and treat them much like we would a container and apply similar operations such as clone, migrate, pause and snapshot.
 
-The deployment environment is set by specifying the :doc:`Runtime Environment` that Unfurl runs in. It can be a Docker container or local isolation achieved through separate executables, environment variables, and Python virtual environment.
+The deployment environment is set by specifying the :ref:`runtime environment<runtime>` that Unfurl runs in. It can be a Docker container or local isolation achieved through separate executables, environment variables, and Python virtual environment.
 
 The cloud environment is more variable -- dependent on the application, for example, the isolation boundary could be a cloud provider account, a Kubernetes cluster, or a Kubernetes namespace. But any of those resources can be marked as a boundary, enabling Unfurl to apply the appropriate semantics and optimizations.
 
@@ -55,7 +55,7 @@ Anatomy of a Manifest
 At the core of Unfurl is an `Ensemble` manifest, a YAML file that includes:
 
 * A model of the cloud resources it manages (using the OASIS's `TOSCA` 1.3 ("Topology and Orchestration Specification for Cloud Applications") standard)
-* Implementations of operations and workflows that can be applied to those resources (via `configurators`)
+* Implementations of operations and workflows that can be applied to those resources (via :ref:`configurators<configurators>`)
 * A record of the operational status of those resources.
 * A record of the state of the repositories, artifacts, and runtime environment that were used during deployment.
 

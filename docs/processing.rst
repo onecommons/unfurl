@@ -1,3 +1,5 @@
+.. _yaml_merge_directives:
+
 =====================
 YAML Merge directives
 =====================

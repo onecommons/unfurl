@@ -49,6 +49,10 @@ extlinks = {
         "../_static/TOSCA-Simple-Profile-YAML-v1.3-os-toc.html#%s",
         "TOSCA 1.3 Specification",
     ),
+    "cli": (
+    "cli.html#%s",
+    "Command Line",
+    ),
 }
 
 rst_epilog = """

@@ -16,9 +16,9 @@ Job Lifecycle
 When a command that invokes a workflow is executed (`deploy`, `undeploy`, `check`, `discover` and `run`)
 a job is created and run. Running a job entails these steps:
 
-1. YAML parsed and `merge directives` are processed
+1. YAML parsed and :ref:`merge directives<yaml_merge_directives>` are processed
 2. Schema is validated and model instantiated. The command will exit if there are errors.
-3. A plan is constructed based on the selected workflow and job options (use `unfurl plan` command to preview) and the job begins.
+3. A plan is constructed based on the selected workflow and job options (use :cli:`unfurl plan<unfurl-plan>` command to preview) and the job begins.
 4. For each operation a task is generated and the operation's `inputs` are lazily evaluated
    if referenced, including Unfurl expressions, TOSCA functions, and template strings.
 5. After the job completes, `ensemble.yaml` is updated with any changes to its instances status.
@@ -42,7 +42,7 @@ its relationship to its specification:
 
 When a workflow is applied to an instance it will be skipped if it already has
 the desired status (either "OK" or "Absent"). If its status is ``Unknown``,
-`check` will be run first. Otherwise the workflow will be applied by executing one or more `operations` on a target instance.
+`check` will be run first. Otherwise the workflow will be applied by executing one or more :ref:`operations<operation>` on a target instance.
 
 If it succeeds, the target instance status will be set to either ``OK`` or ``Absent``
 for `deploy` and `undeploy`, respectively.
@@ -58,16 +58,18 @@ In addition, each instance has a ``node state`` which indicates where the instan
 it deployment lifecycle. Node states are defined by TOSCA and include:
 ``initial``, ``creating``, ``created``, ``configuring``, ``configured``,
 ``starting``, ``started``, ``stopping``, ``deleting``, ``deleted``, and ``error``.
-See
-`TOSCA 1.3, §3.4.1 <https://docs.oasis-open.org/tosca/TOSCA-Simple-Profile-YAML/v1.3/cos01/TOSCA-Simple-Profile-YAML-v1.3-cos01.html#_Toc454457724>`_ for a complete definitions
 
-As `operations` are executed during a job, the target instance's `node state` is updated.
+.. seealso::
+
+ `TOSCA 1.3, §3.4.1 <https://docs.oasis-open.org/tosca/TOSCA-Simple-Profile-YAML/v1.3/cos01/TOSCA-Simple-Profile-YAML-v1.3-cos01.html#_Toc454457724>`_ for a complete definitions
+
+As :ref:`operations<operation>` are executed during a job, the target instance's `node state` is updated.
 
 ChangeIds
 ==========
 
-Each `task` in a `job` corresponds to an operation that was executed and is assigned a
-`changeid`. Each task is recorded in the job's `changelog` as a `ConfigChange`,
+Each :ref:`task<tasks>` in a `job` corresponds to an operation that was executed and is assigned a
+`changeid`. Each task is recorded in the job's :ref:`changelog<ensemble_yaml>` as a `ConfigChange`,
 which designed so that it can replayed to reproduce the instance.
 
 ChangeIds are unique within the lifespan of an ensemble and sortable using an encoded timestamp.

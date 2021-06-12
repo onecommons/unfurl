@@ -30,8 +30,8 @@ Not yet implemented
 The following feature are either not yet implemented or don't currently 
 conform with the TOSCA 1.3 specification:
 
-* The ``get_operation_output`` function (use `resultTemplate` instead)
-* "copy" keyword (use the ``dsl`` section or `merge directives` instead)
+* The ``get_operation_output`` function (use :ref:`resultTemplate<resulttemplate>` instead)
+* "copy" keyword (use the ``dsl`` section or :ref:`merge directives<yaml_merge_directives>` instead)
 * `get_artifact` function (only implemented for artifacts that are container images)
 * CSAR manifests and archives (implemented but untested)
 * substitution mapping

@@ -1,3 +1,5 @@
+.. _configurators:
+
 ===============
 Configurators
 ===============
@@ -110,6 +112,8 @@ Inputs
   :done: As as `done` defined by the `Template` configurator.
   :resultTemplate: A Jinja2 template that is processed after shell command completes, it will have the following template variables:
 
+.. _resulttemplate:
+
 Result template variables
 -------------------------
 All values will be either string or null unless otherwise noted.
@@ -153,7 +157,7 @@ You can use the ``unfurl.nodes.Installer.Terraform`` node type with your node te
 Inputs
 ------
 
-  :main: If present, its value will be used to generate `main.tf`.
+  :main: If present, its value will be used to generate ``main.tf``.
          If it's a string it will be treated as HCL, otherwise it will be written out as JSON.
   :tfvars: A map of Terraform variables to passed to the main Terraform module.
   :dir:  The directory to execute Terraform in. Default: equivalent to get_dir("spec.home")
@@ -170,7 +174,7 @@ Other ``implementation`` keys
 Environment Variables
 ---------------------
 
-If the ``TF_DATA_DIR`` environment variable is not defined it will be set to `.terraform` relative to the current working directory.
+If the ``TF_DATA_DIR`` environment variable is not defined it will be set to ``.terraform`` relative to the current working directory.
 
 Note on HCL in YAML
 -------------------

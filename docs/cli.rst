@@ -9,3 +9,4 @@ Command Line
 .. click:: unfurl.__main__:cli
   :prog: unfurl
   :show-nested:
+
