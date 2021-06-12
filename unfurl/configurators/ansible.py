@@ -255,23 +255,25 @@ class AnsibleConfigurator(TemplateConfigurator):
         )
         return result
 
+    def render(self, task):
+        # build host inventory from resource
+        inventory = self.getInventory(task)
+        playbook = self.getPlaybook(task)
+        playbookArgs = self.getPlaybookArgs(task)
+        return _renderPlaybook(playbook, inventory, playbookArgs)
+
     def run(self, task):
         try:
-            # build host inventory from resource
-            inventory = self.getInventory(task)
-            playbook = self.getPlaybook(task)
-
+            args = self.render(task)
             # build vars from inputs
             extraVars = self.getVars(task)
             if task.operationHost and task.operationHost.templar:
                 vault_secrets = task.operationHost.templar._loader._vault.secrets
             else:
                 vault_secrets = None
-            resultCallback = runPlaybooks(
-                [playbook],
-                inventory,
+            resultCallback = _runPlaybooks(
+                args,
                 extraVars,
-                self.getPlaybookArgs(task),
                 vault_secrets,
             )
 
@@ -405,9 +407,18 @@ def _init_global_context(options):
     context.CLIARGS._store = vars(options)
 
 
-def runPlaybooks(playbooks, _inventory, params=None, args=None, vault_secrets=None):
+def runPlaybooks(playbook, _inventory, params=None, args=None):
+    args = _renderPlaybook(playbook, _inventory, args)
+    return _runPlaybooks(args, params)
+
+
+def _renderPlaybook(playbook, _inventory, args):
     inventoryArgs = ["-i", _inventory] if _inventory else []
-    args = ["ansible-playbook"] + inventoryArgs + (args or []) + playbooks
+    args = ["ansible-playbook"] + inventoryArgs + (args or []) + [playbook]
+    return args
+
+
+def _runPlaybooks(args, params=None, vault_secrets=None):
     logger.info("running " + " ".join(args))
     cli = PlaybookCLI(args)
 

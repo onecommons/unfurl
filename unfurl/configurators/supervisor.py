@@ -36,16 +36,32 @@ def _reloadConfig(server, name):
 
 
 class SupervisorConfigurator(Configurator):
-    def run(self, task):
+    def render(self, task):
         host = task.vars["HOST"]
-
-        # if homeDir is a relative path it will be relative to the baseDir of the host instance
-        # which might be different from the current directory if host is an external instance
         confDir = abspath(host.context, host["homeDir"])
-        conf = host["conf"]
-
         name = task.vars["SELF"]["name"]
         confPath = os.path.join(confDir, "programs", name + ".conf")
+
+        if task.configSpec.operation == "configure":
+            program = task.vars["SELF"]["program"]
+            programDir = os.path.dirname(confPath)
+            task.logger.debug("writing %s", confPath)
+            if not os.path.isdir(programDir):
+                os.makedirs(programDir)
+            with open(confPath, "w") as conff:
+                conf = "[program:%s]\n" % name
+                conf += "\n".join("%s= %s" % (k, v) for k, v in program.items())
+                if "environment" not in program:
+                    conf += "\nenvironment= "
+                    conf += ",".join(
+                        '%s="%s"' % (k, v.replace("%", "%%"))
+                        for (k, v) in task.getEnvironment(True).items()
+                    )
+                conff.write(conf)
+
+        return confDir, name, confPath
+
+    def _getConfig(self, conf, confDir):
         if six.PY3:
             parser = ConfigParser(inline_comment_prefixes=(";", "#"), strict=False)
             parser.read_string(conf)
@@ -54,6 +70,15 @@ class SupervisorConfigurator(Configurator):
             parser.readfp(six.StringIO(conf))
         serverConfig = dict(parser.items("supervisorctl", vars=dict(here=confDir)))
         serverConfig.pop("here", None)
+        return serverConfig
+
+    def run(self, task):
+        confDir, name, confPath = self.render(task)
+        host = task.vars["HOST"]
+
+        # if homeDir is a relative path it will be relative to the baseDir of the host instance
+        # which might be different from the current directory if host is an external instance
+        serverConfig = self._getConfig(host["conf"], confDir)
         server = getServerProxy(**serverConfig)
 
         error = None
@@ -71,21 +96,6 @@ class SupervisorConfigurator(Configurator):
                     os.remove(confPath)
                 modified = _reloadConfig(server, name)
             elif op == "configure":
-                program = task.vars["SELF"]["program"]
-                programDir = os.path.dirname(confPath)
-                task.logger.debug("writing %s", confPath)
-                if not os.path.isdir(programDir):
-                    os.makedirs(programDir)
-                with open(confPath, "w") as conff:
-                    conf = "[program:%s]\n" % name
-                    conf += "\n".join("%s= %s" % (k, v) for k, v in program.items())
-                    if "environment" not in program:
-                        conf += "\nenvironment= "
-                        conf += ",".join(
-                            '%s="%s"' % (k, v.replace("%", "%%"))
-                            for (k, v) in task.getEnvironment(True).items()
-                        )
-                    conff.write(conf)
                 modified = _reloadConfig(server, name)
                 server.supervisor.addProcessGroup(name)
         except Fault as err:

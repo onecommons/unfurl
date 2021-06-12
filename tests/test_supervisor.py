@@ -3,6 +3,7 @@ import signal
 import time
 import unittest
 import json
+import shutil
 
 from click.testing import CliRunner
 from six.moves import urllib
@@ -15,17 +16,15 @@ from unfurl.yamlmanifest import YamlManifest
 
 
 class SupervisorTest(unittest.TestCase):
-    def setUp(self):
-        path = os.path.join(
-            os.path.dirname(__file__), "examples", "supervisor-ensemble.yaml"
-        )
-        with open(path) as f:
-            self.manifest = f.read()
 
     def test_supervisor(self):
         cliRunner = CliRunner()
         with cliRunner.isolated_filesystem():
-            runner = Runner(YamlManifest(self.manifest))
+            srcpath = os.path.join(
+                os.path.dirname(__file__), "examples", "supervisor-ensemble.yaml"
+            )
+            path = shutil.copy(srcpath, '.')
+            runner = Runner(YamlManifest(path=path))
             try:
                 job = runner.run(JobOptions(startTime=1, check=True))  # deploy
                 assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
@@ -50,7 +49,7 @@ class SupervisorTest(unittest.TestCase):
                 expected = b"Directory listing for /"
                 self.assertIn(expected, f.read())
 
-                runner = Runner(YamlManifest(job.out.getvalue()))
+                runner = Runner( YamlManifest(path=path))
                 job = runner.run(JobOptions(workflow="undeploy", startTime=2))
                 assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
                 summary = job.jsonSummary()

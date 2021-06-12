@@ -1,7 +1,7 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
 """
-enviroment:
+environment:
 timeout:
 inputs:
  command: "--switch {{ '.::foo' | ref }}"
@@ -216,14 +216,9 @@ class ShellConfigurator(TemplateConfigurator):
     def canDryRun(self, task):
         return task.inputs.get("dryrun")
 
-    def run(self, task):
+    def render(self, task):
         params = task.inputs
         cmd = params["command"]
-        isString = isinstance(cmd, six.string_types)
-        # default for shell: True if command is a string otherwise False
-        shell = params.get("shell", isString)
-        env = task.getEnvironment(False)
-
         cwd = params.get("cwd")
         if cwd:
             # if cwd is relative, make it relative to task.cwd
@@ -231,10 +226,18 @@ class ShellConfigurator(TemplateConfigurator):
             cwd = os.path.abspath(os.path.join(task.cwd, cwd))
         else:
             cwd = task.cwd
-        keeplines = params.get("keeplines")
-
         cmd = self.resolve_dry_run(cmd, task)
-        echo = params.get("echo",  task.verbose > -1)
+        return cmd, cwd
+
+    def run(self, task):
+        cmd, cwd = self.render(task)
+        params = task.inputs
+        isString = isinstance(cmd, six.string_types)
+        # default for shell: True if command is a string otherwise False
+        shell = params.get("shell", isString)
+        env = task.getEnvironment(False)
+        keeplines = params.get("keeplines")
+        echo = params.get("echo", task.verbose > -1)
         result = self.runProcess(
             cmd,
             shell=shell,

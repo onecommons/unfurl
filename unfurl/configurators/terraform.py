@@ -165,15 +165,13 @@ class TerraformConfigurator(ShellConfigurator):
         jobId = task.getJobId(task.changeId)
         return abspath(ctx, jobId + ".plan", "local")
 
-    def run(self, task):
+    def render(self, task):
         ctx = task.inputs.context
-        echo = task.verbose > -1
         # options:
         _, terraform = self._cmd(
             task.inputs.get("command", self._defaultCmd), task.inputs.get("keeplines")
         )
         cwd = os.path.abspath(task.inputs.get("dir") or getdir(ctx, "home"))
-        dataDir = os.getenv("TF_DATA_DIR", os.path.join(cwd, ".terraform"))
 
         # write out any needed files to cwd, eg. main.tf.json
         self._prepareWorkspace(cwd, task)
@@ -181,20 +179,6 @@ class TerraformConfigurator(ShellConfigurator):
         varfilePath = self._prepareVars(task)
         # write the state file to local if necessary
         statePath = self._prepareState(task, ctx)
-
-        env = _getEnv(task.getEnvironment(False), task.verbose, dataDir)
-
-        ### Load the providers schemas and run terraform init if necessary
-        providerSchemaPath = os.path.join(dataDir, "providers-schema.json")
-        if os.path.exists(providerSchemaPath):
-            with open(providerSchemaPath) as psf:
-                providerSchema = json.load(psf)
-        else:  # first time
-            providerSchema = self._initTerraform(task, terraform, cwd, env)
-            if providerSchema is not None:
-                saveToFile(providerSchemaPath, providerSchema)
-            else:
-                raise UnfurlTaskError(task, "terraform init failed in %s" % cwd)
 
         planPath = self._getPlanPath(task, ctx)
         # build the command line and run it
@@ -224,6 +208,29 @@ class TerraformConfigurator(ShellConfigurator):
         cmd = terraform + action
         if varfilePath:
             cmd.append("-var-file=" + varfilePath)
+
+        return cwd, cmd, terraform, statePath
+
+    def run(self, task):
+        cwd, cmd, terraform, statePath = self.render(task)
+        ctx = task.inputs.context
+        echo = task.verbose > -1
+
+        dataDir = os.getenv("TF_DATA_DIR", os.path.join(cwd, ".terraform"))
+        env = _getEnv(task.getEnvironment(False), task.verbose, dataDir)
+
+        ### Load the providers schemas and run terraform init if necessary
+        providerSchemaPath = os.path.join(dataDir, "providers-schema.json")
+        if os.path.exists(providerSchemaPath):
+            with open(providerSchemaPath) as psf:
+                providerSchema = json.load(psf)
+        else:  # first time
+            providerSchema = self._initTerraform(task, terraform, cwd, env)
+            if providerSchema is not None:
+                saveToFile(providerSchemaPath, providerSchema)
+            else:
+                raise UnfurlTaskError(task, "terraform init failed in %s" % cwd)
+
 
         result = self.runProcess(
             cmd, timeout=task.configSpec.timeout, env=env, cwd=cwd, echo=echo
