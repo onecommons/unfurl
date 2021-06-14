@@ -34,6 +34,8 @@ extensions = [
     "sphinx_rtd_theme",
 ]
 
+suppress_warnings = ["autosectionlabel.*"]
+
 autodoc_typehints = "description"
 modindex_common_prefix = ["unfurl."]
 

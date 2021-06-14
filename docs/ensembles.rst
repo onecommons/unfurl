@@ -52,7 +52,7 @@ If you clone an ensemble into the same project or if the ensemble is in a standa
 Anatomy of a Manifest
 =====================
 
-At the core of Unfurl is an `Ensemble` manifest, a YAML file that includes:
+At the core of Unfurl is an :ref:`Ensemble<ensemble_yaml>` manifest, a YAML file that includes:
 
 * A model of the cloud resources it manages (using the OASIS's `TOSCA` 1.3 ("Topology and Orchestration Specification for Cloud Applications") standard)
 * Implementations of operations and workflows that can be applied to those resources (via :ref:`configurators<configurators>`)
