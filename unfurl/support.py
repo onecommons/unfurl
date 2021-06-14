@@ -1063,27 +1063,31 @@ class AttributeManager(object):
         changes = {}
         liveDependencies = {}
         for resource, attributes in self.attributes.values():
-            # save in _attributes in serialized form
             overrides, specd = attributes._attributes.split()
             resource._attributes = {}
             defs = resource.template and resource.template.attributeDefs or {}
             foundSensitive = []
             live = {}
+            # items in overrides of type Result have been accessed during this transaction
             for key, value in overrides.items():
                 if not isinstance(value, Result):
-                    # hasn't been touched so keep it as is
+                    # hasn't been accessed so keep it as is
                     resource._attributes[key] = value
                 else:
                     # value is a Result and it is either new or different from the original value, so save
-                    changed = key not in specd or value.hasDiff()
-                    isLive = key in resource.template.defaultAttributes
+                    changed = value.hasDiff()
+                    # an attribute is considered live it was declared an attribute or isn't part of the template at all
+                    # XXX previously overridden properties values should be treat as live too because they changed during runtime
+                    isLive = changed or key in resource.template.defaultAttributes or key not in specd
                     if not (changed or isLive):
                         continue
                     savedValue, sensitive = self._saveSensitive(
                         defs, key, value, resource
                     )
-                    live[key] = savedValue
+                    if isLive:
+                        live[key] = savedValue
                     if changed:
+                        # save in _attributes in serialized form
                         if sensitive:
                             foundSensitive.append(key)
                         # XXX if defMeta.get('immutable') and key in specd:
