@@ -746,15 +746,22 @@ class TaskView(object):
         dependency = Dependency(
             expr, expected, schema, name, required, wantList, target
         )
-        self.dependencies.append(dependency)
+        for i, dep in enumerate(self.dependencies):
+            if dep.expr == expr or dep.name == name:
+                self.dependencies[i] = dependency
+                break
+        else:
+            self.dependencies.append(dependency)
         self._dependenciesChanged = True
         return dependency
 
     def removeDependency(self, name):
-        old = self.dependencies.pop(name, None)
-        if old:
-            self._dependenciesChanged = True
-        return old
+        for i, dep in enumerate(self.dependencies):
+            if dep.name == name:
+                self.dependencies.pop(i)
+                self._dependenciesChanged = True
+                return dep
+        return None
 
     # def createConfigurationSpec(self, name, configSpec):
     #     if isinstance(configSpec, six.string_types):
@@ -963,16 +970,10 @@ class TaskView(object):
 class Dependency(Operational):
     """Represents a runtime dependency for a configuration.
 
-
-      Dependencies are used to determine if a configuration needs re-run as follows:
-
-    * Tosca `DependsOn`
-
-      * They are dynamically created when evaluating and comparing the
-        configuration spec's attributes with the previous values
-
-      * Persistent dependencies can be created when the configurator
-        invokes these apis: `createSubTask`, `updateResources`, `query`, `addDependency`
+    Dependencies are used to determine if a configuration needs re-run.
+    They are automatically created when configurator accesses live attributes
+    while handling a task. They also can be created when the configurator
+    invokes these apis: ``createSubTask``, ``updateResources``, ``query``, ``addDependency``.
     """
 
     def __init__(
