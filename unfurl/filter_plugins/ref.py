@@ -1,12 +1,14 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
-import os.path
+import re
+
+from jinja2.filters import contextfilter
+
 from unfurl.eval import Ref, mapValue
 from unfurl.support import abspath, getdir
 from unfurl.util import which
-from jinja2.filters import contextfilter
 
-# from ansible.errors import AnsibleError, AnsibleFilterError
+NUMBERS = re.compile(r"\d+(?:\.\d+)?")
 
 
 @contextfilter
@@ -42,6 +44,17 @@ def get_dir(context, relativeTo, mkdir=True):
     return getdir(refContext, relativeTo, mkdir)
 
 
+def only_number(string: str) -> str:
+    """Removes everything from the string except for the first number
+
+    Example: " 200.2 GB" -> "200.2"
+    """
+    results = NUMBERS.findall(string)
+    if results:
+        return results[0]
+    raise ValueError("No numbers found in {}".format(string))
+
+
 class FilterModule(object):
     def filters(self):
         return {
@@ -51,4 +64,5 @@ class FilterModule(object):
             "abspath": _abspath,
             "get_dir": get_dir,
             "which": which,
+            "only_number": only_number,
         }
