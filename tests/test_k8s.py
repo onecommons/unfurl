@@ -55,6 +55,7 @@ spec:
 @unittest.skipIf("k8s" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
 class k8sTest(unittest.TestCase):
     def setUp(self):
+        self.maxDiff = None
         try:
             # Ansible generates tons of ResourceWarnings
             warnings.simplefilter("ignore", ResourceWarning)

@@ -27,6 +27,8 @@ version1 = """
           node2: {type: nodes.Test}
           node1:
             type: tosca.nodes.Root
+            properties:
+              outputVar: unset
             interfaces:
              Standard:
               operations:
@@ -45,6 +47,7 @@ version1 = """
                       - name: .self
                         attributes:
                           outputVar: "{{ outputVar }}"
+  changes: [] # add so changes are saved here
 """
 
 
@@ -88,6 +91,12 @@ class ConfigChangeTest(unittest.TestCase):
             )
             self.assertEqual(result.exit_code, 0, result)
             # print("result.output", result.exit_code, result.output)
+            changes = {"::node1": {"outputVar": "1"}}
+            assert _latestJobs
+            job = _latestJobs[-1]
+            self.assertEqual(
+                changes, job.runner.manifest.manifest.config["changes"][2]["changes"]
+            )
 
             assert _latestJobs
             job = _latestJobs[-1]
@@ -170,3 +179,7 @@ class ConfigChangeTest(unittest.TestCase):
                 summary["job"],
             )
             self.assertEqual("reconfigure", summary["tasks"][0]["reason"])
+            changes2 = {"::node1": {"outputVar": "2"}}
+            self.assertEqual(
+                changes2, job.runner.manifest.manifest.config["changes"][-1]["changes"]
+            )

@@ -230,7 +230,7 @@ class ShellConfigurator(TemplateConfigurator):
         return cmd, cwd
 
     def run(self, task):
-        cmd, cwd = self.render(task)
+        cmd, cwd = task.renderState
         params = task.inputs
         isString = isinstance(cmd, six.string_types)
         # default for shell: True if command is a string otherwise False

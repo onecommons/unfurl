@@ -53,7 +53,7 @@ def saveConfigSpec(spec):
 
 def saveDependency(dep):
     saved = CommentedMap()
-    if dep.name:
+    if dep.name and dep.name != dep.expr:
         saved["name"] = dep.name
     saved["ref"] = dep.expr
     if dep.expected is not None:
@@ -424,6 +424,7 @@ class YamlManifest(ReadOnlyManifest):
             self._importedManifests[id(root)] = importedManifest
 
     def loadChanges(self, changes, changeLogPath):
+        # self.changeSets[changeid => ChangeRecords]
         if changes is not None:
             self.changeSets = {
                 c.changeId: c
@@ -689,7 +690,9 @@ class YamlManifest(ReadOnlyManifest):
         return committed
 
     def getChangeLogPath(self):
-        return os.path.join(self.getBaseDir(), self.changeLogPath or DefaultNames.JobsLog)
+        return os.path.join(
+            self.getBaseDir(), self.changeLogPath or DefaultNames.JobsLog
+        )
 
     def getJobLogPath(self, startTime, ext=".yaml"):
         name = os.path.basename(self.getChangeLogPath())

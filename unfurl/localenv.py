@@ -468,6 +468,8 @@ class LocalEnv(object):
             else:
                 self.project = self.findProject(os.path.dirname(pathORproject))
 
+        if self.project:
+            logging.info("Loaded project at %s", self.project.localConfig.config.path)
         self.toolVersions = {}
         self.instanceRepo = self._getInstanceRepo()
         self.config = (

@@ -273,11 +273,11 @@ ensemble.yaml
                 "degraded",
             ]
             result = runner.invoke(cli, args)
+            # print("result.output", result.exit_code, result.output)
             assert not result.exception, "\n".join(
                 traceback.format_exception(*result.exc_info)
             )
             self.assertEqual(result.exit_code, 0, result)
-            # print("result.output", result.exit_code, result.output)
 
             assert _latestJobs
             job = _latestJobs[-1]
@@ -290,9 +290,16 @@ ensemble.yaml
             ]
             self.assertEqual(access_key2, "mockAWS_ACCESS_KEY_ID")
 
-            # check that these are the only changes are the only recorded changes
-            changes = {'::testNode': {'access_key': 'mockAWS_ACCESS_KEY_ID', 'access_key2': 'mockAWS_ACCESS_KEY_ID'}}
-            self.assertEqual(changes, job.runner.manifest.manifest.config["changes"][0]["changes"])
+            # check that these are the only recorded changes
+            changes = {
+                "::testNode": {
+                    "access_key": "mockAWS_ACCESS_KEY_ID",
+                    "access_key2": "mockAWS_ACCESS_KEY_ID",
+                }
+            }
+            self.assertEqual(
+                changes, job.runner.manifest.manifest.config["changes"][0]["changes"]
+            )
 
             # changeLogPath = (
             #     "ensemble/" + job.runner.manifest.manifest.config["lastJob"]["changes"]

@@ -57,14 +57,17 @@ class TemplateConfigurator(Configurator):
     def canDryRun(self, task):
         return not not task.inputs.get("dryrun")
 
-    def run(self, task):
+    def render(self, task):
         if task.dryRun:
             runResult = task.inputs.get("dryrun")
             if not isinstance(runResult, dict):
                 runResult = task.inputs.get("run")
         else:
             runResult = task.inputs.get("run")
+        return runResult
 
+    def run(self, task):
+        runResult = task.renderState
         done = task.inputs.get("done", {})
         if "result" not in done:
             if not isinstance(runResult, dict):

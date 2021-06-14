@@ -212,7 +212,7 @@ class TerraformConfigurator(ShellConfigurator):
         return cwd, cmd, terraform, statePath
 
     def run(self, task):
-        cwd, cmd, terraform, statePath = self.render(task)
+        cwd, cmd, terraform, statePath = task.renderState
         ctx = task.inputs.context
         echo = task.verbose > -1
 
@@ -230,7 +230,6 @@ class TerraformConfigurator(ShellConfigurator):
                 saveToFile(providerSchemaPath, providerSchema)
             else:
                 raise UnfurlTaskError(task, "terraform init failed in %s" % cwd)
-
 
         result = self.runProcess(
             cmd, timeout=task.configSpec.timeout, env=env, cwd=cwd, echo=echo

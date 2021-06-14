@@ -142,6 +142,10 @@ class ConfigTask(ConfigChange, TaskView):
         self._attributeManager = AttributeManager(self._manifest.yaml)
         self.target.root.attributeManager = self._attributeManager
 
+    @property
+    def status(self):
+        return self.localStatus
+
     def priority():
         doc = "The priority property."
 
@@ -191,7 +195,6 @@ class ConfigTask(ConfigChange, TaskView):
         If status wasn't explicitly set but the operation changed the instance's configuration
         or state, choose a status based on the type of operation.
         """
-
         if result.status is not None:
             # status was explicitly set
             self.target.localStatus = result.status
@@ -216,7 +219,7 @@ class ConfigTask(ConfigChange, TaskView):
         If the target's configuration or state has changed, set the instance's lastChange
         state to this tasks' changeid.
         """
-        if self.target.lastChange is None:
+        if self.target.lastChange is None and self.target.status != Status.pending:
             # hacky but always save _lastConfigChange the first time to
             # distinguish this from a brand new resource
             self.target._lastConfigChange = self.changeId
@@ -292,9 +295,10 @@ class ConfigTask(ConfigChange, TaskView):
         changes, liveDependencies = self._attributeManager.commitChanges()
         self.changeList.append(changes)
         # record the live attributes that we are dependent on
-        for key, attributes in liveDependencies.items():
-            for name, value in attributes.items():
-                self.addDependency(key + "::" + name, value)
+        for key, (target, attributes) in liveDependencies.items():
+            if target is not self.target:
+                for name, value in attributes.items():
+                    self.addDependency(key + "::" + name, value, target=target)
         return changes, liveDependencies
 
     # unused
@@ -617,6 +621,8 @@ class Job(ConfigChange):
                 if task.configSpec.operation != "check":
                     missing, reason = self._dependencyCheck(task.target)
                 if not missing:
+                    missing, reason = self._dependencyCheck(task)
+                if not missing:
                     errors = task.configSpec.findInvalidateInputs(task.inputs)
                     if errors:
                         reason = "invalid inputs: %s" % str(errors)
@@ -665,8 +671,9 @@ class Job(ConfigChange):
         or a create operation may also configure and start an instance.
         """
         resource = req.target
-        logging.debug(
-            "_entryTest current state %s start state %s op %s workflow %s",
+        logging.log(
+            logging.TRACE,
+            "checking operation entry test: current state %s start state %s op %s workflow %s",
             resource.state,
             req.startState,
             req.configSpec.operation,
@@ -788,6 +795,17 @@ class Job(ConfigChange):
 
         return task
 
+    def render(self, task):
+        try:
+            task.renderState = task.configurator.render(task)
+        except Exception:
+            UnfurlTaskError(task, "configurator.render failed")
+            return False, "render failed"
+        finally:
+            # this updates the task's dependencies which will be checked in canRunTask()
+            task.commitChanges()
+        return True, ""
+
     def runTask(self, task, depth=0):
         """
         During each task run:
@@ -799,7 +817,9 @@ class Job(ConfigChange):
 
         Returns a task.
         """
-        ok, errors = self.canRunTask(task)
+        ok, errors = self.render(task)
+        if ok:
+            ok, errors = self.canRunTask(task)
         if not ok:
             return task.finished(ConfiguratorResult(False, False, result=errors))
 

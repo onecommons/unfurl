@@ -294,6 +294,9 @@ class Configurator(object):
     def getGenerator(self, task):
         return self.run(task)
 
+    def render(self, task):
+        return None
+
     # yields a JobRequest, TaskRequest or a ConfiguratorResult
     def run(self, task):
         """
@@ -403,6 +406,7 @@ class TaskView(object):
         self.reason = reason
         self.logger = logger
         self.cwd = os.path.abspath(self.target.baseDir)
+        self.renderState = None
         # private:
         self._errors = []  # UnfurlTaskError objects appends themselves to this list
         self._inputs = None
@@ -510,18 +514,38 @@ class TaskView(object):
         return env
 
     def getEnvironment(self, addOnly):
+        # If addOnly is False (the default) all variables in `env` will be included
+        # in the returned dict, otherwise only variables added will be returned
+
+        # get the environment from the context, the operation
+        # the relationship between the operationhost and the target and its hosts
+        # and any default (ambient) connections
+
+        # XXX order of preference (last overrides first):
+        # external connections
+        # context
+        # host connections
+        # operation
+
+        env = os.environ.copy()
+        # XXX externalEnvVars = self._findRelationshipEnvVarsExternal()
+        # env.update(externalEnvVars)
+
         # note: inputs should be evaluated before environment
         # use merge.copy to preserve basedir
         rules = merge.copy(self.target.root.envRules)
 
+        relEnvVars = self._findRelationshipEnvVars()
+
         if self.configSpec.environment:
             rules.update(self.configSpec.environment)
+
         rules = serializeValue(
             mapValue(rules, self.inputs.context), resolveExternal=True
         )
-        env = filterEnv(rules, addOnly=addOnly)
-        relEnvVars = self._findRelationshipEnvVars()
-        env.update(relEnvVars)
+        env = filterEnv(rules, env, addOnly=addOnly)
+        env.update(relEnvVars)  # XXX should been updated when retrieved above
+
         targets = []
         if isinstance(self.target, RelationshipInstance):
             targets = [
@@ -710,23 +734,26 @@ class TaskView(object):
         expected=None,
         schema=None,
         name=None,
-        required=False,
+        required=True,
         wantList=False,
+        target=None,
     ):
         getter = getattr(expr, "asRef", None)
         if getter:
             # expr is a configuration or resource or ExternalValue
             expr = Ref(getter()).source
 
-        dependency = Dependency(expr, expected, schema, name, required, wantList)
+        dependency = Dependency(
+            expr, expected, schema, name, required, wantList, target
+        )
         self.dependencies.append(dependency)
-        self.dependenciesChanged = True
+        self._dependenciesChanged = True
         return dependency
 
     def removeDependency(self, name):
         old = self.dependencies.pop(name, None)
         if old:
-            self.dependenciesChanged = True
+            self._dependenciesChanged = True
         return old
 
     # def createConfigurationSpec(self, name, configSpec):
@@ -910,7 +937,7 @@ class TaskView(object):
                     rname, resourceSpec, parent=parent
                 )
 
-                # XXX wrong... these need to be operational instances
+                # XXX
                 # if resource.required or resourceSpec.get("dependent"):
                 #    self.addDependency(resource, required=resource.required)
             except:
@@ -956,6 +983,7 @@ class Dependency(Operational):
         name=None,
         required=False,
         wantList=False,
+        target=None,
     ):
         """
         if schema is not None, validate the result using schema
@@ -968,12 +996,16 @@ class Dependency(Operational):
         self.expected = expected
         self.schema = schema
         self._required = required
-        self.name = name
+        self.name = name or expr
         self.wantList = wantList
+        self.target = target
 
     @property
     def localStatus(self):
-        return Status.ok
+        if self.target:
+            return self.target.status
+        else:
+            return Status.unknown
 
     @property
     def priority(self):
@@ -986,6 +1018,7 @@ class Dependency(Operational):
                 config.target, dict(val=self.expected, changeId=changeId)
             )
             result = Ref(self.expr).resolve(context, wantList=self.wantList)
+            self.target = context._lastResource
             self.expected = result
 
     @staticmethod

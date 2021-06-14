@@ -1078,7 +1078,11 @@ class AttributeManager(object):
                     changed = value.hasDiff()
                     # an attribute is considered live it was declared an attribute or isn't part of the template at all
                     # XXX previously overridden properties values should be treat as live too because they changed during runtime
-                    isLive = changed or key in resource.template.defaultAttributes or key not in specd
+                    isLive = (
+                        changed
+                        or key in resource.template.defaultAttributes
+                        or key not in specd
+                    )
                     if not (changed or isLive):
                         continue
                     savedValue, sensitive = self._saveSensitive(
@@ -1094,6 +1098,8 @@ class AttributeManager(object):
                         #  error('value of attribute "%s" changed but is marked immutable' % key)
                         resource._attributes[key] = savedValue
 
+            if live:
+                liveDependencies[resource.key] = (resource, live)
             # save changes
             diff = attributes.getDiff()
             if not diff:
@@ -1102,8 +1108,6 @@ class AttributeManager(object):
                 if key in diff:
                     diff[key] = resource._attributes[key]
             changes[resource.key] = diff
-            if live:
-                liveDependencies[resource.key] = live
 
         self.attributes = {}
         # self.statuses = {}

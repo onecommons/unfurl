@@ -264,7 +264,7 @@ class AnsibleConfigurator(TemplateConfigurator):
 
     def run(self, task):
         try:
-            args = self.render(task)
+            args = task.renderState
             # build vars from inputs
             extraVars = self.getVars(task)
             if task.operationHost and task.operationHost.templar:

@@ -356,6 +356,9 @@ class EntityInstance(OperationalInstance, ResourceRef):
         if self.parent and self.parent is not self.root:
             yield self.parent
 
+        for d in self.dependencies:
+            yield d
+
     @property
     def key(self):
         return "%s::.%s::%s" % (self.parent.key, self.parentRelation[1:], self.name)
@@ -653,13 +656,11 @@ class NodeInstance(EntityInstance):
         return "::%s" % self.name
 
     def getOperationalDependencies(self):
-        parent = None
-        if self.parent and self.parent is not self.root:
-            parent = self.parent
-            yield parent
+        for dep in super(NodeInstance, self).getOperationalDependencies():
+            yield dep
 
         for instance in self.requirements:
-            if instance is not parent:
+            if instance is not self.parent:
                 yield instance
 
     def getOperationalDependents(self):

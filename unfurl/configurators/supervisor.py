@@ -73,7 +73,7 @@ class SupervisorConfigurator(Configurator):
         return serverConfig
 
     def run(self, task):
-        confDir, name, confPath = self.render(task)
+        confDir, name, confPath = task.renderState
         host = task.vars["HOST"]
 
         # if homeDir is a relative path it will be relative to the baseDir of the host instance
