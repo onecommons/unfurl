@@ -2,7 +2,7 @@
 Jobs and Workflows
 ==================
 
-The core behavior of Unfurl is to run a `job` that executes a `workflow` on a given topology instance.
+The core behavior of Unfurl is to run a :std:ref:`Job` that executes a `workflow` on a given topology instance.
 There are two fundamental workflows ("normative workflows" in TOSCA terminology):
 `deploy`, which installs the topology, and `undeploy`, which uninstalls it.
 
@@ -19,7 +19,7 @@ a job is created and run. Running a job entails these steps:
 1. YAML parsed and :ref:`merge directives<yaml_merge_directives>` are processed
 2. Schema is validated and model instantiated. The command will exit if there are errors.
 3. A plan is constructed based on the selected workflow and job options (use :cli:`unfurl plan<unfurl-plan>` command to preview) and the job begins.
-4. For each operation a task is generated and the operation's `inputs` are lazily evaluated
+4. For each operation a task is generated and the operation's :std:ref:`inputs` are lazily evaluated
    if referenced, including Unfurl expressions, TOSCA functions, and template strings.
 5. After the job completes, `ensemble.yaml` is updated with any changes to its instances status.
    ``jobs.tsv`` will also be updated with line for each task run and a new `job.yaml` file is created in the ``jobs`` folder.
@@ -69,7 +69,7 @@ ChangeIds
 ==========
 
 Each :ref:`task<tasks>` in a :std:ref:`Job` corresponds to an operation that was executed and is assigned a
-`changeid`. Each task is recorded in the job's :ref:`changelog<ensemble_yaml>` as a `ConfigChange`,
+`changeid`. Each task is recorded in the job's :ref:`changelog<job.yaml>` as a `ConfigChange`,
 which designed so that it can replayed to reproduce the instance.
 
 ChangeIds are unique within the lifespan of an ensemble and sortable using an encoded timestamp.
