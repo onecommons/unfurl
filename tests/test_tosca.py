@@ -180,9 +180,7 @@ class ToscaSyntaxTest(unittest.TestCase):
             ("access_token", "tosca.datatypes.Credential"),
             ("TEST_VAR", "unfurl.datatypes.EnvVar"),
         ):
-            assert (
-                testSensitive.template.attributeDefs[name].schema["type"] == toscaType
-            )
+            assert testSensitive.template.propertyDefs[name].schema["type"] == toscaType
 
         def t(datatype):
             return datatype.type == "unfurl.datatypes.EnvVar"

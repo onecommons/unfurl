@@ -16,7 +16,6 @@ spec:
         attributes:
           attr:
             type: string
-            default: default
         interfaces:
          Standard:
           operations:
@@ -55,8 +54,8 @@ spec:
           type: nodes.Test
           properties:
             prop: static
-          attributes: # XXX ignored unless declared in the type
-            attr: live
+        # attributes: # XXX this is currently ignored!
+        #   attr: live
 """
 
 
@@ -81,7 +80,7 @@ class DependencyTest(unittest.TestCase):
         # print(json.dumps(summary, indent=2))
         # print(job.out.getvalue())
 
-        dependencies = [dict(ref="::nodeC::attr", expected="default", required=True)]
+        dependencies = [dict(ref="::nodeC::attr", required=True)]
         self.assertEqual(
             dependencies,
             job.runner.manifest.manifest.config["changes"][1]["dependencies"],
@@ -150,7 +149,9 @@ class DependencyTest(unittest.TestCase):
         job = Runner(manifest2).run(JobOptions(startTime=2))
         assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
         summary = job.jsonSummary()
-        # print(json.dumps(summary, indent=2))
+        # changes = job.runner.manifest.manifest.config["changes"]
+        # XXX test that attr: "live" is in changes
+        # print(job.out.getvalue())
         self.assertEqual(
             summary,
             {

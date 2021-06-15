@@ -1065,7 +1065,7 @@ class AttributeManager(object):
         for resource, attributes in self.attributes.values():
             overrides, specd = attributes._attributes.split()
             resource._attributes = {}
-            defs = resource.template and resource.template.attributeDefs or {}
+            defs = resource.template and resource.template.propertyDefs or {}
             foundSensitive = []
             live = {}
             # items in overrides of type Result have been accessed during this transaction
@@ -1080,7 +1080,7 @@ class AttributeManager(object):
                     # XXX previously overridden properties values should be treat as live too because they changed during runtime
                     isLive = (
                         changed
-                        or key in resource.template.defaultAttributes
+                        or key in resource.template.attributeDefs
                         or key not in specd
                     )
                     if not (changed or isLive):

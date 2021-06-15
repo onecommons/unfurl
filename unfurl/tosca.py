@@ -374,10 +374,10 @@ class ToscaSpec(object):
 _defaultTopology = createDefaultTopology()
 
 
-def findProps(attributes, attributeDefs, matchfn):
+def findProps(attributes, propertyDefs, matchfn):
     if not attributes:
         return
-    for propdef in attributeDefs.values():
+    for propdef in propertyDefs.values():
         if propdef.name not in attributes:
             continue
         match = matchfn(propdef.entry_schema_entity or propdef.entity)
@@ -433,28 +433,30 @@ class EntitySpec(ResourceRef):
         # nodes have both properties and attributes
         # as do capability properties and relationships
         # but only property values are declared
-        self.attributeDefs = toscaNodeTemplate.get_properties()
-        self.properties = {
-            prop.name: prop.value for prop in self.attributeDefs.values()
-        }
+        # XXX user should be able to declare default attribute values
+        self.propertyDefs = toscaNodeTemplate.get_properties()
+        self.attributeDefs = {}
+        self.properties = {prop.name: prop.value for prop in self.propertyDefs.values()}
         if toscaNodeTemplate.type_definition:
             # add attributes definitions
             attrDefs = toscaNodeTemplate.type_definition.get_attributes_def()
             self.defaultAttributes = {
                 prop.name: prop.default
                 for prop in attrDefs.values()
-                if prop.default is not None
+                if prop.name not in ["tosca_id", "state", "tosca_name"]
             }
             for name, aDef in attrDefs.items():
-                self.attributeDefs[name] = Property(
+                prop = Property(
                     name, aDef.default, aDef.schema, toscaNodeTemplate.custom_def
                 )
+                self.propertyDefs[name] = prop
+                self.attributeDefs[name] = prop
             # now add any property definitions that haven't been defined yet
             # i.e. missing properties without a default and not required
             props_def = toscaNodeTemplate.type_definition.get_properties_def()
             for pDef in props_def.values():
-                if pDef.name not in self.attributeDefs:
-                    self.attributeDefs[pDef.name] = Property(
+                if pDef.name not in self.propertyDefs:
+                    self.propertyDefs[pDef.name] = Property(
                         pDef.name,
                         pDef.default,
                         pDef.schema,
@@ -531,7 +533,7 @@ class EntitySpec(ResourceRef):
         return []
 
     def findProps(self, attributes, matchfn):
-        for name, val in findProps(attributes, self.attributeDefs, matchfn):
+        for name, val in findProps(attributes, self.propertyDefs, matchfn):
             yield name, val
 
     @property
@@ -865,8 +867,9 @@ class TopologySpec(EntitySpec):
             for input in template.inputs
         }
         self.outputs = {output.name: output.value for output in template.outputs}
-        self.properties = {}
+        self.properties = {}  # XXX implement substitution_mappings
         self.defaultAttributes = {}
+        self.propertyDefs = {}
         self.attributeDefs = {}
         self.capabilities = []
 
