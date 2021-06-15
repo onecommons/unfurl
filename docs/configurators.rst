@@ -450,7 +450,7 @@ Attributes
   :apiResource: (map) The YAML representation for the resource as retrieved from the Kubernetes cluster.
   :name: (string) The Kubernetes name of the resource.
 
-.. _supervisor:
+.. _sup:
 
 Supervisor
 ==========

@@ -86,7 +86,7 @@ Step 3: Implement your model
 
 Once you’ve specified the model, you can now associate it with operations and workflows in YAML using plugins called **configurators**, which integrate configuration tools, such as :ref:`Shell scripts<shell>`, :ref:`Terraform<terraform>`, :ref:`Ansible<ansible>` and :ref:`Python<python>`.
 
-Among the domain-specific configurators, :ref:`Docker<docker>`, :ref:`Kubernetes<kubernetes>`, :ref:`Helm<helm>` and :ref:`Supervisor<supervisor>` are included.
+Among the domain-specific configurators, :ref:`Docker<docker>`, :ref:`Kubernetes<kubernetes>`, :ref:`Helm<helm>` and :ref:`Supervisor<sup>` are included.
 
 The YAML configuration language covers for multiple facilities for processing an operation’s inputs and outputs, including:
 

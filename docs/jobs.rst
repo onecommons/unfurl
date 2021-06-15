@@ -61,14 +61,14 @@ it deployment lifecycle. Node states are defined by TOSCA and include:
 
 .. seealso::
 
- `TOSCA 1.3, §3.4.1 <https://docs.oasis-open.org/tosca/TOSCA-Simple-Profile-YAML/v1.3/cos01/TOSCA-Simple-Profile-YAML-v1.3-cos01.html#_Toc454457724>`_ for a complete definitions
+ :tosca_spec:`TOSCA 1.3, §3.4.1 <_Toc454457724>` for a complete definitions
 
 As :ref:`operations<operation>` are executed during a job, the target instance's `node state` is updated.
 
 ChangeIds
 ==========
 
-Each :ref:`task<tasks>` in a `job` corresponds to an operation that was executed and is assigned a
+Each :ref:`task<tasks>` in a :std:ref:`Job` corresponds to an operation that was executed and is assigned a
 `changeid`. Each task is recorded in the job's :ref:`changelog<ensemble_yaml>` as a `ConfigChange`,
 which designed so that it can replayed to reproduce the instance.
 
