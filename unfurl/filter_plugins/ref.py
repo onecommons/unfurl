@@ -8,7 +8,7 @@ from unfurl.eval import Ref, mapValue
 from unfurl.support import abspath, getdir
 from unfurl.util import which
 
-NUMBERS = re.compile(r"\d+(?:\.\d+)?")
+NUMBERS = re.compile(r"[^\d.]")
 
 
 @contextfilter
@@ -44,15 +44,15 @@ def get_dir(context, relativeTo, mkdir=True):
     return getdir(refContext, relativeTo, mkdir)
 
 
-def only_number(string: str) -> str:
-    """Removes everything from the string except for the first number
+def only_numbers(string: str) -> str:
+    """Removes everything from the string except for digits and `.`
 
     Example: " 200.2 GB" -> "200.2"
     """
-    results = NUMBERS.findall(string)
-    if results:
-        return results[0]
-    raise ValueError("No numbers found in {}".format(string))
+    result = re.sub(NUMBERS, "", string)
+    if result:
+        return result
+    raise ValueError(f"No numbers found in '{string}'")
 
 
 class FilterModule(object):
@@ -64,5 +64,5 @@ class FilterModule(object):
             "abspath": _abspath,
             "get_dir": get_dir,
             "which": which,
-            "only_number": only_number,
+            "only_numbers": only_numbers,
         }
