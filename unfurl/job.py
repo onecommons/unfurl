@@ -671,8 +671,7 @@ class Job(ConfigChange):
         or a create operation may also configure and start an instance.
         """
         resource = req.target
-        logging.log(
-            logging.TRACE,
+        logger.trace(
             "checking operation entry test: current state %s start state %s op %s workflow %s",
             resource.state,
             req.startState,

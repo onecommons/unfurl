@@ -70,10 +70,28 @@ logging.captureWarnings(True)
 _logHandler = None
 _logLevel = logging.NOTSET
 
-logging.addLevelName(5, 'TRACE')
+logging.addLevelName(5, "TRACE")
 logging.TRACE = 5
-logging.addLevelName(15, 'VERBOSE')
+
+
+def __trace(self, msg, *args, **kwargs):
+    if self.isEnabledFor(logging.TRACE):
+        self._log(logging.TRACE, msg, args, **kwargs)
+
+
+logging.Logger.trace = __trace
+
+logging.addLevelName(15, "VERBOSE")
 logging.VERBOSE = 15
+
+
+def __verbose(self, msg, *args, **kwargs):
+    if self.isEnabledFor(logging.VERBOSE):
+        self._log(logging.VERBOSE, msg, args, **kwargs)
+
+
+logging.Logger.verbose = __verbose
+
 
 class sensitive(object):
     redacted_str = "<<REDACTED>>"
