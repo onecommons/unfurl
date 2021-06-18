@@ -1,8 +1,7 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
-import os.path
 from unfurl.eval import Ref, mapValue
-from unfurl.support import abspath, getdir
+from unfurl.projectpaths import _abspath, _getdir
 from unfurl.util import which
 from jinja2.filters import contextfilter
 
@@ -24,7 +23,7 @@ def mapValueFilter(context, ref, **vars):
 
 
 @contextfilter
-def _abspath(context, path, relativeTo=None, mkdir=True):
+def abspath(context, path, relativeTo=None, mkdir=True):
     """
     {{ 'foo' | abspath }}
 
@@ -33,13 +32,14 @@ def _abspath(context, path, relativeTo=None, mkdir=True):
     {{ 'foo' | abspath('local') }}
     """
     refContext = context["__unfurl"]
-    return abspath(refContext, path, relativeTo, mkdir)
+    return _abspath(refContext, path, relativeTo, mkdir).get()
 
 
 @contextfilter
 def get_dir(context, relativeTo, mkdir=True):
     refContext = context["__unfurl"]
-    return getdir(refContext, relativeTo, mkdir)
+    filepath = _getdir(refContext, relativeTo, mkdir)
+    return filepath.get()
 
 
 class FilterModule(object):
@@ -48,7 +48,7 @@ class FilterModule(object):
             "ref": ref,
             "eval": ref,
             "mapValue": mapValueFilter,
-            "abspath": _abspath,
+            "abspath": abspath,
             "get_dir": get_dir,
             "which": which,
         }

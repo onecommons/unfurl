@@ -366,17 +366,17 @@ class FileTest(unittest.TestCase):
                       implementation:  FileTest
                       inputs:
                         path:
-                          ref: file::path
+                          eval: file::path
                         contents:
-                          ref: file::contents
+                          eval: file::contents
     """
             % API_VERSION
         )
-        manifest = YamlManifest(simple)
-        runner = Runner(manifest)
-        output = six.StringIO()
         cliRunner = CliRunner()
         with cliRunner.isolated_filesystem():  # as tmpDir
+            manifest = YamlManifest(simple, path=".")
+            runner = Runner(manifest)
+            output = six.StringIO()
             with open("foo.txt", "w") as f:
                 f.write("test")
             job = runner.run(JobOptions(add=True, out=output, startTime="test"))

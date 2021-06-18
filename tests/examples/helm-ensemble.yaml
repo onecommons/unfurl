@@ -55,6 +55,9 @@ spec:
                 inputs:
                   # command: helm status -o json {{inputs.release_name}}
                   command: cat helm-release.json
+                  cwd:
+                    eval:
+                      get_dir: src
                   resultTemplate: |
                     {% set json = stdout | from_json %}
                     {%for doc in json.manifest | from_yaml_all %}

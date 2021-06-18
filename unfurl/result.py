@@ -282,7 +282,8 @@ class ExternalValue(ChangeAware):
     def get(self):
         return self.key
 
-    # XXX def __setstate__
+    def __digestable__(self, options):
+        return self.get()
 
     def __eq__(self, other):
         if isinstance(other, ExternalValue):
@@ -310,6 +311,7 @@ class ExternalValue(ChangeAware):
 _Deleted = object()
 _Get = object()
 
+
 class Result(ChangeAware):
     # ``original`` is managed by the Results that owns this Result
     # in __getitem__ and __setitem__
@@ -317,7 +319,7 @@ class Result(ChangeAware):
 
     def __init__(self, resolved):
         self.select = ()
-        self.original = _Deleted # assume this is new to start
+        self.original = _Deleted  # assume this is new to start
         if isinstance(resolved, ExternalValue):
             self.resolved = resolved.get()
             assert not isinstance(self.resolved, Result), self.resolved
@@ -339,6 +341,8 @@ class Result(ChangeAware):
             return val
 
     def __digestable__(self, options):
+        if self.external:
+            return self.external.__digestable__(options)
         return self.resolved
 
     def hasDiff(self):
@@ -355,7 +359,9 @@ class Result(ChangeAware):
             return self.resolved.getDiff()
         else:
             new = self.asRef()
-            if isinstance(self.resolved, Mapping) and isinstance(self.original, Mapping):
+            if isinstance(self.resolved, Mapping) and isinstance(
+                self.original, Mapping
+            ):
                 old = serializeValue(self.original)
                 return diffDicts(old, new)
             return new

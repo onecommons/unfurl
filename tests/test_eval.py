@@ -2,10 +2,10 @@ import unittest
 import os
 import json
 from unfurl.result import ResultsList, serializeValue, ChangeRecord
-from unfurl.eval import Ref, mapValue, RefContext
+from unfurl.eval import Ref, mapValue, RefContext, setEvalFunc, ExternalValue
 from unfurl.support import applyTemplate, TopologyMap
 from unfurl.util import sensitive_str
-from unfurl.runtime import NodeInstance, _ChildResources
+from unfurl.runtime import NodeInstance
 from ruamel.yaml.comments import CommentedMap
 
 
@@ -267,7 +267,7 @@ a_dict:
     def test_templateNodes(self):
         resource = self._getTestResource()
         NODES = TopologyMap(resource)
-        assert resource.attributes is NODES['test']
+        assert resource.attributes is NODES["test"]
         ctx = RefContext(resource, dict(NODES=NODES))
         self.assertEqual("va", applyTemplate("{{ NODES.test.d.a }}", ctx))
 
@@ -410,3 +410,23 @@ a_dict:
         assert isinstance(contents, sensitive_bytes), type(contents)
         with open(fixture, "rb") as tp:
             self.assertEqual(tp.read(), contents)
+
+    def test_external(self):
+        class ExternalTest(ExternalValue):
+            def __init__(self):
+                super(ExternalTest, self).__init__("ExternalTest", "test")
+
+        singleton = ExternalTest()
+        setEvalFunc("externaltest", lambda arg, ctx: singleton)
+
+        ctx = RefContext(self._getTestResource())
+        expr = Ref({"eval": {"externaltest": None}})
+
+        result = expr.resolve(ctx)
+        self.assertEqual(result[0], "test")
+
+        result = expr.resolveOne(ctx)
+        self.assertEqual(result, "test")
+
+        result = expr.resolve(ctx, wantList="result")
+        self.assertIs(result.external, singleton)

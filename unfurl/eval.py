@@ -104,6 +104,7 @@ class RefContext(object):
         resolveExternal=False,
         trace=0,
         strict=_defaultStrictness,
+        task=None
     ):
         self.vars = vars or {}
         # the original context:
@@ -119,6 +120,7 @@ class RefContext(object):
         self.baseDir = currentResource.baseDir
         self.templar = currentResource.templar
         self.referenced = _Tracker()
+        self.task = task
 
     def copy(self, resource=None, vars=None, wantList=None, trace=0, strict=None):
         copy = RefContext(
@@ -140,6 +142,7 @@ class RefContext(object):
         copy.baseDir = self.baseDir
         copy.templar = self.templar
         copy.referenced = self.referenced
+        copy.task = self.task
         return copy
 
     def trace(self, *msg):

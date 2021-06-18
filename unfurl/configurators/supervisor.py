@@ -15,7 +15,6 @@ except ImportError:
     from xmlrpclib import Fault
 
 from ..configurator import Configurator
-from ..support import abspath
 
 # support unix domain socket connections
 # (we want to connect the same way as supervisorctl does for security and to automatically support multiple instances)
@@ -37,12 +36,15 @@ def _reloadConfig(server, name):
 
 class SupervisorConfigurator(Configurator):
     def render(self, task):
+        # host is a supervisord instance configured to load conf files in its "programs" directory
+        # so write a .conf file there
         host = task.vars["HOST"]
-        confDir = abspath(host.context, host["homeDir"])
+        confDir = host["homeDir"]
         name = task.vars["SELF"]["name"]
         confPath = os.path.join(confDir, "programs", name + ".conf")
 
-        if task.configSpec.operation == "configure":
+        op = task.configSpec.operation
+        if op == "configure":
             program = task.vars["SELF"]["program"]
             programDir = os.path.dirname(confPath)
             task.logger.debug("writing %s", confPath)
@@ -58,10 +60,14 @@ class SupervisorConfigurator(Configurator):
                         for (k, v) in task.getEnvironment(True).items()
                     )
                 conff.write(conf)
+        elif op == "delete":
+            if os.path.exists(confPath):
+                os.remove(confPath)
 
-        return confDir, name, confPath
-
-    def _getConfig(self, conf, confDir):
+    def _getConfig(self, task):
+        host = task.vars["HOST"]
+        confDir = os.path.abspath(host["homeDir"])
+        conf = host["conf"]
         if six.PY3:
             parser = ConfigParser(inline_comment_prefixes=(";", "#"), strict=False)
             parser.read_string(conf)
@@ -73,12 +79,11 @@ class SupervisorConfigurator(Configurator):
         return serverConfig
 
     def run(self, task):
-        confDir, name, confPath = task.renderState
-        host = task.vars["HOST"]
+        name = task.vars["SELF"]["name"]
 
         # if homeDir is a relative path it will be relative to the baseDir of the host instance
         # which might be different from the current directory if host is an external instance
-        serverConfig = self._getConfig(host["conf"], confDir)
+        serverConfig = self._getConfig(task)
         server = getServerProxy(**serverConfig)
 
         error = None
@@ -92,10 +97,10 @@ class SupervisorConfigurator(Configurator):
                 server.supervisor.stopProcess(name)
                 modified = True
             elif op == "delete":
-                if os.path.exists(confPath):
-                    os.remove(confPath)
+                # deleted in render()
                 modified = _reloadConfig(server, name)
             elif op == "configure":
+                # conf added/updated in render()
                 modified = _reloadConfig(server, name)
                 server.supervisor.addProcessGroup(name)
         except Fault as err:

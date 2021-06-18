@@ -800,7 +800,7 @@ class Job(ConfigChange):
 
     def render(self, task):
         try:
-            task.renderState = task.configurator.render(task)
+            task.configurator.render(task)
         except Exception:
             UnfurlTaskError(task, "configurator.render failed")
             return False, "render failed"

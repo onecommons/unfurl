@@ -4,7 +4,8 @@ import unfurl.manifest
 from unfurl.yamlmanifest import YamlManifest
 from unfurl.localenv import LocalEnv
 from unfurl.job import Runner, JobOptions
-from unfurl.support import Status, _getbaseDir, RefContext
+from unfurl.support import Status, RefContext
+from unfurl.projectpaths import _getbaseDir
 from unfurl.configurator import Configurator
 from unfurl.util import sensitive_str, API_VERSION, UnfurlValidationError
 from unfurl.yamlloader import makeVaultLib
@@ -254,13 +255,13 @@ class ToscaSyntaxTest(unittest.TestCase):
         src = _getbaseDir(ctx, "src")
         self.assertEqual(src, base)
 
-        # home: <ensemble>/<instance name>/
+        # home: <ensemble>/<instance name>/home
         home = _getbaseDir(ctx, "home")
-        self.assertEqual(os.path.join(base, "testPrefix"), home)
+        self.assertEqual(os.path.join(base, "testPrefix", "home"), home)
 
         # local: <ensemble>/<instance name>/local/
         local = _getbaseDir(ctx, "local")
-        self.assertEqual(os.path.join(home, "local"), local)
+        self.assertEqual(os.path.join(base, "testPrefix", "local"), local)
 
         tmp = _getbaseDir(ctx, "tmp")
         assert tmp.endswith("testPrefix"), tmp
@@ -287,6 +288,7 @@ class ToscaSyntaxTest(unittest.TestCase):
         self.assertEqual(os.path.normpath(selfPath), base)
 
     def test_workflows(self):
+        os.environ["UNFURL_WORKDIR"] = os.environ["UNFURL_TMPDIR"]
         manifest = YamlManifest(
             path=__file__ + "/../examples/test-workflow-ensemble.yaml"
         )
@@ -300,6 +302,7 @@ class ToscaSyntaxTest(unittest.TestCase):
                 add=True, check=True, planOnly=False, out=output, startTime="test"
             )
         )
+        del os.environ["UNFURL_WORKDIR"]
         # print(json.dumps(job.jsonSummary(), indent=2))
         assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
         self.assertEqual(job.status.name, "ok")

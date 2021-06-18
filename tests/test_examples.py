@@ -2,12 +2,14 @@ import unittest
 import six
 import os
 import os.path
+import shutil
 import json
 from click.testing import CliRunner
 from unfurl.yamlmanifest import YamlManifest
-from unfurl.job import Runner, JobOptions, Status
+from unfurl.job import Runner, JobOptions
 from unfurl.configurator import Configurator
 from unfurl.configurators import TemplateConfigurator
+from unfurl.util import makeTempDir
 
 # python 2.7 needs these:
 from unfurl.configurators.shell import ShellConfigurator
@@ -43,6 +45,12 @@ class DummyShellConfigurator(TemplateConfigurator):
 
 
 class RunTest(unittest.TestCase):
+    def setUp(self):
+        os.environ["UNFURL_WORKDIR"] = makeTempDir(delete=True)
+
+    def tearDown(self):
+        del os.environ["UNFURL_WORKDIR"]
+
     @unittest.skipIf("k8s" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
     def test_manifest(self):
         path = __file__ + "/../examples/helm-ensemble.yaml"
@@ -203,36 +211,37 @@ class RunTest(unittest.TestCase):
         """
         Run ansible command on a (mock) remote instance.
         """
-        try:
-            oldTmpDir = os.environ["UNFURL_TMPDIR"]
-            runner = CliRunner()
-            with runner.isolated_filesystem() as tempDir:
-                os.environ["UNFURL_TMPDIR"] = tempDir
-                path = __file__ + "/../examples/ansible-ensemble.yaml"
-                manifest = YamlManifest(path=path)
-                runner = Runner(manifest)
+        runner = CliRunner()
+        with runner.isolated_filesystem() as tempDir:
+            srcpath = os.path.join(
+                os.path.dirname(__file__), "examples", "ansible-ensemble.yaml"
+            )
+            path = shutil.copy(srcpath, ".")
+            manifest = YamlManifest(path=path)
+            runner = Runner(manifest)
 
-                output = six.StringIO()  # so we don't save the file
-                job = runner.run(
-                    JobOptions(
-                        workflow="run",
-                        host="www.example.com",
-                        # this instance doesn't exist so warning is output
-                        instance="www.example.com",
-                        cmdline=["echo", "foo"],
-                        out=output,
-                    )
+            output = six.StringIO()  # so we don't save the file
+            job = runner.run(
+                JobOptions(
+                    workflow="run",
+                    host="www.example.com",
+                    # this instance doesn't exist so warning is output
+                    instance="www.example.com",
+                    cmdline=["echo", "foo"],
+                    out=output,
                 )
-                assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
-                # verify we wrote out the correct ansible inventory file
-                try:
-                    from pathlib import Path
+            )
+            assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
+            # verify we wrote out the correct ansible inventory file
+            try:
+                from pathlib import Path
 
-                    p = Path(os.environ["UNFURL_TMPDIR"])
-                    files = list(p.glob("**/*-inventory.yaml"))
-                    self.assertEqual(len(files), 1, files)
-                    inventory = files[-1]
-                    expectedInventory = """all:
+                p = Path(os.environ["UNFURL_WORKDIR"])
+
+                files = list(p.glob("**/*inventory.yaml"))
+                self.assertEqual(len(files), 1, files)
+                inventory = files[-1]
+                expectedInventory = """all:
   hosts:
     www.example.com:
       ansible_port: 22
@@ -248,12 +257,10 @@ class RunTest(unittest.TestCase):
         var_for_ansible_playbook: test
       children: {}
 """
-                    with inventory.open() as f:
-                        self.assertEqual(f.read(), expectedInventory)
-                except ImportError:
-                    pass  # skip on 2.7
-        finally:
-            os.environ["UNFURL_TMPDIR"] = oldTmpDir
+                with inventory.open() as f:
+                    self.assertEqual(f.read(), expectedInventory)
+            except ImportError:
+                pass  # skip on 2.7
         tasks = list(job.workDone.values())
         self.assertEqual(len(tasks), 1)
         assert "stdout" in tasks[0].result.result, tasks[0].result.result

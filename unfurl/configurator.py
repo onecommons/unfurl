@@ -23,6 +23,7 @@ from . import merge
 from .eval import Ref, mapValue, RefContext
 from .runtime import RelationshipInstance, Operational
 from .yamlloader import yaml
+from unfurl.projectpaths import WorkFolder
 
 import logging
 
@@ -382,14 +383,15 @@ class Configurator(object):
             task (:class:`TaskView`) The task that might execute this operation.
 
         Returns:
-            bool: True if configuration's digest has changed, false if it the same.
+            bool: True if configuration's digest has changed, False if it is the same.
         """
-        _parameters = changeset.digestKeys
+        _parameters = getattr(changeset, "digestKeys", None)
+        newKeys = set(k for k in task.inputs.keys() if k not in self.excludeFromDigest)
         if not _parameters:
-            return False
+            return not not newKeys
         keys = _parameters.split(",")
         # an old input was removed
-        if set(keys) - set(task.inputs.keys()):
+        if set(keys) - newKeys:
             return True
         # only resolve the inputs that were resolved before
         values = [task.inputs[key] for key in keys]
@@ -406,7 +408,6 @@ class TaskView(object):
         self.reason = reason
         self.logger = logger
         self.cwd = os.path.abspath(self.target.baseDir)
-        self.renderState = None
         # private:
         self._errors = []  # UnfurlTaskError objects appends themselves to this list
         self._inputs = None
@@ -417,6 +418,7 @@ class TaskView(object):
         self._dependenciesChanged = False
         self.dependencies = dependencies or []
         self._resourceChanges = ResourceChanges()
+        self._workFolder = None
         # public:
         self.operationHost = self._findOperationHost(target, configSpec.operationHost)
 
@@ -965,6 +967,18 @@ class TaskView(object):
                 self.job.jobRequestQueue.append(jobRequest)
             return jobRequest, errors
         return None, errors
+
+    # multiple task can be accessing the same workfolder
+    def setWorkFolder(self, location="home", preserve=False):
+        self._workFolder = WorkFolder(self, location, preserve)
+        return self._workFolder
+        # return self.job.setFolder(
+        #     self, location, preserve
+        # )
+
+    def getWorkFolder(self):
+        return self._workFolder
+        # return self.job.getFolder(self)
 
 
 class Dependency(Operational):

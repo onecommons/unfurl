@@ -11,9 +11,7 @@ import os.path
 import six
 import re
 import ast
-import codecs
-from enum import IntEnum, Enum
-
+from enum import IntEnum
 from .eval import RefContext, setEvalFunc, Ref, mapValue
 from .result import Results, ResultsMap, Result, ExternalValue, serializeValue
 from .util import (
@@ -23,13 +21,12 @@ from .util import (
     UnfurlValidationError,
     assertForm,
     wrapSensitiveValue,
-    saveToTempfile,
-    saveToFile,
     isSensitive,
     loadModule,
     loadClass,
 )
 from .merge import intersectDict, mergeDicts
+from unfurl.projectpaths import getpath
 import ansible.template
 from ansible.parsing.dataloader import DataLoader
 from ansible.utils.unsafe_proxy import wrap_var, AnsibleUnsafeText, AnsibleUnsafeBytes
@@ -68,222 +65,6 @@ class Defaults(object):
     workflow = "deploy"
 
 
-def _mapArgs(args, ctx):
-    args = mapValue(args, ctx)
-    if not isinstance(args, MutableSequence):
-        return [args]
-    else:
-        return args
-
-
-class File(ExternalValue):
-    """
-    Represents a local file.
-    get() returns the given file path (usually relative)
-    `encoding` can be "binary", "vault", "json", "yaml" or an encoding registered with the Python codec registry
-    """
-
-    def __init__(self, name, baseDir="", loader=None, yaml=None, encoding=None):
-        super(File, self).__init__("file", name)
-        self.baseDir = baseDir or ""
-        self.loader = loader
-        self.yaml = yaml
-        self.encoding = encoding
-
-    def write(self, obj):
-        encoding = self.encoding if self.encoding != "binary" else None
-        path = self.getFullPath()
-        logger.debug("writing to %s", path)
-        saveToFile(path, obj, self.yaml, encoding)
-
-    def getFullPath(self):
-        return os.path.abspath(os.path.join(self.baseDir, self.get()))
-
-    def getContents(self):
-        path = self.getFullPath()
-        with open(path, "rb") as f:
-            contents = f.read()
-        if self.loader:
-            contents, show = self.loader._decrypt_if_vault_data(contents, path)
-        else:
-            show = True
-        if self.encoding != "binary":
-            try:
-                # convert from bytes to string
-                contents = codecs.decode(contents, self.encoding or "utf-8")
-            except ValueError:
-                pass  # keep at bytes
-        if not show:  # it was encrypted
-            return wrapSensitiveValue(contents)
-        else:
-            return contents
-
-    def resolveKey(self, name=None, currentResource=None):
-        """
-        Key can be one of:
-
-        path # absolute path
-        contents # file contents (None if it doesn't exist)
-        encoding
-        """
-        if not name:
-            return self.get()
-
-        if name == "path":
-            return self.getFullPath()
-        elif name == "encoding":
-            return self.encoding or "utf-8"
-        elif name == "contents":
-            return self.getContents()
-        else:
-            raise KeyError(name)
-
-
-def writeFile(ctx, obj, path, relativeTo=None, encoding=None):
-    file = File(
-        abspath(ctx, path, relativeTo),
-        ctx.baseDir,
-        ctx.templar and ctx.templar._loader,
-        ctx.currentResource.root.attributeManager.yaml,
-        encoding,
-    )
-    file.write(obj)
-    return file.getFullPath()
-
-
-def _fileFunc(arg, ctx):
-    kw = mapValue(ctx.kw, ctx)
-    file = File(
-        mapValue(arg, ctx),
-        ctx.baseDir,
-        ctx.templar and ctx.templar._loader,
-        ctx.currentResource.root.attributeManager.yaml,
-        kw.get("encoding"),
-    )
-    if "contents" in kw:
-        file.write(kw["contents"])
-    return file
-
-
-setEvalFunc("file", _fileFunc)
-
-
-class TempFile(ExternalValue):
-    """
-    Represents a temporary local file.
-    get() returns the given file path (usually relative)
-    """
-
-    def __init__(self, obj, suffix="", yaml=None, encoding=None):
-        tp = saveToTempfile(obj, suffix, yaml=yaml, encoding=encoding)
-        super(TempFile, self).__init__("tempfile", tp.name)
-        self.tp = tp
-
-    def resolveKey(self, name=None, currentResource=None):
-        """
-        path # absolute path
-        contents # file contents (None if it doesn't exist)
-        """
-        if not name:
-            return self.get()
-
-        if name == "path":
-            return self.tp.name
-        elif name == "contents":
-            with open(self.tp.name, "r") as f:
-                return f.read()
-        else:
-            raise KeyError(name)
-
-
-setEvalFunc(
-    "tempfile",
-    lambda arg, ctx: TempFile(
-        mapValue(mapValue(arg, ctx), ctx),  # XXX
-        ctx.kw.get("suffix"),
-        ctx.currentResource.root.attributeManager.yaml,
-        ctx.kw.get("encoding"),
-    ),
-)
-
-
-def _getbaseDir(ctx, name=None):
-    """
-    Returns an absolute path based on the given folder name:
-
-    ".":   directory that contains the current instance's the ensemble
-    "src": directory of the source file this expression appears in
-    "home" The "home" directory for the current instance (committed to repository)
-    "local": The "local" directory for the current instance (excluded from repository)
-    "tmp":   A temporary directory for the instance (removed after unfurl exits)
-    "spec.src": The directory of the source file the current instance's template appears in.
-    "spec.home": The "home" directory of the source file the current instance's template.
-    "spec.local": The "local" directory of the source file the current instance's template
-    "project": The root directory of the current project.
-    "unfurl.home": The location of home project (UNFURL_HOME).
-
-    Otherwise look for a repository with the given name and return its path or None if not found.
-    """
-    instance = ctx.currentResource
-    if not name or name == ".":
-        # the folder of the current resource's ensemble
-        return instance.baseDir
-    elif name == "src":
-        # folder of the source file
-        return ctx.baseDir
-    elif name == "tmp":
-        return os.path.join(instance.root.tmpDir, instance.name)
-    elif name == "home":
-        return os.path.join(instance.baseDir, instance.name)
-    elif name == "local":
-        return os.path.join(instance.baseDir, instance.name, "local")
-    elif name == "project":
-        return instance.template.spec._getProjectDir() or instance.baseDir
-    elif name == "unfurl.home":
-        return instance.template.spec._getProjectDir(True) or instance.baseDir
-    else:
-        start, sep, rest = name.partition(".")
-        if sep:
-            if start == "spec":
-                template = instance.template
-                specHome = os.path.join(template.spec.baseDir, "spec", template.name)
-                if rest == "src":
-                    return template.baseDir
-                if rest == "home":
-                    return specHome
-                elif rest == "local":
-                    return os.path.join(specHome, "local")
-            # XXX elif start == 'project' and rest == 'local'
-        return instance.template.spec.getRepositoryPath(name)
-
-
-def abspath(ctx, path, relativeTo=None, mkdir=True):
-    if os.path.isabs(path):
-        return path
-
-    base = _getbaseDir(ctx, relativeTo)
-    if base is None:
-        raise UnfurlError('Named directory or repository "%s" not found' % relativeTo)
-    fullpath = os.path.join(base, path)
-    if mkdir:
-        dir = os.path.dirname(fullpath)
-        if len(dir) < len(base):
-            dir = base
-        if not os.path.exists(dir):
-            os.makedirs(dir)
-    return os.path.abspath(fullpath)
-
-
-def getdir(ctx, folder, mkdir=True):
-    return abspath(ctx, "", folder, mkdir)
-
-
-# see also abspath in filter_plugins.ref
-setEvalFunc("abspath", lambda arg, ctx: abspath(ctx, *_mapArgs(arg, ctx)))
-
-setEvalFunc("get_dir", lambda arg, ctx: getdir(ctx, *_mapArgs(arg, ctx)))
-
-
 def evalPython(arg, ctx):
     """
     eval:
@@ -301,7 +82,7 @@ def evalPython(arg, ctx):
     if "#" in arg:
         path, sep, fragment = arg.partition("#")
         # if path is relative, treat as relative to current src location
-        path = abspath(ctx, path, "src", False)
+        path = getpath(ctx, path, "src", False)
         mod = loadModule(path)
         funcName = mod.__name__ + "." + fragment
     else:

@@ -170,9 +170,13 @@ Expression Functions
 abspath
 ^^^^^^^
 
-  :name: a named folder
+  :path: A file path
+  :location: (optional) A named folder (see `get_dir`)
+  :mkdir: (default: true) If true, create the folder if missing.
 
-  Get the absolute path.
+  Get the absolute path to the given path. If ``location`` is supplied it will be
+  relative to that location (see `get_dir`) otherwise it will be relative to the current directory.
+
   Also available as a jinja2 filter.
 
 and
@@ -224,6 +228,9 @@ foreach
 get_dir
 ^^^^^^^
 
+  :location: a named folder
+  :mkdir: (default: true) If true, create the folder if missing.
+
   Return an absolute path to the given named folder where ``name`` is one of:
 
   :.:   directory that contains the current instance's the ensemble
@@ -238,6 +245,8 @@ get_dir
   :unfurl.home: The location of home project (``UNFURL_HOME``).
 
   Otherwise look for a repository with the given name and return its path or None if not found.
+
+  Also available as a jinja2 filter.
 
 if
 ^^

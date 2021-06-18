@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 from ..util import saveToFile, UnfurlTaskError, wrap_var
 from .shell import ShellConfigurator
-from ..support import getdir, abspath, Status, writeFile
+from ..support import Status
 import json
 import os
 import os.path
@@ -114,7 +114,7 @@ class TerraformConfigurator(ShellConfigurator):
             task.logger.debug("failed to load provider schema", exc_info=True)
             return None
 
-    def _prepareWorkspace(self, cwd, task):
+    def _prepareWorkspace(self, task, cwd):
         """
         In terraform directory:
             Write out tf.json if necessary.
@@ -124,14 +124,13 @@ class TerraformConfigurator(ShellConfigurator):
         if main:
             if isinstance(main, six.string_types):
                 # assume its HCL
-                path = os.path.join(cwd, "main.unfurl.tmp.tf")
+                path = "main.unfurl.tmp.tf"
             else:
-                path = os.path.join(cwd, "main.unfurl.tmp.tf.json")
-            ctx = task.inputs.context
-            return writeFile(ctx, main, path)
+                path = "main.unfurl.tmp.tf.json"
+            return cwd.writeFile(main, path)
         return None
 
-    def _prepareVars(self, task):
+    def _prepareVars(self, task, cwd):
         # XXX .tfvars can be sensitive
         # we need to output the plan and convert it to json to see which variables are marked sensitive
         tfvars = task.inputs.getCopy("tfvars")
@@ -141,46 +140,46 @@ class TerraformConfigurator(ShellConfigurator):
                 path = "vars.tmp.tfvars"
             else:
                 path = "vars.tmp.tfvars.json"
-            ctx = task.inputs.context
-            return writeFile(ctx, tfvars, path, "home")
+            return cwd.writeFile(tfvars, path)
         return None
 
-    def _prepareState(self, task, ctx):
+    def _prepareState(self, task, cwd):
         # the terraform state file is associate with the current instance
         # read the (possible encrypted) version from the repository
         # and write out it as plaintext json into the local directory
-        yamlPath = abspath(ctx, "terraform.tfstate.yaml", "home", False)
-        jsonPath = abspath(ctx, "terraform.tfstate.json", "home", False)
+        yamlPath = cwd.getPath("terraform.tfstate.yaml")
+        jsonPath = cwd.getPath("terraform.tfstate.json")
         if not os.path.exists(jsonPath) and os.path.exists(yamlPath):
             # if exists in home, load and write out state file as json
             with open(yamlPath, "r") as f:
                 state = task._manifest.yaml.load(f.read())
-            writeFile(ctx, state, jsonPath)
+            cwd.writeFile(state, "terraform.tfstate.json")
         return jsonPath
 
-    def _getPlanPath(self, task, ctx):
+    def _getPlanPath(self, task, cwd):
         # the terraform state file is associate with the current instance
         # read the (possible encrypted) version from the repository
         # and write out it as plaintext json into the local directory
         jobId = task.getJobId(task.changeId)
-        return abspath(ctx, jobId + ".plan", "local")
+        return cwd.getPath(jobId + ".plan", "local")
 
     def render(self, task):
+        cwd = task.setWorkFolder("home")
         ctx = task.inputs.context
         # options:
         _, terraform = self._cmd(
             task.inputs.get("command", self._defaultCmd), task.inputs.get("keeplines")
         )
-        cwd = os.path.abspath(task.inputs.get("dir") or getdir(ctx, "home"))
+        # XXXX cwd = os.path.abspath(task.inputs.get("dir") or getdir(ctx, "home"))
 
         # write out any needed files to cwd, eg. main.tf.json
-        self._prepareWorkspace(cwd, task)
+        self._prepareWorkspace(task, cwd)
         # write vars to file in local if necessary
-        varfilePath = self._prepareVars(task)
+        varfilePath = self._prepareVars(task, cwd)
         # write the state file to local if necessary
-        statePath = self._prepareState(task, ctx)
+        statePath = self._prepareState(task, cwd)
 
-        planPath = self._getPlanPath(task, ctx)
+        planPath = self._getPlanPath(task, cwd)
         # build the command line and run it
         if task.dryRun or task.configSpec.operation == "check":
             action = [
@@ -209,14 +208,14 @@ class TerraformConfigurator(ShellConfigurator):
         if varfilePath:
             cmd.append("-var-file=" + varfilePath)
 
-        return cwd, cmd, terraform, statePath
+        cwd.setRenderState([cmd, terraform, statePath])
 
     def run(self, task):
-        cwd, cmd, terraform, statePath = task.renderState
-        ctx = task.inputs.context
+        cwd = task.getWorkFolder()
+        cmd, terraform, statePath = cwd.renderState
         echo = task.verbose > -1
 
-        dataDir = os.getenv("TF_DATA_DIR", os.path.join(cwd, ".terraform"))
+        dataDir = os.getenv("TF_DATA_DIR", os.path.join(cwd.cwd, ".terraform"))
         env = _getEnv(task.getEnvironment(False), task.verbose, dataDir)
 
         ### Load the providers schemas and run terraform init if necessary
@@ -225,30 +224,34 @@ class TerraformConfigurator(ShellConfigurator):
             with open(providerSchemaPath) as psf:
                 providerSchema = json.load(psf)
         else:  # first time
-            providerSchema = self._initTerraform(task, terraform, cwd, env)
+            providerSchema = self._initTerraform(task, terraform, cwd.cwd, env)
             if providerSchema is not None:
                 saveToFile(providerSchemaPath, providerSchema)
             else:
                 raise UnfurlTaskError(task, "terraform init failed in %s" % cwd)
 
         result = self.runProcess(
-            cmd, timeout=task.configSpec.timeout, env=env, cwd=cwd, echo=echo
+            cmd, timeout=task.configSpec.timeout, env=env, cwd=cwd.cwd, echo=echo
         )
         if result.returncode and re.search(r"terraform\s+init", result.stderr):
             # modules or plugins out of date, re-run terraform init
-            providerSchema = self._initTerraform(task, terraform, cwd, env)
+            providerSchema = self._initTerraform(task, terraform, cwd.cwd, env)
             if providerSchema:
                 saveToFile(providerSchemaPath, providerSchema)
                 # try again
                 result = self.runProcess(
-                    cmd, timeout=task.configSpec.timeout, env=env, cwd=cwd, echo=echo
+                    cmd,
+                    timeout=task.configSpec.timeout,
+                    env=env,
+                    cwd=cwd.cwd,
+                    echo=echo,
                 )
             else:
                 raise UnfurlTaskError(task, "terrform init failed in %s" % cwd)
 
         # process the result
         status = None
-        success = self._handleResult(task, result, cwd, (0, 2))
+        success = self._handleResult(task, result, cwd.cwd, (0, 2))
         if result.returncode == 2:
             # plan -detailed-exitcode: 2 - Succeeded, but there is a diff
             success = True
@@ -263,7 +266,7 @@ class TerraformConfigurator(ShellConfigurator):
                 state = json.load(sf)
             state = markSensitive(providerSchema, state, task, self.sensitiveNames)
             # save state file in home as yaml, encrypting sensitive values
-            writeFile(ctx, state, "terraform.tfstate.yaml", "home")
+            cwd.writeFile(state, "terraform.tfstate.yaml")
             outputs = {
                 name: wrap_var(attrs["value"])
                 for name, attrs in state["outputs"].items()

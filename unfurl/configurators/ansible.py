@@ -176,7 +176,7 @@ class AnsibleConfigurator(TemplateConfigurator):
         # note: allVars is inventory vars shared by all hosts
         return dict(all=dict(hosts=hosts, vars=allVars, children=children))
 
-    def getInventory(self, task):
+    def getInventory(self, task, cwd):
         inventory = task.inputs.get("inventory")
         if inventory and isinstance(inventory, six.string_types):
             # XXX if user set inventory file we can create a folder to merge them
@@ -188,7 +188,7 @@ class AnsibleConfigurator(TemplateConfigurator):
             # default to localhost if not inventory
             inventory = self._makeInventory(task.operationHost, inventory or {}, task)
         # XXX cache and reuse file
-        return saveToTempfile(inventory, "-inventory.yaml").name
+        return cwd.writeFile(inventory, "inventory.yaml")
         # don't worry about the warnings in log, see:
         # https://github.com/ansible/ansible/issues/33132#issuecomment-346575458
         # https://github.com/ansible/ansible/issues/33132#issuecomment-363908285
@@ -223,7 +223,7 @@ class AnsibleConfigurator(TemplateConfigurator):
     def findPlaybook(self, task):
         return task.inputs["playbook"]
 
-    def getPlaybook(self, task):
+    def getPlaybook(self, task, cwd):
         playbook = self.findPlaybook(task)
         if isinstance(playbook, six.string_types):
             # assume it's file path
@@ -232,7 +232,7 @@ class AnsibleConfigurator(TemplateConfigurator):
         envvars = task.getEnvironment(True)
         for play in playbook:
             play["environment"] = envvars
-        return saveToTempfile(serializeValue(playbook), "-playbook.yml").name
+        return cwd.writeFile(serializeValue(playbook), "playbook.yml")
 
     def getPlaybookArgs(self, task):
         args = task.inputs.get("playbookArgs", [])
@@ -256,15 +256,18 @@ class AnsibleConfigurator(TemplateConfigurator):
         return result
 
     def render(self, task):
+        cwd = task.setWorkFolder("home")
         # build host inventory from resource
-        inventory = self.getInventory(task)
-        playbook = self.getPlaybook(task)
+        inventory = self.getInventory(task, cwd)
+        playbook = self.getPlaybook(task, cwd)
         playbookArgs = self.getPlaybookArgs(task)
-        return _renderPlaybook(playbook, inventory, playbookArgs)
+        args = _renderPlaybook(playbook, inventory, playbookArgs)
+        cwd.setRenderState(args)
 
     def run(self, task):
         try:
-            args = task.renderState
+            cwd = task.getWorkFolder()
+            args = cwd.renderState
             # build vars from inputs
             extraVars = self.getVars(task)
             if task.operationHost and task.operationHost.templar:

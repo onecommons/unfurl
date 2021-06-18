@@ -7,6 +7,7 @@ import six
 import sys
 import collections
 import numbers
+import os
 import os.path
 import itertools
 
@@ -319,7 +320,12 @@ class YamlManifest(ReadOnlyManifest):
         template = self.tosca.topology
         operational = self.loadStatus(status)
         root = TopologyInstance(template, operational)
-        root.setBaseDir(self.getBaseDir())
+        if os.environ.get("UNFURL_WORKDIR"):
+            root.setBaseDir(os.environ["UNFURL_WORKDIR"])
+        elif not self.path:
+            root.setBaseDir(root.tmpDir)
+        else:
+            root.setBaseDir(self.getBaseDir())
 
         # We need to set the environment as early as possible but not too early
         # and only once.
