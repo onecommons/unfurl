@@ -756,7 +756,11 @@ class Job(ConfigChange):
             self.runner.addWork(task)
             self.runTask(task, depth)
 
-            if workflow == "deploy" and resource.created is None:
+            if (
+                workflow == "deploy"
+                and task.modifiedTarget()
+                and resource.created is None
+            ):
                 resource.created = task.changeId
 
             # if # task succeeded but didn't update nodestate

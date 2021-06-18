@@ -355,7 +355,7 @@ class UndeployTest(unittest.TestCase):
                     "name": "simple",
                     "status": "Status.absent",
                     "state": "NodeState.deleted",
-                    "managed": "A01110000001",
+                    "managed": "A01110000002",
                     "plan": [
                         {
                             "workflow": "undeploy",
