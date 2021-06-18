@@ -51,23 +51,106 @@ class RunTest(unittest.TestCase):
 
         assert not manifest.lastJob, "expected new manifest"
         output = six.StringIO()  # so we don't save the file
-        job = runner.run(JobOptions(add=True, out=output, startTime="test"))
+        job = runner.run(JobOptions(add=True, out=output, startTime=1))
         assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
-
+        # print(manifest.statusSummary())
+        self.assertEqual(
+            job.jsonSummary(),
+            {
+                "job": {
+                    "id": "A01110000000",
+                    "status": "ok",
+                    "total": 5,
+                    "ok": 5,
+                    "error": 0,
+                    "unknown": 0,
+                    "skipped": 0,
+                    "changed": 5,
+                },
+                "outputs": {},
+                "tasks": [
+                    {
+                        "status": "ok",
+                        "target": "stagingCluster",
+                        "operation": "discover",
+                        "template": "stagingCluster",
+                        "type": "unfurl.nodes.K8sCluster",
+                        "targetStatus": "ok",
+                        "targetState": None,
+                        "changed": True,
+                        "configurator": "unfurl.configurators.k8s.ClusterConfigurator",
+                        "priority": "required",
+                        "reason": "discover",
+                    },
+                    {
+                        "status": "ok",
+                        "target": "defaultNamespace",
+                        "operation": "discover",
+                        "template": "defaultNamespace",
+                        "type": "unfurl.nodes.K8sNamespace",
+                        "targetStatus": "ok",
+                        "targetState": None,
+                        "changed": True,
+                        "configurator": "unfurl.configurators.k8s.ResourceConfigurator",
+                        "priority": "required",
+                        "reason": "discover",
+                    },
+                    {
+                        "status": "ok",
+                        "target": "gitlab-release",
+                        "operation": "execute",
+                        "template": "gitlab-release",
+                        "type": "unfurl.nodes.HelmRelease",
+                        "targetStatus": "ok",
+                        "targetState": None,
+                        "changed": True,
+                        "configurator": "tests.test_examples.HelmConfigurator",
+                        "priority": "required",
+                        "reason": "step:helm",
+                    },
+                    {
+                        "status": "ok",
+                        "target": "gitlab-release",
+                        "operation": "subtaskOperation",
+                        "template": "gitlab-release",
+                        "type": "unfurl.nodes.HelmRelease",
+                        "targetStatus": "ok",
+                        "targetState": None,
+                        "changed": True,
+                        "configurator": "tests.test_examples.DummyShellConfigurator",
+                        "priority": "required",
+                        "reason": "for subtask: for step:helm: unfurl.interfaces.install.Helm.execute",
+                    },
+                    {
+                        "status": "ok",
+                        "target": "gitlab-release",
+                        "operation": "discover",
+                        "template": "gitlab-release",
+                        "type": "unfurl.nodes.HelmRelease",
+                        "targetStatus": "ok",
+                        "targetState": None,
+                        "changed": True,
+                        "configurator": "unfurl.configurators.shell.ShellConfigurator",
+                        "priority": "required",
+                        "reason": "step:helm",
+                    },
+                ],
+            },
+        )
         # manifest shouldn't have changed
         # print("1", output.getvalue())
         baseDir = __file__ + "/../examples/"
         manifest2 = YamlManifest(output.getvalue(), path=baseDir)
-        # manifest2.statusSummary()
+        # print(manifest2.statusSummary())
         output2 = six.StringIO()
-        job2 = Runner(manifest2).run(JobOptions(add=True, out=output2, startTime=1))
+        job2 = Runner(manifest2).run(JobOptions(add=True, out=output2, startTime=2))
         # print("2", output2.getvalue())
-        # print(job2.summary())
+        # print(job2.jsonSummary(True))
+        # print(job2._planSummary())
         assert not job2.unexpectedAbort, job2.unexpectedAbort.getStackTrace()
         # should not have found any tasks to run:
-        # XXX this is wrong figure out the correct test
-        # assert len(job2.workDone) == 0, job2.workDone
-        self.maxDiff = None
+        assert len(job2.workDone) == 0, job2.workDone
+        # self.maxDiff = None
         # self.assertEqual(output.getvalue(), output2.getvalue())
 
         output3 = six.StringIO()

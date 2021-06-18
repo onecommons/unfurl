@@ -730,7 +730,7 @@ class DeployPlan(Plan):
 
         if instance.status == Status.unknown or instance.shadow:
             installOp = "check"
-        elif "discover" in instance.template.directives:
+        elif "discover" in instance.template.directives and not instance.operational:
             installOp = "discover"
         else:
             installOp = None
