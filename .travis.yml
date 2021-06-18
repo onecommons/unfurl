@@ -1,13 +1,12 @@
 language: python
 python:
-  - "2.7"
   - "3.7"
   - "3.8"
   - "3.9"
 env:
   global:
     - TOX_SKIP_ENV=.+(docker|lock)
-    - tf_version=0.13.6
+    - tf_version=1.0.0
     - helm_version=3.3.4
     - UNFURL_LOGGING=info
 before_install:
