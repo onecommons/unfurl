@@ -47,6 +47,9 @@ class Operational(ChangeAware):
         return NodeState.initial
 
     def get_operational_dependencies(self):
+        """
+        Return an iterator of `Operational` object that this instance depends on to be operational.
+        """
         return ()
 
     def get_operational_dependents(self):
@@ -77,8 +80,8 @@ class Operational(ChangeAware):
     def status(self):
         """
         Return the effective status, considering first the local readyState and
-        then the aggregate status' of its dependencies (see `aggregateStatus()`
-        and `getOperationalDependencies()`).
+        then the aggregate status' of its dependencies (see `aggregate_status()`
+        and `get_operational_dependencies()`).
 
         If the local_status is non-operational, that takes precedence.
         Otherwise the local_status is compared with its aggregate dependent status
@@ -773,7 +776,9 @@ class TopologyInstance(NodeInstance):
         if not relation:
             return self.requirements
         return [
-            rel for rel in self.requirements if rel.template.is_compatible_type(relation)
+            rel
+            for rel in self.requirements
+            if rel.template.is_compatible_type(relation)
         ]
 
     def get_operational_dependencies(self):

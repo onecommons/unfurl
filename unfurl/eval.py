@@ -3,17 +3,17 @@
 """
 Public Api:
 
-mapValue - returns a copy of the given value resolving any embedded queries or template strings
+map_value - returns a copy of the given value resolving any embedded queries or template strings
 
 Ref.resolve given an expression, returns a ResultList
-Ref.resolveOne given an expression, return value, none or a (regular) list
-Ref.isRef return true if the given diction looks like a Ref
+Ref.resolve_one given an expression, return value, none or a (regular) list
+Ref.is_ref return true if the given diction looks like a Ref
 
 Internal:
 
-evalRef() given expression (string or dictionary) return list of Result
+eval_ref() given expression (string or dictionary) return list of Result
 Expr.resolve() given expression string, return list of Result
-Results._mapValue same as mapValue but with lazily evaluation
+Results._map_value same as map_value but with lazily evaluation
 """
 import six
 import re
@@ -35,7 +35,7 @@ def _map_value(value, ctx, wantList=False, applyTemplates=True):
     from .support import is_template, apply_template
 
     if Ref.is_ref(value):
-        # wantList=False := resolveOne
+        # wantList=False := resolve_one
         return Ref(value).resolve(ctx, wantList=wantList)
 
     if isinstance(value, Mapping):
@@ -104,7 +104,7 @@ class RefContext(object):
         resolveExternal=False,
         trace=0,
         strict=_defaultStrictness,
-        task=None
+        task=None,
     ):
         self.vars = vars or {}
         # the original context:
@@ -259,7 +259,7 @@ class Ref(object):
         """
         If wantList=True (default) returns a ResultList of matches
         Note that values in the list can be a list or None
-        If wantList=False return `resolveOne` semantics
+        If wantList=False return `resolve_one` semantics
         If wantList='result' return a Result
         """
         ctx = ctx.copy(
@@ -482,7 +482,7 @@ def eval_ref(val, ctx, top=False):
     "val is assumed to be an expression, evaluate and return a list of Result"
     from .support import is_template, apply_template
 
-    # functions and ResultsMap assume resolveOne semantics
+    # functions and ResultsMap assume resolve_one semantics
     if top:
         vars = ctx.vars.copy()
         vars["start"] = ctx.currentResource
@@ -530,7 +530,7 @@ def eval_ref(val, ctx, top=False):
 
 
 def eval_for_func(val, ctx):
-    "like `evalRef` except it returns the resolved value"
+    "like `eval_ref` except it returns the resolved value"
     results = eval_ref(val, ctx)
     if not results:
         return None

@@ -418,7 +418,7 @@ class YamlManifest(ReadOnlyManifest):
             rname = value.get("instance", "root")
             if rname == "*":
                 rname = "root"
-            # use findInstanceOrExternal() not findResource() to handle export instances transitively
+            # use find_instance_or_external() not find_resource() to handle export instances transitively
             # e.g. to allow us to layer localhost manifests
             root = importedManifest.get_root_resource()
             resource = root.find_instance_or_external(rname)

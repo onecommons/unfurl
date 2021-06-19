@@ -5,8 +5,6 @@ Python API
     :depth: 2
 
 
-.. _python:
-
 API for writing configurators
 -----------------------------
 
@@ -34,24 +32,24 @@ APIs for controlling Unfurl
   :undoc-members:
 
 .. automodule:: unfurl.job
-  :members: runJob, JobOptions, ConfigChange, Job
+  :members: run_job, JobOptions, ConfigChange, Job
 
 .. automodule:: unfurl.plan
   :members: DeployPlan
 
 .. automodule:: unfurl.init
-  :members: clone, _createInClonedProject
+  :members: clone, _create_in_cloned_project
 
 Utility classes and functions
 -----------------------------
 
 .. automodule:: unfurl.eval
-  :members: Ref, mapValue, evalRef, RefContext
+  :members: Ref, map_value, eval_ref, RefContext
 
 .. automodule:: unfurl
   :members: sensitive
 
 .. automodule:: unfurl.util
-  :members: UnfurlError, UnfurlTaskError, wrapSensitiveValue, isSensitive,
+  :members: UnfurlError, UnfurlTaskError, wrap_sensitive_value, is_sensitive,
     sensitive_bytes, sensitive_str, sensitive_dict, sensitive_list,
-    filterEnv, Generate
+    filter_env, Generate
