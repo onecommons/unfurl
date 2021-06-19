@@ -480,8 +480,8 @@ def isEnsembleInProjectRepo(project, paths):
 
 def clone(source, dest, includeLocal=False, **options):
     """
-    Clone the `source` ensemble to `dest`. If `dest` isn't in a project, create one.
-    `source` can point to an ensemble_template, a service_template, an existing ensemble
+    Clone the ``source`` ensemble to ``dest``. If ``dest`` isn't in a project, create one.
+    ``source`` can point to an ensemble_template, a service_template, an existing ensemble
     or a folder containing one of those. If it points to a project its default ensemble will be cloned.
 
     Referenced `repositories` will be cloned if a git repository or copied if a regular file folder,
@@ -559,7 +559,7 @@ def clone(source, dest, includeLocal=False, **options):
 
 def _createInClonedProject(paths, clonedProject, dest, mono):
     """
-    Called by `clone` when cloning an ensemble.
+    Called by :py:func:`unfurl.init.clone` when cloning an ensemble.
 
     ================================   ========================
     source ensemble                    result

@@ -13,7 +13,7 @@ Users can also define custom workflows but they do not affect the change history
 Job Lifecycle
 ==============
 
-When a command that invokes a workflow is executed (`deploy`, `undeploy`, `check`, `discover` and `run`)
+When a command that invokes a workflow is executed (`deploy`, `undeploy`, `check`, `discover` and :ref:`run`)
 a job is created and run. Running a job entails these steps:
 
 1. YAML parsed and :ref:`merge directives<yaml_merge_directives>` are processed

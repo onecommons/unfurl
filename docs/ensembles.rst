@@ -2,7 +2,7 @@
 Ensembles
 =========
 
-The core concept of Unfurl is that of a ``Ensemble``, a representation of an isolated collections of resources. An ensemble's identity is independent of the location or implementation of the resources it entails. Ensembles maintain an ordered set of `ChangeRecords` that represent the current operational state of those resources -- both their configuration and their internal state. For example, if an ensemble contained a database, its `ChangeRecord` might be tied to changes to the data in that database.
+The core concept of Unfurl is that of a ``Ensemble``, a representation of an isolated collections of resources. An ensemble's identity is independent of the location or implementation of the resources it entails. Ensembles maintain an ordered set of `ChangeRecords <Config Change>` that represent the current operational state of those resources -- both their configuration and their internal state. For example, if an ensemble contained a database, its `ChangeRecord` might be tied to changes to the data in that database.
 
 Like objects in a computer program, ensembles expose abstract, typed interfaces that encapsulates an internal implementation. They can create, delete, and modify resources and, with proper configuration, act as a secure gateway for managing those resources.
 
@@ -18,7 +18,7 @@ Repositories and History
 
 Changes to an ensemble's configuration or operational state are committed to a git repository, enabling a turnkey GitOps workflow. Git's immutable history helps guarantee integrity and reproducible playback as well as provide an auditable history of changes.
 
-`unfurl` can automatically commit any changes to the project to one or more git repositories. Unfurl provides flexibility on how to map this layout to git repositories, supporting both "monorepo" and "polyrepo" arrangements. An ensemble can keep instance data and specifications in  separate git repositories (useful for testing or ephemeral instances) and a project can live in a dedicated repository or be part of a source repository.
+Unfurl can automatically commit any changes to the project to one or more git repositories. Unfurl provides flexibility on how to map this layout to git repositories, supporting both "monorepo" and "polyrepo" arrangements. An ensemble can keep instance data and specifications in  separate git repositories (useful for testing or ephemeral instances) and a project can live in a dedicated repository or be part of a source repository.
 
 Isolation and Reproducibility
 =============================
