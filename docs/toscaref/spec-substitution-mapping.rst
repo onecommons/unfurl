@@ -1,3 +1,5 @@
+.. _substitution_mapping:
+
 Substitution Mapping
 ====================
 

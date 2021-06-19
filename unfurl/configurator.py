@@ -633,7 +633,7 @@ class TaskView(object):
         """Mark the given value as sensitive. Sensitive values will be encrypted or redacted when outputed.
 
         Returns:
-          sensitive: A subtype of `sensitive` appropriate for the value or the value itself if it can't be converted.
+          sensitive: A copy of the value converted the appropriate subtype of :py:meth:`unfurl.sensitive` value or the value itself if it can't be converted.
 
         """
         return wrapSensitiveValue(

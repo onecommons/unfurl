@@ -1,3 +1,5 @@
+.. _configurators:
+
 ===============
 Configurators
 ===============
@@ -71,7 +73,7 @@ as the host. The inventory will include groups and variables derived from the fo
   type ``unfurl.relationships.ConnectsTo.Ansible`` uses its ``connection`` and ``hostvars`` properties.
 * If the operation_host is declared as a member of group of type ``unfurl.groups.AnsibleInventoryGroup`` in the service template,
   the group's name will be added as an ansible group along with the contents of the group's ``hostvars`` property.
-* If ``ansible_host`` wasn't previously set, the host name will be set to the operation_host's `public_ip` or ``private_ip`` in that order, otherwise set it to ``localhost``.
+* If ``ansible_host`` wasn't previously set, the host name will be set to the operation_host's :ref:`public_ip<tosca_types>` or ``private_ip`` in that order, otherwise set it to ``localhost``.
 * If the host is a Google compute instance the host name will be set to ``INSTANCE_NAME.ZONE.PROJECT`` e.g. ``instance-1.us-central1-a.purple-sanctum-25912``. This is for compatibility with the ``gcloud compute config-ssh`` command to enable Unfurl to use those credentials.
 
 Delegate
@@ -102,13 +104,15 @@ Inputs
            If it is not set, the task will not be executed at all during a dry run job.
   :shell: If a string, the executable of the shell to execute the command in (e.g. ``/usr/bin/bash``).
           A boolean indicates whether the command if invoked through the default shell or not.
-          If omitted, it will be set to true if `command` is a string or false if it is a list.
+          If omitted, it will be set to true if ``command`` is a string or false if it is a list.
   :echo: (*Default: true*) Whether or not should be standard output (and stderr)
          should be echod to Unfurl's stdout while the command is being run.
          (Doesn't affect the capture of stdout and stderr.)
   :keeplines:
   :done: As as `done` defined by the `Template` configurator.
   :resultTemplate: A Jinja2 template that is processed after shell command completes, it will have the following template variables:
+
+.. _resulttemplate:
 
 Result template variables
 -------------------------
@@ -140,8 +144,8 @@ Inputs
 Terraform
 ==========
 
-The Terraform configurator will be invoked on any `node template` with the type `unfurl.nodes.Installer.Terraform`.
-It can also be used to implement any operation regardless of the node type by setting the `implementation` to `unfurl.configurators.terraform.TerraformConfigurator`.
+The Terraform configurator will be invoked on any `node template` with the type :ref:`unfurl.nodes.Installer.Terraform<unfurl_types>`.
+It can also be used to implement any operation regardless of the node type by setting the `implementation` to :ref:`unfurl.configurators.terraform.TerraformConfigurator<unfurl_types>`.
 It will invoke the appropriate terraform command (e.g "apply" or "destroy") based on the job's workflow.
 
 The Terraform configurator manages the Terraform state file itself
@@ -153,7 +157,7 @@ You can use the ``unfurl.nodes.Installer.Terraform`` node type with your node te
 Inputs
 ------
 
-  :main: If present, its value will be used to generate `main.tf`.
+  :main: If present, its value will be used to generate ``main.tf``.
          If it's a string it will be treated as HCL, otherwise it will be written out as JSON.
   :tfvars: A map of Terraform variables to passed to the main Terraform module.
   :dir:  The directory to execute Terraform in. Default: equivalent to get_dir("spec.home")
@@ -170,7 +174,7 @@ Other ``implementation`` keys
 Environment Variables
 ---------------------
 
-If the ``TF_DATA_DIR`` environment variable is not defined it will be set to `.terraform` relative to the current working directory.
+If the ``TF_DATA_DIR`` environment variable is not defined it will be set to ``.terraform`` relative to the current working directory.
 
 Note on HCL in YAML
 -------------------
@@ -446,7 +450,7 @@ Attributes
   :apiResource: (map) The YAML representation for the resource as retrieved from the Kubernetes cluster.
   :name: (string) The Kubernetes name of the resource.
 
-.. _supervisor:
+.. _sup:
 
 Supervisor
 ==========

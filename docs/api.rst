@@ -40,13 +40,16 @@ APIs for controlling Unfurl
   :members: DeployPlan
 
 .. automodule:: unfurl.init
-  :members: clone, _createInClonedProject, createProjectRepo
+  :members: clone, _createInClonedProject
 
 Utility classes and functions
 -----------------------------
 
 .. automodule:: unfurl.eval
   :members: Ref, mapValue, evalRef, RefContext
+
+.. automodule:: unfurl
+  :members: sensitive
 
 .. automodule:: unfurl.util
   :members: UnfurlError, UnfurlTaskError, wrapSensitiveValue, isSensitive,

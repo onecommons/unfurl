@@ -58,11 +58,11 @@ Now you can customize your home project, for example:
 6. Declare shared and default resources. For example, if several project will use a pre-existing Kubernetes cluster, you could add a template that models it here. You can use the `default directive` to indicate that template should only be used if it wasn't already declared in the main project.
 
 ``~/.unfurl_home/ensemble.yaml`` contains a template (``asdfBootstrap``) that will install
-local versions of the tools Unfurl's `configurators` need (eg. asdf, Terraform, gcloud, and Helm)
+local versions of the tools Unfurl's :ref:`configurators<configurators>` need (eg. asdf, Terraform, gcloud, and Helm)
 It install these tools, run ``unfurl deploy ~/.unfurl_home``.
 
 .. tip::
-   Don't worry about making mistakes -- as a regular Unfurl project, your `.unfurl_home`
+   Don't worry about making mistakes -- as a regular Unfurl project, your :ref:`.unfurl_home<configure>`
    contains a git repository so you can rollback to previous versions of your config files.
 
 
@@ -71,17 +71,17 @@ It install these tools, run ``unfurl deploy ~/.unfurl_home``.
 
 Now you are ready to create your first Unfurl project.
 
-Run `unfurl init`
+Run :cli:`unfurl init<unfurl-init>`
 
 This will create a new project and commit it to new git repository unless the
 ``--existing`` flag is used. If specified, Unfurl will search the current directory and its parents looking for the nearest existing git repository. It will then add the new project to that repository if one is found.
 
-`unfurl init` will also create an ensemble in the project unless the ``--empty`` flag used.
-By default, a separate, local git repository will be created for the ensemble. Use the `--mono` flag to add the ensemble to the project's git repository or use the `--submodule` flag to add the ensemble's git repository as a submodule of the project's git repository.
+:cli:`unfurl init<unfurl-init>` will also create an ensemble in the project unless the ``--empty`` flag used.
+By default, a separate, local git repository will be created for the ensemble. Use the ``--mono`` flag to add the ensemble to the project's git repository or use the ``--submodule`` flag to add the ensemble's git repository as a submodule of the project's git repository.
 
 Keeping the ensemble repository separate from the project repository is useful
 if the resources the ensemble creates are transitory or if you want to restrict access to them.
-Using the `--submodule` option allows those repositories to be easily packaged and shared with the project repository
+Using the ``--submodule`` option allows those repositories to be easily packaged and shared with the project repository
 but still maintain separate access control and git history for each ensemble.
 
 Once created, the project directory will look like:
@@ -118,7 +118,7 @@ In the folder structure above:
 3. Create a service template
 ============================
 
-If you look at `ensemble_template.yaml`, you'll see that it contains a minimal template with one node template and one workflow.
+If you look at :ref:`ensemble_template.yaml<ensemble_yaml>`, you'll see that it contains a minimal template with one node template and one workflow.
 Workflows are optional but defining one is the simplest way to get started,
 because you just need to declare procedural steps instead of designing model of your topology.
 
@@ -174,7 +174,7 @@ Their implementations can be a simple as the name of a shell script to invoke or
 which is Unfurl's plugin system for implementing operations.
 Unfurl ships with several configurators, including ones for Ansible, Terraform and Kubernetes.
 
-We can implement ``my_server`` in just few lines of YAML by Google Cloud Platform by calling the `gcloud` tool.
+We can implement ``my_server`` in just few lines of YAML by Google Cloud Platform by calling the ``gcloud`` tool.
 We'll start with "delete" to make the
 
 .. code-block:: YAML

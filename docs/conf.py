@@ -34,6 +34,8 @@ extensions = [
     "sphinx_rtd_theme",
 ]
 
+suppress_warnings = ["autosectionlabel.*"]
+
 autodoc_typehints = "description"
 modindex_common_prefix = ["unfurl."]
 
@@ -48,6 +50,10 @@ extlinks = {
     "tosca_spec2": (
         "../_static/TOSCA-Simple-Profile-YAML-v1.3-os-toc.html#%s",
         "TOSCA 1.3 Specification",
+    ),
+    "cli": (
+    "cli.html#%s",
+    "Command Line",
     ),
 }
 

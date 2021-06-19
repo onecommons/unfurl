@@ -44,6 +44,8 @@ Sections
 
 .. jsonschema:: manifest-schema.json#/definitions/external
 
+.. jsonschema:: manifest-schema.json#/definitions/repositories
+
 .. jsonschema:: manifest-schema.json#/definitions/status
 
 .. jsonschema:: manifest-schema.json#/definitions/job

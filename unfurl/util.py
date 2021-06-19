@@ -494,19 +494,33 @@ class Generate(object):
             return False
 
 
+def foo(a, b):
+    """[summary]
+
+    Args:
+        a ([type]): [description]
+        b ([type]): [description]
+    """
+
 def filterEnv(rules, env=None, addOnly=False):
     """
-    If 'env' is None it will be set to os.environ
+    Applies the given list of rules to a dictionary of environment variables and returns a new dictionary.
 
-    If addOnly is False (the default) all variables in `env` will be included
-    in the returned dict, otherwise only variables added by `rules` will be included
+    Args:
+        rules (dict): A dictionary of rules for adding, removing and filtering environment variables.
+        env (dict, optional): The environment to apply the give rules to. If ``env`` is None it will be set to ``os.environ``. 
+          Defaults to None.
+        addOnly (bool, optional): If addOnly is False (the default) all variables in ``env`` will be included 
+          in the returned dict, otherwise only variables added by ``rules`` will be included
 
-    foo: bar # add foo=bar
-    +foo: # copy foo
-    +foo: bar # copy foo, set it bar if not present
-    +!foo*: # copy all except keys matching "foo*"
-    -!foo: # remove all except foo
-    ^foo: /bar/bin # treat foo like a PATH and prepend value: /bar/bin:$foo
+    Rules applied in the order they are declared in the ``rules`` dictionary. The following examples show the different patterns for the rules:
+
+        :foo \: bar: Add foo=bar
+        :+foo:  Copy foo
+        :+foo \: bar: Copy foo, set it bar if not present
+        :+!foo*: Copy all except keys matching "foo*"
+        :-!foo:  Remove all except foo
+        :^foo \: /bar/bin: Treat foo like a PATH and prepend value: /bar/bin:$foo
     """
     if env is None:
         env = os.environ

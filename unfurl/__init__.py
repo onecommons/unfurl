@@ -94,6 +94,8 @@ logging.Logger.verbose = __verbose
 
 
 class sensitive(object):
+    """Base class for marking a value as sensitive. Depending on the context, sensitive values will either be encrypted or redacted when outputed.
+    """
     redacted_str = "<<REDACTED>>"
 
     def __sensitive__(self):

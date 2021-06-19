@@ -29,11 +29,26 @@ table.align-default {
 
 }
 
+
+
 /*Side nav bar on hover selection*/
 
 .wy-menu-vertical a:hover {
     background-color: #00D2D9;
 
+}
+
+/*Selected side nav bar on hover selection*/
+
+.wy-menu-vertical li.current a:hover {
+    background: #00d2d9;
+}
+
+/*Side nav bar - section selected - right border*/
+
+.wy-menu-vertical li.current a {
+
+    border-right: 1px solid #00d2d9;
 }
 
 /*Side nav bar - section selected - top & bottom borders*/
@@ -48,6 +63,23 @@ table.align-default {
 
     background: #fcfcfc;
 
+}
+
+/*Selected sub section background color*/
+
+.wy-menu-vertical li.toctree-l2.current>a, .wy-menu-vertical li.toctree-l2.current li.toctree-l3>a {
+    background: #c4f1f3; /* #c9c9c9 */
+}
+
+.wy-menu-vertical li.toctree-l3.current>a, .wy-menu-vertical li.toctree-l3.current li.toctree-l4>a {
+    background: #9eecef;
+}
+
+/*Nav bar selected background*/
+
+.wy-menu-vertical li ul li a {
+
+    background-color: #e7fafb;
 }
 
 

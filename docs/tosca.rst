@@ -39,14 +39,14 @@ The Node Template and a Relationship Template are the building blocks of any TOS
 Service Template
 ^^^^^^^^^^^^^^^^^
 
-A TOSCA service template contains all the information needed to deploy the service it describes. In Unfurl, a service template can be a stand-alone YAML file that is included in the `ensemble.yaml` configuration file or embedded directly in that file as a child of the `service_template` element.
+A TOSCA service template contains all the information needed to deploy the service it describes. In Unfurl, a service template can be a stand-alone YAML file that is included in the `ensemble.yaml` configuration file or embedded directly in that file as a child of the :tosca_spec:`Service templates<DEFN_ELEMENT_SERVICE_TEMPLATE>` element.
 
 A service template has the following sections:
 
 * :doc:`Metadata <toscaref/spec-tosca_def_version>` sections, which includes the ``tosca_definitions_version``, ``description``, ``metadata``, ``dsl_definitions``
 * `imports` and `repositories` sections 
 * Types sections that contain types of Node, Relationships, Capabilities, Artifacts, Interfaces, Policy and Groups
-* Topology Template which include sections for ``inputs``, ``outputs``, Node and relationship templates, `substitution_mappings`, `groups`, `policies` and `workflows`.
+* Topology Template which include sections for :std:ref:`Inputs`, ``outputs``, Node and relationship templates, :ref:`substitution_mappings<substitution_mapping>`, `groups`, :ref:`policies<policy>` and `workflows`.
 
 Example
 -------

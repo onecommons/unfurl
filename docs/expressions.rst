@@ -144,28 +144,28 @@ token
 Expression Functions
 ~~~~~~~~~~~~~~~~~~~~
 
-  =========== ================================
-  Key         Value
-  =========== ================================
-  `abspath`   path | [path, location, mkdir?]
-  `and`       [test+]
-  `eq`        [a, b]
-  external    name
-  `file`      (see below)
-  foreach     {key?, value?}
-  `get_dir`   location | [location, mkdir?]
-  `if`        (see below)
-  local       name
-  `lookup`    (see below)
-  `or`        [test+]
-  `not`       expr
-  `python`    path#function_name | module.function_name
-  `secret`    name
-  `sensitive` any
-  `tempfile`  (see below)
-  `template`  contents
-  `validate`  [contents, schema]
-  =========== ================================
+  ===================== ================================
+  Key                   Value
+  ===================== ================================
+  `abspath`             path | [path, location, mkdir?]
+  `and`                 [test+]
+  `eq`                  [a, b]
+  external              name
+  `file`                (see below)
+  foreach               {key?, value?}
+  `get_dir`             location | [location, mkdir?]
+  `if`                  (see below)
+  local                 name
+  `lookup`              (see below)
+  `or`                  [test+]
+  `not`                 expr
+  `python`              path#function_name | module.function_name
+  `secret`              name
+   :std:ref:`sensitive` any
+  `tempfile`            (see below)
+  `template`            contents
+  `validate`            [contents, schema]
+  ===================== ================================
 
 abspath
 ^^^^^^^
