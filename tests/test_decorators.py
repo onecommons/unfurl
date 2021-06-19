@@ -3,7 +3,7 @@ import os
 from click.testing import CliRunner
 import unfurl.manifest
 from unfurl.yamlmanifest import YamlManifest
-from unfurl.eval import Ref, mapValue, RefContext
+from unfurl.eval import Ref, map_value, RefContext
 
 # expressions evaluate on tosca nodespecs (ignore validation errors)
 # a compute instant that supports cloudinit and hosts a DockerComposeApp

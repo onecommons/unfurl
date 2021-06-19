@@ -12,17 +12,17 @@ import os.path
 import itertools
 
 from . import DefaultNames
-from .util import UnfurlError, toYamlText, filterEnv
-from .merge import patchDict, intersectDict
+from .util import UnfurlError, to_yaml_text, filter_env
+from .merge import patch_dict, intersect_dict
 from .yamlloader import YamlConfig
-from .result import serializeValue, ChangeRecord
+from .result import serialize_value, ChangeRecord
 from .support import ResourceChanges, Defaults, Imports, Status
 from .localenv import LocalEnv
 from .lock import Lock
 from .manifest import Manifest
 from .tosca import Artifact
 from .runtime import TopologyInstance
-from .eval import mapValue
+from .eval import map_value
 from .tosca import ToscaSpec, TOSCA_VERSION
 
 from ruamel.yaml.comments import CommentedMap
@@ -35,7 +35,7 @@ logger = logging.getLogger("unfurl")
 _basepath = os.path.abspath(os.path.dirname(__file__))
 
 
-def saveConfigSpec(spec):
+def save_config_spec(spec):
     saved = CommentedMap([("operation", spec.operation), ("className", spec.className)])
     if spec.majorVersion:
         saved["majorVersion"] = spec.majorVersion
@@ -52,13 +52,13 @@ def saveConfigSpec(spec):
     return saved
 
 
-def saveDependency(dep):
+def save_dependency(dep):
     saved = CommentedMap()
     if dep.name and dep.name != dep.expr:
         saved["name"] = dep.name
     saved["ref"] = dep.expr
     if dep.expected is not None:
-        saved["expected"] = serializeValue(dep.expected)
+        saved["expected"] = serialize_value(dep.expected)
     if dep.schema is not None:
         saved["schema"] = dep.schema
     if dep.required:
@@ -68,35 +68,35 @@ def saveDependency(dep):
     return saved
 
 
-def saveResourceChanges(changes):
+def save_resource_changes(changes):
     d = CommentedMap()
     for k, v in changes.items():
         # k is the resource key
-        d[k] = serializeValue(v[ResourceChanges.attributesIndex] or {})
+        d[k] = serialize_value(v[ResourceChanges.attributesIndex] or {})
         if v[ResourceChanges.statusIndex] is not None:
             d[k][".status"] = v[ResourceChanges.statusIndex].name
         if v[ResourceChanges.addedIndex]:
-            d[k][".added"] = serializeValue(v[ResourceChanges.addedIndex])
+            d[k][".added"] = serialize_value(v[ResourceChanges.addedIndex])
     return d
 
 
-def hasStatus(operational):
-    return operational.lastChange or operational.status
+def has_status(operational):
+    return operational.last_change or operational.status
 
 
-def saveStatus(operational, status=None):
+def save_status(operational, status=None):
     if status is None:
         status = CommentedMap()
-    if not hasStatus(operational):
+    if not has_status(operational):
         # skip status
         return status
 
     readyState = CommentedMap()
-    if operational.localStatus is not None:
-        if operational.status != operational.localStatus:
+    if operational.local_status is not None:
+        if operational.status != operational.local_status:
             # if different serialize this too
             readyState["effective"] = operational.status.name
-        readyState["local"] = operational.localStatus.name
+        readyState["local"] = operational.local_status.name
     else:
         readyState["effective"] = operational.status.name
     if operational.state is not None:
@@ -105,28 +105,28 @@ def saveStatus(operational, status=None):
         status["priority"] = operational.priority.name
     status["readyState"] = readyState
 
-    if operational.lastStateChange:
-        status["lastStateChange"] = operational.lastStateChange
-    if operational.lastConfigChange:
-        status["lastConfigChange"] = operational.lastConfigChange
+    if operational.last_state_change:
+        status["lastStateChange"] = operational.last_state_change
+    if operational.last_config_change:
+        status["lastConfigChange"] = operational.last_config_change
 
     return status
 
 
-def saveResult(value):
+def save_result(value):
     if isinstance(value, collections.Mapping):
         return CommentedMap(
-            (key, saveResult(v)) for key, v in value.items() if v is not None
+            (key, save_result(v)) for key, v in value.items() if v is not None
         )
     elif isinstance(value, (collections.MutableSequence, tuple)):
-        return [saveResult(item) for item in value]
+        return [save_result(item) for item in value]
     elif value is not None and not isinstance(value, (numbers.Real, bool)):
-        return toYamlText(value)
+        return to_yaml_text(value)
     else:
         return value
 
 
-def saveTask(task):
+def save_task(task):
     """
     Convert dictionary suitable for serializing as yaml
       or creating a Changeset.
@@ -149,26 +149,26 @@ def saveTask(task):
         output["previousId"] = task.previousId
     if task.target:
         output["target"] = task.target.key
-    saveStatus(task, output)
-    output["implementation"] = saveConfigSpec(task.configSpec)
+    save_status(task, output)
+    output["implementation"] = save_config_spec(task.configSpec)
     if task._inputs:  # only serialize resolved inputs
-        output["inputs"] = task.inputs.serializeResolved()
-    changes = saveResourceChanges(task._resourceChanges)
+        output["inputs"] = task.inputs.serialize_resolved()
+    changes = save_resource_changes(task._resourceChanges)
     if changes:
         output["changes"] = changes
     if task.messages:
         output["messages"] = task.messages
-    dependencies = [saveDependency(val) for val in task.dependencies]
+    dependencies = [save_dependency(val) for val in task.dependencies]
     if dependencies:
         output["dependencies"] = dependencies
     if task.result:
         if task.result.outputs:
-            output["outputs"] = saveResult(task.result.outputs)
+            output["outputs"] = save_result(task.result.outputs)
         if task.result.result:
-            output["result"] = saveResult(task.result.result)
+            output["result"] = save_result(task.result.result)
     else:
         output["result"] = "skipped"
-    output.update(task.configurator.saveDigest(task))
+    output.update(task.configurator.save_digest(task))
     output["summary"] = task.summary()
     return output
 
@@ -189,7 +189,7 @@ class ReadOnlyManifest(Manifest):
             self.path,
             validate,
             os.path.join(_basepath, "manifest-schema.json"),
-            self.loadYamlInclude,
+            self.load_yaml_include,
             vault,
         )
         if self.manifest.path:
@@ -198,9 +198,9 @@ class ReadOnlyManifest(Manifest):
         spec = manifest.get("spec", {})
         self.context = manifest.get("context", CommentedMap())
         if localEnv:
-            self.context = localEnv.getContext(self.context)
+            self.context = localEnv.get_context(self.context)
         spec["inputs"] = self.context.get("inputs", spec.get("inputs", {}))
-        self.updateRepositories(manifest)
+        self.update_repositories(manifest)
 
     @property
     def uris(self):
@@ -220,7 +220,7 @@ class ReadOnlyManifest(Manifest):
         else:
             return ""
 
-    def hasUri(self, uri):
+    def has_uri(self, uri):
         return uri in self.uris
 
     @property
@@ -231,10 +231,10 @@ class ReadOnlyManifest(Manifest):
     def yaml(self):
         return self.manifest.yaml
 
-    def getBaseDir(self):
-        return self.manifest.getBaseDir()
+    def get_base_dir(self):
+        return self.manifest.get_base_dir()
 
-    def isPathToSelf(self, path):
+    def is_path_to_self(self, path):
         if self.path is None or path is None:
             return False
         return os.path.abspath(self.path) == os.path.abspath(path)
@@ -254,7 +254,7 @@ def clone(localEnv, destPath):
     if "metadata" in config:
         config["metadata"].pop("uri", None)
         config["metadata"].pop("aliases", None)
-    repositories = Manifest._getRepositories(config)
+    repositories = Manifest._get_repositories(config)
     repositories.pop("self", None)
     clone.manifest.path = destPath
     return clone
@@ -269,7 +269,7 @@ class YamlManifest(ReadOnlyManifest):
         super(YamlManifest, self).__init__(manifest, path, validate, localEnv, vault)
         # instantiate the tosca template
         manifest = self.manifest.expanded
-        self._setSpec(manifest)
+        self._set_spec(manifest)
         assert self.tosca
         spec = manifest.get("spec", {})
         status = manifest.get("status", {})
@@ -279,7 +279,7 @@ class YamlManifest(ReadOnlyManifest):
         if not self.changeLogPath and localEnv and manifest.get("changes") is None:
             # save changes to a separate file if we're in a local environment
             self.changeLogPath = DefaultNames.JobsLog
-        self.loadChanges(manifest.get("changes"), self.changeLogPath)
+        self.load_changes(manifest.get("changes"), self.changeLogPath)
 
         self.lastJob = manifest.get("lastJob")
 
@@ -288,22 +288,22 @@ class YamlManifest(ReadOnlyManifest):
 
         if localEnv:
             for name in ["locals", "secrets"]:
-                self.imports[name.rstrip("s")] = localEnv.getLocalInstance(
+                self.imports[name.rstrip("s")] = localEnv.get_local_instance(
                     name, self.context
                 )
 
-        rootResource = self.createTopologyInstance(status)
+        rootResource = self.create_topology_instance(status)
 
         # create an new instances declared in the spec:
         for name, instance in spec.get("instances", {}).items():
-            if not rootResource.findResource(name):
+            if not rootResource.find_resource(name):
                 # XXX like Plan.createResource() parent should be hostedOn target if defined
-                self.createNodeInstance(name, instance or {}, rootResource)
+                self.create_node_instance(name, instance or {}, rootResource)
 
-        self._configureRoot(rootResource)
+        self._configure_root(rootResource)
         self._ready(rootResource)
 
-    def _configureRoot(self, rootResource):
+    def _configure_root(self, rootResource):
         rootResource.imports = self.imports
         if (
             self.manifest.vault and self.manifest.vault.secrets
@@ -311,33 +311,33 @@ class YamlManifest(ReadOnlyManifest):
             rootResource._templar._loader.set_vault_secrets(self.manifest.vault.secrets)
         rootResource.envRules = self.context.get("environment") or CommentedMap()
 
-    def createTopologyInstance(self, status):
+    def create_topology_instance(self, status):
         """
         If an instance of the toplogy is recorded in status, load it,
         otherwise create a new resource using the the topology as its template
         """
         # XXX use the substitution_mapping (3.8.12) represent the resource
         template = self.tosca.topology
-        operational = self.loadStatus(status)
+        operational = self.load_status(status)
         root = TopologyInstance(template, operational)
         if os.environ.get("UNFURL_WORKDIR"):
-            root.setBaseDir(os.environ["UNFURL_WORKDIR"])
+            root.set_base_dir(os.environ["UNFURL_WORKDIR"])
         elif not self.path:
-            root.setBaseDir(root.tmpDir)
+            root.set_base_dir(root.tmp_dir)
         else:
-            root.setBaseDir(self.getBaseDir())
+            root.set_base_dir(self.get_base_dir())
 
         # We need to set the environment as early as possible but not too early
         # and only once.
         # Now that we loaded the main manifest and set the root's baseDir
         # let's do it before we import any other manifests.
         # But only if we're the main manifest.
-        if not self.localEnv or self.isPathToSelf(self.localEnv.manifestPath):
+        if not self.localEnv or self.is_path_to_self(self.localEnv.manifestPath):
             if self.context.get("environment"):
-                env = filterEnv(mapValue(self.context["environment"], root))
-                intersectDict(os.environ, env)  # remove keys not in env
+                env = filter_env(map_value(self.context["environment"], root))
+                intersect_dict(os.environ, env)  # remove keys not in env
                 os.environ.update(env)
-            paths = self.localEnv and self.localEnv.getPaths()
+            paths = self.localEnv and self.localEnv.get_paths()
             if paths:
                 os.environ["PATH"] = (
                     os.pathsep.join(paths) + os.pathsep + os.environ.get("PATH", [])
@@ -346,16 +346,16 @@ class YamlManifest(ReadOnlyManifest):
 
         importsSpec = self.context.get("external", {})
         # note: external "localhost" is defined in UNFURL_HOME's context by convention
-        self.loadImports(importsSpec)
-        self.loadConnections(self.context.get("connections"))
+        self.load_imports(importsSpec)
+        self.load_connections(self.context.get("connections"))
 
         # need to set rootResource before createNodeInstance() is called
         self.rootResource = root
         for key, val in status.get("instances", {}).items():
-            self.createNodeInstance(key, val, root)
+            self.create_node_instance(key, val, root)
         return root
 
-    def loadConnections(self, connections):
+    def load_connections(self, connections):
         if connections:
             # handle items like newname : oldname to rename merged connections
             renames = {
@@ -376,9 +376,9 @@ class YamlManifest(ReadOnlyManifest):
                     ),
                 )
             )
-            self.tosca.importConnections(tosca)
+            self.tosca.import_connections(tosca)
 
-    def loadImports(self, importsSpec):
+    def load_imports(self, importsSpec):
         """
         :manifest: artifact template (file and optional repository name)
         :instance: "*" or name # default is root
@@ -391,7 +391,7 @@ class YamlManifest(ReadOnlyManifest):
                 raise UnfurlError("Can not import '%s': no manifest specified" % (name))
 
             if "project" in location:
-                importedManifest = self.localEnv.getExternalManifest(location)
+                importedManifest = self.localEnv.get_external_manifest(location)
                 if not importedManifest:
                     raise UnfurlError(
                         "Can not import '%s': can't find project '%s'"
@@ -399,19 +399,19 @@ class YamlManifest(ReadOnlyManifest):
                     )
             else:
                 # ensemble is in the same project
-                baseDir = getattr(location, "baseDir", self.getBaseDir())
+                baseDir = getattr(location, "base_dir", self.get_base_dir())
                 artifact = Artifact(location, path=baseDir, spec=self.tosca)
-                path = artifact.getPath()
+                path = artifact.get_path()
                 localEnv = LocalEnv(path, parent=self.localEnv)
                 if self.path and os.path.abspath(self.path) == os.path.abspath(
                     localEnv.manifestPath
                 ):
                     # don't import self (might happen when context is shared)
                     continue
-                importedManifest = localEnv.getManifest()
+                importedManifest = localEnv.get_manifest()
 
             uri = value.get("uri")
-            if uri and not importedManifest.hasUri(uri):
+            if uri and not importedManifest.has_uri(uri):
                 raise UnfurlError(
                     "Error importing '%s', uri mismatch for '%s'" % (path, uri)
                 )
@@ -420,8 +420,8 @@ class YamlManifest(ReadOnlyManifest):
                 rname = "root"
             # use findInstanceOrExternal() not findResource() to handle export instances transitively
             # e.g. to allow us to layer localhost manifests
-            root = importedManifest.getRootResource()
-            resource = root.findInstanceOrExternal(rname)
+            root = importedManifest.get_root_resource()
+            resource = root.find_instance_or_external(rname)
             if not resource:
                 raise UnfurlError(
                     "Can not import '%s': instance '%s' not found" % (name, rname)
@@ -429,15 +429,15 @@ class YamlManifest(ReadOnlyManifest):
             self.imports[name] = (resource, value)
             self._importedManifests[id(root)] = importedManifest
 
-    def loadChanges(self, changes, changeLogPath):
+    def load_changes(self, changes, changeLogPath):
         # self.changeSets[changeid => ChangeRecords]
         if changes is not None:
             self.changeSets = {
                 c.changeId: c
-                for c in (self.loadConfigChange(changeSet) for changeSet in changes)
+                for c in (self.load_config_change(changeSet) for changeSet in changes)
             }
         elif changeLogPath:
-            fullLogPath = self.getChangeLogPath()
+            fullLogPath = self.get_change_log_path()
             if os.path.isfile(fullLogPath):
                 with open(fullLogPath) as f:
                     self.changeSets = {
@@ -451,7 +451,7 @@ class YamlManifest(ReadOnlyManifest):
                     }
         return self.changeSets is not None
 
-    def findLastOperation(self, target, operation):
+    def find_last_operation(self, target, operation):
         if self._operationIndex is None:
             operationIndex = dict()
             if self.changeSets:
@@ -471,9 +471,9 @@ class YamlManifest(ReadOnlyManifest):
             return self.changeSets[changeId]
         return None
 
-    def saveEntityInstance(self, resource):
+    def save_entity_instance(self, resource):
         status = CommentedMap()
-        status["template"] = resource.template.getUri()
+        status["template"] = resource.template.get_uri()
 
         # only save the attributes that were set by the instance, not spec properties or attribute defaults
         # particularly, because these will get loaded in later runs and mask any spec properties with the same name
@@ -482,28 +482,28 @@ class YamlManifest(ReadOnlyManifest):
         if resource.shadow:
             # name will be the same as the import name
             status["imported"] = resource.name
-        saveStatus(resource, status)
+        save_status(resource, status)
         if resource.created is not None:
             status["created"] = resource.created
 
         return (resource.name, status)
 
-    def saveRequirement(self, resource):
-        if not resource.lastChange and not resource.localStatus > Status.ok:
+    def save_requirement(self, resource):
+        if not resource.last_change and not resource.local_status > Status.ok:
             # no reason to serialize requirements that haven't been instantiated
             return None
-        name, status = self.saveEntityInstance(resource)
+        name, status = self.save_entity_instance(resource)
         status["capability"] = resource.parent.key
         return (name, status)
 
-    def saveCapability(self, resource):
-        if not resource.lastChange and not resource.localStatus > Status.ok:
+    def save_capability(self, resource):
+        if not resource.last_change and not resource.local_status > Status.ok:
             # no reason to serialize capabilities that haven't been instantiated
             return None
-        return self.saveEntityInstance(resource)
+        return self.save_entity_instance(resource)
 
-    def saveResource(self, resource, discovered):
-        name, status = self.saveEntityInstance(resource)
+    def save_resource(self, resource, discovered):
+        name, status = self.save_entity_instance(resource)
         if self.tosca.discovered and resource.template.name in self.tosca.discovered:
             discovered[resource.template.name] = self.tosca.discovered[
                 resource.template.name
@@ -511,44 +511,44 @@ class YamlManifest(ReadOnlyManifest):
 
         if resource._capabilities:
             capabilities = list(
-                filter(None, map(self.saveCapability, resource.capabilities))
+                filter(None, map(self.save_capability, resource.capabilities))
             )
             if capabilities:
                 status["capabilities"] = CommentedMap(capabilities)
 
         if resource._requirements:
             requirements = list(
-                filter(None, map(self.saveRequirement, resource.requirements))
+                filter(None, map(self.save_requirement, resource.requirements))
             )
             if requirements:
                 status["requirements"] = CommentedMap(requirements)
 
         if resource.instances:
             status["instances"] = CommentedMap(
-                map(lambda r: self.saveResource(r, discovered), resource.instances)
+                map(lambda r: self.save_resource(r, discovered), resource.instances)
             )
 
         return (name, status)
 
-    def saveRootResource(self, discovered):
+    def save_root_resource(self, discovered):
         resource = self.rootResource
         status = CommentedMap()
 
         # record the input and output values
-        status["inputs"] = serializeValue(resource.inputs.attributes)
-        status["outputs"] = serializeValue(resource.outputs.attributes)
+        status["inputs"] = serialize_value(resource.inputs.attributes)
+        status["outputs"] = serialize_value(resource.outputs.attributes)
 
-        saveStatus(resource, status)
+        save_status(resource, status)
         # getOperationalDependencies() skips inputs and outputs
         status["instances"] = CommentedMap(
             map(
-                lambda r: self.saveResource(r, discovered),
-                resource.getOperationalDependencies(),
+                lambda r: self.save_resource(r, discovered),
+                resource.get_operational_dependencies(),
             )
         )
         return status
 
-    def saveJobRecord(self, job):
+    def save_job_record(self, job):
         """
         .. code-block:: YAML
 
@@ -564,24 +564,24 @@ class YamlManifest(ReadOnlyManifest):
         """
         output = CommentedMap()
         output["changeId"] = job.changeId
-        output["startTime"] = job.getStartTime()
+        output["startTime"] = job.get_start_time()
         if job.previousId:
             output["previousId"] = job.previousId
-        options = job.jobOptions.getUserSettings()
+        options = job.jobOptions.get_user_settings()
         output["workflow"] = options.pop("workflow", Defaults.workflow)
         output["options"] = options
         output["summary"] = job.stats(asMessage=True)
         if self.currentCommitId:
             output["startCommit"] = self.currentCommitId
         output["specDigest"] = self.specDigest
-        return saveStatus(job, output)
+        return save_status(job, output)
 
-    def saveJob(self, job):
+    def save_job(self, job):
         discovered = CommentedMap()
-        changed = self.saveRootResource(discovered)
+        changed = self.save_root_resource(discovered)
 
         # update changed with includes, this may change objects with references to these objects
-        self.manifest.restoreIncludes(changed)
+        self.manifest.restore_includes(changed)
         # only saved discovered templates that are still referenced
         spec = self.manifest.config.setdefault("spec", {})
         spec.pop("discovered", None)
@@ -595,7 +595,7 @@ class YamlManifest(ReadOnlyManifest):
         if not self.manifest.config["lock"]:
             self.manifest.config["lock"] = lock
         else:
-            patchDict(self.manifest.config["lock"], lock)
+            patch_dict(self.manifest.config["lock"], lock)
 
         # modify original to preserve structure and comments
         if "status" not in self.manifest.config:
@@ -603,16 +603,16 @@ class YamlManifest(ReadOnlyManifest):
         if not self.manifest.config["status"]:
             self.manifest.config["status"] = changed
         else:
-            patchDict(self.manifest.config["status"], changed)
+            patch_dict(self.manifest.config["status"], changed)
 
-        jobRecord = self.saveJobRecord(job)
+        jobRecord = self.save_job_record(job)
         if job.workDone:
             self.manifest.config["lastJob"] = jobRecord
-            changes = list(map(saveTask, job.workDone.values()))
+            changes = list(map(save_task, job.workDone.values()))
             if self.changeLogPath:
                 self.manifest.config["jobsLog"] = self.changeLogPath
 
-                jobLogPath = self.getJobLogPath(jobRecord["startTime"])
+                jobLogPath = self.get_job_log_path(jobRecord["startTime"])
                 jobLogRelPath = os.path.relpath(jobLogPath, os.path.dirname(self.path))
                 jobRecord["changelog"] = jobLogRelPath
             else:
@@ -627,81 +627,81 @@ class YamlManifest(ReadOnlyManifest):
             job.out = self.manifest.save()
         return jobRecord, changes
 
-    def commitJob(self, job):
+    def commit_job(self, job):
         if job.planOnly:
             return
-        if job.dryRun:
+        if job.dry_run:
             logger.info("printing results from dry run")
             if not job.out and self.manifest.path:
                 job.out = sys.stdout
-        jobRecord, changes = self.saveJob(job)
+        jobRecord, changes = self.save_job(job)
         if not changes:
             logger.info("job run didn't make any changes; nothing to commit")
             return
 
         if self.changeLogPath:
-            jobLogPath = self.saveChangeLog(jobRecord, changes)
-            if not job.dryRun:
-                self._appendLog(job, jobRecord, changes, jobLogPath)
+            jobLogPath = self.save_change_log(jobRecord, changes)
+            if not job.dry_run:
+                self._append_log(job, jobRecord, changes, jobLogPath)
 
-        if job.dryRun:
+        if job.dry_run:
             return
 
         if job.commit and self.repo:
             if job.message is not None:
                 message = job.message
             else:
-                message = self.getDefaultCommitMessage()
+                message = self.get_default_commit_message()
             self.commit(message, True)
 
-    def getDefaultCommitMessage(self):
+    def get_default_commit_message(self):
         jobRecord = self.manifest.config.get("lastJob")
         if jobRecord:
             return "Updating status for job %s" % jobRecord["changeId"]
         else:
             return "Commit by Unfurl"
 
-    def getRepoStatuses(self, dirty=False):
+    def get_repo_statuses(self, dirty=False):
         return [
-            'Status for "%s" at %s:\n%s\n\n' % (r.name, r.workingDir, r.status())
+            'Status for "%s" at %s:\n%s\n\n' % (r.name, r.working_dir, r.status())
             for r in self.repositories.values()
-            if r.repo and (not dirty or r.isDirty())
+            if r.repo and (not dirty or r.is_dirty())
         ]
 
-    def addAll(self):
+    def add_all(self):
         for repository in self.repositories.values():
-            if not repository.readOnly and repository.isDirty():
-                repository.addAll()
+            if not repository.readOnly and repository.is_dirty():
+                repository.add_all()
 
     def commit(self, msg, addAll):
         committed = 0
         for repository in self.repositories.values():
             if repository.repo == self.repo:
                 continue
-            if not repository.readOnly and repository.isDirty():
+            if not repository.readOnly and repository.is_dirty():
                 retVal = repository.commit(msg, addAll)
                 committed += 1
                 logger.info(
-                    "committed %s to %s: %s", retVal, repository.workingDir, msg
+                    "committed %s to %s: %s", retVal, repository.working_dir, msg
                 )
         # if manifest was changed: # e.g. calling commit after a job was run
         #    if commits were made writeLock and save updated manifest??
         #    (note: endCommit will be omitted as changes.yaml isn't updated)
         ensembleRepo = self.repositories["self"]
-        if ensembleRepo.isDirty():
+        if ensembleRepo.is_dirty():
             retVal = ensembleRepo.commit(msg, addAll)
             committed += 1
-            logger.info("committed %s to %s: %s", retVal, ensembleRepo.workingDir, msg)
+            logger.info("committed %s to %s: %s", retVal, ensembleRepo.working_dir, msg)
 
         return committed
 
-    def getChangeLogPath(self):
+    def get_change_log_path(self):
         return os.path.join(
-            self.getBaseDir(), self.changeLogPath or DefaultNames.JobsLog
+            self.get_base_dir(), self.changeLogPath or DefaultNames.JobsLog
         )
 
-    def getJobLogPath(self, startTime, ext=".yaml"):
-        name = os.path.basename(self.getChangeLogPath())
+    def get_job_log_path(self, startTime, ext=".yaml"):
+        name = os.path.basename(self.get_change_log_path())
         # try to figure out any custom name pattern from changelogPath:
         defaultName = os.path.splitext(DefaultNames.JobsLog)[0]
         currentName = os.path.splitext(name)[0]
@@ -709,8 +709,8 @@ class YamlManifest(ReadOnlyManifest):
         fileName = prefix + "job" + startTime + suffix + ext
         return os.path.join(self.jobsFolder, fileName)
 
-    def _appendLog(self, job, jobRecord, changes, jobLogPath):
-        logPath = self.getChangeLogPath()
+    def _append_log(self, job, jobRecord, changes, jobLogPath):
+        logPath = self.get_change_log_path()
         jobLogRelPath = os.path.relpath(jobLogPath, os.path.dirname(logPath))
         if not os.path.isdir(os.path.dirname(logPath)):
             os.makedirs(os.path.dirname(logPath))
@@ -745,13 +745,13 @@ class YamlManifest(ReadOnlyManifest):
                     if key.startswith("digest"):
                         attrs[key] = change[key]
                 attrs["summary"] = change["summary"]
-                line = ChangeRecord.formatLog(change["changeId"], attrs)
+                line = ChangeRecord.format_log(change["changeId"], attrs)
                 f.write(line)
 
-    def saveChangeLog(self, jobRecord, newChanges):
+    def save_change_log(self, jobRecord, newChanges):
         try:
             changelog = CommentedMap()
-            fullPath = self.getJobLogPath(jobRecord["startTime"])
+            fullPath = self.get_job_log_path(jobRecord["startTime"])
             changelog["manifest"] = os.path.relpath(
                 self.manifest.path, os.path.dirname(fullPath)
             )

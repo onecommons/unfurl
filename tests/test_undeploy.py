@@ -95,8 +95,8 @@ class UndeployTest(unittest.TestCase):
         manifest = YamlManifest(manifestContent)
         runner = Runner(manifest)
         job = runner.run(JobOptions(startTime=1, check=True))  # deploy
-        assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
-        summary = job.jsonSummary()
+        assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
+        summary = job.json_summary()
         # print(json.dumps(summary, indent=2))
         # print(job.out.getvalue())
         self.assertEqual(
@@ -121,12 +121,12 @@ class UndeployTest(unittest.TestCase):
         self.assertNotIn("managed", targets, "managed should not create deploy tasks")
         self.assertIn("unmanaged", targets, "unmanaged should create deploy tasks")
         self.assertEqual(
-            job.rootResource.findResource("managed").created, "::installerNode"
+            job.rootResource.find_resource("managed").created, "::installerNode"
         )
         self.assertEqual(
-            job.rootResource.findResource("unmanaged").created, "A01110000008"
+            job.rootResource.find_resource("unmanaged").created, "A01110000008"
         )
-        self.assertIs(job.rootResource.findResource("preexisting").created, None)
+        self.assertIs(job.rootResource.find_resource("preexisting").created, None)
         self.assertNotIn(
             "external", targets, "missing external instances should not be created"
         )
@@ -139,8 +139,8 @@ class UndeployTest(unittest.TestCase):
         job = Runner(manifest2).run(
             JobOptions(workflow="undeploy", instances=instances, startTime=2)
         )
-        assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
-        summary = job.jsonSummary()
+        assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
+        summary = job.json_summary()
         # print(json.dumps(summary, indent=2))
         self.assertEqual(
             {
@@ -166,8 +166,8 @@ class UndeployTest(unittest.TestCase):
         # now undeploy installerNode
         manifest3 = YamlManifest(job.out.getvalue())
         job = Runner(manifest3).run(JobOptions(workflow="undeploy", startTime=3))
-        assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
-        summary = job.jsonSummary()
+        assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
+        summary = job.json_summary()
         # print(json.dumps(summary, indent=2))
         # installerNode gets deleted, orphaning "managed"
         self.assertEqual(
@@ -192,8 +192,8 @@ class UndeployTest(unittest.TestCase):
         # check: instance should still be absent
         manifest5 = YamlManifest(job.out.getvalue())
         job = Runner(manifest5).run(JobOptions(workflow="check", startTime=4))
-        assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
-        summary2 = job.jsonSummary()
+        assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
+        summary2 = job.json_summary()
         # print(summary2)
         self.assertEqual(
             {
@@ -219,8 +219,8 @@ class UndeployTest(unittest.TestCase):
         runner = Runner(manifest)
         # deploy
         job = runner.run(JobOptions(startTime=1))
-        assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
-        summary = job.jsonSummary()
+        assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
+        summary = job.json_summary()
         # print(json.dumps(summary, indent=2))
         # print(job.out.getvalue())
         self.assertEqual(
@@ -240,8 +240,8 @@ class UndeployTest(unittest.TestCase):
         # stop
         manifest2 = YamlManifest(job.out.getvalue())
         job = Runner(manifest2).run(JobOptions(workflow="stop", startTime=2))
-        assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
-        summary = job.jsonSummary()
+        assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
+        summary = job.json_summary()
         # print(json.dumps(summary, indent=2))
         # print(job.out.getvalue())
         self.assertEqual(
@@ -279,8 +279,8 @@ class UndeployTest(unittest.TestCase):
         # start again
         manifest3 = YamlManifest(job.out.getvalue())
         job = Runner(manifest3).run(JobOptions(startTime=3))
-        assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
-        summary = job.jsonSummary()
+        assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
+        summary = job.json_summary()
         # print(json.dumps(summary, indent=2))
         # print(job.out.getvalue())
         self.assertEqual(
@@ -300,8 +300,8 @@ class UndeployTest(unittest.TestCase):
         # undeploy: should stop and delete
         manifest4 = YamlManifest(job.out.getvalue())
         job = Runner(manifest4).run(JobOptions(workflow="undeploy", startTime=4))
-        assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
-        summary = job.jsonSummary()
+        assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
+        summary = job.json_summary()
         # print(json.dumps(summary, indent=2))
         # print(job.out.getvalue())
         self.assertEqual(
@@ -349,7 +349,7 @@ class UndeployTest(unittest.TestCase):
             summary["tasks"],
         )
         self.assertEqual(
-            job._jsonPlanSummary(),
+            job._json_plan_summary(),
             [
                 {
                     "name": "simple",

@@ -6,10 +6,10 @@ import six
 import hashlib
 import re
 
-from .merge import diffDicts
+from .merge import diff_dicts
 from .util import (
     UnfurlError,
-    isSensitive,
+    is_sensitive,
     sensitive,
     sensitive_dict,
     sensitive_list,
@@ -17,7 +17,7 @@ from .util import (
 )
 
 
-def _getDigest(value, **kw):
+def _get_digest(value, **kw):
     getter = getattr(value, "__digestable__", None)
     if getter:
         value = getter(kw)
@@ -28,11 +28,11 @@ def _getDigest(value, **kw):
         if isinstance(value, Mapping):
             for k in sorted(value.keys()):
                 yield k
-                for d in _getDigest(value[k], **kw):
+                for d in _get_digest(value[k], **kw):
                     yield d
         elif isinstance(value, (MutableSequence, tuple)):
             for v in value:
-                for d in _getDigest(v, **kw):
+                for d in _get_digest(v, **kw):
                     yield d
         else:
             out = six.BytesIO()
@@ -40,17 +40,17 @@ def _getDigest(value, **kw):
             yield out.getvalue()
 
 
-def getDigest(tpl):
+def get_digest(tpl):
     m = hashlib.sha1()  # use same digest function as git
-    for contents in _getDigest(tpl):
+    for contents in _get_digest(tpl):
         if not isinstance(contents, bytes):
             contents = contents.encode("utf-8")
         m.update(contents)
     return m.hexdigest()
 
 
-def serializeValue(value, **kw):
-    getter = getattr(value, "asRef", None)
+def serialize_value(value, **kw):
+    getter = getattr(value, "as_ref", None)
     if getter:
         return getter(kw)
     isSensitive = isinstance(value, sensitive)
@@ -58,10 +58,10 @@ def serializeValue(value, **kw):
         return sensitive.redacted_str
     if isinstance(value, Mapping):
         ctor = sensitive_dict if isSensitive else dict
-        return ctor((key, serializeValue(v, **kw)) for key, v in value.items())
+        return ctor((key, serialize_value(v, **kw)) for key, v in value.items())
     if isinstance(value, (MutableSequence, tuple)):
         ctor = sensitive_list if isSensitive else list
-        return ctor(serializeValue(item, **kw) for item in value)
+        return ctor(serialize_value(item, **kw) for item in value)
     else:
         return value
 
@@ -70,7 +70,7 @@ class ResourceRef(object):
     # ABC requires 'parent', and '_resolve'
     _templar = None
 
-    def _getProp(self, name):
+    def _get_prop(self, name):
         if name == ".":
             return self
         elif name == "..":
@@ -83,11 +83,11 @@ class ResourceRef(object):
         if not key:
             raise KeyError(key)
         if key[0] == ".":
-            return self._getProp(key)
+            return self._get_prop(key)
 
         return self._resolve(key)
 
-    def yieldParents(self):
+    def yield_parents(self):
         "yield self and ancestors starting from self"
         resource = self
         while resource:
@@ -96,7 +96,7 @@ class ResourceRef(object):
 
     @property
     def ancestors(self):
-        return list(self.yieldParents())
+        return list(self.yield_parents())
 
     @property
     def parents(self):
@@ -136,17 +136,17 @@ class ChangeRecord(object):
     ):
         if parse:
             self.parse(parse)
-            self.setStartTime(getattr(self, "startTime", startTime))
+            self.set_start_time(getattr(self, "startTime", startTime))
         else:
-            self.setStartTime(startTime)
+            self.set_start_time(startTime)
             self.taskId = taskId
             self.previousId = previousId
             if jobId:
-                self.changeId = self.updateChangeId(jobId, taskId)
+                self.changeId = self.update_change_id(jobId, taskId)
             else:
-                self.changeId = self.makeChangeId(self.startTime, taskId, previousId)
+                self.changeId = self.make_change_id(self.startTime, taskId, previousId)
 
-    def setStartTime(self, startTime=None):
+    def set_start_time(self, startTime=None):
         if not startTime:
             self.startTime = datetime.utcnow()
         elif isinstance(startTime, datetime):
@@ -159,42 +159,42 @@ class ChangeRecord(object):
             except ValueError:
                 self.startTime = self.EpochStartTime
 
-    def getStartTime(self):
+    def get_start_time(self):
         return self.startTime.strftime(self.DateTimeFormat)
 
-    def setTaskId(self, taskId):
+    def set_task_id(self, taskId):
         self.taskId = taskId
-        self.changeId = self.updateChangeId(self.changeId, taskId)
+        self.changeId = self.update_change_id(self.changeId, taskId)
 
     @staticmethod
-    def getJobId(changeId):
-        return ChangeRecord.updateChangeId(changeId, 0)
+    def get_job_id(changeId):
+        return ChangeRecord.update_change_id(changeId, 0)
 
     @staticmethod
-    def updateChangeId(changeId, taskId):
+    def update_change_id(changeId, taskId):
         return changeId[:-4] + "{:04x}".format(taskId)
 
     @staticmethod
     def decode(changeId):
-        def _decodeChr(i, c):
+        def _decode_chr(i, c):
             offset = 48 if c < "A" else 55
             val = ord(c) - offset
             return str(val + (2020 if i == 0 else 0))
 
         return (
-            "-".join([_decodeChr(*e) for e in enumerate(changeId[1:7])])
+            "-".join([_decode_chr(*e) for e in enumerate(changeId[1:7])])
             + "."
-            + _decodeChr(7, changeId[7])
+            + _decode_chr(7, changeId[7])
         )
 
     @staticmethod
-    def isChangeId(test):
+    def is_change_id(test):
         if not isinstance(test, six.string_types):
             return None
         return re.match("^A[A-Za-z0-9]{11}$", test)
 
     @classmethod
-    def makeChangeId(self, timestamp=None, taskid=0, previousId=None):
+    def make_change_id(self, timestamp=None, taskid=0, previousId=None):
         b62 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
         if not timestamp:
             timestamp = datetime.utcnow()
@@ -215,7 +215,7 @@ class ChangeRecord(object):
         if previousId:
             if previousId[:8] == changeId[:8]:
                 # in case last job started less than 1/62nd of a second ago
-                return self.makeChangeId(
+                return self.make_change_id(
                     timestamp + timedelta(milliseconds=16200), taskid, previousId
                 )
             if previousId > changeId:
@@ -247,7 +247,7 @@ class ChangeRecord(object):
         self.__dict__.update(attributes)
 
     @classmethod
-    def formatLog(klass, changeId, attributes):
+    def format_log(klass, changeId, attributes):
         r"format: changeid\tkey=value\tkey=value"
         terms = [changeId] + ["{}={}".format(k, v) for k, v in attributes.items()]
         return "\t".join(terms) + "\n"
@@ -261,11 +261,11 @@ class ChangeRecord(object):
         }
         if attributes:
             default.update(attributes)
-        return self.formatLog(self.changeId, default)
+        return self.format_log(self.changeId, default)
 
 
 class ChangeAware(object):
-    def hasChanged(self, changeRecord):
+    def has_changed(self, changeRecord):
         """
         Whether or not this object changed since the give ChangeRecord.
         """
@@ -290,7 +290,7 @@ class ExternalValue(ChangeAware):
             return self.get() == other.get()
         return self.get() == other
 
-    def resolveKey(self, key=None, currentResource=None):
+    def resolve_key(self, key=None, currentResource=None):
         if key:
             value = self.get()
             getter = getattr(value, "__reflookup__", None)
@@ -301,9 +301,9 @@ class ExternalValue(ChangeAware):
         else:
             return self.get()
 
-    def asRef(self, options=None):
+    def as_ref(self, options=None):
         if options and options.get("resolveExternal"):
-            return serializeValue(self.get(), **options)
+            return serialize_value(self.get(), **options)
         serialized = {self.type: self.key}
         return {"eval": serialized}
 
@@ -329,15 +329,15 @@ class Result(ChangeAware):
             self.resolved = resolved
             self.external = None
 
-    def asRef(self, options=None):
+    def as_ref(self, options=None):
         options = options or {}
         if self.external:
-            ref = self.external.asRef(options)
+            ref = self.external.as_ref(options)
             if self.select and not options.get("resolveExternal"):
                 ref["select"] = "." + "::".join(self.select)
             return ref
         else:
-            val = serializeValue(self.resolved, **options)
+            val = serialize_value(self.resolved, **options)
             return val
 
     def __digestable__(self, options):
@@ -345,32 +345,32 @@ class Result(ChangeAware):
             return self.external.__digestable__(options)
         return self.resolved
 
-    def hasDiff(self):
+    def has_diff(self):
         if self.original is not _Get:
             # this Result is a new or modified
             if isinstance(self.resolved, Results):
-                return self.resolved.hasDiff()
+                return self.resolved.has_diff()
             else:
                 return self.original != self.resolved
         return False
 
-    def getDiff(self):
+    def get_diff(self):
         if isinstance(self.resolved, Results):
             return self.resolved.getDiff()
         else:
-            new = self.asRef()
+            new = self.as_ref()
             if isinstance(self.resolved, Mapping) and isinstance(
                 self.original, Mapping
             ):
-                old = serializeValue(self.original)
-                return diffDicts(old, new)
+                old = serialize_value(self.original)
+                return diff_dicts(old, new)
             return new
 
     def __sensitive__(self):
         if self.external:
-            return isSensitive(self.external)
+            return is_sensitive(self.external)
         else:
-            return isSensitive(self.resolved)
+            return is_sensitive(self.resolved)
 
     def _values(self):
         resolved = self.resolved
@@ -387,10 +387,10 @@ class Result(ChangeAware):
         else:
             return resolved
 
-    def _resolveKey(self, key, currentResource):
+    def _resolve_key(self, key, currentResource):
         # might return a Result
         if self.external:
-            value = self.external.resolveKey(key, currentResource)
+            value = self.external.resolve_key(key, currentResource)
         else:
             getter = getattr(self.resolved, "__reflookup__", None)
             if getter:
@@ -403,10 +403,10 @@ class Result(ChangeAware):
         # returns a Result
         from .eval import Ref
 
-        value = self._resolveKey(key, ctx._lastResource)
+        value = self._resolve_key(key, ctx._lastResource)
         if isinstance(value, Result):
             result = value
-        elif Ref.isRef(value):
+        elif Ref.is_ref(value):
             result = Ref(value).resolve(ctx, wantList="result")
             if not result:
                 raise KeyError(key)
@@ -418,11 +418,11 @@ class Result(ChangeAware):
             result.select = self.select + (key,)
         return result
 
-    def hasChanged(self, changeset):
+    def has_changed(self, changeset):
         if self.external:
-            return self.external.hasChanged(changeset)
+            return self.external.has_changed(changeset)
         elif isinstance(self.resolved, ChangeAware):
-            return self.resolved.hasChanged(changeset)
+            return self.resolved.has_changed(changeset)
         else:
             return False
 
@@ -459,16 +459,16 @@ class Results(object):
         else:
             ctx = resourceOrCxt
 
-        oldBaseDir = ctx.baseDir
-        newBaseDir = getattr(serializedOriginal, "baseDir", oldBaseDir)
+        oldBaseDir = ctx.base_dir
+        newBaseDir = getattr(serializedOriginal, "base_dir", oldBaseDir)
         if newBaseDir and newBaseDir != oldBaseDir:
             ctx = ctx.copy()
-            ctx.baseDir = newBaseDir
+            ctx.base_dir = newBaseDir
             ctx.trace("found baseDir", newBaseDir, "old", oldBaseDir)
         self.context = ctx
 
-    def getCopy(self, key, default=None):
-        from .eval import mapValue
+    def get_copy(self, key, default=None):
+        from .eval import map_value
 
         try:
             val = self._attributes[key]
@@ -478,19 +478,19 @@ class Results(object):
             if isinstance(val, Result):
                 assert not isinstance(val.resolved, Result), val
                 if val.original is _Deleted or val.original is _Get:
-                    val = val.asRef()
+                    val = val.as_ref()
                 else:
                     val = val.original
-        return mapValue(val, self.context)
+        return map_value(val, self.context)
 
     @staticmethod
-    def _mapValue(val, context):
+    def _map_value(val, context):
         "Recursively and lazily resolves any references in a value"
-        from .eval import mapValue, Ref
+        from .eval import map_value, Ref
 
         if isinstance(val, Results):
             return val
-        elif Ref.isRef(val):
+        elif Ref.is_ref(val):
             return Ref(val).resolve(context, wantList="result")
         elif isinstance(val, sensitive):
             return val
@@ -500,18 +500,18 @@ class Results(object):
             return ResultsList(val, context)
         else:
             # at this point, just evaluates templates in strings or returns val
-            return mapValue(val, context)
+            return map_value(val, context)
 
     def __sensitive__(self):
         # only check resolved values
-        return any(isinstance(x, Result) and isSensitive(x) for x in self._values())
+        return any(isinstance(x, Result) and is_sensitive(x) for x in self._values())
 
-    def hasDiff(self):
+    def has_diff(self):
         # only check resolved values
-        return any(isinstance(x, Result) and x.hasDiff() for x in self._values())
+        return any(isinstance(x, Result) and x.has_diff() for x in self._values())
 
     def __getitem__(self, key):
-        from .eval import mapValue
+        from .eval import map_value
 
         val = self._attributes[key]
         if isinstance(val, Result):
@@ -523,11 +523,11 @@ class Results(object):
                 if isinstance(val, Results):
                     resolved = val
                 else:  # evaluate records that aren't Results
-                    resolved = mapValue(val, self.context)
+                    resolved = map_value(val, self.context)
             else:
                 # lazily evaluate lists and dicts
                 self.context.trace("Results._mapValue", val)
-                resolved = self._mapValue(val, self.context)
+                resolved = self._map_value(val, self.context)
             # will return a Result if val was an expression that was evaluated
             if isinstance(resolved, Result):
                 result = resolved
@@ -568,7 +568,7 @@ class Results(object):
         if isinstance(other, Results):
             return self._attributes == other._attributes
         else:
-            self.resolveAll()
+            self.resolve_all()
             return self._attributes == other
 
     def __str__(self):
@@ -582,17 +582,17 @@ class ResultsMap(Results, MutableMapping):
     def __iter__(self):
         return iter(self._attributes)
 
-    def resolveAll(self):
+    def resolve_all(self):
         list(self.values())
 
-    def serializeResolved(self, **kw):
+    def serialize_resolved(self, **kw):
         return dict(
-            (key, serializeValue(v, **kw))
+            (key, serialize_value(v, **kw))
             for key, v in self._attributes.items()
             if isinstance(v, Result)
         )
 
-    def getResolved(self):
+    def get_resolved(self):
         return dict(
             (key, v) for key, v in self._attributes.items() if isinstance(v, Result)
         )
@@ -603,12 +603,12 @@ class ResultsMap(Results, MutableMapping):
     def _values(self):
         return self._attributes.values()
 
-    def getDiff(self, cls=dict):
+    def get_diff(self, cls=dict):
         # returns a dict with the same semantics as diffDicts
         diffDict = cls()
         for key, val in self._attributes.items():
-            if isinstance(val, Result) and val.hasDiff():
-                diffDict[key] = val.getDiff()
+            if isinstance(val, Result) and val.has_diff():
+                diffDict[key] = val.get_diff()
 
         for key in self._deleted:
             diffDict[key] = {"+%": "delete"}
@@ -624,12 +624,12 @@ class ResultsList(Results, MutableSequence):
     def _values(self):
         return self._attributes
 
-    def getDiff(self, cls=list):
+    def get_diff(self, cls=list):
         # we don't have patchList yet so just returns the whole list
         return cls(
-            val.getDiff() if isinstance(val, Result) else val
+            val.get_diff() if isinstance(val, Result) else val
             for val in self._attributes
         )
 
-    def resolveAll(self):
+    def resolve_all(self):
         list(self)

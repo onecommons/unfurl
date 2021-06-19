@@ -4,7 +4,7 @@ import sys
 import unittest
 import warnings
 
-from unfurl.configurators.ansible import runPlaybooks
+from unfurl.configurators.ansible import run_playbooks
 from unfurl.job import JobOptions, Runner
 from unfurl.runtime import Status
 from unfurl.yamlmanifest import YamlManifest
@@ -21,7 +21,7 @@ class AnsibleTest(unittest.TestCase):
         self.results = {}
 
     def runPlaybook(self, args=None):
-        return runPlaybooks(
+        return run_playbooks(
             os.path.join(os.path.dirname(__file__), "examples", "testplaybook.yaml"),
             "localhost,",
             {
@@ -82,7 +82,7 @@ class AnsibleConfiguratorTest(unittest.TestCase):
         """
         runner = Runner(YamlManifest(self.manifest))
         run1 = runner.run(JobOptions(resource="test1"))
-        assert not run1.unexpectedAbort, run1.unexpectedAbort.getStackTrace()
+        assert not run1.unexpectedAbort, run1.unexpectedAbort.get_stack_trace()
         assert len(run1.workDone) == 1, run1.workDone
         result = list(run1.workDone.values())[0].result
         self.assertEqual(result.outputs, {"fact1": "test1", "fact2": "test"})

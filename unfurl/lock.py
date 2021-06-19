@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 from ruamel.yaml.comments import CommentedMap
 from . import __version__
-from .util import getPackageDigest
+from .util import get_package_digest
 
 
 class Lock(object):
@@ -31,11 +31,11 @@ class Lock(object):
               manifest:
         """
         lock = CommentedMap()
-        lock["runtime"] = self.lockRuntime()
+        lock["runtime"] = self.lock_runtime()
         lock["repositories"] = [
             repo.lock() for repo in self.ensemble.repositories.values()
         ]
-        ensembles = self.lockEnsembles()
+        ensembles = self.lock_ensembles()
         if ensembles:
             lock["ensembles"] = ensembles
 
@@ -48,11 +48,11 @@ class Lock(object):
         #     lock["artifacts"] = self.artifacts
         return lock
 
-    def lockRuntime(self):
+    def lock_runtime(self):
         ensemble = self.ensemble
         record = CommentedMap()
         record["unfurl"] = CommentedMap(
-            (("version", __version__(True)), ("digest", getPackageDigest()))
+            (("version", __version__(True)), ("digest", get_package_digest()))
         )
         if ensemble.localEnv and ensemble.localEnv.toolVersions:
             record["toolVersions"] = {
@@ -61,7 +61,7 @@ class Lock(object):
         # XXX Pipfile.lock: _meta.hash, python version
         return record
 
-    def lockEnsembles(self):
+    def lock_ensembles(self):
         ensemble = self.ensemble
         ensembles = CommentedMap()
         for name, _import in ensemble.imports.items():
@@ -80,7 +80,7 @@ class Lock(object):
             )
         return ensembles
 
-    def lockTask(self, task, artifacts):
+    def lock_task(self, task, artifacts):
         instance = task.target
         artifactName = "image"
         artifact = instance.artifacts.get(artifactName)

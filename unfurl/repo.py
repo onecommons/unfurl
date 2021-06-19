@@ -7,14 +7,14 @@ from git.repo.fun import is_git_dir
 import logging
 from six.moves.urllib.parse import urlparse
 from .util import UnfurlError
-from . import getLogLevel
+from . import get_log_level
 import toscaparser.repositories
 from ruamel.yaml.comments import CommentedMap
 
 logger = logging.getLogger("unfurl")
 
 
-def normalizeGitUrl(url):
+def normalize_git_url(url):
     if url.startswith("git-local://"):  # truncate url after commit digest
         return "git-local://" + urlparse(url).netloc.partition(":")[0]
 
@@ -27,7 +27,7 @@ def normalizeGitUrl(url):
     return url
 
 
-def isURLorGitPath(url):
+def is_url_or_git_path(url):
     if "://" in url and not url.startswith("file:"):
         return True
     if "@" in url:
@@ -38,7 +38,7 @@ def isURLorGitPath(url):
     return False
 
 
-def splitGitUrl(url):
+def split_git_url(url):
     """
     Returns (repoURL, filePath, revision)
     RepoURL will be an empty string if it isn't a path to a git repo
@@ -61,13 +61,13 @@ def splitGitUrl(url):
 class _ProgressPrinter(git.RemoteProgress):
     def update(self, op_code, cur_count, max_count=None, message=""):
         # print update to stdout but only if logging is INFO or more verbose
-        if message and getLogLevel() <= logging.INFO:
+        if message and get_log_level() <= logging.INFO:
             print("fetching from %s, received: %s " % (self.gitUrl, message))
 
 
 class Repo(object):
     @staticmethod
-    def findContainingRepo(rootDir, gitDir=".git"):
+    def find_containing_repo(rootDir, gitDir=".git"):
         """
         Walk parents looking for a git repository.
         """
@@ -79,44 +79,44 @@ class Repo(object):
         return None
 
     @staticmethod
-    def findGitWorkingDirs(rootDir, gitDir=".git"):
-        workingDirs = {}
+    def find_git_working_dirs(rootDir, gitDir=".git"):
+        working_dirs = {}
         for root, dirs, files in os.walk(rootDir):
-            if Repo.updateGitWorkingDirs(workingDirs, root, dirs, gitDir):
+            if Repo.update_git_working_dirs(working_dirs, root, dirs, gitDir):
                 del dirs[:]  # don't visit sub directories
-        return workingDirs
+        return working_dirs
 
     @staticmethod
-    def updateGitWorkingDirs(workingDirs, root, dirs, gitDir=".git"):
+    def update_git_working_dirs(working_dirs, root, dirs, gitDir=".git"):
         if gitDir in dirs and is_git_dir(os.path.join(root, gitDir)):
             assert os.path.isdir(root), root
             repo = GitRepo(git.Repo(root))
             key = os.path.abspath(root)
-            workingDirs[key] = repo.asRepoView()
+            working_dirs[key] = repo.as_repo_view()
             return key
         return None
 
     @staticmethod
-    def ignoreDir(dir):
-        parent = Repo.findContainingRepo(os.path.dirname(dir))
+    def ignore_dir(dir):
+        parent = Repo.find_containing_repo(os.path.dirname(dir))
         if parent:
-            path = parent.findRepoPath(dir)
+            path = parent.find_repo_path(dir)
             if path:  # can be None if dir is already ignored
-                parent.addToLocalGitIgnore(path)
+                parent.add_to_local_git_ignore(path)
                 return path
         return None
 
-    def findRepoPath(self, path):
-        localPath = self.findPath(path)[0]
-        if localPath is not None and not self.isPathExcluded(localPath):
+    def find_repo_path(self, path):
+        localPath = self.find_path(path)[0]
+        if localPath is not None and not self.is_path_excluded(localPath):
             return localPath
         return None
 
-    def isPathExcluded(self, localPath):
+    def is_path_excluded(self, localPath):
         return False
 
-    def findPath(self, path, importLoader=None):
-        base = self.workingDir
+    def find_path(self, path, importLoader=None):
+        base = self.working_dir
         if not base:  # XXX support bare repos
             return None, None, None
         repoRoot = os.path.abspath(base)
@@ -128,18 +128,18 @@ class Repo(object):
             # else:
             if True:
                 revision = self.revision
-            bare = not self.workingDir or revision != self.revision
+            bare = not self.working_dir or revision != self.revision
             return abspath[len(repoRoot) + 1 :], revision, bare
         return None, None, None
 
-    def asRepoView(self, name=""):
+    def as_repo_view(self, name=""):
         return RepoView(dict(name=name, url=self.url), self)
 
-    def isLocalOnly(self):
+    def is_local_only(self):
         return self.url.startswith("git-local://") or os.path.isabs(self.url)
 
     @staticmethod
-    def getPathForGitRepo(gitUrl):
+    def get_path_for_git_repo(gitUrl):
         parts = urlparse(gitUrl)
         if parts.scheme == "git-local":
             # e.g. extract spec from git-local://0cfeee6571c4276ce1a63dc37aa8cbf8b8085d60:spec
@@ -154,7 +154,7 @@ class Repo(object):
         return name
 
     @classmethod
-    def createWorkingDir(cls, gitUrl, localRepoPath, revision=None):
+    def create_working_dir(cls, gitUrl, localRepoPath, revision=None):
         localRepoPath = localRepoPath or "."
         if os.path.exists(localRepoPath):
             if not os.path.isdir(localRepoPath) or os.listdir(localRepoPath):
@@ -175,7 +175,7 @@ class Repo(object):
                 'couldn\'t create working directory, clone failed: "%s"\nTry re-running that command to diagnose the problem.'
                 % err._cmdline
             )
-        Repo.ignoreDir(localRepoPath)
+        Repo.ignore_dir(localRepoPath)
         return GitRepo(repo)
 
 
@@ -187,7 +187,7 @@ class RepoView(object):
             # required keys: name, url
             tpl = repository.copy()
             name = tpl.pop("name")
-            tpl["url"] = normalizeGitUrl(tpl["url"])
+            tpl["url"] = normalize_git_url(tpl["url"])
             repository = toscaparser.repositories.Repository(name, tpl)
         self.repository = repository
         self.repo = repo
@@ -195,9 +195,9 @@ class RepoView(object):
         self.readOnly = not repo
 
     @property
-    def workingDir(self):
+    def working_dir(self):
         if self.repo:
-            return os.path.join(self.repo.workingDir, self.path)
+            return os.path.join(self.repo.working_dir, self.path)
         else:
             return os.path.join(self.repository.url, self.path)
 
@@ -213,37 +213,37 @@ class RepoView(object):
     def origin(self):
         if (
             self.repo
-            and normalizeGitUrl(self.repo.url) != self.url
-            and self.repo.url != self.repo.workingDir
+            and normalize_git_url(self.repo.url) != self.url
+            and self.repo.url != self.repo.working_dir
         ):
             return self.repo.url
         return ""
 
-    def isDirty(self):
+    def is_dirty(self):
         if self.readOnly:
             return False
-        return self.repo.isDirty(untracked_files=True, path=self.path)
+        return self.repo.is_dirty(untracked_files=True, path=self.path)
 
-    def addAll(self):
+    def add_all(self):
         self.repo.repo.git.add("--all", self.path or ".")
 
     def commit(self, message, addAll=False):
         if addAll:
-            self.addAll()
+            self.add_all()
         return self.repo.repo.index.commit(message)
 
     def status(self):
-        return self.repo.runCmd(["status", self.path or "."])[1]
+        return self.repo.run_cmd(["status", self.path or "."])[1]
 
-    def getInitialRevision(self):
+    def get_initial_revision(self):
         if not self.repo:
             return ""
-        return self.repo.getInitialRevision()
+        return self.repo.get_initial_revision()
 
-    def getCurrentRevision(self):
+    def get_current_revision(self):
         if not self.repo:
             return ""
-        if self.isDirty():
+        if self.is_dirty():
             return self.repo.revision + "-dirty"
         else:
             return self.repo.revision
@@ -253,8 +253,8 @@ class RepoView(object):
             [
                 ("name", self.name),
                 ("url", self.url),
-                ("revision", self.getCurrentRevision()),
-                ("initial", self.getInitialRevision()),
+                ("revision", self.get_current_revision()),
+                ("initial", self.get_initial_revision()),
             ]
         )
         if self.origin:
@@ -265,7 +265,7 @@ class RepoView(object):
 class GitRepo(Repo):
     def __init__(self, gitrepo):
         self.repo = gitrepo
-        self.url = self.workingDir or gitrepo.git_dir
+        self.url = self.working_dir or gitrepo.git_dir
         if gitrepo.remotes:
             # note: these might not look like absolute urls, e.g. git@github.com:onecommons/unfurl.git
             try:
@@ -275,7 +275,7 @@ class GitRepo(Repo):
             self.url = remote.url
 
     @property
-    def workingDir(self):
+    def working_dir(self):
         dir = self.repo.working_tree_dir
         if not dir or dir[-1] == "/":
             return dir
@@ -288,24 +288,24 @@ class GitRepo(Repo):
             return ""
         return self.repo.head.commit.hexsha
 
-    def resolveRevSpec(self, revision):
+    def resolve_rev_spec(self, revision):
         try:
             return self.repo.commit(revision).hexsha
         except:
             return None
 
-    def getUrlWithPath(self, path):
-        if isURLorGitPath(self.url):
+    def get_url_with_path(self, path):
+        if is_url_or_git_path(self.url):
             if os.path.isabs(path):
                 # get path relative to repository's root
-                path = os.path.relpath(path, self.workingDir)
-            return normalizeGitUrl(self.url) + "#:" + path
+                path = os.path.relpath(path, self.working_dir)
+            return normalize_git_url(self.url) + "#:" + path
         else:
-            return self.getGitLocalUrl(path)
+            return self.get_git_local_url(path)
 
-    def findExcludedDirs(self, root):
-        root = os.path.relpath(root, self.workingDir)
-        status, stdout, stderr = self.runCmd(
+    def find_excluded_dirs(self, root):
+        root = os.path.relpath(root, self.working_dir)
+        status, stdout, stderr = self.run_cmd(
             [
                 "ls-files",
                 "--exclude-standard",
@@ -317,16 +317,16 @@ class GitRepo(Repo):
             ]
         )
         for file in stdout.splitlines():
-            path = os.path.join(self.workingDir, file)
+            path = os.path.join(self.working_dir, file)
             yield path
 
-    def isPathExcluded(self, localPath):
+    def is_path_excluded(self, localPath):
         # XXX cache and test
-        # excluded = list(self.findExcludedDirs(self.workingDir))
+        # excluded = list(self.findExcludedDirs(self.working_dir))
         # success error code means it's ignored
-        return not self.runCmd(["check-ignore", "-q", localPath])[0]
+        return not self.run_cmd(["check-ignore", "-q", localPath])[0]
 
-    def runCmd(self, args, **kw):
+    def run_cmd(self, args, **kw):
         """
         :return:
           tuple(int(status), str(stdout), str(stderr))
@@ -342,13 +342,13 @@ class GitRepo(Repo):
             call, with_exceptions=False, with_extended_output=True, **kw
         )
 
-    def addToLocalGitIgnore(self, rule):
+    def add_to_local_git_ignore(self, rule):
         with open(os.path.join(self.repo.git_dir, "info", "exclude"), "a") as f:
             f.write("\n" + rule + "\n")
 
     def show(self, path, commitId):
-        if self.workingDir and os.path.isabs(path):
-            path = os.path.abspath(path)[len(self.workingDir) :]
+        if self.working_dir and os.path.isabs(path):
+            path = os.path.abspath(path)[len(self.working_dir):]
         # XXX this won't work if path is in a submodule
         # if in path startswith a submodule: git log -1 -p [commitid] --  [submodule]
         # submoduleCommit = re."\+Subproject commit (.+)".group(1)
@@ -363,13 +363,13 @@ class GitRepo(Repo):
             "checking out '%s' at %s to %s",
             self.url,
             revision or "HEAD",
-            self.workingDir,
+            self.working_dir,
         )
-        return self.workingDir
+        return self.working_dir
 
-    def addSubModule(self, gitDir):
+    def add_sub_module(self, gitDir):
         gitDir = os.path.abspath(gitDir)
-        status, stdout, stderr = self.runCmd(["submodule", "add", gitDir])
+        status, stdout, stderr = self.run_cmd(["submodule", "add", gitDir])
         success = not status
         if success:
             logging.debug("added submodule %s: %s %s", gitDir, stdout, stderr)
@@ -377,23 +377,23 @@ class GitRepo(Repo):
             logging.error("failed to add submodule %s: %s %s", gitDir, stdout, stderr)
         return success
 
-    def getInitialRevision(self):
+    def get_initial_revision(self):
         if not self.repo.head.is_valid():
             return ""  # an uninitialized repo
         firstCommit = next(self.repo.iter_commits("HEAD", max_parents=0))
         return firstCommit.hexsha
 
-    def addAll(self, path="."):
-        path = os.path.relpath(path, self.workingDir)
+    def add_all(self, path="."):
+        path = os.path.relpath(path, self.working_dir)
         self.repo.git.add("--all", path)
 
-    def commitFiles(self, files, msg):
+    def commit_files(self, files, msg):
         # note: this will also commit existing changes in the index
         index = self.repo.index
         index.add([os.path.abspath(f) for f in files])
         return index.commit(msg)
 
-    def isDirty(self, untracked_files=False, path=None):
+    def is_dirty(self, untracked_files=False, path=None):
         # diff = self.repo.git.diff()  # "--abbrev=40", "--full-index", "--raw")
         # https://gitpython.readthedocs.io/en/stable/reference.html?highlight=is_dirty#git.repo.base.Repo.is_dirty
         return self.repo.is_dirty(untracked_files=untracked_files, path=path or None)
@@ -401,16 +401,16 @@ class GitRepo(Repo):
     def clone(self, newPath):
         # note: repo.clone uses bare path, which breaks submodule path resolution
         cloned = git.Repo.clone_from(
-            self.workingDir, os.path.abspath(newPath), recurse_submodules=True
+            self.working_dir, os.path.abspath(newPath), recurse_submodules=True
         )
-        Repo.ignoreDir(newPath)
+        Repo.ignore_dir(newPath)
         return GitRepo(cloned)
 
-    def getGitLocalUrl(self, path, name=""):
+    def get_git_local_url(self, path, name=""):
         if os.path.isabs(path):
             # get path relative to repository's root
-            path = os.path.relpath(path, self.workingDir)
-        return "git-local://%s:%s/%s" % (self.getInitialRevision(), name, path)
+            path = os.path.relpath(path, self.working_dir)
+        return "git-local://%s:%s/%s" % (self.get_initial_revision(), name, path)
 
     # XXX: def getDependentRepos()
     # XXX: def canManage()
@@ -459,7 +459,7 @@ class RevisionManager(object):
         self.revisions = None
         self.localEnv = localEnv
 
-    def getRevision(self, change):
+    def get_revision(self, change):
         if self.revisions is None:
             self.revisions = {self.manifest.specDigest: self.manifest}
         digest = change["specDigest"]

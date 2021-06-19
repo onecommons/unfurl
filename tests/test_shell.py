@@ -28,15 +28,15 @@ class TestShellConfigurator:
 
         assert len(job.workDone) == 1, job.workDone
         assert (
-            runner.manifest.getRootResource().findResource("test1").attributes["stdout"]
+            runner.manifest.get_root_resource().find_resource("test1").attributes["stdout"]
             == "helloworld"
         )
-        assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
+        assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
 
     def test_timeout(self):
         configurator = ShellConfigurator(None)
 
-        err = configurator.runProcess(cmd="sleep 5", timeout=1)
+        err = configurator.run_process(cmd="sleep 5", timeout=1)
 
         assert isinstance(err, subprocess.TimeoutExpired)
 

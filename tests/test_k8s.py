@@ -82,7 +82,7 @@ class k8sTest(unittest.TestCase):
 
         manifest = YamlManifest(job.out.getvalue())
         job2 = Runner(manifest).run(JobOptions(workflow="undeploy", startTime=2))
-        results = job2.jsonSummary()
+        results = job2.json_summary()
         assert not job2.unexpectedAbort
         assert job2.status == Status.ok, job2.summary()
         self.assertEqual(

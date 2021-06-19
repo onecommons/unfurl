@@ -7,17 +7,17 @@ from unfurl.yamlloader import YamlConfig
 from unfurl.util import (
     UnfurlError,
     UnfurlValidationError,
-    lookupClass,
+    lookup_class,
     API_VERSION,
     sensitive_str,
 )
 from unfurl.merge import (
-    expandDoc,
-    restoreIncludes,
-    diffDicts,
-    mergeDicts,
-    patchDict,
-    parseMergeKey,
+    expand_doc,
+    restore_includes,
+    diff_dicts,
+    merge_dicts,
+    patch_dict,
+    parse_merge_key,
 )
 from ruamel.yaml.comments import CommentedMap
 import traceback
@@ -28,12 +28,12 @@ import os.path
 import pickle
 from click.testing import CliRunner
 import logging
-from unfurl import initLogging
+from unfurl import init_logging
 
 
 class SimpleConfigurator(Configurator):
     def run(self, task):
-        assert self.canRun(task)
+        assert self.can_run(task)
         yield task.done(True, Status.ok)
 
 
@@ -42,8 +42,8 @@ simpleConfigSpec = ConfigurationSpec("subtask", "instantiate", "Simple", 0)
 
 class TestSubtaskConfigurator(Configurator):
     def run(self, task):
-        assert self.canRun(task)
-        configuration = yield task.createSubTask(simpleConfigSpec)
+        assert self.can_run(task)
+        configuration = yield task.create_sub_task(simpleConfigSpec)
         assert configuration.status == Status.ok, configuration.status
         # print ("running TestSubtaskConfigurator")
         yield task.done(True, Status.ok)
@@ -70,22 +70,22 @@ class ExpandDocTest(unittest.TestCase):
     }
 
     def test_expandDoc(self):
-        includes, expanded = expandDoc(self.doc, cls=CommentedMap)
+        includes, expanded = expand_doc(self.doc, cls=CommentedMap)
         self.assertEqual(
             includes,
             {
-                ("test1",): [(parseMergeKey("+/t2"), None)],
-                ("test1", "a"): [(parseMergeKey("+/t1"), None)],
-                ("test1", "d"): [(parseMergeKey("+/t3"), None)],
-                ("test2", 1): [(parseMergeKey("+/t4"), "")],
-                ("test2", 3): [(parseMergeKey("+/t4"), None)],
-                ("test3",): [(parseMergeKey("+/base"), None)],
+                ("test1",): [(parse_merge_key("+/t2"), None)],
+                ("test1", "a"): [(parse_merge_key("+/t1"), None)],
+                ("test1", "d"): [(parse_merge_key("+/t3"), None)],
+                ("test2", 1): [(parse_merge_key("+/t4"), "")],
+                ("test2", 3): [(parse_merge_key("+/t4"), None)],
+                ("test3",): [(parse_merge_key("+/base"), None)],
             },
         )
         self.assertEqual(expanded["test1"], self.expected["test1"])
         self.assertEqual(expanded["test2"], self.expected["test2"])
         self.assertEqual(expanded["test3"], self.expected["test3"])
-        restoreIncludes(includes, self.doc, expanded, CommentedMap)
+        restore_includes(includes, self.doc, expanded, CommentedMap)
         # restoreInclude should make expanded look like self.doc
         self.assertEqual(expanded["test1"], self.doc["test1"])
         # XXX restoring lists not implemented:
@@ -96,30 +96,30 @@ class ExpandDocTest(unittest.TestCase):
         expectedOld = {"a": 1, "b": {"b1": 1, "b2": 1}, "d": 1}
         old = copy.copy(expectedOld)
         new = {"a": 1, "b": {"b1": 2, "b2": 1}, "c": 2}
-        diff = diffDicts(old, new)
+        diff = diff_dicts(old, new)
         self.assertEqual(diff, {"b": {"b1": 2}, "c": 2, "d": {"+%": "delete"}})
-        newNew = mergeDicts(old, diff)
+        newNew = merge_dicts(old, diff)
         self.assertEqual(newNew, new)
         self.assertEqual(old, expectedOld)
-        patchDict(old, new)
+        patch_dict(old, new)
         self.assertEqual(old, new)
 
     def test_missingInclude(self):
         doc1 = CommentedMap(
             [("+/a/c", None), ("a", {"+/b": None}), ("b", {"c": {"d": 1}})]
         )
-        includes, expanded = expandDoc(doc1, cls=CommentedMap)
+        includes, expanded = expand_doc(doc1, cls=CommentedMap)
         self.assertEqual(expanded, {"d": 1, "a": {"c": {"d": 1}}, "b": {"c": {"d": 1}}})
         self.assertEqual(len(includes), 2)
 
         doc1["missing"] = {"+/include-missing": None}
         with self.assertRaises(UnfurlError) as err:
-            includes, expanded = expandDoc(doc1, cls=CommentedMap)
+            includes, expanded = expand_doc(doc1, cls=CommentedMap)
 
     def test_recursion(self):
         doc = {"test3": {"a": {"recurse": {"+/test3": None}}}}
         with self.assertRaises(UnfurlError) as err:
-            includes, expanded = expandDoc(doc)
+            includes, expanded = expand_doc(doc)
         self.assertEqual(
             str(err.exception),
             """recursive include "('test3',)" in "('test3', 'a', 'recurse')" when including +/test3""",
@@ -127,7 +127,7 @@ class ExpandDocTest(unittest.TestCase):
 
         doc2 = {"test4": {"+../test4": None, "child": {}}}
         with self.assertRaises(UnfurlError) as err:
-            includes, expanded = expandDoc(doc2)
+            includes, expanded = expand_doc(doc2)
         self.assertEqual(
             str(err.exception),
             """recursive include "['test4']" in "('test4',)" when including +../test4""",
@@ -136,7 +136,7 @@ class ExpandDocTest(unittest.TestCase):
 
 class JobTest(unittest.TestCase):
     def test_lookupClass(self):
-        assert lookupClass("Simple") is SimpleConfigurator
+        assert lookup_class("Simple") is SimpleConfigurator
 
     # XXX rewrite
     # def test_runner(self):
@@ -232,7 +232,7 @@ class RunTest(unittest.TestCase):
         self.assertEqual(runner.taskCount, 0)
         output = six.StringIO()
         job = runner.run(JobOptions(add=True, out=output, startTime="test"))
-        assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
+        assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
         # workDone includes subtasks
         assert len(job.workDone) == 2, job.workDone
 
@@ -246,7 +246,7 @@ class RunTest(unittest.TestCase):
         )
         output2 = six.StringIO()
         job2 = Runner(manifest2).run(JobOptions(add=True, out=output2))
-        assert not job2.unexpectedAbort, job2.unexpectedAbort.getStackTrace()
+        assert not job2.unexpectedAbort, job2.unexpectedAbort.get_stack_trace()
 
         # should not find any tasks to run
         assert len(job2.workDone) == 0, job2.workDone
@@ -279,7 +279,7 @@ root:
 
     def test_sensitive_logging(self):
         try:
-            _logHandler, oldLevel = initLogging(logging.DEBUG)
+            _logHandler, oldLevel = init_logging(logging.DEBUG)
             oldStream = _logHandler.stream
             _logHandler.stream = six.StringIO()
 
@@ -294,7 +294,7 @@ root:
             self.assertNotIn("sensitive", logOutput)
         finally:
             _logHandler.stream = oldStream
-            initLogging(oldLevel)
+            init_logging(oldLevel)
 
 
 class TestInterface:
@@ -313,10 +313,10 @@ class InterfaceTest(unittest.TestCase):
 
     def test_interface(self):
         r = NodeInstance("test")
-        r.addInterface(TestInterface)
+        r.add_interface(TestInterface)
         className = __name__ + ".TestInterface"
         self.assertEqual(r.attributes[".interfaces"], {className: className})
-        i = r.getInterface(className)
+        i = r.get_interface(className)
         assert i, "interface not found"
         self.assertIs(r, i.resource)
         self.assertEqual(i.name, className)
@@ -327,7 +327,7 @@ class InterfaceTest(unittest.TestCase):
 
 class FileTestConfigurator(Configurator):
     def run(self, task):
-        assert self.canRun(task)
+        assert self.can_run(task)
         assert task.target.attributes["file"] == "foo.txt", task.target.attributes
         assert os.path.isabs(task.inputs["path"]), task.inputs
         assert task.inputs["contents"] == "test", task.inputs["contents"]
@@ -449,8 +449,8 @@ a:
   b: 1
 """
             config = YamlConfig(configYaml)
-            assert config.expanded.baseDir == "."
-            assert config.expanded["a"].baseDir == "."
+            assert config.expanded.base_dir == "."
+            assert config.expanded["a"].base_dir == "."
 
     # XXX
     # def test_change(self):
@@ -466,7 +466,7 @@ a:
 
 class ImportTestConfigurator(Configurator):
     def run(self, task):
-        assert self.canRun(task)
+        assert self.can_run(task)
         assert task.target.attributes["test"]
         assert task.target.attributes["mapped1"]
         yield task.done(True, Status.ok)
@@ -540,8 +540,8 @@ spec:
                 % API_VERSION
             )
             manifest = YamlManifest(importer)
-            root = manifest.getRootResource()
-            importerResource = root.findResource("importer")
+            root = manifest.get_root_resource()
+            importerResource = root.find_resource("importer")
             # assert importing.attributes['test']
             assert root.imports["test"]
             self.assertEqual(importerResource.attributes["mapped1"], "ok")

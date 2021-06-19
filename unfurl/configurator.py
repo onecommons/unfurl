@@ -5,22 +5,22 @@ import collections
 import re
 import os
 from .support import Status, Defaults, ResourceChanges, Priority, TopologyMap
-from .result import serializeValue, ChangeAware, Results, ResultsMap, getDigest
+from .result import serialize_value, ChangeAware, Results, ResultsMap, get_digest
 from .util import (
-    registerClass,
-    lookupClass,
-    loadModule,
-    validateSchema,
-    findSchemaErrors,
+    register_class,
+    lookup_class,
+    load_module,
+    validate_schema,
+    find_schema_errors,
     UnfurlError,
     UnfurlTaskError,
     UnfurlAddingResourceError,
-    filterEnv,
-    toEnum,
-    wrapSensitiveValue,
+    filter_env,
+    to_enum,
+    wrap_sensitive_value,
 )
 from . import merge
-from .eval import Ref, mapValue, RefContext
+from .eval import Ref, map_value, RefContext
 from .runtime import RelationshipInstance, Operational
 from .yamlloader import yaml
 from unfurl.projectpaths import WorkFolder
@@ -170,27 +170,27 @@ class ConfigurationSpec(object):
         self.postConditions = postConditions
         self.artifact = primary
 
-    def findInvalidateInputs(self, inputs):
+    def find_invalidate_inputs(self, inputs):
         if not self.inputSchema:
             return []
-        return findSchemaErrors(serializeValue(inputs), self.inputSchema)
+        return find_schema_errors(serialize_value(inputs), self.inputSchema)
 
     # XXX same for postConditions
-    def findInvalidPreconditions(self, target):
+    def find_invalid_preconditions(self, target):
         if not self.preConditions:
             return []
         # XXX this should be like a Dependency object
-        expanded = serializeValue(target.attributes)
-        return findSchemaErrors(expanded, self.preConditions)
+        expanded = serialize_value(target.attributes)
+        return find_schema_errors(expanded, self.preConditions)
 
     def create(self):
-        klass = lookupClass(self.className)
+        klass = lookup_class(self.className)
         if not klass:
             raise UnfurlError("Could not load configurator %s" % self.className)
         else:
             return klass(self)
 
-    def shouldRun(self):
+    def should_run(self):
         return Defaults.shouldRun
 
     def copy(self, **mods):
@@ -238,7 +238,7 @@ class ConfiguratorResult(object):
         exception=None,
     ):
         self.modified = modified
-        self.status = toEnum(Status, status)
+        self.status = to_enum(Status, status)
         self.configChanged = configChanged
         self.result = result
         self.success = success
@@ -275,7 +275,7 @@ class AutoRegisterClass(type):
         elif name.endswith("Configurator"):
             name = name[: -len("Configurator")]
         if name:
-            registerClass(cls.__module__ + "." + cls.__name__, cls, name)
+            register_class(cls.__module__ + "." + cls.__name__, cls, name)
         return cls
 
 
@@ -292,7 +292,7 @@ class Configurator(object):
     def __init__(self, configurationSpec):
         self.configSpec = configurationSpec
 
-    def getGenerator(self, task):
+    def get_generator(self, task):
         return self.run(task)
 
     def render(self, task):
@@ -313,10 +313,10 @@ class Configurator(object):
         """
         yield task.done(False)
 
-    def canDryRun(self, task):
+    def can_dry_run(self, task):
         """
         Returns whether this configurator can handle a dry-runs for the given task.
-        (And should check `task.dryRun` in during run()"".
+        (And should check `task.dry_run` in during run()"".
 
         Args:
             task (:obj:`TaskView`) The task about to be run.
@@ -326,7 +326,7 @@ class Configurator(object):
         """
         return False
 
-    def canRun(self, task):
+    def can_run(self, task):
         """
         Return whether or not the configurator can execute the given task.
 
@@ -341,11 +341,11 @@ class Configurator(object):
         """
         return True
 
-    def shouldRun(self, task):
+    def should_run(self, task):
         """Does this configuration need to be run?"""
-        return self.configSpec.shouldRun()
+        return self.configSpec.should_run()
 
-    def saveDigest(self, task):
+    def save_digest(self, task):
         """
         Generate a compact, deterministic representation of the current configuration.
         This is saved in the job log and used by `checkDigest` in subsequent jobs to
@@ -362,15 +362,15 @@ class Configurator(object):
             dict: A dictionary whose keys are strings that start with "digest"
         """
         # XXX user definition should be able to exclude inputs from digest
-        inputs = task.inputs.getResolved()
+        inputs = task.inputs.get_resolved()
         keys = sorted([k for k in inputs.keys() if k not in self.excludeFromDigest])
         if keys:
-            inputdigest = getDigest([inputs[key] for key in keys])
+            inputdigest = get_digest([inputs[key] for key in keys])
         else:
             inputdigest = ""
         return dict(digestKeys=",".join(keys), digestValue=inputdigest)
 
-    def checkDigest(self, task, changeset):
+    def check_digest(self, task, changeset):
         """
         Generate a compact, deterministic representation of the current configuration.
         This is saved in the job log and used by `checkDigest` in subsequent jobs to
@@ -395,7 +395,7 @@ class Configurator(object):
             return True
         # only resolve the inputs that were resolved before
         values = [task.inputs[key] for key in keys]
-        return changeset.digestValue != getDigest(values)
+        return changeset.digestValue != get_digest(values)
 
 
 class TaskView(object):
@@ -407,7 +407,7 @@ class TaskView(object):
         self.target = target
         self.reason = reason
         self.logger = logger
-        self.cwd = os.path.abspath(self.target.baseDir)
+        self.cwd = os.path.abspath(self.target.base_dir)
         # private:
         self._errors = []  # UnfurlTaskError objects appends themselves to this list
         self._inputs = None
@@ -420,7 +420,7 @@ class TaskView(object):
         self._resourceChanges = ResourceChanges()
         self._workFolder = None
         # public:
-        self.operationHost = self._findOperationHost(target, configSpec.operationHost)
+        self.operationHost = self._find_operation_host(target, configSpec.operationHost)
 
     @property
     def inputs(self):
@@ -441,12 +441,12 @@ class TaskView(object):
             else:
                 target = self.target
             HOST = (target.parent or target).attributes
-            ORCHESTRATOR = target.root.findInstanceOrExternal("localhost")
+            ORCHESTRATOR = target.root.find_instance_or_external("localhost")
             vars = dict(
                 inputs=inputs,
-                task=self.getSettings(),
-                connections=list(self._getConnections()),
-                allConnections=self._getAllConnections(),
+                task=self.get_settings(),
+                connections=list(self._get_connections()),
+                allConnections=self._get_all_connections(),
                 TOPOLOGY=dict(inputs=target.root.inputs._attributes),
                 NODES=TopologyMap(target.root),
                 SELF=self.target.attributes,
@@ -461,8 +461,8 @@ class TaskView(object):
                 vars["TARGET"] = target.attributes
             # expose inputs lazily to allow self-referencee
             ctx = RefContext(self.target, vars)
-            if self.configSpec.artifact and self.configSpec.artifact.baseDir:
-                ctx.baseDir = self.configSpec.artifact.baseDir
+            if self.configSpec.artifact and self.configSpec.artifact.base_dir:
+                ctx.base_dir = self.configSpec.artifact.base_dir
             self._inputs = ResultsMap(inputs, ctx)
         return self._inputs
 
@@ -473,15 +473,15 @@ class TaskView(object):
         """
         return self.inputs.context.vars
 
-    def _getConnections(self):
+    def _get_connections(self):
         seen = set()
         for parent in reversed(self.target.ancestors):
             # use reversed() so nearer overrides farther
             # XXX broken if multiple requirements point to same parent (e.g. dev and prod connections)
-            # XXX test if operationHost is external (e.g locahost) getRequirements() matches local parent
+            # XXX test if operationHost is external (e.g locahost) get_requirements() matches local parent
             found = False
             if self.operationHost:
-                for rel in self.operationHost.getRequirements(parent):
+                for rel in self.operationHost.get_requirements(parent):
                     # examine both the relationship's properties and its capability's properties
                     found = True
                     if id(rel) not in seen:
@@ -491,12 +491,12 @@ class TaskView(object):
             if not found:
                 # not found, see if there's a default connection
                 # XXX this should use the same relationship type as findConnection()
-                for rel in parent.getDefaultRelationships():
+                for rel in parent.get_default_relationships():
                     if id(rel) not in seen:
                         seen.add(id(rel))
                         yield rel
 
-    def _findRelationshipEnvVars(self):
+    def _find_relationship_env_vars(self):
         """
         We look for instances that the task's implementation might to connect to
         (by following the targets hostedOn relationships)
@@ -510,12 +510,12 @@ class TaskView(object):
         env = {}
         t = lambda datatype: datatype.type == "unfurl.datatypes.EnvVar"
         # XXX broken if multiple requirements point to same parent (e.g. dev and prod connections)
-        for rel in self._getConnections():
-            env.update(rel.mergeProps(t))
+        for rel in self._get_connections():
+            env.update(rel.merge_props(t))
 
         return env
 
-    def getEnvironment(self, addOnly):
+    def get_environment(self, addOnly):
         # If addOnly is False (the default) all variables in `env` will be included
         # in the returned dict, otherwise only variables added will be returned
 
@@ -537,22 +537,22 @@ class TaskView(object):
         # use merge.copy to preserve basedir
         rules = merge.copy(self.target.root.envRules)
 
-        relEnvVars = self._findRelationshipEnvVars()
+        relEnvVars = self._find_relationship_env_vars()
 
         if self.configSpec.environment:
             rules.update(self.configSpec.environment)
 
-        rules = serializeValue(
-            mapValue(rules, self.inputs.context), resolveExternal=True
+        rules = serialize_value(
+            map_value(rules, self.inputs.context), resolveExternal=True
         )
-        env = filterEnv(rules, env, addOnly=addOnly)
+        env = filter_env(rules, env, addOnly=addOnly)
         env.update(relEnvVars)  # XXX should been updated when retrieved above
 
         targets = []
         if isinstance(self.target, RelationshipInstance):
             targets = [
                 c.tosca_id
-                for c in self.target.target.getCapabilities(
+                for c in self.target.target.get_capabilities(
                     self.target.capability.template.name
                 )
             ]
@@ -563,7 +563,7 @@ class TaskView(object):
                     SOURCES=",".join(
                         [
                             r.tosca_id
-                            for r in self.target.source.getRequirements(
+                            for r in self.target.source.get_requirements(
                                 self.target.requirement.template.name
                             )
                         ]
@@ -573,11 +573,11 @@ class TaskView(object):
             )
         return env
 
-    def getSettings(self):
+    def get_settings(self):
         return dict(
             verbose=self.verbose,
             name=self.configSpec.name,
-            dryrun=self.dryRun,
+            dryrun=self.dry_run,
             workflow=self.configSpec.workflow,
             operation=self.configSpec.operation,
             timeout=self.configSpec.timeout,
@@ -586,10 +586,10 @@ class TaskView(object):
             cwd=self.cwd,
         )
 
-    def _findOperationHost(self, target, operation_host):
+    def _find_operation_host(self, target, operation_host):
         # SELF, HOST, ORCHESTRATOR, SOURCE, TARGET
         if not operation_host or operation_host in ["localhost", "ORCHESTRATOR"]:
-            return target.root.findInstanceOrExternal("localhost")
+            return target.root.find_instance_or_external("localhost")
         if operation_host == "SELF":
             return target
         if operation_host == "HOST":
@@ -600,12 +600,12 @@ class TaskView(object):
             return target.source
         if operation_host == "TARGET":
             return target.target
-        host = target.root.findInstanceOrExternal(operation_host)
+        host = target.root.find_instance_or_external(operation_host)
         if host:
             return host
         raise UnfurlTaskError(self, "can not find operation_host: %s" % operation_host)
 
-    def _getAllConnections(self):
+    def _get_all_connections(self):
         cons = {}
         if self.operationHost:
             for rel in self.operationHost.requirements:
@@ -616,7 +616,7 @@ class TaskView(object):
 
         return cons
 
-    def findConnection(self, target, relation="tosca.relationships.ConnectsTo"):
+    def find_connection(self, target, relation="tosca.relationships.ConnectsTo"):
         connection = self.query(
             "$OPERATION_HOST::.requirements::*[.type=%s][.target=$target]" % relation,
             vars=dict(target=target),
@@ -624,7 +624,7 @@ class TaskView(object):
         # alternative query: [.type=unfurl.nodes.K8sCluster]::.capabilities::.relationships::[.type=unfurl.relationships.ConnectsTo.K8sCluster][.source=$OPERATION_HOST]
         if not connection:
             # no connection, see if there's a default relationship template defined for this target
-            endpoints = target.getDefaultRelationships(relation)
+            endpoints = target.get_default_relationships(relation)
             if endpoints:
                 connection = endpoints[0]
         return connection
@@ -636,15 +636,15 @@ class TaskView(object):
           sensitive: A subtype of `sensitive` appropriate for the value or the value itself if it can't be converted.
 
         """
-        return wrapSensitiveValue(
+        return wrap_sensitive_value(
             value, self.operationHost and self.operationHost.templar._loader._vault
         )
 
-    def addMessage(self, message):
+    def add_message(self, message):
         self.messages.append(message)
 
-    def findInstance(self, name):
-        return self._manifest.getRootResource().findInstanceOrExternal(name)
+    def find_instance(self, name):
+        return self._manifest.get_root_resource().find_instance_or_external(name)
 
     # XXX
     # def pending(self, modified=None, sleep=100, waitFor=None, outputs=None):
@@ -725,12 +725,12 @@ class TaskView(object):
             raise
 
         if dependency:
-            self.addDependency(
+            self.add_dependency(
                 query, result, name=name, required=required, wantList=wantList
             )
         return result
 
-    def addDependency(
+    def add_dependency(
         self,
         expr,
         expected=None,
@@ -740,7 +740,7 @@ class TaskView(object):
         wantList=False,
         target=None,
     ):
-        getter = getattr(expr, "asRef", None)
+        getter = getattr(expr, "as_ref", None)
         if getter:
             # expr is a configuration or resource or ExternalValue
             expr = Ref(getter()).source
@@ -757,7 +757,7 @@ class TaskView(object):
         self._dependenciesChanged = True
         return dependency
 
-    def removeDependency(self, name):
+    def remove_dependency(self, name):
         for i, dep in enumerate(self.dependencies):
             if dep.name == name:
                 self.dependencies.pop(i)
@@ -770,7 +770,7 @@ class TaskView(object):
     #         configSpec = yaml.load(configSpec)
     #     return self._manifest.loadConfigSpec(name, configSpec)
 
-    def createSubTask(
+    def create_sub_task(
         self, operation, resource=None, inputs=None, persist=False, required=False
     ):
         """Create a subtask that will be executed if yielded by `run()`
@@ -789,7 +789,7 @@ class TaskView(object):
             inputs = self.configSpec.inputs
 
         if isinstance(operation, six.string_types):
-            taskRequest = self.job.plan.createTaskRequest(
+            taskRequest = self.job.plan.create_task_request(
                 operation, resource, "for subtask: " + self.configSpec.name, inputs
             )
             if taskRequest.error:
@@ -812,7 +812,7 @@ class TaskView(object):
 
     # # XXX how can we explicitly associate relations with target resources etc.?
     # # through capability attributes and dependencies/relationship attributes
-    def updateResources(self, resources):
+    def update_resources(self, resources):
         """Notifies Unfurl of new or changes to instances made while the configurator was running.
 
         Operational status indicates if the instance currently exists or not.
@@ -871,7 +871,7 @@ class TaskView(object):
                 existingResource = self.target
                 rname = existingResource.name
             else:
-                existingResource = self.findInstance(rname)
+                existingResource = self.find_instance(rname)
             try:
 
                 if existingResource:
@@ -881,16 +881,16 @@ class TaskView(object):
                     if "readyState" in resourceSpec:
                         # we need to set this explicitly for the attribute manager to track status
                         # XXX track all status attributes (esp. state and created) and remove this hack
-                        operational = Manifest.loadStatus(resourceSpec)
-                        if operational.localStatus is not None:
-                            existingResource.localStatus = operational.localStatus
+                        operational = Manifest.load_status(resourceSpec)
+                        if operational.local_status is not None:
+                            existingResource.local_status = operational.local_status
                         if operational.state is not None:
                             existingResource.state = operational.state
                         updated = True
 
                     attributes = resourceSpec.get("attributes")
                     if attributes:
-                        for key, value in mapValue(
+                        for key, value in map_value(
                             attributes, existingResource
                         ).items():
                             existingResource.attributes[key] = value
@@ -917,7 +917,7 @@ class TaskView(object):
                 if isinstance(resourceSpec.get("template"), dict):
                     # inline node template, add it to the spec
                     tname = resourceSpec["template"].pop("name", rname)
-                    nodeSpec = self._manifest.tosca.addNodeTemplate(
+                    nodeSpec = self._manifest.tosca.add_node_template(
                         tname, resourceSpec["template"]
                     )
                     resourceSpec["template"] = nodeSpec.name
@@ -933,16 +933,16 @@ class TaskView(object):
                     and "parent" not in resourceSpec
                     and "template" in resourceSpec
                 ):
-                    nodeSpec = self._manifest.tosca.getTemplate(
+                    nodeSpec = self._manifest.tosca.get_template(
                         resourceSpec["template"]
                     )
                     parent = (
-                        self.job.plan.findParentResource(nodeSpec) or self.target.root
+                            self.job.plan.find_parent_resource(nodeSpec) or self.target.root
                     )
                 else:
                     parent = self.target.root
                 # note: if resourceSpec[parent] is set it overrides the parent keyword
-                resource = self._manifest.createNodeInstance(
+                resource = self._manifest.create_node_instance(
                     rname, resourceSpec, parent=parent
                 )
 
@@ -958,7 +958,7 @@ class TaskView(object):
                 newResources.append(resource)
 
         if newResourceSpecs:
-            self._resourceChanges.addResources(newResourceSpecs)
+            self._resourceChanges.add_resources(newResourceSpecs)
             self._addedResources.extend(newResources)
             self.logger.info("add resources %s", newResources)
 
@@ -969,14 +969,14 @@ class TaskView(object):
         return None, errors
 
     # multiple task can be accessing the same workfolder
-    def setWorkFolder(self, location="home", preserve=False):
+    def set_work_folder(self, location="home", preserve=False):
         self._workFolder = WorkFolder(self, location, preserve)
         return self._workFolder
         # return self.job.setFolder(
         #     self, location, preserve
         # )
 
-    def getWorkFolder(self):
+    def get_work_folder(self):
         return self._workFolder
         # return self.job.getFolder(self)
 
@@ -1016,7 +1016,7 @@ class Dependency(Operational):
         self.target = target
 
     @property
-    def localStatus(self):
+    def local_status(self):
         if self.target:
             return self.target.status
         else:
@@ -1037,32 +1037,32 @@ class Dependency(Operational):
             self.expected = result
 
     @staticmethod
-    def hasValueChanged(value, changeset):
+    def has_value_changed(value, changeset):
         if isinstance(value, Results):
-            return Dependency.hasValueChanged(value._attributes, changeset)
+            return Dependency.has_value_changed(value._attributes, changeset)
         elif isinstance(value, collections.Mapping):
-            if any(Dependency.hasValueChanged(v, changeset) for v in value.values()):
+            if any(Dependency.has_value_changed(v, changeset) for v in value.values()):
                 return True
         elif isinstance(value, (collections.MutableSequence, tuple)):
-            if any(Dependency.hasValueChanged(v, changeset) for v in value):
+            if any(Dependency.has_value_changed(v, changeset) for v in value):
                 return True
         elif isinstance(value, ChangeAware):
-            return value.hasChanged(changeset)
+            return value.has_changed(changeset)
         else:
             return False
 
-    def hasChanged(self, config):
+    def has_changed(self, config):
         changeId = config.changeId
         context = RefContext(config.target, dict(val=self.expected, changeId=changeId))
-        result = Ref(self.expr).resolveOne(context)  # resolve(context, self.wantList)
+        result = Ref(self.expr).resolve_one(context)  # resolve(context, self.wantList)
 
         if self.schema:
             # result isn't as expected, something changed
-            if not validateSchema(result, self.schema):
+            if not validate_schema(result, self.schema):
                 return False
         else:
             if self.expected is not None:
-                expected = mapValue(self.expected, context)
+                expected = map_value(self.expected, context)
                 if result != expected:
                     logger.debug("hasChanged: %s != %s", result, expected)
                     return True
@@ -1070,13 +1070,13 @@ class Dependency(Operational):
                 # if expression no longer true (e.g. a resource wasn't found), then treat dependency as changed
                 return True
 
-        if self.hasValueChanged(result, config):
+        if self.has_value_changed(result, config):
             return True
 
         return False
 
 
-def _setDefaultCommand(kw, implementation, inputs):
+def _set_default_command(kw, implementation, inputs):
     # is it a shell script or a command line?
     shell = inputs.get("shell")
     if shell is None:
@@ -1108,7 +1108,7 @@ def _setDefaultCommand(kw, implementation, inputs):
     kw["inputs"] = shellArgs
 
 
-def getConfigSpecArgsFromImplementation(iDef, inputs, template):
+def get_config_spec_args_from_implementation(iDef, inputs, template):
     # XXX template should be operation_host's template!
     implementation = iDef.implementation
     kw = dict(inputs=inputs, outputs=iDef.outputs)
@@ -1117,10 +1117,10 @@ def getConfigSpecArgsFromImplementation(iDef, inputs, template):
     if isinstance(implementation, dict):
         for name, value in implementation.items():
             if name == "primary":
-                artifact = template.findOrCreateArtifact(value, path=iDef._source)
+                artifact = template.find_or_create_artifact(value, path=iDef._source)
             elif name == "dependencies":
                 kw[name] = [
-                    template.findOrCreateArtifact(artifactTpl, path=iDef._source)
+                    template.find_or_create_artifact(artifactTpl, path=iDef._source)
                     for artifactTpl in value
                 ]
             elif name in configSpecArgs:
@@ -1129,7 +1129,7 @@ def getConfigSpecArgsFromImplementation(iDef, inputs, template):
     else:
         # "either because it refers to a named artifact specified in the artifacts section of a type or template,
         # or because it represents the name of a script in the CSAR file that contains the definition."
-        artifact = template.findOrCreateArtifact(implementation, path=iDef._source)
+        artifact = template.find_or_create_artifact(implementation, path=iDef._source)
     kw["primary"] = artifact
     assert artifact or "className" in kw
 
@@ -1140,11 +1140,11 @@ def getConfigSpecArgsFromImplementation(iDef, inputs, template):
         try:
             # see if implementation looks like a python class
             if "#" in implementation:
-                path, fragment = artifact.getPathAndFragment()
-                mod = loadModule(path)
+                path, fragment = artifact.get_path_and_fragment()
+                mod = load_module(path)
                 kw["className"] = mod.__name__ + "." + fragment
                 return kw
-            elif lookupClass(implementation):
+            elif lookup_class(implementation):
                 kw["className"] = implementation
                 return kw
         except:
@@ -1153,5 +1153,5 @@ def getConfigSpecArgsFromImplementation(iDef, inputs, template):
         logger.debug(
             "interpreting 'implementation' as a shell command: %s", implementation
         )
-        _setDefaultCommand(kw, implementation, inputs)
+        _set_default_command(kw, implementation, inputs)
     return kw

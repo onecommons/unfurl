@@ -9,7 +9,7 @@ from unfurl.yamlmanifest import YamlManifest
 from unfurl.job import Runner, JobOptions
 from unfurl.configurator import Configurator
 from unfurl.configurators import TemplateConfigurator
-from unfurl.util import makeTempDir
+from unfurl.util import make_temp_dir
 
 # python 2.7 needs these:
 from unfurl.configurators.shell import ShellConfigurator
@@ -21,7 +21,7 @@ class HelmConfigurator(Configurator):
     def run(self, task):
         assert task.inputs["chart"] == "gitlab/gitlab"
         assert task.inputs["flags"] == {"repo": "https://charts.gitlab.io/"}
-        subtaskRequest = task.createSubTask("Install.subtaskOperation")
+        subtaskRequest = task.create_sub_task("Install.subtaskOperation")
         assert subtaskRequest
         assert (
             subtaskRequest.configSpec
@@ -46,7 +46,7 @@ class DummyShellConfigurator(TemplateConfigurator):
 
 class RunTest(unittest.TestCase):
     def setUp(self):
-        os.environ["UNFURL_WORKDIR"] = makeTempDir(delete=True)
+        os.environ["UNFURL_WORKDIR"] = make_temp_dir(delete=True)
 
     def tearDown(self):
         del os.environ["UNFURL_WORKDIR"]
@@ -60,10 +60,10 @@ class RunTest(unittest.TestCase):
         assert not manifest.lastJob, "expected new manifest"
         output = six.StringIO()  # so we don't save the file
         job = runner.run(JobOptions(add=True, out=output, startTime=1))
-        assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
+        assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
         # print(manifest.statusSummary())
         self.assertEqual(
-            job.jsonSummary(),
+            job.json_summary(),
             {
                 "job": {
                     "id": "A01110000000",
@@ -155,7 +155,7 @@ class RunTest(unittest.TestCase):
         # print("2", output2.getvalue())
         # print(job2.jsonSummary(True))
         # print(job2._planSummary())
-        assert not job2.unexpectedAbort, job2.unexpectedAbort.getStackTrace()
+        assert not job2.unexpectedAbort, job2.unexpectedAbort.get_stack_trace()
         # should not have found any tasks to run:
         assert len(job2.workDone) == 0, job2.workDone
         # self.maxDiff = None
@@ -169,7 +169,7 @@ class RunTest(unittest.TestCase):
         # print(output3.getvalue())
         # only the chart delete task should have ran as it owns the resources it created
         # print(job3.jsonSummary())
-        assert len(job3.workDone) == 1, job3.jsonSummary()
+        assert len(job3.workDone) == 1, job3.json_summary()
         tasks = list(job3.workDone.values())
         assert tasks[0].target.status.name == "absent", tasks[0].target.status
 
@@ -184,7 +184,7 @@ class RunTest(unittest.TestCase):
         # print(job.summary())
         # print("discovered", runner.manifest.tosca.discovered)
         # print("discovered manifest", output.getvalue())
-        assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
+        assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
 
         baseDir = __file__ + "/../examples/"
         manifest2 = YamlManifest(output.getvalue(), path=baseDir)
@@ -198,7 +198,7 @@ class RunTest(unittest.TestCase):
         )
         # print("2", output2.getvalue())
         # print('job2', job2.summary())
-        assert not job2.unexpectedAbort, job2.unexpectedAbort.getStackTrace()
+        assert not job2.unexpectedAbort, job2.unexpectedAbort.get_stack_trace()
         # print("job", json.dumps(job2.jsonSummary(), indent=2))
         # should not have found any tasks to run:
         assert len(job2.workDone) == 8, list(job2.workDone)
@@ -231,7 +231,7 @@ class RunTest(unittest.TestCase):
                     out=output,
                 )
             )
-            assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
+            assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
             # verify we wrote out the correct ansible inventory file
             try:
                 from pathlib import Path
@@ -296,7 +296,7 @@ class RunTest(unittest.TestCase):
         assert "stdout" in tasks[0].result.result, tasks[0].result.result
         self.assertEqual(tasks[0].result.result["stdout"], "bar")
         self.assertEqual(
-            job.jsonSummary()["tasks"],
+            job.json_summary()["tasks"],
             [
                 {
                     "status": "ok",

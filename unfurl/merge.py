@@ -11,8 +11,8 @@ from .util import UnfurlError
 
 
 def _mapCtor(self):
-    if hasattr(self, "baseDir"):
-        return makeMapWithBase(self, self.baseDir)
+    if hasattr(self, "base_dir"):
+        return make_map_with_base(self, self.base_dir)
     return CommentedMap
 
 
@@ -26,7 +26,7 @@ def copy(src):
     return cls(src)
 
 
-def makeMapWithBase(doc, baseDir):
+def make_map_with_base(doc, baseDir):
     loadTemplate = getattr(doc, "loadTemplate", None)
     _anchorCache = getattr(doc, "_anchorCache", None)
 
@@ -35,7 +35,7 @@ def makeMapWithBase(doc, baseDir):
             map = CommentedMap(args[0].items(), **kws)
         else:
             map = CommentedMap(*args, **kws)
-        map.baseDir = baseDir
+        map.base_dir = baseDir
         if loadTemplate:
             map.loadTemplate = loadTemplate
         if _anchorCache is not None:
@@ -50,7 +50,7 @@ def makeMapWithBase(doc, baseDir):
 mergeStrategyKey = "+%"  # values: delete
 
 # b is the merge patch, a is original dict
-def mergeDicts(b, a, cls=None, replaceKeys=None, defaultStrategy="merge"):
+def merge_dicts(b, a, cls=None, replaceKeys=None, defaultStrategy="merge"):
     """
     Returns a new dict (or cls) that recursively merges b into a.
     b is base, a overrides.
@@ -78,7 +78,7 @@ def mergeDicts(b, a, cls=None, replaceKeys=None, defaultStrategy="merge"):
                     if strategy == "merge":
                         if not val:  # empty map, treat as missing key
                             continue
-                        cp[key] = mergeDicts(
+                        cp[key] = merge_dicts(
                             bval,
                             val,
                             defaultStrategy=childStrategy,
@@ -123,7 +123,7 @@ def mergeDicts(b, a, cls=None, replaceKeys=None, defaultStrategy="merge"):
     return cp
 
 
-def _cacheAnchors(_anchorCache, obj):
+def _cache_anchors(_anchorCache, obj):
     anchor = obj.yaml_anchor()
     if anchor and anchor.value:
         _anchorCache[anchor.value] = obj
@@ -133,10 +133,10 @@ def _cacheAnchors(_anchorCache, obj):
 
     for value in obj.values() if isinstance(obj, dict) else obj:
         if isinstance(value, CommentedBase):
-            _cacheAnchors(_anchorCache, value)
+            _cache_anchors(_anchorCache, value)
 
 
-def findAnchor(doc, anchorName):
+def find_anchor(doc, anchorName):
     if not isinstance(doc, CommentedMap):
         return None
 
@@ -144,20 +144,20 @@ def findAnchor(doc, anchorName):
     if _anchorCache is None:
         _anchorCache = {}
         # recursively find anchors
-        _cacheAnchors(_anchorCache, doc)
+        _cache_anchors(_anchorCache, doc)
         doc._anchorCache = _anchorCache
 
     return _anchorCache.get(anchorName)
 
 
-def _jsonPointerUnescape(s):
+def _json_pointer_unescape(s):
     return s.replace("~1", "/").replace("~0", "~")
 
 
 _RE_INVALID_JSONPOINTER_ESCAPE = re.compile("(~[^01]|~$)")
 
 
-def _jsonPointerValidate(pointer):
+def _json_pointer_validate(pointer):
     invalid_escape = _RE_INVALID_JSONPOINTER_ESCAPE.search(pointer)
     if invalid_escape:
         raise UnfurlError(
@@ -168,18 +168,18 @@ def _jsonPointerValidate(pointer):
     return None
 
 
-def getTemplate(doc, key, value, path, cls, includes=None):
+def get_template(doc, key, value, path, cls, includes=None):
     template = doc
     templatePath = None
     if key.include:
         value, template, baseDir = doc.loadTemplate(value, key.maybe, doc)
         if template is None:  # include wasn't not found and key.maybe
             return None
-        cls = makeMapWithBase(doc, baseDir)
+        cls = make_map_with_base(doc, baseDir)
         # fileKey = key._replace(include=None)
         # template = getTemplate(template, fileKey, "raw", (), cls)
     else:
-        result = _findTemplate(doc, key, path, cls, not key.maybe)
+        result = _find_template(doc, key, path, cls, not key.maybe)
         if result is None:
             return doc
         template, templatePath = result
@@ -204,18 +204,18 @@ def getTemplate(doc, key, value, path, cls, includes=None):
                     )
             if includes is None:
                 includes = CommentedMap()
-            template = expandDict(doc, path, includes, template, cls=cls)
+            template = expand_dict(doc, path, includes, template, cls=cls)
     finally:
         if key.include:
             doc.loadTemplate(baseDir)  # pop baseDir
     return template
 
 
-def _findTemplate(doc, key, path, cls, fail):
+def _find_template(doc, key, path, cls, fail):
     template = doc
     templatePath = None
     if key.anchor:
-        template = findAnchor(doc, key.anchor)
+        template = find_anchor(doc, key.anchor)
         if template is None:
             if not fail:
                 return None
@@ -230,7 +230,7 @@ def _findTemplate(doc, key, path, cls, fail):
             templatePath = list(path[:stop])
         else:
             templatePath = templatePath[:stop]
-        template = lookupPath(doc, templatePath, cls)
+        template = lookup_path(doc, templatePath, cls)
         if template is None:
             if not fail:
                 return None
@@ -257,13 +257,13 @@ def _findTemplate(doc, key, path, cls, fail):
     return template, templatePath
 
 
-def hasTemplate(doc, key, value, path, cls):
+def has_template(doc, key, value, path, cls):
     if key.include:
         loadTemplate = getattr(doc, "loadTemplate", None)
         if not loadTemplate:
             return False
         return doc.loadTemplate(value, key.maybe, doc, True)
-    return _findTemplate(doc, key, path, cls, False) is not None
+    return _find_template(doc, key, path, cls, False) is not None
 
 
 class _MissingInclude(object):
@@ -281,7 +281,7 @@ RE_FIRST = re.compile(r"([?]?)(include\d*)?([*]\S+)?([.]+$)?")
 MergeKey = namedtuple("MergeKey", "key, maybe, include, anchor, relative, pointer")
 
 
-def parseMergeKey(key):
+def parse_merge_key(key):
     """
     +[maybe]?[include]?[anchor]?[relative]?[jsonpointer]?
 
@@ -291,8 +291,8 @@ def parseMergeKey(key):
     """
     original = key
     key = key[1:]
-    _jsonPointerValidate(key)
-    parts = [_jsonPointerUnescape(part) for part in key.split("/")]
+    _json_pointer_validate(key)
+    parts = [_json_pointer_unescape(part) for part in key.split("/")]
     first = parts.pop(0)
     maybe, include, anchor, relative = RE_FIRST.match(first).groups()
     if anchor:
@@ -311,7 +311,7 @@ def parseMergeKey(key):
     return MergeKey(original, not not maybe, include, anchor, relative, tuple(parts))
 
 
-def expandDict(doc, path, includes, current, cls=dict):
+def expand_dict(doc, path, includes, current, cls=dict):
     """
     Return a copy of `doc` that expands include directives.
     Include directives look like "+path/to/value"
@@ -332,17 +332,17 @@ def expandDict(doc, path, includes, current, cls=dict):
             if key == mergeStrategyKey:
                 cp[key] = value
                 continue
-            mergeKey = parseMergeKey(key)
+            mergeKey = parse_merge_key(key)
             if not mergeKey:
                 cp[key] = value
                 continue
-            foundTemplate = hasTemplate(doc, mergeKey, value, path, cls)
+            foundTemplate = has_template(doc, mergeKey, value, path, cls)
             if not foundTemplate:
                 includes.setdefault(path, []).append(_MissingInclude(mergeKey, value))
                 cp[key] = value
                 continue
             includes.setdefault(path, []).append((mergeKey, value))
-            template = getTemplate(doc, mergeKey, value, path, cls, includes)
+            template = get_template(doc, mergeKey, value, path, cls, includes)
             if isinstance(template, Mapping):
                 templates.append(template)
             elif mergeKey.include and template is None:
@@ -355,9 +355,9 @@ def expandDict(doc, path, includes, current, cls=dict):
         # elif key.startswith("q+"):
         #    cp[key[2:]] = value
         elif isinstance(value, Mapping):
-            cp[key] = expandDict(doc, path + (key,), includes, value, cls)
+            cp[key] = expand_dict(doc, path + (key,), includes, value, cls)
         elif isinstance(value, list):
-            cp[key] = list(expandList(doc, path + (key,), includes, value, cls))
+            cp[key] = list(expand_list(doc, path + (key,), includes, value, cls))
         else:
             cp[key] = value
 
@@ -366,7 +366,7 @@ def expandDict(doc, path, includes, current, cls=dict):
         templates.append(cp)
         while templates:
             cls = getattr(templates[0], "mapCtor", cls)
-            accum = mergeDicts(accum, templates.pop(0), cls)
+            accum = merge_dicts(accum, templates.pop(0), cls)
         return accum
     else:
         return cp
@@ -374,53 +374,53 @@ def expandDict(doc, path, includes, current, cls=dict):
     # return includes, reduce(lambda accum, next: mergeDicts(accum, next, cls), templates, {}), cp
 
 
-def _findMissingIncludes(includes):
+def _find_missing_includes(includes):
     for x in includes.values():
         for i in x:
             if isinstance(i, _MissingInclude):
                 yield i
 
 
-def _deleteDeletedKeys(expanded):
+def _delete_deleted_keys(expanded):
     for key, value in expanded.items():
         if isinstance(value, Mapping):
             if value.get(mergeStrategyKey) == "delete":
                 del expanded[key]
             else:
-                _deleteDeletedKeys(value)
+                _delete_deleted_keys(value)
 
 
-def expandDoc(doc, current=None, cls=dict):
+def expand_doc(doc, current=None, cls=dict):
     includes = CommentedMap()
     if current is None:
         current = doc
     if not isinstance(doc, Mapping) or not isinstance(current, Mapping):
         raise UnfurlError("top level element %s is not a dict" % doc)
-    expanded = expandDict(doc, (), includes, current, cls)
+    expanded = expand_dict(doc, (), includes, current, cls)
     if hasattr(doc, "_anchorCache"):
         expanded._anchorCache = doc._anchorCache
     last = 0
     while True:
-        missing = list(_findMissingIncludes(includes))
+        missing = list(_find_missing_includes(includes))
         if len(missing) == 0:
             # remove any stray keys with delete merge directive
-            _deleteDeletedKeys(expanded)
+            _delete_deleted_keys(expanded)
             return includes, expanded
         if len(missing) == last:  # no progress
             raise UnfurlError("missing includes: %s" % missing)
         last = len(missing)
         includes = CommentedMap()
-        expanded = expandDict(expanded, (), includes, current, cls)
+        expanded = expand_dict(expanded, (), includes, current, cls)
         if hasattr(doc, "_anchorCache"):
             expanded._anchorCache = doc._anchorCache
 
 
-def expandList(doc, path, includes, value, cls=dict):
+def expand_list(doc, path, includes, value, cls=dict):
     for i, item in enumerate(value):
         if isinstance(item, Mapping):
             if item.get(mergeStrategyKey) == "delete":
                 continue
-            newitem = expandDict(doc, path + (i,), includes, item, cls)
+            newitem = expand_dict(doc, path + (i,), includes, item, cls)
             if isinstance(newitem, MutableSequence):
                 for i in newitem:
                     yield i
@@ -430,7 +430,7 @@ def expandList(doc, path, includes, value, cls=dict):
             yield item
 
 
-def diffDicts(old, new, cls=dict):
+def diff_dicts(old, new, cls=dict):
     """
     return a dict where old + diff = new
     """
@@ -441,7 +441,7 @@ def diffDicts(old, new, cls=dict):
             newval = new[key]
             if val != newval:
                 if isinstance(val, Mapping) and isinstance(newval, Mapping):
-                    diff[key] = diffDicts(val, newval, cls)
+                    diff[key] = diff_dicts(val, newval, cls)
                 else:
                     diff[key] = newval
         else:
@@ -454,7 +454,7 @@ def diffDicts(old, new, cls=dict):
 
 
 # XXX rename function, confusing name
-def patchDict(old, new, preserve=False):
+def patch_dict(old, new, preserve=False):
     """
     Transform old into new while preserving old as much as possible.
     """
@@ -464,7 +464,7 @@ def patchDict(old, new, preserve=False):
             newval = new[key]
             if val != newval:
                 if isinstance(val, Mapping) and isinstance(newval, Mapping):
-                    old[key] = patchDict(val, newval, preserve)
+                    old[key] = patch_dict(val, newval, preserve)
                 elif isinstance(val, MutableSequence) and isinstance(
                     newval, MutableSequence
                 ):
@@ -485,7 +485,7 @@ def patchDict(old, new, preserve=False):
     return old
 
 
-def intersectDict(old, new, cls=dict):
+def intersect_dict(old, new, cls=dict):
     """
     remove keys from old that don't match new
     """
@@ -495,7 +495,7 @@ def intersectDict(old, new, cls=dict):
             newval = new[key]
             if val != newval:
                 if isinstance(val, Mapping) and isinstance(newval, Mapping):
-                    old[key] = intersectDict(val, newval, cls)
+                    old[key] = intersect_dict(val, newval, cls)
                 else:
                     del old[key]
         else:
@@ -504,7 +504,7 @@ def intersectDict(old, new, cls=dict):
     return old
 
 
-def lookupPath(doc, path, cls=dict):
+def lookup_path(doc, path, cls=dict):
     template = doc
     for segment in path:
         if isinstance(template, Sequence):
@@ -519,19 +519,19 @@ def lookupPath(doc, path, cls=dict):
     return template
 
 
-def replacePath(doc, key, value, cls=dict):
+def replace_path(doc, key, value, cls=dict):
     path = key[:-1]
     last = key[-1]
-    ref = lookupPath(doc, path, cls)
+    ref = lookup_path(doc, path, cls)
     ref[last] = value
 
 
-def addTemplate(changedDoc, path, mergeKey, template, cls):
+def add_template(changedDoc, path, mergeKey, template, cls):
     # if includeKey.anchor: #???
     if mergeKey.relative:
         if mergeKey.relative > 1:
             path = path[: (mergeKey.relative - 1) * -1]
-        current = lookupPath(changedDoc, path, cls)
+        current = lookup_path(changedDoc, path, cls)
     else:
         current = changedDoc
 
@@ -543,7 +543,7 @@ def addTemplate(changedDoc, path, mergeKey, template, cls):
     current[last] = template
 
 
-def restoreIncludes(includes, originalDoc, changedDoc, cls=dict):
+def restore_includes(includes, originalDoc, changedDoc, cls=dict):
     """
     Modifies changedDoc with to use the includes found in originalDoc
     """
@@ -551,9 +551,9 @@ def restoreIncludes(includes, originalDoc, changedDoc, cls=dict):
     # resolve the include
     # if the include doesn't exist in the current doc, re-add it
     # create a diff between the current object and the merged includes
-    expandedOriginalIncludes, expandedOriginalDoc = expandDoc(originalDoc, cls=cls)
+    expandedOriginalIncludes, expandedOriginalDoc = expand_doc(originalDoc, cls=cls)
     for key, value in includes.items():
-        ref = lookupPath(changedDoc, key, cls)
+        ref = lookup_path(changedDoc, key, cls)
         if ref is None:
             # inclusion point no longer exists
             continue
@@ -563,18 +563,18 @@ def restoreIncludes(includes, originalDoc, changedDoc, cls=dict):
             if includeKey.include:
                 ref = None
                 continue
-            stillHasTemplate = hasTemplate(
+            stillHasTemplate = has_template(
                 changedDoc, includeKey, includeValue, key, cls
             )
             if stillHasTemplate:
-                template = getTemplate(changedDoc, includeKey, includeValue, key, cls)
+                template = get_template(changedDoc, includeKey, includeValue, key, cls)
             else:
-                if hasTemplate(originalDoc, includeKey, includeValue, key, cls):
-                    template = getTemplate(
+                if has_template(originalDoc, includeKey, includeValue, key, cls):
+                    template = get_template(
                         originalDoc, includeKey, includeValue, key, cls
                     )
                 else:
-                    template = getTemplate(
+                    template = get_template(
                         expandedOriginalDoc, includeKey, includeValue, key, cls
                     )
 
@@ -582,7 +582,7 @@ def restoreIncludes(includes, originalDoc, changedDoc, cls=dict):
                 # XXX3 if isinstance(ref, list) lists not yet implemented
                 if ref == template:
                     # ref still resolves to the template's value so replace it with the include
-                    replacePath(changedDoc, key, {includeKey.key: includeValue}, cls)
+                    replace_path(changedDoc, key, {includeKey.key: includeValue}, cls)
                 # ref isn't a map anymore so can't include a template
                 break
 
@@ -590,19 +590,19 @@ def restoreIncludes(includes, originalDoc, changedDoc, cls=dict):
                 # ref no longer includes that template or we don't want to save it
                 continue
             else:
-                mergedIncludes = mergeDicts(mergedIncludes, template, cls)
+                mergedIncludes = merge_dicts(mergedIncludes, template, cls)
                 ref[includeKey.key] = includeValue
 
             if not stillHasTemplate:
                 if includeValue != "raw":
-                    if hasTemplate(originalDoc, includeKey, includeValue, key, cls):
-                        template = getTemplate(originalDoc, includeKey, "raw", key, cls)
+                    if has_template(originalDoc, includeKey, includeValue, key, cls):
+                        template = get_template(originalDoc, includeKey, "raw", key, cls)
                     else:
-                        template = getTemplate(
+                        template = get_template(
                             expandedOriginalDoc, includeKey, "raw", key, cls
                         )
-                addTemplate(changedDoc, key, includeKey, template, cls)
+                add_template(changedDoc, key, includeKey, template, cls)
 
         if isinstance(ref, Mapping):
-            diff = diffDicts(mergedIncludes, ref, cls)
-            replacePath(changedDoc, key, diff, cls)
+            diff = diff_dicts(mergedIncludes, ref, cls)
+            replace_path(changedDoc, key, diff, cls)

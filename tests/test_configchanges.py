@@ -100,7 +100,7 @@ class ConfigChangeTest(unittest.TestCase):
 
             assert _latestJobs
             job = _latestJobs[-1]
-            summary = job.jsonSummary()
+            summary = job.json_summary()
             # print("deployed")
             # print(json.dumps(summary, indent=2))
             # print(job.out.getvalue())
@@ -128,7 +128,7 @@ class ConfigChangeTest(unittest.TestCase):
             # Nothing changed so no jobs should run
             assert _latestJobs
             job = _latestJobs[-1]
-            summary = job.jsonSummary()
+            summary = job.json_summary()
             # print("no change")
             # print(json.dumps(summary, indent=2))
             # print(job.out.getvalue())
@@ -161,7 +161,7 @@ class ConfigChangeTest(unittest.TestCase):
 
             assert _latestJobs
             job = _latestJobs[-1]
-            summary = job.jsonSummary()
+            summary = job.json_summary()
             # print("reconfigure")
             # print(json.dumps(summary, indent=2))
             # print(job.out.getvalue())
