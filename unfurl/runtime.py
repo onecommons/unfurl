@@ -12,7 +12,7 @@ import collections
 
 from ansible.parsing.dataloader import DataLoader
 
-from .util import UnfurlError, loadClass, toEnum, makeTempDir, ChainMap
+from .util import UnfurlError, load_class, to_enum, make_temp_dir, ChainMap
 from .result import ResourceRef, ChangeAware
 
 from .support import AttributeManager, Defaults, Status, Priority, NodeState, Templar
@@ -39,21 +39,21 @@ class Operational(ChangeAware):
         return Defaults.shouldRun
 
     @property
-    def localStatus(self):
+    def local_status(self):
         return Status.unknown
 
     @property
     def state(self):
         return NodeState.initial
 
-    def getOperationalDependencies(self):
+    def get_operational_dependencies(self):
         return ()
 
-    def getOperationalDependents(self):
+    def get_operational_dependents(self):
         return ()
 
     @property
-    def manualOverideStatus(self):
+    def manual_overide_status(self):
         return None
 
     # derived properties:
@@ -80,16 +80,16 @@ class Operational(ChangeAware):
         then the aggregate status' of its dependencies (see `aggregateStatus()`
         and `getOperationalDependencies()`).
 
-        If the localStatus is non-operational, that takes precedence.
-        Otherwise the localStatus is compared with its aggregate dependent status
+        If the local_status is non-operational, that takes precedence.
+        Otherwise the local_status is compared with its aggregate dependent status
         and worser value is choosen.
         """
-        if self.manualOverideStatus is not None:
-            status = self.manualOverideStatus
+        if self.manual_overide_status is not None:
+            status = self.manual_overide_status
             if status >= Status.error:
                 return status
         else:
-            status = self.localStatus
+            status = self.local_status
 
         if not status:
             return Status.unknown
@@ -98,9 +98,9 @@ class Operational(ChangeAware):
             # return error, pending, or absent
             return status
 
-        dependentStatus = self.aggregateStatus(self.getOperationalDependencies())
+        dependentStatus = self.aggregate_status(self.get_operational_dependencies())
         if dependentStatus is None:
-            # note if localStatus is a no op (status purely determined by dependents)
+            # note if local_status is a no op (status purely determined by dependents)
             # it should be set to ok
             # then ok + None = ok, which makes sense, since it has no dependendents
             return status  # return local status
@@ -118,32 +118,32 @@ class Operational(ChangeAware):
     # The computed attribute `lastChange` is whichever of the above two attributes are more recent.
 
     @property
-    def lastStateChange(self):
+    def last_state_change(self):
         return None
 
     @property
-    def lastConfigChange(self):
+    def last_config_change(self):
         return None
 
     @property
-    def lastChange(self):
-        if not self.lastStateChange:
-            return self.lastConfigChange
-        elif not self.lastConfigChange:
-            return self.lastStateChange
+    def last_change(self):
+        if not self.last_state_change:
+            return self.last_config_change
+        elif not self.last_config_change:
+            return self.last_state_change
         else:
-            return max(self.lastStateChange, self.lastConfigChange)
+            return max(self.last_state_change, self.last_config_change)
 
-    def hasChanged(self, changeset):
+    def has_changed(self, changeset):
         # if changed since the last time we checked
-        if not self.lastChange:
+        if not self.last_change:
             return False
         if not changeset:
             return True
-        return self.lastChange > changeset.changeId
+        return self.last_change > changeset.changeId
 
     @staticmethod
-    def aggregateStatus(statuses):
+    def aggregate_status(statuses):
         """
         Returns: ok, degraded, pending or None
 
@@ -204,9 +204,9 @@ class OperationalInstance(Operational):
             self._state = status._state
             self.dependencies = status.dependencies
         else:
-            self._localStatus = toEnum(Status, status)
-            self._manualOverideStatus = toEnum(Status, manualOveride)
-            self._priority = toEnum(Priority, priority)
+            self._localStatus = to_enum(Status, status)
+            self._manualOverideStatus = to_enum(Status, manualOveride)
+            self._priority = to_enum(Priority, priority)
             self._lastStateChange = lastStateChange
             self._lastConfigChange = lastConfigChange
             self._state = state
@@ -214,11 +214,11 @@ class OperationalInstance(Operational):
         # self.repairable = False # XXX3
         # self.messages = [] # XXX3
 
-    def getOperationalDependencies(self):
+    def get_operational_dependencies(self):
         return self.dependencies
 
-    def localStatus():
-        doc = "The localStatus property."
+    def local_status():
+        doc = "The local_status property."
 
         def fget(self):
             return self._localStatus
@@ -231,9 +231,9 @@ class OperationalInstance(Operational):
 
         return locals()
 
-    localStatus = property(**localStatus())
+    local_status = property(**local_status())
 
-    def manualOverideStatus():
+    def manual_overide_status():
         doc = "The manualOverideStatus property."
 
         def fget(self):
@@ -247,7 +247,7 @@ class OperationalInstance(Operational):
 
         return locals()
 
-    manualOverideStatus = property(**manualOverideStatus())
+    manual_overide_status = property(**manual_overide_status())
 
     def priority():
         doc = "The priority property."
@@ -266,11 +266,11 @@ class OperationalInstance(Operational):
     priority = property(**priority())
 
     @property
-    def lastStateChange(self):
+    def last_state_change(self):
         return self._lastStateChange
 
     @property
-    def lastConfigChange(self):
+    def last_config_change(self):
         return self._lastConfigChange
 
     def state():
@@ -280,7 +280,7 @@ class OperationalInstance(Operational):
             return self._state
 
         def fset(self, value):
-            self._state = toEnum(NodeState, value)
+            self._state = to_enum(NodeState, value)
 
         return locals()
 
@@ -292,13 +292,13 @@ class _ChildResources(collections.Mapping):
         self.resource = resource
 
     def __getitem__(self, key):
-        return self.resource.findResource(key)
+        return self.resource.find_resource(key)
 
     def __iter__(self):
-        return iter(r.name for r in self.resource.getSelfAndDescendents())
+        return iter(r.name for r in self.resource.get_self_and_descendents())
 
     def __len__(self):
-        return len(tuple(self.resource.getSelfAndDescendents()))
+        return len(tuple(self.resource.get_self_and_descendents()))
 
 
 class EntityInstance(OperationalInstance, ResourceRef):
@@ -334,15 +334,15 @@ class EntityInstance(OperationalInstance, ResourceRef):
 
         return Ref(expr).resolve(RefContext(self, vars=vars), wantList)
 
-    def localStatus():
-        doc = "The localStatus property."
+    def local_status():
+        doc = "The working_dir property."
 
         def fget(self):
             return self._localStatus
 
         def fset(self, value):
             if self.root.attributeManager:
-                self.root.attributeManager.setStatus(self, value)
+                self.root.attributeManager.set_status(self, value)
             self._localStatus = value
 
         def fdel(self):
@@ -350,9 +350,9 @@ class EntityInstance(OperationalInstance, ResourceRef):
 
         return locals()
 
-    localStatus = property(**localStatus())
+    local_status = property(**local_status())
 
-    def getOperationalDependencies(self):
+    def get_operational_dependencies(self):
         if self.parent and self.parent is not self.root:
             yield self.parent
 
@@ -363,7 +363,7 @@ class EntityInstance(OperationalInstance, ResourceRef):
     def key(self):
         return "%s::.%s::%s" % (self.parent.key, self.parentRelation[1:], self.name)
 
-    def asRef(self, options=None):
+    def as_ref(self, options=None):
         return {"ref": self.key}
 
     @property
@@ -379,9 +379,9 @@ class EntityInstance(OperationalInstance, ResourceRef):
         return self.template.type
 
     @property
-    def baseDir(self):
+    def base_dir(self):
         if self.shadow:
-            return self.shadow.baseDir
+            return self.shadow.base_dir
         else:
             return self.root._baseDir
 
@@ -397,11 +397,11 @@ class EntityInstance(OperationalInstance, ResourceRef):
                 # inefficient but create a local one for now
                 self.attributeManager = AttributeManager()
             # XXX3 changes to self.attributes aren't saved
-            return self.attributeManager.getAttributes(self)
+            return self.attributeManager.get_attributes(self)
 
         # returned registered attribute or create a new one
         # attribute class getter resolves references
-        return self.root.attributeManager.getAttributes(self)
+        return self.root.attributeManager.get_attributes(self)
 
     @property
     def names(self):
@@ -419,10 +419,10 @@ class EntityInstance(OperationalInstance, ResourceRef):
                 return True
             else:
                 return False
-        if not self.lastChange:
+        if not self.last_change:
             # only support equality if resource has a changeid
             return False
-        return self.lastChange == other.lastChange and self.key == other.key
+        return self.last_change == other.last_change and self.key == other.key
 
     def __getstate__(self):
         state = self.__dict__.copy()
@@ -462,7 +462,7 @@ class CapabilityInstance(EntityInstance):
                     )
                     assert rel in self._relationships
                     # find the node instance that uses this requirement
-                    sourceNode = self.root.findResource(template.source.name)
+                    sourceNode = self.root.find_resource(template.source.name)
                     if sourceNode:
                         rel.source = sourceNode
 
@@ -496,13 +496,13 @@ class RelationshipInstance(EntityInstance):
         else:  # capability is parent
             return "%s::.relationships::[.name=%s]" % (self.parent.key, self.name)
 
-    def mergeProps(self, matchfn):
+    def merge_props(self, matchfn):
         env = {}
         capability = self.parent
-        for name, val in capability.template.findProps(capability.attributes, matchfn):
+        for name, val in capability.template.find_props(capability.attributes, matchfn):
             if val is not None:
                 env[name] = val
-        for name, val in self.template.findProps(self.attributes, matchfn):
+        for name, val in self.template.find_props(self.attributes, matchfn):
             if val is not None:
                 env[name] = val
         return env
@@ -517,7 +517,7 @@ class NodeInstance(EntityInstance):
     ):
         if parent:
             # only node instances have unique names
-            if parent.root.findResource(name):
+            if parent.root.find_resource(name):
                 raise UnfurlError(
                     'can not create node instance "%s", its name is already in use'
                     % name
@@ -535,16 +535,16 @@ class NodeInstance(EntityInstance):
 
         self._interfaces = {}
         # preload
-        self.getInterface("inherit")
-        self.getInterface("default")
+        self.get_interface("inherit")
+        self.get_interface("default")
 
-    def _findRelationship(self, relationship):
+    def _find_relationship(self, relationship):
         """
         Find RelationshipInstance that has the give relationship template
         """
         assert relationship and relationship.capability and relationship.target
         # find the Capability instance that corresponds to this relationship template's capability
-        targetNodeInstance = self.root.findResource(relationship.target.name)
+        targetNodeInstance = self.root.find_resource(relationship.target.name)
         assert targetNodeInstance, (
             "target instance %s should have been already created"
             % relationship.target.name
@@ -565,7 +565,7 @@ class NodeInstance(EntityInstance):
             for name, template in self.template.requirements.items():
                 assert template.relationship
                 if id(template.relationship) not in instantiated:
-                    relInstance = self._findRelationship(template.relationship)
+                    relInstance = self._find_relationship(template.relationship)
                     if not relInstance:
                         raise UnfurlError(
                             'can not find relation instance for requirement "%s" on node "%s"'
@@ -577,7 +577,7 @@ class NodeInstance(EntityInstance):
 
         return self._requirements
 
-    def getRequirements(self, match):
+    def get_requirements(self, match):
         if isinstance(match, six.string_types):
             return [r for r in self.requirements if r.template.name == match]
         elif isinstance(match, NodeInstance):
@@ -585,7 +585,7 @@ class NodeInstance(EntityInstance):
         elif isinstance(match, CapabilityInstance):
             return [r for r in self.requirements if r.parent == match]
         else:
-            raise UnfurlError('invalid match for getRequirements: "%s"' % match)
+            raise UnfurlError('invalid match for get_requirements: "%s"' % match)
 
     @property
     def capabilities(self):
@@ -605,23 +605,23 @@ class NodeInstance(EntityInstance):
 
         return self._capabilities
 
-    def getCapabilities(self, name):
+    def get_capabilities(self, name):
         return [
             capability
             for capability in self.capabilities
             if capability.template.name == name
         ]
 
-    def _getDefaultRelationships(self, relation=None):
+    def _get_default_relationships(self, relation=None):
         if self.root is self:
             return
-        for rel in self.root.getDefaultRelationships(relation):
+        for rel in self.root.get_default_relationships(relation):
             for capability in self.capabilities:
                 if rel.template.matches_target(capability.template):
                     yield rel
 
-    def getDefaultRelationships(self, relation=None):
-        return list(self._getDefaultRelationships(relation))
+    def get_default_relationships(self, relation=None):
+        return list(self._get_default_relationships(relation))
 
     @property
     def names(self):
@@ -655,15 +655,15 @@ class NodeInstance(EntityInstance):
     def key(self):
         return "::%s" % self.name
 
-    def getOperationalDependencies(self):
-        for dep in super(NodeInstance, self).getOperationalDependencies():
+    def get_operational_dependencies(self):
+        for dep in super(NodeInstance, self).get_operational_dependencies():
             yield dep
 
         for instance in self.requirements:
             if instance is not self.parent:
                 yield instance
 
-    def getOperationalDependents(self):
+    def get_operational_dependents(self):
         seen = set()
         for cap in self.capabilities:
             for rel in cap.relationships:
@@ -677,42 +677,42 @@ class NodeInstance(EntityInstance):
                 seen.add(id(instance))
                 yield instance
 
-    def getSelfAndDescendents(self):
+    def get_self_and_descendents(self):
         "Recursive descendent including self"
         yield self
         for r in self.instances:
-            for descendent in r.getSelfAndDescendents():
+            for descendent in r.get_self_and_descendents():
                 yield descendent
 
     @property
     def descendents(self):
-        return list(self.getSelfAndDescendents())
+        return list(self.get_self_and_descendents())
 
-    def findResource(self, resourceid):
+    def find_resource(self, resourceid):
         if self.name == resourceid:
             return self
         for r in self.instances:
-            child = r.findResource(resourceid)
+            child = r.find_resource(resourceid)
             if child:
                 return child
         return None
 
-    def findInstanceOrExternal(self, resourceid):
-        instance = self.findResource(resourceid)
+    def find_instance_or_external(self, resourceid):
+        instance = self.find_resource(resourceid)
         if instance:
             return instance
         if self.imports:
-            return self.imports.findImport(resourceid)
+            return self.imports.find_import(resourceid)
         return None
 
-    def addInterface(self, klass, name=None):
+    def add_interface(self, klass, name=None):
         if not isinstance(klass, six.string_types):
             klass = klass.__module__ + "." + klass.__name__
         current = self._attributes.setdefault(".interfaces", {})
         current[name or klass] = klass
         return current
 
-    def getInterface(self, name):
+    def get_interface(self, name):
         # XXX uses TOSCA interfaces instead
         if ".interfaces" not in self._attributes:
             return None  # no interfaces
@@ -725,7 +725,7 @@ class NodeInstance(EntityInstance):
         else:
             className = self._attributes[".interfaces"].get(name)
             if className:
-                instance = loadClass(className)(name, self)
+                instance = load_class(className)(name, self)
                 self._interfaces[name] = instance
                 return instance
         return None
@@ -745,7 +745,7 @@ class TopologyInstance(NodeInstance):
         self._relationships = None
         self._tmpDir = None
 
-    def setBaseDir(self, baseDir):
+    def set_base_dir(self, baseDir):
         self._baseDir = baseDir
         if not self._templar or self._templar._basedir != baseDir:
             loader = DataLoader()
@@ -768,21 +768,21 @@ class TopologyInstance(NodeInstance):
 
         return self._relationships
 
-    def getDefaultRelationships(self, relation=None):
+    def get_default_relationships(self, relation=None):
         # for root, this is the same as self.requirements
         if not relation:
             return self.requirements
         return [
-            rel for rel in self.requirements if rel.template.isCompatibleType(relation)
+            rel for rel in self.requirements if rel.template.is_compatible_type(relation)
         ]
 
-    def getOperationalDependencies(self):
+    def get_operational_dependencies(self):
         for instance in self.instances:
             if instance.name not in ["inputs", "outputs"]:
                 yield instance
 
     @property
-    def tmpDir(self):
+    def tmp_dir(self):
         if not self._tmpDir:
-            self._tmpDir = makeTempDir()
+            self._tmpDir = make_temp_dir()
         return self._tmpDir

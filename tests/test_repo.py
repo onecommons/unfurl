@@ -5,7 +5,7 @@ import six
 from click.testing import CliRunner
 from unfurl.__main__ import cli, _latestJobs
 from unfurl.localenv import LocalEnv
-from unfurl.repo import splitGitUrl, isURLorGitPath, RepoView, normalizeGitUrl, GitRepo
+from unfurl.repo import split_git_url, is_url_or_git_path, RepoView, normalize_git_url, GitRepo
 from git import Repo
 from unfurl.configurator import Configurator, Status
 from toscaparser.common.exception import URLException
@@ -47,7 +47,7 @@ def makeAsdfFixtures(base):
 
 class AConfigurator(Configurator):
     def run(self, task):
-        assert self.canRun(task)
+        assert self.can_run(task)
         yield task.done(True, Status.ok)
 
 
@@ -281,11 +281,11 @@ ensemble.yaml
 
             assert _latestJobs
             job = _latestJobs[-1]
-            access_key = job.rootResource.findResource("testNode").attributes[
+            access_key = job.rootResource.find_resource("testNode").attributes[
                 "access_key"
             ]
             self.assertEqual(access_key, "mockAWS_ACCESS_KEY_ID")
-            access_key2 = job.rootResource.findResource("testNode").attributes[
+            access_key2 = job.rootResource.find_resource("testNode").attributes[
                 "access_key2"
             ]
             self.assertEqual(access_key2, "mockAWS_ACCESS_KEY_ID")
@@ -372,16 +372,16 @@ ensemble.yaml
         for url, expected in urls.items():
             if expected:
                 isurl = expected[0] != "foo/repo.git"
-                assert isURLorGitPath(url), url
-                self.assertEqual(splitGitUrl(url), expected)
+                assert is_url_or_git_path(url), url
+                self.assertEqual(split_git_url(url), expected)
             else:
                 isurl = url[0] == "/" or ":" in url
-                assert not isURLorGitPath(url), url
+                assert not is_url_or_git_path(url), url
 
             if isurl:
                 # relative urls aren't allowed here, skip those
                 rv = RepoView(dict(name="", url=url), None)
-                self.assertEqual(normalizeGitUrl(rv.url), normalizeGitUrl(url))
+                self.assertEqual(normalize_git_url(rv.url), normalize_git_url(url))
             else:
                 self.assertRaises(URLException, RepoView, dict(name="", url=url), None)
 
@@ -417,7 +417,7 @@ ensemble.yaml
             self.assertEqual(result.exit_code, 0, result)
 
             assert os.path.exists("unfurl_home/.tool-versions")
-            assert LocalEnv("unfurl_home").getManifest()
+            assert LocalEnv("unfurl_home").get_manifest()
             paths = os.environ["PATH"].split(os.pathsep)
             assert len(paths) >= len(installDirs)
             for dirs, path in zip(installDirs, paths):
@@ -443,7 +443,7 @@ ensemble.yaml
             repo = GitRepo(Repo(basedir))
             gitUrl = repo.url
             # travis-ci does a shallow clone so it doesn't have the initial initial revision
-            initial = repo.getInitialRevision()
+            initial = repo.get_initial_revision()
             with open("./unfurl_home/unfurl.yaml") as f:
                 contents = f.read()
                 for line in [
@@ -458,7 +458,7 @@ ensemble.yaml
             with open("./unfurl_home/local/unfurl.yaml") as f:
                 contents = f.read()
                 for line in [
-                    "url: " + normalizeGitUrl(gitUrl),
+                    "url: " + normalize_git_url(gitUrl),
                     "initial: " + initial,
                 ]:
                     self.assertIn(line, contents)
@@ -499,12 +499,12 @@ spec:
             # assert that we loaded the external ensemble from test "_examples" project
             # and we're able to reference its outputs
             assert _latestJobs
-            testNode = _latestJobs[-1].rootResource.findResource("testNode")
+            testNode = _latestJobs[-1].rootResource.find_resource("testNode")
             assert testNode and testNode.attributes["externalEnsemble"]
             externalEnsemble = testNode.attributes["externalEnsemble"]
             assert "aOutput" in externalEnsemble.outputs.attributes
             # make sure we loaded it from the source (not a local checkout)
-            assert externalEnsemble.baseDir.startswith(os.path.dirname(__file__))
+            assert externalEnsemble.base_dir.startswith(os.path.dirname(__file__))
 
     def test_remote_git_repo(self):
         runner = CliRunner()
@@ -516,13 +516,13 @@ spec:
 
             with open("ensemble.yaml", "w") as f:
                 f.write(repoManifestContent)
-            ensemble = LocalEnv().getManifest()
+            ensemble = LocalEnv().get_manifest()
             # Updated origin/master to a319ac1914862b8ded469d3b53f9e72c65ba4b7f
 
             path = "base-payments"
             self.assertEqual(
                 os.path.abspath(path),
-                ensemble.rootResource.findResource("my_server").attributes["repo_path"],
+                ensemble.rootResource.find_resource("my_server").attributes["repo_path"],
             )
             assert os.path.isdir(os.path.join(path, ".git"))
 

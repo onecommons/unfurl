@@ -1,9 +1,9 @@
 import unittest
 import os
 import json
-from unfurl.result import ResultsList, serializeValue, ChangeRecord
-from unfurl.eval import Ref, mapValue, RefContext, setEvalFunc, ExternalValue
-from unfurl.support import applyTemplate, TopologyMap
+from unfurl.result import ResultsList, serialize_value, ChangeRecord
+from unfurl.eval import Ref, map_value, RefContext, set_eval_func, ExternalValue
+from unfurl.support import apply_template, TopologyMap
 from unfurl.util import sensitive_str
 from unfurl.runtime import NodeInstance
 from ruamel.yaml.comments import CommentedMap
@@ -56,9 +56,9 @@ class EvalTest(unittest.TestCase):
         return resource
 
     def test_refs(self):
-        assert Ref.isRef({"ref": "::name"})
-        assert not Ref.isRef({"ref": "::name", "somethingUnexpected": 1})
-        assert Ref.isRef({"ref": "::name", "vars": {"a": None}})
+        assert Ref.is_ref({"ref": "::name"})
+        assert not Ref.is_ref({"ref": "::name", "somethingUnexpected": 1})
+        assert Ref.is_ref({"ref": "::name", "vars": {"a": None}})
 
     def test_refPaths(self):
         resource = self._getTestResource()
@@ -144,16 +144,16 @@ class EvalTest(unittest.TestCase):
             },
             "vars": {"a": None},
         }
-        result1 = Ref(test1).resolveOne(RefContext(resource))
+        result1 = Ref(test1).resolve_one(RefContext(resource))
         self.assertEqual("test", result1)
-        result2 = Ref(test2).resolveOne(RefContext(resource))
+        result2 = Ref(test2).resolve_one(RefContext(resource))
         self.assertEqual(1, result2)
-        result3 = Ref(test3).resolveOne(RefContext(resource))
+        result3 = Ref(test3).resolve_one(RefContext(resource))
         self.assertEqual("expected", result3)
         result4 = Ref(test3).resolve(RefContext(resource))
         self.assertEqual(["expected"], result4)
         test5 = {"ref": {"or": ["$a", "b"]}, "vars": {"a": None}}
-        result5 = Ref(test5).resolveOne(RefContext(resource))
+        result5 = Ref(test5).resolve_one(RefContext(resource))
         self.assertEqual(
             resource.attributes["b"], result5
         )  # this doesn't seem obvious!
@@ -162,7 +162,7 @@ class EvalTest(unittest.TestCase):
         resource = self._getTestResource()
         test1 = {"ref": ".", "foreach": {"value": {"content": {"ref": "b"}}}}
         expected0 = {"content": [1, 2, 3]}
-        result0 = Ref(test1).resolveOne(RefContext(resource, trace=0))
+        result0 = Ref(test1).resolve_one(RefContext(resource, trace=0))
         self.assertEqual(expected0, result0)
         # resolve has same result as resolveOne
         self.assertEqual([expected0], Ref(test1).resolve(RefContext(resource)))
@@ -171,7 +171,7 @@ class EvalTest(unittest.TestCase):
         # test that template strings work
         # XXX fragile: key is base64 of __str__ of NodeInstance
         test1["foreach"]["key"] = "{{ item | ref | b64encode}}"
-        result1 = Ref(test1).resolveOne(RefContext(resource))
+        result1 = Ref(test1).resolve_one(RefContext(resource))
         expected = {"Tm9kZUluc3RhbmNlKCd0ZXN0Jyk=": expected0}
         self.assertEqual(expected, result1, result1)
         result2 = Ref(test1).resolve(RefContext(resource))
@@ -180,45 +180,45 @@ class EvalTest(unittest.TestCase):
     def test_serializeValues(self):
         resource = self._getTestResource()
         src = {"a": ["b", resource]}
-        serialized = serializeValue(src)
+        serialized = serialize_value(src)
         self.assertEqual(serialized, {"a": ["b", {"ref": "::test"}]})
-        self.assertEqual(src, mapValue(serialized, resource))
-        serialized = serializeValue(dict(foo=sensitive_str("sensitive")), redact=True)
+        self.assertEqual(src, map_value(serialized, resource))
+        serialized = serialize_value(dict(foo=sensitive_str("sensitive")), redact=True)
         self.assertEqual(json.dumps(serialized), '{"foo": "<<REDACTED>>"}')
 
     def test_jinjaTemplate(self):
         resource = NodeInstance("test", attributes=dict(a1="hello"))
         ctx = RefContext(resource, {"foo": "hello"})
 
-        self.assertEqual(applyTemplate(" {{ foo }} ", ctx), "hello")
+        self.assertEqual(apply_template(" {{ foo }} ", ctx), "hello")
         # test jinja2 native types
-        self.assertEqual(applyTemplate(" {{[foo]}} ", ctx), ["hello"])
+        self.assertEqual(apply_template(" {{[foo]}} ", ctx), ["hello"])
 
-        self.assertEqual(applyTemplate(' {{ "::test::a1" | ref }} ', ctx), u"hello")
+        self.assertEqual(apply_template(' {{ "::test::a1" | ref }} ', ctx), u"hello")
         self.assertEqual(
-            applyTemplate(' {{ lookup("unfurl", "::test::a1") }} ', ctx), u"hello"
+            apply_template(' {{ lookup("unfurl", "::test::a1") }} ', ctx), u"hello"
         )
         # ansible query() always returns a list
         self.assertEqual(
-            applyTemplate('{{  query("unfurl", "::test::a1") }}', ctx), [u"hello"]
+            apply_template('{{  query("unfurl", "::test::a1") }}', ctx), [u"hello"]
         )
 
         os.environ[
             "TEST_ENV"
         ] = "testEnv"  # note: tox doesn't pass on environment variables so we need to set one now
         self.assertEqual(
-            mapValue("{{ lookup('env', 'TEST_ENV') }}", resource), "testEnv"
+            map_value("{{ lookup('env', 'TEST_ENV') }}", resource), "testEnv"
         )
 
         # test that ref vars as can be used as template string vars
         exp = {"a": "{{ aVar }} world"}
         vars = {"aVar": "hello"}
         self.assertEqual(
-            mapValue(exp, RefContext(resource, vars)), {"a": "hello world"}
+            map_value(exp, RefContext(resource, vars)), {"a": "hello world"}
         )
 
         vars = {"foo": {"bar": sensitive_str("sensitive")}}
-        val = applyTemplate("{{ foo.bar }}", RefContext(resource, vars, trace=0))
+        val = apply_template("{{ foo.bar }}", RefContext(resource, vars, trace=0))
         assert isinstance(val, sensitive_str), type(val)
 
     def test_templateFunc(self):
@@ -230,7 +230,7 @@ class EvalTest(unittest.TestCase):
             },
         }
         resource = self._getTestResource({"aTemplate": query})
-        self.assertEqual(mapValue(query, resource), "test")
+        self.assertEqual(map_value(query, resource), "test")
         self.assertEqual(resource.attributes["aTemplate"], "test")
 
         template = """\
@@ -259,9 +259,9 @@ a_dict:
             }
         }
         ctx = RefContext(resource, vars)
-        result = applyTemplate(template, ctx)
+        result = apply_template(template, ctx)
         self.assertEqual(result, expected)
-        result = mapValue(query2, ctx)
+        result = map_value(query2, ctx)
         self.assertEqual(result, expected)
 
     def test_templateNodes(self):
@@ -269,7 +269,7 @@ a_dict:
         NODES = TopologyMap(resource)
         assert resource.attributes is NODES["test"]
         ctx = RefContext(resource, dict(NODES=NODES))
-        self.assertEqual("va", applyTemplate("{{ NODES.test.d.a }}", ctx))
+        self.assertEqual("va", apply_template("{{ NODES.test.d.a }}", ctx))
 
     def test_innerReferences(self):
         resourceDef = {
@@ -283,7 +283,7 @@ a_dict:
         self.assertEqual(resource.attributes["a"]["b"], expectedA["b"])
         self.assertEqual(resource.attributes["a"], expectedA)
         self.assertEqual(Ref("a").resolve(RefContext(resource)), [expectedA])
-        self.assertEqual(Ref("a").resolveOne(RefContext(resource)), expectedA)
+        self.assertEqual(Ref("a").resolve_one(RefContext(resource)), expectedA)
 
         expected = ["2"]
         self.assertEqual(Ref("a::d::0").resolve(RefContext(resource)), expected)
@@ -311,12 +311,12 @@ a_dict:
             "eval": "$aDict",
             "vars": {"aDict": {"aRef": {"eval": "::test"}, "aTemplate": "{{ true }}"}},
         }
-        result = Ref(query).resolveOne(RefContext(resource))
+        result = Ref(query).resolve_one(RefContext(resource))
         self.assertEqual(result, {"aRef": resource, "aTemplate": True})
 
         query = {"eval": "$aRef", "vars": {"aRef": {"eval": "::test"}}}
-        assert Ref.isRef(query["vars"]["aRef"])
-        result = Ref(query).resolveOne(RefContext(resource))
+        assert Ref.is_ref(query["vars"]["aRef"])
+        result = Ref(query).resolve_one(RefContext(resource))
         self.assertEqual(result, resource)
 
     def test_nodeTraversal1(self):
@@ -346,7 +346,7 @@ a_dict:
             "TEST_ENV"
         ] = "testEnv"  # note: tox doesn't pass on environment variables so we need to set one now
         query = {"eval": {"lookup": {"env": "TEST_ENV"}}}
-        self.assertEqual(mapValue(query, resource), "testEnv")
+        self.assertEqual(map_value(query, resource), "testEnv")
 
     def test_tempfile(self):
         resource = self._getTestResource()
@@ -355,20 +355,20 @@ a_dict:
             eval={"template": "{{ valuesfile }}"},
             vars={"valuesfile": {"eval": {"tempfile": value}}},
         )
-        result = mapValue(template, resource)
+        result = map_value(template, resource)
         with open(result) as tp:
             self.assertEqual(tp.read(), json.dumps(value, indent=2))
 
     def test_changerecord(self):
-        assert ChangeRecord.isChangeId("A01110000005")
-        assert not ChangeRecord.isChangeId("A0111000000"), "too short"
-        assert not ChangeRecord.isChangeId(None), "not a string"
-        assert not ChangeRecord.isChangeId(True), "not a string"
+        assert ChangeRecord.is_change_id("A01110000005")
+        assert not ChangeRecord.is_change_id("A0111000000"), "too short"
+        assert not ChangeRecord.is_change_id(None), "not a string"
+        assert not ChangeRecord.is_change_id(True), "not a string"
 
     def test_binaryvault(self):
         import six
         from unfurl.support import AttributeManager
-        from unfurl.yamlloader import makeYAML, sensitive_bytes, makeVaultLib
+        from unfurl.yamlloader import make_yaml, sensitive_bytes, make_vault_lib
 
         # load a binary file then write it out as a temporary vault file
         fixture = os.path.join(
@@ -385,14 +385,14 @@ a_dict:
         """
             % fixture
         )
-        vault = makeVaultLib("password")
-        yaml = makeYAML(vault)
+        vault = make_vault_lib("password")
+        yaml = make_yaml(vault)
         expr = yaml.load(six.StringIO(src))
         resource = self._getTestResource()
         resource.attributeManager = AttributeManager(yaml)
         resource._templar._loader.set_vault_secrets(vault.secrets)
 
-        filePath = mapValue(expr, resource)
+        filePath = map_value(expr, resource)
         with open(filePath, "rb") as vf:
             vaultContents = vf.read()
             assert vaultContents.startswith(b"$ANSIBLE_VAULT;")
@@ -406,7 +406,7 @@ a_dict:
         select: contents
         """
         expr = yaml.load(six.StringIO(src))
-        contents = mapValue(expr, RefContext(resource, vars=dict(tempfile=filePath)))
+        contents = map_value(expr, RefContext(resource, vars=dict(tempfile=filePath)))
         assert isinstance(contents, sensitive_bytes), type(contents)
         with open(fixture, "rb") as tp:
             self.assertEqual(tp.read(), contents)
@@ -417,7 +417,7 @@ a_dict:
                 super(ExternalTest, self).__init__("ExternalTest", "test")
 
         singleton = ExternalTest()
-        setEvalFunc("externaltest", lambda arg, ctx: singleton)
+        set_eval_func("externaltest", lambda arg, ctx: singleton)
 
         ctx = RefContext(self._getTestResource())
         expr = Ref({"eval": {"externaltest": None}})
@@ -425,7 +425,7 @@ a_dict:
         result = expr.resolve(ctx)
         self.assertEqual(result[0], "test")
 
-        result = expr.resolveOne(ctx)
+        result = expr.resolve_one(ctx)
         self.assertEqual(result, "test")
 
         result = expr.resolve(ctx, wantList="result")

@@ -8,11 +8,11 @@ For each configuration, run it if required, then record the result
 """
 from __future__ import print_function
 
-from .job import runJob
+from .job import run_job
 from .support import Status
-from . import __version__, versionTuple, initLogging, getHomeConfigPath, DefaultNames
+from . import __version__, versionTuple, init_logging, get_home_config_path, DefaultNames
 from . import init as initmod
-from .util import filterEnv, getPackageDigest
+from .util import filter_env, get_package_digest
 from .localenv import LocalEnv, Project
 import click
 import sys
@@ -111,7 +111,7 @@ def cli(
     elif effectiveLogLevel == 5:
         verbose = 3
     ctx.obj["verbose"] = verbose
-    initLogging(effectiveLogLevel, logfile)
+    init_logging(effectiveLogLevel, logfile)
     if version_check and versionTuple() < versionTuple(version_check):
         logging.warning(
             "current version %s older than expected version %s",
@@ -203,12 +203,12 @@ def run(ctx, instance="root", cmdline=None, **options):
     return _run(options.pop("ensemble"), options, ctx.info_name)
 
 
-def _getRuntime(options, ensemblePath):
+def _get_runtime(options, ensemblePath):
     runtime = options.get("runtime")
     localEnv = None
     if not runtime:
         localEnv = LocalEnv(ensemblePath, options.get("home"))
-        runtime = localEnv.getRuntime()
+        runtime = localEnv.get_runtime()
     return runtime, localEnv
 
 
@@ -217,12 +217,12 @@ def _run(ensemble, options, workflow=None):
         options["workflow"] = workflow
 
     if not options.get("no_runtime"):
-        runtime, localEnv = _getRuntime(options, ensemble)
+        runtime, localEnv = _get_runtime(options, ensemble)
         if runtime and runtime != ".":
             if not localEnv:
                 localEnv = LocalEnv(ensemble, options.get("home"))
-            return _runRemote(runtime, options, localEnv)
-    return _runLocal(ensemble, options)
+            return _run_remote(runtime, options, localEnv)
+    return _run_local(ensemble, options)
 
 
 def _venv(runtime, env):
@@ -235,12 +235,12 @@ def _venv(runtime, env):
     return env
 
 
-def _remoteCmd(runtime, cmdLine, localEnv):
-    context = localEnv.getContext()
+def _remote_cmd(runtime, cmdLine, localEnv):
+    context = localEnv.get_context()
     kind, sep, rest = runtime.partition(":")
     if context.get("environment"):
         addOnly = kind == "docker"
-        env = filterEnv(localEnv.mapValue(context["environment"]), addOnly=addOnly)
+        env = filter_env(localEnv.map_value(context["environment"]), addOnly=addOnly)
     else:
         env = None
 
@@ -270,13 +270,13 @@ def _remoteCmd(runtime, cmdLine, localEnv):
         )
 
 
-def _runRemote(runtime, options, localEnv):
+def _run_remote(runtime, options, localEnv):
     logger = logging.getLogger("unfurl")
     logger.debug('running command remotely on "%s"', runtime)
     cmdLine = _args or sys.argv[1:]
     if _args:
         print("TESTING: running remote with _args %s" % _args)
-    env, remote, shell = _remoteCmd(runtime, cmdLine, localEnv)
+    env, remote, shell = _remote_cmd(runtime, cmdLine, localEnv)
     rv = subprocess.call(remote, env=env, shell=shell)
     if options.get("standalone_mode") is False:
         return rv
@@ -284,9 +284,9 @@ def _runRemote(runtime, options, localEnv):
         sys.exit(rv)
 
 
-def _runLocal(ensemble, options):
+def _run_local(ensemble, options):
     logger = logging.getLogger("unfurl")
-    job = runJob(ensemble, options)
+    job = run_job(ensemble, options)
     _latestJobs.append(job)
     if not job:
         click.echo("Unable to create job")
@@ -301,11 +301,11 @@ def _runLocal(ensemble, options):
         if summary == "text":
             click.echo(job.summary())
         elif summary == "json":
-            jsonSummary = job.jsonSummary()
+            jsonSummary = job.json_summary()
 
         query = options.get("query")
         if query:
-            result = job.runQuery(query, options.get("trace"))
+            result = job.run_query(query, options.get("trace"))
             if summary == "json":
                 jsonSummary["query"] = query
                 jsonSummary["result"] = result
@@ -489,7 +489,7 @@ def init(ctx, projectdir, **options):
         else:  # otherwise use the current directory
             projectdir = "."
 
-    projectPath = Project.findPath(projectdir)
+    projectPath = Project.find_path(projectdir)
     if projectPath:
         # dest is already in a project, so create a new ensemble in it instead of a new project
         projectPath = os.path.dirname(projectPath)  # strip out unfurl.yaml
@@ -511,7 +511,7 @@ def init(ctx, projectdir, **options):
                 'Can not create project in "' + projectdir + '": folder is not empty'
             )
 
-    homePath, projectPath, repo = initmod.createProject(
+    homePath, projectPath, repo = initmod.create_project(
         os.path.abspath(projectdir), **options
     )
     if homePath:
@@ -542,15 +542,15 @@ def home(ctx, init=False, render=False, replace=False, **options):
     options.update(ctx.obj)
     if not render and not init:
         # just display the current home location
-        click.echo(getHomeConfigPath(options.get("home")))
+        click.echo(get_home_config_path(options.get("home")))
         return
 
-    homePath = initmod.createHome(render=render, replace=replace, **options)
+    homePath = initmod.create_home(render=render, replace=replace, **options)
     action = "rendered" if render else "created"
     if homePath:
         click.echo("unfurl home %s at %s" % (action, homePath))
     else:
-        currentHome = getHomeConfigPath(options.get("home"))
+        currentHome = get_home_config_path(options.get("home"))
         if currentHome:
             click.echo("Can't %s home, it already exists at %s" % (action, currentHome))
         else:
@@ -574,12 +574,12 @@ def runtime(ctx, project_folder, init=False, **options):
     if not init:
         # just display the current runtime
         try:
-            runtime, localEnv = _getRuntime(options, projectPath)
+            runtime, localEnv = _get_runtime(options, projectPath)
         except:
             # if the current path isn't a folder
             if project_folder == ".":
-                runtime, localEnv = _getRuntime(
-                    options, getHomeConfigPath(options.get("home"))
+                runtime, localEnv = _get_runtime(
+                    options, get_home_config_path(options.get("home"))
                 )
             else:
                 raise
@@ -587,7 +587,7 @@ def runtime(ctx, project_folder, init=False, **options):
         return
 
     runtime = options.get("runtime") or "venv:"
-    error = initmod.initEngine(projectPath, runtime)
+    error = initmod.init_engine(projectPath, runtime)
     if not error:
         click.echo('Created runtime "%s" in "%s"' % (runtime, projectPath))
     else:
@@ -640,14 +640,14 @@ def git(ctx, gitargs, dir="."):
     """
     unfurl git --dir=/path/to/start [gitoptions] [gitcmd] [gitcmdoptions]: Runs command on each project repository."""
     localEnv = LocalEnv(dir, ctx.obj.get("home"))
-    repos = localEnv.getRepos()
+    repos = localEnv.get_repos()
     status = 0
     if not repos:
         click.echo("Can't run git command, no repositories found")
     for repo in repos:
-        repoPath = os.path.relpath(repo.workingDir, os.path.abspath(dir))
+        repoPath = os.path.relpath(repo.working_dir, os.path.abspath(dir))
         click.echo("*** Running 'git %s' in './%s'" % (" ".join(gitargs), repoPath))
-        _status, stdout, stderr = repo.runCmd(gitargs)
+        _status, stdout, stderr = repo.run_cmd(gitargs)
         click.echo(stdout + "\n")
         if stderr.strip():
             click.echo(stderr + "\n", color="red")
@@ -658,11 +658,11 @@ def git(ctx, gitargs, dir="."):
 
 
 def get_commit_message(manifest):
-    statuses = manifest.getRepoStatuses(True)
+    statuses = manifest.get_repo_statuses(True)
     if not statuses:
         click.echo("Nothing to commit!")
         return None
-    defaultMsg = manifest.getDefaultCommitMessage()
+    defaultMsg = manifest.get_default_commit_message()
     MARKER = "# Everything below is ignored\n"
     statuses = "".join(statuses)
     statusMsg = "# " + "\n# ".join(statuses.rstrip().splitlines())
@@ -694,12 +694,12 @@ def commit(ctx, message, ensemble, skip_add, no_edit, **options):
     "Commit any outstanding changes to this ensemble."
     options.update(ctx.obj)
     localEnv = LocalEnv(ensemble, options.get("home"))
-    manifest = localEnv.getManifest()
+    manifest = localEnv.get_manifest()
     if not skip_add:
-        manifest.addAll()
+        manifest.add_all()
     if not message:
         if no_edit:
-            message = manifest.getDefaultCommitMessage()
+            message = manifest.get_default_commit_message()
         else:
             message = get_commit_message(manifest)
             if not message:
@@ -721,8 +721,8 @@ def git_status(ctx, ensemble, dirty, **options):
     "Show the git status for repository paths that are relevant to this ensemble."
     options.update(ctx.obj)
     localEnv = LocalEnv(ensemble, options.get("home"))
-    manifest = localEnv.getManifest()
-    statuses = manifest.getRepoStatuses(dirty)
+    manifest = localEnv.get_manifest()
+    statuses = manifest.get_repo_statuses(dirty)
     if not statuses:
         click.echo("No status to display.")
     else:
@@ -750,11 +750,11 @@ def version(ctx, semver=False, remote=False, **options):
     if semver:
         click.echo(__version__())
     else:
-        click.echo("unfurl version %s (%s)" % (__version__(True), getPackageDigest()))
+        click.echo("unfurl version %s (%s)" % (__version__(True), get_package_digest()))
 
     if remote and not options.get("no_runtime"):
         click.echo("Remote:")
-        _run(getHomeConfigPath(options.get("home")), options)
+        _run(get_home_config_path(options.get("home")), options)
 
 
 @cli.command()
@@ -802,7 +802,7 @@ def vaultclient():
         click.echo(str(err), err=True)
         return 1
 
-    print(localEnv.getVaultPassword() or "")
+    print(localEnv.get_vault_password() or "")
     return 0
 
 

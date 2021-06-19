@@ -3,13 +3,13 @@
 import os.path
 import codecs
 from collections import MutableSequence
-from .eval import setEvalFunc, mapValue
+from .eval import set_eval_func, map_value
 from .result import ExternalValue
 from .util import (
     UnfurlError,
-    wrapSensitiveValue,
-    saveToTempfile,
-    saveToFile,
+    wrap_sensitive_value,
+    save_to_tempfile,
+    save_to_file,
 )
 import logging
 
@@ -24,18 +24,18 @@ class WorkFolder(object):
 
     @property
     def cwd(self):
-        return self.getPath("", mkdir=False)
+        return self.get_path("", mkdir=False)
 
-    def getPath(self, path, folder=None, mkdir=True):
+    def get_path(self, path, folder=None, mkdir=True):
         ctx = self.task.inputs.context
-        return getpath(ctx, path, folder or self.location, mkdir)
+        return get_path(ctx, path, folder or self.location, mkdir)
 
-    def writeFile(self, contents, name, dest=None):
+    def write_file(self, contents, name, dest=None):
         # XXX don't write till commit time
         ctx = self.task.inputs.context
-        return writeFile(ctx, contents, name, dest or self.location)
+        return write_file(ctx, contents, name, dest or self.location)
 
-    def setRenderState(self, state):
+    def set_render_state(self, state):
         self.renderState = state
 
 
@@ -48,22 +48,22 @@ class File(ExternalValue):
 
     def __init__(self, name, baseDir="", loader=None, yaml=None, encoding=None):
         super(File, self).__init__("file", name)
-        self.baseDir = baseDir or ""
+        self.base_dir = baseDir or ""
         self.loader = loader
         self.yaml = yaml
         self.encoding = encoding
 
     def write(self, obj):
         encoding = self.encoding if self.encoding != "binary" else None
-        path = self.getFullPath()
+        path = self.get_full_path()
         logger.debug("writing to %s", path)
-        saveToFile(path, obj, self.yaml, encoding)
+        save_to_file(path, obj, self.yaml, encoding)
 
-    def getFullPath(self):
-        return os.path.abspath(os.path.join(self.baseDir, self.get()))
+    def get_full_path(self):
+        return os.path.abspath(os.path.join(self.base_dir, self.get()))
 
-    def getContents(self):
-        path = self.getFullPath()
+    def get_contents(self):
+        path = self.get_full_path()
         with open(path, "rb") as f:
             contents = f.read()
         if self.loader:
@@ -77,11 +77,11 @@ class File(ExternalValue):
             except ValueError:
                 pass  # keep at bytes
         if not show:  # it was encrypted
-            return wrapSensitiveValue(contents)
+            return wrap_sensitive_value(contents)
         else:
             return contents
 
-    def resolveKey(self, name=None, currentResource=None):
+    def resolve_key(self, name=None, currentResource=None):
         """
         Key can be one of:
 
@@ -93,20 +93,20 @@ class File(ExternalValue):
             return self.get()
 
         if name == "path":
-            return self.getFullPath()
+            return self.get_full_path()
         elif name == "encoding":
             return self.encoding or "utf-8"
         elif name == "contents":
-            return self.getContents()
+            return self.get_contents()
         else:
             raise KeyError(name)
 
 
-def _fileFunc(arg, ctx):
-    kw = mapValue(ctx.kw, ctx)
+def _file_func(arg, ctx):
+    kw = map_value(ctx.kw, ctx)
     file = File(
-        mapValue(arg, ctx),
-        ctx.baseDir,
+        map_value(arg, ctx),
+        ctx.base_dir,
         ctx.templar and ctx.templar._loader,
         ctx.currentResource.root.attributeManager.yaml,
         kw.get("encoding"),
@@ -116,7 +116,7 @@ def _fileFunc(arg, ctx):
     return file
 
 
-setEvalFunc("file", _fileFunc)
+set_eval_func("file", _file_func)
 
 
 class TempFile(ExternalValue):
@@ -126,14 +126,14 @@ class TempFile(ExternalValue):
     """
 
     def __init__(self, obj, suffix="", yaml=None, encoding=None):
-        tp = saveToTempfile(obj, suffix, yaml=yaml, encoding=encoding)
+        tp = save_to_tempfile(obj, suffix, yaml=yaml, encoding=encoding)
         super(TempFile, self).__init__("tempfile", tp.name)
         self.tp = tp
 
     def __digestable__(self, options):
-        return self.resolveKey("contents")
+        return self.resolve_key("contents")
 
-    def resolveKey(self, name=None, currentResource=None):
+    def resolve_key(self, name=None, currentResource=None):
         """
         path # absolute path
         contents # file contents (None if it doesn't exist)
@@ -150,10 +150,10 @@ class TempFile(ExternalValue):
             raise KeyError(name)
 
 
-setEvalFunc(
+set_eval_func(
     "tempfile",
     lambda arg, ctx: TempFile(
-        mapValue(mapValue(arg, ctx), ctx),  # XXX
+        map_value(map_value(arg, ctx), ctx),  # XXX
         ctx.kw.get("suffix"),
         ctx.currentResource.root.attributeManager.yaml,
         ctx.kw.get("encoding"),
@@ -164,14 +164,14 @@ setEvalFunc(
 class FilePath(ExternalValue):
     def __init__(self, path, baseDir=""):
         super(FilePath, self).__init__("path", path)
-        self.baseDir = baseDir or ""
+        self.base_dir = baseDir or ""
 
 
-def getpath(ctx, path, relativeTo=None, mkdir=True):
+def get_path(ctx, path, relativeTo=None, mkdir=True):
     if os.path.isabs(path):
         return path
 
-    base = _getbaseDir(ctx, relativeTo)
+    base = _get_base_dir(ctx, relativeTo)
     if base is None:
         raise UnfurlError('Named directory or repository "%s" not found' % relativeTo)
     fullpath = os.path.join(base, path)
@@ -185,15 +185,15 @@ def getpath(ctx, path, relativeTo=None, mkdir=True):
 
 
 def _abspath(ctx, path, relativeTo=None, mkdir=True):
-    return FilePath(getpath(ctx, path, relativeTo, mkdir))
+    return FilePath(get_path(ctx, path, relativeTo, mkdir))
 
 
 def _getdir(ctx, folder, mkdir=True):
     return _abspath(ctx, "", folder, mkdir)
 
 
-def _mapArgs(args, ctx):
-    args = mapValue(args, ctx)
+def _map_args(args, ctx):
+    args = map_value(args, ctx)
     if not isinstance(args, MutableSequence):
         return [args]
     else:
@@ -201,24 +201,24 @@ def _mapArgs(args, ctx):
 
 
 # see also abspath in filter_plugins.ref
-setEvalFunc("abspath", lambda arg, ctx: _abspath(ctx, *_mapArgs(arg, ctx)))
+set_eval_func("abspath", lambda arg, ctx: _abspath(ctx, *_map_args(arg, ctx)))
 
-setEvalFunc("get_dir", lambda arg, ctx: _getdir(ctx, *_mapArgs(arg, ctx)))
+set_eval_func("get_dir", lambda arg, ctx: _getdir(ctx, *_map_args(arg, ctx)))
 
 
-def writeFile(ctx, obj, path, relativeTo=None, encoding=None):
+def write_file(ctx, obj, path, relativeTo=None, encoding=None):
     file = File(
-        getpath(ctx, path, relativeTo),
-        ctx.baseDir,
+        get_path(ctx, path, relativeTo),
+        ctx.base_dir,
         ctx.templar and ctx.templar._loader,
         ctx.currentResource.root.attributeManager.yaml,
         encoding,
     )
     file.write(obj)
-    return file.getFullPath()
+    return file.get_full_path()
 
 
-def _getbaseDir(ctx, name=None):
+def _get_base_dir(ctx, name=None):
     """
     Returns an absolute path based on the given folder name:
 
@@ -238,31 +238,31 @@ def _getbaseDir(ctx, name=None):
     instance = ctx.currentResource
     if not name or name == ".":
         # the folder of the current resource's ensemble
-        return instance.baseDir
+        return instance.base_dir
     elif name == "src":
         # folder of the source file
-        return ctx.baseDir
+        return ctx.base_dir
     elif name == "tmp":
-        return os.path.join(instance.root.tmpDir, instance.name)
+        return os.path.join(instance.root.tmp_dir, instance.name)
     elif name == "home":
-        return os.path.join(instance.baseDir, instance.name, "home")
+        return os.path.join(instance.base_dir, instance.name, "home")
     elif name == "local":
-        return os.path.join(instance.baseDir, instance.name, "local")
+        return os.path.join(instance.base_dir, instance.name, "local")
     elif name == "project":
-        return instance.template.spec._getProjectDir() or instance.baseDir
+        return instance.template.spec._get_project_dir() or instance.base_dir
     elif name == "unfurl.home":
-        return instance.template.spec._getProjectDir(True) or instance.baseDir
+        return instance.template.spec._get_project_dir(True) or instance.base_dir
     else:
         start, sep, rest = name.partition(".")
         if sep:
             if start == "spec":
                 template = instance.template
-                specHome = os.path.join(template.spec.baseDir, "spec", template.name)
+                specHome = os.path.join(template.spec.base_dir, "spec", template.name)
                 if rest == "src":
-                    return template.baseDir
+                    return template.base_dir
                 if rest == "home":
                     return specHome
                 elif rest == "local":
                     return os.path.join(specHome, "local")
             # XXX elif start == 'project' and rest == 'local'
-        return instance.template.spec.getRepositoryPath(name)
+        return instance.template.spec.get_repository_path(name)

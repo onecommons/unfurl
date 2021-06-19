@@ -65,7 +65,7 @@ except ImportError:
 _basepath = os.path.abspath(os.path.dirname(__file__))
 
 
-def getPackageDigest():
+def get_package_digest():
     from git import Repo
 
     basedir = os.path.dirname(_basepath)
@@ -90,7 +90,7 @@ class UnfurlError(Exception):
         if log:
             logger.error(message, exc_info=True)
 
-    def getStackTrace(self):
+    def get_stack_trace(self):
         if not self.stackInfo:
             return ""
         return "".join(traceback.format_exception(*self.stackInfo))
@@ -119,7 +119,7 @@ class UnfurlAddingResourceError(UnfurlTaskError):
         self.resourceSpec = resourceSpec
 
 
-def wrapSensitiveValue(obj, vault=None):
+def wrap_sensitive_value(obj, vault=None):
     # we don't remember the vault and vault id associated with this value
     # so the value will be rekeyed with whichever vault is associated with the serializing yaml
     if isinstance(obj, bytes):
@@ -140,16 +140,16 @@ def wrapSensitiveValue(obj, vault=None):
         return obj
 
 
-def isSensitive(obj):
+def is_sensitive(obj):
     test = getattr(obj, "__sensitive__", None)
     if test:
         return test()
     if isinstance(obj, AnsibleVaultEncryptedUnicode):
         return True
     elif isinstance(obj, collections.Mapping):
-        return any(isSensitive(i) for i in obj.values())
+        return any(is_sensitive(i) for i in obj.values())
     elif isinstance(obj, collections.MutableSequence):
-        return any(isSensitive(i) for i in obj)
+        return any(is_sensitive(i) for i in obj)
     return False
 
 
@@ -179,7 +179,7 @@ class sensitive_list(list, sensitive):
     """Transparent wrapper class to mark a list as sensitive"""
 
 
-def toYamlText(val):
+def to_yaml_text(val):
     if isinstance(val, (ScalarString, sensitive)):
         return val
     # convert or copy string (copy to deal with things like AnsibleUnsafeText)
@@ -191,7 +191,7 @@ def toYamlText(val):
     return val
 
 
-def assertForm(src, types=Mapping, test=True):
+def assert_form(src, types=Mapping, test=True):
     if not isinstance(src, types) or not test:
         raise UnfurlError("Malformed definition: %s" % src)
     return src
@@ -201,11 +201,11 @@ _ClassRegistry = {}
 _shortNameRegistry = {}
 
 
-def registerShortNames(shortNames):
+def register_short_names(shortNames):
     _shortNameRegistry.update(shortNames)
 
 
-def registerClass(className, factory, shortName=None, replace=True):
+def register_class(className, factory, shortName=None, replace=True):
     if shortName:
         _shortNameRegistry[shortName] = className
     if not replace and className in _ClassRegistry:
@@ -214,7 +214,7 @@ def registerClass(className, factory, shortName=None, replace=True):
     _ClassRegistry[className] = factory
 
 
-def loadModule(path, full_name=None):
+def load_module(path, full_name=None):
     if full_name is None:
         full_name = re.sub(r"\W", "_", path)  # generate a name from the path
     if full_name in sys.modules:
@@ -238,7 +238,7 @@ def loadModule(path, full_name=None):
     return module
 
 
-def loadClass(klass, defaultModule="__main__"):
+def load_class(klass, defaultModule="__main__"):
     import importlib
 
     prefix, sep, suffix = klass.rpartition(".")
@@ -249,7 +249,7 @@ def loadClass(klass, defaultModule="__main__"):
 _shortNameRegistry = {}
 
 
-def lookupClass(kind, apiVersion=None, default=None):
+def lookup_class(kind, apiVersion=None, default=None):
     if kind in _ClassRegistry:
         return _ClassRegistry[kind]
     elif kind in _shortNameRegistry:
@@ -257,16 +257,16 @@ def lookupClass(kind, apiVersion=None, default=None):
     else:
         className = kind
     try:
-        klass = loadClass(className)
+        klass = load_class(className)
     except ImportError:
         klass = None
 
     if klass:
-        registerClass(className, klass)
+        register_class(className, klass)
     return klass
 
 
-def toEnum(enum, value, default=None):
+def to_enum(enum, value, default=None):
     # from string: Status[name]; to string: status.name
     if isinstance(value, six.string_types):
         return enum[value]
@@ -317,7 +317,7 @@ def dump(obj, tp, suffix="", yaml=None, encoding=None):
             f.detach()
 
 
-def _saveToVault(path, obj, yaml=None, encoding=None, fd=None):
+def _save_to_vault(path, obj, yaml=None, encoding=None, fd=None):
     vaultExt = path.endswith(".vault")
     if vaultExt or encoding == "vault":
         assert yaml and yaml.representer.vault
@@ -331,16 +331,16 @@ def _saveToVault(path, obj, yaml=None, encoding=None, fd=None):
     return False
 
 
-def saveToFile(path, obj, yaml=None, encoding=None):
+def save_to_file(path, obj, yaml=None, encoding=None):
     dir = os.path.dirname(path)
     if dir and not os.path.isdir(dir):
         os.makedirs(dir)
-    if not _saveToVault(path, obj, yaml, encoding):
+    if not _save_to_vault(path, obj, yaml, encoding):
         with open(path, "wb") as f:
             dump(obj, f, path, yaml, encoding)
 
 
-def saveToTempfile(obj, suffix="", delete=True, dir=None, yaml=None, encoding=None):
+def save_to_tempfile(obj, suffix="", delete=True, dir=None, yaml=None, encoding=None):
     tp = tempfile.NamedTemporaryFile(
         "w+b",
         suffix=suffix or "",
@@ -350,7 +350,7 @@ def saveToTempfile(obj, suffix="", delete=True, dir=None, yaml=None, encoding=No
     if delete:
         atexit.register(lambda: os.path.exists(tp.name) and os.unlink(tp.name))
 
-    if not _saveToVault(suffix or "", obj, yaml, encoding, tp.fileno()):
+    if not _save_to_vault(suffix or "", obj, yaml, encoding, tp.fileno()):
         try:
             dump(obj, tp, suffix or "", yaml, encoding)
         finally:
@@ -358,14 +358,14 @@ def saveToTempfile(obj, suffix="", delete=True, dir=None, yaml=None, encoding=No
     return tp
 
 
-def makeTempDir(delete=True, prefix="unfurl"):
+def make_temp_dir(delete=True, prefix="unfurl"):
     tempDir = tempfile.mkdtemp(prefix, dir=os.environ.get("UNFURL_TMPDIR"))
     if delete:
         atexit.register(lambda: os.path.isdir(tempDir) and shutil.rmtree(tempDir))
     return tempDir
 
 
-def getBaseDir(path):
+def get_base_dir(path):
     if os.path.exists(path):
         isdir = os.path.isdir(path)
     else:
@@ -410,11 +410,11 @@ DefaultValidatingLatestDraftValidator = (
 )
 
 
-def validateSchema(obj, schema, baseUri=None):
-    return not findSchemaErrors(obj, schema)
+def validate_schema(obj, schema, baseUri=None):
+    return not find_schema_errors(obj, schema)
 
 
-def findSchemaErrors(obj, schema, baseUri=None):
+def find_schema_errors(obj, schema, baseUri=None):
     # XXX2 have option that includes definitions from manifest's schema
     if baseUri is not None:
         resolver = RefResolver(base_uri=baseUri, referrer=schema)
@@ -426,7 +426,10 @@ def findSchemaErrors(obj, schema, baseUri=None):
     error = jsonschema.exceptions.best_match(errors)
     if not error:
         return None
-    message = "%s in %s" % (error.message, "/".join([str(p) for p in error.absolute_path]))
+    message = "%s in %s" % (
+        error.message,
+        "/".join([str(p) for p in error.absolute_path]),
+    )
     return message, errors
 
 
@@ -494,23 +497,15 @@ class Generate(object):
             return False
 
 
-def foo(a, b):
-    """[summary]
-
-    Args:
-        a ([type]): [description]
-        b ([type]): [description]
-    """
-
-def filterEnv(rules, env=None, addOnly=False):
+def filter_env(rules, env=None, addOnly=False):
     """
     Applies the given list of rules to a dictionary of environment variables and returns a new dictionary.
 
     Args:
         rules (dict): A dictionary of rules for adding, removing and filtering environment variables.
-        env (dict, optional): The environment to apply the give rules to. If ``env`` is None it will be set to ``os.environ``. 
+        env (dict, optional): The environment to apply the give rules to. If ``env`` is None it will be set to ``os.environ``.
           Defaults to None.
-        addOnly (bool, optional): If addOnly is False (the default) all variables in ``env`` will be included 
+        addOnly (bool, optional): If addOnly is False (the default) all variables in ``env`` will be included
           in the returned dict, otherwise only variables added by ``rules`` will be included
 
     Rules applied in the order they are declared in the ``rules`` dictionary. The following examples show the different patterns for the rules:

@@ -12,21 +12,21 @@ import six
 import re
 import ast
 from enum import IntEnum
-from .eval import RefContext, setEvalFunc, Ref, mapValue
-from .result import Results, ResultsMap, Result, ExternalValue, serializeValue
+from .eval import RefContext, set_eval_func, Ref, map_value
+from .result import Results, ResultsMap, Result, ExternalValue, serialize_value
 from .util import (
     ChainMap,
-    findSchemaErrors,
+    find_schema_errors,
     UnfurlError,
     UnfurlValidationError,
-    assertForm,
-    wrapSensitiveValue,
-    isSensitive,
-    loadModule,
-    loadClass,
+    assert_form,
+    wrap_sensitive_value,
+    is_sensitive,
+    load_module,
+    load_class,
 )
-from .merge import intersectDict, mergeDicts
-from unfurl.projectpaths import getpath
+from .merge import intersect_dict, merge_dicts
+from unfurl.projectpaths import get_path
 import ansible.template
 from ansible.parsing.dataloader import DataLoader
 from ansible.utils.unsafe_proxy import wrap_var, AnsibleUnsafeText, AnsibleUnsafeBytes
@@ -65,7 +65,7 @@ class Defaults(object):
     workflow = "deploy"
 
 
-def evalPython(arg, ctx):
+def eval_python(arg, ctx):
     """
     eval:
       python: path/to/src.py#func
@@ -78,20 +78,20 @@ def evalPython(arg, ctx):
     Where ``func`` is python function that receives a `RefContext` argument.
     If path is a relative, it will be treated as relative to the current source file.
     """
-    arg = mapValue(arg, ctx)
+    arg = map_value(arg, ctx)
     if "#" in arg:
         path, sep, fragment = arg.partition("#")
         # if path is relative, treat as relative to current src location
-        path = getpath(ctx, path, "src", False)
-        mod = loadModule(path)
+        path = get_path(ctx, path, "src", False)
+        mod = load_module(path)
         funcName = mod.__name__ + "." + fragment
     else:
         funcName = arg
-    func = loadClass(funcName)
+    func = load_class(funcName)
     return func(ctx)
 
 
-setEvalFunc("python", evalPython)
+set_eval_func("python", eval_python)
 
 # XXX need an api check if an object was marked sensitive
 # _secrets = weakref.WeakValueDictionary()
@@ -100,10 +100,10 @@ setEvalFunc("python", evalPython)
 # def isSecret(obj):
 #    return id(obj) in _secrets
 
-setEvalFunc(
+set_eval_func(
     "sensitive",
-    lambda arg, ctx: wrapSensitiveValue(
-        mapValue(arg, ctx), ctx.templar and ctx.templar._loader._vault
+    lambda arg, ctx: wrap_sensitive_value(
+        map_value(arg, ctx), ctx.templar and ctx.templar._loader._vault
     ),
 )
 
@@ -117,7 +117,7 @@ class Templar(ansible.template.Templar):
         return super(Templar, self).template(variable, **kw)
 
     @staticmethod
-    def findOverrides(data, overrides=None):
+    def find_overrides(data, overrides=None):
         overrides = overrides or {}
         JINJA2_OVERRIDE = "#jinja2:"
         # Get jinja env overrides from template
@@ -131,7 +131,7 @@ class Templar(ansible.template.Templar):
                 overrides[key] = ast.literal_eval(val.strip())
         return overrides
 
-    def _applyTemplarOverrides(self, overrides):
+    def _apply_templar_overrides(self, overrides):
         # we need to update the environments so the same overrides are
         # applied to each template evaluate through j2_concat (e.g. inside variables)
         from ansible import constants as C
@@ -167,14 +167,14 @@ class Templar(ansible.template.Templar):
         return original
 
 
-def _getTemplateTestRegEx():
+def _get_template_test_reg_ex():
     return Templar(DataLoader())._clean_regex
 
 
-_clean_regex = _getTemplateTestRegEx()
+_clean_regex = _get_template_test_reg_ex()
 
 
-def isTemplate(val, ctx):
+def is_template(val, ctx):
     if isinstance(val, (AnsibleUnsafeText, AnsibleUnsafeBytes)):
         # already evaluated in a template, don't evaluate again
         return False
@@ -190,12 +190,12 @@ class _VarTrackerDict(dict):
             raise
 
         try:
-            return self.ctx.resolveReference(key)
+            return self.ctx.resolve_reference(key)
         except KeyError:
             return val
 
 
-def applyTemplate(value, ctx, overrides=None):
+def apply_template(value, ctx, overrides=None):
     if not isinstance(value, six.string_types):
         msg = "Error rendering template: source must be a string, not %s" % type(value)
         if ctx.strict:
@@ -207,11 +207,11 @@ def applyTemplate(value, ctx, overrides=None):
     # implementation notes:
     #   see https://github.com/ansible/ansible/test/units/template/test_templar.py
     #   dataLoader is only used by _lookup and to set _basedir (else ./)
-    if not ctx.templar or (ctx.baseDir and ctx.templar._basedir != ctx.baseDir):
+    if not ctx.templar or (ctx.base_dir and ctx.templar._basedir != ctx.base_dir):
         # we need to create a new templar
         loader = DataLoader()
-        if ctx.baseDir:
-            loader.set_basedir(ctx.baseDir)
+        if ctx.base_dir:
+            loader.set_basedir(ctx.base_dir)
         if ctx.templar and ctx.templar._loader._vault.secrets:
             loader.set_vault_secrets(ctx.templar._loader._vault.secrets)
         templar = Templar(loader)
@@ -219,10 +219,10 @@ def applyTemplate(value, ctx, overrides=None):
     else:
         templar = ctx.templar
 
-    overrides = Templar.findOverrides(value, overrides)
+    overrides = Templar.find_overrides(value, overrides)
     if overrides:
         # returns the original values
-        overrides = templar._applyTemplarOverrides(overrides)
+        overrides = templar._apply_templar_overrides(overrides)
 
     templar.environment.trim_blocks = False
     # templar.environment.lstrip_blocks = False
@@ -262,18 +262,18 @@ def applyTemplate(value, ctx, overrides=None):
             if value != oldvalue:
                 ctx.trace("successfully processed template:", value)
                 for result in ctx.referenced.getReferencedResults(index):
-                    if isSensitive(result):
+                    if is_sensitive(result):
                         # note: even if the template rendered a list or dict
                         # we still need to wrap the entire result as sensitive because we
                         # don't know how the referenced senstive results were transformed by the template
                         ctx.trace("setting template result as sensitive")
-                        return wrapSensitiveValue(
+                        return wrap_sensitive_value(
                             value, templar._loader._vault
                         )  # mark the template result as sensitive
 
                 if isinstance(value, Results):
                     # mapValue now because wrap_var() fails with Results types
-                    value = mapValue(value, ctx, applyTemplates=False)
+                    value = map_value(value, ctx, applyTemplates=False)
 
                 # wrap result as AnsibleUnsafe so it isn't evaluated again
                 return wrap_var(value)
@@ -281,16 +281,16 @@ def applyTemplate(value, ctx, overrides=None):
         ctx.referenced.stop()
         if overrides:
             # restore original values
-            templar._applyTemplarOverrides(overrides)
+            templar._apply_templar_overrides(overrides)
     return value
 
 
-setEvalFunc(
-    "template", lambda args, ctx: (applyTemplate(args, ctx, ctx.kw.get("overrides")))
+set_eval_func(
+    "template", lambda args, ctx: (apply_template(args, ctx, ctx.kw.get("overrides")))
 )
 
 
-def runLookup(name, templar, *args, **kw):
+def run_lookup(name, templar, *args, **kw):
     from ansible.plugins.loader import lookup_loader
 
     # https://docs.ansible.com/ansible/latest/plugins/lookup.html
@@ -309,7 +309,7 @@ def runLookup(name, templar, *args, **kw):
         return result
 
 
-def lookupFunc(arg, ctx):
+def lookup_func(arg, ctx):
     """
     Runs an ansible lookup plugin. Usage:
 
@@ -320,8 +320,8 @@ def lookupFunc(arg, ctx):
           kw1: value
           kw2: value
     """
-    arg = mapValue(arg, ctx)
-    assertForm(arg, test=arg)  # a map with at least one element
+    arg = map_value(arg, ctx)
+    assert_form(arg, test=arg)  # a map with at least one element
     name = None
     args = None
     kwargs = {}
@@ -335,38 +335,38 @@ def lookupFunc(arg, ctx):
     if not isinstance(args, MutableSequence):
         args = [args]
 
-    return runLookup(name, ctx.templar, *args, **kwargs)
+    return run_lookup(name, ctx.templar, *args, **kwargs)
 
 
-setEvalFunc("lookup", lookupFunc)
+set_eval_func("lookup", lookup_func)
 
 
-def getInput(arg, ctx):
+def get_input(arg, ctx):
     try:
-        return ctx.currentResource.root.findResource("inputs").attributes[arg]
+        return ctx.currentResource.root.find_resource("inputs").attributes[arg]
     except KeyError:
         raise UnfurlError("undefined input '%s'" % arg)
 
 
-setEvalFunc("get_input", getInput, True)
+set_eval_func("get_input", get_input, True)
 
 
 def concat(args, ctx):
-    return "".join([str(a) for a in mapValue(args, ctx)])
+    return "".join([str(a) for a in map_value(args, ctx)])
 
 
-setEvalFunc("concat", concat, True)
+set_eval_func("concat", concat, True)
 
 
 def token(args, ctx):
-    args = mapValue(args, ctx)
+    args = map_value(args, ctx)
     return args[0].split(args[1])[args[2]]
 
 
-setEvalFunc("token", token, True)
+set_eval_func("token", token, True)
 
 # XXX this doesn't work with node_filters, need an instance to get a specific result
-def getToscaProperty(args, ctx):
+def get_tosca_property(args, ctx):
     from toscaparser.functions import get_function
 
     tosca_tpl = ctx.currentResource.root.template.toscaEntityTemplate
@@ -374,20 +374,20 @@ def getToscaProperty(args, ctx):
     return get_function(tosca_tpl, node_template, {"get_property": args}).result()
 
 
-setEvalFunc("get_property", getToscaProperty, True)
+set_eval_func("get_property", get_tosca_property, True)
 
 
-def hasEnv(arg, ctx):
+def has_env(arg, ctx):
     """
     {has_env: foo}
     """
     return arg in os.environ
 
 
-setEvalFunc("has_env", hasEnv, True)
+set_eval_func("has_env", has_env, True)
 
 
-def getEnv(args, ctx):
+def get_env(args, ctx):
     """
     Return the value of the given environment variable name.
     If NAME is not present in the environment, return the given default value if supplied or return None.
@@ -410,7 +410,7 @@ def getEnv(args, ctx):
     return env.get(name, default)
 
 
-setEvalFunc("get_env", getEnv, True)
+set_eval_func("get_env", get_env, True)
 
 _toscaKeywordsToExpr = {
     "SELF": ".",
@@ -423,7 +423,7 @@ _toscaKeywordsToExpr = {
 
 
 def get_attribute(args, ctx):
-    args = mapValue(args, ctx)
+    args = map_value(args, ctx)
     entity_name = args.pop(0)
     candidate_name = args.pop(0)
     ctx = ctx.copy(ctx._lastResource)
@@ -446,19 +446,19 @@ def get_attribute(args, ctx):
     return ctx.query(query)
 
 
-setEvalFunc("get_attribute", get_attribute, True)
+set_eval_func("get_attribute", get_attribute, True)
 
 
 def get_nodes_of_type(type_name, ctx):
     return [
         r
-        for r in ctx.currentResource.root.getSelfAndDescendents()
-        if r.template.isCompatibleType(type_name)
+        for r in ctx.currentResource.root.get_self_and_descendents()
+        if r.template.is_compatible_type(type_name)
         and r.name not in ["inputs", "outputs"]
     ]
 
 
-setEvalFunc("get_nodes_of_type", get_nodes_of_type, True)
+set_eval_func("get_nodes_of_type", get_nodes_of_type, True)
 
 
 def get_artifact(ctx, entity_name, artifact_name, location=None, remove=None):
@@ -516,10 +516,10 @@ def get_artifact(ctx, entity_name, artifact_name, location=None, remove=None):
     #     # if location == 'LOCAL_FILE':
 
 
-setEvalFunc("get_artifact", lambda args, ctx: get_artifact(ctx, *args), True)
+set_eval_func("get_artifact", lambda args, ctx: get_artifact(ctx, *args), True)
 
 
-def getImport(arg, ctx):
+def get_import(arg, ctx):
     """
     Returns the external resource associated with the named import
     """
@@ -533,26 +533,26 @@ def getImport(arg, ctx):
         return ExternalResource(arg, imported)
 
 
-setEvalFunc("external", getImport)
+set_eval_func("external", get_import)
 
 
 _Import = collections.namedtuple("_Import", ["resource", "spec"])
 
 
 class Imports(collections.OrderedDict):
-    def findImport(self, name):
+    def find_import(self, name):
         if name in self:
             return self[name].resource
         iName, sep, rName = name.partition(":")
         if iName not in self:
             return None
-        imported = self[iName].resource.findResource(rName or "root")
+        imported = self[iName].resource.find_resource(rName or "root")
         if imported:
             # add for future reference
             self[name] = imported  # see __setitem__
         return imported
 
-    def setShadow(self, key, instance):
+    def set_shadow(self, key, instance):
         instance.shadow = self[key].resource
         self[key] = instance
 
@@ -579,7 +579,7 @@ class ExternalResource(ExternalValue):
 
     def _validate(self, obj, schema, name):
         if schema:
-            messages = findSchemaErrors(serializeValue(obj), schema)
+            messages = find_schema_errors(serialize_value(obj), schema)
             if messages:
                 (message, schemaErrors) = messages
                 raise UnfurlValidationError(
@@ -588,17 +588,17 @@ class ExternalResource(ExternalValue):
                     schemaErrors,
                 )
 
-    def _getSchema(self, name):
+    def _get_schema(self, name):
         return self.schema and self.schema.get(name, {})
 
     def get(self):
         return self.resource
 
-    def resolveKey(self, name=None, currentResource=None):
+    def resolve_key(self, name=None, currentResource=None):
         if not name:
             return self.resource
 
-        schema = self._getSchema(name)
+        schema = self._get_schema(name)
         try:
             value = self.resource._resolve(name)
             # value maybe a Result
@@ -614,14 +614,14 @@ class ExternalResource(ExternalValue):
 
 
 class SecretResource(ExternalResource):
-    def resolveKey(self, name=None, currentResource=None):
+    def resolve_key(self, name=None, currentResource=None):
         # raises KeyError if not found
-        val = super(SecretResource, self).resolveKey(name, currentResource)
+        val = super(SecretResource, self).resolve_key(name, currentResource)
         if isinstance(val, Result):
-            val.resolved = wrapSensitiveValue(val.resolved)
+            val.resolved = wrap_sensitive_value(val.resolved)
             return val
         else:
-            return wrapSensitiveValue(val)
+            return wrap_sensitive_value(val)
 
     def __sensitive__(self):
         return True
@@ -634,8 +634,8 @@ def shortcut(arg, ctx):
     )
 
 
-setEvalFunc("local", shortcut)
-setEvalFunc("secret", shortcut)
+set_eval_func("local", shortcut)
+set_eval_func("secret", shortcut)
 
 
 class DelegateAttributes(object):
@@ -652,7 +652,7 @@ class DelegateAttributes(object):
         if self.interface == "inherit":
             return self.inheritFrom.attributes[key]
         elif self.interface == "default":
-            result = mapValue(
+            result = map_value(
                 self.default,
                 RefContext(self.resource, vars=dict(key=key), wantList=True),
             )
@@ -681,7 +681,7 @@ class ResourceChanges(collections.OrderedDict):
     addedIndex = 1
     attributesIndex = 2
 
-    def getAttributeChanges(self, key):
+    def get_attribute_changes(self, key):
         record = self.get(key)
         if record:
             return record[self.attributesIndex]
@@ -690,11 +690,11 @@ class ResourceChanges(collections.OrderedDict):
     def sync(self, resource, changeId=None):
         """ Update self to only include changes that are still live"""
         for k, v in list(self.items()):
-            current = Ref(k).resolveOne(RefContext(resource))
+            current = Ref(k).resolve_one(RefContext(resource))
             if current:
                 attributes = v[self.attributesIndex]
                 if attributes:
-                    v[self.attributesIndex] = intersectDict(
+                    v[self.attributesIndex] = intersect_dict(
                         attributes, current._attributes
                     )
                 if v[self.statusIndex] != current._localStatus:
@@ -705,17 +705,17 @@ class ResourceChanges(collections.OrderedDict):
             else:
                 del self[k]
 
-    def addChanges(self, changes):
+    def add_changes(self, changes):
         for name, change in changes.items():
             old = self.get(name)
             if old:
-                old[self.attributesIndex] = mergeDicts(
+                old[self.attributesIndex] = merge_dicts(
                     old[self.attributesIndex], change
                 )
             else:
                 self[name] = [None, None, change]
 
-    def addStatuses(self, changes):
+    def add_statuses(self, changes):
         for name, change in changes.items():
             assert not isinstance(change[1], six.string_types)
             old = self.get(name)
@@ -724,13 +724,13 @@ class ResourceChanges(collections.OrderedDict):
             else:
                 self[name] = [change[1], None, {}]
 
-    def addResources(self, resources):
+    def add_resources(self, resources):
         for resource in resources:
             self["::" + resource["name"]] = [None, resource, None]
 
-    def updateChanges(self, changes, statuses, resource, changeId=None):
-        self.addChanges(changes)
-        self.addStatuses(statuses)
+    def update_changes(self, changes, statuses, resource, changeId=None):
+        self.add_changes(changes)
+        self.add_statuses(statuses)
         if resource:
             self.sync(resource, changeId)
 
@@ -745,17 +745,17 @@ class TopologyMap(dict):
         self.resource = resource
 
     def __getitem__(self, key):
-        r = self.resource.findResource(key)
+        r = self.resource.find_resource(key)
         if r:
             return r.attributes
         else:
             raise KeyError(key)
 
     def __iter__(self):
-        return iter(r.name for r in self.resource.getSelfAndDescendents())
+        return iter(r.name for r in self.resource.get_self_and_descendents())
 
     def __len__(self):
-        return len(tuple(self.resource.getSelfAndDescendents()))
+        return len(tuple(self.resource.get_self_and_descendents()))
 
 
 class AttributeManager(object):
@@ -787,19 +787,19 @@ class AttributeManager(object):
         state["_yaml"] = None
         return state
 
-    def getStatus(self, resource):
+    def get_status(self, resource):
         if resource.key not in self.statuses:
             return resource._localStatus, resource._localStatus
         return self.statuses[resource.key]
 
-    def setStatus(self, resource, newvalue):
+    def set_status(self, resource, newvalue):
         assert newvalue is None or isinstance(newvalue, Status)
         if resource.key not in self.statuses:
             self.statuses[resource.key] = [resource._localStatus, newvalue]
         else:
             self.statuses[resource.key][1] = newvalue
 
-    def getAttributes(self, resource):
+    def get_attributes(self, resource):
         if resource.key not in self.attributes:
             if resource.template:
                 specAttributes = resource.template.defaultAttributes
@@ -826,21 +826,21 @@ class AttributeManager(object):
     #   # for resource, old, new in self.statuses.values():
     #   #   resource._localStatus = old
 
-    def _saveSensitive(self, defs, key, value, resource):
+    def _save_sensitive(self, defs, key, value, resource):
         defSchema = (key in defs and defs[key].schema) or {}
         defMeta = defSchema.get("metadata", {})
         # attribute marked as sensitive and value isn't a secret so mark value as sensitive
         # but externalvalues are ok since they don't reveal much
         sensitive = defMeta.get("sensitive") and not value.external
         if sensitive:
-            savedValue = wrapSensitiveValue(
+            savedValue = wrap_sensitive_value(
                 value.resolved, resource.templar._loader._vault
             )
         else:
-            savedValue = value.asRef()  # serialize Result
+            savedValue = value.as_ref()  # serialize Result
         return savedValue, sensitive
 
-    def commitChanges(self):
+    def commit_changes(self):
         changes = {}
         liveDependencies = {}
         for resource, attributes in self.attributes.values():
@@ -856,7 +856,7 @@ class AttributeManager(object):
                     resource._attributes[key] = value
                 else:
                     # value is a Result and it is either new or different from the original value, so save
-                    changed = value.hasDiff()
+                    changed = value.has_diff()
                     # an attribute is considered live it was declared an attribute or isn't part of the template at all
                     # XXX previously overridden properties values should be treat as live too because they changed during runtime
                     isLive = (
@@ -866,7 +866,7 @@ class AttributeManager(object):
                     )
                     if not (changed or isLive):
                         continue
-                    savedValue, sensitive = self._saveSensitive(
+                    savedValue, sensitive = self._save_sensitive(
                         defs, key, value, resource
                     )
                     if isLive:
@@ -882,7 +882,7 @@ class AttributeManager(object):
             if live:
                 liveDependencies[resource.key] = (resource, live)
             # save changes
-            diff = attributes.getDiff()
+            diff = attributes.get_diff()
             if not diff:
                 continue
             for key in foundSensitive:

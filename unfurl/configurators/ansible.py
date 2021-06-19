@@ -5,10 +5,10 @@ import sys
 import collections
 import functools
 import logging
-from .. import getLogLevel
-from ..util import assertForm, saveToTempfile
+from .. import get_log_level
+from ..util import assert_form, save_to_tempfile
 from ..configurator import Status
-from ..result import serializeValue
+from ..result import serialize_value
 from . import TemplateConfigurator
 import ansible.constants as C
 from ansible import context
@@ -22,7 +22,7 @@ display = Display()
 logger = logging.getLogger("unfurl")
 
 
-def getAnsibleResults(result, extraKeys=(), facts=()):
+def get_ansible_results(result, extraKeys=(), facts=()):
     """
     Returns a dictionary containing at least:
 
@@ -80,10 +80,10 @@ class AnsibleConfigurator(TemplateConfigurator):
         super(AnsibleConfigurator, self).__init__(configSpec)
         self._cleanupRoutines = []
 
-    def canDryRun(self, task):
+    def can_dry_run(self, task):
         return True
 
-    def _makeInventoryFromGroup(self, group, includeInstances):
+    def _make_inventory_from_group(self, group, includeInstances):
         hosts = {}
         vars = {}
         children = {}
@@ -91,17 +91,17 @@ class AnsibleConfigurator(TemplateConfigurator):
         #  if includeInstances:
         #     for member in group.memberInstances:
         #         hosts[member.name] = self._getHostVars(member)
-        for child in group.memberGroups:
-            if child.isCompatibleType("unfurl.groups.AnsibleInventoryGroup"):
-                children[child] = self._makeInventoryFromGroup(child, includeInstances)
+        for child in group.member_groups:
+            if child.is_compatible_type("unfurl.groups.AnsibleInventoryGroup"):
+                children[child] = self._make_inventory_from_group(child, includeInstances)
         vars.update(group.properties.get("hostvars", {}))
         return dict(hosts=hosts, vars=vars, children=children)
 
-    def _getHostVars(self, node):
+    def _get_host_vars(self, node):
         # return ansible_connection, ansible_host, ansible_user, ansible_port
-        connections = node.getCapabilities("endpoint")
+        connections = node.get_capabilities("endpoint")
         for connection in connections:
-            if connection.template.isCompatibleType(
+            if connection.template.is_compatible_type(
                 "unfurl.capabilities.Endpoint.Ansible"
             ):
                 break
@@ -119,7 +119,7 @@ class AnsibleConfigurator(TemplateConfigurator):
             hostVars["ansible_host"] = hostVars["ip_address"]
         return hostVars
 
-    def _updateVars(self, connection, hostVars):
+    def _update_vars(self, connection, hostVars):
         creds = connection.attributes.get("credential")
         if creds:
             if "user" in creds:
@@ -131,14 +131,14 @@ class AnsibleConfigurator(TemplateConfigurator):
                 hostVars.update(creds["keys"])
         hostVars.update(connection.attributes.get("hostvars", {}))
 
-    def _makeInventory(self, host, allVars, task):
+    def _make_inventory(self, host, allVars, task):
         if host:
-            hostVars = self._getHostVars(host)
-            connection = task.findConnection(
+            hostVars = self._get_host_vars(host)
+            connection = task.find_connection(
                 host, "unfurl.relationships.ConnectsTo.Ansible"
             )
             if connection:
-                self._updateVars(connection, hostVars)
+                self._update_vars(connection, hostVars)
 
             if "ansible_host" not in hostVars:
                 ip_address = host.attributes.get("public_ip") or host.attributes.get(
@@ -156,9 +156,9 @@ class AnsibleConfigurator(TemplateConfigurator):
             hosts = {hostname: hostVars}
 
             children = {
-                group.name: self._makeInventoryFromGroup(group, False)
+                group.name: self._make_inventory_from_group(group, False)
                 for group in host.template.groups
-                if group.isCompatibleType("unfurl.groups.AnsibleInventoryGroup")
+                if group.is_compatible_type("unfurl.groups.AnsibleInventoryGroup")
             }
         else:
             hostVars = {}
@@ -176,7 +176,7 @@ class AnsibleConfigurator(TemplateConfigurator):
         # note: allVars is inventory vars shared by all hosts
         return dict(all=dict(hosts=hosts, vars=allVars, children=children))
 
-    def getInventory(self, task, cwd):
+    def get_inventory(self, task, cwd):
         inventory = task.inputs.get("inventory")
         if inventory and isinstance(inventory, six.string_types):
             # XXX if user set inventory file we can create a folder to merge them
@@ -186,9 +186,9 @@ class AnsibleConfigurator(TemplateConfigurator):
         if not inventory:
             # XXX merge inventory
             # default to localhost if not inventory
-            inventory = self._makeInventory(task.operationHost, inventory or {}, task)
+            inventory = self._make_inventory(task.operationHost, inventory or {}, task)
         # XXX cache and reuse file
-        return cwd.writeFile(inventory, "inventory.yaml")
+        return cwd.write_file(inventory, "inventory.yaml")
         # don't worry about the warnings in log, see:
         # https://github.com/ansible/ansible/issues/33132#issuecomment-346575458
         # https://github.com/ansible/ansible/issues/33132#issuecomment-363908285
@@ -203,13 +203,13 @@ class AnsibleConfigurator(TemplateConfigurator):
                 pass
         self._cleanupRoutines = []
 
-    def getVars(self, task):
+    def get_vars(self, task):
         vars = task.inputs.context.vars.copy()
         vars["__unfurl"] = task.inputs.context
         return vars
 
-    def _makePlayBook(self, playbook, task):
-        assertForm(playbook, collections.MutableSequence)
+    def _make_playbook(self, playbook, task):
+        assert_form(playbook, collections.MutableSequence)
         # XXX use host group instead of localhost depending on operation_host
         hosts = task.operationHost and task.operationHost.name or "localhost"
         if playbook and not "hosts" in playbook[0]:
@@ -220,25 +220,25 @@ class AnsibleConfigurator(TemplateConfigurator):
         else:
             return playbook
 
-    def findPlaybook(self, task):
+    def find_playbook(self, task):
         return task.inputs["playbook"]
 
-    def getPlaybook(self, task, cwd):
-        playbook = self.findPlaybook(task)
+    def get_playbook(self, task, cwd):
+        playbook = self.find_playbook(task)
         if isinstance(playbook, six.string_types):
             # assume it's file path
             return playbook
-        playbook = self._makePlayBook(playbook, task)
-        envvars = task.getEnvironment(True)
+        playbook = self._make_playbook(playbook, task)
+        envvars = task.get_environment(True)
         for play in playbook:
             play["environment"] = envvars
-        return cwd.writeFile(serializeValue(playbook), "playbook.yml")
+        return cwd.write_file(serialize_value(playbook), "playbook.yml")
 
-    def getPlaybookArgs(self, task):
+    def get_playbook_args(self, task):
         args = task.inputs.get("playbookArgs", [])
         if not isinstance(args, collections.MutableSequence):
             args = [args]
-        if task.dryRun:
+        if task.dry_run:
             args.append("--check")
         if task.configSpec.timeout:
             args.append("--timeout=%s" % task.configSpec.timeout)
@@ -246,35 +246,35 @@ class AnsibleConfigurator(TemplateConfigurator):
             args.append("-" + ("v" * task.verbose))
         return list(args)
 
-    def getResultKeys(self, task, results):
+    def get_result_keys(self, task, results):
         return task.inputs.get("resultKeys", [])
 
-    def processResult(self, task, result):
-        self.processResultTemplate(
+    def process_result(self, task, result):
+        self.process_result_template(
             task, dict(result.result, success=result.success, outputs=result.outputs)
         )
         return result
 
     def render(self, task):
-        cwd = task.setWorkFolder("home")
+        cwd = task.set_work_folder("home")
         # build host inventory from resource
-        inventory = self.getInventory(task, cwd)
-        playbook = self.getPlaybook(task, cwd)
-        playbookArgs = self.getPlaybookArgs(task)
-        args = _renderPlaybook(playbook, inventory, playbookArgs)
-        cwd.setRenderState(args)
+        inventory = self.get_inventory(task, cwd)
+        playbook = self.get_playbook(task, cwd)
+        playbookArgs = self.get_playbook_args(task)
+        args = _render_playbook(playbook, inventory, playbookArgs)
+        cwd.set_render_state(args)
 
     def run(self, task):
         try:
-            cwd = task.getWorkFolder()
+            cwd = task.get_work_folder()
             args = cwd.renderState
             # build vars from inputs
-            extraVars = self.getVars(task)
+            extraVars = self.get_vars(task)
             if task.operationHost and task.operationHost.templar:
                 vault_secrets = task.operationHost.templar._loader._vault.secrets
             else:
                 vault_secrets = None
-            resultCallback = _runPlaybooks(
+            resultCallback = _run_playbooks(
                 args,
                 extraVars,
                 vault_secrets,
@@ -295,12 +295,12 @@ class AnsibleConfigurator(TemplateConfigurator):
             )
 
             if resultCallback.results:
-                resultKeys = self.getResultKeys(task, resultCallback.results)
+                resultKeys = self.get_result_keys(task, resultCallback.results)
                 factKeys = list(task.configSpec.outputs)
                 # each task in a playbook will have a corresponding result
                 resultList, outputList = zip(
                     *map(
-                        lambda result: getAnsibleResults(result, resultKeys, factKeys),
+                        lambda result: get_ansible_results(result, resultKeys, factKeys),
                         resultCallback.results,
                     )
                 )
@@ -335,7 +335,7 @@ class AnsibleConfigurator(TemplateConfigurator):
                 # this can update resources so don't do it on error
                 # XXX align with shell configurator behavior
                 # (which is called unconditionally and before done())
-                result = self.processResult(task, result)
+                result = self.process_result(task, result)
             yield result
 
         finally:
@@ -366,14 +366,14 @@ class ResultCallback(CallbackModule):
     def get_option(self, k):
         return False
 
-    def getInfo(self, result):
+    def get_info(self, result):
         host = result._host
         taskname = result.task_name
         fields = result._task_fields.keys()
         keys = result._result.keys()
         return "%s: %s(%s) => %s" % (host, taskname, fields, keys)
 
-    def _addResult(self, status, result):
+    def _add_result(self, status, result):
         self.results.append(result)
         if result._result.get("changed", False):
             self.changed += 1
@@ -383,22 +383,22 @@ class ResultCallback(CallbackModule):
         )
 
     def v2_runner_on_ok(self, result):
-        self._addResult("ok", result)
+        self._add_result("ok", result)
         # print("ok", self.getInfo(result))
         super(ResultCallback, self).v2_runner_on_ok(result)
 
     def v2_runner_on_skipped(self, result):
-        self._addResult("skipped", result)
+        self._add_result("skipped", result)
         # print("skipped", self.getInfo(result))
         super(ResultCallback, self).v2_runner_on_skipped(result)
 
     def v2_runner_on_failed(self, result, **kwargs):
-        self._addResult("failed", result)
+        self._add_result("failed", result)
         # print("failed", self.getInfo(result))
         super(ResultCallback, self).v2_runner_on_failed(result, **kwargs)
 
     def v2_runner_on_unreachable(self, result):
-        self._addResult("unreachable", result)
+        self._add_result("unreachable", result)
         # print("unreachable", self.getInfo(result))
         super(ResultCallback, self).v2_runner_on_unreachable(result)
 
@@ -410,18 +410,18 @@ def _init_global_context(options):
     context.CLIARGS._store = vars(options)
 
 
-def runPlaybooks(playbook, _inventory, params=None, args=None):
-    args = _renderPlaybook(playbook, _inventory, args)
-    return _runPlaybooks(args, params)
+def run_playbooks(playbook, _inventory, params=None, args=None):
+    args = _render_playbook(playbook, _inventory, args)
+    return _run_playbooks(args, params)
 
 
-def _renderPlaybook(playbook, _inventory, args):
+def _render_playbook(playbook, _inventory, args):
     inventoryArgs = ["-i", _inventory] if _inventory else []
     args = ["ansible-playbook"] + inventoryArgs + (args or []) + [playbook]
     return args
 
 
-def _runPlaybooks(args, params=None, vault_secrets=None):
+def _run_playbooks(args, params=None, vault_secrets=None):
     logger.info("running " + " ".join(args))
     cli = PlaybookCLI(args)
 
@@ -451,7 +451,7 @@ def _runPlaybooks(args, params=None, vault_secrets=None):
     cli._play_prereqs = hook_play_prereqs
 
     oldVerbosity = display.verbosity
-    if getLogLevel() <= 10:  # debug
+    if get_log_level() <= 10:  # debug
         display.verbosity = 2
     try:
         resultsCB.exit_code = cli.run()

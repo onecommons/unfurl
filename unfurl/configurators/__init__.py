@@ -3,11 +3,11 @@
 import six
 from ..configurator import Configurator, Status
 from ..result import ResultsMap
-from ..util import registerShortNames
+from ..util import register_short_names
 
 # need to define these now because these configurators are lazily imported
 # and so won't register themselves through AutoRegisterClass
-registerShortNames(
+register_short_names(
     {
         name: "unfurl.configurators.%s.%sConfigurator" % (name.lower(), name)
         for name in "Ansible Shell Supervisor Terraform".split()
@@ -18,7 +18,7 @@ registerShortNames(
 class TemplateConfigurator(Configurator):
     excludeFromDigest = ("resultTemplate", "done", "run", "dryrun")
 
-    def processResultTemplate(self, task, result):
+    def process_result_template(self, task, result):
         """
         for both the ansible and shell configurators
         result can include: "returncode", "msg", "error", "stdout", "stderr"
@@ -46,7 +46,7 @@ class TemplateConfigurator(Configurator):
                 errors = [e]
             else:
                 if results:
-                    jr, errors = task.updateResources(results)
+                    jr, errors = task.update_resources(results)
             if errors:
                 task.logger.warning(
                     "error processing resultTemplate for %s: %s",
@@ -54,36 +54,36 @@ class TemplateConfigurator(Configurator):
                     errors[0],
                 )
 
-    def canDryRun(self, task):
+    def can_dry_run(self, task):
         return not not task.inputs.get("dryrun")
 
     def render(self, task):
-        if task.dryRun:
+        if task.dry_run:
             runResult = task.inputs.get("dryrun")
             if not isinstance(runResult, dict):
                 runResult = task.inputs.get("run")
         else:
             runResult = task.inputs.get("run")
-        task.setWorkFolder().setRenderState(runResult)
+        task.set_work_folder().set_render_state(runResult)
 
     def run(self, task):
-        runResult = task.getWorkFolder().renderState
+        runResult = task.get_work_folder().renderState
         done = task.inputs.get("done", {})
         if "result" not in done:
             if not isinstance(runResult, dict):
                 done["result"] = {"run": runResult}
             else:
                 done["result"] = runResult
-        self.processResultTemplate(task, done.get("result"))
+        self.process_result_template(task, done.get("result"))
         yield task.done(**done)
 
 
 class DelegateConfigurator(Configurator):
-    def canDryRun(self, task):
+    def can_dry_run(self, task):
         return True  # ok because this will also be called on the subtask
 
     def run(self, task):
-        subtaskRequest = task.createSubTask(
+        subtaskRequest = task.create_sub_task(
             task.inputs["operation"], task.inputs.get("target")
         )
         assert subtaskRequest

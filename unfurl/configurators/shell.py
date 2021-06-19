@@ -102,7 +102,7 @@ class ShellConfigurator(TemplateConfigurator):
             cmd = shlex.split(cmd)
         return cmdStr, cmd
 
-    def runProcess(
+    def run_process(
         self,
         cmd,
         shell=False,
@@ -175,7 +175,7 @@ class ShellConfigurator(TemplateConfigurator):
             err.error = err
             return err
 
-    def _handleResult(self, task, result, cwd, successCodes=(0,)):
+    def _handle_result(self, task, result, cwd, successCodes=(0,)):
         error = result.error or result.returncode not in successCodes or result.timeout
         if error:
             task.logger.warning('shell task run failure: "%s" in %s', result.cmd, cwd)
@@ -195,16 +195,16 @@ class ShellConfigurator(TemplateConfigurator):
         result.stderr = unstyle(result.stderr or "")
         return not error
 
-    def _processResult(self, task, result, cwd):
-        success = self._handleResult(task, result, cwd)
+    def _process_result(self, task, result, cwd):
+        success = self._handle_result(task, result, cwd)
         resultDict = result.__dict__.copy()
         resultDict["success"] = success
-        self.processResultTemplate(task, resultDict)
+        self.process_result_template(task, resultDict)
         if task._errors:
             return False
         return success
 
-    def canRun(self, task):
+    def can_run(self, task):
         params = task.inputs
         cmd = params.get("command", self._defaultCmd)
         if not cmd:
@@ -213,7 +213,7 @@ class ShellConfigurator(TemplateConfigurator):
             return "'%s' is not executable" % cmd[0]
         return True
 
-    def canDryRun(self, task):
+    def can_dry_run(self, task):
         return task.inputs.get("dryrun")
 
     def render(self, task):
@@ -227,18 +227,18 @@ class ShellConfigurator(TemplateConfigurator):
         else:
             cwd = task.cwd
         cmd = self.resolve_dry_run(cmd, task)
-        task.setWorkFolder().setRenderState([cmd, cwd])
+        task.set_work_folder().set_render_state([cmd, cwd])
 
     def run(self, task):
-        cmd, cwd = task.getWorkFolder().renderState
+        cmd, cwd = task.get_work_folder().renderState
         params = task.inputs
         isString = isinstance(cmd, six.string_types)
         # default for shell: True if command is a string otherwise False
         shell = params.get("shell", isString)
-        env = task.getEnvironment(False)
+        env = task.get_environment(False)
         keeplines = params.get("keeplines")
         echo = params.get("echo", task.verbose > -1)
-        result = self.runProcess(
+        result = self.run_process(
             cmd,
             shell=shell,
             timeout=task.configSpec.timeout,
@@ -247,14 +247,14 @@ class ShellConfigurator(TemplateConfigurator):
             keeplines=keeplines,
             echo=echo,
         )
-        success = self._processResult(task, result, cwd)
+        success = self._process_result(task, result, cwd)
         done = task.inputs.get("done", {})
         success = done.pop("success", success)
         yield task.done(success, result=result.__dict__, **done)
 
     def resolve_dry_run(self, cmd, task):
         is_string = isinstance(cmd, six.string_types)
-        if task.dryRun and isinstance(task.inputs.get("dryrun"), six.string_types):
+        if task.dry_run and isinstance(task.inputs.get("dryrun"), six.string_types):
             dry_run_arg = task.inputs["dryrun"]
             if "%dryrun%" in cmd:  # replace %dryrun%
                 if is_string:

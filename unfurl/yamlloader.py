@@ -27,20 +27,20 @@ from .util import (
     sensitive_bytes,
     sensitive_dict,
     sensitive_list,
-    wrapSensitiveValue,
+    wrap_sensitive_value,
     UnfurlError,
     UnfurlValidationError,
-    findSchemaErrors,
-    getBaseDir,
+    find_schema_errors,
+    get_base_dir,
 )
 from .merge import (
-    expandDoc,
-    makeMapWithBase,
-    findAnchor,
-    _cacheAnchors,
-    restoreIncludes,
+    expand_doc,
+    make_map_with_base,
+    find_anchor,
+    _cache_anchors,
+    restore_includes,
 )
-from .repo import isURLorGitPath
+from .repo import is_url_or_git_path
 from toscaparser.common.exception import URLException, ExceptionCollector
 from toscaparser.utils.gettextutils import _
 import toscaparser.imports
@@ -106,7 +106,7 @@ def construct_vault(constructor, node):
 def construct_vaultjson(constructor, node):
     value = _construct_vault(constructor, node, "!vault-json")
     cleartext = to_text(constructor.vault.decrypt(value))
-    return wrapSensitiveValue(json.loads(cleartext))
+    return wrap_sensitive_value(json.loads(cleartext))
 
 
 def construct_vaultbinary(constructor, node):
@@ -115,7 +115,7 @@ def construct_vaultbinary(constructor, node):
     return sensitive_bytes(cleartext)
 
 
-def makeYAML(vault=None):
+def make_yaml(vault=None):
     if not vault:
         vault = VaultLib(secrets=None)
     yaml = YAML()
@@ -147,10 +147,10 @@ def makeYAML(vault=None):
     return yaml
 
 
-yaml = makeYAML()
+yaml = make_yaml()
 
 
-def makeVaultLib(passwordBytes, vaultId="default"):
+def make_vault_lib(passwordBytes, vaultId="default"):
     if passwordBytes:
         if isinstance(passwordBytes, six.string_types):
             passwordBytes = to_bytes(passwordBytes)
@@ -185,8 +185,8 @@ class ImportResolver(toscaparser.imports.ImportResolver):
             return url_info
 
         path, isFile, fragment = url_info
-        if not isFile or isURLorGitPath(path):  # only support urls to git repos for now
-            repo, filePath, revision, bare = self.manifest.findRepoFromGitUrl(
+        if not isFile or is_url_or_git_path(path):  # only support urls to git repos for now
+            repo, filePath, revision, bare = self.manifest.find_repo_from_git_url(
                 path, isFile, importLoader
             )
             if not repo:
@@ -201,7 +201,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                 importLoader.stream = six.StringIO(repo.show(filePath, revision))
                 path = os.path.join(filePath, file_name or "")
             else:
-                path = os.path.join(repo.workingDir, filePath, file_name or "").rstrip(
+                path = os.path.join(repo.working_dir, filePath, file_name or "").rstrip(
                     "/"
                 )
                 repository = None
@@ -209,7 +209,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                     repository = Repository(
                         repository_name, importLoader.repositories[repository_name]
                     )
-                    self.manifest.addRepository(repo, repository, filePath)
+                    self.manifest.add_repository(repo, repository, filePath)
         elif file_name:
             path = os.path.join(path, file_name)
         return path, isFile, fragment
@@ -312,16 +312,16 @@ class YamlConfig(object):
                     'invalid YAML document with contents: "%s"' % self.config
                 )
 
-            findAnchor(self.config, None)  # create _anchorCache
+            find_anchor(self.config, None)  # create _anchorCache
             self._cachedDocIncludes = {}
             # schema should include defaults but can't validate because it doesn't understand includes
             # but should work most of time
-            self.config.loadTemplate = self.loadInclude
+            self.config.loadTemplate = self.load_include
             self.loadHook = loadHook
 
-            self.baseDirs = [self.getBaseDir()]
-            self.includes, expandedConfig = expandDoc(
-                self.config, cls=makeMapWithBase(self.config, self.baseDirs[0])
+            self.baseDirs = [self.get_base_dir()]
+            self.includes, expandedConfig = expand_doc(
+                self.config, cls=make_map_with_base(self.config, self.baseDirs[0])
             )
             self.expanded = expandedConfig
             errors = schema and self.validate(expandedConfig)
@@ -332,29 +332,29 @@ class YamlConfig(object):
                 )
             else:
                 self.valid = not not errors
-        except:
+        except Exception as e:
             if self.path:
                 msg = "Unable to load yaml config at %s" % self.path
             else:
                 msg = "Unable to parse yaml config"
             raise UnfurlError(msg, True)
 
-    def loadYaml(self, path, baseDir=None, warnWhenNotFound=False):
-        path = os.path.abspath(os.path.join(baseDir or self.getBaseDir(), path))
+    def load_yaml(self, path, baseDir=None, warnWhenNotFound=False):
+        path = os.path.abspath(os.path.join(baseDir or self.get_base_dir(), path))
         if warnWhenNotFound and not os.path.isfile(path):
             return path, None
         with open(path, "r") as f:
             config = self.yaml.load(f)
         return path, config
 
-    def getBaseDir(self):
+    def get_base_dir(self):
         if self.path:
-            return getBaseDir(self.path)
+            return get_base_dir(self.path)
         else:
             return "."
 
-    def restoreIncludes(self, changed):
-        restoreIncludes(self.includes, self.config, changed, cls=CommentedMap)
+    def restore_includes(self, changed):
+        restore_includes(self.includes, self.config, changed, cls=CommentedMap)
 
     def dump(self, out=sys.stdout):
         try:
@@ -382,7 +382,7 @@ class YamlConfig(object):
     @property
     def yaml(self):
         if not self._yaml:
-            self._yaml = makeYAML(self.vault)
+            self._yaml = make_yaml(self.vault)
         return self._yaml
 
     def __getstate__(self):
@@ -403,9 +403,9 @@ class YamlConfig(object):
         baseUri = None
         if path:
             baseUri = urljoin("file:", pathname2url(path))
-        return findSchemaErrors(config, self.schema, baseUri)
+        return find_schema_errors(config, self.schema, baseUri)
 
-    def searchIncludes(self, key=None, pathPrefix=None):
+    def search_includes(self, key=None, pathPrefix=None):
         for k in self._cachedDocIncludes:
             path, template = self._cachedDocIncludes[k]
             candidate = True
@@ -417,7 +417,7 @@ class YamlConfig(object):
                 return k, template
         return None, None
 
-    def saveInclude(self, key):
+    def save_include(self, key):
         path, template = self._cachedDocIncludes[key]
         output = six.StringIO()
         try:
@@ -427,7 +427,7 @@ class YamlConfig(object):
         with open(path, "w") as f:
             f.write(output.getvalue())
 
-    def loadInclude(
+    def load_include(
         self, templatePath, warnWhenNotFound=False, expanded=None, check=False
     ):
         if check:
@@ -471,7 +471,7 @@ class YamlConfig(object):
                     self, templatePath, baseDir, warnWhenNotFound, expanded
                 )
             else:
-                path, template = self.loadYaml(key, baseDir, warnWhenNotFound)
+                path, template = self.load_yaml(key, baseDir, warnWhenNotFound)
             newBaseDir = os.path.dirname(path)
             if template is None:
                 if warnWhenNotFound:
@@ -481,8 +481,8 @@ class YamlConfig(object):
                     )
                 return value, template, newBaseDir
             elif isinstance(template, CommentedMap):
-                template.baseDir = newBaseDir
-            _cacheAnchors(self.config._anchorCache, template)
+                template.base_dir = newBaseDir
+            _cache_anchors(self.config._anchorCache, template)
         except:
             raise UnfurlError(
                 "unable to load document include: %s (base: %s)"

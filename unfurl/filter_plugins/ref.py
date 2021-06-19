@@ -1,6 +1,6 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
-from unfurl.eval import Ref, mapValue
+from unfurl.eval import Ref, map_value
 from unfurl.projectpaths import _abspath, _getdir
 from unfurl.util import which
 from jinja2.filters import contextfilter
@@ -11,15 +11,15 @@ from jinja2.filters import contextfilter
 @contextfilter
 def ref(context, ref, **vars):
     refContext = context["__unfurl"]
-    return Ref(ref, vars=vars).resolveOne(refContext)
+    return Ref(ref, vars=vars).resolve_one(refContext)
 
 
 @contextfilter
-def mapValueFilter(context, ref, **vars):
+def map_value_filter(context, ref, **vars):
     refContext = context["__unfurl"]
     if vars:
         refContext = refContext.copy(vars=vars)
-    return mapValue(ref, refContext)
+    return map_value(ref, refContext)
 
 
 @contextfilter
@@ -47,7 +47,7 @@ class FilterModule(object):
         return {
             "ref": ref,
             "eval": ref,
-            "mapValue": mapValueFilter,
+            "mapValue": map_value_filter,
             "abspath": abspath,
             "get_dir": get_dir,
             "which": which,

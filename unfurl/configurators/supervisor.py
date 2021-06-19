@@ -18,7 +18,7 @@ from ..configurator import Configurator
 
 # support unix domain socket connections
 # (we want to connect the same way as supervisorctl does for security and to automatically support multiple instances)
-def getServerProxy(serverurl=None, username=None, password=None):
+def get_server_proxy(serverurl=None, username=None, password=None):
     # copied from https://github.com/Supervisor/supervisor/blob/b52f49cff287c4d821c2c54d7d1afcd397b699e5/supervisor/options.py#L1718
     return ServerProxy(
         # dumbass ServerProxy won't allow us to pass in a non-HTTP url,
@@ -29,7 +29,7 @@ def getServerProxy(serverurl=None, username=None, password=None):
     )
 
 
-def _reloadConfig(server, name):
+def _reload_config(server, name):
     result = server.supervisor.reloadConfig()
     return any((name in changed) for changed in result[0])
 
@@ -57,14 +57,14 @@ class SupervisorConfigurator(Configurator):
                     conf += "\nenvironment= "
                     conf += ",".join(
                         '%s="%s"' % (k, v.replace("%", "%%"))
-                        for (k, v) in task.getEnvironment(True).items()
+                        for (k, v) in task.get_environment(True).items()
                     )
                 conff.write(conf)
         elif op == "delete":
             if os.path.exists(confPath):
                 os.remove(confPath)
 
-    def _getConfig(self, task):
+    def _get_config(self, task):
         host = task.vars["HOST"]
         confDir = os.path.abspath(host["homeDir"])
         conf = host["conf"]
@@ -83,8 +83,8 @@ class SupervisorConfigurator(Configurator):
 
         # if homeDir is a relative path it will be relative to the baseDir of the host instance
         # which might be different from the current directory if host is an external instance
-        serverConfig = self._getConfig(task)
-        server = getServerProxy(**serverConfig)
+        serverConfig = self._get_config(task)
+        server = get_server_proxy(**serverConfig)
 
         error = None
         op = task.configSpec.operation
@@ -98,10 +98,10 @@ class SupervisorConfigurator(Configurator):
                 modified = True
             elif op == "delete":
                 # deleted in render()
-                modified = _reloadConfig(server, name)
+                modified = _reload_config(server, name)
             elif op == "configure":
                 # conf added/updated in render()
-                modified = _reloadConfig(server, name)
+                modified = _reload_config(server, name)
                 server.supervisor.addProcessGroup(name)
         except Fault as err:
             if (

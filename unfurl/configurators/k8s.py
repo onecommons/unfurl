@@ -9,7 +9,7 @@ import json
 from ansible.module_utils.k8s.common import K8sAnsibleMixin
 
 
-def _getConnectionConfig(instance):
+def _get_connection_config(instance):
     # see https://docs.ansible.com/ansible/latest/modules/k8s_module.html#k8s-module
     #  for connection settings
     if not instance:
@@ -45,29 +45,29 @@ def _getConnectionConfig(instance):
     return connection
 
 
-def _getConnection(task, cluster):
-    instance = task.findConnection(
+def _get_connection(task, cluster):
+    instance = task.find_connection(
         cluster, relation="unfurl.relationships.ConnectsTo.K8sCluster"
     )
-    return _getConnectionConfig(instance)
+    return _get_connection_config(instance)
 
 
 class ClusterConfigurator(Configurator):
     @staticmethod
-    def _getHost(connectionConfig):
+    def _get_host(connectionConfig):
         client = K8sAnsibleMixin().get_api_client(**connectionConfig)
         return client.configuration.host
 
-    def canRun(self, task):
+    def can_run(self, task):
         if task.configSpec.operation not in ["check", "discover"]:
             return "Configurator can't perform this operation (only supports check and discover)"
         return True
 
     def run(self, task):
         cluster = task.target
-        connectionConfig = _getConnection(task, cluster)
+        connectionConfig = _get_connection(task, cluster)
         try:
-            cluster.attributes["apiServer"] = self._getHost(connectionConfig)
+            cluster.attributes["apiServer"] = self._get_host(connectionConfig)
         except:
             yield task.done(
                 False,
@@ -79,28 +79,28 @@ class ClusterConfigurator(Configurator):
 
 
 class ResourceConfigurator(AnsibleConfigurator):
-    def getGenerator(self, task):
-        if task.dryRun:
-            return self.dryRun(task)
+    def get_generator(self, task):
+        if task.dry_run:
+            return self.dry_run(task)
         else:
             return self.run(task)
 
-    def dryRun(self, task):
+    def dry_run(self, task):
         # XXX don't use print()
         print("generating playbook")
         # print(self.findPlaybook(task))
         # print(self.findPlaybook(task))
-        print(json.dumps(self.findPlaybook(task), indent=4))
+        print(json.dumps(self.find_playbook(task), indent=4))
         yield task.done(True)
 
-    def _getConnection(self, task):
+    def _get_connection(self, task):
         # get the cluster that the target resource is hosted on
         cluster = task.query("[.type=unfurl.nodes.K8sCluster]")
         if not cluster:
             return {}
-        return _getConnection(task, cluster)
+        return _get_connection(task, cluster)
 
-    def makeSecret(self, data):
+    def make_secret(self, data):
         # base64 adds trailing \n so strip it out
         return dict(
             type="Opaque",
@@ -112,27 +112,27 @@ class ResourceConfigurator(AnsibleConfigurator):
             },
         )
 
-    def getDefinition(self, task):
-        if task.target.template.isCompatibleType("unfurl.nodes.K8sNamespace"):
+    def get_definition(self, task):
+        if task.target.template.is_compatible_type("unfurl.nodes.K8sNamespace"):
             return dict(apiVersion="v1", kind="Namespace")
 
         if "definition" in task.target.attributes:
-            definition = task.target.attributes.getCopy("definition")
+            definition = task.target.attributes.get_copy("definition")
         else:
-            definition = task.target.attributes.getCopy("apiResource", {})
+            definition = task.target.attributes.get_copy("apiResource", {})
 
-        if not definition and task.target.template.isCompatibleType(
+        if not definition and task.target.template.is_compatible_type(
             "unfurl.nodes.K8sSecretResource"
         ):
-            return self.makeSecret(task.target.attributes.get("data", {}))
+            return self.make_secret(task.target.attributes.get("data", {}))
         else:
             # XXX if definition is string: parse
             # get copy so subsequent modifications dont affect the definition
             return definition
 
-    def updateMetadata(self, definition, task):
+    def update_metadata(self, definition, task):
         namespace = None
-        if task.target.parent.template.isCompatibleType("unfurl.nodes.K8sNamespace"):
+        if task.target.parent.template.is_compatible_type("unfurl.nodes.K8sNamespace"):
             namespace = task.target.parent.attributes["name"]
         md = definition.setdefault("metadata", {})
         if namespace and "namespace" not in md:
@@ -146,12 +146,12 @@ class ResourceConfigurator(AnsibleConfigurator):
         else:
             md["name"] = name
 
-    def findPlaybook(self, task):
-        definition = self.getDefinition(task)
-        self.updateMetadata(definition, task)
+    def find_playbook(self, task):
+        definition = self.get_definition(task)
+        self.update_metadata(definition, task)
         delete = task.configSpec.operation in ["Standard.delete", "delete"]
         state = "absent" if delete else "present"
-        connectionConfig = self._getConnection(task)
+        connectionConfig = self._get_connection(task)
         moduleSpec = dict(state=state, **connectionConfig)
         if task.configSpec.operation in ["check", "discover"]:
             moduleSpec["kind"] = definition.get("kind", "")
@@ -162,7 +162,7 @@ class ResourceConfigurator(AnsibleConfigurator):
             moduleSpec["resource_definition"] = definition
         return [dict(k8s=moduleSpec)]
 
-    def processResult(self, task, result):
+    def process_result(self, task, result):
         # overrides super.processResult
         resource = result.result.get("result")
         task.target.attributes["apiResource"] = resource
@@ -184,6 +184,6 @@ class ResourceConfigurator(AnsibleConfigurator):
                 result.status = states.get(status, Status.unknown)
         return result
 
-    def getResultKeys(self, task, results):
+    def get_result_keys(self, task, results):
         # save first time even if it hasn't changed
         return ["result"]  # also "method", "diff", invocation

@@ -2,13 +2,13 @@ import unittest
 from unfurl.yamlmanifest import YamlManifest
 from unfurl.job import Runner, JobOptions, Status
 from unfurl.configurator import Configurator
-from unfurl.merge import lookupPath
+from unfurl.merge import lookup_path
 import datetime
 
 
 class TestConfigurator(Configurator):
     def run(self, task):
-        assert self.canRun(task)
+        assert self.can_run(task)
         attributes = task.target.attributes
         attributes["copyOfMeetsTheRequirement"] = attributes["meetsTheRequirement"]
         params = attributes
@@ -20,7 +20,7 @@ class TestConfigurator(Configurator):
 
             updateSpec = dict(name=".self", status=dict(attributes={"newAttribute": 1}))
             task.logger.info("updateResources: %s", [resourceSpec, updateSpec])
-            jobrequest, errors = task.updateResources([resourceSpec, updateSpec])
+            jobrequest, errors = task.update_resources([resourceSpec, updateSpec])
             if shouldYield:
                 job = yield jobrequest
                 assert job, jobrequest
@@ -81,19 +81,19 @@ class ConfiguratorTest(unittest.TestCase):
         test that runner figures out the proper tasks to run
         """
         runner = Runner(YamlManifest(manifest))
-        test1 = runner.manifest.getRootResource().findResource("test1")
+        test1 = runner.manifest.get_root_resource().find_resource("test1")
         assert test1
         # missing = runner.manifest.spec[0].findInvalidPreconditions(test1)
         # assert not missing, missing
 
         run1 = runner.run(JobOptions(instance="test1"))
-        assert not run1.unexpectedAbort, run1.unexpectedAbort.getStackTrace()
+        assert not run1.unexpectedAbort, run1.unexpectedAbort.get_stack_trace()
         assert len(run1.workDone) == 1, run1.summary()
 
     def test_preConditions(self):
         """test that the configuration only runs if the resource meets the requirements"""
         runner = Runner(YamlManifest(manifest))
-        test1 = runner.manifest.getRootResource().findResource("test1")
+        test1 = runner.manifest.get_root_resource().find_resource("test1")
         assert test1
 
         self.assertEqual(test1.attributes["meetsTheRequirement"], "copy")
@@ -104,7 +104,7 @@ class ConfiguratorTest(unittest.TestCase):
         jobOptions1 = JobOptions(resource="test1", startTime=1)
         run1 = runner.run(jobOptions1)
         # print(run1.out.getvalue())
-        assert not run1.unexpectedAbort, run1.unexpectedAbort.getStackTrace()
+        assert not run1.unexpectedAbort, run1.unexpectedAbort.get_stack_trace()
         self.assertEqual(test1.attributes["copyOfMeetsTheRequirement"], "copy")
 
         # provided = runner.manifest.spec[0].findMissingProvided(test1)
@@ -116,7 +116,7 @@ class ConfiguratorTest(unittest.TestCase):
             {"::test1": {"copyOfMeetsTheRequirement": "copy"}},
         )
 
-        test2 = runner.manifest.getRootResource().findResource("test2")
+        test2 = runner.manifest.get_root_resource().find_resource("test2")
         assert test2
         requiredAttribute = test2.attributes["meetsTheRequirement"]
         assert requiredAttribute is False, requiredAttribute
@@ -127,7 +127,7 @@ class ConfiguratorTest(unittest.TestCase):
 
         jobOptions2 = JobOptions(resource="test2", startTime=2)
         run2 = runner.run(jobOptions2)
-        assert not run2.unexpectedAbort, run2.unexpectedAbort.getStackTrace()
+        assert not run2.unexpectedAbort, run2.unexpectedAbort.get_stack_trace()
         assert run2.status == Status.error, run2.status
         # XXX better error reporting
         # self.assertEqual(str(run2.problems), "can't run required configuration: resource test2 doesn't meet requirement")
@@ -141,7 +141,7 @@ class ConfiguratorTest(unittest.TestCase):
         runner = Runner(YamlManifest(manifest))
         jobOptions = JobOptions(resource="test3", startTime=1)
         run = runner.run(jobOptions)
-        assert not run.unexpectedAbort, run.unexpectedAbort.getStackTrace()
+        assert not run.unexpectedAbort, run.unexpectedAbort.get_stack_trace()
         # self.assertEqual(list(run.workDone.keys()), [('test3', 'test'), ('added1', 'config1')])
 
         # print('config', run.out.getvalue())
@@ -159,7 +159,7 @@ class ConfiguratorTest(unittest.TestCase):
 
         jobOptions = JobOptions(resource="test4", startTime=2)
         run = runner.run(jobOptions)
-        assert not run.unexpectedAbort, run.unexpectedAbort.getStackTrace()
+        assert not run.unexpectedAbort, run.unexpectedAbort.get_stack_trace()
         self.assertEqual(
             [(t.name, t.target.name) for t in run.workDone.values()],
             [
@@ -207,12 +207,12 @@ class ConfiguratorTest(unittest.TestCase):
   """
         runner = Runner(YamlManifest(manifest))
         job = runner.run()
-        assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
+        assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
         self.assertEqual(
             job.stats(),
             {"total": 1, "ok": 1, "error": 0, "unknown": 0, "skipped": 0, "changed": 1},
         )
-        assert job.rootResource.findResource("testNode").attributes["outputVar"]
+        assert job.rootResource.find_resource("testNode").attributes["outputVar"]
 
 
 def test_result_template_errors(caplog):
@@ -239,7 +239,7 @@ spec:
 """
     runner = Runner(YamlManifest(manifest))
     job = runner.run()
-    assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
+    assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
     for record in caplog.records:
         if record.levelname == "WARNING":
             assert (
