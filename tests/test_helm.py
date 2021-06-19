@@ -72,13 +72,13 @@ class HelmTest(unittest.TestCase):
 
         runner = Runner(YamlManifest(self.manifest))
         run1 = runner.run(JobOptions(verbose=3, startTime=1))
-        assert not run1.unexpectedAbort, run1.unexpectedAbort.getStackTrace()
-        mysql_release = runner.manifest.rootResource.findResource("mysql_release")
+        assert not run1.unexpectedAbort, run1.unexpectedAbort.get_stack_trace()
+        mysql_release = runner.manifest.rootResource.find_resource("mysql_release")
         query = ".::.requirements::[.name=host]::.target::name"
         res = mysql_release.query(query)
         assert res == "unfurl-helm-unittest"
 
-        summary = run1.jsonSummary()
+        summary = run1.json_summary()
         # print(runner.manifest.statusSummary())
         # print(run1.jsonSummary(True))
         # print(run1._jsonPlanSummary(True))
@@ -173,13 +173,13 @@ class HelmTest(unittest.TestCase):
 
         runner = Runner(YamlManifest(self.manifest))
         run = runner.run(JobOptions(workflow="check", startTime=2))
-        summary = run.jsonSummary()
-        assert not run.unexpectedAbort, run.unexpectedAbort.getStackTrace()
+        summary = run.json_summary()
+        assert not run.unexpectedAbort, run.unexpectedAbort.get_stack_trace()
 
         # print("check")
         # print(runner.manifest.statusSummary())
         # print(run.jsonSummary(True))
-        summary = run.jsonSummary()
+        summary = run.json_summary()
         if sys.version_info[0] < 3:
             return # task order not guaranteed in python 2.7
         self.assertEqual(
@@ -256,11 +256,11 @@ class HelmTest(unittest.TestCase):
         run2 = runner.run(
             JobOptions(workflow="undeploy", startTime=3, destroyunmanaged=True)
         )
-        assert not run2.unexpectedAbort, run2.unexpectedAbort.getStackTrace()
+        assert not run2.unexpectedAbort, run2.unexpectedAbort.get_stack_trace()
         # print("undeploy")
         # print(runner.manifest.statusSummary())
         # print(run2.jsonSummary(True))
-        summary2 = run2.jsonSummary()
+        summary2 = run2.json_summary()
 
         # note: this test relies on stable_repo being place in the helm cache by test_deploy()
         # comment out the repository requirement to run this test standalone

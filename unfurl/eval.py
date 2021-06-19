@@ -21,39 +21,39 @@ import operator
 import collections
 from collections import Mapping, MutableSequence
 from ruamel.yaml.comments import CommentedMap
-from .util import validateSchema, UnfurlError, assertForm
+from .util import validate_schema, UnfurlError, assert_form
 from .result import ResultsList, Result, Results, ExternalValue, ResourceRef
 
 
-def mapValue(value, resourceOrCxt, applyTemplates=True):
+def map_value(value, resourceOrCxt, applyTemplates=True):
     if not isinstance(resourceOrCxt, RefContext):
         resourceOrCxt = RefContext(resourceOrCxt)
-    return _mapValue(value, resourceOrCxt, False, applyTemplates)
+    return _map_value(value, resourceOrCxt, False, applyTemplates)
 
 
-def _mapValue(value, ctx, wantList=False, applyTemplates=True):
-    from .support import isTemplate, applyTemplate
+def _map_value(value, ctx, wantList=False, applyTemplates=True):
+    from .support import is_template, apply_template
 
-    if Ref.isRef(value):
+    if Ref.is_ref(value):
         # wantList=False := resolveOne
         return Ref(value).resolve(ctx, wantList=wantList)
 
     if isinstance(value, Mapping):
         try:
-            oldBaseDir = ctx.baseDir
-            ctx.baseDir = getattr(value, "baseDir", oldBaseDir)
-            if ctx.baseDir and ctx.baseDir != oldBaseDir:
-                ctx.trace("found baseDir", ctx.baseDir)
+            oldBaseDir = ctx.base_dir
+            ctx.base_dir = getattr(value, "base_dir", oldBaseDir)
+            if ctx.base_dir and ctx.base_dir != oldBaseDir:
+                ctx.trace("found base_dir", ctx.base_dir)
             return dict(
-                (key, _mapValue(v, ctx, wantList, applyTemplates))
+                (key, _map_value(v, ctx, wantList, applyTemplates))
                 for key, v in value.items()
             )
         finally:
-            ctx.baseDir = oldBaseDir
+            ctx.base_dir = oldBaseDir
     elif isinstance(value, (MutableSequence, tuple)):
-        return [_mapValue(item, ctx, wantList, applyTemplates) for item in value]
-    elif applyTemplates and isTemplate(value, ctx):
-        return applyTemplate(value, ctx)
+        return [_map_value(item, ctx, wantList, applyTemplates) for item in value]
+    elif applyTemplates and is_template(value, ctx):
+        return apply_template(value, ctx)
     return value
 
 
@@ -117,7 +117,7 @@ class RefContext(object):
         self.resolveExternal = resolveExternal
         self._trace = trace
         self.strict = strict
-        self.baseDir = currentResource.baseDir
+        self.base_dir = currentResource.base_dir
         self.templar = currentResource.templar
         self.referenced = _Tracker()
         self.task = task
@@ -139,7 +139,7 @@ class RefContext(object):
             copy.vars.update(vars)
         if wantList is not None:
             copy.wantList = wantList
-        copy.baseDir = self.baseDir
+        copy.base_dir = self.base_dir
         copy.templar = self.templar
         copy.referenced = self.referenced
         copy.task = self.task
@@ -149,27 +149,27 @@ class RefContext(object):
         if self._trace:
             print("%s (ctx: %s)" % (" ".join(str(a) for a in msg), self._lastResource))
 
-    def addReference(self, ref, result):
+    def add_reference(self, ref, result):
         self.referenced.addReference(ref, result)
 
-    def resolveVar(self, key):
-        return self._resolveVar(key[1:]).resolved
+    def resolve_var(self, key):
+        return self._resolve_var(key[1:]).resolved
 
-    def _resolveVar(self, key):
+    def _resolve_var(self, key):
         value = self.vars[key]
         if isinstance(value, Result):
             return value
         else:
             # lazily resolve maps and lists to avoid circular references
-            val = Results._mapValue(value, self)
+            val = Results._map_value(value, self)
             if not isinstance(val, Result):
                 val = Result(val)
             self.vars[key] = val
             return val
 
-    def resolveReference(self, key):
-        val = self._resolveVar(key)
-        self.addReference(key, val)
+    def resolve_reference(self, key):
+        val = self._resolve_var(key)
+        self.add_reference(key, val)
         assert not isinstance(val.resolved, Result)
         return val.resolved
 
@@ -196,7 +196,7 @@ class Expr(object):
             self.vars.update(vars)
 
         self.source = exp
-        paths = list(parseExp(exp))
+        paths = list(parse_exp(exp))
         if "break" not in self.vars:
             # hack to check that we aren't a foreach expression
             if (not paths[0].key or paths[0].key[0] not in ".$") and (
@@ -225,14 +225,14 @@ class Expr(object):
             paths = self.paths[1:]
         elif self.paths[0].key and self.paths[0].key[0] == "$":
             # if starts with a var, use that as the start
-            currentResource = context.resolveVar(self.paths[0].key)
+            currentResource = context.resolve_var(self.paths[0].key)
             if len(self.paths) == 1:
                 # bare reference to a var, just return it's value
                 return [Result(currentResource)]
             paths = [self.paths[0]._replace(key="")] + self.paths[1:]
         else:
             paths = self.paths
-        return evalExp([currentResource], paths, context)
+        return eval_exp([currentResource], paths, context)
 
 
 class Ref(object):
@@ -269,13 +269,13 @@ class Ref(object):
             "Ref.resolve(wantList=%s) start strict %s" % (wantList, ctx.strict),
             self.source,
         )
-        results = evalRef(self.source, ctx, True)
+        results = eval_ref(self.source, ctx, True)
         ctx.trace("Ref.resolve(wantList=%s) evalRef" % wantList, self.source, results)
         if results and self.foreach:
-            results = forEach(self.foreach, results, ctx)
+            results = for_each(self.foreach, results, ctx)
         assert not isinstance(results, ResultsList), results
         results = ResultsList(results, ctx)
-        ctx.addReference(self, results)
+        ctx.add_reference(self, results)
         ctx.trace("Ref.resolve(wantList=%s) results" % wantList, self.source, results)
         if wantList and not wantList == "result":
             return results
@@ -293,7 +293,7 @@ class Ref(object):
                 else:
                     return list(results)
 
-    def resolveOne(self, ctx, strict=_defaultStrictness):
+    def resolve_one(self, ctx, strict=_defaultStrictness):
         """
         If no match return None
         If more than one match return a list of matches
@@ -306,7 +306,7 @@ class Ref(object):
         return self.resolve(ctx, False, strict)
 
     @staticmethod
-    def isRef(value):
+    def is_ref(value):
         if isinstance(value, Mapping):
             if not value:
                 return False
@@ -322,68 +322,68 @@ class Ref(object):
         return isinstance(value, Ref)
 
 
-def evalAsBoolean(arg, ctx):
-    result = evalRef(arg, ctx)
+def eval_as_boolean(arg, ctx):
+    result = eval_ref(arg, ctx)
     return not not result[0].resolved if result else False
 
 
-def ifFunc(arg, ctx):
+def if_func(arg, ctx):
     kw = ctx.kw
-    result = evalAsBoolean(arg, ctx)
+    result = eval_as_boolean(arg, ctx)
     if result:
         if "then" in kw:
-            return evalForFunc(kw["then"], ctx)
+            return eval_for_func(kw["then"], ctx)
         else:
             return result
     else:
         if "else" in kw:
-            return evalForFunc(kw["else"], ctx)
+            return eval_for_func(kw["else"], ctx)
         else:
             return result
 
 
-def orFunc(arg, ctx):
-    args = evalForFunc(arg, ctx)
-    assertForm(args, MutableSequence)
+def or_func(arg, ctx):
+    args = eval_for_func(arg, ctx)
+    assert_form(args, MutableSequence)
     for arg in args:
-        val = evalForFunc(arg, ctx)
+        val = eval_for_func(arg, ctx)
         if val:
             return val
     return False
 
 
-def notFunc(arg, ctx):
-    result = evalAsBoolean(arg, ctx)
+def not_func(arg, ctx):
+    result = eval_as_boolean(arg, ctx)
     return not result
 
 
-def andFunc(arg, ctx):
-    args = evalForFunc(arg, ctx)
-    assertForm(args, MutableSequence)
+def and_func(arg, ctx):
+    args = eval_for_func(arg, ctx)
+    assert_form(args, MutableSequence)
     for arg in args:
-        val = evalForFunc(arg, ctx)
+        val = eval_for_func(arg, ctx)
         if not val:
             return val
     return val
 
 
-def quoteFunc(arg, ctx):
+def quote_func(arg, ctx):
     return arg
 
 
-def eqFunc(arg, ctx):
-    args = mapValue(arg, ctx)
-    assertForm(args, MutableSequence, len(args) == 2)
+def eq_func(arg, ctx):
+    args = map_value(arg, ctx)
+    assert_form(args, MutableSequence, len(args) == 2)
     return args[0] == args[1]
 
 
-def validateSchemaFunc(arg, ctx):
-    args = mapValue(arg, ctx)
-    assertForm(args, MutableSequence, len(args) == 2)
-    return validateSchema(args[0], args[1])
+def validate_schema_func(arg, ctx):
+    args = map_value(arg, ctx)
+    assert_form(args, MutableSequence, len(args) == 2)
+    return validate_schema(args[0], args[1])
 
 
-def _forEach(foreach, results, ctx):
+def _for_each(foreach, results, ctx):
     if isinstance(foreach, six.string_types):
         keyExp = None
         valExp = foreach
@@ -399,7 +399,7 @@ def _forEach(foreach, results, ctx):
     Break = object()
     Continue = object()
 
-    def makeItems():
+    def make_items():
         for i, (k, v) in enumerate(results):
             ictx.currentResource = v
             ictx.vars["collection"] = results
@@ -409,12 +409,12 @@ def _forEach(foreach, results, ctx):
             ictx.vars["break"] = Break
             ictx.vars["continue"] = Continue
             if keyExp:
-                key = evalForFunc(keyExp, ictx)
+                key = eval_for_func(keyExp, ictx)
                 if key is Break:
                     break
                 elif key is Continue:
                     continue
-            valResults = evalRef(valExp, ictx)
+            valResults = eval_ref(valExp, ictx)
             if not valResults:
                 continue
             if len(valResults) == 1:
@@ -432,55 +432,55 @@ def _forEach(foreach, results, ctx):
 
     if keyExp:
         # use CommentedMap to preserve order
-        return [CommentedMap(makeItems())]
+        return [CommentedMap(make_items())]
     else:
-        return list(makeItems())
+        return list(make_items())
 
 
-def forEach(foreach, results, ctx):
+def for_each(foreach, results, ctx):
     # results will be list of Result
-    return _forEach(foreach, enumerate(r.external or r.resolved for r in results), ctx)
+    return _for_each(foreach, enumerate(r.external or r.resolved for r in results), ctx)
 
 
-def forEachFunc(foreach, ctx):
+def for_each_func(foreach, ctx):
     results = ctx.currentResource
     if results:
         if isinstance(results, Mapping):
-            return _forEach(foreach, results.items(), ctx)
+            return _for_each(foreach, results.items(), ctx)
         elif isinstance(results, MutableSequence):
-            return _forEach(foreach, enumerate(results), ctx)
+            return _for_each(foreach, enumerate(results), ctx)
         else:
-            return _forEach(foreach, [(0, results)], ctx)
+            return _for_each(foreach, [(0, results)], ctx)
     else:
         return results
 
 
 _Funcs = {
-    "if": ifFunc,
-    "and": andFunc,
-    "or": orFunc,
-    "not": notFunc,
-    "q": quoteFunc,
-    "eq": eqFunc,
-    "validate": validateSchemaFunc,
-    "foreach": forEachFunc,
+    "if": if_func,
+    "and": and_func,
+    "or": or_func,
+    "not": not_func,
+    "q": quote_func,
+    "eq": eq_func,
+    "validate": validate_schema_func,
+    "foreach": for_each_func,
 }
 _FuncsTop = ["q"]
 
 
-def getEvalFunc(name):
+def get_eval_func(name):
     return _Funcs.get(name)
 
 
-def setEvalFunc(name, val, topLevel=False):
+def set_eval_func(name, val, topLevel=False):
     _Funcs[name] = val
     if topLevel:
         _FuncsTop.append(name)
 
 
-def evalRef(val, ctx, top=False):
+def eval_ref(val, ctx, top=False):
     "val is assumed to be an expression, evaluate and return a list of Result"
-    from .support import isTemplate, applyTemplate
+    from .support import is_template, apply_template
 
     # functions and ResultsMap assume resolveOne semantics
     if top:
@@ -514,24 +514,24 @@ def evalRef(val, ctx, top=False):
                         return [Result(val)]
                 break
     elif isinstance(val, six.string_types):
-        if isTemplate(val, ctx):
-            return [Result(applyTemplate(val, ctx))]
+        if is_template(val, ctx):
+            return [Result(apply_template(val, ctx))]
         else:
             expr = Expr(val, ctx.vars)
             results = expr.resolve(ctx)  # returns a list of Result
             ctx.trace("expr.resolve", results)
             return results
 
-    mappedVal = Results._mapValue(val, ctx)
+    mappedVal = Results._map_value(val, ctx)
     if isinstance(mappedVal, Result):
         return [mappedVal]
     else:
         return [Result(mappedVal)]
 
 
-def evalForFunc(val, ctx):
+def eval_for_func(val, ctx):
     "like `evalRef` except it returns the resolved value"
-    results = evalRef(val, ctx)
+    results = eval_ref(val, ctx)
     if not results:
         return None
     if len(results) == 1:
@@ -545,12 +545,12 @@ Segment = collections.namedtuple("Segment", ["key", "test", "modifier", "filters
 defaultSegment = Segment("", [], "", [])
 
 
-def evalTest(value, test, context):
+def eval_test(value, test, context):
     comparor = test[0]
     key = test[1]
     try:
         if context and isinstance(key, six.string_types) and key.startswith("$"):
-            compare = context.resolveVar(key)
+            compare = context.resolve_var(key)
         else:
             # try to coerce string to value type
             compare = type(value)(key)
@@ -570,7 +570,7 @@ def lookup(result, key, context):
         # if key == '.':
         #   key = context.currentKey
         if context and isinstance(key, six.string_types) and key.startswith("$"):
-            key = context.resolveVar(key)
+            key = context.resolve_var(key)
 
         if isinstance(result.resolved, ResourceRef):
             context._lastResource = result.resolved
@@ -581,8 +581,8 @@ def lookup(result, key, context):
         context.trace("lookup %s, got %s" % (key, value))
 
         if not context._rest:
-            assert not Ref.isRef(value)
-            result.resolved = Results._mapValue(value, ctx)
+            assert not Ref.is_ref(value)
+            result.resolved = Results._map_value(value, ctx)
             assert not isinstance(result.resolved, (ExternalValue, Result))
 
         return result
@@ -596,7 +596,7 @@ def lookup(result, key, context):
 
 
 # given a Result, yields the result
-def evalItem(result, seg, context):
+def eval_item(result, seg, context):
     """
     apply current item to current segment, return [] or [value]
     """
@@ -607,24 +607,24 @@ def evalItem(result, seg, context):
 
     value = result.resolved
     for filter in seg.filters:
-        if _treatAsSingular(result, filter[0]):
+        if _treat_as_singular(result, filter[0]):
             resultList = [value]
         else:
             resultList = value
-        results = evalExp(resultList, filter, context)
+        results = eval_exp(resultList, filter, context)
         negate = filter[0].modifier == "!"
         if negate and results:
             return
         elif not negate and not results:
             return
 
-    if seg.test and not evalTest(value, seg.test, context):
+    if seg.test and not eval_test(value, seg.test, context):
         return
     assert isinstance(result, Result), result
     yield result
 
 
-def _treatAsSingular(result, seg):
+def _treat_as_singular(result, seg):
     if seg.key == "*":
         return False
     # treat external values as single item even if they resolve to a list
@@ -636,7 +636,7 @@ def _treatAsSingular(result, seg):
     )
 
 
-def recursiveEval(v, exp, context):
+def recursive_eval(v, exp, context):
     """
     given a iterator of (previous) Result,
     yields Result
@@ -648,11 +648,11 @@ def recursiveEval(v, exp, context):
         assert isinstance(result, Result), result
         item = result.resolved
 
-        if _treatAsSingular(result, exp[0]):
+        if _treat_as_singular(result, exp[0]):
             rest = exp[1:]
             context._rest = rest
             context.trace("evaluating item %s with key %s" % (item, exp[0].key))
-            iv = evalItem(
+            iv = eval_item(
                 result, exp[0], context
             )  # returns a generator that yields up to one result
         else:
@@ -669,7 +669,7 @@ def recursiveEval(v, exp, context):
 
         # iv will be a generator or list
         if rest:
-            results = recursiveEval(iv, rest, context)
+            results = recursive_eval(iv, rest, context)
             found = False
             for r in results:
                 found = True
@@ -687,21 +687,21 @@ def recursiveEval(v, exp, context):
                     return
 
 
-def evalExp(start, paths, context):
+def eval_exp(start, paths, context):
     "Returns a list of Result"
     context.trace("evalexp", start, paths)
-    assertForm(start, MutableSequence)
-    return list(recursiveEval((Result(i) for i in start), paths, context))
+    assert_form(start, MutableSequence)
+    return list(recursive_eval((Result(i) for i in start), paths, context))
 
 
-def _makeKey(key):
+def _make_key(key):
     try:
         return int(key)
     except ValueError:
         return key
 
 
-def parsePathKey(segment):
+def parse_path_key(segment):
     # key, negation, test, matchFirst
     if not segment:
         return defaultSegment
@@ -718,14 +718,14 @@ def parsePathKey(segment):
     if len(parts) == 3:
         key = parts[0]
         op = operator.eq if parts[1] == "=" else operator.ne
-        return Segment(_makeKey(key), [op, parts[2]], modifier, [])
+        return Segment(_make_key(key), [op, parts[2]], modifier, [])
     else:
-        return Segment(_makeKey(segment), [], modifier, [])
+        return Segment(_make_key(segment), [], modifier, [])
 
 
-def parsePath(path, start):
+def parse_path(path, start):
     paths = path.split("::")
-    segments = [parsePathKey(k.strip()) for k in paths]
+    segments = [parse_path_key(k.strip()) for k in paths]
     if start:
         if paths and paths[0]:
             # if the path didn't start with ':' merge with the last segment
@@ -739,13 +739,13 @@ def parsePath(path, start):
     return segments
 
 
-def parseExp(exp):
+def parse_exp(exp):
     # return list of steps
     rest = exp
     last = None
 
     while rest:
-        steps, rest = parseStep(rest, last)
+        steps, rest = parse_step(rest, last)
         last = None
         if steps:
             # we might need merge the next step into the last
@@ -757,18 +757,18 @@ def parseExp(exp):
         yield last
 
 
-def parseStep(exp, start=None):
+def parse_step(exp, start=None):
     split = re.split(r"(\[|\])", exp, 1)
     if len(split) == 1:  # not found
-        return parsePath(split[0], start), ""
+        return parse_path(split[0], start), ""
     else:
         path, sep, rest = split
 
-    paths = parsePath(path, start)
+    paths = parse_path(path, start)
 
     filterExps = []
     while sep == "[":
-        filterExp, rest = parseStep(rest)
+        filterExp, rest = parse_step(rest)
         filterExps.append(filterExp)
         # rest will be anything after ]
         sep = rest and rest[0]

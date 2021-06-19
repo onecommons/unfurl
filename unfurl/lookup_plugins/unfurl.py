@@ -17,4 +17,4 @@ class LookupModule(LookupBase):
         # workaround for 2.7
         Ref = sys.modules[type(variables["__unfurl"]).__module__].Ref
 
-        return list(map(lambda term: Ref(term).resolveOne(refContext), terms))
+        return list(map(lambda term: Ref(term).resolve_one(refContext), terms))

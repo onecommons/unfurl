@@ -5,10 +5,10 @@ from unfurl.yamlmanifest import YamlManifest
 from unfurl.localenv import LocalEnv
 from unfurl.job import Runner, JobOptions
 from unfurl.support import Status, RefContext
-from unfurl.projectpaths import _getbaseDir
+from unfurl.projectpaths import _get_base_dir
 from unfurl.configurator import Configurator
 from unfurl.util import sensitive_str, API_VERSION, UnfurlValidationError
-from unfurl.yamlloader import makeVaultLib
+from unfurl.yamlloader import make_vault_lib
 import six
 from click.testing import CliRunner
 import json
@@ -168,15 +168,15 @@ class ToscaSyntaxTest(unittest.TestCase):
 
     def _runInputAndOutputs(self, manifest):
         job = Runner(manifest).run(JobOptions(add=True, startTime="time-to-test"))
-        assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
-        my_server = manifest.getRootResource().findResource("my_server")
+        assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
+        my_server = manifest.get_root_resource().find_resource("my_server")
         assert my_server
         self.assertEqual(
             "10 GB", my_server.query({"get_property": ["SELF", "host", "disk_size"]})
         )
         assert my_server.attributes["test"], "cpus: 2"
         # print(job.out.getvalue())
-        testSensitive = manifest.getRootResource().findResource("testSensitive")
+        testSensitive = manifest.get_root_resource().find_resource("testSensitive")
         for name, toscaType in (
             ("access_token", "tosca.datatypes.Credential"),
             ("TEST_VAR", "unfurl.datatypes.EnvVar"),
@@ -186,9 +186,9 @@ class ToscaSyntaxTest(unittest.TestCase):
         def t(datatype):
             return datatype.type == "unfurl.datatypes.EnvVar"
 
-        envvars = set(testSensitive.template.findProps(testSensitive.attributes, t))
+        envvars = set(testSensitive.template.find_props(testSensitive.attributes, t))
         self.assertEqual(envvars, set([("TEST_VAR", "foo"), ("VAR1", "more")]))
-        outputIp = job.getOutputs()["server_ip"]
+        outputIp = job.get_outputs()["server_ip"]
         self.assertEqual(outputIp, "10.0.0.1")
         assert isinstance(outputIp, sensitive_str), type(outputIp)
         assert job.status == Status.ok, job.summary()
@@ -220,7 +220,7 @@ class ToscaSyntaxTest(unittest.TestCase):
         assert "server_ip: <<REDACTED>>" in job.out.getvalue(), job.out.getvalue()
 
     def test_ansibleVault(self):
-        manifest = YamlManifest(manifestDoc, vault=makeVaultLib("a_password"))
+        manifest = YamlManifest(manifestDoc, vault=make_vault_lib("a_password"))
         outputIp, job = self._runInputAndOutputs(manifest)
         vaultString = "server_ip: !vault |\n      $ANSIBLE_VAULT;1.1;AES256"
         assert vaultString in job.out.getvalue(), job.out.getvalue()
@@ -238,53 +238,53 @@ class ToscaSyntaxTest(unittest.TestCase):
         job = runner.run(JobOptions(add=True, out=output, startTime="test"))
         self.assertEqual(job.status.name, "ok")
         self.assertEqual(job.stats()["ok"], 1)
-        self.assertEqual(job.getOutputs()["aOutput"], "set")
-        assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
+        self.assertEqual(job.get_outputs()["aOutput"], "set")
+        assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
         # print(output.getvalue())
-        anInstance = job.rootResource.findResource("testPrefix")
+        anInstance = job.rootResource.find_resource("testPrefix")
         assert anInstance
         self.assertEqual(anInstance.attributes["testExpressionFunc"], "foo")
 
         ctx = RefContext(anInstance)
 
         # .: <ensemble>/
-        base = _getbaseDir(ctx, ".")
+        base = _get_base_dir(ctx, ".")
         self.assertEqual(base, os.path.normpath(os.path.dirname(path)))
 
         # testPrefix appeared in the same source file so it will be the same
-        src = _getbaseDir(ctx, "src")
+        src = _get_base_dir(ctx, "src")
         self.assertEqual(src, base)
 
         # home: <ensemble>/<instance name>/home
-        home = _getbaseDir(ctx, "home")
+        home = _get_base_dir(ctx, "home")
         self.assertEqual(os.path.join(base, "testPrefix", "home"), home)
 
         # local: <ensemble>/<instance name>/local/
-        local = _getbaseDir(ctx, "local")
+        local = _get_base_dir(ctx, "local")
         self.assertEqual(os.path.join(base, "testPrefix", "local"), local)
 
-        tmp = _getbaseDir(ctx, "tmp")
+        tmp = _get_base_dir(ctx, "tmp")
         assert tmp.endswith("testPrefix"), tmp
 
         # spec.home: <spec>/<template name>/
-        specHome = _getbaseDir(ctx, "spec.home")
+        specHome = _get_base_dir(ctx, "spec.home")
         self.assertEqual(os.path.join(base, "spec", "testPrefix"), specHome)
 
         # spec.local: <spec>/<template name>/local/
-        specLocal = _getbaseDir(ctx, "spec.local")
+        specLocal = _get_base_dir(ctx, "spec.local")
         self.assertEqual(os.path.join(specHome, "local"), specLocal)
 
-        specSrc = _getbaseDir(ctx, "spec.src")
+        specSrc = _get_base_dir(ctx, "spec.src")
         self.assertEqual(src, specSrc)
 
         # these repositories should always be defined:
-        unfurlRepoPath = _getbaseDir(ctx, "unfurl")
+        unfurlRepoPath = _get_base_dir(ctx, "unfurl")
         self.assertEqual(unfurl.manifest._basepath, os.path.normpath(unfurlRepoPath))
 
-        spec = _getbaseDir(ctx, "spec")
+        spec = _get_base_dir(ctx, "spec")
         self.assertEqual(os.path.normpath(spec), base)
 
-        selfPath = _getbaseDir(ctx, "self")
+        selfPath = _get_base_dir(ctx, "self")
         self.assertEqual(os.path.normpath(selfPath), base)
 
     def test_workflows(self):
@@ -304,13 +304,13 @@ class ToscaSyntaxTest(unittest.TestCase):
         )
         del os.environ["UNFURL_WORKDIR"]
         # print(json.dumps(job.jsonSummary(), indent=2))
-        assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
+        assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
         self.assertEqual(job.status.name, "ok")
         self.assertEqual(job.stats()["ok"], 4)
         self.assertEqual(job.stats()["changed"], 3)
         # print(job._jsonPlanSummary(True))
         self.assertEqual(
-            job._jsonPlanSummary(),
+            job._json_plan_summary(),
             [
                 {
                     "name": "stagingCluster",
@@ -501,7 +501,7 @@ spec:
                 with open("manifest.yaml", "w") as f:
                     f.write(mainManifest)
 
-                manifest = LocalEnv("manifest.yaml").getManifest()
+                manifest = LocalEnv("manifest.yaml").get_manifest()
                 assert manifest.manifest.vault and manifest.manifest.vault.secrets
                 job = Runner(manifest).run(
                     JobOptions(add=True, startTime="time-to-test")
@@ -525,10 +525,10 @@ spec:
                             "type": "test.nodes.AbstractTest",
                         }
                     ],
-                    job.jsonSummary()["tasks"],
+                    job.json_summary()["tasks"],
                 )
-                job.getOutputs()
-                self.assertEqual(job.getOutputs()["server_ip"], "10.0.0.1")
+                job.get_outputs()
+                self.assertEqual(job.get_outputs()["server_ip"], "10.0.0.1")
                 self.assertEqual(
                     len(manifest.localEnv._manifests), 2, manifest.localEnv._manifests
                 )
@@ -542,17 +542,17 @@ spec:
                 assert vaultString2 in job.out.getvalue()
 
                 # reload:
-                manifest2 = LocalEnv("manifest.yaml").getManifest()
+                manifest2 = LocalEnv("manifest.yaml").get_manifest()
                 assert manifest2.lastJob
                 # test that restored manifest create a shadow instance for the foreign instance
                 imported = manifest2.imports["foreign"].resource
                 assert imported
-                imported2 = manifest2.imports.findImport("foreign:anInstance")
+                imported2 = manifest2.imports.find_import("foreign:anInstance")
                 assert imported2
                 assert imported2.shadow
-                self.assertIs(imported2.root, manifest2.getRootResource())
+                self.assertIs(imported2.root, manifest2.get_root_resource())
                 self.assertEqual(imported2.attributes["private_address"], "10.0.0.1")
-                self.assertIsNot(imported2.shadow.root, manifest2.getRootResource())
+                self.assertIsNot(imported2.shadow.root, manifest2.get_root_resource())
         finally:
             if UNFURL_HOME is not None:
                 os.environ["UNFURL_HOME"] = UNFURL_HOME
@@ -585,7 +585,7 @@ spec:
             % API_VERSION
         )
         manifest2 = YamlManifest(mainManifest)
-        nodeSpec = manifest2.tosca.getTemplate("localhost")
+        nodeSpec = manifest2.tosca.get_template("localhost")
         assert nodeSpec
         relationshipSpec = nodeSpec.requirements["connect"].relationship
         assert relationshipSpec

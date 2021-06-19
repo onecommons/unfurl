@@ -32,13 +32,13 @@ class TerraformTest(unittest.TestCase):
                 manifestContent = f.read()
             with open("ensemble.yaml", "w") as f:
                 f.write(manifestContent)
-            manifest = LocalEnv().getManifest()
+            manifest = LocalEnv().get_manifest()
             runner = Runner(manifest)
             job = runner.run(JobOptions(startTime=1, check=True))  # deploy
-            assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
-            example = job.rootResource.findResource("example")
+            assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
+            example = job.rootResource.find_resource("example")
             self.assertEqual(example.attributes["tag"], "Hello, test!")
-            summary = job.jsonSummary()
+            summary = job.json_summary()
             # print(job.summary())
             # print(job._planSummary())
             # print(json.dumps(summary, indent=2))
@@ -87,12 +87,12 @@ class TerraformTest(unittest.TestCase):
                 summary,
             )
 
-            runner2 = Runner(LocalEnv().getManifest())
+            runner2 = Runner(LocalEnv().get_manifest())
             job = runner2.run(JobOptions(workflow="undeploy", startTime=2))
-            assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
+            assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
             # print(job.summary())
             # print(job._planSummary())
-            summary = job.jsonSummary()
+            summary = job.json_summary()
             # print(json.dumps(summary, indent=2))
             self.assertEqual(
                 {
@@ -126,10 +126,10 @@ class TerraformTest(unittest.TestCase):
                 summary,
             )
 
-            runner2 = Runner(LocalEnv().getManifest())
+            runner2 = Runner(LocalEnv().get_manifest())
             job = runner2.run(JobOptions(workflow="check", startTime=2))
-            assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
-            summary = job.jsonSummary()
+            assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
+            summary = job.json_summary()
             # print(json.dumps(summary, indent=2))
             self.assertEqual(
                 {
@@ -164,7 +164,7 @@ class TerraformTest(unittest.TestCase):
             )
             # {'job': {'id': 'A01120GC0000', 'status': 'ok', 'total': 1, 'ok': 1, 'error': 0, 'unknown': 0, 'skipped': 0, 'changed': 0}, 'outputs': {}, 'tasks': [{'status': 'ok', 'target': 'example', 'operation': 'check', 'template': 'example', 'type': 'unfurl.nodes.Installer.Terraform', 'targetStatus': 'ok', 'changed': False, 'configurator': 'unfurl.configurators.terraform.TerraformConfigurator', 'priority': 'required', 'reason': 'check'}]}
             self.assertEqual(
-                job._jsonPlanSummary(),
+                job._json_plan_summary(),
                 [
                     {
                         "name": "example",
@@ -217,16 +217,16 @@ class TerraformMotoTest(unittest.TestCase):
             with open("ensemble.yaml", "w") as f:
                 f.write(self.ensemble_config)
 
-            manifest = LocalEnv().getManifest()
+            manifest = LocalEnv().get_manifest()
             assert manifest.manifest.vault and manifest.manifest.vault.secrets
             assert not manifest.lastJob
 
             job = Runner(manifest).run(JobOptions(startTime=1, check=True, verbose=-1))
             # print(job.out.getvalue())
             # print(job.jsonSummary(True))
-            assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
+            assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
             assert job.status == Status.ok, job.summary()
-            example = job.rootResource.findResource("example")
+            example = job.rootResource.find_resource("example")
             self.assertEqual(example.attributes["tags"], {"Name": "test"})
             self.assertEqual(example.attributes["availability_zone"], "us-east-1a")
             self.assertEqual(
@@ -235,7 +235,7 @@ class TerraformMotoTest(unittest.TestCase):
             # print("deploy")
             # print(job.jsonSummary(True))
             self.assertEqual(
-                job.jsonSummary(),
+                job.json_summary(),
                 {
                     "job": {
                         "id": "A01110000000",
@@ -280,20 +280,20 @@ class TerraformMotoTest(unittest.TestCase):
             )
 
             # reload and check
-            manifest2 = LocalEnv().getManifest()
+            manifest2 = LocalEnv().get_manifest()
             assert manifest2.lastJob
-            manifest2.rootResource.findResource("example")
+            manifest2.rootResource.find_resource("example")
             self.assertEqual(
                 type(example.attributes["availability_zone"]), sensitive_str
             )
             job = Runner(manifest2).run(
                 JobOptions(workflow="check", verbose=-1, startTime=2)
             )
-            assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
+            assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
             # print("check")
             # print(job.jsonSummary(True))
             self.assertEqual(
-                job.jsonSummary(),
+                job.json_summary(),
                 {
                     "job": {
                         "id": "A01120000000",
@@ -326,9 +326,9 @@ class TerraformMotoTest(unittest.TestCase):
             assert job.status == Status.ok, job.summary()
 
             # reload and undeploy:
-            manifest3 = LocalEnv().getManifest()
+            manifest3 = LocalEnv().get_manifest()
             assert manifest3.lastJob
-            example = manifest3.rootResource.findResource("example")
+            example = manifest3.rootResource.find_resource("example")
             assert example
             self.assertEqual(
                 type(example.attributes["availability_zone"]), sensitive_str
@@ -336,10 +336,10 @@ class TerraformMotoTest(unittest.TestCase):
             job = Runner(manifest3).run(
                 JobOptions(workflow="undeploy", verbose=2, startTime=3)
             )
-            assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
+            assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
             assert job.status == Status.ok, job.summary()
             self.assertEqual(
-                job.jsonSummary(),
+                job.json_summary(),
                 {
                     "job": {
                         "id": "A01130000000",

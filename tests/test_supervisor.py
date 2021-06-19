@@ -26,8 +26,8 @@ class SupervisorTest(unittest.TestCase):
             runner = Runner(YamlManifest(path=path))
             try:
                 job = runner.run(JobOptions(startTime=1, check=True))  # deploy
-                assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
-                summary = job.jsonSummary()
+                assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
+                summary = job.json_summary()
                 # print(json.dumps(summary, indent=2))
                 self.assertEqual(
                     {
@@ -50,8 +50,8 @@ class SupervisorTest(unittest.TestCase):
 
                 runner = Runner(YamlManifest(path=path))
                 job = runner.run(JobOptions(workflow="undeploy", startTime=2))
-                assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
-                summary = job.jsonSummary()
+                assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
+                summary = job.json_summary()
                 # print(json.dumps(summary, indent=2))
                 self.assertEqual(
                     {

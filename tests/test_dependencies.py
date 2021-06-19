@@ -74,8 +74,8 @@ class DependencyTest(unittest.TestCase):
         manifest = YamlManifest(manifestContent)
         runner = Runner(manifest)
         job = runner.run(JobOptions(startTime=1))  # deploy
-        assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
-        summary = job.jsonSummary()
+        assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
+        summary = job.json_summary()
         # print("deployed")
         # print(json.dumps(summary, indent=2))
         # print(job.out.getvalue())
@@ -147,8 +147,8 @@ class DependencyTest(unittest.TestCase):
         # Deploy again: B's task should run now since C should have been deployed
         manifest2 = YamlManifest(job.out.getvalue())
         job = Runner(manifest2).run(JobOptions(startTime=2))
-        assert not job.unexpectedAbort, job.unexpectedAbort.getStackTrace()
-        summary = job.jsonSummary()
+        assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
+        summary = job.json_summary()
         # changes = job.runner.manifest.manifest.config["changes"]
         # XXX test that attr: "live" is in changes
         # print(job.out.getvalue())

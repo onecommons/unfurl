@@ -107,13 +107,13 @@ class DockerTest(unittest.TestCase):
 
         # XXX why does check task (task[0]) fail 50% of time??
         assert tasks[1].status.name == "ok", tasks[1].status
-        assert not run1.unexpectedAbort, run1.unexpectedAbort.getStackTrace()
+        assert not run1.unexpectedAbort, run1.unexpectedAbort.get_stack_trace()
         assert tasks[1].target.status.name == "ok", tasks[1].target.status
 
         run2 = runner.run(JobOptions(workflow="undeploy", template="container1"))
         # stop op shouldn't be called, just delete
         assert len(run2.workDone) == 1, run2.workDone
-        assert not run2.unexpectedAbort, run2.unexpectedAbort.getStackTrace()
+        assert not run2.unexpectedAbort, run2.unexpectedAbort.get_stack_trace()
         tasks = list(run2.workDone.values())
         # runner.manifest.dump()
         assert tasks[0].status.name == "ok", tasks[0].status
@@ -145,4 +145,4 @@ class DockerTest(unittest.TestCase):
         )
         registry = tasks[0].result.outputs.get("registry")
         assert registry and isinstance(registry, toscaparser.repositories.Repository)
-        assert not run1.unexpectedAbort, run1.unexpectedAbort.getStackTrace()
+        assert not run1.unexpectedAbort, run1.unexpectedAbort.get_stack_trace()

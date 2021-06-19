@@ -41,7 +41,7 @@ class DefaultNames(object):
     ProjectDirectory = ".unfurl"
 
 
-def getHomeConfigPath(homepath):
+def get_home_config_path(homepath):
     # if homepath is explicitly it overrides UNFURL_HOME
     # (set it to empty string to disable the homepath)
     # otherwise use UNFURL_HOME or the default location
@@ -110,12 +110,12 @@ class SensitiveLogFilter(logging.Filter):
         return True
 
 
-def getLogLevel():
+def get_log_level():
     global _logLevel
     return _logLevel
 
 
-def initLogging(level=None, logfile=None):
+def init_logging(level=None, logfile=None):
     rootLogger = logging.getLogger()
     global _logLevel
     if _logLevel == logging.NOTSET:
@@ -153,7 +153,7 @@ def initLogging(level=None, logfile=None):
 
 _logEnv = os.getenv("UNFURL_LOGGING")
 if _logEnv is not None:
-    initLogging(_logEnv.upper())
+    init_logging(_logEnv.upper())
 
 ### Ansible initialization
 if "ANSIBLE_CONFIG" not in os.environ:

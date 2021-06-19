@@ -116,8 +116,8 @@ class CliTestConfigurator(Configurator):
         yaml.dump(attrs["aListOfItems"], out)
         assert out.getvalue() == "<<REDACTED>>\n...\n", repr(out.getvalue())
         assert isinstance(
-            attrs._attributes["aListOfItems"].asRef(), sensitive_list
-        ), type(attrs._attributes["aListOfItems"].asRef())
+            attrs._attributes["aListOfItems"].as_ref(), sensitive_list
+        ), type(attrs._attributes["aListOfItems"].as_ref())
 
         yield task.done(True, False)
 
@@ -278,7 +278,7 @@ class CliTest(unittest.TestCase):
             del os.environ["UNFURL_HOME"]
             # we don't want to want to try to load the real home path so call getHomeConfigPath() instead
             # homePath = LocalEnv().homeConfigPath
-            homePath = unfurl.getHomeConfigPath(None)
+            homePath = unfurl.get_home_config_path(None)
             assert homePath and homePath.endswith(".unfurl_home/unfurl.yaml"), homePath
 
             # restore test environment's UNFURL_HOME
