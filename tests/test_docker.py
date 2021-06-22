@@ -15,7 +15,7 @@ spec:
         file: configurators/docker-template.yaml
     repositories:
       docker_hub:
-        url: https://registry.hub.docker.com/
+        url: https://index.docker.io
         credential:
            user: a_user
            token: a_password
@@ -141,7 +141,7 @@ class DockerTest(unittest.TestCase):
         # but the repository and image path will have been created
         self.assertEqual(
             tasks[0].result.outputs.get("image_path"),
-            "registry.hub.docker.com/repo/image",
+            "index.docker.io/repo/image",
         )
         registry = tasks[0].result.outputs.get("registry")
         assert registry and isinstance(registry, toscaparser.repositories.Repository)
