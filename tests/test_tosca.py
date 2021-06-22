@@ -303,12 +303,12 @@ class ToscaSyntaxTest(unittest.TestCase):
             )
         )
         del os.environ["UNFURL_WORKDIR"]
-        # print(json.dumps(job.jsonSummary(), indent=2))
+        # print(json.dumps(job.json_summary(), indent=2))
         assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
         self.assertEqual(job.status.name, "ok")
-        self.assertEqual(job.stats()["ok"], 4)
-        self.assertEqual(job.stats()["changed"], 3)
-        # print(job._jsonPlanSummary(True))
+        self.assertEqual(job.stats()["ok"], 5)
+        self.assertEqual(job.stats()["changed"], 4)
+        # print(job._json_plan_summary(True))
         self.assertEqual(
             job._json_plan_summary(),
             [
@@ -322,8 +322,8 @@ class ToscaSyntaxTest(unittest.TestCase):
                         {
                             "name": "defaultNamespace",
                             "status": "Status.ok",
-                            "state": "NodeState.started",
-                            "managed": None,
+                            "state": "NodeState.configured",
+                            "managed": "A01100000002",
                             "plan": [
                                 {"operation": "check", "reason": "check"},
                                 {

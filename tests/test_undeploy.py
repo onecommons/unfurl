@@ -91,6 +91,9 @@ manifest2Content = """\
 
 
 class UndeployTest(unittest.TestCase):
+    def setUp(self):
+        self.maxDiff = None
+
     def test_check(self):
         manifest = YamlManifest(manifestContent)
         runner = Runner(manifest)
@@ -108,7 +111,7 @@ class UndeployTest(unittest.TestCase):
                 "error": 0,
                 "unknown": 0,
                 "skipped": 0,
-                "changed": 4,
+                "changed": 6,
             },
             summary["job"],
         )
@@ -325,8 +328,8 @@ class UndeployTest(unittest.TestCase):
                     "operation": "stop",
                     "template": "simple",
                     "type": "test.nodes.simple",
-                    "targetStatus": "absent",
-                    "targetState": "deleted",
+                    "targetStatus": "ok",  # XXX should be pending
+                    "targetState": "stopped",
                     "changed": False,
                     "configurator": "unfurl.configurators.TemplateConfigurator",
                     "priority": "required",

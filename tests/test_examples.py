@@ -47,6 +47,7 @@ class DummyShellConfigurator(TemplateConfigurator):
 class RunTest(unittest.TestCase):
     def setUp(self):
         os.environ["UNFURL_WORKDIR"] = make_temp_dir(delete=True)
+        self.maxDiff = None
 
     def tearDown(self):
         del os.environ["UNFURL_WORKDIR"]
@@ -109,7 +110,7 @@ class RunTest(unittest.TestCase):
                         "operation": "execute",
                         "template": "gitlab-release",
                         "type": "unfurl.nodes.HelmRelease",
-                        "targetStatus": "ok",
+                        "targetStatus": "pending",
                         "targetState": None,
                         "changed": True,
                         "configurator": "tests.test_examples.HelmConfigurator",
@@ -122,7 +123,7 @@ class RunTest(unittest.TestCase):
                         "operation": "subtaskOperation",
                         "template": "gitlab-release",
                         "type": "unfurl.nodes.HelmRelease",
-                        "targetStatus": "ok",
+                        "targetStatus": "pending",
                         "targetState": None,
                         "changed": True,
                         "configurator": "tests.test_examples.DummyShellConfigurator",
@@ -153,12 +154,11 @@ class RunTest(unittest.TestCase):
         output2 = six.StringIO()
         job2 = Runner(manifest2).run(JobOptions(add=True, out=output2, startTime=2))
         # print("2", output2.getvalue())
-        # print(job2.jsonSummary(True))
-        # print(job2._planSummary())
+        # print("2", job2.json_summary(True))
+        # print(job2._json_plan_summary(True))
         assert not job2.unexpectedAbort, job2.unexpectedAbort.get_stack_trace()
         # should not have found any tasks to run:
         assert len(job2.workDone) == 0, job2.workDone
-        # self.maxDiff = None
         # self.assertEqual(output.getvalue(), output2.getvalue())
 
         output3 = six.StringIO()
@@ -168,7 +168,7 @@ class RunTest(unittest.TestCase):
         )
         # print(output3.getvalue())
         # only the chart delete task should have ran as it owns the resources it created
-        # print(job3.jsonSummary())
+        # print(job3.json_summary(True))
         assert len(job3.workDone) == 1, job3.json_summary()
         tasks = list(job3.workDone.values())
         assert tasks[0].target.status.name == "absent", tasks[0].target.status

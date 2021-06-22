@@ -136,7 +136,10 @@ class ConfigTask(ConfigChange, TaskView):
         self.changeList = []
         self.result = None
         self.outputs = None
-        # self._completedSubTasks = []
+        # for summary:
+        self.modified_target = False
+        self.target_status = target.status
+        self.target_state = target.state
 
         # set the attribute manager on the root resource
         self._attributeManager = AttributeManager(self._manifest.yaml)
@@ -177,8 +180,6 @@ class ConfigTask(ConfigChange, TaskView):
 
     def send(self, change):
         result = None
-        # if isinstance(change, ConfigTask):
-        #     self._completedSubTasks.append(change)
         try:
             result = self.generator.send(change)
         finally:
@@ -188,6 +189,8 @@ class ConfigTask(ConfigChange, TaskView):
 
     def start(self):
         self.start_run()
+        self.target_status = self.target.status
+        self.target_state = self.target.state
 
     def _update_status(self, result):
         """
@@ -204,15 +207,19 @@ class ConfigTask(ConfigChange, TaskView):
                     "discover",
                 ]:
                     self.target.created = self.changeId
+            return True
         elif not result.success:
             # if any task failed and (maybe) modified, target.status will be set to error or unknown
             if result.modified:
                 self.target.local_status = (
                     Status.error if self.required else Status.degraded
                 )
+                return True
             elif result.modified is None:
                 self.target.local_status = Status.unknown
+                return True
             # otherwise doesn't modify target status
+        return False
 
     def _update_last_change(self, result):
         """
@@ -223,6 +230,7 @@ class ConfigTask(ConfigChange, TaskView):
             # hacky but always save _lastConfigChange the first time to
             # distinguish this from a brand new resource
             self.target._lastConfigChange = self.changeId
+            return True
         if result.modified or self._resourceChanges.get_attribute_changes(
             self.target.key
         ):
@@ -230,12 +238,16 @@ class ConfigTask(ConfigChange, TaskView):
                 # save to create a linked list of tasks that modified the target
                 self.previousId = self.target.last_change
             self.target._lastStateChange = self.changeId
+            return True
+        return False
 
     def finished_workflow(self, successStatus):
         instance = self.target
         if instance.local_status == successStatus:
-            return
+            return  # hasn't changed
+        self.modified_target = True
         instance.local_status = successStatus
+        self.target_status = successStatus
         if instance.last_change != self.changeId:
             # save to create a linked list of tasks that modified the target
             self.previousId = instance.last_change
@@ -275,17 +287,13 @@ class ConfigTask(ConfigChange, TaskView):
 
         # now that resourceChanges finalized:
         self._update_status(result)
-        self._update_last_change(result)
+        targetChanged = self._update_last_change(result)
         self.result = result
         self.local_status = Status.ok if result.success else Status.error
+        self.modified_target = targetChanged or self.target_status != self.target.status
+        self.target_status = self.target.status
+        self.target_state = self.target.state
         return self
-
-    def modified_target(self):
-        return (
-            (self.result and self.result.modified)
-            or self.target._lastStateChange == self.changeId
-            or self.target._lastConfigChange == self.changeId
-        )
 
     def commit_changes(self):
         """
@@ -375,9 +383,9 @@ class ConfigTask(ConfigChange, TaskView):
             operation=self.configSpec.operation,
             template=self.target.template.name,
             type=self.target.template.type,
-            targetStatus=self.target.status.name,
-            targetState=self.target.state and self.target.state.name or None,
-            changed=self.modified_target(),
+            targetStatus=self.target_status.name,
+            targetState=self.target_state and self.target_state.name or None,
+            changed=self.modified_target,
             configurator=configurator,
             priority=self.priority.name,
             reason=self.reason or "",
@@ -472,7 +480,6 @@ class Job(ConfigChange):
         return self.rootResource
 
     def get_candidate_task_requests(self):
-        # XXX plan might call job.runJobRequest(configuratorJob) before yielding
         planGen = self.plan.execute_plan()
         result = None
         try:
@@ -781,6 +788,7 @@ class Job(ConfigChange):
                     }.get(resource._localStatus)
                     if state is not None:
                         resource.state = state
+                task.target_state = resource.state
 
             # logger.debug(
             #     "changed %s to %s, wanted %s",
@@ -925,7 +933,7 @@ class Job(ConfigChange):
                 stats["skipped"] = len(list(g))
             else:
                 stats[k.name] = len(list(g))
-        stats["changed"] = len([t for t in tasks if t.modified_target()])
+        stats["changed"] = len([t for t in tasks if t.modified_target])
         if asMessage:
             return "{total} tasks ({changed} changed, {ok} ok, {error} failed, {unknown} unknown, {skipped} skipped)".format(
                 **stats

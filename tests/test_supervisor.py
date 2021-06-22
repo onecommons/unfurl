@@ -38,7 +38,7 @@ class SupervisorTest(unittest.TestCase):
                         "error": 0,
                         "unknown": 0,
                         "skipped": 0,
-                        "changed": 3,
+                        "changed": 4,
                     },
                     summary["job"],
                 )
@@ -52,7 +52,7 @@ class SupervisorTest(unittest.TestCase):
                 job = runner.run(JobOptions(workflow="undeploy", startTime=2))
                 assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
                 summary = job.json_summary()
-                # print(json.dumps(summary, indent=2))
+                print(json.dumps(summary, indent=2))
                 self.assertEqual(
                     {
                         "id": "A01120000000",
@@ -67,6 +67,7 @@ class SupervisorTest(unittest.TestCase):
                     summary["job"],
                 )
             finally:
+                # NOTE: to manually kill: pkill -lf supervisord
                 if os.path.exists("supervisord/local/supervisord.pid"):
                     with open("supervisord/local/supervisord.pid") as f:
                         pid = int(f.read())

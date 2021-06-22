@@ -84,7 +84,7 @@ class HelmTest(unittest.TestCase):
         # print(run1._jsonPlanSummary(True))
 
         if sys.version_info[0] < 3:
-            return # task order not guaranteed in python 2.7
+            return  # task order not guaranteed in python 2.7
         self.assertEqual(
             summary,
             {
@@ -96,7 +96,7 @@ class HelmTest(unittest.TestCase):
                     "error": 0,
                     "unknown": 0,
                     "skipped": 0,
-                    "changed": 3,
+                    "changed": 4,
                 },
                 "outputs": {},
                 "tasks": [
@@ -134,7 +134,7 @@ class HelmTest(unittest.TestCase):
                         "type": "unfurl.nodes.HelmRelease",
                         "targetStatus": "ok",
                         "targetState": "configured",
-                        "changed": False,
+                        "changed": True,
                         "configurator": "unfurl.configurators.DelegateConfigurator",
                         "priority": "required",
                         "reason": "add",
@@ -146,7 +146,7 @@ class HelmTest(unittest.TestCase):
                         "template": "mysql_release",
                         "type": "unfurl.nodes.HelmRelease",
                         "targetStatus": "ok",
-                        "targetState": "configured",
+                        "targetState": "configuring",
                         "changed": True,
                         "configurator": "unfurl.configurators.shell.ShellConfigurator",
                         "priority": "required",
@@ -181,7 +181,7 @@ class HelmTest(unittest.TestCase):
         # print(run.jsonSummary(True))
         summary = run.json_summary()
         if sys.version_info[0] < 3:
-            return # task order not guaranteed in python 2.7
+            return  # task order not guaranteed in python 2.7
         self.assertEqual(
             summary,
             {
@@ -193,7 +193,7 @@ class HelmTest(unittest.TestCase):
                     "error": 0,
                     "unknown": 0,
                     "skipped": 0,
-                    "changed": 3,
+                    "changed": 4,
                 },
                 "outputs": {},
                 "tasks": [
@@ -231,7 +231,7 @@ class HelmTest(unittest.TestCase):
                         "type": "unfurl.nodes.HelmRelease",
                         "targetStatus": "ok",
                         "targetState": "started",
-                        "changed": False,
+                        "changed": True,
                         "configurator": "unfurl.configurators.DelegateConfigurator",
                         "priority": "required",
                         "reason": "check",
@@ -243,7 +243,7 @@ class HelmTest(unittest.TestCase):
                         "template": "mysql_release",
                         "type": "unfurl.nodes.HelmRelease",
                         "targetStatus": "ok",
-                        "targetState": "started",
+                        "targetState": None,
                         "changed": True,
                         "configurator": "unfurl.configurators.shell.ShellConfigurator",
                         "priority": "required",
