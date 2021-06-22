@@ -227,10 +227,10 @@ class ShellConfigurator(TemplateConfigurator):
         else:
             cwd = task.cwd
         cmd = self.resolve_dry_run(cmd, task)
-        task.set_work_folder().set_render_state([cmd, cwd])
+        return [cmd, cwd]
 
     def run(self, task):
-        cmd, cwd = task.get_work_folder().renderState
+        cmd, cwd = task.rendered
         params = task.inputs
         isString = isinstance(cmd, six.string_types)
         # default for shell: True if command is a string otherwise False

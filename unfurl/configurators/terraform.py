@@ -3,6 +3,7 @@
 from ..util import save_to_file, UnfurlTaskError, wrap_var
 from .shell import ShellConfigurator
 from ..support import Status
+from unfurl.projectpaths import get_path
 import json
 import os
 import os.path
@@ -147,24 +148,23 @@ class TerraformConfigurator(ShellConfigurator):
         # the terraform state file is associate with the current instance
         # read the (possible encrypted) version from the repository
         # and write out it as plaintext json into the local directory
-        yamlPath = cwd.get_path("terraform.tfstate.yaml")
-        jsonPath = cwd.get_path("terraform.tfstate.json")
-        if not os.path.exists(jsonPath) and os.path.exists(yamlPath):
+        yamlPath = get_path(task.inputs.context, "terraform.tfstate.yaml")
+        if os.path.exists(yamlPath):
             # if exists in home, load and write out state file as json
             with open(yamlPath, "r") as f:
                 state = task._manifest.yaml.load(f.read())
             cwd.write_file(state, "terraform.tfstate.json")
-        return jsonPath
+        return "terraform.tfstate.json"
 
     def _get_plan_path(self, task, cwd):
         # the terraform state file is associate with the current instance
         # read the (possible encrypted) version from the repository
         # and write out it as plaintext json into the local directory
         jobId = task.get_job_id(task.changeId)
-        return cwd.get_path(jobId + ".plan", "local")
+        return get_path(task.inputs.context, jobId + ".plan", "local")
 
     def render(self, task):
-        cwd = task.set_work_folder("home")
+        cwd = task.set_work_folder("home", preserve=True)
         ctx = task.inputs.context
         # options:
         _, terraform = self._cmd(
@@ -208,11 +208,11 @@ class TerraformConfigurator(ShellConfigurator):
         if varfilePath:
             cmd.append("-var-file=" + varfilePath)
 
-        cwd.set_render_state([cmd, terraform, statePath])
+        return [cmd, terraform, statePath]
 
     def run(self, task):
         cwd = task.get_work_folder()
-        cmd, terraform, statePath = cwd.renderState
+        cmd, terraform, statePath = task.rendered
         echo = task.verbose > -1
 
         dataDir = os.getenv("TF_DATA_DIR", os.path.join(cwd.cwd, ".terraform"))
@@ -262,6 +262,7 @@ class TerraformConfigurator(ShellConfigurator):
 
         if success and not (task.dry_run or task.configSpec.operation == "check"):
             # read state file
+            statePath = os.path.join(cwd.cwd, statePath)
             with open(statePath) as sf:
                 state = json.load(sf)
             state = mark_sensitive(providerSchema, state, task, self.sensitiveNames)

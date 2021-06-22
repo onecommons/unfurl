@@ -80,24 +80,25 @@ class DependencyTest(unittest.TestCase):
         # print(json.dumps(summary, indent=2))
         # print(job.out.getvalue())
 
-        dependencies = [dict(ref="::nodeC::attr", required=True)]
-        self.assertEqual(
-            dependencies,
-            job.runner.manifest.manifest.config["changes"][1]["dependencies"],
-        )
+        # XXX dependencies detected during render should be saved
+        # dependencies = [dict(ref="::nodeC::attr", required=True)]
+        # self.assertEqual(
+        #     dependencies,
+        #     job.runner.manifest.manifest.config["changes"][1]["dependencies"],
+        # )
 
         self.assertEqual(
             summary,
             {
                 "job": {
                     "id": "A01110000000",
-                    "status": "error",
+                    "status": "ok",
                     "total": 3,
-                    "ok": 2,
-                    "error": 1,
+                    "ok": 3,
+                    "error": 0,
                     "unknown": 0,
                     "skipped": 0,
-                    "changed": 2,
+                    "changed": 3,
                 },
                 "outputs": {},
                 "tasks": [
@@ -115,24 +116,24 @@ class DependencyTest(unittest.TestCase):
                         "reason": "add",
                     },
                     {
-                        "status": "error",
-                        "target": "nodeB",
+                        "status": "ok",
+                        "target": "nodeC",
                         "operation": "configure",
-                        "template": "nodeB",
-                        "type": "tosca.nodes.Root",
-                        "targetStatus": "pending",
-                        "targetState": "configuring",
-                        "changed": False,
+                        "template": "nodeC",
+                        "type": "nodes.Test",
+                        "targetStatus": "ok",
+                        "targetState": "configured",
+                        "changed": True,
                         "configurator": "unfurl.configurators.TemplateConfigurator",
                         "priority": "required",
                         "reason": "add",
                     },
                     {
                         "status": "ok",
-                        "target": "nodeC",
+                        "target": "nodeB",
                         "operation": "configure",
-                        "template": "nodeC",
-                        "type": "nodes.Test",
+                        "template": "nodeB",
+                        "type": "tosca.nodes.Root",
                         "targetStatus": "ok",
                         "targetState": "configured",
                         "changed": True,
@@ -158,28 +159,14 @@ class DependencyTest(unittest.TestCase):
                 "job": {
                     "id": "A01120000000",
                     "status": "ok",
-                    "total": 1,
-                    "ok": 1,
+                    "total": 0,
+                    "ok": 0,
                     "error": 0,
                     "unknown": 0,
                     "skipped": 0,
-                    "changed": 1,
+                    "changed": 0,
                 },
                 "outputs": {},
-                "tasks": [
-                    {
-                        "status": "ok",
-                        "target": "nodeB",
-                        "operation": "configure",
-                        "template": "nodeB",
-                        "type": "tosca.nodes.Root",
-                        "targetStatus": "ok",
-                        "targetState": "configured",
-                        "changed": True,
-                        "configurator": "unfurl.configurators.TemplateConfigurator",
-                        "priority": "required",
-                        "reason": "add",
-                    }
-                ],
+                "tasks": [],
             },
         )

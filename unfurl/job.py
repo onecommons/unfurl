@@ -19,11 +19,17 @@ from .runtime import OperationalInstance
 from .configurator import (
     TaskView,
     ConfiguratorResult,
+    Dependency,
+)
+from .planrequests import (
     PlanRequest,
+    TaskRequest,
     TaskRequestGroup,
     SetStateRequest,
     JobRequest,
-    Dependency,
+    do_render_requests,
+    get_render_requests,
+    set_fulfilled,
 )
 from .plan import Plan
 from .localenv import LocalEnv
@@ -466,11 +472,28 @@ class Job(ConfigChange):
             )
 
     def run(self):
-        self.create_plan()
+        ready = self.create_plan()
         self.workDone = collections.OrderedDict()
-        self.apply(self.taskRequests)
-        # the only jobs left will be those that were added to resources already iterated over
-        # and were not yielding inside runTask
+        notReady = []
+        while ready:
+            # first time render them all, after that only re-render requests if their dependencies were fulfilled
+            ready, unfulfilled, errors = do_render_requests(self, ready)
+            notReady.extend(unfulfilled)
+            self.apply(ready)  # XXX what about errors?
+            ready, notReady = set_fulfilled(notReady, ready)
+
+        # if there were circular dependencies or errors there will be notReady won't be empty
+        if notReady:
+            for parent, req in get_render_requests(notReady):
+                message = "can't fulfill %s: never ran %s" % (
+                    req.target.name,
+                    req.future_dependencies,
+                )
+                logger.debug(message)
+                req.task.finished(ConfiguratorResult(False, False, result=message))
+
+        # the jobRequestQueue will have jobs that were added dynamically by a configurator
+        # but were not yielding inside runTask
         while self.jobRequestQueue:
             jobRequest = self.jobRequestQueue[0]
             job = self.run_job_request(jobRequest)
@@ -492,6 +515,7 @@ class Job(ConfigChange):
     def create_plan(self):
         self.validate_job_options()
         self.taskRequests = list(self.get_candidate_task_requests())
+        return self.taskRequests
 
     def _get_success_status(self, workflow, success):
         if isinstance(success, Status):
@@ -728,6 +752,7 @@ class Job(ConfigChange):
         if isinstance(req, SetStateRequest):
             self._set_state(req)
             return None
+        assert isinstance(req, TaskRequest)
         if req.error:
             return None
 
@@ -742,7 +767,10 @@ class Job(ConfigChange):
                 msg,
             )
             return None
-        task = self.create_task(req.configSpec, req.target, reason=req.reason)
+
+        task = req.task or self.create_task(
+            req.configSpec, req.target, reason=req.reason
+        )
         if task:
             proceed, msg = self.should_run_task(task)
             if not proceed:
@@ -762,13 +790,6 @@ class Job(ConfigChange):
             startingState = resource.state
             self.runner.add_work(task)
             self.run_task(task, depth)
-
-            if (
-                workflow == "deploy"
-                and task.modified_target()
-                and resource.created is None
-            ):
-                resource.created = task.changeId
 
             # if # task succeeded but didn't update nodestate
             if task.result.success and resource.state == startingState:
@@ -806,17 +827,6 @@ class Job(ConfigChange):
 
         return task
 
-    def render(self, task):
-        try:
-            task.configurator.render(task)
-        except Exception:
-            UnfurlTaskError(task, "configurator.render failed")
-            return False, "render failed"
-        finally:
-            # this updates the task's dependencies which will be checked in canRunTask()
-            task.commit_changes()
-        return True, ""
-
     def run_task(self, task, depth=0):
         """
         During each task run:
@@ -828,9 +838,7 @@ class Job(ConfigChange):
 
         Returns a task.
         """
-        ok, errors = self.render(task)
-        if ok:
-            ok, errors = self.can_run_task(task)
+        ok, errors = self.can_run_task(task)
         if not ok:
             return task.finished(ConfiguratorResult(False, False, result=errors))
 
@@ -847,7 +855,12 @@ class Job(ConfigChange):
                     UnfurlTaskError(task, "too many subtasks spawned")
                     change = task.finished(ConfiguratorResult(False, None))
                 else:
-                    change, success = self.apply([result], depth + 1)
+                    ready, _, errors = do_render_requests(self, [result])
+                    if not ready:
+                        return result.task.finished(
+                            ConfiguratorResult(False, False, result=errors)
+                        )
+                    change, success = self.apply(ready, depth + 1)
             elif isinstance(result, JobRequest):
                 job = self.run_job_request(result)
                 change = job
@@ -891,13 +904,7 @@ class Job(ConfigChange):
                     parent.append(group)
                     _summary(request.children, target, children)
                 else:
-                    parent.append(
-                        dict(
-                            operation=request.configSpec.operation
-                            or request.configSpec.name,
-                            reason=request.reason,
-                        )
-                    )
+                    parent.append(request._summary_dict())
 
         summary = []
         _summary(self.taskRequests, None, summary)

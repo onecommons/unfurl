@@ -1,6 +1,21 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
+"""
+When a task runs, give it access to directories that its configurator can use
+to store artifacts and persistent configuration in the ensemble's repository.
+For this, each deployed instance can have it's own set of directories (see `_get_base_dir()`).
+
+Because generating a plan should not impact what is currently deployed, during the
+during planning and rendering phase, a configurator can use the `WorkFolder` interface
+to read and write from temporary copies of those folders that can be discarded or committed.
+
+This also enables the plan to be manually examined and changed for development, error diagnosis and user intervention
+or as part of a git-based approval process.
+"""
+
 import os.path
+import os
+import shutil
 import codecs
 from collections import MutableSequence
 from .eval import set_eval_func, map_value
@@ -17,26 +32,89 @@ logger = logging.getLogger("unfurl")
 
 
 class WorkFolder(object):
+    PENDING_EXT = ".pending"
+    PREVIOUS_EXT = ".previous"
+    ERROR_EXT = ".error"
+
     def __init__(self, task, location, preserve):
-        self.task = task
+        self.task = task  # owner
         self.location = location
-        self.renderState = None
+        self.preserve = preserve
+        self._cwd = self._get_path("", mkdir=False).rstrip(os.sep)
 
     @property
     def cwd(self):
-        return self.get_path("", mkdir=False)
+        """An absolute path to the permanent location of this directory."""
+        return self._cwd
 
-    def get_path(self, path, folder=None, mkdir=True):
+    def _get_path(self, path, folder=None, mkdir=True):
         ctx = self.task.inputs.context
         return get_path(ctx, path, folder or self.location, mkdir)
 
-    def write_file(self, contents, name, dest=None):
+    def _get_real_path(self, path=None):
+        return os.path.join(self.cwd + self.PENDING_EXT, path or "")
+
+    def write_file(self, contents, name, encoding=None):
+        """Create a file with the given contents
+
+        Args:
+            contents: .
+            name (string): Relative path to write to.
+            encoding (string): (Optional) One of "binary", "vault", "json", "yaml"
+                               or an encoding registered with the Python codec registry.
+
+        Returns:
+          str: An absolute path to the permanent location of this file.
+        """
         # XXX don't write till commit time
         ctx = self.task.inputs.context
-        return write_file(ctx, contents, name, dest or self.location)
+        if not os.path.exists(self._get_real_path()):
+            self._start()
+        path = self._get_real_path(name)
+        assert os.path.isabs(path), path
+        write_file(ctx, contents, path, self.location, encoding)
+        return self._get_path(name)
 
-    def set_render_state(self, state):
-        self.renderState = state
+    def _start(self):
+        # lazily create pending folders
+        # if preserve cp -R path path.pending else mkdir path.pending
+        newpath = self.cwd + self.PENDING_EXT
+        if self.preserve and os.path.exists(self.cwd):
+            shutil.copytree(self.cwd, newpath)
+        else:
+            os.makedirs(newpath)
+        return newpath
+
+    def apply(self):
+        pendingpath = self.cwd + self.PENDING_EXT
+        previouspath = self.cwd + self.PREVIOUS_EXT
+        if os.path.exists(pendingpath):
+            if os.path.exists(previouspath):
+                shutil.rmtree(previouspath, ignore_errors=True)
+            # XXX better error handling if rmtree doesn't delete everything
+            os.rename(self.cwd, previouspath)
+            os.rename(pendingpath, self.cwd)
+
+    def discard(self):
+        pendingpath = self.cwd + self.PENDING_EXT
+        if os.path.exists(pendingpath):
+            shutil.rmtree(pendingpath, ignore_errors=True)
+
+    def failed(self):
+        pendingpath = self.cwd + self.PENDING_EXT
+        if os.path.exists(pendingpath):
+            # - rename existing .error or mv to jobs/rejected/path
+            os.rename(pendingpath, self.cwd + self.ERROR_EXT)
+
+    # XXX not yet used
+    # def rollback(self):
+    #     # during apply, a task that can safely rollback can call this to revert this to the previous version
+    #     if not os.path.exists(self.cwd):
+    #         return
+    #     shutil.move(self.cwd, self.cwd + self.ERROR_EXT)
+    #     if os.path.exists(self.cwd + self.PREVIOUS_EXT):
+    #         # restore previous
+    #         shutil.move(self.cwd + self.PREVIOUS_EXT, self.cwd)
 
 
 class File(ExternalValue):
@@ -166,6 +244,10 @@ class FilePath(ExternalValue):
         super(FilePath, self).__init__("path", path)
         self.base_dir = baseDir or ""
 
+    def __digestable__(self, options):
+        # if repo get the digest
+        return self.resolve_key("contents")
+
 
 def get_path(ctx, path, relativeTo=None, mkdir=True):
     if os.path.isabs(path):
@@ -227,6 +309,8 @@ def _get_base_dir(ctx, name=None):
     "home" The "home" directory for the current instance (committed to repository)
     "local": The "local" directory for the current instance (excluded from repository)
     "tmp":   A temporary directory for the instance (removed after unfurl exits)
+    "operation": The "home" directory for the current operation (committed to repository)
+    "workflow": The "home" directory for the current workflow (committed to repository)
     "spec.src": The directory of the source file the current instance's template appears in.
     "spec.home": The "home" directory of the source file the current instance's template.
     "spec.local": The "local" directory of the source file the current instance's template
@@ -246,6 +330,14 @@ def _get_base_dir(ctx, name=None):
         return os.path.join(instance.root.tmp_dir, instance.name)
     elif name == "home":
         return os.path.join(instance.base_dir, instance.name, "home")
+    elif name == "operation":
+        return os.path.join(
+            instance.base_dir, instance.name, ctx.task.configSpec.operation
+        )
+    elif name == "workflow":
+        return os.path.join(
+            instance.base_dir, instance.name, ctx.task.configSpec.workflow
+        )
     elif name == "local":
         return os.path.join(instance.base_dir, instance.name, "local")
     elif name == "project":

@@ -8,6 +8,8 @@ from .support import Status, NodeState, Reason
 from .configurator import (
     ConfigurationSpec,
     get_config_spec_args_from_implementation,
+)
+from .planrequests import (
     TaskRequest,
     TaskRequestGroup,
     SetStateRequest,
@@ -358,7 +360,9 @@ class Plan(object):
                 inputs = dict(iDef.inputs, **inputs)
             else:
                 inputs = iDef.inputs or {}
-            kw = get_config_spec_args_from_implementation(iDef, inputs, resource.template)
+            kw = get_config_spec_args_from_implementation(
+                iDef, inputs, resource.template
+            )
         else:
             kw = None
 
@@ -600,7 +604,9 @@ class Plan(object):
             for resource in self.find_resources_from_template(template):
                 found = True
                 visited.add(id(resource))
-                gen = Generate(self._generate_workflow_configurations(resource, template))
+                gen = Generate(
+                    self._generate_workflow_configurations(resource, template)
+                )
                 while gen():
                     gen.result = yield gen.next
 
@@ -613,7 +619,9 @@ class Plan(object):
                 if include:
                     resource = self.create_resource(template)
                     visited.add(id(resource))
-                    gen = Generate(self._generate_workflow_configurations(resource, None))
+                    gen = Generate(
+                        self._generate_workflow_configurations(resource, None)
+                    )
                     while gen():
                         gen.result = yield gen.next
 
@@ -657,7 +665,7 @@ class DeployPlan(Plan):
         """
         assert template and resource
         jobOptions = self.jobOptions
-        if jobOptions.add and not resource.last_config_change:
+        if jobOptions.add and not resource.last_change:
             # add if it's a new resource
             return Reason.add
 

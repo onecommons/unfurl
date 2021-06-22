@@ -180,6 +180,7 @@ class RefContext(object):
         # Remove the unpicklable entries.
         state = self.__dict__.copy()
         state["templar"] = None
+        state["task"] = None
         del state["referenced"]
         return state
 

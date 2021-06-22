@@ -23,95 +23,15 @@ from . import merge
 from .eval import Ref, map_value, RefContext
 from .runtime import RelationshipInstance, Operational
 from .yamlloader import yaml
-from unfurl.projectpaths import WorkFolder
+from .projectpaths import WorkFolder
+from .planrequests import (
+    TaskRequest,
+    JobRequest,
+)
 
 import logging
 
 logger = logging.getLogger("unfurl.task")
-
-
-class PlanRequest(object):
-    def __init__(self, target):
-        self.target = target
-
-
-class TaskRequest(PlanRequest):
-    """
-    Yield this to run a child task. (see :py:meth:`unfurl.configurator.TaskView.create_sub_task`)
-    """
-
-    def __init__(
-        self,
-        configSpec,
-        target,
-        reason,
-        persist=False,
-        required=None,
-        startState=None,
-    ):
-        super(TaskRequest, self).__init__(target)
-        self.configSpec = configSpec
-        self.reason = reason
-        self.persist = persist
-        self.required = required
-        self.error = configSpec.name == "#error"
-        self.startState = startState
-
-    @property
-    def name(self):
-        if self.configSpec.operation:
-            name = self.configSpec.operation
-        else:
-            name = self.configSpec.name
-        if self.reason and self.reason not in name:
-            return name + " (reason: " + self.reason + ")"
-        return name
-
-    def __repr__(self):
-        return "TaskRequest(%s(%s,%s):%s)" % (
-            self.target,
-            self.target.status,
-            self.target.state,
-            self.name,
-        )
-
-
-class SetStateRequest(PlanRequest):
-    def __init__(self, target, state):
-        super(SetStateRequest, self).__init__(target)
-        self.set_state = state
-
-    @property
-    def name(self):
-        return self.set_state
-
-
-class TaskRequestGroup(PlanRequest):
-    def __init__(self, target, workflow):
-        super(TaskRequestGroup, self).__init__(target)
-        self.workflow = workflow
-        self.children = []
-
-    def __repr__(self):
-        return "TaskRequestGroup(%s:%s:%s)" % (
-            self.target,
-            self.workflow,
-            self.children,
-        )
-
-
-class JobRequest(object):
-    """
-    Yield this to run a child job.
-    """
-
-    def __init__(self, resources, errors):
-        self.instances = resources
-        self.errors = errors
-
-    def __repr__(self):
-        return "JobRequest(%s)" % (self.instances,)
-
 
 # we want ConfigurationSpec to be standalone and easily serializable
 class ConfigurationSpec(object):
@@ -410,6 +330,7 @@ class TaskView(object):
         self.reason = reason
         self.logger = logger
         self.cwd = os.path.abspath(self.target.base_dir)
+        self.rendered = None
         # private:
         self._errors = []  # UnfurlTaskError objects appends themselves to this list
         self._inputs = None
@@ -462,7 +383,7 @@ class TaskView(object):
                 vars["SOURCE"] = self.target.source.attributes
                 vars["TARGET"] = target.attributes
             # expose inputs lazily to allow self-referencee
-            ctx = RefContext(self.target, vars)
+            ctx = RefContext(self.target, vars, task=self)
             if self.configSpec.artifact and self.configSpec.artifact.base_dir:
                 ctx.base_dir = self.configSpec.artifact.base_dir
             self._inputs = ResultsMap(inputs, ctx)
@@ -970,8 +891,8 @@ class TaskView(object):
             return jobRequest, errors
         return None, errors
 
-    # multiple task can be accessing the same workfolder
-    def set_work_folder(self, location="home", preserve=False):
+    # XXX multiple task can be accessing the same workfolder
+    def set_work_folder(self, location="operation", preserve=False):
         self._workFolder = WorkFolder(self, location, preserve)
         return self._workFolder
         # return self.job.setFolder(

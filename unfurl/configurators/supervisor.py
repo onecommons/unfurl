@@ -38,8 +38,7 @@ class SupervisorConfigurator(Configurator):
     def render(self, task):
         # host is a supervisord instance configured to load conf files in its "programs" directory
         # so write a .conf file there
-        host = task.vars["HOST"]
-        confDir = host["homeDir"]
+        confDir = task.vars["HOST"]["homeDir"]
         name = task.vars["SELF"]["name"]
         confPath = os.path.join(confDir, "programs", name + ".conf")
 

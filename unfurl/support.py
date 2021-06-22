@@ -840,6 +840,28 @@ class AttributeManager(object):
             savedValue = value.as_ref()  # serialize Result
         return savedValue, sensitive
 
+    def find_live_dependencies(self):
+        liveDependencies = {}
+        for resource, attributes in self.attributes.values():
+            overrides, specd = attributes._attributes.split()
+            live = []
+            # items in overrides of type Result have been accessed during this transaction
+            for key, value in overrides.items():
+                if isinstance(value, Result):
+                    # an attribute is considered live it was declared an attribute or isn't part of the template at all
+                    # XXX previously overridden properties values should be treat as live too because they changed during runtime
+                    if (
+                        key in resource.template.attributeDefs
+                        or key not in specd
+                        or value.has_diff()
+                    ):
+                        live.append(key)
+
+            if live:
+                liveDependencies[resource.key] = (resource, live)
+
+        return liveDependencies
+
     def commit_changes(self):
         changes = {}
         liveDependencies = {}

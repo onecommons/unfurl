@@ -93,7 +93,9 @@ class AnsibleConfigurator(TemplateConfigurator):
         #         hosts[member.name] = self._getHostVars(member)
         for child in group.member_groups:
             if child.is_compatible_type("unfurl.groups.AnsibleInventoryGroup"):
-                children[child] = self._make_inventory_from_group(child, includeInstances)
+                children[child] = self._make_inventory_from_group(
+                    child, includeInstances
+                )
         vars.update(group.properties.get("hostvars", {}))
         return dict(hosts=hosts, vars=vars, children=children)
 
@@ -256,18 +258,17 @@ class AnsibleConfigurator(TemplateConfigurator):
         return result
 
     def render(self, task):
-        cwd = task.set_work_folder("home")
+        cwd = task.set_work_folder()
         # build host inventory from resource
         inventory = self.get_inventory(task, cwd)
         playbook = self.get_playbook(task, cwd)
         playbookArgs = self.get_playbook_args(task)
         args = _render_playbook(playbook, inventory, playbookArgs)
-        cwd.set_render_state(args)
+        return args
 
     def run(self, task):
         try:
-            cwd = task.get_work_folder()
-            args = cwd.renderState
+            args = task.rendered
             # build vars from inputs
             extraVars = self.get_vars(task)
             if task.operationHost and task.operationHost.templar:
@@ -300,7 +301,9 @@ class AnsibleConfigurator(TemplateConfigurator):
                 # each task in a playbook will have a corresponding result
                 resultList, outputList = zip(
                     *map(
-                        lambda result: get_ansible_results(result, resultKeys, factKeys),
+                        lambda result: get_ansible_results(
+                            result, resultKeys, factKeys
+                        ),
                         resultCallback.results,
                     )
                 )

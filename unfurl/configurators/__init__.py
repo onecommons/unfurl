@@ -64,10 +64,10 @@ class TemplateConfigurator(Configurator):
                 runResult = task.inputs.get("run")
         else:
             runResult = task.inputs.get("run")
-        task.set_work_folder().set_render_state(runResult)
+        return runResult
 
     def run(self, task):
-        runResult = task.get_work_folder().renderState
+        runResult = task.rendered
         done = task.inputs.get("done", {})
         if "result" not in done:
             if not isinstance(runResult, dict):
