@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2020 Adam Souzis
-from __future__ import absolute_import, division, print_function
-
-__metaclass__ = type
+import logging
+import os
+import sys
 
 import pbr.version
 
@@ -20,10 +20,6 @@ def versionTuple(v=None):
         v = __version__(True)
     return tuple(int(x.lstrip("dev") or 0) for x in v.split("."))
 
-
-import os
-import os.path
-import sys
 
 vendor_dir = os.path.join(os.path.abspath(os.path.dirname(__file__)), "vendor")
 sys.path.insert(0, vendor_dir)
@@ -64,8 +60,6 @@ def get_home_config_path(homepath):
 
 
 ### logging initialization
-import logging
-
 logging.captureWarnings(True)
 _logHandler = None
 _logLevel = logging.NOTSET
@@ -94,8 +88,8 @@ logging.Logger.verbose = __verbose
 
 
 class sensitive(object):
-    """Base class for marking a value as sensitive. Depending on the context, sensitive values will either be encrypted or redacted when outputed.
-    """
+    """Base class for marking a value as sensitive. Depending on the context, sensitive values will either be encrypted or redacted when outputed."""
+
     redacted_str = "<<REDACTED>>"
 
     def __sensitive__(self):
@@ -189,7 +183,7 @@ else:
 
     ansible.utils.display.Display.display = _display
 
-    from ansible.plugins.loader import lookup_loader, filter_loader
+    from ansible.plugins.loader import filter_loader, lookup_loader
 
     lookup_loader.add_directory(os.path.abspath(os.path.dirname(__file__)), True)
     filter_loader.add_directory(os.path.abspath(os.path.dirname(__file__)), True)
