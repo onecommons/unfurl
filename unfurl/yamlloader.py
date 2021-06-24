@@ -185,7 +185,13 @@ class ImportResolver(toscaparser.imports.ImportResolver):
             return url_info
 
         path, isFile, fragment = url_info
-        if not isFile or is_url_or_git_path(path):  # only support urls to git repos for now
+        if not isFile or is_url_or_git_path(
+            path
+        ):  # only support urls to git repos for now
+            repo_view = self.manifest.repositories.get(repository_name)
+            if repo_view and repo_view.repo:
+                return os.path.join(repo_view.working_dir, file_name), True, fragment
+
             repo, filePath, revision, bare = self.manifest.find_repo_from_git_url(
                 path, isFile, importLoader
             )

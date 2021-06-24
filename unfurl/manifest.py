@@ -250,7 +250,9 @@ class Manifest(AttributeManager):
             if parent is None:
                 raise UnfurlError("can not find parent instance %s" % pname)
 
-        resource = self._create_entity_instance(NodeInstance, rname, resourceSpec, parent)
+        resource = self._create_entity_instance(
+            NodeInstance, rname, resourceSpec, parent
+        )
         if resourceSpec.get("capabilities"):
             for key, val in resourceSpec["capabilities"].items():
                 self._create_entity_instance(CapabilityInstance, key, val, resource)
@@ -261,7 +263,9 @@ class Manifest(AttributeManager):
                 capabilityId = val.get("capability")
                 if not capabilityId:
                     raise UnfurlError("requirement is missing capability %s" % key)
-                capability = capabilityId and self.get_root_resource().query(capabilityId)
+                capability = capabilityId and self.get_root_resource().query(
+                    capabilityId
+                )
                 if not capability or not isinstance(capability, CapabilityInstance):
                     raise UnfurlError("can not find capability %s" % capabilityId)
                 if capability._relationships is None:

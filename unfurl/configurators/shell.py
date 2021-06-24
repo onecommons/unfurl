@@ -81,6 +81,8 @@ def _run(*args, **kwargs):
 
 
 def _truncate(s):
+    if not s:
+        return ""
     if len(s) > 1000:
         return "%s [%s omitted...]  %s" % (s[:500], len(s), s[-500:])
     return s

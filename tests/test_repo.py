@@ -5,7 +5,13 @@ import six
 from click.testing import CliRunner
 from unfurl.__main__ import cli, _latestJobs
 from unfurl.localenv import LocalEnv
-from unfurl.repo import split_git_url, is_url_or_git_path, RepoView, normalize_git_url, GitRepo
+from unfurl.repo import (
+    split_git_url,
+    is_url_or_git_path,
+    RepoView,
+    normalize_git_url,
+    GitRepo,
+)
 from git import Repo
 from unfurl.configurator import Configurator, Status
 from toscaparser.common.exception import URLException
@@ -522,7 +528,9 @@ spec:
             path = "base-payments"
             self.assertEqual(
                 os.path.abspath(path),
-                ensemble.rootResource.find_resource("my_server").attributes["repo_path"],
+                ensemble.rootResource.find_resource("my_server").attributes[
+                    "repo_path"
+                ],
             )
             assert os.path.isdir(os.path.join(path, ".git"))
 

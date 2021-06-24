@@ -75,7 +75,7 @@ def test_digests(caplog):
     assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
     # print(job.out.getvalue())
     digest = job.runner.manifest.manifest.config["changes"][0]["digestValue"]
-    assert digest == "b7033183f547aada5b0890f16ae91d10aec05349"
+    assert digest == "51a474d43031bde30ec0832e11ca03cf70e5a36f"
 
     filepath = FilePath(__file__ + "/../fixtures/helmrepo")
     digestContents = filepath.__digestable__(dict(manifest=manifest))
