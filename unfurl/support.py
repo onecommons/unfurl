@@ -261,6 +261,7 @@ def apply_template(value, ctx, overrides=None):
         else:
             if value != oldvalue:
                 ctx.trace("successfully processed template:", value)
+                external_result = None
                 for result in ctx.referenced.getReferencedResults(index):
                     if is_sensitive(result):
                         # note: even if the template rendered a list or dict
@@ -270,10 +271,17 @@ def apply_template(value, ctx, overrides=None):
                         return wrap_sensitive_value(
                             value, templar._loader._vault
                         )  # mark the template result as sensitive
+                    if result.external:
+                        external_result = result
+
+                if external_result and value == external_result.external.get():
+                    # return the external value instead
+                    return external_result
 
                 if isinstance(value, Results):
-                    # mapValue now because wrap_var() fails with Results types
-                    value = map_value(value, ctx, applyTemplates=False)
+                    # wrap_var() fails with Results types, this is equivalent:
+                    value.applyTemplates = False
+                    return value
 
                 # wrap result as AnsibleUnsafe so it isn't evaluated again
                 return wrap_var(value)

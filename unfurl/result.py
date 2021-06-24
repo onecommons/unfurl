@@ -17,7 +17,7 @@ from .util import (
 )
 
 
-def _get_digest(value, **kw):
+def _get_digest(value, kw):
     getter = getattr(value, "__digestable__", None)
     if getter:
         value = getter(kw)
@@ -25,14 +25,19 @@ def _get_digest(value, **kw):
     if isSensitive:
         yield sensitive.redacted_str
     else:
+        if isinstance(value, Results):
+            # since we don't have a way to record which keys were resolved or not
+            # resolve them all now, otherwise we can't compare reliable compare digests
+            value.resolve_all()
+            value = value._attributes
         if isinstance(value, Mapping):
             for k in sorted(value.keys()):
                 yield k
-                for d in _get_digest(value[k], **kw):
+                for d in _get_digest(value[k], kw):
                     yield d
         elif isinstance(value, (MutableSequence, tuple)):
             for v in value:
-                for d in _get_digest(v, **kw):
+                for d in _get_digest(v, kw):
                     yield d
         else:
             out = six.BytesIO()
@@ -40,9 +45,9 @@ def _get_digest(value, **kw):
             yield out.getvalue()
 
 
-def get_digest(tpl):
+def get_digest(tpl, **kw):
     m = hashlib.sha1()  # use same digest function as git
-    for contents in _get_digest(tpl):
+    for contents in _get_digest(tpl, kw):
         if not isinstance(contents, bytes):
             contents = contents.encode("utf-8")
         m.update(contents)
@@ -447,6 +452,7 @@ class Results(object):
     __slots__ = ("_attributes", "context", "_deleted")
 
     doFullResolve = False
+    applyTemplates = True
 
     def __init__(self, serializedOriginal, resourceOrCxt):
         from .eval import RefContext
@@ -484,7 +490,7 @@ class Results(object):
         return map_value(val, self.context)
 
     @staticmethod
-    def _map_value(val, context):
+    def _map_value(val, context, applyTemplates=True):
         "Recursively and lazily resolves any references in a value"
         from .eval import map_value, Ref
 
@@ -500,7 +506,7 @@ class Results(object):
             return ResultsList(val, context)
         else:
             # at this point, just evaluates templates in strings or returns val
-            return map_value(val, context)
+            return map_value(val, context, applyTemplates)
 
     def __sensitive__(self):
         # only check resolved values
@@ -509,6 +515,12 @@ class Results(object):
     def has_diff(self):
         # only check resolved values
         return any(isinstance(x, Result) and x.has_diff() for x in self._values())
+
+    def _get_result_list(self, keys):
+        # resolve first and then return the Result
+        for key in keys:
+            self[key]
+        return [self._attributes[key] for key in keys]
 
     def __getitem__(self, key):
         from .eval import map_value
@@ -523,11 +535,11 @@ class Results(object):
                 if isinstance(val, Results):
                     resolved = val
                 else:  # evaluate records that aren't Results
-                    resolved = map_value(val, self.context)
+                    resolved = map_value(val, self.context, self.applyTemplates)
             else:
                 # lazily evaluate lists and dicts
                 self.context.trace("Results._mapValue", val)
-                resolved = self._map_value(val, self.context)
+                resolved = self._map_value(val, self.context, self.applyTemplates)
             # will return a Result if val was an expression that was evaluated
             if isinstance(resolved, Result):
                 result = resolved

@@ -149,6 +149,11 @@ class RefContext(object):
         if self._trace:
             print("%s (ctx: %s)" % (" ".join(str(a) for a in msg), self._lastResource))
 
+    def add_external_reference(self, external):
+        result = Result(external)
+        self.referenced.addReference(None, result)
+        return result
+
     def add_reference(self, ref, result):
         self.referenced.addReference(ref, result)
 

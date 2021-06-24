@@ -32,13 +32,16 @@ def abspath(context, path, relativeTo=None, mkdir=True):
     {{ 'foo' | abspath('local') }}
     """
     refContext = context["__unfurl"]
-    return _abspath(refContext, path, relativeTo, mkdir).get()
+    external = _abspath(refContext, path, relativeTo, mkdir)
+    refContext.add_external_reference(external)
+    return external.get()
 
 
 @contextfilter
 def get_dir(context, relativeTo, mkdir=True):
     refContext = context["__unfurl"]
     filepath = _getdir(refContext, relativeTo, mkdir)
+    refContext.add_external_reference(filepath)
     return filepath.get()
 
 

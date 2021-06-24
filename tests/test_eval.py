@@ -430,3 +430,14 @@ a_dict:
 
         result = expr.resolve(ctx, wantList="result")
         self.assertIs(result.external, singleton)
+
+        asTemplate = '{{ {"externaltest": none } | eval }}'
+        result = map_value(asTemplate, ctx)
+        self.assertEqual(result, "test")
+
+        ctx2 = ctx.copy(wantList="result")
+        result = map_value(asTemplate, ctx2)
+        self.assertIs(result.external, singleton)
+
+        result = map_value("transformed " + asTemplate, ctx2)
+        self.assertEqual(result, "transformed test")
