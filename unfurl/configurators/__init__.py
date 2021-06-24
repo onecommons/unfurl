@@ -16,7 +16,7 @@ register_short_names(
 
 
 class TemplateConfigurator(Configurator):
-    excludeFromDigest = ("resultTemplate", "done", "run", "dryrun")
+    excludeFromDigest = ("resultTemplate", "done")
 
     def process_result_template(self, task, result):
         """

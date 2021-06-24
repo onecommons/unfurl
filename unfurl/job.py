@@ -195,6 +195,7 @@ class ConfigTask(ConfigChange, TaskView):
 
     def start(self):
         self.start_run()
+        self.target.root.attributeManager = self._attributeManager
         self.target_status = self.target.status
         self.target_state = self.target.state
 

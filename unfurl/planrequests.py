@@ -161,6 +161,7 @@ def _render_request(job, parent, req, future_requests):
     # req is a taskrequests, future_requests are (grouprequest, taskrequest) pairs
     if req.task:
         task = req.task
+        task.target.root.attributeManager = task._attributeManager
     else:
         task = req.task = job.create_task(req.configSpec, req.target, reason=req.reason)
     task.logger.debug("rendering %s %s", task.target.name, task.name)
@@ -169,6 +170,7 @@ def _render_request(job, parent, req, future_requests):
     except Exception:
         if task._workFolder:
             task._workFolder.failed()
+        task._inputs = None
         task._attributeManager.attributes = {}  # rollback changes
         return [], UnfurlTaskError(task, "configurator.render failed")
     else:
@@ -180,12 +182,15 @@ def _render_request(job, parent, req, future_requests):
             liveDependencies = task._attributeManager.find_live_dependencies()
             # a future request may change the value of these attributes
             deps = list(_get_deps(parent, req, liveDependencies, future_requests))
+
         if deps:
             req.future_dependencies = deps
             task.logger.debug(
                 "%s can not render yet, depends on %s", task.target.name, str(deps)
             )
-            task._attributeManager.attributes = {}  # rollback changes
+            # rollback changes:
+            task._inputs = None
+            task._attributeManager.attributes = {}
             if task._workFolder:
                 task._workFolder.discard()
             return deps, None

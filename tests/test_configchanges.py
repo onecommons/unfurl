@@ -91,7 +91,7 @@ class ConfigChangeTest(unittest.TestCase):
             )
             self.assertEqual(result.exit_code, 0, result)
             # print("result.output", result.exit_code, result.output)
-            changes = {"::node1": {"outputVar": "1"}, "::node2": {".status": "ok"}}
+            changes = {"::node1": {"outputVar": "1"}}
             assert _latestJobs
             job = _latestJobs[-1]
             self.assertEqual(

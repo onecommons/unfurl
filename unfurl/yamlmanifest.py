@@ -179,7 +179,6 @@ class ReadOnlyManifest(Manifest):
     def __init__(
         self, manifest=None, path=None, validate=True, localEnv=None, vault=None
     ):
-        assert not (localEnv and (manifest or path))  # invalid combination of args
         path = path or localEnv and localEnv.manifestPath
         if path:
             path = os.path.abspath(path)

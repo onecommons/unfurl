@@ -1,0 +1,29 @@
+apiVersion: unfurl/v1alpha1
+kind: Ensemble
+spec:
+  instances:
+    anInstance:
+      properties:
+        referenced:
+          - eval:
+              tempfile: "the contents"
+  service_template:
+    topology_template:
+      node_templates:
+        nodeA:
+          type: tosca:Root
+          interfaces:
+           Standard:
+            operations:
+              configure:
+                implementation: Template
+                inputs:
+                  run: # this will evaluate all these expressions
+                   dir_in_git: "{{ '../fixtures/helmrepo' | abspath('self') }}"
+                   file_in_git: "{{ '../fixtures/setup.py' | abspath('self') }}"
+                   tempfile: "{{ '::anInstance::referenced' | eval }}"
+                   missingfile: "{{ '../fixtures/doesnt_exist' | abspath('self') }}"
+                   # XXX test:
+                   dir_not_in_git:
+                   excluded_file:
+changes: []

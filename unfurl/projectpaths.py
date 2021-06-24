@@ -15,6 +15,7 @@ or as part of a git-based approval process.
 
 import os.path
 import os
+import stat
 import shutil
 import codecs
 from collections import MutableSequence
@@ -159,6 +160,9 @@ class File(ExternalValue):
         else:
             return contents
 
+    def __digestable__(self, options):
+        return self.get_contents()
+
     def resolve_key(self, name=None, currentResource=None):
         """
         Key can be one of:
@@ -240,20 +244,59 @@ set_eval_func(
 
 
 class FilePath(ExternalValue):
-    def __init__(self, path, baseDir=""):
-        super(FilePath, self).__init__("path", path)
-        self.base_dir = baseDir or ""
+    def __init__(self, abspath, base_dir="", rel_to=""):
+        super(FilePath, self).__init__("path", os.path.normpath(abspath))
+        self.path = abspath[len(base_dir) + 1 :]
+        self.rel_to = rel_to
+
+    def get_full_path(self):
+        return self.get()
 
     def __digestable__(self, options):
-        # if repo get the digest
-        return self.resolve_key("contents")
+        fullpath = self.get_full_path()
+        stablepath = self.rel_to + ":" + self.path
+        if not os.path.exists(fullpath):
+            return "path:" + stablepath
+
+        manifest = options and options.get("manifest")
+        if manifest:
+            repo, relPath, revision, bare = manifest.find_path_in_repos(
+                self.get_full_path()
+            )
+            if repo and not repo.is_path_excluded(relPath):
+                if relPath:
+                    # equivalent to git rev-parse HEAD:path
+                    digest = "git:" + repo.repo.rev_parse("HEAD:" + relPath).hexsha
+                else:
+                    digest = "git:" + revision  # root of repo
+                if repo.is_dirty(True, relPath):
+                    fstat = os.stat(fullpath)
+                    return "%s:%s:%s" % (
+                        digest,
+                        fstat[stat.ST_SIZE],
+                        fstat[stat.ST_MTIME],
+                    )
+                else:
+                    return digest
+
+        if os.path.isfile(fullpath):
+            with open(fullpath, "r") as f:
+                return "contents:" + f.read()
+        else:
+            fstat = os.stat(fullpath)
+            return "stat:%s:%s:%s" % (
+                stablepath,
+                fstat[stat.ST_SIZE],
+                fstat[stat.ST_MTIME],
+            )
 
 
-def get_path(ctx, path, relativeTo=None, mkdir=True):
+def _get_path(ctx, path, relativeTo=None, mkdir=True):
     if os.path.isabs(path):
-        return path
+        return path, ""
 
     base = _get_base_dir(ctx, relativeTo)
+    print("basedir", base)
     if base is None:
         raise UnfurlError('Named directory or repository "%s" not found' % relativeTo)
     fullpath = os.path.join(base, path)
@@ -263,11 +306,16 @@ def get_path(ctx, path, relativeTo=None, mkdir=True):
             dir = base
         if not os.path.exists(dir):
             os.makedirs(dir)
-    return os.path.abspath(fullpath)
+    return fullpath, base
+
+
+def get_path(ctx, path, relativeTo=None, mkdir=True):
+    return _get_path(ctx, path, relativeTo, mkdir)[0]
 
 
 def _abspath(ctx, path, relativeTo=None, mkdir=True):
-    return FilePath(get_path(ctx, path, relativeTo, mkdir))
+    abspath, basedir = _get_path(ctx, path, relativeTo, mkdir)
+    return FilePath(abspath, basedir, relativeTo)
 
 
 def _getdir(ctx, folder, mkdir=True):

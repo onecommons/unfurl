@@ -285,7 +285,9 @@ class Configurator(object):
         inputs = task.inputs.get_resolved()
         keys = sorted([k for k in inputs.keys() if k not in self.excludeFromDigest])
         if keys:
-            inputdigest = get_digest([inputs[key] for key in keys])
+            inputdigest = get_digest(
+                [inputs[key] for key in keys], manifest=task._manifest
+            )
         else:
             inputdigest = ""
         return dict(digestKeys=",".join(keys), digestValue=inputdigest)
@@ -316,8 +318,9 @@ class Configurator(object):
         if set(keys) - newKeys:
             return True
         # only resolve the inputs that were resolved before
-        values = [task.inputs[key] for key in keys]
-        return changeset.digestValue != get_digest(values)
+        results = task.inputs._get_result_list(keys)
+        newDigest = get_digest(results, manifest=task._manifest)
+        return changeset.digestValue != newDigest
 
 
 class TaskView(object):

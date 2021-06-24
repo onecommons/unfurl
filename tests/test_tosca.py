@@ -287,6 +287,7 @@ class ToscaSyntaxTest(unittest.TestCase):
         selfPath = _get_base_dir(ctx, "self")
         self.assertEqual(os.path.normpath(selfPath), base)
 
+    @unittest.skipIf("k8s" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
     def test_workflows(self):
         os.environ["UNFURL_WORKDIR"] = os.environ["UNFURL_TMPDIR"]
         manifest = YamlManifest(
