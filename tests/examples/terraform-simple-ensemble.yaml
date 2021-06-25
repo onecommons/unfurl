@@ -4,6 +4,30 @@ spec:
   service_template:
     topology_template:
       node_templates:
+        terraform-node:
+          type: unfurl.nodes.Installer.Terraform
+          # will look in spec/terraform-node for tf files by default
+          interfaces:
+            defaults:
+              outputs:
+                  test_output:
+              inputs:
+                main: {get_env: terraform_dir}
+                tfvars: |
+                  tag = "test2"
+
+        terraform-node-json:
+          type: unfurl.nodes.Installer.Terraform
+          # will look in spec/terraform-node for tf files by default
+          interfaces:
+            defaults:
+              outputs:
+                  test_output:
+              inputs:
+                main: {get_env: terraform_dir}
+                tfvars:
+                  tag: "test3"
+
         example:
           type: unfurl.nodes.Installer.Terraform
           interfaces:
@@ -13,9 +37,6 @@ spec:
                   tag: test
                 main: |
                   terraform {
-                    # This module is now only being tested with Terraform 0.13.x. However, to make upgrading easier, we are setting
-                    # 0.12.26 as the minimum version, as that version added support for required_providers with source URLs, making it
-                    # forwards compatible with 0.13.x code.
                     required_version = ">= 0.12.26"
                   }
 

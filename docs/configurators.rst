@@ -145,11 +145,11 @@ Terraform
 ==========
 
 The Terraform configurator will be invoked on any `node template` with the type :ref:`unfurl.nodes.Installer.Terraform<unfurl_types>`.
-It can also be used to implement any operation regardless of the node type by setting the `implementation` to :ref:`unfurl.configurators.terraform.TerraformConfigurator<unfurl_types>`.
+It can also be used to implement any operation regardless of the node type by setting the `implementation` to ``Terraform``.
 It will invoke the appropriate terraform command (e.g "apply" or "destroy") based on the job's workflow.
 
 The Terraform configurator manages the Terraform state file itself
-and commits it to the ensemble's repository so you don't have use Terraform's remote state -- it will be self-contained and sharable like the rest of the Ensemble.
+and commits it to the ensemble's repository so you don't use Terraform's remote state -- it will be self-contained and sharable like the rest of the Ensemble.
 Any data marked sensitive will be encrypted using Ansible Vault.
 
 You can use the ``unfurl.nodes.Installer.Terraform`` node type with your node template to the avoid boilerplate and set the needed inputs.
@@ -157,10 +157,9 @@ You can use the ``unfurl.nodes.Installer.Terraform`` node type with your node te
 Inputs
 ------
 
-  :main: If present, its value will be used to generate ``main.tf``.
-         If it's a string it will be treated as HCL, otherwise it will be written out as JSON.
-  :tfvars: A map of Terraform variables to passed to the main Terraform module.
-  :dir:  The directory to execute Terraform in. Default: equivalent to get_dir("spec.home")
+  :main: The contents of the root Terraform module or a path to a directory containing the Terraform configuration. If it is a directory path, the configurator will treat it as a local Terraform module. Otherwise, if ``main`` is a string it will be treated as HCL and if it is a map, it will be written out as JSON. (See the note below about HCL in YAML.) If omitted, the configurator will look in ``get_dir("spec.home")`` for the Terraform configuration.
+  :tfvars: A map of Terraform variables to passed to the main Terraform module or a string equivalent to ".tfvars" file.
+  :workdir:  String indicating the project location to execute Terraform in (see `get_dir`). Default: "home"
   :command: Path to the ``terraform`` executable. Default: "terraform"
   :resultTemplate: A map that corresponds to the Terraform state JSON file,
     See the Terraform providers' schema documentation for details but top-level keys will include "resources" and "outputs".
@@ -169,7 +168,7 @@ Other ``implementation`` keys
 -----------------------------
 
   :environment: This will set the environment variables exposed to Terraform.
-  :outputs: The outputs defined by the Terraform module will be set as the operation's outputs.
+  :outputs: Specifies which outputs defined by the Terraform module that will be set as the operation's outputs. If omitted and the Terraform configuration is specified inline, all of the Terraform outputs will be included. But if a Terraform configuration directory was specified instead, its outputs need to be declared here to be exposed.
 
 Environment Variables
 ---------------------

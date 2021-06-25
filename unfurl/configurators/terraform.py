@@ -3,7 +3,8 @@
 from ..util import save_to_file, UnfurlTaskError, wrap_var
 from .shell import ShellConfigurator
 from ..support import Status
-from unfurl.projectpaths import get_path
+from ..result import Result
+from ..projectpaths import get_path, FilePath
 import json
 import os
 import os.path
@@ -77,6 +78,35 @@ def mark_sensitive(schemas, state, task, sensitiveNames=()):
     return state
 
 
+_main_tf_template = """\
+module "main" {
+ source = "%s"
+
+%s
+}
+%s
+"""
+
+
+def generate_main(relpath, tfvars, outputs):
+    # if tfvars are hcl:
+    if isinstance(tfvars, six.string_types):
+        output = ""
+        for name in outputs:
+            output += 'output "%s" { value = module.main.%s }\n' % (name, name)
+        return "main.tmp.tf", _main_tf_template % (relpath, tfvars, output)
+    else:
+        # place tfvars in the module block:
+        module = tfvars.copy() if tfvars else {}
+        module["source"] = relpath
+        root = dict(module=dict(main=module))
+        if outputs:
+            output = root["output"] = {}
+            for name in outputs:
+                output[name] = dict(value="${module.main.%s}" % name)
+        return "main.tmp.tf.json", root
+
+
 class TerraformConfigurator(ShellConfigurator):
     _defaultCmd = "terraform"
 
@@ -122,14 +152,41 @@ class TerraformConfigurator(ShellConfigurator):
         """
         # generated tf.json get written to as main.unfurl.tmp.tf.json
         main = task.inputs.get_copy("main")
-        if main:
-            if isinstance(main, six.string_types):
-                # assume its HCL
+        write_vars = True
+        contents = None
+        if isinstance(main, six.string_types):
+            if os.path.exists(main):
+                # it's a directory -- if difference from cwd, treat it as a module to call
+                relpath = cwd.relpath(main)
+                if relpath != ".":
+                    write_vars = False
+                    path, contents = generate_main(
+                        relpath,
+                        task.inputs.get_copy("tfvars"),
+                        list(task.configSpec.outputs),
+                    )
+
+                # set this as FilePath so we can monitor changes to it
+                result = task.inputs._attributes["main"]
+                if not isinstance(result, Result) or not result.external:
+                    task.inputs["main"] = FilePath(main)
+            elif "\n" in main:
+                # assume its HCL and not a path
+                contents = main
                 path = "main.unfurl.tmp.tf"
-            else:
-                path = "main.unfurl.tmp.tf.json"
-            return cwd.write_file(main, path)
-        return None
+        else:  # assume it json
+            contents = main
+            path = "main.unfurl.tmp.tf.json"
+
+        if write_vars:
+            varpath = self._prepare_vars(task, cwd)
+        else:
+            varpath = None
+        if contents:
+            mainpath = cwd.write_file(contents, path)
+        else:
+            mainpath = None
+        return mainpath, varpath
 
     def _prepare_vars(self, task, cwd):
         # XXX .tfvars can be sensitive
@@ -153,29 +210,26 @@ class TerraformConfigurator(ShellConfigurator):
             # if exists in home, load and write out state file as json
             with open(yamlPath, "r") as f:
                 state = task._manifest.yaml.load(f.read())
-            cwd.write_file(state, "terraform.tfstate.json")
-        return "terraform.tfstate.json"
+            cwd.write_file(state, "terraform.tfstate")
+        return "terraform.tfstate"
 
     def _get_plan_path(self, task, cwd):
         # the terraform state file is associate with the current instance
         # read the (possible encrypted) version from the repository
         # and write out it as plaintext json into the local directory
         jobId = task.get_job_id(task.changeId)
-        return get_path(task.inputs.context, jobId + ".plan", "local")
+        return get_path(task.inputs.context, jobId + ".plan", "local", True)
 
     def render(self, task):
-        cwd = task.set_work_folder("home", preserve=True)
-        ctx = task.inputs.context
+        workdir = task.inputs.get("workdir") or "home"
+        cwd = task.set_work_folder(workdir, preserve=True)
         # options:
         _, terraform = self._cmd(
             task.inputs.get("command", self._defaultCmd), task.inputs.get("keeplines")
         )
-        # XXXX cwd = os.path.abspath(task.inputs.get("dir") or getdir(ctx, "home"))
 
         # write out any needed files to cwd, eg. main.tf.json
-        self._prepare_workspace(task, cwd)
-        # write vars to file in local if necessary
-        varfilePath = self._prepare_vars(task, cwd)
+        mainpath, varfilePath = self._prepare_workspace(task, cwd)
         # write the state file to local if necessary
         statePath = self._prepare_state(task, cwd)
 
@@ -247,7 +301,10 @@ class TerraformConfigurator(ShellConfigurator):
                     echo=echo,
                 )
             else:
-                raise UnfurlTaskError(task, "terrform init failed in %s" % cwd)
+                raise UnfurlTaskError(
+                    task,
+                    "terrform init failed in %s; TF_DATA_DIR=%s" % (cwd.cwd, dataDir),
+                )
 
         # process the result
         status = None

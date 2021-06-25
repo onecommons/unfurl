@@ -26,7 +26,10 @@ class TerraformTest(unittest.TestCase):
 
     def test_terraform(self):
         cliRunner = CliRunner()
-        with cliRunner.isolated_filesystem():  # temp_dir="/tmp"
+        os.environ["terraform_dir"] = os.path.join(
+            os.path.dirname(__file__), "fixtures", "terraform"
+        )
+        with cliRunner.isolated_filesystem():  # temp_dir="/tmp/tests"
             path = os.path.join(os.path.dirname(__file__), "examples")
             with open(os.path.join(path, "terraform-simple-ensemble.yaml")) as f:
                 manifestContent = f.read()
@@ -39,6 +42,17 @@ class TerraformTest(unittest.TestCase):
             example = job.rootResource.find_resource("example")
             self.assertEqual(example.attributes["tag"], "Hello, test!")
             summary = job.json_summary()
+            taskOutputs = set(
+                [
+                    tuple(task.result.outputs.values())[0]
+                    for task in job.workDone.values()
+                    if task.result.outputs
+                ]
+            )
+            assert taskOutputs == set(
+                ["outputting test3!", "outputting test2!", "Hello, test!"]
+            )
+
             # print(job.summary())
             # print(job._planSummary())
             # print(json.dumps(summary, indent=2))
@@ -47,15 +61,67 @@ class TerraformTest(unittest.TestCase):
                     "job": {
                         "id": "A01110000000",
                         "status": "ok",
-                        "total": 2,
-                        "ok": 2,
+                        "total": 6,
+                        "ok": 6,
                         "error": 0,
                         "unknown": 0,
                         "skipped": 0,
-                        "changed": 2,
+                        "changed": 6,
                     },
                     "outputs": {},
                     "tasks": [
+                        {
+                            "status": "ok",
+                            "target": "terraform-node",
+                            "operation": "check",
+                            "template": "terraform-node",
+                            "type": "unfurl.nodes.Installer.Terraform",
+                            "targetStatus": "absent",
+                            "targetState": "deleted",
+                            "changed": True,
+                            "configurator": "unfurl.configurators.terraform.TerraformConfigurator",
+                            "priority": "required",
+                            "reason": "check",
+                        },
+                        {
+                            "status": "ok",
+                            "target": "terraform-node",
+                            "operation": "create",
+                            "template": "terraform-node",
+                            "type": "unfurl.nodes.Installer.Terraform",
+                            "targetStatus": "ok",
+                            "targetState": "created",
+                            "changed": True,
+                            "configurator": "unfurl.configurators.terraform.TerraformConfigurator",
+                            "priority": "required",
+                            "reason": "add",
+                        },
+                        {
+                            "status": "ok",
+                            "target": "terraform-node-json",
+                            "operation": "check",
+                            "template": "terraform-node-json",
+                            "type": "unfurl.nodes.Installer.Terraform",
+                            "targetStatus": "absent",
+                            "targetState": "deleted",
+                            "changed": True,
+                            "configurator": "unfurl.configurators.terraform.TerraformConfigurator",
+                            "priority": "required",
+                            "reason": "check",
+                        },
+                        {
+                            "status": "ok",
+                            "target": "terraform-node-json",
+                            "operation": "create",
+                            "template": "terraform-node-json",
+                            "type": "unfurl.nodes.Installer.Terraform",
+                            "targetStatus": "ok",
+                            "targetState": "created",
+                            "changed": True,
+                            "configurator": "unfurl.configurators.terraform.TerraformConfigurator",
+                            "priority": "required",
+                            "reason": "add",
+                        },
                         {
                             "status": "ok",
                             "target": "example",
@@ -91,7 +157,6 @@ class TerraformTest(unittest.TestCase):
             job = runner2.run(JobOptions(workflow="undeploy", startTime=2))
             assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
             # print(job.summary())
-            # print(job._planSummary())
             summary = job.json_summary()
             # print(json.dumps(summary, indent=2))
             self.assertEqual(
@@ -99,15 +164,41 @@ class TerraformTest(unittest.TestCase):
                     "job": {
                         "id": "A01120000000",
                         "status": "ok",
-                        "total": 1,
-                        "ok": 1,
+                        "total": 3,
+                        "ok": 3,
                         "error": 0,
                         "unknown": 0,
                         "skipped": 0,
-                        "changed": 1,
+                        "changed": 3,
                     },
                     "outputs": {},
                     "tasks": [
+                        {
+                            "status": "ok",
+                            "target": "terraform-node",
+                            "operation": "delete",
+                            "template": "terraform-node",
+                            "type": "unfurl.nodes.Installer.Terraform",
+                            "targetStatus": "absent",
+                            "targetState": "deleted",
+                            "changed": True,
+                            "configurator": "unfurl.configurators.terraform.TerraformConfigurator",
+                            "priority": "required",
+                            "reason": "undeploy",
+                        },
+                        {
+                            "status": "ok",
+                            "target": "terraform-node-json",
+                            "operation": "delete",
+                            "template": "terraform-node-json",
+                            "type": "unfurl.nodes.Installer.Terraform",
+                            "targetStatus": "absent",
+                            "targetState": "deleted",
+                            "changed": True,
+                            "configurator": "unfurl.configurators.terraform.TerraformConfigurator",
+                            "priority": "required",
+                            "reason": "undeploy",
+                        },
                         {
                             "status": "ok",
                             "target": "example",
@@ -120,7 +211,7 @@ class TerraformTest(unittest.TestCase):
                             "configurator": "unfurl.configurators.terraform.TerraformConfigurator",
                             "priority": "required",
                             "reason": "undeploy",
-                        }
+                        },
                     ],
                 },
                 summary,
@@ -131,13 +222,14 @@ class TerraformTest(unittest.TestCase):
             assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
             summary = job.json_summary()
             # print(json.dumps(summary, indent=2))
+            # print(job._json_plan_summary(True))
             self.assertEqual(
                 {
                     "job": {
                         "id": "A01120GC0000",
                         "status": "ok",
-                        "total": 1,
-                        "ok": 1,
+                        "total": 3,
+                        "ok": 3,
                         "error": 0,
                         "unknown": 0,
                         "skipped": 0,
@@ -145,6 +237,32 @@ class TerraformTest(unittest.TestCase):
                     },
                     "outputs": {},
                     "tasks": [
+                        {
+                            "status": "ok",
+                            "target": "terraform-node",
+                            "operation": "check",
+                            "template": "terraform-node",
+                            "type": "unfurl.nodes.Installer.Terraform",
+                            "targetStatus": "absent",
+                            "targetState": "deleted",
+                            "changed": False,
+                            "configurator": "unfurl.configurators.terraform.TerraformConfigurator",
+                            "priority": "required",
+                            "reason": "check",
+                        },
+                        {
+                            "status": "ok",
+                            "target": "terraform-node-json",
+                            "operation": "check",
+                            "template": "terraform-node-json",
+                            "type": "unfurl.nodes.Installer.Terraform",
+                            "targetStatus": "absent",
+                            "targetState": "deleted",
+                            "changed": False,
+                            "configurator": "unfurl.configurators.terraform.TerraformConfigurator",
+                            "priority": "required",
+                            "reason": "check",
+                        },
                         {
                             "status": "ok",
                             "target": "example",
@@ -157,21 +275,41 @@ class TerraformTest(unittest.TestCase):
                             "configurator": "unfurl.configurators.terraform.TerraformConfigurator",
                             "priority": "required",
                             "reason": "check",
-                        }
+                        },
                     ],
                 },
                 summary,
             )
-            # {'job': {'id': 'A01120GC0000', 'status': 'ok', 'total': 1, 'ok': 1, 'error': 0, 'unknown': 0, 'skipped': 0, 'changed': 0}, 'outputs': {}, 'tasks': [{'status': 'ok', 'target': 'example', 'operation': 'check', 'template': 'example', 'type': 'unfurl.nodes.Installer.Terraform', 'targetStatus': 'ok', 'changed': False, 'configurator': 'unfurl.configurators.terraform.TerraformConfigurator', 'priority': 'required', 'reason': 'check'}]}
+            # XXX fix plan output
             self.assertEqual(
                 job._json_plan_summary(),
                 [
                     {
-                        "name": "example",
+                        "name": "terraform-node",
                         "status": "Status.absent",
                         "state": "NodeState.deleted",
                         "managed": "A01110000002",
-                        "plan": [{"operation": "check", "reason": "check"}],
+                        "plan": [
+                            {"operation": "check", "reason": "check"},
+                            {
+                                "name": "terraform-node-json",
+                                "status": "Status.absent",
+                                "state": "NodeState.deleted",
+                                "managed": "A01110000004",
+                                "plan": [
+                                    {"operation": "check", "reason": "check"},
+                                    {
+                                        "name": "example",
+                                        "status": "Status.absent",
+                                        "state": "NodeState.deleted",
+                                        "managed": "A01110000006",
+                                        "plan": [
+                                            {"operation": "check", "reason": "check"}
+                                        ],
+                                    },
+                                ],
+                            },
+                        ],
                     }
                 ],
             )

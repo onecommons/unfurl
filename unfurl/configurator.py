@@ -1057,7 +1057,6 @@ def get_config_spec_args_from_implementation(iDef, inputs, template):
         # or because it represents the name of a script in the CSAR file that contains the definition."
         artifact = template.find_or_create_artifact(implementation, path=iDef._source)
     kw["primary"] = artifact
-    assert artifact or "className" in kw
 
     if "className" not in kw:
         if not artifact:  # malformed implementation

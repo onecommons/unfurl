@@ -33,17 +33,17 @@ node_types:
   unfurl.nodes.Installer.Terraform:
     derived_from: unfurl.nodes.Installer
     properties:
-      dir:
+      main:
         type: string
         default:
           eval:
-            get_dir: home
+            get_dir: spec.home
     interfaces:
       defaults:
         implementation:
           className: unfurl.configurators.terraform.TerraformConfigurator
         inputs:
-          dir: { get_property: [SELF, dir] }
+           main: { get_property: [SELF, main] }
       Standard:
         operations:
           delete:
