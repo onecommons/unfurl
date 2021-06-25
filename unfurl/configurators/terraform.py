@@ -274,7 +274,7 @@ class TerraformConfigurator(ShellConfigurator):
             }
             state.update(result.__dict__)
             state["outputs"] = outputs  # replace outputs
-            self.process_result_template(task, state)
+            success = not self.process_result_template(task, state)
         else:
             outputs = None
 

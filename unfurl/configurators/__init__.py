@@ -26,6 +26,7 @@ class TemplateConfigurator(Configurator):
         """
         # get the resultTemplate without evaluating it
         resultTemplate = task.inputs._attributes.get("resultTemplate")
+        errors = []
         if resultTemplate:  # evaluate it now with the result
             if isinstance(resultTemplate, six.string_types):
                 query = dict(template=resultTemplate)
@@ -53,6 +54,7 @@ class TemplateConfigurator(Configurator):
                     task.target.name,
                     errors[0],
                 )
+        return errors
 
     def can_dry_run(self, task):
         return not not task.inputs.get("dryrun")
@@ -74,7 +76,8 @@ class TemplateConfigurator(Configurator):
                 done["result"] = {"run": runResult}
             else:
                 done["result"] = runResult
-        self.process_result_template(task, done.get("result"))
+        if self.process_result_template(task, done.get("result")):
+            done["success"] = False  # returned errors
         yield task.done(**done)
 
 
