@@ -172,7 +172,7 @@ abspath
 
   :path: A file path
   :location: (optional) A named folder (see `get_dir`)
-  :mkdir: (default: true) If true, create the folder if missing.
+  :mkdir: (default: false) If true, create the folder if missing.
 
   Get the absolute path to the given path. If ``location`` is supplied it will be
   relative to that location (see `get_dir`) otherwise it will be relative to the current directory.
@@ -229,7 +229,7 @@ get_dir
 ^^^^^^^
 
   :location: a named folder
-  :mkdir: (default: true) If true, create the folder if missing.
+  :mkdir: (default: false) If true, create the folder if missing.
 
   Return an absolute path to the given named folder where ``name`` is one of:
 

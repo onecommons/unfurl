@@ -23,7 +23,7 @@ def map_value_filter(context, ref, **vars):
 
 
 @contextfilter
-def abspath(context, path, relativeTo=None, mkdir=True):
+def abspath(context, path, relativeTo=None, mkdir=False):
     """
     {{ 'foo' | abspath }}
 
@@ -38,7 +38,7 @@ def abspath(context, path, relativeTo=None, mkdir=True):
 
 
 @contextfilter
-def get_dir(context, relativeTo, mkdir=True):
+def get_dir(context, relativeTo, mkdir=False):
     refContext = context["__unfurl"]
     filepath = _getdir(refContext, relativeTo, mkdir)
     refContext.add_external_reference(filepath)

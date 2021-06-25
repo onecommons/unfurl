@@ -198,7 +198,9 @@ class ToscaSpec(object):
 
             if ExceptionCollector.exceptionsCaught():
                 message = "\n".join(
-                    ExceptionCollector.getExceptionsReport(get_log_level() < logging.INFO)
+                    ExceptionCollector.getExceptionsReport(
+                        get_log_level() < logging.INFO
+                    )
                 )
                 raise UnfurlValidationError(
                     "TOSCA validation failed for %s: \n%s" % (path, message),
@@ -513,6 +515,8 @@ class EntitySpec(ResourceRef):
         return {}
 
     def find_or_create_artifact(self, nameOrTpl, path=None):
+        if not nameOrTpl:
+            return None
         if isinstance(nameOrTpl, six.string_types):
             artifact = self.artifacts.get(nameOrTpl)
             if artifact:

@@ -55,6 +55,10 @@ class WorkFolder(object):
     def _get_real_path(self, path=None):
         return os.path.join(self.cwd + self.PENDING_EXT, path or "")
 
+    def relpath(self, path):
+        abspath = self._get_path(path)
+        return os.path.relpath(abspath, self._cwd)
+
     def write_file(self, contents, name, encoding=None):
         """Create a file with the given contents
 
@@ -296,7 +300,6 @@ def _get_path(ctx, path, relativeTo=None, mkdir=True):
         return path, ""
 
     base = _get_base_dir(ctx, relativeTo)
-    print("basedir", base)
     if base is None:
         raise UnfurlError('Named directory or repository "%s" not found' % relativeTo)
     fullpath = os.path.join(base, path)
@@ -309,16 +312,16 @@ def _get_path(ctx, path, relativeTo=None, mkdir=True):
     return fullpath, base
 
 
-def get_path(ctx, path, relativeTo=None, mkdir=True):
+def get_path(ctx, path, relativeTo=None, mkdir=False):
     return _get_path(ctx, path, relativeTo, mkdir)[0]
 
 
-def _abspath(ctx, path, relativeTo=None, mkdir=True):
+def _abspath(ctx, path, relativeTo=None, mkdir=False):
     abspath, basedir = _get_path(ctx, path, relativeTo, mkdir)
     return FilePath(abspath, basedir, relativeTo)
 
 
-def _getdir(ctx, folder, mkdir=True):
+def _getdir(ctx, folder, mkdir=False):
     return _abspath(ctx, "", folder, mkdir)
 
 
