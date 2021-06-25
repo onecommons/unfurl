@@ -8,12 +8,13 @@ For each configuration, run it if required, then record the result
 """
 from __future__ import print_function
 
-import copy
 import functools
+import getpass
 import json
 import logging
 import os
 import os.path
+import re
 import shlex
 import subprocess
 import sys
@@ -265,8 +266,8 @@ def _remote_cmd(runtime_, cmd_line, local_env):
             False,
         )
     elif kind == "docker":
-        cmd = docker_cmd(env, cmd_line, image=rest)
-        return env, cmd, False
+        cmd = DockerCmd(runtime_, env).build()
+        return env, cmd + cmd_line, False
     else:
         # treat as shell command
         cmd = shlex.split(runtime_)
@@ -277,54 +278,75 @@ def _remote_cmd(runtime_, cmd_line, local_env):
         )
 
 
-def docker_cmd(env: dict, cmd_line: list, image: str) -> list:
-    """Prepare command which will be run as subprocess"""
-    cmd = ["docker", "run", "--rm", "-w", "/data"]  # "--pull", "always",
-    cmd.extend(docker_params_env(env))
-    cmd.extend(docker_params_volumes())
-    cmd.extend([image, "unfurl"])
-    cmd.extend(filter_out_runtime(cmd_line))
-    return cmd
+class DockerCmd:
+    """Builds command for docker runtime"""
 
+    def __init__(self, specifier_string: str, env_vars: dict) -> None:
+        self.env_vars = env_vars
+        self.image = self.parse_image(specifier_string, __version__())
+        self.docker_args = self.parse_docker_args(specifier_string)
 
-def docker_params_env(env: dict) -> list:
-    cmd = []
-    for k, v in env.items():
-        cmd.extend(["-e", f"{k}={v}"])
-    return cmd
+    @staticmethod
+    def parse_image(specifier_string, version):
+        strings = specifier_string.split(maxsplit=1)
+        image = strings[0]
+        image = re.sub(r"^docker:*", "", image)  # remove prefix
+        if image:
+            if ":" in image:
+                return image
+            else:
+                return f"{image}:{version}"
+        return f"onecommons/unfurl:{version}"
 
+    @staticmethod
+    def parse_docker_args(specifier_string):
+        strings = specifier_string.split(maxsplit=1)
+        if len(strings) == 2:
+            return strings[1].split()
+        return []
 
-def docker_params_volumes() -> list:
-    """Volumes for docker command
-    Only dirs with configuration are mounted
-    """
-    volumes = []
-    home = Path.home()
+    def build(self) -> list:
+        """Prepare command which will be run as subprocess"""
+        cmd = [
+            "docker",
+            "run",
+            "--rm",
+            "-w",
+            "/data",
+            "-u",
+            f"{os.getuid()}:{os.getgid()}",
+        ]
+        cmd.extend(self.env_vars_to_args())
+        cmd.extend(self.default_volumes())
+        cmd.extend(self.docker_args)
+        cmd.extend(
+            [self.image, "unfurl", "--no-runtime", "--version-check", __version__(True)]
+        )
+        return cmd
 
-    volumes.extend(["-v", f"{Path.cwd()}:/data"])
+    def env_vars_to_args(self) -> list:
+        user = getpass.getuser()
+        args = [
+            "-e",
+            f"HOME=/home/{user}",
+            "-e",
+            f"USER={user}",
+        ]
+        for k, v in self.env_vars.items():
+            args.extend(["-e", f"{k}={v}"])
+        return args
 
-    unfurl_home_local = home / ".unfurl_home" / "local"
-    if unfurl_home_local.exists():
-        volumes.extend(["-v", f"{unfurl_home_local}:/root/.unfurl_home/local"])
-
-    aws = home / ".aws"
-    if aws.exists():
-        volumes.extend(["-v", f"{aws}:/root/.aws"])
-
-    gcloud = home / ".config/gcloud"
-    if gcloud.exists():
-        volumes.extend(["-v", f"{gcloud}:/root/.config/gcloud"])
-
-    return volumes
-
-
-def filter_out_runtime(cmd_line: list):
-    commands = copy.copy(cmd_line)
-    for i, cmd in enumerate(cmd_line):
-        if cmd == "--runtime":
-            del commands[i]
-            del commands[i]
-    return commands
+    @staticmethod
+    def default_volumes() -> list:
+        """Volumes for docker command"""
+        return [
+            "-v",
+            f"{Path.cwd()}:/data",
+            "-v",
+            f"{Path.home()}:{Path.home()}",
+            "-v",
+            "/var/run/docker.sock:/var/run/docker.sock",
+        ]
 
 
 def _run_remote(runtime, options, localEnv):

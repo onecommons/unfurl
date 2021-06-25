@@ -30,8 +30,5 @@ RUN echo "Installing Terraform" && \
 
 COPY . /unfurl
 
-RUN pip install /unfurl && \
-    unfurl home --init && \
-    . /root/.unfurl_home/.venv/bin/activate && \
-    pip install /unfurl[full] && \
-    rm -rf unfurl
+RUN pip install /unfurl[full] && \
+    rm -rf /unfurl
