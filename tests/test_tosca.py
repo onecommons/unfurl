@@ -314,60 +314,53 @@ class ToscaSyntaxTest(unittest.TestCase):
             job._json_plan_summary(),
             [
                 {
-                    "name": "stagingCluster",
+                    "instance": "stagingCluster",
                     "status": "Status.ok",
                     "state": "NodeState.started",
                     "managed": None,
+                    "plan": [{"operation": "check", "reason": "check"}],
+                },
+                {
+                    "instance": "defaultNamespace",
+                    "status": "Status.ok",
+                    "state": "NodeState.configured",
+                    "managed": "A01100000002",
                     "plan": [
                         {"operation": "check", "reason": "check"},
                         {
-                            "name": "defaultNamespace",
-                            "status": "Status.ok",
-                            "state": "NodeState.configured",
-                            "managed": "A01100000002",
-                            "plan": [
-                                {"operation": "check", "reason": "check"},
-                                {
-                                    "workflow": "deploy",
-                                    "sequence": [
-                                        {"operation": "configure", "reason": "add"}
-                                    ],
-                                },
-                                {
-                                    "name": "gitlab-release",
-                                    "status": "Status.ok",
-                                    "state": "None",
-                                    "managed": "A01100000004",
-                                    "plan": [
-                                        {
-                                            "workflow": "deploy",
-                                            "sequence": [
-                                                {
-                                                    "workflow": "Workflow(deploy)",
-                                                    "sequence": [
-                                                        {
-                                                            "operation": "execute",
-                                                            "reason": "step:helm",
-                                                        },
-                                                        {
-                                                            "workflow": "Workflow(discover)",
-                                                            "sequence": [
-                                                                {
-                                                                    "operation": "discover",
-                                                                    "reason": "step:helm",
-                                                                }
-                                                            ],
-                                                        },
-                                                    ],
-                                                }
-                                            ],
-                                        }
-                                    ],
-                                },
-                            ],
+                            "workflow": "deploy",
+                            "sequence": [{"operation": "configure", "reason": "add"}],
                         },
                     ],
-                }
+                },
+                {
+                    "instance": "gitlab-release",
+                    "status": "Status.ok",
+                    "state": "None",
+                    "managed": "A01100000004",
+                    "plan": [
+                        {
+                            "workflow": "deploy",
+                            "sequence": [
+                                {
+                                    "workflow": "Workflow(deploy)",
+                                    "sequence": [
+                                        {"operation": "execute", "reason": "step:helm"},
+                                        {
+                                            "workflow": "Workflow(discover)",
+                                            "sequence": [
+                                                {
+                                                    "operation": "discover",
+                                                    "reason": "step:helm",
+                                                }
+                                            ],
+                                        },
+                                    ],
+                                }
+                            ],
+                        }
+                    ],
+                },
             ],
         )
 

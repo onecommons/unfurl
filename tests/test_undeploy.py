@@ -355,7 +355,7 @@ class UndeployTest(unittest.TestCase):
             job._json_plan_summary(),
             [
                 {
-                    "name": "simple",
+                    "instance": "simple",
                     "status": "Status.absent",
                     "state": "NodeState.deleted",
                     "managed": "A01110000002",

@@ -280,37 +280,30 @@ class TerraformTest(unittest.TestCase):
                 },
                 summary,
             )
-            # XXX fix plan output
             self.assertEqual(
                 job._json_plan_summary(),
                 [
                     {
-                        "name": "terraform-node",
+                        "instance": "terraform-node",
                         "status": "Status.absent",
                         "state": "NodeState.deleted",
                         "managed": "A01110000002",
-                        "plan": [
-                            {"operation": "check", "reason": "check"},
-                            {
-                                "name": "terraform-node-json",
-                                "status": "Status.absent",
-                                "state": "NodeState.deleted",
-                                "managed": "A01110000004",
-                                "plan": [
-                                    {"operation": "check", "reason": "check"},
-                                    {
-                                        "name": "example",
-                                        "status": "Status.absent",
-                                        "state": "NodeState.deleted",
-                                        "managed": "A01110000006",
-                                        "plan": [
-                                            {"operation": "check", "reason": "check"}
-                                        ],
-                                    },
-                                ],
-                            },
-                        ],
-                    }
+                        "plan": [{"operation": "check", "reason": "check"}],
+                    },
+                    {
+                        "instance": "terraform-node-json",
+                        "status": "Status.absent",
+                        "state": "NodeState.deleted",
+                        "managed": "A01110000004",
+                        "plan": [{"operation": "check", "reason": "check"}],
+                    },
+                    {
+                        "instance": "example",
+                        "status": "Status.absent",
+                        "state": "NodeState.deleted",
+                        "managed": "A01110000006",
+                        "plan": [{"operation": "check", "reason": "check"}],
+                    },
                 ],
             )
 

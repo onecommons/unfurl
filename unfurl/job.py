@@ -879,33 +879,49 @@ class Job(ConfigChange):
     ### Reporting methods
     ###########################################################################
     def _json_plan_summary(self, pretty=False):
+        """
+        plan = instance+,
+        [
+          {
+          instance
+          plan: [
+              {"operation": "check"
+                "sequence": [
+                    <plan>,
+                  ]
+              }
+            ]
+          }
+        ]
+        """
+
         def _summary(requests, target, parent):
+            children = parent
             for request in requests:
                 isGroup = isinstance(request, TaskRequestGroup)
                 if isGroup and not request.children:
-                    continue
+                    continue  # don't include in the plan
                 if request.target is not target:
                     target = request.target
                     children = []
                     node = dict(
-                        name=target.name,
+                        instance=target.name,
                         status=str(target.status),
                         state=str(target.state),
                         managed=target.created,
                         plan=children,
                     )
                     parent.append(node)
-                    parent = children
                 if isGroup:
-                    children = []
+                    sequence = []
                     group = {}
                     if request.workflow:
                         group["workflow"] = str(request.workflow)
-                    group["sequence"] = children
-                    parent.append(group)
-                    _summary(request.children, target, children)
+                    group["sequence"] = sequence
+                    children.append(group)
+                    _summary(request.children, target, sequence)
                 else:
-                    parent.append(request._summary_dict())
+                    children.append(request._summary_dict())
 
         summary = []
         _summary(self.taskRequests, None, summary)
