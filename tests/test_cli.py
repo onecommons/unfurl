@@ -234,10 +234,19 @@ spec:
         with runner.isolated_filesystem():
             with open("ensemble.yaml", "w") as f:
                 f.write(ensemble)
-            result = runner.invoke(
-                cli, ["--runtime=" + runtime, "deploy", "ensemble.yaml"]
-            )
+            try:
+                del os.environ["UNFURL_NORUNTIME"]
+                result = runner.invoke(
+                    cli, ["--runtime=" + runtime, "deploy", "ensemble.yaml"]
+                )
+            finally:
+                os.environ["UNFURL_NORUNTIME"] = "1"
 
+        # uncomment this to see output:
+        # print("result.output", result.exit_code, result.output)
+        assert not result.exception, "\n".join(
+            traceback.format_exception(*result.exc_info)
+        )
         assert result.exit_code == 0, result.stderr
 
     def test_badargs(self):
