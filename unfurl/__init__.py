@@ -15,7 +15,7 @@ def __version__(release=False):
         return pbr.version.VersionInfo(__name__).version_string()
 
 
-def versionTuple(v=None):
+def version_tuple(v=None):
     if v is None:
         v = __version__(True)
     return tuple(int(x.lstrip("dev") or 0) for x in v.split("."))

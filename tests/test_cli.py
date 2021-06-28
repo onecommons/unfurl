@@ -132,10 +132,10 @@ class CliTest(unittest.TestCase):
         self.assertIn(version, result.output.strip())
 
     def test_versioncheck(self):
-        self.assertEqual((0, 1, 4, 11), unfurl.versionTuple("0.1.4.dev11"))
+        self.assertEqual((0, 1, 4, 11), unfurl.version_tuple("0.1.4.dev11"))
         assert (
-            unfurl.versionTuple("0.1.4.dev11") < unfurl.versionTuple()
-        ), unfurl.versionTuple()
+            unfurl.version_tuple("0.1.4.dev11") < unfurl.version_tuple()
+        ), unfurl.version_tuple()
         # XXX this test only passes when run individually -- log output is surpressed otherwise?
         # runner = CliRunner()
         # checkedVersion = "9.0.0"
@@ -179,7 +179,8 @@ class CliTest(unittest.TestCase):
 
             # invoke plan in the runtime we just created
             try:
-                del os.environ["UNFURL_NORUNTIME"]
+                if os.environ.get("UNFURL_NORUNTIME"):
+                    del os.environ["UNFURL_NORUNTIME"]
                 _args[:] = [
                     "--quiet",
                     "--runtime=venv:",

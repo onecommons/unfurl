@@ -47,6 +47,6 @@ class TestDockerCmd:
             == "docker run --rm -w /data -u 1000:1000 -e HOME=/home/joe -e USER=joe -e ANSWER=42 "
             "-v /home/joe/project:/data -v /home/joe:/home/joe "
             "-v /var/run/docker.sock:/var/run/docker.sock "
-            f"--privileged onecommons/unfurl:{__version__()} unfurl --no-runtime "
+            f"--privileged onecommons/unfurl:latest unfurl --no-runtime "
             f"--version-check {__version__(True)}"
         )

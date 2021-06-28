@@ -25,7 +25,7 @@ import click
 
 from . import DefaultNames, __version__, get_home_config_path
 from . import init as initmod
-from . import init_logging, versionTuple
+from . import init_logging, version_tuple
 from .job import run_job
 from .localenv import LocalEnv, Project
 from .support import Status
@@ -118,7 +118,7 @@ def cli(
         verbose = 3
     ctx.obj["verbose"] = verbose
     init_logging(effectiveLogLevel, logfile)
-    if version_check and versionTuple() < versionTuple(version_check):
+    if version_check and version_tuple() < version_tuple(version_check):
         logging.warning(
             "current version %s older than expected version %s",
             __version__(True),
@@ -283,7 +283,9 @@ class DockerCmd:
 
     def __init__(self, specifier_string: str, env_vars: dict) -> None:
         self.env_vars = env_vars
-        self.image = self.parse_image(specifier_string, __version__())
+        # if running from a development branch use "latest" otherwise the image for this release
+        tag = "latest" if len(version_tuple()) > 3 else __version__()
+        self.image = self.parse_image(specifier_string, tag)
         self.docker_args = self.parse_docker_args(specifier_string)
 
     @staticmethod
@@ -354,7 +356,7 @@ def _run_remote(runtime, options, localEnv):
     logger = logging.getLogger("unfurl")
     logger.debug('running command remotely on "%s"', runtime)
     cmdLine = _args or sys.argv[1:]
-    if _args:
+    if _args:  # set by test driver to override command line
         print("TESTING: running remote with _args %s" % _args)
     env, remote, shell = _remote_cmd(runtime, cmdLine, localEnv)
     logger.debug("executing remote command: %s", remote)
