@@ -339,11 +339,12 @@ class DockerCmd:
     @staticmethod
     def default_volumes() -> list:
         """Volumes for docker command"""
+        user = getpass.getuser()
         return [
             "-v",
             f"{Path.cwd()}:/data",
             "-v",
-            f"{Path.home()}:{Path.home()}",
+            f"{Path.home()}:/home/{user}",
             "-v",
             "/var/run/docker.sock:/var/run/docker.sock",
         ]
