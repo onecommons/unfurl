@@ -266,7 +266,7 @@ def _remote_cmd(runtime_, cmd_line, local_env):
             False,
         )
     elif kind == "docker":
-        cmd = DockerCmd(runtime_, env).build()
+        cmd = DockerCmd(runtime_, env or {}).build()
         return env, cmd + cmd_line, False
     else:
         # treat as shell command

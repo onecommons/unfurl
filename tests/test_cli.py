@@ -235,7 +235,8 @@ spec:
             with open("ensemble.yaml", "w") as f:
                 f.write(ensemble)
             try:
-                del os.environ["UNFURL_NORUNTIME"]
+                if os.environ.get("UNFURL_NORUNTIME"):
+                    del os.environ["UNFURL_NORUNTIME"]
                 result = runner.invoke(
                     cli, ["--runtime=" + runtime, "deploy", "ensemble.yaml"]
                 )
