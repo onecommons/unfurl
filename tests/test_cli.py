@@ -249,6 +249,7 @@ spec:
             traceback.format_exception(*result.exc_info)
         )
         assert result.exit_code == 0, result.stderr
+        self.assertIn("running remote with _args", result.output)
 
     def test_badargs(self):
         runner = CliRunner()

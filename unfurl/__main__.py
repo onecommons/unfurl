@@ -339,11 +339,12 @@ class DockerCmd:
     @staticmethod
     def default_volumes() -> list:
         """Volumes for docker command"""
+        user = getpass.getuser()
         return [
             "-v",
             f"{Path.cwd()}:/data",
             "-v",
-            f"{Path.home()}:{Path.home()}",
+            f"{Path.home()}:/home/{user}",
             "-v",
             "/var/run/docker.sock:/var/run/docker.sock",
         ]
@@ -356,6 +357,7 @@ def _run_remote(runtime, options, localEnv):
     if _args:
         print("TESTING: running remote with _args %s" % _args)
     env, remote, shell = _remote_cmd(runtime, cmdLine, localEnv)
+    logger.debug("executing remote command: %s", remote)
     rv = subprocess.call(remote, env=env, shell=shell)
     if options.get("standalone_mode") is False:
         return rv
