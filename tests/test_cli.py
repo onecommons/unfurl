@@ -1,23 +1,16 @@
-import unittest
 import os
 import traceback
-import six
+import unittest
+from collections.abc import MutableSequence
 
-try:
-    from collections.abc import MutableSequence
-except ImportError:
-    from collections import MutableSequence
-from click.testing import CliRunner
-from unfurl.__main__ import cli, _args
+import six
 import unfurl
+from click.testing import CliRunner
+from unfurl.__main__ import _args, cli
 from unfurl.configurator import Configurator
 from unfurl.localenv import LocalEnv
 from unfurl.util import sensitive_list
 from unfurl.yamlloader import yaml
-
-# python 2.7 needs these:
-from unfurl.configurators.shell import ShellConfigurator
-from unfurl.configurators.ansible import AnsibleConfigurator
 
 manifest = """
 apiVersion: unfurl/v1alpha1
@@ -204,6 +197,59 @@ class CliTest(unittest.TestCase):
                 self.assertIn("running remote with _args", result.output)
             finally:
                 os.environ["UNFURL_NORUNTIME"] = "1"
+
+    @unittest.skipIf(
+        "slow" in os.getenv("UNFURL_TEST_SKIP", "")
+        or "docker" in os.getenv("UNFURL_TEST_SKIP", ""),
+        "UNFURL_TEST_SKIP set",
+    )
+    def test_docker_runtime(self):
+        ensemble = """
+apiVersion: unfurl/v1alpha1
+kind: Ensemble
+configurations:
+  create:
+    implementation:
+      className: unfurl.configurators.shell.ShellConfigurator
+    inputs:
+      command: "echo hello world"
+spec:
+  service_template:
+    topology_template:
+      node_templates:
+        test1:
+          type: tosca.nodes.Root
+          interfaces:
+            Standard:
+              +/configurations:
+"""
+        runner = CliRunner()
+        runtime = "docker:onecommons/unfurl:0.2.4"
+        _args[:] = [
+            f"--runtime={runtime}",
+            "deploy",
+            "ensemble.yaml",
+        ]
+
+        with runner.isolated_filesystem():
+            with open("ensemble.yaml", "w") as f:
+                f.write(ensemble)
+            try:
+                if os.environ.get("UNFURL_NORUNTIME"):
+                    del os.environ["UNFURL_NORUNTIME"]
+                result = runner.invoke(
+                    cli, ["--runtime=" + runtime, "deploy", "ensemble.yaml"]
+                )
+            finally:
+                os.environ["UNFURL_NORUNTIME"] = "1"
+
+        # uncomment this to see output:
+        # print("result.output", result.exit_code, result.output)
+        assert not result.exception, "\n".join(
+            traceback.format_exception(*result.exc_info)
+        )
+        assert result.exit_code == 0, result.stderr
+        self.assertIn("running remote with _args", result.output)
 
     def test_badargs(self):
         runner = CliRunner()

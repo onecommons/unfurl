@@ -1,0 +1,9 @@
+venv/
+htmlcov/
+.tox/
+.pytest_cache/
+build/
+.eggs/
+unfurl.egg-info/
+.coverage*
+.idea

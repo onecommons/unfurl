@@ -3,18 +3,19 @@
 """
 This module implements creating and cloning project and ensembles as well Unfurl runtimes.
 """
-import uuid
+import datetime
 import os
 import os.path
-import datetime
-import sys
-import shutil
-from . import DefaultNames, get_home_config_path, __version__
-from .repo import Repo, GitRepo, split_git_url, is_url_or_git_path
-from .util import UnfurlError
-from .localenv import LocalEnv, Project
 import random
+import shutil
 import string
+import sys
+import uuid
+
+from . import DefaultNames, __version__, get_home_config_path
+from .localenv import LocalEnv, Project
+from .repo import GitRepo, Repo, is_url_or_git_path, split_git_url
+from .util import UnfurlError
 
 _templatePath = os.path.join(os.path.abspath(os.path.dirname(__file__)), "templates")
 
@@ -45,8 +46,8 @@ def _write_file(folder, filename, content):
 
 
 def write_template(folder, filename, template, vars, templateDir=None):
-    from .runtime import NodeInstance
     from .eval import RefContext
+    from .runtime import NodeInstance
     from .support import apply_template
 
     if templateDir and not os.path.isabs(templateDir):
@@ -647,7 +648,6 @@ def init_engine(projectDir, runtime):
         return create_venv(
             projectDir, pipfileLocation, _get_unfurl_requirement_url(unfurlLocation)
         )
-    # elif kind == 'docker'
     return "unrecognized runtime uri"
 
 
@@ -706,9 +706,9 @@ def create_venv(projectDir, pipfileLocation, unfurlLocation):
         cwd = os.getcwd()
         os.chdir(projectDir)
         # need to set env vars and change current dir before importing pipenv
+        from pipenv import environments
         from pipenv.core import do_install, ensure_python
         from pipenv.utils import python_version
-        from pipenv import environments
 
         pythonPath = str(ensure_python())
         assert pythonPath, pythonPath

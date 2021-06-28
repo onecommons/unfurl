@@ -8,22 +8,28 @@ For each configuration, run it if required, then record the result
 """
 from __future__ import print_function
 
-from .job import run_job
-from .support import Status
-from . import __version__, versionTuple, init_logging, get_home_config_path, DefaultNames
-from . import init as initmod
-from .util import filter_env, get_package_digest
-from .localenv import LocalEnv, Project
-import click
-import sys
+import functools
+import getpass
+import json
+import logging
 import os
 import os.path
-import traceback
-import logging
-import functools
-import subprocess
+import re
 import shlex
-import json
+import subprocess
+import sys
+import traceback
+from pathlib import Path
+
+import click
+
+from . import DefaultNames, __version__, get_home_config_path
+from . import init as initmod
+from . import init_logging, versionTuple
+from .job import run_job
+from .localenv import LocalEnv, Project
+from .support import Status
+from .util import filter_env, get_package_digest
 
 _latestJobs = []  # for testing
 _args = []  # for testing
@@ -78,7 +84,7 @@ def cli(
     loglevel=None,
     tmp=None,
     version_check=None,
-    **kw
+    **kw,
 ):
     # ensure that ctx.obj exists and is a dict (in case `cli()` is called
     # by means other than the `if` block below
@@ -235,12 +241,12 @@ def _venv(runtime, env):
     return env
 
 
-def _remote_cmd(runtime, cmdLine, localEnv):
-    context = localEnv.get_context()
-    kind, sep, rest = runtime.partition(":")
+def _remote_cmd(runtime_, cmd_line, local_env):
+    context = local_env.get_context()
+    kind, sep, rest = runtime_.partition(":")
     if context.get("environment"):
         addOnly = kind == "docker"
-        env = filter_env(localEnv.map_value(context["environment"]), addOnly=addOnly)
+        env = filter_env(local_env.map_value(context["environment"]), addOnly=addOnly)
     else:
         env = None
 
@@ -256,18 +262,92 @@ def _remote_cmd(runtime, cmdLine, localEnv):
                 "--version-check",
                 __version__(True),
             ]
-            + cmdLine,
+            + cmd_line,
             False,
         )
-    # elif docker: docker $container -it run $cmdline
+    elif kind == "docker":
+        cmd = DockerCmd(runtime_, env or {}).build()
+        return env, cmd + cmd_line, False
     else:
         # treat as shell command
-        cmd = shlex.split(runtime)
+        cmd = shlex.split(runtime_)
         return (
             env,
-            cmd + ["--no-runtime", "--version-check", __version__(True)] + cmdLine,
+            cmd + ["--no-runtime", "--version-check", __version__(True)] + cmd_line,
             True,
         )
+
+
+class DockerCmd:
+    """Builds command for docker runtime"""
+
+    def __init__(self, specifier_string: str, env_vars: dict) -> None:
+        self.env_vars = env_vars
+        self.image = self.parse_image(specifier_string, __version__())
+        self.docker_args = self.parse_docker_args(specifier_string)
+
+    @staticmethod
+    def parse_image(specifier_string, version):
+        strings = specifier_string.split(maxsplit=1)
+        image = strings[0]
+        image = re.sub(r"^docker:*", "", image)  # remove prefix
+        if image:
+            if ":" in image:
+                return image
+            else:
+                return f"{image}:{version}"
+        return f"onecommons/unfurl:{version}"
+
+    @staticmethod
+    def parse_docker_args(specifier_string):
+        strings = specifier_string.split(maxsplit=1)
+        if len(strings) == 2:
+            return strings[1].split()
+        return []
+
+    def build(self) -> list:
+        """Prepare command which will be run as subprocess"""
+        cmd = [
+            "docker",
+            "run",
+            "--rm",
+            "-w",
+            "/data",
+            "-u",
+            f"{os.getuid()}:{os.getgid()}",
+        ]
+        cmd.extend(self.env_vars_to_args())
+        cmd.extend(self.default_volumes())
+        cmd.extend(self.docker_args)
+        cmd.extend(
+            [self.image, "unfurl", "--no-runtime", "--version-check", __version__(True)]
+        )
+        return cmd
+
+    def env_vars_to_args(self) -> list:
+        user = getpass.getuser()
+        args = [
+            "-e",
+            f"HOME=/home/{user}",
+            "-e",
+            f"USER={user}",
+        ]
+        for k, v in self.env_vars.items():
+            args.extend(["-e", f"{k}={v}"])
+        return args
+
+    @staticmethod
+    def default_volumes() -> list:
+        """Volumes for docker command"""
+        user = getpass.getuser()
+        return [
+            "-v",
+            f"{Path.cwd()}:/data",
+            "-v",
+            f"{Path.home()}:/home/{user}",
+            "-v",
+            "/var/run/docker.sock:/var/run/docker.sock",
+        ]
 
 
 def _run_remote(runtime, options, localEnv):
@@ -277,6 +357,7 @@ def _run_remote(runtime, options, localEnv):
     if _args:
         print("TESTING: running remote with _args %s" % _args)
     env, remote, shell = _remote_cmd(runtime, cmdLine, localEnv)
+    logger.debug("executing remote command: %s", remote)
     rv = subprocess.call(remote, env=env, shell=shell)
     if options.get("standalone_mode") is False:
         return rv
@@ -445,7 +526,7 @@ def stop(ctx, ensemble=None, **options):
 @deployFilterOptions
 @click.option("--workflow", default="deploy", help="plan workflow (default: deploy)")
 def plan(ctx, ensemble=None, **options):
-    "Print the given deployment plan"
+    """Print the given deployment plan"""
     options.update(ctx.obj)
     options["planOnly"] = True
     # XXX show status and task to run including preview of generated templates, cmds to run etc.
@@ -566,32 +647,32 @@ def home(ctx, init=False, render=False, replace=False, **options):
     default=".",
 )
 def runtime(ctx, project_folder, init=False, **options):
-    """If no options are set, display the runtime currently used by the project. To create a new runtime in the project root
-    use --init and the global --runtime option.
+    """If no options are set, display the runtime currently used by the project. To create
+    a new runtime in the project root use --init and the global --runtime option.
     """
     options.update(ctx.obj)
-    projectPath = os.path.abspath(project_folder)
+    project_path = os.path.abspath(project_folder)
     if not init:
         # just display the current runtime
         try:
-            runtime, localEnv = _get_runtime(options, projectPath)
+            runtime_, local_env = _get_runtime(options, project_folder)
         except:
             # if the current path isn't a folder
             if project_folder == ".":
-                runtime, localEnv = _get_runtime(
+                runtime_, local_env = _get_runtime(
                     options, get_home_config_path(options.get("home"))
                 )
             else:
                 raise
-        click.echo(runtime)
+        click.echo(f"\nCurrent runtime: {runtime_}")
         return
 
-    runtime = options.get("runtime") or "venv:"
-    error = initmod.init_engine(projectPath, runtime)
+    runtime_ = options.get("runtime") or "venv:"
+    error = initmod.init_engine(project_path, runtime_)
     if not error:
-        click.echo('Created runtime "%s" in "%s"' % (runtime, projectPath))
+        click.echo('Created runtime "%s" in "%s"' % (runtime_, project_path))
     else:
-        click.echo('Failed to create runtime "%s": %s' % (runtime, error))
+        click.echo('Failed to create runtime "%s": %s' % (runtime_, error))
 
 
 @cli.command(short_help="Clone a project, ensemble or service template")
@@ -691,7 +772,7 @@ def get_commit_message(manifest):
     help="Don't add files for committing (if set, must first manually add)",
 )
 def commit(ctx, message, ensemble, skip_add, no_edit, **options):
-    "Commit any outstanding changes to this ensemble."
+    """Commit any outstanding changes to this ensemble."""
     options.update(ctx.obj)
     localEnv = LocalEnv(ensemble, options.get("home"))
     manifest = localEnv.get_manifest()
@@ -718,7 +799,7 @@ def commit(ctx, message, ensemble, skip_add, no_edit, **options):
     help="Only show repositories with uncommitted changes",
 )
 def git_status(ctx, ensemble, dirty, **options):
-    "Show the git status for repository paths that are relevant to this ensemble."
+    """Show the git status for repository paths that are relevant to this ensemble."""
     options.update(ctx.obj)
     localEnv = LocalEnv(ensemble, options.get("home"))
     manifest = localEnv.get_manifest()
@@ -745,7 +826,7 @@ def git_status(ctx, ensemble, dirty, **options):
     help="Also print the version installed in the current runtime.",
 )
 def version(ctx, semver=False, remote=False, **options):
-    "Print the current version"
+    """Print the current version"""
     options.update(ctx.obj)
     if semver:
         click.echo(__version__())
@@ -761,7 +842,7 @@ def version(ctx, semver=False, remote=False, **options):
 @click.pass_context
 @click.argument("cmd", nargs=1, default="")
 def help(ctx, cmd=""):
-    "Get help on a command"
+    """Get help on a command"""
     if not cmd:
         click.echo(cli.get_help(ctx.parent), color=ctx.color)
         return
