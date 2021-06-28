@@ -90,7 +90,7 @@ def _truncate(s):
 
 # XXX we should know if cmd if not os.access(implementation, os.X):
 class ShellConfigurator(TemplateConfigurator):
-    excludeFromDigest = TemplateConfigurator.excludeFromDigest + ("cwd", "echo")
+    exclude_from_digest = TemplateConfigurator.exclude_from_digest + ("cwd", "echo")
     _defaultCmd = None
 
     @staticmethod

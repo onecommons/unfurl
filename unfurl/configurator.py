@@ -207,7 +207,7 @@ class Configurator(object):
     as an alternative to using the full name ("module.class") when setting the implementation on an operation.
     (Titlecase recommended)"""
 
-    excludeFromDigest = ()
+    exclude_from_digest = ()
 
     def __init__(self, configurationSpec):
         self.configSpec = configurationSpec
@@ -273,7 +273,7 @@ class Configurator(object):
 
         The default implementation calculates a SHA1 digest of the values of the inputs
         that where accessed while that task was run, with the exception of
-        the input parameters listed in `excludeFromDigest`.
+        the input parameters listed in `exclude_from_digest`.
 
         Args:
             task (:class:`TaskView`) The task that executed this operation.
@@ -283,14 +283,24 @@ class Configurator(object):
         """
         # XXX user definition should be able to exclude inputs from digest
         inputs = task.inputs.get_resolved()
-        keys = sorted([k for k in inputs.keys() if k not in self.excludeFromDigest])
+        keys = [k for k in inputs.keys() if k not in self.exclude_from_digest]
+
+        values = [inputs[key] for key in keys]
+
+        keys += [dep.expr for dep in task.dependencies]
+
+        values += [dep.expected for dep in task.dependencies]
+
         if keys:
-            inputdigest = get_digest(
-                [inputs[key] for key in keys], manifest=task._manifest
-            )
+            inputdigest = get_digest(values, manifest=task._manifest)
         else:
             inputdigest = ""
-        return dict(digestKeys=",".join(keys), digestValue=inputdigest)
+
+        digest = dict(digestKeys=",".join(keys), digestValue=inputdigest)
+        task.logger.debug(
+            "digest for %s: %s=%s", task.target.name, digest["digestKeys"], inputdigest
+        )
+        return digest
 
     def check_digest(self, task, changeset):
         """
@@ -310,17 +320,34 @@ class Configurator(object):
             bool: True if configuration's digest has changed, False if it is the same.
         """
         _parameters = getattr(changeset, "digestKeys", None)
-        newKeys = set(k for k in task.inputs.keys() if k not in self.excludeFromDigest)
+        newKeys = set(
+            k for k in task.inputs.keys() if k not in self.exclude_from_digest
+        )
         if not _parameters:
             return not not newKeys
         keys = _parameters.split(",")
-        # an old input was removed
-        if set(keys) - newKeys:
-            return True
-        # only resolve the inputs that were resolved before
-        results = task.inputs._get_result_list(keys)
+        oldInputs = set(key for key in keys if "::" not in key)
+        if oldInputs - newKeys:
+            return True  # an old input was removed
+
+        # only resolve the inputs and dependencies that were resolved before
+        results = []
+        for key in keys:
+            if "::" in key:
+                results.append(Ref(key).resolve(task.inputs.context, wantList="result"))
+            else:
+                results.append(task.inputs._getresult(key))
+
         newDigest = get_digest(results, manifest=task._manifest)
-        return changeset.digestValue != newDigest
+        match = changeset.digestValue != newDigest
+        if not match:
+            task.logger.verbose(
+                "digests didn't match for %s, old: %s new: %s",
+                task.target.name,
+                changeset.digestValue,
+                newDigest,
+            )
+        return match
 
 
 class TaskView(object):

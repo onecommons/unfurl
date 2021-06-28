@@ -900,7 +900,8 @@ class AttributeManager(object):
                         defs, key, value, resource
                     )
                     if isLive:
-                        live[key] = savedValue
+                        # remember Result not savedValue because we need the ExternalValue
+                        live[key] = savedValue if sensitive else value
                     if changed:
                         # save in _attributes in serialized form
                         if sensitive:

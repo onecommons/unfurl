@@ -52,7 +52,7 @@ class SupervisorTest(unittest.TestCase):
                 job = runner.run(JobOptions(workflow="undeploy", startTime=2))
                 assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
                 summary = job.json_summary()
-                print(json.dumps(summary, indent=2))
+                # print(json.dumps(summary, indent=2))
                 self.assertEqual(
                     {
                         "id": "A01120000000",

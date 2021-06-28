@@ -117,9 +117,9 @@ class ResourceConfigurator(AnsibleConfigurator):
             return dict(apiVersion="v1", kind="Namespace")
 
         if "definition" in task.target.attributes:
-            definition = task.target.attributes.get_copy("definition")
+            definition = task.target.attributes.get_copy("definition") or {}
         else:
-            definition = task.target.attributes.get_copy("apiResource", {})
+            definition = task.target.attributes.get_copy("apiResource") or {}
 
         if not definition and task.target.template.is_compatible_type(
             "unfurl.nodes.K8sSecretResource"

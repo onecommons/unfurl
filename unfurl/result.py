@@ -474,20 +474,13 @@ class Results(object):
         self.context = ctx
 
     def get_copy(self, key, default=None):
+        # return a copy of value or default if not found
         from .eval import map_value
 
         try:
-            val = self._attributes[key]
-        except:
-            val = default
-        else:
-            if isinstance(val, Result):
-                assert not isinstance(val.resolved, Result), val
-                if val.original is _Deleted or val.original is _Get:
-                    val = val.as_ref()
-                else:
-                    val = val.original
-        return map_value(val, self.context)
+            return map_value(self._getitem(key), self.context)
+        except (KeyError, IndexError):
+            return default
 
     @staticmethod
     def _map_value(val, context, applyTemplates=True):
@@ -516,20 +509,20 @@ class Results(object):
         # only check resolved values
         return any(isinstance(x, Result) and x.has_diff() for x in self._values())
 
-    def _get_result_list(self, keys):
-        # resolve first and then return the Result
-        for key in keys:
-            self[key]
-        return [self._attributes[key] for key in keys]
-
     def __getitem__(self, key):
+        return self._getitem(key)
+
+    def _getitem(self, key):
+        return self._getresult(key).resolved
+
+    def _getresult(self, key):
         from .eval import map_value
 
         val = self._attributes[key]
         if isinstance(val, Result):
             # already resolved
             assert not isinstance(val.resolved, Result), val
-            return val.resolved
+            return val
         else:
             if self.doFullResolve:
                 if isinstance(val, Results):
@@ -549,7 +542,7 @@ class Results(object):
             result.original = _Get
             self._attributes[key] = result
             assert not isinstance(resolved, Result), val
-            return resolved
+            return result
 
     def __setitem__(self, key, value):
         assert not isinstance(value, Result), (key, value)

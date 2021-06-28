@@ -26,8 +26,11 @@ spec:
             configure:
               implementation: Template
               inputs:
+                run:
+                  somevalue: true
                 done:
                   status: %s
+
     topology_template:
       node_templates:
         nodeA:
@@ -134,7 +137,7 @@ class DependencyTest(unittest.TestCase):
         # print(json.dumps(summary, indent=2))
         # print(job.out.getvalue())
 
-        dependencies = [dict(ref="::nodeC::attr", required=True)]
+        dependencies = [dict(ref="::nodeC::attr", expected=None, required=True)]
         self.assertEqual(
             dependencies,
             job.runner.manifest.manifest.config["changes"][2]["dependencies"],
@@ -219,7 +222,7 @@ class DependencyTest(unittest.TestCase):
         # print(job.out.getvalue())
 
         # dependencies detected during render should be saved
-        dependencies = [dict(ref="::nodeC::attr", required=True)]
+        dependencies = [dict(ref="::nodeC::attr", required=True, expected=None)]
         self.assertEqual(
             dependencies,
             job.runner.manifest.manifest.config["changes"][2]["dependencies"],
