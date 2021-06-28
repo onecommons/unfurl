@@ -7,7 +7,9 @@ RUN apt-get -qq update && \
 ENV TERRAFORM_VERSION=1.0.0 \
     HELM_VERSION=3.6.1 \
     GCLOUD_VERSION=345.0.0 \
-    PATH="${PATH}:/google-cloud-sdk/bin"
+    PATH="${PATH}:/google-cloud-sdk/bin" \
+    PYTHONFAULTHANDLER=1 \
+    PYTHONUNBUFFERED=1
 
 RUN echo "Installing Terraform" && \
     wget -qO /terraform.zip \
