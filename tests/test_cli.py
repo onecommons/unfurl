@@ -239,7 +239,6 @@ spec:
             )
 
         assert result.exit_code == 0, result.stderr
-        assert "running remote with _args" in result.output
 
     def test_badargs(self):
         runner = CliRunner()
