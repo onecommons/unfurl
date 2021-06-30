@@ -88,28 +88,58 @@ class WorkFolder(object):
             shutil.copytree(self.cwd, newpath)
         else:
             os.makedirs(newpath)
+        self.task.logger.trace(
+            'created pending project path "%s" for %s', newpath, self.task.target.name
+        )
         return newpath
+
+    def _rename_dir(self, src, dst):
+        try:
+            os.rename(src, dst)
+        except OSError:
+            self.task.logger.error("failed to rename %s to %s", src, dst)
+        else:
+            self.task.logger.trace("renamed %s to %s", src, dst)
+
+    def _rmtree(self, path):
+        errors = []
+
+        def rm_error(func, path, excinfo):
+            errors.append(path)
+
+        shutil.rmtree(path, onerror=rm_error)
+        if errors:
+            self.task.logger.error(
+                "failed to remove directory %s, the following failed to delete: %s",
+                path,
+                "\n".join(errors),
+            )
+            return False
+        else:
+            self.task.logger.trace("removed directory %s", path)
+            return True
 
     def apply(self):
         pendingpath = self.cwd + self.PENDING_EXT
         previouspath = self.cwd + self.PREVIOUS_EXT
         if os.path.exists(pendingpath):
             if os.path.exists(previouspath):
-                shutil.rmtree(previouspath, ignore_errors=True)
-            # XXX better error handling if rmtree doesn't delete everything
-            os.rename(self.cwd, previouspath)
-            os.rename(pendingpath, self.cwd)
+                self._rmtree(previouspath)
+            # XXX add this when we implement rollback() below:
+            # self._rename_dir(self.cwd, previouspath)
+            self._rename_dir(pendingpath, self.cwd)
 
     def discard(self):
         pendingpath = self.cwd + self.PENDING_EXT
         if os.path.exists(pendingpath):
-            shutil.rmtree(pendingpath, ignore_errors=True)
+            self._rmtree(pendingpath)
 
     def failed(self):
         pendingpath = self.cwd + self.PENDING_EXT
         if os.path.exists(pendingpath):
+            error_dir = self.cwd + "." + self.task.changeId + self.ERROR_EXT
             # - rename existing .error or mv to jobs/rejected/path
-            os.rename(pendingpath, self.cwd + self.ERROR_EXT)
+            self._rename_dir(pendingpath, error_dir)
 
     # XXX not yet used
     # def rollback(self):

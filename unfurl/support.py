@@ -274,7 +274,11 @@ def apply_template(value, ctx, overrides=None):
                     if result.external:
                         external_result = result
 
-                if external_result and value == external_result.external.get():
+                if (
+                    external_result
+                    and ctx.wantList == "result"
+                    and value == external_result.external.get()
+                ):
                     # return the external value instead
                     return external_result
 

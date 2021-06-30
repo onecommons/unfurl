@@ -685,7 +685,7 @@ class DeployPlan(Plan):
         reason = self.check_for_repair(resource)
         # there isn't a new config to run, see if the last applied config needs to be re-run
         if not reason and (
-            jobOptions.upgrade or jobOptions.update
+            jobOptions.change_detection == "evaluate"
         ):  # note: update is true by default
             return Reason.reconfigure
         return reason

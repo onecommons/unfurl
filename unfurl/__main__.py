@@ -24,7 +24,7 @@ import click
 
 from . import DefaultNames, __version__, get_home_config_path
 from . import init as initmod
-from . import logs, versionTuple
+from . import logs, version_tuple
 from .job import run_job
 from .localenv import LocalEnv, Project
 from .logs import Levels
@@ -99,7 +99,7 @@ def cli(
     logs.set_root_log_level(effective_log_level.value)
     if logfile:
         logs.add_log_file(logfile)
-    if version_check and versionTuple() < versionTuple(version_check):
+    if version_check and version_tuple() < version_tuple(version_check):
         logging.warning(
             "current version %s older than expected version %s",
             __version__(True),
@@ -292,7 +292,9 @@ class DockerCmd:
 
     def __init__(self, specifier_string: str, env_vars: dict) -> None:
         self.env_vars = env_vars
-        self.image = self.parse_image(specifier_string, __version__())
+        # if running from a development branch use "latest" otherwise the image for this release
+        tag = "latest" if len(version_tuple()) > 3 else __version__()
+        self.image = self.parse_image(specifier_string, tag)
         self.docker_args = self.parse_docker_args(specifier_string)
 
     @staticmethod
@@ -363,7 +365,7 @@ def _run_remote(runtime, options, localEnv):
     logger = logging.getLogger("unfurl")
     logger.debug('running command remotely on "%s"', runtime)
     cmdLine = _args or sys.argv[1:]
-    if _args:
+    if _args:  # set by test driver to override command line
         print("TESTING: running remote with _args %s" % _args)
     env, remote, shell = _remote_cmd(runtime, cmdLine, localEnv)
     logger.debug("executing remote command: %s", remote)
@@ -418,34 +420,36 @@ def _run_local(ensemble, options):
         return 0
 
 
-# XXX update help text sans "configurations"
 deployFilterOptions = option_group(
     click.option(
-        "--add", default=True, is_flag=True, help="run newly added configurations"
+        "--skip-new",
+        default=False,
+        is_flag=True,
+        help="Don't create instance for new templates.",
     ),
     click.option(
-        "--update",
-        default=True,
-        is_flag=True,
-        help="run configurations that whose spec has changed but don't require a major version change",
+        "--change-detection",
+        default="evaluate",
+        type=click.Choice(["skip", "spec", "evaluate"]),
+        help="How to detect configuration changes to existing instances. (Default: evaluate)",
     ),
     click.option(
         "--repair",
         type=click.Choice(["error", "degraded", "missing", "none"]),
         default="error",
-        help="re-run configurations that are in an error or degraded state",
+        help="Re-run operations on instances that are in an error or degraded state. (Default: error)",
     ),
     click.option(
         "--upgrade",
         default=False,
         is_flag=True,
-        help="run configurations with major version changes or whose spec has changed",
+        help="Apply major versions changes.",
     ),
     click.option(
         "--force",
         default=False,
         is_flag=True,
-        help="(re)run operation regardless of instance's status or state",
+        help="(Re)run operation regardless of instance's status or state",
     ),
     click.option(
         "--prune",
