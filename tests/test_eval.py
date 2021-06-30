@@ -433,6 +433,7 @@ a_dict:
 
         asTemplate = '{{ {"externaltest": none } | eval }}'
         result = map_value(asTemplate, ctx)
+        assert isinstance(result, str)
         self.assertEqual(result, "test")
 
         ctx2 = ctx.copy(wantList="result")

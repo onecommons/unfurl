@@ -499,7 +499,7 @@ class Results(object):
             return ResultsList(val, context)
         else:
             # at this point, just evaluates templates in strings or returns val
-            return map_value(val, context, applyTemplates)
+            return map_value(val, context.copy(wantList="result"), applyTemplates)
 
     def __sensitive__(self):
         # only check resolved values
