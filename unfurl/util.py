@@ -50,7 +50,7 @@ try:
     imp = None
 except ImportError:
     import imp
-from . import sensitive
+from .logs import sensitive
 import logging
 
 logger = logging.getLogger("unfurl")

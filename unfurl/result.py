@@ -10,11 +10,11 @@ from .merge import diff_dicts
 from .util import (
     UnfurlError,
     is_sensitive,
-    sensitive,
     sensitive_dict,
     sensitive_list,
     dump,
 )
+from .logs import sensitive
 
 
 def _get_digest(value, kw):

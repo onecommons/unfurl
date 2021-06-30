@@ -8,7 +8,6 @@ from .util import UnfurlError, UnfurlValidationError, get_base_dir
 from .eval import Ref, RefContext, map_value
 from .result import ResourceRef, ResultsList
 from .merge import patch_dict
-from . import get_log_level
 from toscaparser.tosca_template import ToscaTemplate
 from toscaparser.properties import Property
 from toscaparser.elements.entity_type import EntityType
@@ -186,7 +185,7 @@ class ToscaSpec(object):
                     ExceptionCollector.exceptions[:0] = errorsSoFar
                     message = "\n".join(
                         ExceptionCollector.getExceptionsReport(
-                            get_log_level() < logging.INFO
+                            full=(logger.getEffectiveLevel() < logging.INFO)
                         )
                     )
                     raise UnfurlValidationError(
@@ -199,7 +198,7 @@ class ToscaSpec(object):
             if ExceptionCollector.exceptionsCaught():
                 message = "\n".join(
                     ExceptionCollector.getExceptionsReport(
-                        get_log_level() < logging.INFO
+                        full=(logger.getEffectiveLevel() < logging.INFO)
                     )
                 )
                 raise UnfurlValidationError(

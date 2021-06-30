@@ -2,6 +2,9 @@
 # SPDX-License-Identifier: MIT
 from __future__ import absolute_import
 import codecs
+
+import unfurl.logs
+import unfurl.util
 from ..configurator import Configurator, Status
 from ..runtime import RelationshipInstance
 from .ansible import AnsibleConfigurator
@@ -169,7 +172,9 @@ class ResourceConfigurator(AnsibleConfigurator):
         if resource:
             data = resource.get("kind") == "Secret" and resource.get("data")
             if data:
-                resource["data"] = {k: task.sensitive(v) for k, v in data.items()}
+                resource["data"] = {
+                    k: unfurl.logs.sensitive(v) for k, v in data.items()
+                }
             if task.configSpec.operation in ["check", "discover"]:
                 states = dict(
                     Active=Status.ok,

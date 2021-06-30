@@ -6,8 +6,6 @@ Applies a Unfurl ensemble
 
 For each configuration, run it if required, then record the result
 """
-from __future__ import print_function
-
 import functools
 import getpass
 import json
@@ -25,9 +23,10 @@ import click
 
 from . import DefaultNames, __version__, get_home_config_path
 from . import init as initmod
-from . import init_logging, versionTuple
+from . import logs, versionTuple
 from .job import run_job
 from .localenv import LocalEnv, Project
+from .logs import Levels
 from .support import Status
 from .util import filter_env, get_package_digest
 
@@ -94,30 +93,38 @@ def cli(
     if tmp is not None:
         os.environ["UNFURL_TMPDIR"] = tmp
 
-    levels = [logging.INFO, logging.VERBOSE, logging.DEBUG, logging.TRACE]
     if quiet:
-        effectiveLogLevel = logging.CRITICAL
+        effective_log_level = logging.CRITICAL
     else:
-        # TRACE (5)
-        effectiveLogLevel = levels[min(verbose, 3)]
+        if os.getenv("UNFURL_LOGGING"):
+            effective_log_level = Levels[os.getenv("UNFURL_LOGGING").upper()].value
+        else:
+            levels = [
+                Levels.INFO.value,
+                Levels.VERBOSE.value,
+                Levels.DEBUG.value,
+                Levels.TRACE.value,
+            ]
+            # TRACE (5)
+            effective_log_level = levels[min(verbose, 3)]
 
     if loglevel:  # UNFURL_LOGGING overrides command line -v
-        effectiveLogLevel = dict(
-            CRITICAL=50, ERROR=40, WARNING=30, INFO=20, VERBOSE=15, DEBUG=10, TRACE=5
-        )[loglevel.upper()]
+        effective_log_level = Levels[loglevel.upper()].value
     # verbose: 0 == INFO, -1 == CRITICAL, >= 1 == DEBUG or TRACE
-    if effectiveLogLevel == logging.CRITICAL:
+    if effective_log_level == logging.CRITICAL:
         verbose = -1
-    elif effectiveLogLevel >= logging.INFO:
+    elif effective_log_level >= logging.INFO:
         verbose = 0
-    elif effectiveLogLevel == 15:
+    elif effective_log_level == 15:
         verbose = 1
-    elif effectiveLogLevel == 10:
+    elif effective_log_level == 10:
         verbose = 2
-    elif effectiveLogLevel == 5:
+    elif effective_log_level == 5:
         verbose = 3
     ctx.obj["verbose"] = verbose
-    init_logging(effectiveLogLevel, logfile)
+    logs.set_root_log_level(effective_log_level)
+    if logfile:
+        logs.add_log_file(logfile)
     if version_check and versionTuple() < versionTuple(version_check):
         logging.warning(
             "current version %s older than expected version %s",

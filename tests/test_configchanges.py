@@ -1,10 +1,8 @@
 import unittest
 import os
 import traceback
-import json
 from click.testing import CliRunner
 from unfurl.__main__ import cli, _latestJobs
-from unfurl.localenv import LocalEnv
 
 version1 = """
   apiVersion: unfurl/v1alpha1

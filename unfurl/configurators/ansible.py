@@ -1,21 +1,21 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
-from __future__ import absolute_import
-import sys
 import collections
 import functools
 import logging
-from .. import get_log_level
-from ..util import assert_form, save_to_tempfile
-from ..configurator import Status
-from ..result import serialize_value
-from . import TemplateConfigurator
+import sys
+
 import ansible.constants as C
 from ansible import context
 from ansible.cli.playbook import PlaybookCLI
-from ansible.plugins.callback.default import CallbackModule
 from ansible.module_utils import six
+from ansible.plugins.callback.default import CallbackModule
 from ansible.utils.display import Display
+
+from . import TemplateConfigurator
+from ..configurator import Status
+from ..result import serialize_value
+from ..util import assert_form
 
 display = Display()
 
@@ -454,7 +454,7 @@ def _run_playbooks(args, params=None, vault_secrets=None):
     cli._play_prereqs = hook_play_prereqs
 
     oldVerbosity = display.verbosity
-    if get_log_level() <= 10:  # debug
+    if logger.getEffectiveLevel() <= logging.DEBUG:
         display.verbosity = 2
     try:
         resultsCB.exit_code = cli.run()
