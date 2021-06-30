@@ -411,34 +411,36 @@ def _run_local(ensemble, options):
         return 0
 
 
-# XXX update help text sans "configurations"
 deployFilterOptions = option_group(
     click.option(
-        "--add", default=True, is_flag=True, help="run newly added configurations"
+        "--skip-new",
+        default=False,
+        is_flag=True,
+        help="Don't create instance for new templates.",
     ),
     click.option(
-        "--update",
-        default=True,
-        is_flag=True,
-        help="run configurations that whose spec has changed but don't require a major version change",
+        "--change-detection",
+        default="evaluate",
+        type=click.Choice(["skip", "spec", "evaluate"]),
+        help="How to detect configuration changes to existing instances. (Default: evaluate)",
     ),
     click.option(
         "--repair",
         type=click.Choice(["error", "degraded", "missing", "none"]),
         default="error",
-        help="re-run configurations that are in an error or degraded state",
+        help="Re-run operations on instances that are in an error or degraded state. (Default: error)",
     ),
     click.option(
         "--upgrade",
         default=False,
         is_flag=True,
-        help="run configurations with major version changes or whose spec has changed",
+        help="Apply major versions changes.",
     ),
     click.option(
         "--force",
         default=False,
         is_flag=True,
-        help="(re)run operation regardless of instance's status or state",
+        help="(Re)run operation regardless of instance's status or state",
     ),
     click.option(
         "--prune",

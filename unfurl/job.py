@@ -83,10 +83,11 @@ class JobOptions(object):
         instance=None,
         instances=None,
         template=None,
-        useConfigurator=False,
         # default options:
         add=True,  # add new templates
-        update=True,  # run configurations that whose spec has changed but don't require a major version change
+        skip_new=False,  # don't create newly defined instances (override add)
+        update=True,  # run configurations that that have changed
+        change_detection="evaluate",  # skip, spec, evaluate (skip sets update to False)
         repair="error",  # or 'degraded' or "missing" or "none", run configurations that are not operational and/or degraded
         upgrade=False,  # run configurations with major version changes or whose spec has changed
         force=False,  # (re)run operation regardless of instance's status or state
@@ -109,8 +110,12 @@ class JobOptions(object):
     def __init__(self, **kw):
         options = self.defaults.copy()
         options["instance"] = kw.get("resource")  # old option name
-        if kw.get("starttime"):
+        if kw.get("starttime"):  # rename
             options["startTime"] = kw["starttime"]
+        if kw.get("skip_new"):
+            options["add"] = False
+        if kw.get("change_detection") == "skip":
+            options["update"] = False
         options.update(kw)
         self.__dict__.update(options)
         self.userConfig = kw
