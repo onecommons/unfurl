@@ -59,8 +59,9 @@ def split_git_url(url):
 
 class _ProgressPrinter(git.RemoteProgress):
     def update(self, op_code, cur_count, max_count=None, message=""):
-        if message:
-            logger.info("fetching from %s, received: %s ", self.gitUrl, message)
+        # we use print instead of logging because we don't want to clutter logs with this message
+        if message and logger.getEffectiveLevel() <= logging.INFO:
+            print("fetching from %s, received: %s " % (self.gitUrl, message))
 
 
 class Repo(object):

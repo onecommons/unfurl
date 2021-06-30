@@ -18,6 +18,7 @@ import subprocess
 import sys
 import traceback
 from pathlib import Path
+from typing import Optional
 
 import click
 
@@ -93,36 +94,9 @@ def cli(
     if tmp is not None:
         os.environ["UNFURL_TMPDIR"] = tmp
 
-    if quiet:
-        effective_log_level = logging.CRITICAL
-    else:
-        if os.getenv("UNFURL_LOGGING"):
-            effective_log_level = Levels[os.getenv("UNFURL_LOGGING").upper()].value
-        else:
-            levels = [
-                Levels.INFO.value,
-                Levels.VERBOSE.value,
-                Levels.DEBUG.value,
-                Levels.TRACE.value,
-            ]
-            # TRACE (5)
-            effective_log_level = levels[min(verbose, 3)]
-
-    if loglevel:  # UNFURL_LOGGING overrides command line -v
-        effective_log_level = Levels[loglevel.upper()].value
-    # verbose: 0 == INFO, -1 == CRITICAL, >= 1 == DEBUG or TRACE
-    if effective_log_level == logging.CRITICAL:
-        verbose = -1
-    elif effective_log_level >= logging.INFO:
-        verbose = 0
-    elif effective_log_level == 15:
-        verbose = 1
-    elif effective_log_level == 10:
-        verbose = 2
-    elif effective_log_level == 5:
-        verbose = 3
-    ctx.obj["verbose"] = verbose
-    logs.set_root_log_level(effective_log_level)
+    effective_log_level = detect_log_level(loglevel, quiet, verbose)
+    ctx.obj["verbose"] = detect_verbose_level(effective_log_level)
+    logs.set_root_log_level(effective_log_level.value)
     if logfile:
         logs.add_log_file(logfile)
     if version_check and versionTuple() < versionTuple(version_check):
@@ -131,6 +105,34 @@ def cli(
             __version__(True),
             version_check,
         )
+
+
+def detect_log_level(loglevel: Optional[str], quiet: bool, verbose: int) -> Levels:
+    if quiet:
+        effective_log_level = Levels.CRITICAL
+    else:
+        if os.getenv("UNFURL_LOGGING"):
+            effective_log_level = Levels[os.getenv("UNFURL_LOGGING").upper()]
+        else:
+            levels = [Levels.INFO, Levels.VERBOSE, Levels.DEBUG, Levels.TRACE]
+            effective_log_level = levels[min(verbose, 3)]
+    if loglevel:
+        effective_log_level = Levels[loglevel.upper()]
+    return effective_log_level
+
+
+def detect_verbose_level(effective_log_level: Levels) -> int:
+    if effective_log_level is Levels.VERBOSE:
+        verbose = 1
+    elif effective_log_level is Levels.DEBUG:
+        verbose = 2
+    elif effective_log_level is Levels.TRACE:
+        verbose = 3
+    elif effective_log_level is Levels.CRITICAL:
+        verbose = -1
+    else:
+        verbose = 0
+    return verbose
 
 
 jobControlOptions = option_group(

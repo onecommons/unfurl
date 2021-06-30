@@ -173,7 +173,7 @@ class ResourceConfigurator(AnsibleConfigurator):
             data = resource.get("kind") == "Secret" and resource.get("data")
             if data:
                 resource["data"] = {
-                    k: unfurl.logs.sensitive(v) for k, v in data.items()
+                    k: task.sensitive(v) for k, v in data.items()
                 }
             if task.configSpec.operation in ["check", "discover"]:
                 states = dict(

@@ -286,7 +286,7 @@ root:
             logger.info("test1 %s", sensitive_str("sensitive"))
 
             logger = logging.getLogger("another")
-            logger.debug("test2 %s", sensitive_str("sensitive"))
+            logger.warning("test2 %s", sensitive_str("sensitive"))
 
             log_output = handler.stream.getvalue()
             self.assertIn(sensitive_str.redacted_str, log_output)
