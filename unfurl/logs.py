@@ -46,7 +46,7 @@ class ColorHandler(logging.StreamHandler):
     STYLE_LEVEL = {
         Levels.CRITICAL: {"bg": "bright_red", "fg": "white"},
         Levels.ERROR: {"bg": "red", "fg": "white"},
-        Levels.WARNING: {"bg": "yellow", "fg": "white"},
+        Levels.WARNING: {"bg": "bright_yellow", "fg": "white"},
         Levels.INFO: {"bg": "blue", "fg": "white"},
         Levels.VERBOSE: {"bg": "bright_blue", "fg": "white"},
         Levels.DEBUG: {"bg": "black", "fg": "white"},
@@ -55,7 +55,7 @@ class ColorHandler(logging.StreamHandler):
     STYLE_MESSAGE = {
         Levels.CRITICAL: {"fg": "bright_red"},
         Levels.ERROR: {"fg": "red"},
-        Levels.WARNING: {"fg": "yellow"},
+        Levels.WARNING: {"fg": "bright_yellow"},
         Levels.INFO: {"fg": "blue"},
         Levels.VERBOSE: {},
         Levels.DEBUG: {},
