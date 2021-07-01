@@ -314,6 +314,13 @@ not
 python
 ^^^^^^
 
+  ======== =========================================
+  Key      Value
+  ======== =========================================
+  python   path#function_name | module.function_name
+  args?    mapped_value
+  ======== =========================================
+
   .. code-block:: YAML
 
     eval:
@@ -324,10 +331,17 @@ python
     eval:
       python: python_module.func
 
+    # with args:
+
+    eval:
+      python: python_module.func
+      args:   foo
+
   Execute the given python function and evaluate to its return value.
-  The function will being invoke the current `RefContext` as an argument.
   If the path to the python script is a relative path, it will be treated as relative to the current source file
   (ie. the template file that is invoking the expression).
+  The function will being invoke the current `RefContext` as the first argument.
+  If ``args`` is declared, its value will passed as a second argument to the function.
 
 secret
 ^^^^^^

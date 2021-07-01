@@ -1,8 +1,8 @@
 from unfurl.configurator import Configurator
 
 
-def expressionFunc(ctx):
-    return "foo"
+def expressionFunc(ctx, arg):
+    return arg
 
 
 class LocallyDefinedConfigurator(Configurator):

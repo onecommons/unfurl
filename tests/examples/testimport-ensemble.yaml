@@ -16,6 +16,7 @@ spec:
             testExpressionFunc:
               eval:
                 python: spec/configurators.py#expressionFunc
+                args: foo
           interfaces:
             Standard:
               create:

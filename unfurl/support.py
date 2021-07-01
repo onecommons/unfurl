@@ -88,7 +88,14 @@ def eval_python(arg, ctx):
     else:
         funcName = arg
     func = load_class(funcName)
-    return func(ctx)
+
+    kw = ctx.kw
+    print("!!kw", kw)
+    if "args" in kw:
+        args = map_value(kw["args"], ctx)
+        return func(ctx, args)
+    else:
+        return func(ctx)
 
 
 set_eval_func("python", eval_python)
