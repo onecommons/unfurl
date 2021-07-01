@@ -59,7 +59,7 @@ def find_standard_interface(op):
         return ""
 
 
-@functools.cache
+@functools.lru_cache
 def create_default_topology():
     tpl = dict(
         tosca_definitions_version=TOSCA_VERSION,
@@ -553,7 +553,9 @@ class NodeSpec(EntitySpec):
     # has attributes: tosca_id, tosca_name, state, (3.4.1 Node States p.61)
     def __init__(self, template=None, spec=None):
         if not template:
-            template = next(iter(create_default_topology().topology_template.nodetemplates))
+            template = next(
+                iter(create_default_topology().topology_template.nodetemplates)
+            )
             spec = ToscaSpec(create_default_topology())
         else:
             assert spec
@@ -703,7 +705,9 @@ class RelationshipSpec(EntitySpec):
         # its connected through target, source, capability
         # its RelationshipType has valid_target_types
         if not template:
-            template = create_default_topology().topology_template.relationship_templates[0]
+            template = (
+                create_default_topology().topology_template.relationship_templates[0]
+            )
             spec = ToscaSpec(create_default_topology())
         else:
             assert spec

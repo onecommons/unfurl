@@ -42,12 +42,16 @@ class TestLogLevelDetection:
         assert level is Levels.CRITICAL
 
     def test_from_env_var(self):
+        old_env_level = os.environ.get("UNFURL_LOGGING")
         try:
             os.environ["UNFURL_LOGGING"] = "DEBUG"
             level = detect_log_level(loglevel=None, quiet=False, verbose=0)
             assert level is Levels.DEBUG
         finally:
-            del os.environ["UNFURL_LOGGING"]
+            if old_env_level:
+                os.environ["UNFURL_LOGGING"] = old_env_level
+            else:
+                del os.environ["UNFURL_LOGGING"]
 
     @pytest.mark.parametrize(
         ["log_level", "expected"],
