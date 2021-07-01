@@ -59,7 +59,7 @@ def find_standard_interface(op):
         return ""
 
 
-@functools.lru_cache
+@functools.lru_cache(maxsize=None)
 def create_default_topology():
     tpl = dict(
         tosca_definitions_version=TOSCA_VERSION,
