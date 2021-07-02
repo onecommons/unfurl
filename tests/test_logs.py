@@ -33,6 +33,15 @@ def test_format_of_job_file_log():
 
 
 class TestLogLevelDetection:
+    def setup(self):
+        self.old_env_level = os.environ.get("UNFURL_LOGGING")
+        if self.old_env_level:
+            del os.environ["UNFURL_LOGGING"]
+
+    def teardown(self):
+        if self.old_env_level:
+            os.environ["UNFURL_LOGGING"] = self.old_env_level
+
     def test_default(self):
         level = detect_log_level(loglevel=None, quiet=False, verbose=0)
         assert level is Levels.INFO
@@ -42,16 +51,9 @@ class TestLogLevelDetection:
         assert level is Levels.CRITICAL
 
     def test_from_env_var(self):
-        old_env_level = os.environ.get("UNFURL_LOGGING")
-        try:
-            os.environ["UNFURL_LOGGING"] = "DEBUG"
-            level = detect_log_level(loglevel=None, quiet=False, verbose=0)
-            assert level is Levels.DEBUG
-        finally:
-            if old_env_level:
-                os.environ["UNFURL_LOGGING"] = old_env_level
-            else:
-                del os.environ["UNFURL_LOGGING"]
+        os.environ["UNFURL_LOGGING"] = "DEBUG"
+        level = detect_log_level(loglevel=None, quiet=False, verbose=0)
+        assert level is Levels.DEBUG
 
     @pytest.mark.parametrize(
         ["log_level", "expected"],
