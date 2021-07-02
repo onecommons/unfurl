@@ -3,12 +3,13 @@
 """
 TOSCA implementation
 """
+import functools
+
 from .tosca_plugins import TOSCA_VERSION
 from .util import UnfurlError, UnfurlValidationError, get_base_dir
 from .eval import Ref, RefContext, map_value
 from .result import ResourceRef, ResultsList
 from .merge import patch_dict
-from . import get_log_level
 from toscaparser.tosca_template import ToscaTemplate
 from toscaparser.properties import Property
 from toscaparser.elements.entity_type import EntityType
@@ -58,6 +59,7 @@ def find_standard_interface(op):
         return ""
 
 
+@functools.lru_cache(maxsize=None)
 def create_default_topology():
     tpl = dict(
         tosca_definitions_version=TOSCA_VERSION,
@@ -186,7 +188,7 @@ class ToscaSpec(object):
                     ExceptionCollector.exceptions[:0] = errorsSoFar
                     message = "\n".join(
                         ExceptionCollector.getExceptionsReport(
-                            get_log_level() < logging.INFO
+                            full=(logger.getEffectiveLevel() < logging.INFO)
                         )
                     )
                     raise UnfurlValidationError(
@@ -199,7 +201,7 @@ class ToscaSpec(object):
             if ExceptionCollector.exceptionsCaught():
                 message = "\n".join(
                     ExceptionCollector.getExceptionsReport(
-                        get_log_level() < logging.INFO
+                        full=(logger.getEffectiveLevel() < logging.INFO)
                     )
                 )
                 raise UnfurlValidationError(
@@ -371,9 +373,6 @@ class ToscaSpec(object):
             relTemplate = RelationshipSpec(template, self)
             if template.name not in self.relationshipTemplates:  # not defined yet
                 self.relationshipTemplates[template.name] = relTemplate
-
-
-_defaultTopology = create_default_topology()
 
 
 def find_props(attributes, propertyDefs, matchfn):
@@ -554,8 +553,10 @@ class NodeSpec(EntitySpec):
     # has attributes: tosca_id, tosca_name, state, (3.4.1 Node States p.61)
     def __init__(self, template=None, spec=None):
         if not template:
-            template = next(iter(_defaultTopology.topology_template.nodetemplates))
-            spec = ToscaSpec(_defaultTopology)
+            template = next(
+                iter(create_default_topology().topology_template.nodetemplates)
+            )
+            spec = ToscaSpec(create_default_topology())
         else:
             assert spec
         EntitySpec.__init__(self, template, spec)
@@ -704,8 +705,10 @@ class RelationshipSpec(EntitySpec):
         # its connected through target, source, capability
         # its RelationshipType has valid_target_types
         if not template:
-            template = _defaultTopology.topology_template.relationship_templates[0]
-            spec = ToscaSpec(_defaultTopology)
+            template = (
+                create_default_topology().topology_template.relationship_templates[0]
+            )
+            spec = ToscaSpec(create_default_topology())
         else:
             assert spec
         EntitySpec.__init__(self, template, spec)
@@ -858,8 +861,8 @@ class TopologySpec(EntitySpec):
             self.spec = spec
             template = spec.template.topology_template
         else:
-            template = _defaultTopology.topology_template
-            self.spec = ToscaSpec(_defaultTopology)
+            template = create_default_topology().topology_template
+            self.spec = ToscaSpec(create_default_topology())
             self.spec.topology = self
 
         inputs = inputs or {}

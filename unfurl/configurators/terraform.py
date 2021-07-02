@@ -34,7 +34,7 @@ def mark_block(schema, items, task, sensitiveNames):
             attributeSchema = attributes.get(name)
             if attributeSchema:
                 if attributeSchema.get("sensitive") or name in sensitiveNames:
-                    #   mark sensistive
+                    #   mark sensitive
                     obj[name] = task.sensitive(value)
             else:
                 if not value:

@@ -6,6 +6,12 @@ import sys
 
 import pbr.version
 
+from unfurl import logs
+
+
+# We need to initialize logging before any logger is created
+logs.initialize_logging()
+
 
 def __version__(release=False):
     # a function because this is expensive
@@ -58,98 +64,6 @@ def get_home_config_path(homepath):
             return os.path.abspath(homepath)
     return None
 
-
-### logging initialization
-logging.captureWarnings(True)
-_logHandler = None
-_logLevel = logging.NOTSET
-
-logging.addLevelName(5, "TRACE")
-logging.TRACE = 5
-
-
-def __trace(self, msg, *args, **kwargs):
-    if self.isEnabledFor(logging.TRACE):
-        self._log(logging.TRACE, msg, args, **kwargs)
-
-
-logging.Logger.trace = __trace
-
-logging.addLevelName(15, "VERBOSE")
-logging.VERBOSE = 15
-
-
-def __verbose(self, msg, *args, **kwargs):
-    if self.isEnabledFor(logging.VERBOSE):
-        self._log(logging.VERBOSE, msg, args, **kwargs)
-
-
-logging.Logger.verbose = __verbose
-
-
-class sensitive(object):
-    """Base class for marking a value as sensitive. Depending on the context, sensitive values will either be encrypted or redacted when outputed."""
-
-    redacted_str = "<<REDACTED>>"
-
-    def __sensitive__(self):
-        return True
-
-
-class SensitiveLogFilter(logging.Filter):
-    def filter(self, record):
-        # redact any sensitive value
-        record.args = tuple(
-            sensitive.redacted_str if isinstance(a, sensitive) else a
-            for a in record.args
-        )
-        return True
-
-
-def get_log_level():
-    global _logLevel
-    return _logLevel
-
-
-def init_logging(level=None, logfile=None):
-    rootLogger = logging.getLogger()
-    global _logLevel
-    if _logLevel == logging.NOTSET:
-        _logLevel = rootLogger.getEffectiveLevel()
-    f = SensitiveLogFilter()
-
-    # global _logHandler so we can call initLogging multiple times
-    global _logHandler
-    if not _logHandler:
-        rootLogger.setLevel(logging.TRACE)  # need to set this first
-        rootLogger.addFilter(f)
-
-        _logHandler = logging.StreamHandler()
-        formatter = logging.Formatter("%(name)s:%(levelname)s: %(message)s")
-        _logHandler.setFormatter(formatter)
-        _logHandler.addFilter(f)
-        rootLogger.addHandler(_logHandler)
-
-    if logfile:
-        ch = logging.FileHandler(logfile)
-        formatter = logging.Formatter(
-            "[%(asctime)s] %(name)s:%(levelname)s: %(message)s"
-        )
-        ch.setFormatter(formatter)
-        ch.setLevel(logging.TRACE)
-        ch.addFilter(f)
-        rootLogger.addHandler(ch)
-
-    oldLevel = _logLevel
-    if level is not None:
-        _logHandler.setLevel(level)
-        _logLevel = _logHandler.level
-    return _logHandler, oldLevel
-
-
-_logEnv = os.getenv("UNFURL_LOGGING")
-if _logEnv is not None:
-    init_logging(_logEnv.upper())
 
 ### Ansible initialization
 if "ANSIBLE_CONFIG" not in os.environ:

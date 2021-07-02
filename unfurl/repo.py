@@ -7,7 +7,6 @@ from git.repo.fun import is_git_dir
 import logging
 from six.moves.urllib.parse import urlparse
 from .util import UnfurlError
-from . import get_log_level
 import toscaparser.repositories
 from ruamel.yaml.comments import CommentedMap
 
@@ -60,8 +59,8 @@ def split_git_url(url):
 
 class _ProgressPrinter(git.RemoteProgress):
     def update(self, op_code, cur_count, max_count=None, message=""):
-        # print update to stdout but only if logging is INFO or more verbose
-        if message and get_log_level() <= logging.INFO:
+        # we use print instead of logging because we don't want to clutter logs with this message
+        if message and logger.getEffectiveLevel() <= logging.INFO:
             print("fetching from %s, received: %s " % (self.gitUrl, message))
 
 
@@ -348,7 +347,7 @@ class GitRepo(Repo):
 
     def show(self, path, commitId):
         if self.working_dir and os.path.isabs(path):
-            path = os.path.abspath(path)[len(self.working_dir):]
+            path = os.path.abspath(path)[len(self.working_dir) :]
         # XXX this won't work if path is in a submodule
         # if in path startswith a submodule: git log -1 -p [commitid] --  [submodule]
         # submoduleCommit = re."\+Subproject commit (.+)".group(1)

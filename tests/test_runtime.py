@@ -1,16 +1,15 @@
+import copy
+import logging
+import os.path
+import pickle
 import unittest
-from unfurl.runtime import Status, Priority, NodeInstance, OperationalInstance
-from unfurl.job import JobOptions, Runner
+
+import six
+from click.testing import CliRunner
+from ruamel.yaml.comments import CommentedMap
+
 from unfurl.configurator import Configurator, ConfigurationSpec
-from unfurl.yamlmanifest import YamlManifest
-from unfurl.yamlloader import YamlConfig
-from unfurl.util import (
-    UnfurlError,
-    UnfurlValidationError,
-    lookup_class,
-    API_VERSION,
-    sensitive_str,
-)
+from unfurl.job import JobOptions, Runner
 from unfurl.merge import (
     expand_doc,
     restore_includes,
@@ -19,16 +18,16 @@ from unfurl.merge import (
     patch_dict,
     parse_merge_key,
 )
-from ruamel.yaml.comments import CommentedMap
-import traceback
-import six
-import datetime
-import copy
-import os.path
-import pickle
-from click.testing import CliRunner
-import logging
-from unfurl import init_logging
+from unfurl.runtime import Status, Priority, NodeInstance, OperationalInstance
+from unfurl.util import (
+    UnfurlError,
+    UnfurlValidationError,
+    lookup_class,
+    API_VERSION,
+    sensitive_str,
+)
+from unfurl.yamlloader import YamlConfig
+from unfurl.yamlmanifest import YamlManifest
 
 
 class SimpleConfigurator(Configurator):
@@ -278,23 +277,22 @@ root:
         self.assertIn("missing includes: [+/templates/production]", str(err.exception))
 
     def test_sensitive_logging(self):
+        handler = logging.getLogger().handlers[0]
+        old_stream = handler.stream
         try:
-            _logHandler, oldLevel = init_logging(logging.DEBUG)
-            oldStream = _logHandler.stream
-            _logHandler.stream = six.StringIO()
+            handler.stream = six.StringIO()
 
             logger = logging.getLogger("unfurl")
             logger.info("test1 %s", sensitive_str("sensitive"))
 
             logger = logging.getLogger("another")
-            logger.debug("test2 %s", sensitive_str("sensitive"))
+            logger.warning("test2 %s", sensitive_str("sensitive"))
 
-            logOutput = _logHandler.stream.getvalue()
-            self.assertIn(sensitive_str.redacted_str, logOutput)
-            self.assertNotIn("sensitive", logOutput)
+            log_output = handler.stream.getvalue()
+            self.assertIn(sensitive_str.redacted_str, log_output)
+            self.assertNotIn("sensitive", log_output)
         finally:
-            _logHandler.stream = oldStream
-            init_logging(oldLevel)
+            handler.stream = old_stream
 
 
 class TestInterface:

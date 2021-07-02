@@ -6,8 +6,6 @@ Applies a Unfurl ensemble
 
 For each configuration, run it if required, then record the result
 """
-from __future__ import print_function
-
 import functools
 import getpass
 import json
@@ -20,14 +18,16 @@ import subprocess
 import sys
 import traceback
 from pathlib import Path
+from typing import Optional
 
 import click
 
 from . import DefaultNames, __version__, get_home_config_path
 from . import init as initmod
-from . import init_logging, version_tuple
+from . import logs, version_tuple
 from .job import run_job
 from .localenv import LocalEnv, Project
+from .logs import Levels
 from .support import Status
 from .util import filter_env, get_package_digest
 
@@ -94,36 +94,45 @@ def cli(
     if tmp is not None:
         os.environ["UNFURL_TMPDIR"] = tmp
 
-    levels = [logging.INFO, logging.VERBOSE, logging.DEBUG, logging.TRACE]
-    if quiet:
-        effectiveLogLevel = logging.CRITICAL
-    else:
-        # TRACE (5)
-        effectiveLogLevel = levels[min(verbose, 3)]
-
-    if loglevel:  # UNFURL_LOGGING overrides command line -v
-        effectiveLogLevel = dict(
-            CRITICAL=50, ERROR=40, WARNING=30, INFO=20, VERBOSE=15, DEBUG=10, TRACE=5
-        )[loglevel.upper()]
-    # verbose: 0 == INFO, -1 == CRITICAL, >= 1 == DEBUG or TRACE
-    if effectiveLogLevel == logging.CRITICAL:
-        verbose = -1
-    elif effectiveLogLevel >= logging.INFO:
-        verbose = 0
-    elif effectiveLogLevel == 15:
-        verbose = 1
-    elif effectiveLogLevel == 10:
-        verbose = 2
-    elif effectiveLogLevel == 5:
-        verbose = 3
-    ctx.obj["verbose"] = verbose
-    init_logging(effectiveLogLevel, logfile)
+    effective_log_level = detect_log_level(loglevel, quiet, verbose)
+    ctx.obj["verbose"] = detect_verbose_level(effective_log_level)
+    logs.set_root_log_level(effective_log_level.value)
+    if logfile:
+        logs.add_log_file(logfile)
     if version_check and version_tuple() < version_tuple(version_check):
         logging.warning(
             "current version %s older than expected version %s",
             __version__(True),
             version_check,
         )
+
+
+def detect_log_level(loglevel: Optional[str], quiet: bool, verbose: int) -> Levels:
+    if quiet:
+        effective_log_level = Levels.CRITICAL
+    else:
+        if os.getenv("UNFURL_LOGGING"):
+            effective_log_level = Levels[os.getenv("UNFURL_LOGGING").upper()]
+        else:
+            levels = [Levels.INFO, Levels.VERBOSE, Levels.DEBUG, Levels.TRACE]
+            effective_log_level = levels[min(verbose, 3)]
+    if loglevel:
+        effective_log_level = Levels[loglevel.upper()]
+    return effective_log_level
+
+
+def detect_verbose_level(effective_log_level: Levels) -> int:
+    if effective_log_level is Levels.VERBOSE:
+        verbose = 1
+    elif effective_log_level is Levels.DEBUG:
+        verbose = 2
+    elif effective_log_level is Levels.TRACE:
+        verbose = 3
+    elif effective_log_level is Levels.CRITICAL:
+        verbose = -1
+    else:
+        verbose = 0
+    return verbose
 
 
 jobControlOptions = option_group(

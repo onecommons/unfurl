@@ -16,10 +16,10 @@ from .result import serialize_value, ChangeRecord
 from .util import UnfurlError, UnfurlTaskError, to_enum
 from .merge import merge_dicts
 from .runtime import OperationalInstance
+from . import logs
 from .configurator import (
     TaskView,
     ConfiguratorResult,
-    Dependency,
 )
 from .planrequests import (
     PlanRequest,
@@ -34,8 +34,8 @@ from .planrequests import (
 from .plan import Plan
 from .localenv import LocalEnv
 
-# note: need to import configurators even though it is unused
-from . import display, init_logging, configurators
+from . import configurators  # need to import configurators even though it is unused
+from . import display
 
 try:
     from time import perf_counter
@@ -1078,7 +1078,7 @@ class Runner(object):
             logPath = self.manifest.get_job_log_path(job.get_start_time(), ".log")
             if not os.path.isdir(os.path.dirname(logPath)):
                 os.makedirs(os.path.dirname(logPath))
-            init_logging(logfile=logPath)
+            logs.add_log_file(logPath)
             path = self.manifest.path
             if joboptions.planOnly:
                 logger.info("creating %s plan for %s", joboptions.workflow, path)
