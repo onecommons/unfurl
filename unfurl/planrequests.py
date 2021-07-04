@@ -1,7 +1,125 @@
 # Copyright (c) 2021 Adam Souzis
 # SPDX-License-Identifier: MIT
 import collections
-from .util import UnfurlError, UnfurlTaskError
+import re
+import six
+from .util import (
+    lookup_class,
+    load_module,
+    find_schema_errors,
+    UnfurlError,
+    UnfurlTaskError,
+)
+from .result import serialize_value
+from .support import Defaults
+import logging
+
+logger = logging.getLogger("unfurl")
+
+# we want ConfigurationSpec to be standalone and easily serializable
+class ConfigurationSpec(object):
+    @classmethod
+    def getDefaults(self):
+        return dict(
+            className=None,
+            majorVersion=0,
+            minorVersion="",
+            workflow=Defaults.workflow,
+            timeout=None,
+            operation_host=None,
+            environment=None,
+            inputs=None,
+            inputSchema=None,
+            preConditions=None,
+            postConditions=None,
+            primary=None,
+            dependencies=None,
+            outputs=None,
+        )
+
+    def __init__(
+        self,
+        name,
+        operation,
+        className=None,
+        majorVersion=0,
+        minorVersion="",
+        workflow=Defaults.workflow,
+        timeout=None,
+        operation_host=None,
+        environment=None,
+        inputs=None,
+        inputSchema=None,
+        preConditions=None,
+        postConditions=None,
+        primary=None,
+        dependencies=None,
+        outputs=None,
+    ):
+        assert name and className, "missing required arguments"
+        self.name = name
+        self.operation = operation
+        self.className = className
+        self.majorVersion = majorVersion
+        self.minorVersion = minorVersion
+        self.workflow = workflow
+        self.timeout = timeout
+        self.operationHost = operation_host
+        self.environment = environment
+        self.inputs = inputs or {}
+        self.inputSchema = inputSchema
+        self.outputs = outputs or {}
+        self.preConditions = preConditions
+        self.postConditions = postConditions
+        self.artifact = primary
+
+    def find_invalidate_inputs(self, inputs):
+        if not self.inputSchema:
+            return []
+        return find_schema_errors(serialize_value(inputs), self.inputSchema)
+
+    # XXX same for postConditions
+    def find_invalid_preconditions(self, target):
+        if not self.preConditions:
+            return []
+        # XXX this should be like a Dependency object
+        expanded = serialize_value(target.attributes)
+        return find_schema_errors(expanded, self.preConditions)
+
+    def create(self):
+        klass = lookup_class(self.className)
+        if not klass:
+            raise UnfurlError("Could not load configurator %s" % self.className)
+        else:
+            return klass(self)
+
+    def should_run(self):
+        return Defaults.shouldRun
+
+    def copy(self, **mods):
+        args = self.__dict__.copy()
+        args.update(mods)
+        return ConfigurationSpec(**args)
+
+    def __eq__(self, other):
+        if not isinstance(other, ConfigurationSpec):
+            return False
+        # XXX3 add unit tests
+        return (
+            self.name == other.name
+            and self.operation == other.operation
+            and self.className == other.className
+            and self.majorVersion == other.majorVersion
+            and self.minorVersion == other.minorVersion
+            and self.workflow == other.workflow
+            and self.timeout == other.timeout
+            and self.environment == other.environment
+            and self.inputs == other.inputs
+            and self.inputSchema == other.inputSchema
+            and self.outputs == other.outputs
+            and self.preConditions == other.preConditions
+            and self.postConditions == other.postConditions
+        )
 
 
 class PlanRequest(object):
@@ -227,3 +345,180 @@ def do_render_requests(job, requests):
                 # don't add if the parent was placed on the notReady list
                 _add_to_req_list(ready, parent, request)
     return ready, notReady, errors
+
+
+def _filter_config(opts, config, target):
+    if opts.readonly and config.workflow != "discover":
+        return None, "read only"
+    if opts.requiredOnly and not config.required:
+        return None, "required"
+    if opts.instance and target.name != opts.instance:
+        return None, "instance"
+    if opts.instances and target.name not in opts.instances:
+        return None, "instances"
+    return config, None
+
+
+def filter_task_request(jobOptions, req):
+    configSpec = req.configSpec
+    configSpecName = configSpec.name
+    configSpec, filterReason = _filter_config(jobOptions, configSpec, req.target)
+    if not configSpec:
+        logger.debug(
+            "skipping configspec %s for %s: doesn't match %s filter",
+            configSpecName,
+            req.target.name,
+            filterReason,
+        )
+        return None  # treat as filtered step
+
+    return req
+
+
+def _find_implementation(interface, operation, template):
+    default = None
+    for iDef in template.get_interfaces():
+        if iDef.iname == interface or iDef.type == interface:
+            if iDef.name == operation:
+                return iDef
+            if iDef.name == "default":
+                default = iDef
+    return default
+
+
+def create_task_request(
+    jobOptions,
+    operation,
+    resource,
+    reason=None,
+    inputs=None,
+    startState=None,
+    operation_host=None,
+):
+    """implementation can either be a named artifact (including a python configurator class),
+    or a file path"""
+    interface, sep, action = operation.rpartition(".")
+    iDef = _find_implementation(interface, action, resource.template)
+    if iDef and iDef.name != "default":
+        # merge inputs
+        if inputs:
+            inputs = dict(iDef.inputs, **inputs)
+        else:
+            inputs = iDef.inputs or {}
+        kw = get_config_spec_args_from_implementation(iDef, inputs, resource.template)
+    else:
+        kw = None
+
+    if kw:
+        if reason:
+            name = "for %s: %s.%s" % (reason, interface, action)
+            if reason == jobOptions.workflow:
+                # set the task's workflow instead of using the default ("deploy")
+                kw["workflow"] = reason
+        else:
+            name = "%s.%s" % (interface, action)
+        configSpec = ConfigurationSpec(name, action, **kw)
+        if operation_host:
+            configSpec.operation_host = operation_host
+        logger.debug(
+            "creating configuration %s with %s to run for %s: %s",
+            configSpec.name,
+            configSpec.inputs,
+            resource.name,
+            reason or action,
+        )
+    else:
+        errorMsg = (
+            'unable to find an implementation for operation "%s" on node "%s"'
+            % (action, resource.template.name)
+        )
+        logger.debug(errorMsg)
+        return None
+
+    req = TaskRequest(
+        configSpec,
+        resource,
+        reason or action,
+        startState=startState,
+    )
+    return filter_task_request(jobOptions, req)
+
+
+def _set_default_command(kw, implementation, inputs):
+    # is it a shell script or a command line?
+    shell = inputs.get("shell")
+    if shell is None:
+        # no special shell characters
+        shell = not re.match(r"[\w.-]+\Z", implementation)
+
+    operation_host = kw.get("operation_host")
+    implementation = implementation.lstrip()
+    if not operation_host or operation_host == "localhost":
+        className = "unfurl.configurators.shell.ShellConfigurator"
+        if shell:
+            shellArgs = dict(command=implementation)
+        else:
+            shellArgs = dict(command=[implementation])
+    else:
+        className = "unfurl.configurators.ansible.AnsibleConfigurator"
+        module = "shell" if shell else "command"
+        playbookTask = dict(cmd=implementation)
+        cwd = inputs.get("cwd")
+        if cwd:
+            playbookTask["chdir"] = cwd
+        if shell and isinstance(shell, six.string_types):
+            playbookTask["executable"] = shell
+        shellArgs = dict(playbook=[{module: playbookTask}])
+
+    kw["className"] = className
+    if inputs:
+        shellArgs.update(inputs)
+    kw["inputs"] = shellArgs
+
+
+def get_config_spec_args_from_implementation(iDef, inputs, template):
+    # XXX template should be operation_host's template!
+    implementation = iDef.implementation
+    kw = dict(inputs=inputs, outputs=iDef.outputs)
+    configSpecArgs = ConfigurationSpec.getDefaults()
+    artifact = None
+    if isinstance(implementation, dict):
+        for name, value in implementation.items():
+            if name == "primary":
+                artifact = template.find_or_create_artifact(value, path=iDef._source)
+            elif name == "dependencies":
+                kw[name] = [
+                    template.find_or_create_artifact(artifactTpl, path=iDef._source)
+                    for artifactTpl in value
+                ]
+            elif name in configSpecArgs:
+                kw[name] = value
+
+    else:
+        # "either because it refers to a named artifact specified in the artifacts section of a type or template,
+        # or because it represents the name of a script in the CSAR file that contains the definition."
+        artifact = template.find_or_create_artifact(implementation, path=iDef._source)
+    kw["primary"] = artifact
+
+    if "className" not in kw:
+        if not artifact:  # malformed implementation
+            return None
+        implementation = artifact.file
+        try:
+            # see if implementation looks like a python class
+            if "#" in implementation:
+                path, fragment = artifact.get_path_and_fragment()
+                mod = load_module(path)
+                kw["className"] = mod.__name__ + "." + fragment
+                return kw
+            elif lookup_class(implementation):
+                kw["className"] = implementation
+                return kw
+        except:
+            pass
+        # assume it's a command line
+        logger.debug(
+            "interpreting 'implementation' as a shell command: %s", implementation
+        )
+        _set_default_command(kw, implementation, inputs)
+    return kw

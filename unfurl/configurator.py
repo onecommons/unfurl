@@ -2,17 +2,12 @@
 # SPDX-License-Identifier: MIT
 import six
 import collections
-import re
 import os
-from .support import Status, Defaults, ResourceChanges, Priority, TopologyMap
+from .support import Status, ResourceChanges, Priority, TopologyMap
 from .result import serialize_value, ChangeAware, Results, ResultsMap, get_digest
 from .util import (
     register_class,
-    lookup_class,
-    load_module,
     validate_schema,
-    find_schema_errors,
-    UnfurlError,
     UnfurlTaskError,
     UnfurlAddingResourceError,
     filter_env,
@@ -27,116 +22,14 @@ from .projectpaths import WorkFolder
 from .planrequests import (
     TaskRequest,
     JobRequest,
+    ConfigurationSpec,  # used by unit tests
+    create_task_request,
 )
+from .plan import find_parent_resource
 
 import logging
 
 logger = logging.getLogger("unfurl.task")
-
-# we want ConfigurationSpec to be standalone and easily serializable
-class ConfigurationSpec(object):
-    @classmethod
-    def getDefaults(self):
-        return dict(
-            className=None,
-            majorVersion=0,
-            minorVersion="",
-            workflow=Defaults.workflow,
-            timeout=None,
-            operation_host=None,
-            environment=None,
-            inputs=None,
-            inputSchema=None,
-            preConditions=None,
-            postConditions=None,
-            primary=None,
-            dependencies=None,
-            outputs=None,
-        )
-
-    def __init__(
-        self,
-        name,
-        operation,
-        className=None,
-        majorVersion=0,
-        minorVersion="",
-        workflow=Defaults.workflow,
-        timeout=None,
-        operation_host=None,
-        environment=None,
-        inputs=None,
-        inputSchema=None,
-        preConditions=None,
-        postConditions=None,
-        primary=None,
-        dependencies=None,
-        outputs=None,
-    ):
-        assert name and className, "missing required arguments"
-        self.name = name
-        self.operation = operation
-        self.className = className
-        self.majorVersion = majorVersion
-        self.minorVersion = minorVersion
-        self.workflow = workflow
-        self.timeout = timeout
-        self.operationHost = operation_host
-        self.environment = environment
-        self.inputs = inputs or {}
-        self.inputSchema = inputSchema
-        self.outputs = outputs or {}
-        self.preConditions = preConditions
-        self.postConditions = postConditions
-        self.artifact = primary
-
-    def find_invalidate_inputs(self, inputs):
-        if not self.inputSchema:
-            return []
-        return find_schema_errors(serialize_value(inputs), self.inputSchema)
-
-    # XXX same for postConditions
-    def find_invalid_preconditions(self, target):
-        if not self.preConditions:
-            return []
-        # XXX this should be like a Dependency object
-        expanded = serialize_value(target.attributes)
-        return find_schema_errors(expanded, self.preConditions)
-
-    def create(self):
-        klass = lookup_class(self.className)
-        if not klass:
-            raise UnfurlError("Could not load configurator %s" % self.className)
-        else:
-            return klass(self)
-
-    def should_run(self):
-        return Defaults.shouldRun
-
-    def copy(self, **mods):
-        args = self.__dict__.copy()
-        args.update(mods)
-        return ConfigurationSpec(**args)
-
-    def __eq__(self, other):
-        if not isinstance(other, ConfigurationSpec):
-            return False
-        # XXX3 add unit tests
-        return (
-            self.name == other.name
-            and self.operation == other.operation
-            and self.className == other.className
-            and self.majorVersion == other.majorVersion
-            and self.minorVersion == other.minorVersion
-            and self.workflow == other.workflow
-            and self.timeout == other.timeout
-            and self.environment == other.environment
-            and self.inputs == other.inputs
-            and self.inputSchema == other.inputSchema
-            and self.outputs == other.outputs
-            and self.preConditions == other.preConditions
-            and self.postConditions == other.postConditions
-        )
 
 
 class ConfiguratorResult(object):
@@ -742,8 +635,12 @@ class TaskView(object):
             inputs = self.configSpec.inputs
 
         if isinstance(operation, six.string_types):
-            taskRequest = self.job.plan.create_task_request(
-                operation, resource, "for subtask: " + self.configSpec.name, inputs
+            taskRequest = create_task_request(
+                self.job.jobOptions,
+                operation,
+                resource,
+                "for subtask: " + self.configSpec.name,
+                inputs,
             )
             if taskRequest.error:
                 return None
@@ -889,9 +786,7 @@ class TaskView(object):
                     nodeSpec = self._manifest.tosca.get_template(
                         resourceSpec["template"]
                     )
-                    parent = (
-                        self.job.plan.find_parent_resource(nodeSpec) or self.target.root
-                    )
+                    parent = find_parent_resource(self.target.root, nodeSpec)
                 else:
                     parent = self.target.root
                 # note: if resourceSpec[parent] is set it overrides the parent keyword
@@ -1027,83 +922,3 @@ class Dependency(Operational):
             return True
 
         return False
-
-
-def _set_default_command(kw, implementation, inputs):
-    # is it a shell script or a command line?
-    shell = inputs.get("shell")
-    if shell is None:
-        # no special shell characters
-        shell = not re.match(r"[\w.-]+\Z", implementation)
-
-    operation_host = kw.get("operation_host")
-    implementation = implementation.lstrip()
-    if not operation_host or operation_host == "localhost":
-        className = "unfurl.configurators.shell.ShellConfigurator"
-        if shell:
-            shellArgs = dict(command=implementation)
-        else:
-            shellArgs = dict(command=[implementation])
-    else:
-        className = "unfurl.configurators.ansible.AnsibleConfigurator"
-        module = "shell" if shell else "command"
-        playbookTask = dict(cmd=implementation)
-        cwd = inputs.get("cwd")
-        if cwd:
-            playbookTask["chdir"] = cwd
-        if shell and isinstance(shell, six.string_types):
-            playbookTask["executable"] = shell
-        shellArgs = dict(playbook=[{module: playbookTask}])
-
-    kw["className"] = className
-    if inputs:
-        shellArgs.update(inputs)
-    kw["inputs"] = shellArgs
-
-
-def get_config_spec_args_from_implementation(iDef, inputs, template):
-    # XXX template should be operation_host's template!
-    implementation = iDef.implementation
-    kw = dict(inputs=inputs, outputs=iDef.outputs)
-    configSpecArgs = ConfigurationSpec.getDefaults()
-    artifact = None
-    if isinstance(implementation, dict):
-        for name, value in implementation.items():
-            if name == "primary":
-                artifact = template.find_or_create_artifact(value, path=iDef._source)
-            elif name == "dependencies":
-                kw[name] = [
-                    template.find_or_create_artifact(artifactTpl, path=iDef._source)
-                    for artifactTpl in value
-                ]
-            elif name in configSpecArgs:
-                kw[name] = value
-
-    else:
-        # "either because it refers to a named artifact specified in the artifacts section of a type or template,
-        # or because it represents the name of a script in the CSAR file that contains the definition."
-        artifact = template.find_or_create_artifact(implementation, path=iDef._source)
-    kw["primary"] = artifact
-
-    if "className" not in kw:
-        if not artifact:  # malformed implementation
-            return None
-        implementation = artifact.file
-        try:
-            # see if implementation looks like a python class
-            if "#" in implementation:
-                path, fragment = artifact.get_path_and_fragment()
-                mod = load_module(path)
-                kw["className"] = mod.__name__ + "." + fragment
-                return kw
-            elif lookup_class(implementation):
-                kw["className"] = implementation
-                return kw
-        except:
-            pass
-        # assume it's a command line
-        logger.debug(
-            "interpreting 'implementation' as a shell command: %s", implementation
-        )
-        _set_default_command(kw, implementation, inputs)
-    return kw

@@ -228,7 +228,6 @@ class RunTest(unittest.TestCase):
         )
         manifest = YamlManifest(simple)
         runner = Runner(manifest)
-        self.assertEqual(runner.taskCount, 0)
         output = six.StringIO()
         job = runner.run(JobOptions(add=True, out=output, startTime="test"))
         assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()

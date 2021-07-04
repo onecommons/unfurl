@@ -304,11 +304,11 @@ ensemble.yaml
                 }
             }
             self.assertEqual(
-                changes, job.runner.manifest.manifest.config["changes"][0]["changes"]
+                changes, job.manifest.manifest.config["changes"][0]["changes"]
             )
 
             # changeLogPath = (
-            #     "ensemble/" + job.runner.manifest.manifest.config["lastJob"]["changes"]
+            #     "ensemble/" + job.manifest.manifest.config["lastJob"]["changes"]
             # )
             # with open(changeLogPath) as f:
             #     print(f.read())

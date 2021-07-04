@@ -77,7 +77,7 @@ def test_digests(caplog):
     job = runner.run(JobOptions(startTime=1, out=output))  # deploy
     assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
     # print(job.out.getvalue())
-    digest = job.runner.manifest.manifest.config["changes"][0]["digestValue"]
+    digest = job.manifest.manifest.config["changes"][0]["digestValue"]
     assert digest == "51a474d43031bde30ec0832e11ca03cf70e5a36f"
 
     filepath = FilePath(__file__ + "/../fixtures/helmrepo")
@@ -140,7 +140,7 @@ class DependencyTest(unittest.TestCase):
         dependencies = [dict(ref="::nodeC::attr", expected=None, required=True)]
         self.assertEqual(
             dependencies,
-            job.runner.manifest.manifest.config["changes"][2]["dependencies"],
+            job.manifest.manifest.config["changes"][2]["dependencies"],
         )
 
         self.assertEqual(
@@ -225,7 +225,7 @@ class DependencyTest(unittest.TestCase):
         dependencies = [dict(ref="::nodeC::attr", required=True, expected=None)]
         self.assertEqual(
             dependencies,
-            job.runner.manifest.manifest.config["changes"][2]["dependencies"],
+            job.manifest.manifest.config["changes"][2]["dependencies"],
         )
 
         self.assertEqual(
@@ -291,7 +291,7 @@ class DependencyTest(unittest.TestCase):
         job = Runner(manifest2).run(JobOptions(startTime=2))
         assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
         summary = job.json_summary()
-        # changes = job.runner.manifest.manifest.config["changes"]
+        # changes = job.manifest.manifest.config["changes"]
         # XXX test that attr: "live" is in changes
         # print(job.out.getvalue())
         self.assertEqual(

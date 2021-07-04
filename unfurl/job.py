@@ -31,7 +31,7 @@ from .planrequests import (
     get_render_requests,
     set_fulfilled,
 )
-from .plan import Plan
+from .plan import Plan, get_success_status
 from .localenv import LocalEnv
 
 from . import configurators  # need to import configurators even though it is unused
@@ -138,7 +138,7 @@ class ConfigTask(ConfigChange, TaskView):
 
     def __init__(self, job, configSpec, target, reason=None):
         ConfigChange.__init__(self, job)
-        TaskView.__init__(self, job.runner.manifest, configSpec, target, reason)
+        TaskView.__init__(self, job.manifest, configSpec, target, reason)
         self.dry_run = job.dry_run
         self.verbose = job.verbose
         self._configurator = None
@@ -278,7 +278,7 @@ class ConfigTask(ConfigChange, TaskView):
         # don't set the changeId until we're finish so that we have a higher changeid
         # than nested tasks and jobs that ran
         # (task that never run will have the same changeId as its parent)
-        self.set_task_id(self.job.runner.increment_task_count())
+        self.set_task_id(self.job.increment_task_count())
         # XXX2 if attributes changed validate using attributesSchema
         # XXX2 Check that configuration provided the metadata that it declared (check postCondition)
 
@@ -422,14 +422,16 @@ class Job(ConfigChange):
 
     MAX_NESTED_SUBTASKS = 100
 
-    def __init__(self, runner, rootResource, jobOptions, previousId=None):
+    def __init__(self, manifest, rootResource, jobOptions, previousId=None):
         assert isinstance(jobOptions, JobOptions)
         self.__dict__.update(jobOptions.__dict__)
         super(Job, self).__init__(self.parentJob, self.startTime, Status.ok, previousId)
         self.dry_run = jobOptions.dryrun
+        self.plan_requests = None
+        self.task_count = 0
 
         self.jobOptions = jobOptions
-        self.runner = runner
+        self.manifest = manifest
         self.rootResource = rootResource
         self.jobRequestQueue = []
         self.unexpectedAbort = None
@@ -478,7 +480,9 @@ class Job(ConfigChange):
             )
 
     def run(self):
-        ready = self.create_plan()
+        ready = self.plan_requests
+        if ready is None:
+            ready = self.create_plan()
         self.workDone = collections.OrderedDict()
         notReady = []
         while ready:
@@ -508,26 +512,21 @@ class Job(ConfigChange):
 
         return self.rootResource
 
-    def get_candidate_task_requests(self):
-        planGen = self.plan.execute_plan()
-        result = None
-        try:
-            while True:
-                req = planGen.send(result)
-                result = yield req
-        except StopIteration:
-            pass
-
     def create_plan(self):
         self.validate_job_options()
-        self.taskRequests = list(self.get_candidate_task_requests())
-        return self.taskRequests
+        joboptions = self.jobOptions
+        WorkflowPlan = Plan.get_plan_class_for_workflow(joboptions.workflow)
+        if not WorkflowPlan:
+            raise UnfurlError("unknown workflow: %s" % joboptions.workflow)
+        plan = WorkflowPlan(self.rootResource, self.manifest.tosca, joboptions)
+        self.plan_requests = list(plan.execute_plan())
+        return self.plan_requests
 
     def _get_success_status(self, workflow, success):
         if isinstance(success, Status):
             return success
         if success:
-            return self.plan.get_success_status(workflow)
+            return get_success_status(workflow)
         return None
 
     def apply_group(self, depth, groupRequest):
@@ -582,8 +581,8 @@ class Job(ConfigChange):
         jobOptions = JobOptions(
             parentJob=self, repair="missing", instances=resourceNames
         )
-        childJob = self.runner.create_job(jobOptions)
-        childJob.set_task_id(self.runner.increment_task_count())
+        childJob = create_job(self.manifest, jobOptions)
+        childJob.set_task_id(self.increment_task_count())
         assert childJob.parentJob is self
         childJob.run()
         return childJob
@@ -735,7 +734,7 @@ class Job(ConfigChange):
         if self.jobOptions.force:  # always run
             return True, "passed"
 
-        if self.plan.get_success_status(workflow) == resource.status:
+        if get_success_status(workflow) == resource.status:
             return False, "instance already has desired status"
 
         if req.startState and resource.state and workflow == "deploy":
@@ -794,7 +793,7 @@ class Job(ConfigChange):
             if req.startState is not None:
                 resource.state = req.startState
             startingState = resource.state
-            self.runner.add_work(task)
+            self.add_work(task)
             self.run_task(task, depth)
 
             # if # task succeeded but didn't update nodestate
@@ -880,6 +879,19 @@ class Job(ConfigChange):
                 UnfurlTaskError(task, "unexpected result from configurator")
                 return task.finished(ConfiguratorResult(False, None, Status.error))
 
+    def add_work(self, task):
+        key = id(task)
+        self.workDone[key] = task
+        if self.parentJob:
+            self.parentJob.add_work(task)
+
+    def increment_task_count(self):
+        if self.parentJob:
+            return self.parentJob.increment_task_count()
+        else:
+            self.task_count += 1
+        return self.task_count
+
     ###########################################################################
     ### Reporting methods
     ###########################################################################
@@ -929,7 +941,7 @@ class Job(ConfigChange):
                     children.append(request._summary_dict())
 
         summary = []
-        _summary(self.taskRequests, None, summary)
+        _summary(self.plan_requests, None, summary)
         if not pretty:
             return summary
         else:
@@ -1011,7 +1023,7 @@ class Job(ConfigChange):
         if options:
             header += " (%s)" % options
         output = [header + ":\n"]
-        _summary(self.taskRequests, None, 0)
+        _summary(self.plan_requests, None, 0)
         if len(output) <= 1:
             output.append("Nothing to do.")
         return "\n".join(output)
@@ -1050,96 +1062,89 @@ class Job(ConfigChange):
         return line1 + tasks + outputString
 
 
+def create_job(manifest, joboptions, previousId=None):
+    """
+    Selects task to run based on the workflow and job options
+    """
+    root = manifest.get_root_resource()
+    assert manifest.tosca
+    job = Job(manifest, root, joboptions, previousId)
+
+    if manifest.localEnv and not joboptions.parentJob and not joboptions.startTime:
+        logPath = manifest.get_job_log_path(job.get_start_time(), ".log")
+        if not os.path.isdir(os.path.dirname(logPath)):
+            os.makedirs(os.path.dirname(logPath))
+        logs.add_log_file(logPath)
+        path = manifest.path
+        if joboptions.planOnly:
+            logger.info("creating %s plan for %s", joboptions.workflow, path)
+        else:
+            logger.info("starting %s job for %s", joboptions.workflow, path)
+
+    return job
+
+
 class Runner(object):
+    # this class is only used by unit tests, application uses run_job() below
+
     def __init__(self, manifest):
         self.manifest = manifest
         assert self.manifest.tosca
-        self.taskCount = 0
-        self.currentJob = None
-
-    def add_work(self, task):
-        key = id(task)
-        self.currentJob.workDone[key] = task
-        task.job.workDone[key] = task
-
-    def create_job(self, joboptions, previousId=None):
-        """
-        Selects task to run based on the workflow and job options
-        """
-        root = self.manifest.get_root_resource()
-        assert self.manifest.tosca
-        job = Job(self, root, joboptions, previousId)
-
-        if (
-            self.manifest.localEnv
-            and not joboptions.parentJob
-            and not joboptions.startTime
-        ):
-            logPath = self.manifest.get_job_log_path(job.get_start_time(), ".log")
-            if not os.path.isdir(os.path.dirname(logPath)):
-                os.makedirs(os.path.dirname(logPath))
-            logs.add_log_file(logPath)
-            path = self.manifest.path
-            if joboptions.planOnly:
-                logger.info("creating %s plan for %s", joboptions.workflow, path)
-            else:
-                logger.info("starting %s job for %s", joboptions.workflow, path)
-
-        WorkflowPlan = Plan.get_plan_class_for_workflow(joboptions.workflow)
-        if not WorkflowPlan:
-            raise UnfurlError("unknown workflow: %s" % joboptions.workflow)
-        job.plan = WorkflowPlan(root, self.manifest.tosca, joboptions)
-        return job
-
-    def increment_task_count(self):
-        self.taskCount += 1
-        return self.taskCount
 
     def run(self, jobOptions=None):
-        job = None
+        if jobOptions is None:
+            jobOptions = JobOptions()
+        job = _plan(self.manifest, jobOptions)
+
+        return _run_job(job, jobOptions)
+
+
+def _plan(manifest, jobOptions):
+    assert jobOptions
+    job = create_job(
+        manifest,
+        jobOptions,
+        manifest.lastJob and manifest.lastJob["changeId"],
+    )
+    job.create_plan()
+    return job
+
+
+def _run_job(job, jobOptions=None):
+    manifest = job.manifest
+    try:
+        cwd = os.getcwd()
+        if manifest.get_base_dir():
+            os.chdir(manifest.get_base_dir())
+
+        if jobOptions.dirty == "auto":  # default to false if committing
+            checkIfClean = jobOptions.commit
+        else:
+            checkIfClean = jobOptions.dirty == "abort"
+        if checkIfClean:
+            for repo in manifest.repositories.values():
+                if repo.is_dirty():
+                    logger.error(
+                        "aborting run: uncommitted files in %s (--dirty=ok to override)",
+                        repo.working_dir,
+                    )
+                    return None
+
+        startTime = perf_counter()
         try:
-            cwd = os.getcwd()
-            if self.manifest.get_base_dir():
-                os.chdir(self.manifest.get_base_dir())
-            if jobOptions is None:
-                jobOptions = JobOptions()
-
-            if jobOptions.dirty == "auto":  # default to false if committing
-                checkIfClean = jobOptions.commit
-            else:
-                checkIfClean = jobOptions.dirty == "abort"
-            if not jobOptions.planOnly and checkIfClean:
-                for repo in self.manifest.repositories.values():
-                    if repo.is_dirty():
-                        logger.error(
-                            "aborting run: uncommitted files in %s (--dirty=ok to override)",
-                            repo.working_dir,
-                        )
-                        return None
-
-            job = self.create_job(
-                jobOptions, self.manifest.lastJob and self.manifest.lastJob["changeId"]
+            display.verbosity = jobOptions.verbose
+            job.run()
+        except Exception:
+            job.local_status = Status.error
+            job.unexpectedAbort = UnfurlError(
+                "unexpected exception while running job", True, True
             )
-            startTime = perf_counter()
-            self.currentJob = job
-            try:
-                display.verbosity = jobOptions.verbose
-                if jobOptions.planOnly:
-                    job.create_plan()
-                else:
-                    job.run()
-            except Exception:
-                job.local_status = Status.error
-                job.unexpectedAbort = UnfurlError(
-                    "unexpected exception while running job", True, True
-                )
-            self.currentJob = None
-            self.manifest.commit_job(job)
-        finally:
-            if job:
-                job.timeElapsed = perf_counter() - startTime
-            os.chdir(cwd)
-        return job
+        manifest.commit_job(job)
+    finally:
+        if job:
+            job.timeElapsed = perf_counter() - startTime
+        os.chdir(cwd)
+    return job
 
 
 def run_job(manifestPath=None, _opts=None):
@@ -1172,5 +1177,8 @@ def run_job(manifestPath=None, _opts=None):
         )
         return None
 
-    runner = Runner(manifest)
-    return runner.run(opts)
+    job = _plan(manifest, opts)
+    if opts.planOnly:
+        return job
+
+    return _run_job(job, opts)

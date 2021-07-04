@@ -93,7 +93,7 @@ class ConfigChangeTest(unittest.TestCase):
             assert _latestJobs
             job = _latestJobs[-1]
             self.assertEqual(
-                changes, job.runner.manifest.manifest.config["changes"][2]["changes"]
+                changes, job.manifest.manifest.config["changes"][2]["changes"]
             )
 
             assert _latestJobs
@@ -179,5 +179,5 @@ class ConfigChangeTest(unittest.TestCase):
             self.assertEqual("reconfigure", summary["tasks"][0]["reason"])
             changes2 = {"::node1": {"outputVar": "2"}}
             self.assertEqual(
-                changes2, job.runner.manifest.manifest.config["changes"][-1]["changes"]
+                changes2, job.manifest.manifest.config["changes"][-1]["changes"]
             )

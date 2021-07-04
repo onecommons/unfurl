@@ -5,14 +5,13 @@ from .runtime import NodeInstance
 from .util import UnfurlError, Generate
 from .result import ChangeRecord
 from .support import Status, NodeState, Reason
-from .configurator import (
-    ConfigurationSpec,
-    get_config_spec_args_from_implementation,
-)
 from .planrequests import (
     TaskRequest,
     TaskRequestGroup,
     SetStateRequest,
+    create_task_request,
+    filter_task_request,
+    ConfigurationSpec,
 )
 from .tosca import find_standard_interface
 
@@ -33,6 +32,33 @@ def is_external_template_compatible(external, template):
     return False
 
 
+def get_success_status(workflow):
+    if workflow == "deploy":
+        return Status.ok
+    elif workflow == "stop":
+        return Status.pending
+    elif workflow == "undeploy":
+        return Status.absent
+    return None
+
+
+def find_resources_from_template_name(root, name):
+    # XXX make faster
+    for resource in root.get_self_and_descendents():
+        if resource.template.name == name:
+            yield resource
+
+
+def find_parent_resource(root, source):
+    parentTemplate = find_parent_template(source.toscaEntityTemplate)
+    if not parentTemplate:
+        return root
+    for parent in find_resources_from_template_name(root, parentTemplate.name):
+        # XXX need to evaluate matches
+        return parent
+    raise UnfurlError("could not find instance of template: %s" % parentTemplate.name)
+
+
 class Plan(object):
     @staticmethod
     def get_plan_class_for_workflow(workflow):
@@ -45,7 +71,7 @@ class Plan(object):
             discover=ReadOnlyPlan,
         ).get(workflow, WorkflowPlan)
 
-    interface = "None"
+    interface = None
 
     def __init__(self, root, toscaSpec, jobOptions):
         self.jobOptions = jobOptions
@@ -122,46 +148,21 @@ class Plan(object):
                 )
             # XXX also yield newly created parents that needed to be checked?
         else:
-            for resource in self.find_resources_from_template_name(template.name):
+            for resource in find_resources_from_template_name(self.root, template.name):
                 yield resource
-
-    def find_resources_from_template_name(self, name):
-        # XXX make faster
-        for resource in self.root.get_self_and_descendents():
-            if resource.template.name == name:
-                yield resource
-
-    def find_parent_resource(self, source):
-        parentTemplate = find_parent_template(source.toscaEntityTemplate)
-        if not parentTemplate:
-            return self.root
-        for parent in self.find_resources_from_template_name(parentTemplate.name):
-            # XXX need to evaluate matches
-            return parent
-        raise UnfurlError(
-            "could not find instance of template: %s" % parentTemplate.name
-        )
 
     def create_resource(self, template):
-        parent = self.find_parent_resource(template)
+        parent = find_parent_resource(self.root, template)
         if self.jobOptions.check:
             status = Status.unknown
         else:
             status = Status.pending
         return NodeInstance(template.name, None, parent, template, status)
 
-    def find_implementation(self, interface, operation, template):
-        default = None
-        for iDef in template.get_interfaces():
-            if iDef.iname == interface or iDef.type == interface:
-                if iDef.name == operation:
-                    return iDef
-                if iDef.name == "default":
-                    default = iDef
-        return default
-
     def _run_operation(self, startState, op, resource, reason=None, inputs=None):
-        return self.create_task_request(op, resource, reason, inputs, startState)
+        return create_task_request(
+            self.jobOptions, op, resource, reason, inputs, startState
+        )
 
     def _execute_default_configure(self, resource, reason=None, inputs=None):
         # 5.8.5.4 Node-Relationship configuration sequence p. 229
@@ -310,95 +311,11 @@ class Plan(object):
             yield req
 
     def execute_default_install_op(self, operation, resource, reason=None, inputs=None):
-        req = self.create_task_request("Install." + operation, resource, reason, inputs)
+        req = create_task_request(
+            self.jobOptions, "Install." + operation, resource, reason, inputs
+        )
         if req:
             yield req
-
-    def filter_config(self, config, target):
-        opts = self.jobOptions
-        if opts.readonly and config.workflow != "discover":
-            return None, "read only"
-        if opts.requiredOnly and not config.required:
-            return None, "required"
-        if opts.instance and target.name != opts.instance:
-            return None, "instance"
-        if opts.instances and target.name not in opts.instances:
-            return None, "instances"
-        return config, None
-
-    def filter_task_request(self, req):
-        configSpec = req.configSpec
-        configSpecName = configSpec.name
-        configSpec, filterReason = self.filter_config(configSpec, req.target)
-        if not configSpec:
-            logger.debug(
-                "skipping configspec %s for %s: doesn't match %s filter",
-                configSpecName,
-                req.target.name,
-                filterReason,
-            )
-            return None  # treat as filtered step
-
-        return req
-
-    def create_task_request(
-        self,
-        operation,
-        resource,
-        reason=None,
-        inputs=None,
-        startState=None,
-        operation_host=None,
-    ):
-        """implementation can either be a named artifact (including a python configurator class),
-        or a file path"""
-        interface, sep, action = operation.rpartition(".")
-        iDef = self.find_implementation(interface, action, resource.template)
-        if iDef and iDef.name != "default":
-            # merge inputs
-            if inputs:
-                inputs = dict(iDef.inputs, **inputs)
-            else:
-                inputs = iDef.inputs or {}
-            kw = get_config_spec_args_from_implementation(
-                iDef, inputs, resource.template
-            )
-        else:
-            kw = None
-
-        if kw:
-            if reason:
-                name = "for %s: %s.%s" % (reason, interface, action)
-                if reason == self.workflow:
-                    # set the task's workflow instead of using the default ("deploy")
-                    kw["workflow"] = reason
-            else:
-                name = "%s.%s" % (interface, action)
-            configSpec = ConfigurationSpec(name, action, **kw)
-            if operation_host:
-                configSpec.operation_host = operation_host
-            logger.debug(
-                "creating configuration %s with %s to run for %s: %s",
-                configSpec.name,
-                configSpec.inputs,
-                resource.name,
-                reason or action,
-            )
-        else:
-            errorMsg = (
-                'unable to find an implementation for operation "%s" on node "%s"'
-                % (action, resource.template.name)
-            )
-            logger.debug(errorMsg)
-            return None
-
-        req = TaskRequest(
-            configSpec,
-            resource,
-            reason or action,
-            startState=startState,
-        )
-        return self.filter_task_request(req)
 
     def generate_delete_configurations(self, include):
         for resource in get_operational_dependents(self.root):
@@ -436,15 +353,6 @@ class Plan(object):
             return self.execute_default_install_op(workflow, resource, reason, inputs)
         return None
 
-    def get_success_status(self, workflow):
-        if workflow == "deploy":
-            return Status.ok
-        elif workflow == "stop":
-            return Status.pending
-        elif workflow == "undeploy":
-            return Status.absent
-        return None
-
     def _generate_configurations(self, resource, reason, workflow=None):
         workflow = workflow or self.workflow
         # check if this workflow has been delegated to one explicitly declared
@@ -455,7 +363,7 @@ class Plan(object):
                 raise UnfurlError("can not get default for workflow " + workflow)
 
         # if the workflow is one that can modify a target, create a TaskRequestGroup
-        if self.get_success_status(workflow):
+        if get_success_status(workflow):
             group = TaskRequestGroup(resource, workflow)
         else:
             group = None
@@ -532,7 +440,8 @@ class Plan(object):
                 # XXX need to pass operation_host (see 3.6.27 Workflow step definition p188)
                 # if target is a group can be value can be node_type or node template name
                 # if its a node_type select nodes matching the group
-                req = self.create_task_request(
+                req = create_task_request(
+                    self.jobOptions,
                     activity.call_operation,
                     resource,
                     "step:" + step.name,
@@ -757,8 +666,12 @@ class DeployPlan(Plan):
 
         if reason == Reason.reconfigure:
             # XXX generate configurations: may need to stop, start, etc.
-            req = self.create_task_request(
-                "Standard.configure", instance, reason, startState=NodeState.configuring
+            req = create_task_request(
+                self.jobOptions,
+                "Standard.configure",
+                instance,
+                reason,
+                startState=NodeState.configuring,
             )
             if req:
                 yield req
@@ -875,10 +788,14 @@ class RunNowPlan(Plan):
         for resource in resources:
             if configSpec:
                 req = TaskRequest(configSpec, resource, "run")
-                yield self.filter_task_request(req)
+                yield filter_task_request(self.jobOptions, req)
             else:
-                req = self.create_task_request(
-                    operation, resource, "run", operation_host=operation_host
+                req = create_task_request(
+                    self.jobOptions,
+                    operation,
+                    resource,
+                    "run",
+                    operation_host=operation_host,
                 )
                 if req:  # if operation was found:
                     yield req
