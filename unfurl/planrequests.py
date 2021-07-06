@@ -285,7 +285,8 @@ def _render_request(job, parent, req, future_requests):
     task.logger.debug("rendering %s %s", task.target.name, task.name)
     try:
         task.rendered = task.configurator.render(task)
-    except Exception:
+    except Exception as e:
+        logger.debug("Configurator failed: %s", e)
         if task._workFolder:
             task._workFolder.failed()
         task._inputs = None
