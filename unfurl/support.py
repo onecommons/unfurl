@@ -90,7 +90,6 @@ def eval_python(arg, ctx):
     func = load_class(funcName)
 
     kw = ctx.kw
-    print("!!kw", kw)
     if "args" in kw:
         args = map_value(kw["args"], ctx)
         return func(ctx, args)
@@ -919,7 +918,7 @@ class AttributeManager(object):
                             foundSensitive.append(key)
                         # XXX if defMeta.get('immutable') and key in specd:
                         #  error('value of attribute "%s" changed but is marked immutable' % key)
-                        resource._attributes[key] = savedValue
+                    resource._attributes[key] = savedValue
 
             if live:
                 liveDependencies[resource.key] = (resource, live)

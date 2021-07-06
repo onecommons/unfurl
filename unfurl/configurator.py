@@ -212,10 +212,11 @@ class Configurator(object):
         Returns:
             bool: True if configuration's digest has changed, False if it is the same.
         """
-        _parameters = getattr(changeset, "digestKeys", None)
+        _parameters = getattr(changeset, "digestKeys", "")
         newKeys = set(
             k for k in task.inputs.keys() if k not in self.exclude_from_digest
         )
+        task.logger.debug("checking digest for %s: %s", task.target.name, _parameters)
         if not _parameters:
             return not not newKeys
         keys = _parameters.split(",")
