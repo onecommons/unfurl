@@ -1,6 +1,6 @@
 # pbr uses this for install_requires
 pipenv>=2020.6.2 # MIT
-click>=7.1.2 # BSD 3-clause
+click>=8.0.1 # BSD 3-clause
 click-log  # MIT
 pyrsistent==0.15.7; python_version<'3' # last version with 2.7 support (needed for jsonschema)
 jsonschema[format_nongpl]==3.2 # MIT
