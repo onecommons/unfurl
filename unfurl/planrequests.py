@@ -3,6 +3,7 @@
 import collections
 import re
 import six
+import shlex
 from .util import (
     lookup_class,
     load_module,
@@ -290,7 +291,8 @@ def _render_request(job, parent, req, future_requests):
             task._workFolder.failed()
         task._inputs = None
         task._attributeManager.attributes = {}  # rollback changes
-        return [], UnfurlTaskError(task, "configurator.render failed")
+        # note: failed rendering may be re-tried later
+        return [], UnfurlTaskError(task, "Configurator render failed", logging.DEBUG)
     else:
         if parent and parent.workflow == "undeploy":
             # when removing an instance don't worry about depending values changing in the future
@@ -504,19 +506,17 @@ def get_config_spec_args_from_implementation(iDef, inputs, template):
         if not artifact:  # malformed implementation
             return None
         implementation = artifact.file
-        try:
-            # see if implementation looks like a python class
-            if "#" in implementation:
-                path, fragment = artifact.get_path_and_fragment()
-                mod = load_module(path)
-                kw["className"] = mod.__name__ + "." + fragment
-                return kw
-            elif lookup_class(implementation):
-                kw["className"] = implementation
-                return kw
-        except:
-            pass
-        # assume it's a command line
+        # see if implementation looks like a python class
+        if "#" in implementation and len(shlex.split(implementation)) == 1:
+            path, fragment = artifact.get_path_and_fragment()
+            mod = load_module(path)
+            kw["className"] = mod.__name__ + "." + fragment
+            return kw
+        elif lookup_class(implementation):
+            kw["className"] = implementation
+            return kw
+
+        # otherwise assume it's a shell command line
         logger.debug(
             "interpreting 'implementation' as a shell command: %s", implementation
         )

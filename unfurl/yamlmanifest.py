@@ -706,7 +706,7 @@ class YamlManifest(ReadOnlyManifest):
         currentName = os.path.splitext(name)[0]
         prefix, _, suffix = currentName.partition(defaultName)
         fileName = prefix + "job" + startTime + suffix + ext
-        return os.path.join(self.jobsFolder, fileName)
+        return os.path.join(self.get_base_dir(), self.jobsFolder, fileName)
 
     def _append_log(self, job, jobRecord, changes, jobLogPath):
         logPath = self.get_change_log_path()

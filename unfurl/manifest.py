@@ -92,7 +92,7 @@ class Manifest(AttributeManager):
         ):
             # note: we only recorded the baseDir not the name of the included file
             path = toscaDef.base_dir
-        return ToscaSpec(toscaDef, spec, path, self.get_import_resolver())
+        return ToscaSpec(toscaDef, spec, path, self.get_import_resolver(expand=True))
 
     def get_spec_digest(self, spec):
         m = hashlib.sha1()  # use same digest function as git
@@ -513,8 +513,8 @@ class Manifest(AttributeManager):
         )
         return loader._load_import_template(None, artifact.as_import_spec())
 
-    def get_import_resolver(self, ignoreFileNotFound=False):
-        return ImportResolver(self, ignoreFileNotFound)
+    def get_import_resolver(self, ignoreFileNotFound=False, expand=False):
+        return ImportResolver(self, ignoreFileNotFound, expand)
 
 
 class SnapShotManifest(Manifest):

@@ -104,7 +104,6 @@ class TestVerboseLevelDetection:
         verbose = detect_verbose_level(log_level)
         assert verbose == expected
 
-
 class TestSensitiveFilter:
     not_important_args = {
         "name": "xxx",
@@ -140,3 +139,15 @@ class TestSensitiveFilter:
         assert (
             record.getMessage() == "This should {'also': 'work', 'not': '<<REDACTED>>'}"
         )
+
+class TestColorHandler:
+    def test_exception_is_printed(self, caplog):
+        log = logging.getLogger("test_exception_is_printed")
+
+        try:
+            raise ValueError("for fun")
+        except ValueError as e:
+            log.error("I caught an error: %s", e, exc_info=True)
+
+        assert "Traceback (most recent call last):" in caplog.text
+

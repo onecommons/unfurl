@@ -222,10 +222,8 @@ def load_module(path, full_name=None):
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", RuntimeWarning)
-        if imp is None:
-            spec = importlib.util.spec_from_file_location(
-                to_native(full_name), to_native(path)
-            )
+        if imp is None:  # Python 3
+            spec = importlib.util.spec_from_file_location(full_name, path)
             module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(module)
             sys.modules[full_name] = module

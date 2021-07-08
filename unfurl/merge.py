@@ -124,6 +124,8 @@ def merge_dicts(b, a, cls=None, replaceKeys=None, defaultStrategy="merge"):
 
 
 def _cache_anchors(_anchorCache, obj):
+    if not hasattr(obj, 'yaml_anchor'):
+        return
     anchor = obj.yaml_anchor()
     if anchor and anchor.value:
         _anchorCache[anchor.value] = obj

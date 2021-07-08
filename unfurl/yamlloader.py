@@ -163,10 +163,11 @@ _refResolver = RefResolver("", None)
 
 
 class ImportResolver(toscaparser.imports.ImportResolver):
-    def __init__(self, manifest, ignoreFileNotFound=False):
+    def __init__(self, manifest, ignoreFileNotFound=False, expand=False):
         self.manifest = manifest
         self.ignoreFileNotFound = ignoreFileNotFound
         self.loader = manifest.loader
+        self.expand = expand
 
     def get_url(self, importLoader, repository_name, file_name, isFile=None):
         # returns url or path, isFile, fragment
@@ -199,7 +200,8 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                 raise UnfurlError("Could not resolve git URL: " + path)
             isFile = True
             if bare:
-                if not filePath:
+                # XXX support empty filePath or when filePath is a directory -- need to checkout the tree
+                if not filePath or repo.repo.rev_parse(revision+":"+filePath).type != 'blob':
                     raise UnfurlError(
                         "can't retrieve local repository for '%s' with revision '%s'"
                         % (path, revision)
@@ -263,7 +265,13 @@ class ImportResolver(toscaparser.imports.ImportResolver):
             with f:
                 doc = yaml.load(f.read())
                 if isinstance(doc, CommentedMap):
+                    if self.expand:
+                        includes, doc = expand_doc(
+                            doc, cls=make_map_with_base(doc, get_base_dir(path))
+                        )
+                        doc.includes = includes
                     doc.path = path
+
             if fragment:
                 return _refResolver.resolve_fragment(doc, fragment)
             else:
