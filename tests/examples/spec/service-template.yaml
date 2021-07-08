@@ -9,6 +9,13 @@ repositories:
 node_types:
   Test:
     derived_from: tosca.nodes.Root
+    properties:
+      defaultexpession:
+        type: string
+        default:
+          eval:
+            python: configurators.py#expressionFunc
+            args: default_foo
     artifacts:
       my_file_artifact: ../my_apps_files/operation_artifact.txt
 topology_template:

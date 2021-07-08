@@ -244,6 +244,7 @@ class ToscaSyntaxTest(unittest.TestCase):
         anInstance = job.rootResource.find_resource("testPrefix")
         assert anInstance
         self.assertEqual(anInstance.attributes["testExpressionFunc"], "foo")
+        self.assertEqual(anInstance.attributes["defaultexpession"], "default_foo")
 
         ctx = RefContext(anInstance)
 

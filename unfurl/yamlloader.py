@@ -163,10 +163,11 @@ _refResolver = RefResolver("", None)
 
 
 class ImportResolver(toscaparser.imports.ImportResolver):
-    def __init__(self, manifest, ignoreFileNotFound=False):
+    def __init__(self, manifest, ignoreFileNotFound=False, expand=False):
         self.manifest = manifest
         self.ignoreFileNotFound = ignoreFileNotFound
         self.loader = manifest.loader
+        self.expand = expand
 
     def get_url(self, importLoader, repository_name, file_name, isFile=None):
         # returns url or path, isFile, fragment
@@ -264,7 +265,13 @@ class ImportResolver(toscaparser.imports.ImportResolver):
             with f:
                 doc = yaml.load(f.read())
                 if isinstance(doc, CommentedMap):
+                    if self.expand:
+                        includes, doc = expand_doc(
+                            doc, cls=make_map_with_base(doc, get_base_dir(path))
+                        )
+                        doc.includes = includes
                     doc.path = path
+
             if fragment:
                 return _refResolver.resolve_fragment(doc, fragment)
             else:

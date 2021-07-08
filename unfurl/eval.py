@@ -271,6 +271,10 @@ class Ref(object):
         ctx = ctx.copy(
             vars=self.vars, wantList=wantList, trace=self.trace, strict=strict
         )
+        base_dir = getattr(self.source, 'base_dir', None)
+        if base_dir:
+            ctx.base_dir = base_dir
+
         ctx.trace(
             "Ref.resolve(wantList=%s) start strict %s" % (wantList, ctx.strict),
             self.source,

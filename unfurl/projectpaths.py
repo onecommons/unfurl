@@ -42,6 +42,12 @@ class WorkFolder(object):
         self.location = location
         self.preserve = preserve
         self._cwd = self._get_path("", mkdir=False).rstrip(os.sep)
+        # XXX
+        # if pending is left over from a previous job we need to remove it or _start() won't be called
+        # but we don't want to remove it is created during the same job
+        # pendingpath = self.cwd + self.PENDING_EXT
+        # if os.path.exists(pendingpath): and from previous job
+        #     self._rmtree(pendingpath)
 
     @property
     def cwd(self):
@@ -74,6 +80,7 @@ class WorkFolder(object):
         # XXX don't write till commit time
         ctx = self.task.inputs.context
         if not os.path.exists(self._get_real_path()):
+            # lazily create the .pending folder
             self._start()
         path = self._get_real_path(name)
         assert os.path.isabs(path), path
@@ -81,17 +88,19 @@ class WorkFolder(object):
         return self._get_path(name)
 
     def _start(self):
-        # lazily create pending folders
-        # if preserve cp -R path path.pending else mkdir path.pending
-        newpath = self.cwd + self.PENDING_EXT
+        # create the .pending folder
+        pendingpath = self.cwd + self.PENDING_EXT
         if self.preserve and os.path.exists(self.cwd):
-            shutil.copytree(self.cwd, newpath)
+            shutil.copytree(self.cwd, pendingpath)
         else:
-            os.makedirs(newpath)
+            os.makedirs(pendingpath)
+
         self.task.logger.trace(
-            'created pending project path "%s" for %s', newpath, self.task.target.name
+            'created pending project path "%s" for %s',
+            pendingpath,
+            self.task.target.name,
         )
-        return newpath
+        return pendingpath
 
     def _rename_dir(self, src, dst):
         try:
@@ -123,10 +132,13 @@ class WorkFolder(object):
         pendingpath = self.cwd + self.PENDING_EXT
         previouspath = self.cwd + self.PREVIOUS_EXT
         if os.path.exists(pendingpath):
-            if os.path.exists(previouspath):
-                self._rmtree(previouspath)
-            # XXX add this when we implement rollback() below:
-            # self._rename_dir(self.cwd, previouspath)
+            if os.path.exists(self.cwd):
+                if os.path.exists(previouspath):
+                    self._rmtree(previouspath)
+                # rename the current version as previous
+                self._rename_dir(self.cwd, previouspath)
+
+            # rename the pending version as the current one
             self._rename_dir(pendingpath, self.cwd)
 
     def discard(self):
@@ -222,7 +234,7 @@ def _file_func(arg, ctx):
     kw = map_value(ctx.kw, ctx)
     file = File(
         map_value(arg, ctx),
-        ctx.base_dir,
+        kw.get("dir", ctx.currentResource.base_dir),
         ctx.templar and ctx.templar._loader,
         ctx.currentResource.root.attributeManager.yaml,
         kw.get("encoding"),
