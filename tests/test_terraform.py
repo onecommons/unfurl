@@ -3,6 +3,7 @@ import unittest
 import time
 import json
 from six.moves import urllib
+import shutil
 
 from click.testing import CliRunner
 
@@ -26,15 +27,20 @@ class TerraformTest(unittest.TestCase):
 
     def test_terraform(self):
         cliRunner = CliRunner()
-        os.environ["terraform_dir"] = os.path.join(
+        terraform_dir = os.environ["terraform_dir"] = os.path.join(
             os.path.dirname(__file__), "fixtures", "terraform"
         )
-        with cliRunner.isolated_filesystem():  # temp_dir="/tmp/tests"
+        with cliRunner.isolated_filesystem(): # temp_dir="/tmp/tests"):
             path = os.path.join(os.path.dirname(__file__), "examples")
-            with open(os.path.join(path, "terraform-simple-ensemble.yaml")) as f:
-                manifestContent = f.read()
-            with open("ensemble.yaml", "w") as f:
-                f.write(manifestContent)
+            shutil.copy(os.path.join(path, "terraform-simple-ensemble.yaml"), "ensemble.yaml")
+
+            # copy the terraform lock file so the configurator avoids calling terraform init
+            # if .tox/.terraform already has the providers
+            os.makedirs('terraform-node/home/')
+            shutil.copy(terraform_dir + '/.terraform.lock.hcl', 'terraform-node/home/')
+            os.makedirs('terraform-node-json/home/')
+            shutil.copy(terraform_dir + '/.terraform.lock.hcl', 'terraform-node-json/home/')
+
             manifest = LocalEnv().get_manifest()
             runner = Runner(manifest)
             job = runner.run(JobOptions(startTime=1, check=True))  # deploy
