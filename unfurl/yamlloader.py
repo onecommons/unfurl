@@ -199,7 +199,8 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                 raise UnfurlError("Could not resolve git URL: " + path)
             isFile = True
             if bare:
-                if not filePath:
+                # XXX support empty filePath or when filePath is a directory -- need to checkout the tree
+                if not filePath or repo.repo.rev_parse(revision+":"+filePath).type != 'blob':
                     raise UnfurlError(
                         "can't retrieve local repository for '%s' with revision '%s'"
                         % (path, revision)
