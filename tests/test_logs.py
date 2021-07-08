@@ -9,7 +9,8 @@ from click.testing import CliRunner
 from unfurl.__main__ import detect_log_level, detect_verbose_level
 from unfurl.job import JobOptions, Runner
 from unfurl.localenv import LocalEnv
-from unfurl.logs import Levels
+from unfurl.logs import Levels, SensitiveFilter
+from unfurl.util import sensitive_str
 
 
 def test_format_of_job_file_log():
@@ -103,6 +104,41 @@ class TestVerboseLevelDetection:
         verbose = detect_verbose_level(log_level)
         assert verbose == expected
 
+class TestSensitiveFilter:
+    not_important_args = {
+        "name": "xxx",
+        "level": logging.ERROR,
+        "pathname": "yyy",
+        "lineno": 1,
+        "exc_info": None,
+    }
+
+    def setup(self):
+        self.sensitive_filter = SensitiveFilter()
+
+    def test_tuple_log_record(self):
+        record = logging.LogRecord(
+            msg="This should %s, %s",
+            args=("work", sensitive_str("not this")),
+            **self.not_important_args,
+        )
+
+        self.sensitive_filter.filter(record)
+
+        assert record.getMessage() == "This should work, <<REDACTED>>"
+
+    def test_dict_log_record(self):
+        record = logging.LogRecord(
+            msg="This should %s",
+            args=({"also": "work", "not": sensitive_str("not this")}),
+            **self.not_important_args,
+        )
+
+        self.sensitive_filter.filter(record)
+
+        assert (
+            record.getMessage() == "This should {'also': 'work', 'not': '<<REDACTED>>'}"
+        )
 
 class TestColorHandler:
     def test_exception_is_printed(self, caplog):
@@ -114,3 +150,4 @@ class TestColorHandler:
             log.error("I caught an error: %s", e, exc_info=True)
 
         assert "Traceback (most recent call last):" in caplog.text
+

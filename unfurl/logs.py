@@ -1,9 +1,9 @@
+import collections.abc
 import logging
 import logging.config
 from enum import Enum
 
 import click
-
 
 LOGGING = {
     "version": 1,
@@ -87,12 +87,15 @@ class sensitive(object):
 
 class SensitiveFilter(logging.Filter):
     def filter(self, record):
-        # redact any sensitive value
-        record.args = tuple(
-            sensitive.redacted_str if isinstance(a, sensitive) else a
-            for a in record.args
-        )
+        if isinstance(record.args, collections.abc.Mapping):
+            record.args = {self.redact(k): self.redact(v) for k, v in record.args.items()}
+        else:
+            record.args = tuple(self.redact(a) for a in record.args)
         return True
+
+    @staticmethod
+    def redact(value):
+        return sensitive.redacted_str if isinstance(value, sensitive) else value
 
 
 def initialize_logging():
