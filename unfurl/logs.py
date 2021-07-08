@@ -63,7 +63,7 @@ class ColorHandler(logging.StreamHandler):
     }
 
     def emit(self, record: logging.LogRecord) -> None:
-        message = record.getMessage()
+        message = self.format(record)
         level = Levels[record.levelname]
         click.secho(
             " UNFURL ", nl=False, file=self.stream, fg="white", bg="bright_cyan"

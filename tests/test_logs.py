@@ -1,3 +1,4 @@
+import logging
 import os
 import re
 from pathlib import Path
@@ -101,3 +102,15 @@ class TestVerboseLevelDetection:
     def test_default(self, log_level, expected):
         verbose = detect_verbose_level(log_level)
         assert verbose == expected
+
+
+class TestColorHandler:
+    def test_exception_is_printed(self, caplog):
+        log = logging.getLogger("test_exception_is_printed")
+
+        try:
+            raise ValueError("for fun")
+        except ValueError as e:
+            log.error("I caught an error: %s", e, exc_info=True)
+
+        assert "Traceback (most recent call last):" in caplog.text
