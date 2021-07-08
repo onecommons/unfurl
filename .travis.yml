@@ -17,8 +17,8 @@ before_install:
   - wget https://get.helm.sh/helm-v"$helm_version"-linux-amd64.tar.gz
   - tar -zxvf helm-v"$helm_version"-linux-amd64.tar.gz
   - sudo mv linux-amd64/helm /usr/local/bin/helm
-  - wget https://storage.googleapis.com/kubernetes-release/release/v1.17.14/bin/linux/amd64/kubectl
-  - wget https://github.com/rancher/k3d/releases/download/v3.4.0/k3d-linux-amd64
+  - wget https://storage.googleapis.com/kubernetes-release/release/v1.21.2/bin/linux/amd64/kubectl
+  - wget https://github.com/rancher/k3d/releases/download/v4.4.6/k3d-linux-amd64
   - chmod +x k3d-linux-amd64 kubectl
   - sudo mv k3d-linux-amd64 /usr/local/bin/k3d
   - sudo mv kubectl /usr/local/bin
