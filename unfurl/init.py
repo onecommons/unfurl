@@ -106,6 +106,7 @@ def create_home(home=None, render=False, replace=False, **kw):
         runtime=kw.get("runtime") or "venv:",
         no_runtime=kw.get("no_runtime"),
         msg="Create the unfurl home repository",
+        creating_home=True,
     )
     if repo:
         repo.repo.git.branch("rendered")  # now create a branch
@@ -234,6 +235,7 @@ def create_project(
     empty=False,
     template=None,
     submodule=False,
+    creating_home=False,
     **kw
 ):
     if existing:
@@ -251,7 +253,7 @@ def create_project(
     newHome = ""
     homePath = get_home_config_path(home)
     # don't try to create the home project if we are already creating the home project
-    if projectdir != os.path.dirname(homePath):
+    if not creating_home and projectdir != os.path.dirname(homePath):
         # create the home project (but only if it doesn't exist already)
         newHome = create_home(home, **kw)
 
