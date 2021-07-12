@@ -2,6 +2,7 @@ import collections.abc
 import logging
 import logging.config
 from enum import Enum
+import os
 
 import click
 
@@ -88,7 +89,9 @@ class sensitive(object):
 class SensitiveFilter(logging.Filter):
     def filter(self, record):
         if isinstance(record.args, collections.abc.Mapping):
-            record.args = {self.redact(k): self.redact(v) for k, v in record.args.items()}
+            record.args = {
+                self.redact(k): self.redact(v) for k, v in record.args.items()
+            }
         else:
             record.args = tuple(self.redact(a) for a in record.args)
         return True
@@ -104,6 +107,9 @@ def initialize_logging():
     logging.addLevelName(Levels.TRACE.value, Levels.TRACE.name)
     logging.addLevelName(Levels.VERBOSE.value, Levels.VERBOSE.name)
     logging.config.dictConfig(LOGGING)
+    if os.getenv("UNFURL_LOGGING"):
+        effective_log_level = Levels[os.getenv("UNFURL_LOGGING").upper()]
+        set_root_log_level(effective_log_level.value)
 
 
 def set_root_log_level(log_level: int):
