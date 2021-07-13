@@ -24,6 +24,7 @@ from .planrequests import (
     JobRequest,
     ConfigurationSpec,  # used by unit tests
     create_task_request,
+    find_operation_host,
 )
 from .plan import find_parent_resource
 
@@ -267,7 +268,7 @@ class TaskView(object):
         self._resourceChanges = ResourceChanges()
         self._workFolder = None
         # public:
-        self.operationHost = self._find_operation_host(target, configSpec.operationHost)
+        self.operationHost = find_operation_host(target, configSpec.operationHost)
 
     @property
     def inputs(self):
@@ -432,25 +433,6 @@ class TaskView(object):
             reason=self.reason,
             cwd=self.cwd,
         )
-
-    def _find_operation_host(self, target, operation_host):
-        # SELF, HOST, ORCHESTRATOR, SOURCE, TARGET
-        if not operation_host or operation_host in ["localhost", "ORCHESTRATOR"]:
-            return target.root.find_instance_or_external("localhost")
-        if operation_host == "SELF":
-            return target
-        if operation_host == "HOST":
-            # XXX should search all ancestors to find parent that can handle the given operation
-            # e.g. ansible configurator should find ancestor compute node
-            return target.parent
-        if operation_host == "SOURCE":
-            return target.source
-        if operation_host == "TARGET":
-            return target.target
-        host = target.root.find_instance_or_external(operation_host)
-        if host:
-            return host
-        raise UnfurlTaskError(self, "can not find operation_host: %s" % operation_host)
 
     def _get_all_connections(self):
         cons = {}

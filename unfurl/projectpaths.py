@@ -129,6 +129,7 @@ class WorkFolder(object):
             return True
 
     def apply(self):
+        # after render and before run
         pendingpath = self.cwd + self.PENDING_EXT
         previouspath = self.cwd + self.PREVIOUS_EXT
         if os.path.exists(pendingpath):
@@ -153,7 +154,12 @@ class WorkFolder(object):
             # - rename existing .error or mv to jobs/rejected/path
             self._rename_dir(pendingpath, error_dir)
 
-    # XXX not yet used
+    # XXX after run complets:
+    #
+    # def commit(self):
+    #   if os.path.exists(previouspath):
+    #        self._rmtree(previouspath)
+    #
     # def rollback(self):
     #     # during apply, a task that can safely rollback can call this to revert this to the previous version
     #     if not os.path.exists(self.cwd):

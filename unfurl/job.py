@@ -453,7 +453,6 @@ class Job(ConfigChange):
         return eval_for_func(query, RefContext(self.rootResource, trace=trace))
 
     def create_task(self, configSpec, target, reason=None):
-        # XXX2 if operation_host set, create remote task instead
         task = ConfigTask(self, configSpec, target, reason=reason)
         try:
             task.inputs
@@ -483,16 +482,19 @@ class Job(ConfigChange):
         ready = self.plan_requests
         if ready is None:
             ready = self.create_plan()
+        self.run_external()  # XXX stats and errors
         self.workDone = collections.OrderedDict()
         notReady = []
         while ready:
             # first time render them all, after that only re-render requests if their dependencies were fulfilled
             ready, unfulfilled, errors = do_render_requests(self, ready)
             notReady.extend(unfulfilled)
-            self.apply(ready)  # XXX what about errors?
+            # create and run tasks for requests that have their dependencies fulfilled
+            self.apply(ready)
+            # remove requests from notReady if they've had all their dependencies fulfilled
             ready, notReady = set_fulfilled(notReady, ready)
 
-        # if there were circular dependencies or errors there will be notReady won't be empty
+        # if there were circular dependencies or errors then notReady won't be empty
         if notReady:
             for parent, req in get_render_requests(notReady):
                 message = "can't fulfill %s: never ran %s" % (
@@ -519,7 +521,49 @@ class Job(ConfigChange):
         if not WorkflowPlan:
             raise UnfurlError("unknown workflow: %s" % joboptions.workflow)
         plan = WorkflowPlan(self.rootResource, self.manifest.tosca, joboptions)
-        self.plan_requests = list(plan.execute_plan())
+        plan_requests = list(plan.execute_plan())
+
+        self.plan_requests = plan_requests
+
+        request_artifacts = []
+        artifact_jobs = []
+        for r in plan_requests:
+            artifacts = r.get_operation_artifacts()
+            if artifacts:
+                artifacts = [
+                    artifacts
+                    for artifact in artifacts
+                    if artifact not in request_artifacts
+                ]
+                request_artifacts.extend(artifacts)
+                artifact_jobs.append(JobRequest(artifacts, []))
+        # artifacts come first
+        plan_requests = artifact_jobs + plan_requests
+
+        self.plan_requests = plan_requests
+        self.external_requests = []
+        return plan_requests
+
+        # create JobRequests for each external job we need to run by grouping requests by their manifest
+        # at this point attributeManager will set to a manifest (see _ready())
+        external_requests = []
+        # XXX doesn't work because a) JobRequest doesn't have target b) child jobs run after attributemanager is set
+        for key, reqs in itertools.groupby(
+            plan_requests, lambda r: id(r.target.root.attributeManager)
+        ):
+            # external manifest activating an instance via artifact reification
+            # or substitution mapping
+            # XXX but inputs requires dynamically created ensembles?)
+            reqs = list(reqs)
+            if key == id(self.manifest):
+                 self.plan_requests = reqs
+            else:
+                assert type(reqs[0].target.root.attributeManager) == type(self.manifest), type(reqs[0].target.root.attributeManager)
+                external_requests.append(reqs)
+
+        self.external_requests = external_requests
+        assert not self.external_requests, self.external_requests
+        assert self.plan_requests
         return self.plan_requests
 
     def _get_success_status(self, workflow, success):
@@ -555,7 +599,11 @@ class Job(ConfigChange):
                 continue
             logger.info("Running task %s", taskRequest)
 
-            if isinstance(taskRequest, TaskRequestGroup):
+            if isinstance(taskRequest, JobRequest):
+                self.jobRequestQueue.append(taskRequest)
+                self.run_job_request(taskRequest)
+                continue
+            elif isinstance(taskRequest, TaskRequestGroup):
                 _task = self.apply_group(depth, taskRequest)
             else:
                 _task = self._run_operation(taskRequest, workflow, depth)
@@ -586,6 +634,26 @@ class Job(ConfigChange):
         assert childJob.parentJob is self
         childJob.run()
         return childJob
+
+    def run_external(self):
+        externalJobs = []
+        # XXX need to check for deadlock
+        for requests in self.external_requests:
+            instance_names = []
+            manifest = None
+            for request in requests:
+                assert isinstance(
+                    request, JobRequest
+                ), "only JobRequest currently supported"
+                instance_names.extend([r.name for r in request.instances])
+                manifest = request.instances[0].root.attributeManager
+            jobOptions = JobOptions(repair="missing", instances=instance_names)
+            externalJob = create_job(manifest, jobOptions)
+            externalJobs.append(externalJob)
+            _run_job(externalJob, jobOptions)
+            if externalJob.status == Status.error:
+                break
+        return externalJobs
 
     def _dependency_check(self, instance):
         dependencies = list(instance.get_operational_dependencies())
@@ -1084,21 +1152,6 @@ def create_job(manifest, joboptions, previousId=None):
     return job
 
 
-class Runner(object):
-    # this class is only used by unit tests, application uses run_job() below
-
-    def __init__(self, manifest):
-        self.manifest = manifest
-        assert self.manifest.tosca
-
-    def run(self, jobOptions=None):
-        if jobOptions is None:
-            jobOptions = JobOptions()
-        job = _plan(self.manifest, jobOptions)
-
-        return _run_job(job, jobOptions)
-
-
 def _plan(manifest, jobOptions):
     assert jobOptions
     job = create_job(
@@ -1110,9 +1163,11 @@ def _plan(manifest, jobOptions):
     return job
 
 
-def _run_job(job, jobOptions=None):
+def _run_job(job, jobOptions):
     manifest = job.manifest
+    startTime = perf_counter()
     try:
+        # manifest.lock() XXX
         cwd = os.getcwd()
         if manifest.get_base_dir():
             os.chdir(manifest.get_base_dir())
@@ -1129,10 +1184,9 @@ def _run_job(job, jobOptions=None):
                         repo.working_dir,
                     )
                     return None
-
-        startTime = perf_counter()
         try:
             display.verbosity = jobOptions.verbose
+            # XXX run external jobs
             job.run()
         except Exception:
             job.local_status = Status.error
@@ -1141,9 +1195,9 @@ def _run_job(job, jobOptions=None):
             )
         manifest.commit_job(job)
     finally:
-        if job:
-            job.timeElapsed = perf_counter() - startTime
+        job.timeElapsed = perf_counter() - startTime
         os.chdir(cwd)
+        # manifest.unlock() XXX
     return job
 
 
@@ -1182,3 +1236,17 @@ def run_job(manifestPath=None, _opts=None):
         return job
 
     return _run_job(job, opts)
+
+
+class Runner(object):
+    # this class is only used by unit tests, application uses run_job() above
+
+    def __init__(self, manifest):
+        self.manifest = manifest
+        assert self.manifest.tosca
+
+    def run(self, jobOptions=None):
+        if jobOptions is None:
+            jobOptions = JobOptions()
+        job = _plan(self.manifest, jobOptions)
+        return _run_job(job, jobOptions)

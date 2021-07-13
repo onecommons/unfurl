@@ -16,7 +16,7 @@ from .util import UnfurlError, load_class, to_enum, make_temp_dir, ChainMap
 from .result import ResourceRef, ChangeAware
 
 from .support import AttributeManager, Defaults, Status, Priority, NodeState, Templar
-from .tosca import CapabilitySpec, RelationshipSpec, NodeSpec, TopologySpec
+from .tosca import CapabilitySpec, RelationshipSpec, NodeSpec, TopologySpec, Artifact
 
 import logging
 
@@ -510,6 +510,14 @@ class RelationshipInstance(EntityInstance):
                 env[name] = val
         return env
 
+class ArtifactInstance(EntityInstance):
+    parentRelation = "_artifacts"
+    templateType = Artifact
+
+    @property
+    def base_dir(self):
+        return self.template.base_dir
+
 
 class NodeInstance(EntityInstance):
     templateType = NodeSpec
@@ -526,9 +534,10 @@ class NodeInstance(EntityInstance):
                     % name
                 )
 
-        # next two maybe initialized either by Manifest.createNodeInstance or by its property
+        # next three may be initialized either by Manifest.createNodeInstance or by its property
         self._capabilities = []
         self._requirements = []
+        self._artifacts = []
         self.instances = []
         EntityInstance.__init__(self, name, attributes, parent, template, status)
 
