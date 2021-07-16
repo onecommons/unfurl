@@ -20,7 +20,7 @@ from .support import ResourceChanges, Defaults, Imports, Status
 from .localenv import LocalEnv
 from .lock import Lock
 from .manifest import Manifest
-from .tosca import Artifact
+from .tosca import ArtifactSpec
 from .runtime import TopologyInstance
 from .eval import map_value
 from .tosca import ToscaSpec, TOSCA_VERSION
@@ -399,7 +399,7 @@ class YamlManifest(ReadOnlyManifest):
             else:
                 # ensemble is in the same project
                 baseDir = getattr(location, "base_dir", self.get_base_dir())
-                artifact = Artifact(location, path=baseDir, spec=self.tosca)
+                artifact = ArtifactSpec(location, path=baseDir, spec=self.tosca)
                 path = artifact.get_path()
                 localEnv = LocalEnv(path, parent=self.localEnv)
                 if self.path and os.path.abspath(self.path) == os.path.abspath(

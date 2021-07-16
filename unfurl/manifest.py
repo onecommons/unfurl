@@ -5,7 +5,7 @@ import os.path
 import hashlib
 import json
 from ruamel.yaml.comments import CommentedMap
-from .tosca import ToscaSpec, TOSCA_VERSION, Artifact
+from .tosca import ToscaSpec, TOSCA_VERSION, ArtifactSpec
 
 from .support import ResourceChanges, AttributeManager, Status, Priority, NodeState
 from .runtime import (
@@ -495,7 +495,7 @@ class Manifest(AttributeManager):
                 return reponame in repositories
             return True
 
-        artifact = Artifact(artifactTpl, path=baseDir)
+        artifact = ArtifactSpec(artifactTpl, path=baseDir)
 
         extraRepos = []
         if inlineRepository:

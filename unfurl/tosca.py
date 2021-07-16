@@ -276,7 +276,9 @@ class ToscaSpec(object):
             return None
 
     def get_repository_path(self, repositoryName, file=""):
-        baseArtifact = Artifact(dict(repository=repositoryName, file=file), spec=self)
+        baseArtifact = ArtifactSpec(
+            dict(repository=repositoryName, file=file), spec=self
+        )
         if baseArtifact.repository:
             # may resolve repository url to local path (e.g. checkout a remote git repo)
             return baseArtifact.get_path()
@@ -525,7 +527,7 @@ class EntitySpec(ResourceRef):
         else:
             tpl = nameOrTpl
         # create an anonymous, inline artifact
-        return Artifact(tpl, self, path=path)
+        return ArtifactSpec(tpl, self, path=path)
 
     @property
     def abstract(self):
@@ -578,7 +580,7 @@ class NodeSpec(EntitySpec):
     def artifacts(self):
         if self._artifacts is None:
             self._artifacts = {
-                name: Artifact(artifact, self)
+                name: ArtifactSpec(artifact, self)
                 for name, artifact in self.toscaEntityTemplate.artifacts.items()
             }
         return self._artifacts
@@ -949,7 +951,7 @@ class Workflow(object):
         return True
 
 
-class Artifact(EntitySpec):
+class ArtifactSpec(EntitySpec):
     def __init__(self, artifact_tpl, template=None, spec=None, path=None):
         # 3.6.7 Artifact definition p. 84
         self.parentNode = template
@@ -979,7 +981,7 @@ class Artifact(EntitySpec):
         if self.toscaEntityTemplate._source:
             return get_base_dir(self.toscaEntityTemplate._source)
         else:
-            return super(Artifact, self).base_dir
+            return super(ArtifactSpec, self).base_dir
 
     def get_path(self, resolver=None):
         return self.get_path_and_fragment(resolver)[0]

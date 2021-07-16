@@ -16,7 +16,13 @@ from .util import UnfurlError, load_class, to_enum, make_temp_dir, ChainMap
 from .result import ResourceRef, ChangeAware
 
 from .support import AttributeManager, Defaults, Status, Priority, NodeState, Templar
-from .tosca import CapabilitySpec, RelationshipSpec, NodeSpec, TopologySpec, Artifact
+from .tosca import (
+    CapabilitySpec,
+    RelationshipSpec,
+    NodeSpec,
+    TopologySpec,
+    ArtifactSpec,
+)
 
 import logging
 
@@ -510,9 +516,10 @@ class RelationshipInstance(EntityInstance):
                 env[name] = val
         return env
 
+
 class ArtifactInstance(EntityInstance):
     parentRelation = "_artifacts"
-    templateType = Artifact
+    templateType = ArtifactSpec
 
     @property
     def base_dir(self):
