@@ -635,7 +635,13 @@ class Job(ConfigChange):
                     request, JobRequest
                 ), "only JobRequest currently supported"
                 instance_names.extend([r.name for r in request.instances])
-            jobOptions = JobOptions(repair="missing", instances=instance_names)
+            jobOptions = JobOptions(
+                repair="missing",
+                instances=instance_names,
+                startTime=self.jobOptions.startTime,
+                out=self.jobOptions.out,
+                verbose=self.jobOptions.verbose,
+            )
             externalJob = create_job(manifest, jobOptions)
             externalJobs.append(externalJob)
             _run_job(externalJob, jobOptions)
@@ -1155,8 +1161,9 @@ def _run_job(job, jobOptions):
     manifest = job.manifest
     startTime = perf_counter()
     try:
-        # manifest.lock() XXX
         cwd = os.getcwd()
+        if not jobOptions.out:  # out is used by unit tests to avoid writing to disk
+            manifest.lock()
         if manifest.get_base_dir():
             os.chdir(manifest.get_base_dir())
 
@@ -1174,7 +1181,6 @@ def _run_job(job, jobOptions):
                     return None
         try:
             display.verbosity = jobOptions.verbose
-            # XXX run external jobs
             job.run()
         except Exception:
             job.local_status = Status.error
@@ -1185,7 +1191,7 @@ def _run_job(job, jobOptions):
     finally:
         job.timeElapsed = perf_counter() - startTime
         os.chdir(cwd)
-        # manifest.unlock() XXX
+        manifest.unlock()
     return job
 
 

@@ -261,6 +261,8 @@ def clone(localEnv, destPath):
 
 class YamlManifest(ReadOnlyManifest):
     _operationIndex = None
+    lockfilepath = None
+    lockfile = None
 
     def __init__(
         self, manifest=None, path=None, validate=True, localEnv=None, vault=None
@@ -268,6 +270,8 @@ class YamlManifest(ReadOnlyManifest):
         super(YamlManifest, self).__init__(manifest, path, validate, localEnv, vault)
         # instantiate the tosca template
         manifest = self.manifest.expanded
+        if self.manifest.path:
+            self.lockfilepath = self.manifest.path + ".lock"
         self._set_spec(manifest)
         assert self.tosca
         spec = manifest.get("spec", {})
@@ -449,6 +453,41 @@ class YamlManifest(ReadOnlyManifest):
                         if not hasattr(c, "startCommit")  # not a job record
                     }
         return self.changeSets is not None
+
+    def lock(self):
+        # implement simple local file locking -- no waiting on the lock
+        msg = (
+            "Ensemble %s was already locked -- is there a circular reference between external ensembles?"
+            % self.path
+        )
+        if self.lockfile:
+            raise UnfurlError(msg)
+        if not self.lockfilepath:
+            return False
+        if os.path.exists(self.lockfilepath):
+            with open(self.lockfile) as lf:
+                pid = lf.read()
+                if os.getpid() == int(pid):
+                    raise UnfurlError(msg)
+                else:
+                    raise UnfurlError(
+                        "Lockfile '%s' already created by another process %s "
+                        % (self.lockfilepath, pid)
+                    )
+        else:
+            # ok if we race here, we'll just raise an error
+            self.lockfile = open(self.lockfilepath, "xb", buffering=0)
+            self.lockfile.write(bytes(str(os.getpid()), "ascii"))
+            return True
+
+    def unlock(self):
+        if self.lockfile:
+            # unlink first to avoid race (this will fail on Windows)
+            os.unlink(self.lockfilepath)
+            self.lockfile.close()
+            self.lockfile = None
+            return True
+        return False
 
     def find_last_operation(self, target, operation):
         if self._operationIndex is None:

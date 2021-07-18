@@ -536,7 +536,9 @@ spec:
       """
                 % API_VERSION
             )
-            manifest = YamlManifest(importer)
+            with open("ensemble.yaml", "w") as f:
+                f.write(importer)
+            manifest = YamlManifest(path="ensemble.yaml")
             root = manifest.get_root_resource()
             importerResource = root.find_resource("importer")
             # assert importing.attributes['test']
@@ -548,3 +550,7 @@ spec:
             self.assertEqual(importerResource.attributes["mapped3"], "default")
             job = Runner(manifest).run(JobOptions(add=True, startTime="time-to-test"))
             assert job.status == Status.ok, job.summary()
+            manifest.lock()
+            with self.assertRaises(UnfurlError) as err:
+                manifest.lock()  # can't lock twice
+            self.assertIn("already locked", str(err.exception))
