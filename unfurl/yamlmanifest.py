@@ -495,7 +495,7 @@ class YamlManifest(ReadOnlyManifest):
         status["capability"] = resource.parent.key
         return (name, status)
 
-    def save_capability(self, resource):
+    def _save_entity_if_instantiated(self, resource):
         if not resource.last_change and not resource.local_status > Status.ok:
             # no reason to serialize capabilities that haven't been instantiated
             return None
@@ -510,7 +510,13 @@ class YamlManifest(ReadOnlyManifest):
 
         if resource._capabilities:
             capabilities = list(
-                filter(None, map(self.save_capability, resource.capabilities))
+                filter(
+                    None,
+                    map(
+                        self._save_entity_if_instantiated,
+                        resource.capabilities,
+                    ),
+                )
             )
             if capabilities:
                 status["capabilities"] = CommentedMap(capabilities)
@@ -521,6 +527,16 @@ class YamlManifest(ReadOnlyManifest):
             )
             if requirements:
                 status["requirements"] = CommentedMap(requirements)
+
+        if resource._artifacts:
+            # assumes names are unique!
+            artifacts = list(
+                filter(
+                    None, map(self._save_entity_if_instantiated, resource._artifacts)
+                )
+            )
+            if artifacts:
+                status["artifacts"] = CommentedMap(artifacts)
 
         if resource.instances:
             status["instances"] = CommentedMap(

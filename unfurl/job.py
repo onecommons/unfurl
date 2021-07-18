@@ -540,30 +540,19 @@ class Job(ConfigChange):
         # artifacts come first
         plan_requests = artifact_jobs + plan_requests
 
-        self.plan_requests = plan_requests
-        self.external_requests = []
-        return plan_requests
-
         # create JobRequests for each external job we need to run by grouping requests by their manifest
-        # at this point attributeManager will set to a manifest (see _ready())
         external_requests = []
-        # XXX doesn't work because a) JobRequest doesn't have target b) child jobs run after attributemanager is set
-        for key, reqs in itertools.groupby(
-            plan_requests, lambda r: id(r.target.root.attributeManager)
-        ):
+        for key, reqs in itertools.groupby(plan_requests, lambda r: id(r.target.root)):
             # external manifest activating an instance via artifact reification
-            # or substitution mapping
-            # XXX but inputs requires dynamically created ensembles?)
+            # XXX or substitution mapping -- but unique inputs require dynamically creating ensembles??
             reqs = list(reqs)
-            if key == id(self.manifest):
-                 self.plan_requests = reqs
+            externalManifest = self.manifest._importedManifests.get(key)
+            if externalManifest:
+                external_requests.append((externalManifest, reqs))
             else:
-                assert type(reqs[0].target.root.attributeManager) == type(self.manifest), type(reqs[0].target.root.attributeManager)
-                external_requests.append(reqs)
+                self.plan_requests = reqs
 
         self.external_requests = external_requests
-        assert not self.external_requests, self.external_requests
-        assert self.plan_requests
         return self.plan_requests
 
     def _get_success_status(self, workflow, success):
@@ -638,7 +627,7 @@ class Job(ConfigChange):
     def run_external(self):
         externalJobs = []
         # XXX need to check for deadlock
-        for requests in self.external_requests:
+        for manifest, requests in self.external_requests:
             instance_names = []
             manifest = None
             for request in requests:
@@ -646,7 +635,6 @@ class Job(ConfigChange):
                     request, JobRequest
                 ), "only JobRequest currently supported"
                 instance_names.extend([r.name for r in request.instances])
-                manifest = request.instances[0].root.attributeManager
             jobOptions = JobOptions(repair="missing", instances=instance_names)
             externalJob = create_job(manifest, jobOptions)
             externalJobs.append(externalJob)

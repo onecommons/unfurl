@@ -163,17 +163,10 @@ class TaskRequest(PlanRequest):
     def get_operation_artifacts(self):
         artifact = self.configSpec.artifact
         # XXX self.configSpec.dependencies
-        if artifact and artifact.type and False:  # artifact.type.interface:
+        if artifact and artifact.template.get_interfaces():
             # has an artifact with a type that needs installation
-            # XXX what if artifact has no name?
-            operation_host = find_operation_host(
-                self.target, self.configSpec.operation_host
-            )
-            installed = operation_host.findArtifact(artifact)
-            if not installed:
-                installed = operation_host.createArtifact(artifact)
-            if not installed.operational:
-                return [installed]
+            if not artifact.operational:
+                return [artifact]
         return []
 
     @property
@@ -261,6 +254,10 @@ class JobRequest(object):
     def __init__(self, resources, errors):
         self.instances = resources
         self.errors = errors
+
+    @property
+    def target(self):
+        return self.instances[0] if self.instances else None
 
     def __repr__(self):
         return "JobRequest(%s)" % (self.instances,)
@@ -519,14 +516,6 @@ def _set_default_command(kw, implementation, inputs):
         shellArgs.update(inputs)
     kw["inputs"] = shellArgs
 
-def _get_artifact(instance, tpl, base):
-    if isinstance(tpl, six.string_types):
-        artifact = instance.artifacts.get(tpl)
-        if artifact:
-            return artifact
-    # not found, create anonymous Artifact
-    return instance.template.find_or_create_artifact(tpl, path=base)
-
 
 def _get_config_spec_args_from_implementation(iDef, inputs, target, operation_host):
     implementation = iDef.implementation
@@ -552,13 +541,15 @@ def _get_config_spec_args_from_implementation(iDef, inputs, target, operation_ho
         artifact = implementation
         operation_instance = find_operation_host(target, operation_host)
 
+    instance = operation_instance or target
+    base_dir = getattr(iDef.value, "base_dir", iDef._source)
     if artifact:
-        artifact = _get_artifact(operation_instance or target, artifact, iDef._source)
+        artifact = instance.find_or_create_artifact(artifact, base_dir)
     kw["primary"] = artifact
 
     if dependencies:
         kw["dependencies"] = [
-            _get_artifact(operation_instance or target, artifactTpl, iDef._source)
+            instance.find_or_create_artifact(artifactTpl, base_dir)
             for artifactTpl in dependencies
         ]
 

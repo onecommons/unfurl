@@ -309,6 +309,18 @@ class ToscaSpec(object):
             if not nodeTemplate:
                 return None
             return nodeTemplate.get_requirement(requirement)
+        elif "~a~" in name:
+            nodeTemplate = None
+            nodeName, artifactName = name.split("~a~")
+            if nodeName:
+                nodeTemplate = self.nodeTemplates.get(nodeName)
+                if nodeTemplate:
+                    artifact = nodeTemplate.artifacts.get(artifactName)
+                    if artifact:
+                        return artifact
+            # its an anonymous artifact, create inline artifact
+            tpl = ArtifactSpec.get_spec_from_name(artifactName)
+            return ArtifactSpec(tpl, nodeTemplate, spec=self)
         else:
             return self.nodeTemplates.get(name)
 
@@ -525,6 +537,10 @@ class EntitySpec(ResourceRef):
             # name not found, assume its a file path or URL
             tpl = dict(file=nameOrTpl)
         else:
+            name = ArtifactSpec.get_name_from_spec(nameOrTpl)
+            artifact = self.artifacts.get(name)
+            if artifact:
+                return artifact
             tpl = nameOrTpl
         # create an anonymous, inline artifact
         return ArtifactSpec(tpl, self, path=path)
@@ -960,9 +976,10 @@ class ArtifactSpec(EntitySpec):
             artifact = artifact_tpl
         else:
             # inline artifact
+            name = self.get_name_from_spec(artifact_tpl)
             custom_defs = spec and spec.template.topology_template.custom_defs or {}
             artifact = toscaparser.artifacts.Artifact(
-                artifact_tpl.get("file", ""), artifact_tpl, custom_defs, path
+                name, artifact_tpl, custom_defs, path
             )
         EntitySpec.__init__(self, artifact, spec)
         self.repository = (
@@ -971,6 +988,24 @@ class ArtifactSpec(EntitySpec):
             and spec.template.repositories.get(artifact.repository)
             or None
         )
+
+    def get_uri(self):
+        if self.parentNode:
+            return self.parentNode.name + "~a~" + self.name
+        else:
+            return "~a~" + self.name
+
+    @staticmethod
+    def get_name_from_spec(artifact_tpl):
+        return artifact_tpl.get("repository", "") + ":" + artifact_tpl.get("file", "")
+
+    @staticmethod
+    def get_spec_from_name(name):
+        first, sep, rest = name.partition(":")
+        spec = CommentedMap(file=rest)
+        if first:
+            spec["repository"] = first
+        return spec
 
     @property
     def file(self):

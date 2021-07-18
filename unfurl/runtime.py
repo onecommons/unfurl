@@ -396,7 +396,7 @@ class EntityInstance(OperationalInstance, ResourceRef):
 
     @property
     def artifacts(self):
-        return self.template.artifacts
+        return {}
 
     @property
     def attributes(self):
@@ -525,6 +525,23 @@ class ArtifactInstance(EntityInstance):
     def base_dir(self):
         return self.template.base_dir
 
+    @property
+    def file(self):
+        return self.template.file
+
+    @property
+    def repository(self):
+        return self.template.repository
+
+    def get_path(self, resolver=None):
+        return self.template.get_path_and_fragment(resolver)
+
+    def get_path_and_fragment(self, resolver=None, tpl=None):
+        return self.template.get_path_and_fragment(resolver, tpl)
+
+    def as_import_spec(self):
+        return self.template.as_import_spec
+
 
 class NodeInstance(EntityInstance):
     templateType = NodeSpec
@@ -630,6 +647,31 @@ class NodeInstance(EntityInstance):
             for capability in self.capabilities
             if capability.template.name == name
         ]
+
+    def find_or_create_artifact(self, tpl, base):
+        if isinstance(tpl, six.string_types):
+            artifact = self.artifacts.get(tpl)
+            if artifact:
+                return artifact
+
+        # not found, create anonymous Artifact
+        template = self.template.find_or_create_artifact(tpl, path=base)
+        artifact = ArtifactInstance(template.name, parent=self, template=template)
+        return artifact
+
+    @property
+    def artifacts(self):
+        # this only includes named artifacts
+        if len(self._artifacts) != len(self.template.artifacts):
+            # instantiate artifacts (they are only added, never deleted)
+            instantiated = set(id(c.template) for c in self._artifacts)
+            for name, template in self.template.artifacts.items():
+                if id(template) not in instantiated:
+                    artifact = ArtifactInstance(
+                        template.name, parent=self, template=template
+                    )
+                    assert artifact in self._artifacts
+        return {artifact.name: artifact for artifact in self._artifacts}
 
     def _get_default_relationships(self, relation=None):
         if self.root is self:
