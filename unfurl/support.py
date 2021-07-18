@@ -844,7 +844,8 @@ class AttributeManager(object):
     #   # for resource, old, new in self.statuses.values():
     #   #   resource._localStatus = old
 
-    def _save_sensitive(self, defs, key, value, resource):
+    @staticmethod
+    def _save_sensitive(defs, key, value, instance):
         defSchema = (key in defs and defs[key].schema) or {}
         defMeta = defSchema.get("metadata", {})
         # attribute marked as sensitive and value isn't a secret so mark value as sensitive
@@ -852,11 +853,23 @@ class AttributeManager(object):
         sensitive = defMeta.get("sensitive") and not value.external
         if sensitive:
             savedValue = wrap_sensitive_value(
-                value.resolved, resource.templar._loader._vault
+                value.resolved, instance.templar._loader._vault
             )
         else:
             savedValue = value.as_ref()  # serialize Result
         return savedValue, sensitive
+
+    @staticmethod
+    def _check_attribute(specd, key, value, instance):
+        changed = value.has_diff()
+        live = (
+            changed  # modified by this task
+            # explicitly declared an attribute:
+            or key in instance.template.attributeDefs
+            or key not in specd  # not declared as a property
+            or key in instance._attributes  # previously modified
+        )
+        return changed, live
 
     def find_live_dependencies(self):
         liveDependencies = {}
@@ -866,13 +879,8 @@ class AttributeManager(object):
             # items in overrides of type Result have been accessed during this transaction
             for key, value in overrides.items():
                 if isinstance(value, Result):
-                    # an attribute is considered live it was declared an attribute or isn't part of the template at all
-                    # XXX previously overridden properties values should be treat as live too because they changed during runtime
-                    if (
-                        key in resource.template.attributeDefs
-                        or key not in specd
-                        or value.has_diff()
-                    ):
+                    changed, isLive = self._check_attribute(specd, key, value, resource)
+                    if isLive:
                         live.append(key)
 
             if live:
@@ -885,7 +893,10 @@ class AttributeManager(object):
         liveDependencies = {}
         for resource, attributes in self.attributes.values():
             overrides, specd = attributes._attributes.split()
-            resource._attributes = {}
+            # overrides will only contain:
+            #  - properties accessed or added while running a task
+            #  - properties loaded from the ensemble status yaml (which implies it was previously added or changed)
+            _attributes = {}
             defs = resource.template and resource.template.propertyDefs or {}
             foundSensitive = []
             live = {}
@@ -893,32 +904,26 @@ class AttributeManager(object):
             for key, value in overrides.items():
                 if not isinstance(value, Result):
                     # hasn't been accessed so keep it as is
-                    resource._attributes[key] = value
+                    _attributes[key] = value
                 else:
-                    # value is a Result and it is either new or different from the original value, so save
-                    changed = value.has_diff()
-                    # an attribute is considered live it was declared an attribute or isn't part of the template at all
-                    # XXX previously overridden properties values should be treat as live too because they changed during runtime
-                    isLive = (
-                        changed
-                        or key in resource.template.attributeDefs
-                        or key not in specd
-                    )
-                    if not (changed or isLive):
-                        continue
+                    changed, isLive = self._check_attribute(specd, key, value, resource)
+                    if not isLive:
+                        assert not changed  # changed implies isLive
+                        continue  # it hasn't changed and it is part of the spec so don't save it as an attribute
+
                     savedValue, sensitive = self._save_sensitive(
                         defs, key, value, resource
                     )
-                    if isLive:
-                        # remember Result not savedValue because we need the ExternalValue
-                        live[key] = savedValue if sensitive else value
-                    if changed:
-                        # save in _attributes in serialized form
-                        if sensitive:
-                            foundSensitive.append(key)
+                    # remember Result not savedValue because we need the ExternalValue
+                    live[key] = savedValue if sensitive else value
+                    if changed and sensitive:
+                        foundSensitive.append(key)
                         # XXX if defMeta.get('immutable') and key in specd:
                         #  error('value of attribute "%s" changed but is marked immutable' % key)
-                    resource._attributes[key] = savedValue
+
+                    # save in serialized form
+                    _attributes[key] = savedValue
+            resource._attributes = _attributes
 
             if live:
                 liveDependencies[resource.key] = (resource, live)

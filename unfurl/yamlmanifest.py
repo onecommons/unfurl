@@ -20,7 +20,7 @@ from .support import ResourceChanges, Defaults, Imports, Status
 from .localenv import LocalEnv
 from .lock import Lock
 from .manifest import Manifest
-from .tosca import Artifact
+from .tosca import ArtifactSpec
 from .runtime import TopologyInstance
 from .eval import map_value
 from .tosca import ToscaSpec, TOSCA_VERSION
@@ -399,7 +399,7 @@ class YamlManifest(ReadOnlyManifest):
             else:
                 # ensemble is in the same project
                 baseDir = getattr(location, "base_dir", self.get_base_dir())
-                artifact = Artifact(location, path=baseDir, spec=self.tosca)
+                artifact = ArtifactSpec(location, path=baseDir, spec=self.tosca)
                 path = artifact.get_path()
                 localEnv = LocalEnv(path, parent=self.localEnv)
                 if self.path and os.path.abspath(self.path) == os.path.abspath(
@@ -495,7 +495,7 @@ class YamlManifest(ReadOnlyManifest):
         status["capability"] = resource.parent.key
         return (name, status)
 
-    def save_capability(self, resource):
+    def _save_entity_if_instantiated(self, resource):
         if not resource.last_change and not resource.local_status > Status.ok:
             # no reason to serialize capabilities that haven't been instantiated
             return None
@@ -510,7 +510,13 @@ class YamlManifest(ReadOnlyManifest):
 
         if resource._capabilities:
             capabilities = list(
-                filter(None, map(self.save_capability, resource.capabilities))
+                filter(
+                    None,
+                    map(
+                        self._save_entity_if_instantiated,
+                        resource.capabilities,
+                    ),
+                )
             )
             if capabilities:
                 status["capabilities"] = CommentedMap(capabilities)
@@ -521,6 +527,16 @@ class YamlManifest(ReadOnlyManifest):
             )
             if requirements:
                 status["requirements"] = CommentedMap(requirements)
+
+        if resource._artifacts:
+            # assumes names are unique!
+            artifacts = list(
+                filter(
+                    None, map(self._save_entity_if_instantiated, resource._artifacts)
+                )
+            )
+            if artifacts:
+                status["artifacts"] = CommentedMap(artifacts)
 
         if resource.instances:
             status["instances"] = CommentedMap(

@@ -276,7 +276,9 @@ class ToscaSpec(object):
             return None
 
     def get_repository_path(self, repositoryName, file=""):
-        baseArtifact = Artifact(dict(repository=repositoryName, file=file), spec=self)
+        baseArtifact = ArtifactSpec(
+            dict(repository=repositoryName, file=file), spec=self
+        )
         if baseArtifact.repository:
             # may resolve repository url to local path (e.g. checkout a remote git repo)
             return baseArtifact.get_path()
@@ -307,6 +309,18 @@ class ToscaSpec(object):
             if not nodeTemplate:
                 return None
             return nodeTemplate.get_requirement(requirement)
+        elif "~a~" in name:
+            nodeTemplate = None
+            nodeName, artifactName = name.split("~a~")
+            if nodeName:
+                nodeTemplate = self.nodeTemplates.get(nodeName)
+                if nodeTemplate:
+                    artifact = nodeTemplate.artifacts.get(artifactName)
+                    if artifact:
+                        return artifact
+            # its an anonymous artifact, create inline artifact
+            tpl = ArtifactSpec.get_spec_from_name(artifactName)
+            return ArtifactSpec(tpl, nodeTemplate, spec=self)
         else:
             return self.nodeTemplates.get(name)
 
@@ -523,9 +537,13 @@ class EntitySpec(ResourceRef):
             # name not found, assume its a file path or URL
             tpl = dict(file=nameOrTpl)
         else:
+            name = ArtifactSpec.get_name_from_spec(nameOrTpl)
+            artifact = self.artifacts.get(name)
+            if artifact:
+                return artifact
             tpl = nameOrTpl
         # create an anonymous, inline artifact
-        return Artifact(tpl, self, path=path)
+        return ArtifactSpec(tpl, self, path=path)
 
     @property
     def abstract(self):
@@ -578,7 +596,7 @@ class NodeSpec(EntitySpec):
     def artifacts(self):
         if self._artifacts is None:
             self._artifacts = {
-                name: Artifact(artifact, self)
+                name: ArtifactSpec(artifact, self)
                 for name, artifact in self.toscaEntityTemplate.artifacts.items()
             }
         return self._artifacts
@@ -949,7 +967,7 @@ class Workflow(object):
         return True
 
 
-class Artifact(EntitySpec):
+class ArtifactSpec(EntitySpec):
     def __init__(self, artifact_tpl, template=None, spec=None, path=None):
         # 3.6.7 Artifact definition p. 84
         self.parentNode = template
@@ -958,9 +976,10 @@ class Artifact(EntitySpec):
             artifact = artifact_tpl
         else:
             # inline artifact
+            name = self.get_name_from_spec(artifact_tpl)
             custom_defs = spec and spec.template.topology_template.custom_defs or {}
             artifact = toscaparser.artifacts.Artifact(
-                artifact_tpl.get("file", ""), artifact_tpl, custom_defs, path
+                name, artifact_tpl, custom_defs, path
             )
         EntitySpec.__init__(self, artifact, spec)
         self.repository = (
@@ -969,6 +988,24 @@ class Artifact(EntitySpec):
             and spec.template.repositories.get(artifact.repository)
             or None
         )
+
+    def get_uri(self):
+        if self.parentNode:
+            return self.parentNode.name + "~a~" + self.name
+        else:
+            return "~a~" + self.name
+
+    @staticmethod
+    def get_name_from_spec(artifact_tpl):
+        return artifact_tpl.get("repository", "") + ":" + artifact_tpl.get("file", "")
+
+    @staticmethod
+    def get_spec_from_name(name):
+        first, sep, rest = name.partition(":")
+        spec = CommentedMap(file=rest)
+        if first:
+            spec["repository"] = first
+        return spec
 
     @property
     def file(self):
@@ -979,7 +1016,7 @@ class Artifact(EntitySpec):
         if self.toscaEntityTemplate._source:
             return get_base_dir(self.toscaEntityTemplate._source)
         else:
-            return super(Artifact, self).base_dir
+            return super(ArtifactSpec, self).base_dir
 
     def get_path(self, resolver=None):
         return self.get_path_and_fragment(resolver)[0]

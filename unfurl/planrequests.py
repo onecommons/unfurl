@@ -133,6 +133,9 @@ class PlanRequest(object):
     def update_future_dependencies(self, completed):
         return self.future_dependencies
 
+    def get_operation_artifacts(self):
+        return []
+
 
 class TaskRequest(PlanRequest):
     """
@@ -156,6 +159,15 @@ class TaskRequest(PlanRequest):
         self.error = configSpec.name == "#error"
         self.startState = startState
         self.task = None
+
+    def get_operation_artifacts(self):
+        artifact = self.configSpec.artifact
+        # XXX self.configSpec.dependencies
+        if artifact and artifact.template.get_interfaces():
+            # has an artifact with a type that needs installation
+            if not artifact.operational:
+                return [artifact]
+        return []
 
     @property
     def name(self):
@@ -220,6 +232,12 @@ class TaskRequestGroup(PlanRequest):
             future_dependencies.extend(req.update_future_dependencies(completed))
         return future_dependencies
 
+    def get_operation_artifacts(self):
+        artifacts = []
+        for req in self.children:
+            artifacts.extend(req.get_operation_artifacts())
+        return artifacts
+
     def __repr__(self):
         return "TaskRequestGroup(%s:%s:%s)" % (
             self.target,
@@ -237,8 +255,29 @@ class JobRequest(object):
         self.instances = resources
         self.errors = errors
 
+    @property
+    def target(self):
+        return self.instances[0] if self.instances else None
+
     def __repr__(self):
         return "JobRequest(%s)" % (self.instances,)
+
+
+def find_operation_host(target, operation_host):
+    # SELF, HOST, ORCHESTRATOR, SOURCE, TARGET
+    if not operation_host or operation_host in ["localhost", "ORCHESTRATOR"]:
+        return target.root.find_instance_or_external("localhost")
+    if operation_host == "SELF":
+        return target
+    if operation_host == "HOST":
+        # XXX should search all ancestors to find parent that can handle the given operation
+        # e.g. ansible configurator should find ancestor compute node
+        return target.parent
+    if operation_host == "SOURCE":
+        return target.source
+    if operation_host == "TARGET":
+        return target.target
+    return target.root.find_instance_or_external(operation_host)
 
 
 def get_render_requests(requests):
@@ -407,7 +446,9 @@ def create_task_request(
             inputs = dict(iDef.inputs, **inputs)
         else:
             inputs = iDef.inputs or {}
-        kw = get_config_spec_args_from_implementation(iDef, inputs, resource.template)
+        kw = _get_config_spec_args_from_implementation(
+            iDef, inputs, resource, operation_host
+        )
     else:
         kw = None
 
@@ -420,8 +461,6 @@ def create_task_request(
         else:
             name = "%s.%s" % (interface, action)
         configSpec = ConfigurationSpec(name, action, **kw)
-        if operation_host:
-            configSpec.operation_host = operation_host
         logger.debug(
             "creating configuration %s with %s to run for %s: %s",
             configSpec.name,
@@ -478,29 +517,41 @@ def _set_default_command(kw, implementation, inputs):
     kw["inputs"] = shellArgs
 
 
-def get_config_spec_args_from_implementation(iDef, inputs, template):
-    # XXX template should be operation_host's template!
+def _get_config_spec_args_from_implementation(iDef, inputs, target, operation_host):
     implementation = iDef.implementation
-    kw = dict(inputs=inputs, outputs=iDef.outputs)
+    kw = dict(inputs=inputs, outputs=iDef.outputs, operation_host=operation_host)
     configSpecArgs = ConfigurationSpec.getDefaults()
     artifact = None
+    dependencies = None
     if isinstance(implementation, dict):
+        operation_instance = find_operation_host(
+            target, implementation.get("operation_host") or operation_host
+        )
         for name, value in implementation.items():
             if name == "primary":
-                artifact = template.find_or_create_artifact(value, path=iDef._source)
+                artifact = value
             elif name == "dependencies":
-                kw[name] = [
-                    template.find_or_create_artifact(artifactTpl, path=iDef._source)
-                    for artifactTpl in value
-                ]
+                dependencies = value
             elif name in configSpecArgs:
+                # sets operation_host, environment, timeout
                 kw[name] = value
-
     else:
         # "either because it refers to a named artifact specified in the artifacts section of a type or template,
         # or because it represents the name of a script in the CSAR file that contains the definition."
-        artifact = template.find_or_create_artifact(implementation, path=iDef._source)
+        artifact = implementation
+        operation_instance = find_operation_host(target, operation_host)
+
+    instance = operation_instance or target
+    base_dir = getattr(iDef.value, "base_dir", iDef._source)
+    if artifact:
+        artifact = instance.find_or_create_artifact(artifact, base_dir)
     kw["primary"] = artifact
+
+    if dependencies:
+        kw["dependencies"] = [
+            instance.find_or_create_artifact(artifactTpl, base_dir)
+            for artifactTpl in dependencies
+        ]
 
     if "className" not in kw:
         if not artifact:  # malformed implementation
