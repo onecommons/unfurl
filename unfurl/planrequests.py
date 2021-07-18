@@ -130,6 +130,10 @@ class PlanRequest(object):
     def __init__(self, target):
         self.target = target
 
+    @property
+    def root(self):
+        return self.target.root if self.target else None
+
     def update_future_dependencies(self, completed):
         return self.future_dependencies
 
@@ -256,8 +260,8 @@ class JobRequest(object):
         self.errors = errors
 
     @property
-    def target(self):
-        return self.instances[0] if self.instances else None
+    def root(self):
+        return self.instances[0].root if self.instances else None
 
     def __repr__(self):
         return "JobRequest(%s)" % (self.instances,)

@@ -43,9 +43,9 @@ class Lock(object):
         # could use different versions of the same artifact at different times
         # artifacts = []
         # for task in tasks:
-        #     self.lockTask(task, artifacts)
-        # if self.artifacts:
-        #     lock["artifacts"] = self.artifacts
+        #     self.lock_task(task, artifacts)
+        # if artifacts:
+        #     lock["artifacts"] = artifacts
         return lock
 
     def lock_runtime(self):
@@ -81,6 +81,7 @@ class Lock(object):
         return ensembles
 
     def lock_task(self, task, artifacts):
+        # XXX unused
         instance = task.target
         artifactName = "image"
         artifact = instance.artifacts.get(artifactName)
