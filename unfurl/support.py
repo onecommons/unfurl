@@ -35,9 +35,15 @@ import logging
 
 logger = logging.getLogger("unfurl")
 
-Status = IntEnum(
-    "Status", "unknown ok degraded error pending absent", start=0, module=__name__
-)
+
+class Status(IntEnum):
+    unknown = 0
+    ok = 1
+    degraded = 2
+    error = 3
+    pending = 4
+    absent = 5
+
 
 # see "3.4.1 Node States" p74
 NodeState = IntEnum(
@@ -706,7 +712,7 @@ class ResourceChanges(collections.OrderedDict):
         return {}
 
     def sync(self, resource, changeId=None):
-        """ Update self to only include changes that are still live"""
+        """Update self to only include changes that are still live"""
         for k, v in list(self.items()):
             current = Ref(k).resolve_one(RefContext(resource))
             if current:

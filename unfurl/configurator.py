@@ -800,7 +800,7 @@ class TaskView(object):
         return None, errors
 
     # XXX multiple task can be accessing the same workfolder
-    def set_work_folder(self, location="operation", preserve=False):
+    def set_work_folder(self, location="operation", preserve=False) -> WorkFolder:
         self._workFolder = WorkFolder(self, location, preserve)
         return self._workFolder
         # return self.job.setFolder(
