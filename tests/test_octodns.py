@@ -1,4 +1,4 @@
-from unittest.mock import patch
+from pathlib import Path
 
 from unfurl.job import Runner, JobOptions
 from unfurl.support import Status
@@ -6,21 +6,23 @@ from unfurl.yamlmanifest import YamlManifest
 
 
 class TestOctoDnsConfigurator:
-    @patch("unfurl.configurators.octodns.Manager")
-    @patch("unfurl.configurators.octodns.OctoDnsConfigurator._read_current_dns_records")
-    def test_simple(self, read_dns_records, manager):
+    def test_simple(self):
         runner = Runner(YamlManifest(ENSEMBLE_SIMPLE))
-        read_dns_records.return_value = {"test-domain.com.": {}}
 
         job = runner.run(JobOptions(instance="test_node", dryrun=True))
 
         assert job.status == Status.ok
         node = job.rootResource.find_resource("test_node")
         assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
-        assert "dns_zones" in node.attributes
+        assert node.attributes["dns_zones"]["test-domain.com."][""]["type"] == "A"
+        assert node.attributes["dns_zones"]["test-domain.com."][""]["values"] == [
+            "2.3.4.5",
+            "2.3.4.6",
+        ]
 
 
-ENSEMBLE_SIMPLE = """
+DNS_FIXTURE = Path(__file__).parent / "fixtures" / "dns"
+ENSEMBLE_SIMPLE = f"""
 apiVersion: unfurl/v1alpha1
 kind: Ensemble
 configurations:
@@ -28,38 +30,37 @@ configurations:
     implementation:
       className: unfurl.configurators.octodns.OctoDnsConfigurator
     inputs:
-      aws_key: MY_AWS_SECRET
-      main-config: |
-        ---
+      workers: 2
+      dump_providers:
+        - dump
+      main-config:
         manager:
-          max_workers: 2
-
+          max_workers: '{{{{ inputs.workers }}}}'
         providers:
           config:
             class: octodns.provider.yaml.YamlProvider
             directory: ./
-            default_ttl: 3600
-            enforce_order: True
-          route53:
-            class: octodns.provider.route53.Route53Provider
-            access_key_id: {{ inputs.aws_key }}
-            secret_access_key: MY_ACCESS_SECRET
-
+          target_config:
+            class: octodns.provider.yaml.YamlProvider
+            directory: ./target/
+          dump:
+            class: octodns.source.axfr.ZoneFileSource
+            directory: {DNS_FIXTURE}
+            file_extension: .tst
         zones:
           test-domain.com.:
             sources:
               - config
             targets:
-              - route53
+              - target_config
       zones:
-        test-domain.com.: |
-          ---
+        test-domain.com.:
           '':
             ttl: 60
             type: A
             values:
-              - 1.2.3.4
-              - 1.2.3.5
+              - 2.3.4.5
+              - 2.3.4.6
 
 spec:
   service_template:

@@ -9,18 +9,7 @@ from ruamel.yaml import YAML
 from unfurl.configurator import Configurator
 from unfurl.projectpaths import WorkFolder
 
-YAML_PROVIDER = "config"
 log = logging.getLogger(__file__)
-
-
-def yaml_to_dict(content: str) -> dict:
-    """Converts content from yaml to python dict
-
-    The content can be either yaml in form of Ansible string or ruamel.YAML data type.
-    Here we first convert it to str and then try to load it as a yaml.
-    """
-    yaml = YAML(typ="safe")
-    return yaml.load(str(content))
 
 
 @contextmanager
@@ -57,15 +46,20 @@ class OctoDnsConfigurator(Configurator):
         task.logger.debug("OctoDNS configurator - rendering config files")
         folder = task.set_work_folder()
         path = folder.real_path()
-        main_config = yaml_to_dict(task.inputs["main-config"])
-        desired_zone_records = {
-            k: yaml_to_dict(zone) for k, zone in task.inputs["zones"].items()
-        }
+        task.inputs["main-config"].resolve_all()
+        task.inputs["zones"].resolve_all()
+        main_config = task.inputs["main-config"].serialize_resolved()
+        desired_zone_records = task.inputs["zones"].serialize_resolved()
         self._create_main_config_file(folder, main_config)
-        self._dump_current_dns_records(path, main_config)
-        current_zone_records = self._read_current_dns_records(
-            path, main_config["zones"]
-        )
+        if task.inputs["dump_providers"]:
+            self._dump_current_dns_records(
+                path, main_config, task.inputs["dump_providers"]
+            )
+            current_zone_records = self._read_current_dns_records(
+                path, main_config["zones"]
+            )
+        else:
+            current_zone_records = {}
         records = self._merge_dns_records(desired_zone_records, current_zone_records)
         self._create_zone_files(folder, records)
 
@@ -75,9 +69,8 @@ class OctoDnsConfigurator(Configurator):
     def _create_main_config_file(self, folder: WorkFolder, content: dict):
         folder.write_file(content, "dns/main-config.yaml")
 
-    def _dump_current_dns_records(self, path: str, config: dict):
+    def _dump_current_dns_records(self, path: str, config: dict, providers: list):
         log.debug("OctoDNS configurator - downloading current DNS records")
-        providers = filter(lambda p: p != YAML_PROVIDER, config["providers"])
 
         with change_cwd(path):
             try:
@@ -98,7 +91,8 @@ class OctoDnsConfigurator(Configurator):
         records = {}
         for zone in zones:
             with open(f"{path}dns-dump/{zone}yaml") as f:
-                records[zone] = yaml_to_dict(f.read())
+                yaml = YAML(typ="safe")
+                records[zone] = yaml.load(f.read())
         return records
 
     def _merge_dns_records(
