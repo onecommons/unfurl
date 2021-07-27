@@ -30,6 +30,7 @@ script:
   - kubectl get node
   - k3d kubeconfig merge --all -d
   - kubectl config view
+  - tox -c tosca-parser/tox.ini
   - tox -- -s
 jobs:
   include:
