@@ -8,6 +8,8 @@ env:
     - TOX_SKIP_ENV=.+(docker|lock)
     - tf_version=1.0.0
     - helm_version=3.3.4
+    - kubectl_version=v1.21.2
+    - k3d_version=v4.4.6
     - UNFURL_LOGGING=info
 before_install:
   - wget https://releases.hashicorp.com/terraform/"$tf_version"/terraform_"$tf_version"_linux_amd64.zip
@@ -17,8 +19,8 @@ before_install:
   - wget https://get.helm.sh/helm-v"$helm_version"-linux-amd64.tar.gz
   - tar -zxvf helm-v"$helm_version"-linux-amd64.tar.gz
   - sudo mv linux-amd64/helm /usr/local/bin/helm
-  - wget https://storage.googleapis.com/kubernetes-release/release/v1.17.14/bin/linux/amd64/kubectl
-  - wget https://github.com/rancher/k3d/releases/download/v3.4.0/k3d-linux-amd64
+  - wget https://storage.googleapis.com/kubernetes-release/release/"$kubectl_version"/bin/linux/amd64/kubectl
+  - wget https://github.com/rancher/k3d/releases/download/"$k3d_version"/k3d-linux-amd64
   - chmod +x k3d-linux-amd64 kubectl
   - sudo mv k3d-linux-amd64 /usr/local/bin/k3d
   - sudo mv kubectl /usr/local/bin

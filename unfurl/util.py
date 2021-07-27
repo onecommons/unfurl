@@ -70,7 +70,7 @@ def get_package_digest():
 
     basedir = os.path.dirname(_basepath)
     if os.path.isdir(os.path.join(basedir, ".git")):
-        return Repo(basedir).git.describe("--dirty")
+        return Repo(basedir).git.describe("--dirty", '--always')
 
     try:
         pbr = [p for p in files("unfurl") if "pbr.json" in str(p)][0]
