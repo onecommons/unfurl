@@ -423,7 +423,7 @@ def filter_task_request(jobOptions, req):
 def _find_implementation(interface, operation, template):
     default = None
     for iDef in template.get_interfaces():
-        if iDef.iname == interface or iDef.type == interface:
+        if iDef.interfacename == interface or iDef.type == interface:
             if iDef.name == operation:
                 return iDef
             if iDef.name == "default":
