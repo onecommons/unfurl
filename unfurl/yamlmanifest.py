@@ -606,14 +606,13 @@ class YamlManifest(ReadOnlyManifest):
         """
         .. code-block:: YAML
 
-          jobId: 1
+          changeId: 1
           startCommit: # commit when job began
           startTime:
           workflow:
           options: # job options set by the user
           summary:
           specDigest:
-          lastChangeId: # the changeid of the job's last task
           endCommit:   # commit updating status (only appears in changelog file)
         """
         output = CommentedMap()
@@ -621,6 +620,14 @@ class YamlManifest(ReadOnlyManifest):
         output["startTime"] = job.get_start_time()
         if job.previousId:
             output["previousId"] = job.previousId
+        if job.masterJob:
+            # if this was run by another ensemble's job
+            masterJob = CommentedMap()
+            masterJob["path"] = job.masterJob.manifest.path
+            masterJob["changeId"] = job.masterJob.changeId
+            if job.masterJob.manifest.currentCommitId:
+                masterJob["startCommit"] = job.masterJob.manifest.currentCommitId
+            output["masterJob"] = masterJob
         options = job.jobOptions.get_user_settings()
         output["workflow"] = options.pop("workflow", Defaults.workflow)
         output["options"] = options

@@ -77,6 +77,7 @@ class JobOptions(object):
 
     defaults = dict(
         parentJob=None,
+        masterJob=None,
         startTime=None,
         out=None,
         verbose=0,
@@ -125,7 +126,7 @@ class JobOptions(object):
         return {
             k: self.userConfig[k]
             for k in set(self.userConfig) & set(self.defaults)
-            if k != "out" and self.userConfig[k] != self.defaults[k]
+            if k not in ["out", "masterJob"] and self.userConfig[k] != self.defaults[k]
         }
 
 
@@ -542,7 +543,7 @@ class Job(ConfigChange):
 
         # create JobRequests for each external job we need to run by grouping requests by their manifest
         external_requests = []
-        for key, reqs in itertools.groupby(plan_requests, lambda r: id(r.target.root)):
+        for key, reqs in itertools.groupby(plan_requests, lambda r: id(r.root)):
             # external manifest activating an instance via artifact reification
             # XXX or substitution mapping -- but unique inputs require dynamically creating ensembles??
             reqs = list(reqs)
@@ -641,6 +642,7 @@ class Job(ConfigChange):
                 startTime=self.jobOptions.startTime,
                 out=self.jobOptions.out,
                 verbose=self.jobOptions.verbose,
+                masterJob=self.jobOptions.masterJob or self,
             )
             externalJob = create_job(manifest, jobOptions)
             externalJobs.append(externalJob)
@@ -977,6 +979,8 @@ class Job(ConfigChange):
         def _summary(requests, target, parent):
             children = parent
             for request in requests:
+                if isinstance(request, JobRequest):
+                    continue  # XXX
                 isGroup = isinstance(request, TaskRequestGroup)
                 if isGroup and not request.children:
                     continue  # don't include in the plan
