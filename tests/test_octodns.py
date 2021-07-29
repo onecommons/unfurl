@@ -1,4 +1,5 @@
 from pathlib import Path
+from unittest.mock import patch
 
 from unfurl.job import Runner, JobOptions
 from unfurl.support import Status
@@ -6,69 +7,72 @@ from unfurl.yamlmanifest import YamlManifest
 
 
 class TestOctoDnsConfigurator:
-    def test_simple(self):
-        runner = Runner(YamlManifest(ENSEMBLE_SIMPLE))
+    def setup(self):
+        self.runner = Runner(YamlManifest(ENSEMBLE))
 
-        job = runner.run(JobOptions(instance="test_node", dryrun=True))
+    @patch("unfurl.configurators.octodns.Manager.sync")
+    @patch("unfurl.configurators.octodns.OPERATION", "configure")
+    def test_configure(self, manager_sync):
+        job = self.runner.run(JobOptions(instance="test_node", dryrun=True))
 
         assert job.status == Status.ok
         node = job.rootResource.find_resource("test_node")
         assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
-        assert node.attributes["dns_zones"]["test-domain.com."][""]["type"] == "A"
-        assert node.attributes["dns_zones"]["test-domain.com."][""]["values"] == [
+        assert node.attributes["zone"]["test-domain.com."][""]["type"] == "A"
+        assert node.attributes["zone"]["test-domain.com."][""]["values"] == [
             "2.3.4.5",
             "2.3.4.6",
         ]
+        assert manager_sync.called
+
+    @patch("unfurl.configurators.octodns.Manager.sync")
+    @patch("unfurl.configurators.octodns.OPERATION", "delete")
+    def test_delete(self, manager_sync):
+        job = self.runner.run(JobOptions(instance="test_node", dryrun=True))
+
+        assert job.status == Status.ok
+        node = job.rootResource.find_resource("test_node")
+        assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
+        assert node.attributes["zone"]["test-domain.com."] == {}
+        assert manager_sync.called
+
+    @patch("unfurl.configurators.octodns.OPERATION", "check")
+    def test_check(self):
+        job = self.runner.run(
+            JobOptions(instance="test_node", dryrun=True, operation="check")
+        )
+
+        assert job.status == Status.error
 
 
 DNS_FIXTURE = Path(__file__).parent / "fixtures" / "dns"
-ENSEMBLE_SIMPLE = f"""
+
+ENSEMBLE = f"""
 apiVersion: unfurl/v1alpha1
 kind: Ensemble
-configurations:
-  create:
-    implementation:
-      className: unfurl.configurators.octodns.OctoDnsConfigurator
-    inputs:
-      workers: 2
-      dump_providers:
-        - dump
-      main-config:
-        manager:
-          max_workers: '{{{{ inputs.workers }}}}'
-        providers:
-          config:
-            class: octodns.provider.yaml.YamlProvider
-            directory: ./
-          target_config:
-            class: octodns.provider.yaml.YamlProvider
-            directory: ./target/
-          dump:
-            class: octodns.source.axfr.ZoneFileSource
-            directory: {DNS_FIXTURE}
-            file_extension: .tst
-        zones:
-          test-domain.com.:
-            sources:
-              - config
-            targets:
-              - target_config
-      zones:
-        test-domain.com.:
-          '':
-            ttl: 60
-            type: A
-            values:
-              - 2.3.4.5
-              - 2.3.4.6
+tosca_definitions_version: tosca_simple_unfurl_1_0_0
 
 spec:
   service_template:
+    imports:
+      - repository: unfurl
+        file: configurators/octodns-template.yaml
+
     topology_template:
       node_templates:
         test_node:
-          type: tosca.nodes.Root
-          interfaces:
-            Standard:
-              +/configurations:
+          type: unfurl.nodes.DNSZone
+          properties:
+            name: test-domain.com.
+            provider:
+              class: octodns.source.axfr.ZoneFileSource
+              directory: {DNS_FIXTURE}
+              file_extension: .tst
+            records:
+              '':
+                ttl: 60
+                type: A
+                values:
+                  - 2.3.4.5
+                  - 2.3.4.6
 """
