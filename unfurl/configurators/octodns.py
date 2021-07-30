@@ -2,6 +2,7 @@ import logging
 import os
 from collections import MutableMapping
 from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 
 from octodns.manager import Manager
@@ -42,6 +43,20 @@ def dict_merge(d1, d2):
     return d3
 
 
+@dataclass
+class DnsProperties:
+    """unfurl.nodes.DNSZone properties"""
+
+    name: str
+    """DNS name of the zone"""
+    exclusive: bool
+    """Remove records from the zone not specified in `records`"""
+    provider: dict
+    """OctoDNS provider configuration"""
+    records: dict
+    """DNS records to add to the zone"""
+
+
 class OctoDnsConfigurator(Configurator):
     """Configurator for managing DNS records with OctoDNS"""
 
@@ -53,16 +68,16 @@ class OctoDnsConfigurator(Configurator):
         task.logger.debug("OctoDNS configurator - rendering config files")
         folder = task.set_work_folder()
         path = folder.real_path()
-        desired_zone_records, provider, zone = self.extract_properties_from(task)
-        self._create_main_config_file(folder, zone, provider)
+        properties = self.extract_properties_from(task)
+        self._create_main_config_file(folder, properties)
         records = None
         op = OPERATION or task.configSpec.operation
         if op == "configure":
-            records = self.render_configure(path, desired_zone_records, zone)
+            records = self.render_configure(path, properties)
         elif op == "delete":
-            records = {zone: {}}
+            records = {properties.name: {}}
         elif op == "check":
-            self._dump_current_dns_records(path, zone)
+            self._dump_current_dns_records(path, properties.name)
         else:
             raise NotImplementedError(f"Operation '{op}' is not allowed")
 
@@ -71,32 +86,35 @@ class OctoDnsConfigurator(Configurator):
             task.target.attributes["zone"] = records
         return records
 
-    def extract_properties_from(self, task):
-        zone = task.vars["SELF"]["name"]
+    def extract_properties_from(self, task) -> DnsProperties:
+        name = task.vars["SELF"]["name"]
+        exclusive = task.vars["SELF"]["exclusive"]
         provider = task.vars["SELF"]["provider"]
         provider.resolve_all()
         provider = provider.serialize_resolved()
         desired_zone_records = task.vars["SELF"]["records"]
         desired_zone_records.resolve_all()
-        desired_zone_records = {zone: desired_zone_records.serialize_resolved()}
-        return desired_zone_records, provider, zone
+        desired_zone_records = {name: desired_zone_records.serialize_resolved()}
+        return DnsProperties(name, exclusive, provider, desired_zone_records)
 
-    def render_configure(self, path, desired_zone_records, zone):
-        self._dump_current_dns_records(path, zone)
-        current_zone_records = self._read_current_dns_records(path, zone)
-        return self._merge_dns_records(desired_zone_records, current_zone_records)
+    def render_configure(self, path: str, properties: DnsProperties):
+        if properties.exclusive:
+            return properties.records
+        self._dump_current_dns_records(path, properties.name)
+        current_zone_records = self._read_current_dns_records(path, properties.name)
+        return self._merge_dns_records(properties.records, current_zone_records)
 
-    def _create_main_config_file(self, folder: WorkFolder, zone: str, provider: dict):
+    def _create_main_config_file(self, folder: WorkFolder, properties: DnsProperties):
         content = {
             "providers": {
                 "source_config": {
                     "class": "octodns.provider.yaml.YamlProvider",
                     "directory": "./",
                 },
-                "target_config": provider,
+                "target_config": properties.provider,
             },
             "zones": {
-                zone: {
+                properties.name: {
                     "sources": ["source_config"],
                     "targets": ["target_config"],
                 }
@@ -104,14 +122,14 @@ class OctoDnsConfigurator(Configurator):
         }
         folder.write_file(content, "dns/main-config.yaml")
 
-    def _dump_current_dns_records(self, path: str, zone: str):
+    def _dump_current_dns_records(self, path: str, zone_name: str):
         log.debug("OctoDNS configurator - downloading current DNS records")
 
         with change_cwd(path):
             try:
                 manager = Manager(config_file="dns/main-config.yaml")
                 manager.dump(
-                    zone,
+                    zone_name,
                     output_dir=f"{path}dns-dump/",
                     lenient=False,
                     split=False,
@@ -185,10 +203,12 @@ class OctoDnsConfigurator(Configurator):
         compore with expected
         """
         work_folder = task.set_work_folder()
-        desired_zone_records, provider, zone = self.extract_properties_from(task)
-        current_records = self._read_current_dns_records(work_folder.cwd, zone)
+        properties = self.extract_properties_from(task)
+        current_records = self._read_current_dns_records(
+            work_folder.cwd, properties.name
+        )
 
-        if current_records == desired_zone_records:
+        if current_records == properties.records:
             return task.done(success=True, result={"msg": "DNS records in sync"})
         else:
             return task.done(success=False, result={"msg": "DNS records out of sync"})

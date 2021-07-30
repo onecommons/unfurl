@@ -44,6 +44,18 @@ class TestOctoDnsConfigurator:
 
         assert job.status == Status.error
 
+    @patch("unfurl.configurators.octodns.Manager.sync")
+    @patch("unfurl.configurators.octodns.OPERATION", "configure")
+    def test_exclusive(self, manager_sync):
+        runner = Runner(YamlManifest(ENSEMBLE_EXCLUSIVE))
+
+        job = runner.run(JobOptions(instance="test_node", dryrun=True))
+
+        assert job.status == Status.ok
+        node = job.rootResource.find_resource("test_node")
+        # records are not merged, only ones defined in yaml are used
+        assert len(node.attributes["zone"]["test-domain.com."]) == 1
+
 
 DNS_FIXTURE = Path(__file__).parent / "fixtures" / "dns"
 
@@ -71,6 +83,36 @@ spec:
             records:
               '':
                 ttl: 60
+                type: A
+                values:
+                  - 2.3.4.5
+                  - 2.3.4.6
+"""
+
+ENSEMBLE_EXCLUSIVE = f"""
+apiVersion: unfurl/v1alpha1
+kind: Ensemble
+tosca_definitions_version: tosca_simple_unfurl_1_0_0
+
+spec:
+  service_template:
+    imports:
+      - repository: unfurl
+        file: configurators/octodns-template.yaml
+
+    topology_template:
+      node_templates:
+        test_node:
+          type: unfurl.nodes.DNSZone
+          properties:
+            name: test-domain.com.
+            exclusive: true
+            provider:
+              class: octodns.source.axfr.ZoneFileSource
+              directory: {DNS_FIXTURE}
+              file_extension: .tst
+            records:
+              '':
                 type: A
                 values:
                   - 2.3.4.5
