@@ -70,13 +70,13 @@ class OctoDnsConfigurator(Configurator):
         path = folder.real_path()
         properties = self.extract_properties_from(task)
         self._create_main_config_file(folder, properties)
-        records = None
         op = OPERATION or task.configSpec.operation
         if op == "configure":
             records = self.render_configure(path, properties)
         elif op == "delete":
             records = {properties.name: {}}
         elif op == "check":
+            records = None
             self._dump_current_dns_records(path, properties.name)
         else:
             raise NotImplementedError(f"Operation '{op}' is not allowed")
