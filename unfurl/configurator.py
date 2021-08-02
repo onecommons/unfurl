@@ -219,7 +219,7 @@ class Configurator(object):
         )
         task.logger.debug("checking digest for %s: %s", task.target.name, _parameters)
         if not _parameters:
-            return not not newKeys
+            return bool(newKeys)
         keys = _parameters.split(",")
         oldInputs = set(key for key in keys if "::" not in key)
         if oldInputs - newKeys:

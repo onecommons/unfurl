@@ -11,13 +11,12 @@ class TestOctoDnsConfigurator:
         self.runner = Runner(YamlManifest(ENSEMBLE))
 
     @patch("unfurl.configurators.octodns.Manager.sync")
-    @patch("unfurl.configurators.octodns.OPERATION", "configure")
     def test_configure(self, manager_sync):
-        job = self.runner.run(JobOptions(instance="test_node", dryrun=True))
+        job = self.runner.run(JobOptions(workflow="deploy", instance="test_node"))
 
         assert job.status == Status.ok
-        node = job.rootResource.find_resource("test_node")
         assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
+        node = job.rootResource.find_resource("test_node")
         assert node.attributes["zone"]["test-domain.com."][""]["type"] == "A"
         assert node.attributes["zone"]["test-domain.com."][""]["values"] == [
             "2.3.4.5",
@@ -26,35 +25,34 @@ class TestOctoDnsConfigurator:
         assert manager_sync.called
 
     @patch("unfurl.configurators.octodns.Manager.sync")
-    @patch("unfurl.configurators.octodns.OPERATION", "delete")
     def test_delete(self, manager_sync):
-        job = self.runner.run(JobOptions(instance="test_node", dryrun=True))
+        self.runner.run(JobOptions(workflow="deploy", instance="test_node"))
+        job = self.runner.run(JobOptions(workflow="undeploy", instance="test_node"))
 
         assert job.status == Status.ok
-        node = job.rootResource.find_resource("test_node")
         assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
+        node = job.rootResource.find_resource("test_node")
         assert node.attributes["zone"]["test-domain.com."] == {}
         assert manager_sync.called
 
-    @patch("unfurl.configurators.octodns.OPERATION", "check")
     def test_check(self):
-        job = self.runner.run(
-            JobOptions(instance="test_node", dryrun=True, operation="check")
-        )
+        job = self.runner.run(JobOptions(instance="test_node", workflow="check"))
 
         assert job.status == Status.error
+        result = list(job.workDone.values())[0].result.result
+        assert result == {"msg": "DNS records out of sync"}
 
     @patch("unfurl.configurators.octodns.Manager.sync")
-    @patch("unfurl.configurators.octodns.OPERATION", "configure")
     def test_exclusive(self, manager_sync):
         runner = Runner(YamlManifest(ENSEMBLE_EXCLUSIVE))
 
-        job = runner.run(JobOptions(instance="test_node", dryrun=True))
+        job = runner.run(JobOptions(instance="test_node", workflow="deploy"))
 
         assert job.status == Status.ok
         node = job.rootResource.find_resource("test_node")
         # records are not merged, only ones defined in yaml are used
         assert len(node.attributes["zone"]["test-domain.com."]) == 1
+        assert manager_sync.called
 
 
 DNS_FIXTURE = Path(__file__).parent / "fixtures" / "dns"

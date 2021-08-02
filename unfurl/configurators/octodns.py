@@ -14,8 +14,6 @@ from unfurl.projectpaths import WorkFolder
 
 log = logging.getLogger(__file__)
 
-OPERATION = None  # hack for unit tests
-
 
 @contextmanager
 def change_cwd(new_path: str):
@@ -70,7 +68,7 @@ class OctoDnsConfigurator(Configurator):
         path = folder.real_path()
         properties = self._extract_properties_from(task)
         self._create_main_config_file(folder, properties)
-        op = OPERATION or task.configSpec.operation
+        op = task.configSpec.operation
         if op == "configure":
             records = self._render_configure(path, properties)
         elif op == "delete":
@@ -162,7 +160,7 @@ class OctoDnsConfigurator(Configurator):
 
     def run(self, task: ConfigTask):
         """Apply DNS configuration"""
-        op = OPERATION or task.configSpec.operation
+        op = task.configSpec.operation
         task.logger.debug(f"OctoDNS configurator - run - {op}")
         if op == "configure":
             yield self._run_octodns_sync(task)  # create or update zone
