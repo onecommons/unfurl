@@ -68,11 +68,11 @@ class OctoDnsConfigurator(Configurator):
         task.logger.debug("OctoDNS configurator - rendering config files")
         folder = task.set_work_folder()
         path = folder.real_path()
-        properties = self.extract_properties_from(task)
+        properties = self._extract_properties_from(task)
         self._create_main_config_file(folder, properties)
         op = OPERATION or task.configSpec.operation
         if op == "configure":
-            records = self.render_configure(path, properties)
+            records = self._render_configure(path, properties)
         elif op == "delete":
             records = {properties.name: {}}
         elif op == "check":
@@ -82,11 +82,12 @@ class OctoDnsConfigurator(Configurator):
             raise NotImplementedError(f"Operation '{op}' is not allowed")
 
         if records:
-            self._create_zone_files(folder, records)
+            self._create_yaml_zone_files(folder, records)
             task.target.attributes["zone"] = records
         return records
 
-    def extract_properties_from(self, task) -> DnsProperties:
+    @staticmethod
+    def _extract_properties_from(task) -> DnsProperties:
         name = task.vars["SELF"]["name"]
         exclusive = task.vars["SELF"]["exclusive"]
         provider = task.vars["SELF"]["provider"]
@@ -97,14 +98,15 @@ class OctoDnsConfigurator(Configurator):
         desired_zone_records = {name: desired_zone_records.serialize_resolved()}
         return DnsProperties(name, exclusive, provider, desired_zone_records)
 
-    def render_configure(self, path: str, properties: DnsProperties):
+    def _render_configure(self, path: str, properties: DnsProperties):
         if properties.exclusive:
             return properties.records
         self._dump_current_dns_records(path, properties.name)
         current_zone_records = self._read_current_dns_records(path, properties.name)
         return self._merge_dns_records(properties.records, current_zone_records)
 
-    def _create_main_config_file(self, folder: WorkFolder, properties: DnsProperties):
+    @staticmethod
+    def _create_main_config_file(folder: WorkFolder, properties: DnsProperties):
         content = {
             "providers": {
                 "source_config": {
@@ -122,7 +124,8 @@ class OctoDnsConfigurator(Configurator):
         }
         folder.write_file(content, "dns/main-config.yaml")
 
-    def _dump_current_dns_records(self, path: str, zone_name: str):
+    @staticmethod
+    def _dump_current_dns_records(path: str, zone_name: str):
         log.debug("OctoDNS configurator - downloading current DNS records")
 
         with change_cwd(path):
@@ -138,7 +141,8 @@ class OctoDnsConfigurator(Configurator):
             except Exception as e:
                 log.error("OctoDNS error: %s", e)
 
-    def _read_current_dns_records(self, path: str, zone: str) -> dict:
+    @staticmethod
+    def _read_current_dns_records(path: str, zone: str) -> dict:
         records = {}
         path = Path(path) / "dns-dump" / f"{zone}yaml"
         if path.exists():
@@ -147,12 +151,12 @@ class OctoDnsConfigurator(Configurator):
                 records[zone] = yaml.load(f.read())
         return records
 
-    def _merge_dns_records(
-        self, new_zone_records: dict, old_zone_records: dict
-    ) -> dict:
+    @staticmethod
+    def _merge_dns_records(new_zone_records: dict, old_zone_records: dict) -> dict:
         return dict_merge(old_zone_records, new_zone_records)
 
-    def _create_zone_files(self, folder: WorkFolder, records: dict):
+    @staticmethod
+    def _create_yaml_zone_files(folder: WorkFolder, records: dict):
         for zone, content in records.items():
             folder.write_file(content, f"dns/{zone}yaml")
 
@@ -161,32 +165,16 @@ class OctoDnsConfigurator(Configurator):
         op = OPERATION or task.configSpec.operation
         task.logger.debug(f"OctoDNS configurator - run - {op}")
         if op == "configure":
-            yield self.run_configure(task)
+            yield self._run_octodns_sync(task)  # create or update zone
         elif op == "delete":
-            yield self.run_delete(task)
+            yield self._run_octodns_sync(task)  # remove zone records
         elif op == "check":
-            yield self.run_check(task)
+            yield self._run_check(task)
         else:
             raise NotImplementedError(f"Operation '{op}' is not allowed")
 
-    def run_configure(self, task: ConfigTask):
-        """Create or update zone"""
-        work_folder = task.set_work_folder()
-        with change_cwd(f"{work_folder.cwd}/dns"):
-            try:
-                manager = Manager(config_file="main-config.yaml")
-                manager.sync(dry_run=task.dry_run)
-                return task.done(success=True, result={"msg": "OctoDNS synced"})
-            except Exception as e:
-                log.error("OctoDNS error: %s", e)
-                return task.done(success=False, result={"msg": f"OctoDNS error: {e}"})
-
     @staticmethod
-    def run_delete(task: ConfigTask):
-        """Remove zone records.
-
-        Creates an empty configuration and apply it
-        """
+    def _run_octodns_sync(task: ConfigTask):
         work_folder = task.set_work_folder()
         with change_cwd(f"{work_folder.cwd}/dns"):
             try:
@@ -197,13 +185,10 @@ class OctoDnsConfigurator(Configurator):
                 log.error("OctoDNS error: %s", e)
                 return task.done(success=False, result={"msg": f"OctoDNS error: {e}"})
 
-    def run_check(self, task: ConfigTask):
-        """Retrieves current zone data, compares with expected, updates status
-        dump current configuration
-        compore with expected
-        """
+    def _run_check(self, task: ConfigTask):
+        """Retrieves current zone data and compares with expected"""
         work_folder = task.set_work_folder()
-        properties = self.extract_properties_from(task)
+        properties = self._extract_properties_from(task)
         current_records = self._read_current_dns_records(
             work_folder.cwd, properties.name
         )
