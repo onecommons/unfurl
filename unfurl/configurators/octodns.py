@@ -9,6 +9,7 @@ from octodns.manager import Manager
 from ruamel.yaml import YAML
 
 from unfurl.configurator import Configurator
+from unfurl.eval import map_value
 from unfurl.job import ConfigTask
 from unfurl.projectpaths import WorkFolder
 
@@ -86,15 +87,11 @@ class OctoDnsConfigurator(Configurator):
 
     @staticmethod
     def _extract_properties_from(task) -> DnsProperties:
-        name = task.vars["SELF"]["name"]
-        exclusive = task.vars["SELF"]["exclusive"]
-        provider = task.vars["SELF"]["provider"]
-        provider.resolve_all()
-        provider = provider.serialize_resolved()
-        desired_zone_records = task.vars["SELF"]["records"]
-        desired_zone_records.resolve_all()
-        desired_zone_records = {name: desired_zone_records.serialize_resolved()}
-        return DnsProperties(name, exclusive, provider, desired_zone_records)
+        name = map_value(task.vars["SELF"]["name"], task.inputs.context)
+        exclusive = map_value(task.vars["SELF"]["exclusive"], task.inputs.context)
+        provider = map_value(task.vars["SELF"]["provider"], task.inputs.context)
+        records = {name: map_value(task.vars["SELF"]["records"], task.inputs.context)}
+        return DnsProperties(name, exclusive, provider, records)
 
     def _render_configure(self, path: str, properties: DnsProperties):
         if properties.exclusive:
