@@ -184,7 +184,6 @@ class Configurator(object):
         keys += [dep.expr for dep in task.dependencies]
 
         values += [dep.expected for dep in task.dependencies]
-
         if keys:
             inputdigest = get_digest(values, manifest=task._manifest)
         else:
@@ -851,7 +850,7 @@ class Dependency(Operational):
         if self.target:
             return self.target.status
         else:
-            return Status.unknown
+            return Status.ok
 
     @property
     def priority(self):

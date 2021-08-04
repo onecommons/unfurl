@@ -41,7 +41,7 @@ def _get_digest(value, kw):
                     yield d
         else:
             out = six.BytesIO()
-            dump(value, out)
+            dump(serialize_value(value, redact=True), out)
             yield out.getvalue()
 
 
