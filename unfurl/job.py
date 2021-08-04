@@ -161,6 +161,7 @@ class ConfigTask(ConfigChange, TaskView):
         # set the attribute manager on the root resource
         self._attributeManager = AttributeManager(self._manifest.yaml)
         self.target.root.attributeManager = self._attributeManager
+        self._resolved_inputs = {}
 
     @property
     def status(self):
@@ -320,6 +321,10 @@ class ConfigTask(ConfigChange, TaskView):
         """
         changes, dependencies = self._attributeManager.commit_changes()
         self.changeList.append(changes)
+
+        self._resolved_inputs.update(self.inputs.get_resolved())
+        self._inputs = None  # need to recreate this because _attributeManager was reset
+
         # record the live attributes that we are dependent on
         for key, (target, attributes) in dependencies.items():
             for name, (live, value) in attributes.items():

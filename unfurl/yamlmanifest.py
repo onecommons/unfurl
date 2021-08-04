@@ -151,8 +151,8 @@ def save_task(task):
         output["target"] = task.target.key
     save_status(task, output)
     output["implementation"] = save_config_spec(task.configSpec)
-    if task._inputs:  # only serialize resolved inputs
-        output["inputs"] = task.inputs.serialize_resolved()
+    if task._resolved_inputs:  # only serialize resolved inputs
+        output["inputs"] = serialize_value(task._resolved_inputs)
     changes = save_resource_changes(task._resourceChanges)
     if changes:
         output["changes"] = changes

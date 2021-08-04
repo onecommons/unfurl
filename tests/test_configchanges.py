@@ -55,8 +55,8 @@ version1 = """
 class SpecChangeConfigurator(Configurator):
     def run(self, task):
         assert self.can_run(task)
-        # prop = task.vars["SELF"]["testProperty"]
-        prop = task.target.attributes["testProperty"]
+        # access the property through task.vars to test that accesses are also tracked that way
+        prop = task.vars["SELF"]["testProperty"]
         yield task.done(True, result=prop)
 
 
@@ -160,7 +160,7 @@ class ConfigChangeTest(unittest.TestCase):
             )
 
             result = runner.invoke(cli, args, env=envVars)
-            # print("result.output", result.exit_code, result.output)
+            # print("result.output1", result.exit_code, result.output)
             assert not result.exception, "\n".join(
                 traceback.format_exception(*result.exc_info)
             )
@@ -198,7 +198,7 @@ class ConfigChangeTest(unittest.TestCase):
                 traceback.format_exception(*result.exc_info)
             )
             self.assertEqual(result.exit_code, 0, result)
-            # print("result.output", result.exit_code, result.output)
+            # print("result.output2", result.exit_code, result.output)
 
             assert _latestJobs
             job = _latestJobs[-1]
