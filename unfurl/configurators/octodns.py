@@ -1,8 +1,8 @@
-import logging
 import os
 from collections import MutableMapping
 from contextlib import contextmanager
 from dataclasses import dataclass
+from logging import Logger
 from pathlib import Path
 
 from octodns.manager import Manager
@@ -12,12 +12,11 @@ from unfurl.configurator import Configurator
 from unfurl.eval import map_value
 from unfurl.job import ConfigTask
 from unfurl.projectpaths import WorkFolder
-
-log = logging.getLogger(__file__)
+from unfurl.support import Status
 
 
 @contextmanager
-def change_cwd(new_path: str):
+def change_cwd(new_path: str, log: Logger):
     """Temporally change current working directory"""
     log.debug("Changing CWD to: %s", new_path)
     old_path = os.getcwd()
@@ -71,12 +70,12 @@ class OctoDnsConfigurator(Configurator):
         self._create_main_config_file(folder, properties)
         op = task.configSpec.operation
         if op == "configure":
-            records = self._render_configure(path, properties)
+            records = self._render_configure(path, properties, task.logger)
         elif op == "delete":
             records = {properties.name: {}}
         elif op == "check":
-            records = None
-            self._dump_current_dns_records(path, properties.name)
+            records = {}
+            self._dump_current_dns_records(path, properties.name, task.logger)
         else:
             raise NotImplementedError(f"Operation '{op}' is not allowed")
 
@@ -93,10 +92,10 @@ class OctoDnsConfigurator(Configurator):
         records = {name: map_value(task.vars["SELF"]["records"], task.inputs.context)}
         return DnsProperties(name, exclusive, provider, records)
 
-    def _render_configure(self, path: str, properties: DnsProperties):
+    def _render_configure(self, path: str, properties: DnsProperties, log: Logger):
         if properties.exclusive:
             return properties.records
-        self._dump_current_dns_records(path, properties.name)
+        self._dump_current_dns_records(path, properties.name, log)
         current_zone_records = self._read_current_dns_records(path, properties.name)
         return self._merge_dns_records(properties.records, current_zone_records)
 
@@ -120,10 +119,10 @@ class OctoDnsConfigurator(Configurator):
         folder.write_file(content, "dns/main-config.yaml")
 
     @staticmethod
-    def _dump_current_dns_records(path: str, zone_name: str):
+    def _dump_current_dns_records(path: str, zone_name: str, log: Logger):
         log.debug("OctoDNS configurator - downloading current DNS records")
 
-        with change_cwd(path):
+        with change_cwd(path, log):
             try:
                 manager = Manager(config_file="dns/main-config.yaml")
                 manager.dump(
@@ -171,13 +170,13 @@ class OctoDnsConfigurator(Configurator):
     @staticmethod
     def _run_octodns_sync(task: ConfigTask):
         work_folder = task.set_work_folder()
-        with change_cwd(f"{work_folder.cwd}/dns"):
+        with change_cwd(f"{work_folder.cwd}/dns", task.logger):
             try:
                 manager = Manager(config_file="main-config.yaml")
                 manager.sync(dry_run=task.dry_run)
                 return task.done(success=True, result={"msg": "OctoDNS synced"})
             except Exception as e:
-                log.error("OctoDNS error: %s", e)
+                task.logger.error("OctoDNS error: %s", e)
                 return task.done(success=False, result={"msg": f"OctoDNS error: {e}"})
 
     def _run_check(self, task: ConfigTask):
@@ -191,4 +190,8 @@ class OctoDnsConfigurator(Configurator):
         if current_records == properties.records:
             return task.done(success=True, result={"msg": "DNS records in sync"})
         else:
-            return task.done(success=False, result={"msg": "DNS records out of sync"})
+            return task.done(
+                success=True,
+                status=Status.error,
+                result={"msg": "DNS records out of sync"},
+            )

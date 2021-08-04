@@ -1,18 +1,20 @@
 from pathlib import Path
 from unittest.mock import patch
 
-from unfurl.job import Runner, JobOptions
+from moto import mock_route53
+
+from unfurl.job import JobOptions, Runner
 from unfurl.support import Status
 from unfurl.yamlmanifest import YamlManifest
 
 
 class TestOctoDnsConfigurator:
     def setup(self):
-        self.runner = Runner(YamlManifest(ENSEMBLE))
+        self.runner = Runner(YamlManifest(ENSEMBLE_ROUTE53))
 
-    @patch("unfurl.configurators.octodns.Manager.sync")
-    def test_configure(self, manager_sync):
-        job = self.runner.run(JobOptions(workflow="deploy", instance="test_node"))
+    @mock_route53
+    def test_configure(self):
+        job = self.runner.run(JobOptions(workflow="deploy"))
 
         assert job.status == Status.ok
         assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
@@ -22,31 +24,34 @@ class TestOctoDnsConfigurator:
             "2.3.4.5",
             "2.3.4.6",
         ]
-        assert manager_sync.called
 
-    @patch("unfurl.configurators.octodns.Manager.sync")
-    def test_delete(self, manager_sync):
-        self.runner.run(JobOptions(workflow="deploy", instance="test_node"))
-        job = self.runner.run(JobOptions(workflow="undeploy", instance="test_node"))
+    @mock_route53
+    def test_delete(self):
+        self.runner.run(JobOptions(workflow="deploy"))
+        job = self.runner.run(JobOptions(workflow="undeploy"))
 
         assert job.status == Status.ok
         assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
         node = job.rootResource.find_resource("test_node")
         assert node.attributes["zone"]["test-domain.com."] == {}
-        assert manager_sync.called
 
+    @mock_route53
     def test_check(self):
-        job = self.runner.run(JobOptions(instance="test_node", workflow="check"))
+        runner = Runner(YamlManifest(ENSEMBLE_ROUTE53))
+        runner.run(JobOptions(workflow="deploy"))
+        job = runner.run(JobOptions(workflow="check"))
 
-        assert job.status == Status.error
-        result = list(job.workDone.values())[0].result.result
-        assert result == {"msg": "DNS records out of sync"}
+        assert job.status == Status.ok
+        task = list(job.workDone.values())[0]
+        # this means that dns records were correctly set during deploy:
+        assert task.target_status == Status.ok
+        assert task.result.result == {"msg": "DNS records in sync"}
 
     @patch("unfurl.configurators.octodns.Manager.sync")
     def test_exclusive(self, manager_sync):
         runner = Runner(YamlManifest(ENSEMBLE_EXCLUSIVE))
 
-        job = runner.run(JobOptions(instance="test_node", workflow="deploy"))
+        job = runner.run(JobOptions(workflow="deploy"))
 
         assert job.status == Status.ok
         node = job.rootResource.find_resource("test_node")
@@ -57,10 +62,9 @@ class TestOctoDnsConfigurator:
 
 DNS_FIXTURE = Path(__file__).parent / "fixtures" / "dns"
 
-ENSEMBLE = f"""
+ENSEMBLE_ZONE_FILE = f"""
 apiVersion: unfurl/v1alpha1
 kind: Ensemble
-tosca_definitions_version: tosca_simple_unfurl_1_0_0
 
 spec:
   service_template:
@@ -87,10 +91,38 @@ spec:
                   - 2.3.4.6
 """
 
+ENSEMBLE_ROUTE53 = f"""
+apiVersion: unfurl/v1alpha1
+kind: Ensemble
+
+spec:
+  service_template:
+    imports:
+      - repository: unfurl
+        file: configurators/octodns-template.yaml
+
+    topology_template:
+      node_templates:
+        test_node:
+          type: unfurl.nodes.DNSZone
+          properties:
+            name: test-domain.com.
+            provider:
+              class: octodns.provider.route53.Route53Provider
+              access_key_id: my_AWS_ACCESS_KEY_ID
+              secret_access_key: my_AWS_SECRET_ACCESS_KEY
+            records:
+              '':
+                ttl: 60
+                type: A
+                values:
+                  - 2.3.4.5
+                  - 2.3.4.6
+"""
+
 ENSEMBLE_EXCLUSIVE = f"""
 apiVersion: unfurl/v1alpha1
 kind: Ensemble
-tosca_definitions_version: tosca_simple_unfurl_1_0_0
 
 spec:
   service_template:
