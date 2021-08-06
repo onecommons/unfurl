@@ -39,6 +39,7 @@ class Project(object):
         self._set_repos()
         if self.projectRepo and homeProject:
             homeProject.localConfig.register_project(self)
+        self.parentProject = homeProject
 
     def _set_repos(self):
         # abspath => RepoView:
@@ -421,7 +422,7 @@ class LocalEnv(object):
             self.homeConfigPath = parent.homeConfigPath
         else:
             self._projects = {}
-            if project:
+            if project:  # this arg is used in init.py when creating a project
                 self._projects[project.localConfig.config.path] = project
             self._manifests = {}
             self.homeConfigPath = get_home_config_path(homePath)
@@ -438,7 +439,6 @@ class LocalEnv(object):
                         'Could not load home project at: "%s"', self.homeConfigPath
                     )
 
-        self.manifestPath = None
         if manifestPath:
             # if manifestPath does not exist check project config
             manifestPath = os.path.abspath(manifestPath)
@@ -459,11 +459,11 @@ class LocalEnv(object):
 
         if isinstance(pathORproject, Project):
             self.project = pathORproject
-            if not self.manifestPath:
-                self.manifestPath = pathORproject.find_default_instance_manifest()
+            # raises error if path not found:
+            self.manifestPath = pathORproject.find_default_instance_manifest()
         else:
             self.manifestPath = pathORproject
-            if project:
+            if project:  # this arg is used in init.py when creating a project
                 self.project = project
             else:
                 self.project = self.find_project(os.path.dirname(pathORproject))
@@ -522,17 +522,24 @@ class LocalEnv(object):
     def get_external_manifest(self, location):
         assert "project" in location
         project = None
+        repo = None
+        projectName = location["project"]
         if self.project:
-            project = self.project.localConfig.projects.get(location["project"])
+            project = self.project.localConfig.projects.get(projectName)
         if not project and self.homeProject:
-            project = self.homeProject.localConfig.projects.get(location["project"])
-        if not project:
-            return None
-        repo = self.find_git_repo(project["url"])
+            project = self.homeProject.localConfig.projects.get(projectName)
+            # allow "home" to refer to the home project
+            if not project and projectName == "home":
+                repo = self.homeProject.repo
+                file = ""
+        if project:
+            repo = self.find_git_repo(project["url"])
+            file = project.get("file") or ""
+
         if not repo:
             return None
 
-        projectRoot = os.path.join(repo.working_dir, project.get("file") or "")
+        projectRoot = os.path.join(repo.working_dir, file)
         localEnv = LocalEnv(
             os.path.join(projectRoot, location.get("file") or ""), parent=self
         )
@@ -588,6 +595,7 @@ class LocalEnv(object):
     def search_for_manifest_or_project(self, dir):
         current = os.path.abspath(dir)
         while current and current != os.sep:
+            # XXX wrong priority? should be LocalConfig, Ensemble, ProjectDirectory ?
             test = os.path.join(current, DefaultNames.Ensemble)
             if os.path.exists(test):
                 return test
@@ -625,10 +633,11 @@ class LocalEnv(object):
         runtime = context.get("runtime")
         if runtime:
             return runtime
-        if self.project and self.project.venv:
-            return "venv:" + self.project.venv
-        if self.homeProject and self.homeProject.venv:
-            return "venv:" + self.homeProject.venv
+        project = self.project or self.homeProject
+        while project:
+            if project.venv:
+                return "venv:" + self.project.venv
+            project = project.parentProject
         return None
 
     def get_local_instance(self, name, context):
@@ -642,26 +651,24 @@ class LocalEnv(object):
         )
 
     def find_git_repo(self, repoURL, revision=None):
-        repo = None
-        if self.project:
-            repo = self.project.find_git_repo(repoURL, revision)
-        if not repo:
-            if self.homeProject:
-                return self.homeProject.find_git_repo(repoURL, revision)
-        return repo
+        project = self.project or self.homeProject
+        while project:
+            repo = project.find_git_repo(repoURL, revision)
+            if repo:
+                return repo
+            project = project.parentProject
+        return None
 
     def find_or_create_working_dir(self, repoURL, revision=None, basepath=None):
         repo = self.find_git_repo(repoURL, revision)
         # git-local repos must already exist
         if not repo and not repoURL.startswith("git-local://"):
-            if self.project and (
-                basepath is None or self.project.is_path_in_project(basepath)
-            ):
-                project = self.project
-            else:
-                project = self.homeProject
-            if project:
-                repo = project.create_working_dir(repoURL, revision)
+            project = self.project or self.homeProject
+            while project:
+                if basepath is None or self.project.is_path_in_project(basepath):
+                    repo = project.create_working_dir(repoURL, revision)
+                    break
+                project = project.parentProject
         if not repo:
             return None, None, None
 
@@ -684,8 +691,9 @@ class LocalEnv(object):
 
         candidate = None
         repo = None
-        if self.project:
-            repo, filePath, revision, bare = self.project.find_path_in_repos(
+        project = self.project or self.homeProject
+        while project:
+            repo, filePath, revision, bare = project.find_path_in_repos(
                 path, importLoader
             )
             if repo:
@@ -693,11 +701,8 @@ class LocalEnv(object):
                     return repo, filePath, revision, bare
                 else:
                     candidate = (repo, filePath, revision, bare)
-
-        if self.homeProject:
-            repo, filePath, revision, bare = self.homeProject.find_path_in_repos(
-                path, importLoader
-            )
+                    break
+            project = project.parentProject
         if repo:
             if bare and candidate:
                 return candidate
@@ -735,8 +740,8 @@ class LocalEnv(object):
                     asdfDataDir = homeAsdf
         if asdfDataDir:  # asdf is installed
             # current project has higher priority over home project
-            if self.project:
-                paths = self.project.get_asdf_paths(asdfDataDir, self.toolVersions)
-            if self.homeProject:
-                paths += self.homeProject.get_asdf_paths(asdfDataDir, self.toolVersions)
+            project = self.project or self.homeProject
+            while project:
+                paths += project.get_asdf_paths(asdfDataDir, self.toolVersions)
+                project = project.parentProject
         return paths
