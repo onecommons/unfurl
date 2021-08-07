@@ -520,7 +520,7 @@ spec:
                 traceback.format_exception(*result.exc_info)
             )
 
-            with open("ensemble.yaml", "w") as f:
+            with open("ensemble/ensemble.yaml", "w") as f:
                 f.write(repoManifestContent)
             ensemble = LocalEnv().get_manifest()
             # Updated origin/master to a319ac1914862b8ded469d3b53f9e72c65ba4b7f
@@ -557,7 +557,7 @@ spec:
 
 repoManifestContent = """\
   apiVersion: unfurl/v1alpha1
-  kind: Manifest
+  kind: Ensemble
   spec:
     instances:
       my_server:

@@ -30,16 +30,20 @@ class Project(object):
 
     def __init__(self, path, homeProject=None):
         assert isinstance(path, six.string_types), path
-        parentConfig = homeProject and homeProject.localConfig or None
         self.projectRoot = os.path.abspath(os.path.dirname(path))
         if os.path.exists(path):
-            self.localConfig = LocalConfig(path, parentConfig)
+            self.localConfig = LocalConfig(path)
         else:
-            self.localConfig = LocalConfig(parentConfig=parentConfig)
+            self.localConfig = LocalConfig()
         self._set_repos()
-        if self.projectRepo and homeProject:
-            homeProject.localConfig.register_project(self)
-        self.parentProject = homeProject
+        self.contextName = "defaults"
+        self._set_parent_project(homeProject)
+
+    def _set_parent_project(self, parentProject):
+        self.parentProject = parentProject
+        if self.projectRepo and parentProject:
+            parentProject.localConfig.register_project(self)
+        self._set_contexts()
 
     def _set_repos(self):
         # abspath => RepoView:
@@ -139,37 +143,19 @@ class Project(object):
             repos.append(self.projectRepo)
         return repos
 
-    def get_default_ensemble_path(self):
-        fullPath = self.localConfig.get_default_manifest_path()
-        if fullPath:
-            return fullPath
-        return os.path.join(
+    def search_for_manifest(self):
+        fullPath = os.path.join(
             self.projectRoot, DefaultNames.EnsembleDirectory, DefaultNames.Ensemble
         )
-
-    def find_default_instance_manifest(self):
-        fullPath = self.localConfig.get_default_manifest_path()
-        if fullPath:
-            if not os.path.exists(fullPath):
-                raise UnfurlError(
-                    "The default ensemble found in %s does not exist: %s"
-                    % (self.localConfig.config.path, os.path.abspath(fullPath))
-                )
+        if os.path.exists(fullPath):
             return fullPath
-        else:
-            # no manifest specified in the project config so check the default locations
-            fullPath = os.path.join(
-                self.projectRoot, DefaultNames.EnsembleDirectory, DefaultNames.Ensemble
-            )
-            if os.path.exists(fullPath):
-                return fullPath
-            fullPath2 = os.path.join(self.projectRoot, DefaultNames.Ensemble)
-            if os.path.exists(fullPath2):
-                return fullPath2
-            raise UnfurlError(
-                'The can not find an ensemble in a default location: "%s" or "%s"'
-                % (fullPath, fullPath2)
-            )
+        fullPath2 = os.path.join(self.projectRoot, DefaultNames.Ensemble)
+        if os.path.exists(fullPath2):
+            return fullPath2
+        raise UnfurlError(
+            'The can not find an ensemble in a default location: "%s" or "%s"'
+            % (fullPath, fullPath2)
+        )
 
     def get_relative_path(self, path):
         return os.path.relpath(os.path.abspath(path), self.projectRoot)
@@ -253,15 +239,72 @@ class Project(object):
         self.workingDirs[localRepoPath] = RepoView(dict(name="", url=gitUrl), newRepo)
         return newRepo
 
+    def get_manifest_path(self, localEnv, manifestPath):
+        if manifestPath:
+            location = self.localConfig.manifests.get(manifestPath)
+            if not location:
+                raise UnfurlError(
+                    'Could not find ensemble "%s" in "%s"'
+                    % (manifestPath, self.localConfig.config.path)
+                )
+        else:
+            location = self.localConfig.get_default_manifest_path()
+
+        if location:
+            self.contextName = location.get("context", self.contextName)
+            if "project" in location:
+                externalLocalEnv = localEnv._get_external_localenv(location)
+                if externalLocalEnv:
+                    # if the manifest lives in an external projects repo,
+                    # set that project as the parent project and register our project with it
+                    if externalLocalEnv.project:
+                        self._set_parent_project(externalLocalEnv.project)
+                    return externalLocalEnv.manifestPath
+                else:
+                    raise UnfurlError(
+                        'Could not find external project "%s" referenced by ensemble "%s"'
+                        % (location["project"], manifestPath)
+                    )
+            else:
+                fullPath = self.localConfig.adjust_path(location["file"])
+                if not os.path.exists(fullPath):
+                    raise UnfurlError(
+                        "The default ensemble found in %s does not exist: %s"
+                        % (self.localConfig.config.path, os.path.abspath(fullPath))
+                    )
+                return fullPath
+        else:
+            # no manifest specified in the project config so check the default locations
+            fullPath = self.search_for_manifest()  # raises if not found
+            return fullPath
+
+    def _set_contexts(self):
+        contexts = self.localConfig.config.expanded.get("contexts", {})
+        if self.parentProject:
+            parentContexts = self.parentProject.contexts
+            contexts = merge_dicts(
+                parentContexts, contexts, replaceKeys=LocalConfig.replaceKeys
+            )
+        self.contexts = contexts
+
+    def get_context(self, context):
+        contextName = self.contextName
+        localContext = self.contexts.get("defaults") or {}
+        if contextName != "defaults" and self.contexts.get(contextName):
+            localContext = merge_dicts(
+                localContext,
+                self.contexts[contextName],
+                replaceKeys=LocalConfig.replaceKeys,
+            )
+
+        return merge_dicts(context, localContext, replaceKeys=LocalConfig.replaceKeys)
+
 
 class LocalConfig(object):
     """
-    Represents the local configuration file, which provides the environment that manifests run in, including:
+    Represents the local configuration file, which provides the environment that ensembles run in, including:
       instances imported from other ensembles, inputs, environment variables, secrets and local configuration.
-
-    It consists of:
-    * a list of ensemble manifests with their local configuration
-    * the default local and secret instances"""
+    """
 
     # don't merge the value of the keys of these dicts:
     replaceKeys = [
@@ -273,38 +316,14 @@ class LocalConfig(object):
         "environment",
     ]
 
-    def __init__(self, path=None, parentConfig=None, validate=True):
+    def __init__(self, path=None, validate=True):
         defaultConfig = {"apiVersion": "unfurl/v1alpha1", "kind": "Project"}
         self.config = YamlConfig(
             defaultConfig, path, validate, os.path.join(_basepath, "unfurl-schema.json")
         )
-        self.manifests = self.config.expanded.get("manifests") or []
+        self.manifests = self.config.expanded.get("ensembles") or {}
         self.projects = self.config.expanded.get("projects") or {}
-        contexts = self.config.expanded.get("contexts", {})
-        if parentConfig:
-            parentContexts = parentConfig.config.expanded.get("contexts", {})
-            contexts = merge_dicts(
-                parentContexts, contexts, replaceKeys=self.replaceKeys
-            )
-        self.contexts = contexts
-        self.parentConfig = parentConfig
         self.localRepositories = self.config.expanded.get("localRepositories") or {}
-
-    def get_context(self, manifestPath, context):
-        localContext = self.contexts.get("defaults") or {}
-        contextName = "defaults"
-        for spec in self.manifests:
-            if manifestPath == self.adjust_path(spec["file"]):
-                # use the context associated with the given manifest
-                contextName = spec.get("context", contextName)
-                break
-
-        if contextName != "defaults" and self.contexts.get(contextName):
-            localContext = merge_dicts(
-                localContext, self.contexts[contextName], replaceKeys=self.replaceKeys
-            )
-
-        return merge_dicts(context, localContext, replaceKeys=self.replaceKeys)
 
     def adjust_path(self, path):
         """
@@ -313,13 +332,17 @@ class LocalConfig(object):
         return os.path.join(self.config.get_base_dir(), path)
 
     def get_default_manifest_path(self):
+        """
+        ensembles:
+          default:
+            file:
+            project:
+            context
+        """
         if len(self.manifests) == 1:
-            return self.adjust_path(self.manifests[0]["file"])
+            return list(self.manifests.values())[0]
         else:
-            for spec in self.manifests:
-                if spec.get("default"):
-                    return self.adjust_path(spec["file"])
-        return None
+            return self.manifests.get("default")
 
     def create_local_instance(self, localName, attributes):
         # local or secret
@@ -400,8 +423,6 @@ class LocalEnv(object):
     the local project it is part of and the home project.
     """
 
-    homeProject = None
-
     def __init__(self, manifestPath=None, homePath=None, parent=None, project=None):
         """
         If manifestPath is None find the first unfurl.yaml or ensemble.yaml
@@ -426,41 +447,29 @@ class LocalEnv(object):
                 self._projects[project.localConfig.config.path] = project
             self._manifests = {}
             self.homeConfigPath = get_home_config_path(homePath)
-
-        if self.homeConfigPath:
-            if not os.path.exists(self.homeConfigPath):
-                logger.warning(
-                    'UNFURL_HOME is set but does not exist: "%s"', self.homeConfigPath
-                )
-            else:
-                self.homeProject = self.get_project(self.homeConfigPath, None)
-                if not self.homeProject:
-                    logger.warning(
-                        'Could not load home project at: "%s"', self.homeConfigPath
-                    )
+        self.homeProject = self._get_home_project()
 
         if manifestPath:
-            # if manifestPath does not exist check project config
-            manifestPath = os.path.abspath(manifestPath)
-            if not os.path.exists(manifestPath):
-                # XXX check if the manifest is named in the project config
-                # pathORproject = self.findProject(os.path.dirname(manifestPath))
-                # if pathORproject:
-                #    self.manifestPath = pathORproject.getInstance(manifestPath)
-                # else:
-                raise UnfurlError(
-                    "Ensemble manifest does not exist: '%s'" % manifestPath
-                )
+            pathORproject = self._find_path_or_project(manifestPath)
+            if pathORproject:
+                manifestPath = ""  # consumed by _find_path_or_project
             else:
-                pathORproject = self.find_manifest_path(manifestPath)
+                # if manifestPath doesn't point to a project or ensemble,
+                # look for a project in the current directory and then see if the project has a manifest with that name
+                pathORproject = self.find_project(".")
+                if not pathORproject:
+                    raise UnfurlError(
+                        "Ensemble manifest does not exist: '%s'" % manifestPath
+                    )
         else:
             # not specified: search current directory and parents for either a manifest or a project
+            # raises if not found
             pathORproject = self.search_for_manifest_or_project(".")
 
         if isinstance(pathORproject, Project):
             self.project = pathORproject
-            # raises error if path not found:
-            self.manifestPath = pathORproject.find_default_instance_manifest()
+            # raises if not found:
+            self.manifestPath = pathORproject.get_manifest_path(self, manifestPath)
         else:
             self.manifestPath = pathORproject
             if project:  # this arg is used in init.py when creating a project
@@ -479,6 +488,31 @@ class LocalEnv(object):
             and self.homeProject.localConfig
             or LocalConfig()
         )
+
+    def _get_home_project(self):
+        homeProject = None
+        if self.homeConfigPath:
+            if not os.path.exists(self.homeConfigPath):
+                self.logger.warning(
+                    'UNFURL_HOME is set but does not exist: "%s"', self.homeConfigPath
+                )
+            else:
+                homeProject = self.get_project(self.homeConfigPath, None)
+                if not homeProject:
+                    self.logger.warning(
+                        'Could not load home project at: "%s"', self.homeConfigPath
+                    )
+        return homeProject
+
+    def _find_path_or_project(self, manifestPath):
+        manifestPath = os.path.abspath(manifestPath)
+        if os.path.exists(manifestPath):
+            pathORproject = self.find_manifest_path(manifestPath)
+            assert pathORproject
+        else:
+            # if manifestPath does not exist check project config
+            pathORproject = self.find_project(".")
+        return pathORproject
 
     def get_vault_password(self, vaultId="default"):
         secret = os.getenv("UNFURL_VAULT_%s_PASSWORD" % vaultId.upper())
@@ -520,6 +554,10 @@ class LocalEnv(object):
         return project
 
     def get_external_manifest(self, location):
+        localEnv = self._get_external_localenv(location)
+        return localEnv.get_manifest()
+
+    def _get_external_localenv(self, location):
         assert "project" in location
         project = None
         repo = None
@@ -540,10 +578,9 @@ class LocalEnv(object):
             return None
 
         projectRoot = os.path.join(repo.working_dir, file)
-        localEnv = LocalEnv(
+        return LocalEnv(
             os.path.join(projectRoot, location.get("file") or ""), parent=self
         )
-        return localEnv.get_manifest()
 
     # manifestPath specified
     #  doesn't exist: error
@@ -595,14 +632,13 @@ class LocalEnv(object):
     def search_for_manifest_or_project(self, dir):
         current = os.path.abspath(dir)
         while current and current != os.sep:
-            # XXX wrong priority? should be LocalConfig, Ensemble, ProjectDirectory ?
-            test = os.path.join(current, DefaultNames.Ensemble)
-            if os.path.exists(test):
-                return test
-
             test = os.path.join(current, DefaultNames.LocalConfig)
             if os.path.exists(test):
                 return self.get_project(test, self.homeProject)
+
+            test = os.path.join(current, DefaultNames.Ensemble)
+            if os.path.exists(test):
+                return test
 
             test = os.path.join(current, DefaultNames.ProjectDirectory)
             if os.path.exists(test):
@@ -626,7 +662,11 @@ class LocalEnv(object):
         """
         Return a new context that merges the given context with the local context.
         """
-        return self.config.get_context(self.manifestPath, context or {})
+        context = context or {}
+        project = self.project or self.homeProject
+        if project:
+            return project.get_context(context)
+        return context
 
     def get_runtime(self):
         context = self.get_context()

@@ -23,7 +23,7 @@ contexts:
         vault_default_password: "[% vaultpass %]"
     {% endif %}
 {%if manifestPath %}
-manifests:
-  - file: [%manifestPath%]
-    default: true
+ensembles:
+  default:
+    file: [%manifestPath%]
 {% endif %}

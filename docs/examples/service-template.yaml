@@ -1,5 +1,5 @@
 tosca_definitions_version: tosca_simple_unfurl_1_0_0 # or use the standard tosca_simple_yaml_1_3
-description: An illustrative TOSCA service template 
+description: An illustrative TOSCA service template
 metadata: # the following metadata keys are defined in the TOSCA specification:
   template_name: hello world
   template_author: onecommons
@@ -62,8 +62,8 @@ topology_template:
       type: string
       value: { concat: [ https://, { get_input: domain }, ':',  { get_attribute: [ myapp, portspec, source ] }, '/api/events'] }
       # Unfurl also support ansible-enhanced jinja2 template so you could write this instead:
-      value: https://{{ TOPOLOGY.inputs.domain }}:{{ NODES.myApp.portspec.source }}/api/events
-  
+      # value: https://{{ TOPOLOGY.inputs.domain }}:{{ NODES.myApp.portspec.source }}/api/events
+
   node_templates:
 
     myApp:
@@ -76,9 +76,9 @@ topology_template:
       requirements:
         - host: compute
         - db:
-            node: mydb 
+            node: mydb
             relationship: mydb_connection
-              
+
     mydb:
       type: base:postgresdb
       properties:

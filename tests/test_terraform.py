@@ -30,16 +30,20 @@ class TerraformTest(unittest.TestCase):
         terraform_dir = os.environ["terraform_dir"] = os.path.join(
             os.path.dirname(__file__), "fixtures", "terraform"
         )
-        with cliRunner.isolated_filesystem(): # temp_dir="/tmp/tests"):
+        with cliRunner.isolated_filesystem():  # temp_dir="/tmp/tests"):
             path = os.path.join(os.path.dirname(__file__), "examples")
-            shutil.copy(os.path.join(path, "terraform-simple-ensemble.yaml"), "ensemble.yaml")
+            shutil.copy(
+                os.path.join(path, "terraform-simple-ensemble.yaml"), "ensemble.yaml"
+            )
 
             # copy the terraform lock file so the configurator avoids calling terraform init
             # if .tox/.terraform already has the providers
-            os.makedirs('terraform-node/home/')
-            shutil.copy(terraform_dir + '/.terraform.lock.hcl', 'terraform-node/home/')
-            os.makedirs('terraform-node-json/home/')
-            shutil.copy(terraform_dir + '/.terraform.lock.hcl', 'terraform-node-json/home/')
+            os.makedirs("terraform-node/home/")
+            shutil.copy(terraform_dir + "/.terraform.lock.hcl", "terraform-node/home/")
+            os.makedirs("terraform-node-json/home/")
+            shutil.copy(
+                terraform_dir + "/.terraform.lock.hcl", "terraform-node-json/home/"
+            )
 
             manifest = LocalEnv().get_manifest()
             runner = Runner(manifest)

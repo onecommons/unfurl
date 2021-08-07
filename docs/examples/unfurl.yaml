@@ -22,10 +22,8 @@
     production: {}
     staging: {}
 
-  manifests:
-    - file: ""
-      repository: ""
-      # default instance if there are multiple instances in that project
-      # (only applicable when config is local to a project)
-      default: True
+  ensembles:
+    default:
+      file: ""
+      project: ""
       context: production # "defaults" context is used if not specified

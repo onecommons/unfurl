@@ -6,17 +6,23 @@
   "properties": {
     "apiVersion": { "const": "unfurl/v1alpha1" },
     "kind": { "const": "Project" },
-    "manifests": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "file": { "type": "string" },
-          "default": { "type": "boolean" },
-          "context": { "type": "string" }
-        },
-        "required": ["file"]
-      }
+    "ensembles": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "./manifest-schema.json#/definitions/namedObjects" },
+        {
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "file": { "type": "string" },
+              "project": { "type": "string" },
+              "default": { "type": "boolean" },
+              "context": { "type": "string" }
+            },
+            "required": ["file"]
+          }
+        }
+      ]
     },
     "contexts": {
       "type": "object",
