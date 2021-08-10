@@ -45,9 +45,9 @@ node_types:
         inputs:
           done:
             success: True # succeeds if even if command fails
-          resultTemplate:
-            readyState: "{%if not returncode %}ok{%else%}absent{%endif%}"
-            state: "{%if not returncode %}started{%else%}stopped{%endif%}"
+          resultTemplate: |
+            readyState:
+              local: "{%if returncode == 0 %}ok{%else%}absent{%endif%}"
       Standard:
         create:
           implementation:
@@ -64,6 +64,7 @@ node_types:
 
         start: supervisord -c {{ SELF.homeDir }}/{{ SELF.confFile }}
         stop: supervisorctl -c {{ SELF.homeDir }}/{{ SELF.confFile }} shutdown
+        # XXX delete: remove the conf file we added
 
   unfurl.nodes.ProcessController:
     derived_from: tosca.nodes.Root
