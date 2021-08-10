@@ -1,21 +1,16 @@
 import os
-import unittest
-import time
-import json
-from six.moves import urllib
 import shutil
+import time
+import unittest
+import urllib.request
 
 from click.testing import CliRunner
 
+from tests.utils import lifecycle
 from unfurl.job import JobOptions, Runner
 from unfurl.localenv import LocalEnv
 from unfurl.support import Status
 from unfurl.util import sensitive_str
-
-# python2.7 workarounds:
-import unfurl.configurators
-import unfurl.configurators.terraform
-import unfurl.yamlmanifest
 
 
 @unittest.skipIf(
@@ -26,20 +21,24 @@ class TerraformTest(unittest.TestCase):
         self.maxDiff = None
 
     def test_terraform(self):
-        cliRunner = CliRunner()
+        cli_runner = CliRunner()
         terraform_dir = os.environ["terraform_dir"] = os.path.join(
             os.path.dirname(__file__), "fixtures", "terraform"
         )
-        with cliRunner.isolated_filesystem(): # temp_dir="/tmp/tests"):
+        with cli_runner.isolated_filesystem():  # temp_dir="/tmp/tests"):
             path = os.path.join(os.path.dirname(__file__), "examples")
-            shutil.copy(os.path.join(path, "terraform-simple-ensemble.yaml"), "ensemble.yaml")
+            shutil.copy(
+                os.path.join(path, "terraform-simple-ensemble.yaml"), "ensemble.yaml"
+            )
 
             # copy the terraform lock file so the configurator avoids calling terraform init
             # if .tox/.terraform already has the providers
-            os.makedirs('terraform-node/home/')
-            shutil.copy(terraform_dir + '/.terraform.lock.hcl', 'terraform-node/home/')
-            os.makedirs('terraform-node-json/home/')
-            shutil.copy(terraform_dir + '/.terraform.lock.hcl', 'terraform-node-json/home/')
+            os.makedirs("terraform-node/home/")
+            shutil.copy(terraform_dir + "/.terraform.lock.hcl", "terraform-node/home/")
+            os.makedirs("terraform-node-json/home/")
+            shutil.copy(
+                terraform_dir + "/.terraform.lock.hcl", "terraform-node-json/home/"
+            )
 
             manifest = LocalEnv().get_manifest()
             runner = Runner(manifest)
@@ -48,16 +47,18 @@ class TerraformTest(unittest.TestCase):
             example = job.rootResource.find_resource("example")
             self.assertEqual(example.attributes["tag"], "Hello, test!")
             summary = job.json_summary()
-            taskOutputs = set(
+            task_outputs = set(
                 [
                     tuple(task.result.outputs.values())[0]
                     for task in job.workDone.values()
                     if task.result.outputs
                 ]
             )
-            assert taskOutputs == set(
-                ["outputting test3!", "outputting test2!", "Hello, test!"]
-            )
+            assert task_outputs == {
+                "outputting test3!",
+                "outputting test2!",
+                "Hello, test!",
+            }
 
             # print(job.summary())
             # print(job._planSummary())
@@ -330,7 +331,7 @@ class TerraformMotoTest(unittest.TestCase):
 
         time.sleep(0.25)
         url = "http://localhost:5000/moto-api"  # UI lives here
-        f = urllib.request.urlopen(url)
+        urllib.request.urlopen(url)
 
         path = os.path.join(os.path.dirname(__file__), "examples")
         with open(os.path.join(path, "terraform-ensemble.yaml")) as f:
@@ -506,3 +507,14 @@ class TerraformMotoTest(unittest.TestCase):
                     ],
                 },
             )
+
+    def test_lifecycle(self):
+        runner = CliRunner()
+        with runner.isolated_filesystem():
+            with open("unfurl.yaml", "w") as f:
+                f.write(self.project_config)
+            with open("ensemble.yaml", "w") as f:
+                f.write(self.ensemble_config)
+
+            for job in lifecycle(manifest=LocalEnv().get_manifest()):
+                assert job.status == Status.ok
