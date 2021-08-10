@@ -884,12 +884,18 @@ class Job(ConfigChange):
                     and startingStatus != resource._localStatus
                 ):
                     # if check operation set status but didn't update state, set a default state
-                    state = {
+                    state_map = {
                         Status.ok: NodeState.started,
                         Status.error: NodeState.error,
                         Status.absent: NodeState.deleted,
                         Status.pending: NodeState.initial,
-                    }.get(resource._localStatus)
+                    }
+                    if not resource.state or resource.state == NodeState.initial:
+                        # it is a resource we didn't create
+                        state_map[Status.absent] = NodeState.initial
+                    else:
+                        state_map[Status.absent] = NodeState.deleted
+                    state = state_map.get(resource._localStatus)
                     if state is not None:
                         resource.state = state
                 task.target_state = resource.state
@@ -1172,6 +1178,7 @@ def _plan(manifest, jobOptions):
         manifest.lastJob and manifest.lastJob["changeId"],
     )
     job.create_plan()
+    logger.info("Create plan:\n%s", job._plan_summary())
     return job
 
 

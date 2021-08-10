@@ -28,4 +28,4 @@ def isolated_lifecycle(path: str, steps: Optional[Iterable] = None):
     with cli_runner.isolated_filesystem():
         path = shutil.copy(path, ".")
         manifest = YamlManifest(path=path)
-        yield from lifecycle(manifest, steps)
+        yield from lifecycle(manifest, steps or DEFAULT_STEPS)

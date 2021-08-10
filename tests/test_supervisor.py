@@ -76,12 +76,11 @@ class SupervisorTest(unittest.TestCase):
 class TestSupervisorLifecycle:
     def test_lifecycle(self):
         src_path = str(Path(__file__).parent / "examples" / "supervisor-ensemble.yaml")
-        jobs = isolated_lifecycle(
-            src_path, steps=["deploy", "check", "deploy", "undeploy"]
-        )
+        jobs = isolated_lifecycle(src_path)
         try:
             for job in jobs:
-                assert job.status == Status.ok
+                # print("JOB", job.workflow, job.json_summary())
+                assert job.status == Status.ok, job.workflow
         finally:
             # NOTE: to manually kill: pkill -lf supervisord
             if os.path.exists("supervisord/local/supervisord.pid"):
