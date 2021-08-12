@@ -85,11 +85,6 @@ class TestK8s(unittest.TestCase):
         }
         assert len(results["tasks"]) == 2, results
 
-    def test_lifecycle(self):
-        manifest = YamlManifest(MANIFEST)
-        for job in lifecycle(manifest=manifest):
-            assert job.status == Status.ok
-
 
 MANIFEST = """
 apiVersion: unfurl/v1alpha1
