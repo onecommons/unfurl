@@ -1,6 +1,6 @@
-import os
 import sys
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import pytest
 
@@ -9,12 +9,12 @@ from unfurl.configurators.shell import ShellConfigurator, subprocess
 from unfurl.job import JobOptions, Runner
 from unfurl.yamlmanifest import YamlManifest
 
+from .utils import isolated_lifecycle
+
 
 class TestShellConfigurator:
     def setup(self):
-        path = os.path.join(
-            os.path.dirname(__file__), "examples", "shell-ensemble.yaml"
-        )
+        path = Path(__file__).parent / "examples" / "shell-ensemble.yaml"
         with open(path) as f:
             self.ensemble = f.read()
 
@@ -27,10 +27,8 @@ class TestShellConfigurator:
         job = runner.run(JobOptions(instance="test1"))
 
         assert len(job.workDone) == 1, job.workDone
-        assert (
-            runner.manifest.get_root_resource().find_resource("test1").attributes["stdout"]
-            == "helloworld"
-        )
+        node = runner.manifest.get_root_resource().find_resource("test1")
+        assert node.attributes["stdout"] == "helloworld"
         assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
 
     def test_timeout(self):
@@ -135,6 +133,14 @@ class TestDryRun:
         task = list(job.workDone.values())[0]
         assert job.status == Status.error
         assert task.result.result == "could not run: dry run not supported"
+
+
+class TestShellLifecycle:
+    def test_lifecycle(self):
+        path = Path(__file__).parent / "examples" / "shell-ensemble.yaml"
+        jobs = isolated_lifecycle(str(path))
+        for job in jobs:
+            assert job.status == Status.ok, job.workflow
 
 
 ENSEMBLE_TIMEOUT = """

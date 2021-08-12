@@ -6,11 +6,12 @@ import urllib.request
 
 from click.testing import CliRunner
 
-from tests.utils import lifecycle
 from unfurl.job import JobOptions, Runner
 from unfurl.localenv import LocalEnv
 from unfurl.support import Status
 from unfurl.util import sensitive_str
+
+from .utils import lifecycle
 
 
 @unittest.skipIf(

@@ -1,28 +1,30 @@
 import os
-import os.path
 import sys
-import unittest
 import warnings
+from pathlib import Path
+
+import pytest
 
 from unfurl.configurators.ansible import run_playbooks
 from unfurl.job import JobOptions, Runner
 from unfurl.runtime import Status
 from unfurl.yamlmanifest import YamlManifest
 
+from .utils import isolated_lifecycle
 
-class AnsibleTest(unittest.TestCase):
-    def setUp(self):
-        try:
-            # Ansible generates tons of ResourceWarnings
-            warnings.simplefilter("ignore", ResourceWarning)
-        except:
-            # python 2.x doesn't have ResourceWarning
-            pass
+if not sys.warnoptions:
+    # Ansible generates tons of ResourceWarnings
+    warnings.simplefilter("ignore", ResourceWarning)
+
+
+class AnsibleTest:
+    def setup(self):
         self.results = {}
 
-    def runPlaybook(self, args=None):
+    @staticmethod
+    def run_playbook(args=None):
         return run_playbooks(
-            os.path.join(os.path.dirname(__file__), "examples", "testplaybook.yaml"),
+            str(Path(__file__).parent / "examples" / "testplaybook.yaml"),
             "localhost,",
             {
                 "ansible_connection": "local",
@@ -32,49 +34,36 @@ class AnsibleTest(unittest.TestCase):
             args,
         )
 
-    def test_runplaybook(self):
-        results = self.runPlaybook()
+    def test_run_playbook(self):
+        results = self.run_playbook()
         self.results["runplaybook"] = results
-        self.assertEqual(
-            "test",
-            results.variableManager._nonpersistent_fact_cache["localhost"].get(
-                "one_fact"
-            ),
-        )
+        facts = results.variableManager._nonpersistent_fact_cache["localhost"]
+        assert facts.get("one_fact") == "test"
 
         hostfacts = results.variableManager._nonpersistent_fact_cache["localhost"]
-        self.assertEqual(hostfacts["one_fact"], "test")
-        self.assertEqual(hostfacts["echoresults"]["stdout"], "hello")
+        assert hostfacts["one_fact"] == "test"
+        assert hostfacts["echoresults"]["stdout"] == "hello"
 
     # setting UNFURL_LOGGING can break this test, so skip if it's set
-    @unittest.skipIf(
-        os.getenv("UNFURL_LOGGING"), "this test requires default log level"
+    @pytest.mark.skipif(
+        os.getenv("UNFURL_LOGGING"), reason="this test requires default log level"
     )
     def test_verbosity(self):
-        results = self.runPlaybook()
+        results = self.run_playbook()
         # task test-verbosity was skipped
         assert not results.resultsByStatus.ok.get("test-verbosity")
         assert results.resultsByStatus.skipped.get("test-verbosity")
-        results = self.runPlaybook(["-vv"])
+        results = self.run_playbook(["-vv"])
         # task test-verbosity was ok this time
         assert results.resultsByStatus.ok.get("test-verbosity")
         assert not results.resultsByStatus.skipped.get("test-verbosity")
 
 
-class AnsibleConfiguratorTest(unittest.TestCase):
-    def setUp(self):
-        path = os.path.join(
-            os.path.dirname(__file__), "examples", "ansible-simple-ensemble.yaml"
-        )
+class AnsibleConfiguratorTest:
+    def setup(self):
+        path = Path(__file__).parent / "examples" / "ansible-simple-ensemble.yaml"
         with open(path) as f:
             self.manifest = f.read()
-
-        try:
-            # Ansible generates tons of ResourceWarnings
-            warnings.simplefilter("ignore", ResourceWarning)
-        except:
-            # python 2.x doesn't have ResourceWarning
-            pass
 
     def test_configurator(self):
         """
@@ -85,6 +74,14 @@ class AnsibleConfiguratorTest(unittest.TestCase):
         assert not run1.unexpectedAbort, run1.unexpectedAbort.get_stack_trace()
         assert len(run1.workDone) == 1, run1.workDone
         result = list(run1.workDone.values())[0].result
-        self.assertEqual(result.outputs, {"fact1": "test1", "fact2": "test"})
-        self.assertEqual(result.result.get("stdout"), sys.executable)
+        assert result.outputs == {"fact1": "test1", "fact2": "test"}
+        assert result.result.get("stdout") == sys.executable
         assert run1.status == Status.ok, run1.summary()
+
+
+class TestAnsibleLifecycle:
+    def test_lifecycle(self):
+        path = Path(__file__).parent / "examples" / "ansible-simple-ensemble.yaml"
+        jobs = isolated_lifecycle(str(path))
+        for job in jobs:
+            assert job.status == Status.ok, job.workflow
