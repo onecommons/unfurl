@@ -183,12 +183,19 @@ class OctoDnsConfigurator(Configurator):
         """Retrieves current zone data and compares with expected"""
         work_folder = task.set_work_folder()
         properties = self._extract_properties_from(task)
+        empty_records = {properties.name: {}}
         current_records = self._read_current_dns_records(
             work_folder.cwd, properties.name
         )
 
         if current_records == properties.records:
             return task.done(success=True, result={"msg": "DNS records in sync"})
+        elif current_records == empty_records:
+            return task.done(
+                success=True,
+                status=Status.absent,
+                result={"msg": "DNS records are empty"},
+            )
         else:
             return task.done(
                 success=True,

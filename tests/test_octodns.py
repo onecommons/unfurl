@@ -7,6 +7,8 @@ from unfurl.job import JobOptions, Runner
 from unfurl.support import Status
 from unfurl.yamlmanifest import YamlManifest
 
+from .utils import lifecycle
+
 
 class TestOctoDnsConfigurator:
     def setup(self):
@@ -46,6 +48,13 @@ class TestOctoDnsConfigurator:
         # this means that dns records were correctly set during deploy:
         assert task.target_status == Status.ok
         assert task.result.result == {"msg": "DNS records in sync"}
+
+    @mock_route53
+    def test_lifecycle(self):
+        manifest = YamlManifest(ENSEMBLE_ROUTE53)
+        jobs = lifecycle(manifest)
+        for job in jobs:
+            assert job.status == Status.ok, job.workflow
 
     @patch("unfurl.configurators.octodns.Manager.sync")
     def test_exclusive(self, manager_sync):
