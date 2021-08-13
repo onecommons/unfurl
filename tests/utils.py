@@ -34,10 +34,6 @@ def lifecycle(
         step_str = f"#{i} - {step.workflow}"
         job = runner.run(JobOptions(workflow=step.workflow))
         assert job.status == Status.ok, step_str
-        # instance_count = (
-        #     len(job.rootResource.descendents) - 3
-        # )  # minus root, input, output
-        # assert job.task_count == instance_count, step_str
         for task in job.workDone.values():
             assert (
                 task.target.status == step.target_status
