@@ -65,6 +65,11 @@ class ConfigChange(OperationalInstance, ChangeRecord):
         else:  # generate a new job id and use the given startTime
             ChangeRecord.__init__(self, startTime=startTime, previousId=previousId)
 
+    def get_operational_dependencies(self):
+        for d in self.dependencies:
+            if d.target != self.target:
+                yield d
+
 
 class JobOptions(object):
     """
@@ -156,6 +161,7 @@ class ConfigTask(ConfigChange, TaskView):
         # set the attribute manager on the root resource
         self._attributeManager = AttributeManager(self._manifest.yaml)
         self.target.root.attributeManager = self._attributeManager
+        self._resolved_inputs = {}
 
     @property
     def status(self):
@@ -313,14 +319,22 @@ class ConfigTask(ConfigChange, TaskView):
         This can be called multiple times if the configurator yields multiple times.
         Save the changes made each time.
         """
-        changes, liveDependencies = self._attributeManager.commit_changes()
+        changes, dependencies = self._attributeManager.commit_changes()
         self.changeList.append(changes)
+
+        self._resolved_inputs.update(self.inputs.get_resolved())
+        self._inputs = None  # need to recreate this because _attributeManager was reset
+
         # record the live attributes that we are dependent on
-        for key, (target, attributes) in liveDependencies.items():
-            if target is not self.target:
-                for name, value in attributes.items():
-                    self.add_dependency(key + "::" + name, value, target=target)
-        return changes, liveDependencies
+        for key, (target, attributes) in dependencies.items():
+            for name, (live, value) in attributes.items():
+                # hackish: we only want the status of a dependency to reflect its target instance's status
+                # when the attribute is live (as opposed to a static property set in the spec)
+                # so don't set its target unless the attribute is live
+                self.add_dependency(
+                    key + "::" + name, value, target=target if live else None
+                )
+        return changes, dependencies
 
     # unused
     # def findLastConfigureOperation(self):
@@ -428,9 +442,6 @@ class Job(ConfigChange):
         self.__dict__.update(jobOptions.__dict__)
         super(Job, self).__init__(self.parentJob, self.startTime, Status.ok, previousId)
         self.dry_run = jobOptions.dryrun
-        self.plan_requests = None
-        self.task_count = 0
-
         self.jobOptions = jobOptions
         self.manifest = manifest
         self.rootResource = rootResource
@@ -438,6 +449,10 @@ class Job(ConfigChange):
         self.unexpectedAbort = None
         self.workDone = collections.OrderedDict()
         self.timeElapsed = 0
+        self.plan_requests = None
+        self.task_count = 0
+        self.external_jobs = []
+        self.external_requests = None
 
     def get_operational_dependencies(self):
         # XXX3 this isn't right, root job might have too many and child job might not have enough
@@ -626,8 +641,7 @@ class Job(ConfigChange):
         return childJob
 
     def run_external(self):
-        externalJobs = []
-        # XXX need to check for deadlock
+        # note: manifest.lock() will raise error if there circular dependencies
         for manifest, requests in self.external_requests:
             instance_names = []
             manifest = None
@@ -645,11 +659,11 @@ class Job(ConfigChange):
                 masterJob=self.jobOptions.masterJob or self,
             )
             externalJob = create_job(manifest, jobOptions)
-            externalJobs.append(externalJob)
+            self.externalJobs.append(externalJob)
             _run_job(externalJob, jobOptions)
             if externalJob.status == Status.error:
-                break
-        return externalJobs
+                return False
+        return True
 
     def _dependency_check(self, instance):
         dependencies = list(instance.get_operational_dependencies())
@@ -870,12 +884,18 @@ class Job(ConfigChange):
                     and startingStatus != resource._localStatus
                 ):
                     # if check operation set status but didn't update state, set a default state
-                    state = {
+                    state_map = {
                         Status.ok: NodeState.started,
                         Status.error: NodeState.error,
                         Status.absent: NodeState.deleted,
                         Status.pending: NodeState.initial,
-                    }.get(resource._localStatus)
+                    }
+                    if not resource.state or resource.state == NodeState.initial:
+                        # it is a resource we didn't create
+                        state_map[Status.absent] = NodeState.initial
+                    else:
+                        state_map[Status.absent] = NodeState.deleted
+                    state = state_map.get(resource._localStatus)
                     if state is not None:
                         resource.state = state
                 task.target_state = resource.state
@@ -1158,6 +1178,7 @@ def _plan(manifest, jobOptions):
         manifest.lastJob and manifest.lastJob["changeId"],
     )
     job.create_plan()
+    logger.info("Create plan:\n%s", job._plan_summary())
     return job
 
 

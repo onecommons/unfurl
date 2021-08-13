@@ -41,7 +41,7 @@ def _get_digest(value, kw):
                     yield d
         else:
             out = six.BytesIO()
-            dump(value, out)
+            dump(serialize_value(value, redact=True), out)
             yield out.getvalue()
 
 
@@ -589,13 +589,6 @@ class ResultsMap(Results, MutableMapping):
 
     def resolve_all(self):
         list(self.values())
-
-    def serialize_resolved(self, **kw):
-        return dict(
-            (key, serialize_value(v, **kw))
-            for key, v in self._attributes.items()
-            if isinstance(v, Result)
-        )
 
     def get_resolved(self):
         return dict(

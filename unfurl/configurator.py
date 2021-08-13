@@ -176,7 +176,7 @@ class Configurator(object):
             dict: A dictionary whose keys are strings that start with "digest"
         """
         # XXX user definition should be able to exclude inputs from digest
-        inputs = task.inputs.get_resolved()
+        inputs = task._resolved_inputs
         keys = [k for k in inputs.keys() if k not in self.exclude_from_digest]
 
         values = [inputs[key] for key in keys]
@@ -184,7 +184,6 @@ class Configurator(object):
         keys += [dep.expr for dep in task.dependencies]
 
         values += [dep.expected for dep in task.dependencies]
-
         if keys:
             inputdigest = get_digest(values, manifest=task._manifest)
         else:
@@ -234,15 +233,16 @@ class Configurator(object):
                 results.append(task.inputs._getresult(key))
 
         newDigest = get_digest(results, manifest=task._manifest)
-        match = changeset.digestValue != newDigest
-        if not match:
+        mismatch = changeset.digestValue != newDigest
+        if mismatch:
             task.logger.verbose(
-                "digests didn't match for %s, old: %s new: %s",
+                "digests didn't match for %s with %s: old %s, new %s",
                 task.target.name,
+                _parameters,
                 changeset.digestValue,
                 newDigest,
             )
-        return match
+        return mismatch
 
 
 class TaskView(object):
@@ -851,7 +851,7 @@ class Dependency(Operational):
         if self.target:
             return self.target.status
         else:
-            return Status.unknown
+            return Status.ok
 
     @property
     def priority(self):

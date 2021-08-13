@@ -782,6 +782,14 @@ class TopologyMap(dict):
         return len(tuple(self.resource.get_self_and_descendents()))
 
 
+def _is_sensitive(defs, key, value):
+    defSchema = (key in defs and defs[key].schema) or {}
+    defMeta = defSchema.get("metadata", {})
+    # attribute marked as sensitive and value isn't a secret so mark value as sensitive
+    # but externalvalues are ok since they don't reveal much
+    return defMeta.get("sensitive") and not value.external
+
+
 class AttributeManager(object):
     """
     Tracks changes made to Resources
@@ -852,11 +860,7 @@ class AttributeManager(object):
 
     @staticmethod
     def _save_sensitive(defs, key, value, instance):
-        defSchema = (key in defs and defs[key].schema) or {}
-        defMeta = defSchema.get("metadata", {})
-        # attribute marked as sensitive and value isn't a secret so mark value as sensitive
-        # but externalvalues are ok since they don't reveal much
-        sensitive = defMeta.get("sensitive") and not value.external
+        sensitive = _is_sensitive(defs, key, value)
         if sensitive:
             savedValue = wrap_sensitive_value(
                 value.resolved, instance.templar._loader._vault
@@ -913,15 +917,15 @@ class AttributeManager(object):
                     _attributes[key] = value
                 else:
                     changed, isLive = self._check_attribute(specd, key, value, resource)
+                    savedValue, sensitive = self._save_sensitive(
+                        defs, key, value, resource
+                    )
+                    # save the Result not savedValue because we need the ExternalValue
+                    live[key] = (isLive, savedValue if sensitive else value)
                     if not isLive:
                         assert not changed  # changed implies isLive
                         continue  # it hasn't changed and it is part of the spec so don't save it as an attribute
 
-                    savedValue, sensitive = self._save_sensitive(
-                        defs, key, value, resource
-                    )
-                    # remember Result not savedValue because we need the ExternalValue
-                    live[key] = savedValue if sensitive else value
                     if changed and sensitive:
                         foundSensitive.append(key)
                         # XXX if defMeta.get('immutable') and key in specd:

@@ -135,6 +135,7 @@ class ConfiguratorTest(unittest.TestCase):
         # print(run2.out.getvalue())
         # don't re-run the failed configurations so nothing will have changed
         jobOptions2.repair = "none"
+        jobOptions2.skip_new = True
         self.verifyRoundtrip(run2.out.getvalue(), jobOptions2)
 
     def test_addingResources(self):
