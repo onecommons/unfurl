@@ -1,3 +1,12 @@
+<p align="center">
+  <img src="docs/unfurl_logo.svg" width="400px">
+</p>
+
+<p align="center">
+  <a href="https://unfurl.run/docs/" alt="Documentation"><img src="https://img.shields.io/badge/docs-unfurl-informational"/></a>
+  <a href="https://badge.fury.io/py/unfurl"><img src="https://badge.fury.io/py/unfurl.svg" alt="PyPI version" height="20"></a>
+</p>
+
 # Introduction
 
 Unfurl is a tool that works with Git to record and deploy changes to your DevOps infrastructure.
@@ -46,6 +55,17 @@ By default `unfurl` creates a virtual Python environment to run in so it only in
 You can also install `unfurl` directly from this repository to get the latest code:
 
 `pip3 install -e git+https://github.com/onecommons/unfurl.git#egg=unfurl`
+
+### Autocomplete
+
+| Shell | Instructions                                           |
+|-------|--------------------------------------------------------|
+| Bash  | Add this to `~/.bashrc`:                               |
+|       | `eval "$(_UNFURL_COMPLETE=bash_source unfurl)"`        |
+| Zsh   | Add this to `~/.zshrc`:                                |
+|       | `eval "$(_UNFURL_COMPLETE=zsh_source unfurl)"`         |
+| Fish  | Add this to  `~/.config/fish/completions/unfurl.fish`: |
+|       | `eval (env _UNFURL_COMPLETE=fish_source unfurl)`       |
 
 ### Requirements
 
