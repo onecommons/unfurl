@@ -1,28 +1,26 @@
 import os
+import shutil
 import signal
 import time
 import unittest
-import json
-import shutil
+import urllib.request
+from pathlib import Path
 
 from click.testing import CliRunner
-from six.moves import urllib
 
-import unfurl.configurators  # python2.7 workaround
-import unfurl.configurators.shell  # python2.7 workaround
-import unfurl.configurators.supervisor  # python2.7 workaround
 from unfurl.job import JobOptions, Runner
+from unfurl.support import Status
 from unfurl.yamlmanifest import YamlManifest
+
+from .utils import isolated_lifecycle
 
 
 class SupervisorTest(unittest.TestCase):
     def test_supervisor(self):
-        cliRunner = CliRunner()
-        with cliRunner.isolated_filesystem():
-            srcpath = os.path.join(
-                os.path.dirname(__file__), "examples", "supervisor-ensemble.yaml"
-            )
-            path = shutil.copy(srcpath, ".")
+        cli_runner = CliRunner()
+        with cli_runner.isolated_filesystem():
+            src_path = Path(__file__).parent / "examples" / "supervisor-ensemble.yaml"
+            path = shutil.copy(src_path, ".")
             runner = Runner(YamlManifest(path=path))
             try:
                 job = runner.run(JobOptions(startTime=1, check=True))  # deploy
@@ -73,3 +71,20 @@ class SupervisorTest(unittest.TestCase):
                         pid = int(f.read())
                         print("killing", pid)
                         os.kill(pid, signal.SIGINT)
+
+
+class TestSupervisorLifecycle:
+    def test_lifecycle(self):
+        src_path = str(Path(__file__).parent / "examples" / "supervisor-ensemble.yaml")
+        jobs = isolated_lifecycle(src_path)
+        try:
+            for job in jobs:
+                # print("JOB", job.workflow, job.json_summary())
+                assert job.status == Status.ok, job.workflow
+        finally:
+            # NOTE: to manually kill: pkill -lf supervisord
+            if os.path.exists("supervisord/local/supervisord.pid"):
+                with open("supervisord/local/supervisord.pid") as f:
+                    pid = int(f.read())
+                    print("killing", pid)
+                    os.kill(pid, signal.SIGINT)

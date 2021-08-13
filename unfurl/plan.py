@@ -551,51 +551,44 @@ class DeployPlan(Plan):
             return Reason.add
         return None
 
-    def include_task(self, template, resource):
-        # XXX doc string woefully out of date
-        """Returns whether or not the config should be included in the current job.
-
-        Is it out of date?
-        Has its configuration changed?
-        Has its dependencies changed?
-        Are the resources it modifies in need of repair?
-
-        Reasons include: "force", "add", "upgrade", "update", "re-add", 'prune',
-        'missing', "config changed", "failed to apply", "degraded", "error".
+    def include_instance(self, template, instance):
+        """Return whether or not the given instance should be included in the current plan,
+        based on the current job's options and whether the template changed or the instance in need of repair?
 
         Args:
-            config (ConfigurationSpec): The :class:`ConfigurationSpec` candidate
-            lastChange (Configuration): The :class:`Configuration` representing the that last time
-              the given :class:`ConfigurationSpec` was applied or `None`
+            template (EntitySpec): The template to be deployed.
+            instance (EntityInstance): The instance as it last deployed.
 
         Returns:
-            (str, ConfigurationSpec): Returns a pair with reason why the task was included
-              and the :class:`ConfigurationSpec` to run or `None` if it shound't be included.
+            (Reason): Returns a string from the `:class:Reason` enumeration or `None` if it should not be included.
         """
-        assert template and resource
+        assert template and instance
         jobOptions = self.jobOptions
-        if jobOptions.add and not resource.last_change:
-            # add if it's a new resource
-            return Reason.add
+        if jobOptions.add and not jobOptions.skip_new:
+            if not instance.last_change:  # never instantiated before
+                return Reason.add
+
+            if instance.status in [Status.unknown, Status.pending, Status.absent]:
+                return Reason.missing
 
         if jobOptions.force:
             return Reason.force
 
         # if the specification changed:
-        oldTemplate = resource.template
-        if template != oldTemplate:
-            if jobOptions.upgrade:
-                return Reason.upgrade
-            if jobOptions.update:
+        oldTemplate = instance.template
+        if jobOptions.change_detection != "skip" or jobOptions.upgrade:
+            if template != oldTemplate:
+                # XXX currently oldTemplate is the same as version as template
                 # only apply the new configuration if doesn't result in a major version change
                 if True:  # XXX if isMinorDifference(template, oldTemplate)
                     return Reason.update
+                elif jobOptions.upgrade:
+                    return Reason.upgrade
 
-        reason = self.check_for_repair(resource)
+        reason = self.check_for_repair(instance)
         # there isn't a new config to run, see if the last applied config needs to be re-run
-        if not reason and (
-            jobOptions.change_detection == "evaluate"
-        ):  # note: update is true by default
+        if not reason and (jobOptions.change_detection != "skip"):
+            # XXX distinguish between "spec" and "evaluate" change_detection
             return Reason.reconfigure
         return reason
 
@@ -607,9 +600,7 @@ class DeployPlan(Plan):
         status = instance.status
 
         if status in [Status.unknown, Status.pending]:
-            if jobOptions.repair == "missing":
-                return Reason.missing
-            elif instance.required:
+            if instance.required:
                 status = Status.error  # treat as error
             else:
                 return None
@@ -636,7 +627,7 @@ class DeployPlan(Plan):
     def _generate_workflow_configurations(self, instance, oldTemplate):
         # if oldTemplate is not None this is an existing instance, so check if we should include
         if oldTemplate:
-            reason = self.include_task(oldTemplate, instance)
+            reason = self.include_instance(oldTemplate, instance)
             if not reason:
                 logger.debug(
                     "not including task for %s:%s", instance.name, oldTemplate.name
