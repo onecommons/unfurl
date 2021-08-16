@@ -435,7 +435,7 @@ deployFilterOptions = option_group(
     ),
     click.option(
         "--repair",
-        type=click.Choice(["error", "degraded", "missing", "none"]),
+        type=click.Choice(["error", "degraded", "none"]),
         default="error",
         help="Re-run operations on instances that are in an error or degraded state. (Default: error)",
     ),

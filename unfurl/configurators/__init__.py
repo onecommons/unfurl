@@ -39,7 +39,7 @@ class TemplateConfigurator(Configurator):
                 vars.doFullResolve = True
             else:
                 vars = result
-
+            task.logger.trace("evaluated result template with %s", result)
             try:
                 results = task.query({"eval": query}, vars=vars, throw=True)
             except Exception as e:
@@ -70,7 +70,7 @@ class TemplateConfigurator(Configurator):
 
     def run(self, task):
         runResult = task.rendered
-        done = task.inputs.get("done", {})
+        done = task.inputs.get_copy("done", {})
         if "result" not in done:
             if not isinstance(runResult, dict):
                 done["result"] = {"run": runResult}
