@@ -201,7 +201,10 @@ class ImportResolver(toscaparser.imports.ImportResolver):
             isFile = True
             if bare:
                 # XXX support empty filePath or when filePath is a directory -- need to checkout the tree
-                if not filePath or repo.repo.rev_parse(revision+":"+filePath).type != 'blob':
+                if (
+                    not filePath
+                    or repo.repo.rev_parse(revision + ":" + filePath).type != "blob"
+                ):
                     raise UnfurlError(
                         "can't retrieve local repository for '%s' with revision '%s'"
                         % (path, revision)
@@ -383,6 +386,12 @@ class YamlConfig(object):
             if self.lastModified:
                 statinfo = os.stat(self.path)
                 if statinfo.st_mtime > self.lastModified:
+                    logger.error(
+                        'Not saving "%s", it was unexpectedly modified after it was loaded, %d is after last modified time %d',
+                        self.path,
+                        statinfo.st_mtime,
+                        self.lastModified,
+                    )
                     raise UnfurlError(
                         'Not saving "%s", it was unexpectedly modified after it was loaded'
                         % self.path

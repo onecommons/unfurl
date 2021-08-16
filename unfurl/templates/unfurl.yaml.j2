@@ -28,6 +28,9 @@ kind: Project
 
 {%if manifestPath %}
 ensembles:
-  default:
-    file: [%manifestPath%]
+  - file: [%manifestPath%]
+    default: true
+    {%- if external | default("") %}
+    project: [%external%]
+    {% endif %}
 {% endif %}

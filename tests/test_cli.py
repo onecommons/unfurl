@@ -79,7 +79,7 @@ contexts:
           key2: 2
 
 ensembles:
-  anEnsemble:
+  - alias: anEnsemble
     file: git/default-manifest.yaml
     context: test
 """
@@ -360,20 +360,24 @@ spec:
     @unittest.skipIf(
         "slow" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set"
     )
-    def test_clone(self):
+    def test_clone_project(self):
         runner = CliRunner()
         with runner.isolated_filesystem():
             specTemplate = os.path.join(
                 os.path.dirname(__file__), "examples/spec/service-template.yaml"
             )
-            result = runner.invoke(cli, ["clone", specTemplate, "clone1"])
+            result = runner.invoke(
+                cli, ["--home", "./unfurl_home", "clone", specTemplate, "clone1"]
+            )
             # print("result.output", result.exit_code, result.output)
             assert not result.exception, "\n".join(
                 traceback.format_exception(*result.exc_info)
             )
             self.assertEqual(result.exit_code, 0, result)
 
-            result = runner.invoke(cli, ["deploy", "clone1/tests/examples"])
+            result = runner.invoke(
+                cli, ["--home", "./unfurl_home", "deploy", "clone1/tests/examples"]
+            )
             # print("result.output", result.exit_code, result.output)
             assert not result.exception, "\n".join(
                 traceback.format_exception(*result.exc_info)
@@ -387,14 +391,25 @@ spec:
             # this will clone the new ensemble
             os.mkdir("anotherdir")
             os.chdir("anotherdir")
-            result = runner.invoke(cli, ["clone", "../clone1/tests/examples", "clone1"])
+            result = runner.invoke(
+                cli,
+                [
+                    "--home",
+                    "./unfurl_home",
+                    "clone",
+                    "../clone1/tests/examples",
+                    "clone1",
+                ],
+            )
             # print("result.output", result.exit_code, result.output)
             assert not result.exception, "\n".join(
                 traceback.format_exception(*result.exc_info)
             )
             self.assertEqual(result.exit_code, 0, result)
 
-            result = runner.invoke(cli, ["deploy", "clone1/tests/examples"])
+            result = runner.invoke(
+                cli, ["--home", "./unfurl_home", "deploy", "clone1/tests/examples"]
+            )
             # print("result.output", result.exit_code, result.output)
             assert not result.exception, "\n".join(
                 traceback.format_exception(*result.exc_info)
@@ -404,3 +419,46 @@ spec:
                 "Job A[0-9A-Za-z]{11} completed: ok. Found nothing to do.",
             )
             self.assertEqual(result.exit_code, 0, result.output)
+
+    def test_shared_repo(self):
+        runner = CliRunner()
+        with runner.isolated_filesystem():
+            runCmd(runner, ["--home", "./unfurl_home", "init", "shared"])
+
+            runCmd(
+                runner,
+                ["--home", "./unfurl_home", "init", "--shared-repository=shared", "p1"],
+            )
+            result = runCmd(runner, ["deploy", "p1"])
+            self.assertRegex(result.output, "Found nothing to do.")
+
+            os.chdir("p1")
+
+            runCmd(
+                runner,
+                [
+                    "--home",
+                    "../unfurl_home",
+                    "init",
+                    "--shared-repository=../shared",
+                    "new_ensemble_in_shared",
+                ],
+            )
+            result = runCmd(
+                runner, ["--home", "../unfurl_home", "deploy", "new_ensemble_in_share"]
+            )
+            self.assertRegex(result.output, "Found nothing to do.")
+
+            os.chdir("..")
+
+            runCmd(runner, ["--home", "./unfurl_home", "clone", "p1", "p1copy"])
+            result = runCmd(runner, ["--home", "./unfurl_home", "deploy", "p1copy"])
+            self.assertRegex(result.output, "Found nothing to do.")
+
+
+def runCmd(runner, args):
+    result = runner.invoke(cli, args)
+    # print("result.output", result.exit_code, result.output)
+    assert not result.exception, "\n".join(traceback.format_exception(*result.exc_info))
+    assert result.exit_code == 0, result
+    return result

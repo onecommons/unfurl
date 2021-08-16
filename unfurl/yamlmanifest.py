@@ -255,6 +255,7 @@ def clone(localEnv, destPath):
         config["metadata"].pop("aliases", None)
     repositories = Manifest._get_repositories(config)
     repositories.pop("self", None)
+    clone.path = destPath
     clone.manifest.path = destPath
     return clone
 

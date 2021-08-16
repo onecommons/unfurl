@@ -23,7 +23,8 @@
     staging: {}
 
   ensembles:
-    default:
-      file: ""
-      project: ""
+    - file: "ensemble/ensemble.yaml"
+      alias: "named_ensemble"
+      project: "in_another_project"
+      default: true
       context: production # "defaults" context is used if not specified

@@ -550,7 +550,10 @@ def plan(ctx, ensemble=None, **options):
 @click.pass_context
 @click.argument("projectdir", default="", type=click.Path(exists=False))
 @click.option(
-    "--mono", default=False, is_flag=True, help="Create one repository for the project."
+    "--mono",
+    default=False,
+    is_flag=True,
+    help="Don't create a separate ensemble repository.",
 )
 @click.option(
     "--existing",
@@ -572,6 +575,12 @@ def plan(ctx, ensemble=None, **options):
     type=click.Path(exists=True),
     help="Absolute path to a directory of project templates.",
 )
+@click.option(
+    "--shared-repository",
+    default=None,
+    type=click.Path(exists=True),
+    help="Create the ensemble in an repository outside the project.",
+)
 def init(ctx, projectdir, **options):
     """
     Create a new project or, if [project_dir] exists or is inside a project, create a new ensemble"""
@@ -590,6 +599,7 @@ def init(ctx, projectdir, **options):
         # if projectPath is deeper than projectDir (happens if it is .unfurl) set projectDir to that
         if len(os.path.abspath(projectPath)) > len(os.path.abspath(projectdir)):
             projectdir = projectPath
+        # this will clone the default ensemble if it exists or use ensemble-template
         message = initmod.clone(projectPath, projectdir, **options)
         click.echo(message)
         return

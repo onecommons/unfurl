@@ -7,22 +7,33 @@
     "apiVersion": { "const": "unfurl/v1alpha1" },
     "kind": { "const": "Project" },
     "ensembles": {
-      "type": "object",
-      "allOf": [
-        { "$ref": "./manifest-schema.json#/definitions/namedObjects" },
-        {
-          "additionalProperties": {
+      "type": "array",
+      "items" : {
             "type": "object",
             "properties": {
-              "file": { "type": "string" },
-              "project": { "type": "string" },
-              "default": { "type": "boolean" },
-              "context": { "type": "string" }
+              "file": {
+                "type": "string",
+                "description": "Path to ensemble manifest, relative to the the project it is located in."
+              },
+              "project": {
+                "type": "string",
+                "description": "The project the ensemble is located in if different from the current project."
+              },
+              "managedBy": {
+                "type": "string",
+                "description": "The project that is managing the ensemble if different from the current project."
+              },
+              "default": { "type": "boolean", "description": "Use this ensemble if not is specified." },
+              "alias": {
+                "type": "string",
+                "description": "Alternative name to specify this ensemble on the command line instead of its file path"
+              },
+              "context": { "type": "string",
+                    "description": "The name of the context to use for this ensemble."
+              }
             },
             "required": ["file"]
           }
-        }
-      ]
     },
     "contexts": {
       "type": "object",
@@ -46,7 +57,7 @@
               "url": { "type": "string", "format": "uri" },
               "initial": { "type": "string" },
               "file": { "type": "string" }
-             }
+            }
           }
         }
       ]
@@ -55,7 +66,7 @@
       "description": "Map of file paths located outside of the project",
       "type": "object",
       "additionalProperties": {
-            "$ref": "./manifest-schema.json#/definitions/repositories"
+        "$ref": "./manifest-schema.json#/definitions/repositories"
       }
     }
   },

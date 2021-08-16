@@ -9,7 +9,6 @@ By convention, the "home" project defines a localhost instance and adds it to it
 """
 import os
 import os.path
-import datetime
 
 import six
 from .repo import Repo, normalize_git_url, split_git_url, RepoView
@@ -241,14 +240,14 @@ class Project(object):
 
     def get_manifest_path(self, localEnv, manifestPath):
         if manifestPath:
-            location = self.localConfig.manifests.get(manifestPath)
+            location = self.localConfig.find_ensemble_by_name(manifestPath)
             if not location:
                 raise UnfurlError(
                     'Could not find ensemble "%s" in "%s"'
                     % (manifestPath, self.localConfig.config.path)
                 )
         else:
-            location = self.localConfig.get_default_manifest_path()
+            location = self.localConfig.get_default_manifest_tpl()
 
         if location:
             self.contextName = location.get("context", self.contextName)
@@ -299,6 +298,37 @@ class Project(object):
 
         return merge_dicts(context, localContext, replaceKeys=LocalConfig.replaceKeys)
 
+    def find_ensemble_by_path(self, path):
+        path = os.path.abspath(path)
+        for tpl in self.localConfig.ensembles:
+            file = tpl.get("file")
+            if file and os.path.abspath(file) == path:
+                return tpl
+
+    def find_ensemble_by_name(self, name):
+        for tpl in self.localConfig.ensembles:
+            alias = tpl.get("alias")
+            if alias == name:
+                return tpl
+
+    @property
+    def name(self):
+        dirname, name = os.path.split(self.projectRoot)
+        if name == DefaultNames.ProjectDirectory:
+            name = os.path.basename(dirname)
+        return name
+
+    def register_ensemble(self, manifestPath, *, project=None, managedBy=None):
+        relPath = (project if project else self).get_relative_path(manifestPath)
+        props = dict(file=relPath)
+        if managedBy:
+            props["managedBy"] = managedBy.name
+        if project:
+            props["project"] = project.name
+        self.localConfig.ensembles.append(props)
+        if managedBy or project:
+            self.localConfig.register_project(managedBy or project)
+
 
 class LocalConfig(object):
     """
@@ -321,7 +351,7 @@ class LocalConfig(object):
         self.config = YamlConfig(
             defaultConfig, path, validate, os.path.join(_basepath, "unfurl-schema.json")
         )
-        self.manifests = self.config.expanded.get("ensembles") or {}
+        self.ensembles = self.config.expanded.get("ensembles") or []
         self.projects = self.config.expanded.get("projects") or {}
         self.localRepositories = self.config.expanded.get("localRepositories") or {}
 
@@ -331,7 +361,7 @@ class LocalConfig(object):
         """
         return os.path.join(self.config.get_base_dir(), path)
 
-    def get_default_manifest_path(self):
+    def get_default_manifest_tpl(self):
         """
         ensembles:
           default:
@@ -339,10 +369,13 @@ class LocalConfig(object):
             project:
             context
         """
-        if len(self.manifests) == 1:
-            return list(self.manifests.values())[0]
+        if len(self.ensembles) == 1:
+            return self.ensembles[0]
         else:
-            return self.manifests.get("default")
+            for tpl in self.ensembles:
+                if tpl.get("default"):
+                    return tpl
+        return None
 
     def create_local_instance(self, localName, attributes):
         # local or secret
@@ -361,6 +394,11 @@ class LocalConfig(object):
         instance = NodeInstance(localName, attributes)
         instance._baseDir = self.config.get_base_dir()
         return instance
+
+    def find_repository_path(self, repourl):
+        for path, tpl in self.localRepositories.items():
+            if normalize_git_url(tpl["url"]) == normalize_git_url(repourl):
+                return path
 
     def register_project(self, project):
         """
@@ -385,36 +423,38 @@ class LocalConfig(object):
         else:
             return False  # no change
 
-        if not repo.is_local_only():
-            for name, val in self.projects.items():
-                if normalize_git_url(val["url"]) == normalize_git_url(repo.url):
-                    break
-            else:
-                # if project isn't already in projects, use generated name
-                # XXX need to replace characters that don't match our namedObjects pattern manifest-schema.json
-                dirname, name = os.path.split(project.projectRoot)
-                if name == DefaultNames.ProjectDirectory:
-                    name = os.path.basename(dirname)
-                counter = 0
-                while name in self.projects:
-                    counter += 1
-                    name += "-%s" % counter
+        for name, val in self.projects.items():
+            if normalize_git_url(val["url"]) == normalize_git_url(repo.url):
+                break
+        else:
+            # if project isn't already in projects, use generated name
+            # XXX need to replace characters that don't match our namedObjects pattern manifest-schema.json
+            name = project.name
+            counter = 0
+            while name in self.projects:
+                counter += 1
+                name += "-%s" % counter
 
-            externalProject = dict(
-                url=repo.url,
-                initial=repo.get_initial_revision(),
-            )
-            file = os.path.relpath(project.projectRoot, repo.working_dir)
-            if file and file != ".":
-                externalProject["file"] = file
+        externalProject = dict(
+            url=repo.url,
+            initial=repo.get_initial_revision(),
+        )
+        file = os.path.relpath(project.projectRoot, repo.working_dir)
+        if file and file != ".":
+            externalProject["file"] = file
 
-            self.projects[name] = externalProject
-            self.config.config.setdefault("projects", {})[name] = externalProject
+        self.projects[name] = externalProject
+        if repo.is_local_only():
+            projectConfig = local
+        else:
+            projectConfig = self.config.config
+        projectConfig.setdefault("projects", {})[name] = externalProject
 
         if key:
             self.config.save_include(key)
+        self.config.config["ensembles"] = self.ensembles
         self.config.save()
-        return True
+        return name
 
 
 class LocalEnv(object):
@@ -476,6 +516,19 @@ class LocalEnv(object):
                 self.project = project
             else:
                 self.project = self.find_project(os.path.dirname(pathORproject))
+                if self.project:
+                    # We're pointing directly at a manifest path, check if it is might be part of an external project
+                    location = self.project.find_ensemble_by_path(manifestPath)
+                    if (
+                        location and "managedBy" in location
+                    ):  # this ensemble is managed by another project
+                        project_tpl = project[location["managedBy"]]
+                        path = self.project.localConfig.find_repository_path(
+                            project_tpl["url"]
+                        )
+                        externalProject = self.find_project(path)
+                        externalProject._set_parent_project(self.project)
+                        self.project = externalProject
 
         if self.project:
             logging.info("Loaded project at %s", self.project.localConfig.config.path)
@@ -676,7 +729,7 @@ class LocalEnv(object):
         project = self.project or self.homeProject
         while project:
             if project.venv:
-                return "venv:" + self.project.venv
+                return "venv:" + project.venv
             project = project.parentProject
         return None
 

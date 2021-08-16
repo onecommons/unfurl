@@ -22,8 +22,12 @@ contexts:
         # UNFURL_VAULT_DEFAULT_PASSWORD overrides this
         vault_default_password: "[% vaultpass %]"
     {% endif %}
+
 {%if manifestPath %}
 ensembles:
-  default:
-    file: [%manifestPath%]
+  - file: [%manifestPath%]
+    default: true
+    {%- if external | default("") %}
+    project: [%external%]
+    {% endif %}
 {% endif %}

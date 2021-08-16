@@ -167,6 +167,8 @@ class GitRepoTest(unittest.TestCase):
             result = runner.invoke(
                 cli,
                 [
+                    "--home",
+                    "../unfurl_home",
                     "git",
                     "--dir",
                     "deploy_dir",
@@ -183,7 +185,14 @@ class GitRepoTest(unittest.TestCase):
             )
 
             # "-vvv",
-            args = ["deploy", "deploy_dir", "--jobexitcode", "degraded"]
+            args = [
+                "--home",
+                "../unfurl_home",
+                "deploy",
+                "deploy_dir",
+                "--jobexitcode",
+                "degraded",
+            ]
             result = runner.invoke(cli, args)
             # print("result.output", result.exit_code, result.output)
             assert not result.exception, "\n".join(
@@ -197,7 +206,7 @@ class GitRepoTest(unittest.TestCase):
         """
         runner = CliRunner()
         with runner.isolated_filesystem():
-            result = runner.invoke(cli, ["init"])
+            result = runner.invoke(cli, ["--home", "../unfurl_home", "init"])
             # uncomment this to see output:
             # print("result.output", result.exit_code, result.output)
             assert not result.exception, "\n".join(
@@ -205,7 +214,7 @@ class GitRepoTest(unittest.TestCase):
             )
             self.assertEqual(result.exit_code, 0, result)
 
-            result = runner.invoke(cli, ["git", "ls-files"])
+            result = runner.invoke(cli, ["--home", "../unfurl_home", "git", "ls-files"])
             assert not result.exception, "\n".join(
                 traceback.format_exception(*result.exc_info)
             )
@@ -229,7 +238,9 @@ ensemble.yaml
                 contents = f.read()
                 self.assertIn("ensemble", contents)
 
-            result = runner.invoke(cli, ["deploy", "--commit"])
+            result = runner.invoke(
+                cli, ["--home", "../unfurl_home", "deploy", "--commit"]
+            )
             # uncomment this to see output:
             # print("result.output", result.exit_code, result.output)
             assert not result.exception, "\n".join(
