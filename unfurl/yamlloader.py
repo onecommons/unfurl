@@ -55,9 +55,7 @@ logger = logging.getLogger("unfurl")
 
 
 def represent_undefined(self, data):
-    raise RepresenterError(
-        "cannot represent an object: <%s> of type %s" % (data, type(data))
-    )
+    raise RepresenterError(f"cannot represent an object: <{data}> of type {type(data)}")
 
 
 def _represent_sensitive(dumper, data, tag):
@@ -66,22 +64,20 @@ def _represent_sensitive(dumper, data, tag):
         return dumper.represent_scalar(tag, b_ciphertext.decode(), style="|")
     else:
         return dumper.represent_scalar(
-            u"tag:yaml.org,2002:str", sensitive_str.redacted_str
+            "tag:yaml.org,2002:str", sensitive_str.redacted_str
         )
 
 
 def represent_sensitive_str(dumper, data):
-    return _represent_sensitive(dumper, data, u"!vault")
+    return _represent_sensitive(dumper, data, "!vault")
 
 
 def represent_sensitive_json(dumper, data):
-    return _represent_sensitive(
-        dumper, json.dumps(data, sort_keys=True), u"!vault-json"
-    )
+    return _represent_sensitive(dumper, json.dumps(data, sort_keys=True), "!vault-json")
 
 
 def represent_sensitive_bytes(dumper, data):
-    return _represent_sensitive(dumper, data, u"!vault-binary")
+    return _represent_sensitive(dumper, data, "!vault-binary")
 
 
 def _construct_vault(constructor, node, tag):
@@ -90,7 +86,7 @@ def _construct_vault(constructor, node, tag):
         raise ConstructorError(
             context=None,
             context_mark=None,
-            problem="found %s but no vault password provided" % tag,
+            problem=f"found {tag} but no vault password provided",
             problem_mark=node.start_mark,
             note=None,
         )
@@ -125,9 +121,9 @@ def make_yaml(vault=None):
     yaml.representer.add_representer(None, represent_undefined)
 
     yaml.constructor.vault = vault
-    yaml.constructor.add_constructor(u"!vault", construct_vault)
-    yaml.constructor.add_constructor(u"!vault-json", construct_vaultjson)
-    yaml.constructor.add_constructor(u"!vault-binary", construct_vaultbinary)
+    yaml.constructor.add_constructor("!vault", construct_vault)
+    yaml.constructor.add_constructor("!vault-json", construct_vaultjson)
+    yaml.constructor.add_constructor("!vault-binary", construct_vaultbinary)
 
     yaml.representer.vault = vault
     yaml.representer.add_representer(sensitive_str, represent_sensitive_str)
@@ -174,13 +170,9 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         importLoader.stream = None
         if repository_name:
             # don't include file_name, we need to keep it distinct from the repo path till the end
-            url_info = super(ImportResolver, self).get_url(
-                importLoader, repository_name, "", isFile
-            )
+            url_info = super().get_url(importLoader, repository_name, "", isFile)
         else:
-            url_info = super(ImportResolver, self).get_url(
-                importLoader, repository_name, file_name, isFile
-            )
+            url_info = super().get_url(importLoader, repository_name, file_name, isFile)
             file_name = ""
         if not url_info:
             return url_info
@@ -201,10 +193,12 @@ class ImportResolver(toscaparser.imports.ImportResolver):
             isFile = True
             if bare:
                 # XXX support empty filePath or when filePath is a directory -- need to checkout the tree
-                if not filePath or repo.repo.rev_parse(revision+":"+filePath).type != 'blob':
+                if (
+                    not filePath
+                    or repo.repo.rev_parse(revision + ":" + filePath).type != "blob"
+                ):
                     raise UnfurlError(
-                        "can't retrieve local repository for '%s' with revision '%s'"
-                        % (path, revision)
+                        f"can't retrieve local repository for '{path}' with revision '{revision}'"
                     )
                 importLoader.stream = six.StringIO(repo.show(filePath, revision))
                 path = os.path.join(filePath, file_name or "")
@@ -248,15 +242,19 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                 except urllib.error.URLError as e:
                     if hasattr(e, "reason"):
                         msg = _(
-                            'Failed to reach server "%(path)s". Reason is: '
-                            "%(reason)s."
+                            (
+                                'Failed to reach server "%(path)s". Reason is: '
+                                + "%(reason)s."
+                            )
                         ) % {"path": path, "reason": e.reason}
                         ExceptionCollector.appendException(URLException(what=msg))
                         return
                     elif hasattr(e, "code"):
                         msg = _(
-                            'The server "%(path)s" couldn\'t fulfill the request. '
-                            'Error code: "%(code)s".'
+                            (
+                                'The server "%(path)s" couldn\'t fulfill the request. '
+                                + 'Error code: "%(code)s".'
+                            )
                         ) % {"path": path, "code": e.code}
                         ExceptionCollector.appendException(URLException(what=msg))
                         return
@@ -278,13 +276,13 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                 return doc
         except:
             if path != originalPath:
-                msg = 'Could not load "%s" (originally "%s")' % (path, originalPath)
+                msg = f'Could not load "{path}" (originally "{originalPath}")'
             else:
-                msg = 'Could not load "%s"' % path
+                msg = f'Could not load "{path}"'
             raise UnfurlError(msg, True)
 
 
-class YamlConfig(object):
+class YamlConfig:
     def __init__(
         self,
         config=None,
@@ -323,7 +321,7 @@ class YamlConfig(object):
                 self.config = config
             if not isinstance(self.config, CommentedMap):
                 raise UnfurlValidationError(
-                    'invalid YAML document with contents: "%s"' % self.config
+                    f'invalid YAML document with contents: "{self.config}"'
                 )
 
             find_anchor(self.config, None)  # create _anchorCache
@@ -348,7 +346,7 @@ class YamlConfig(object):
                 self.valid = not not errors
         except Exception as e:
             if self.path:
-                msg = "Unable to load yaml config at %s" % self.path
+                msg = f"Unable to load yaml config at {self.path}"
             else:
                 msg = "Unable to parse yaml config"
             raise UnfurlError(msg, True)
@@ -374,7 +372,7 @@ class YamlConfig(object):
         try:
             self.yaml.dump(self.config, out)
         except:
-            raise UnfurlError("Error saving %s" % self.path, True)
+            raise UnfurlError(f"Error saving {self.path}", True)
 
     def save(self):
         output = six.StringIO()
@@ -384,8 +382,7 @@ class YamlConfig(object):
                 statinfo = os.stat(self.path)
                 if statinfo.st_mtime > self.lastModified:
                     raise UnfurlError(
-                        'Not saving "%s", it was unexpectedly modified after it was loaded'
-                        % self.path
+                        f'Not saving "{self.path}", it was unexpectedly modified after it was loaded'
                     )
             with open(self.path, "w") as f:
                 f.write(output.getvalue())
@@ -437,7 +434,7 @@ class YamlConfig(object):
         try:
             self.yaml.dump(template, output)
         except:
-            raise UnfurlError("Error saving include %s" % path, True)
+            raise UnfurlError(f"Error saving include {path}", True)
         with open(path, "w") as f:
             f.write(output.getvalue())
 
@@ -465,7 +462,7 @@ class YamlConfig(object):
             value = templatePath.get("merge")
             if "file" not in templatePath:
                 raise UnfurlError(
-                    "`file` key missing from document include: %s" % templatePath
+                    f"`file` key missing from document include: {templatePath}"
                 )
             key = templatePath["file"]
         else:
@@ -490,8 +487,7 @@ class YamlConfig(object):
             if template is None:
                 if warnWhenNotFound:
                     logger.warning(
-                        "document include %s does not exist (base: %s)"
-                        % (templatePath, baseDir)
+                        f"document include {templatePath} does not exist (base: {baseDir})"
                     )
                 return value, template, newBaseDir
             elif isinstance(template, CommentedMap):
@@ -499,8 +495,7 @@ class YamlConfig(object):
             _cache_anchors(self.config._anchorCache, template)
         except:
             raise UnfurlError(
-                "unable to load document include: %s (base: %s)"
-                % (templatePath, baseDir),
+                f"unable to load document include: {templatePath} (base: {baseDir})",
                 True,
                 True,
             )

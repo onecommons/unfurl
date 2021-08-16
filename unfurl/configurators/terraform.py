@@ -93,7 +93,7 @@ def generate_main(relpath, tfvars, outputs):
     if isinstance(tfvars, six.string_types):
         output = ""
         for name in outputs:
-            output += 'output "%s" { value = module.main.%s }\n' % (name, name)
+            output += f'output "{name}" {{ value = module.main.{name} }}\n'
         return "main.tmp.tf", _main_tf_template % (relpath, tfvars, output)
     else:
         # place tfvars in the module block:
@@ -103,7 +103,7 @@ def generate_main(relpath, tfvars, outputs):
         if outputs:
             output = root["output"] = {}
             for name in outputs:
-                output[name] = dict(value="${module.main.%s}" % name)
+                output[name] = dict(value=f"${{module.main.{name}}}")
         return "main.tmp.tf.json", root
 
 
@@ -282,7 +282,7 @@ class TerraformConfigurator(ShellConfigurator):
             if providerSchema is not None:
                 save_to_file(providerSchemaPath, providerSchema)
             else:
-                raise UnfurlTaskError(task, "terraform init failed in %s" % cwd)
+                raise UnfurlTaskError(task, f"terraform init failed in {cwd}")
 
         result = self.run_process(
             cmd, timeout=task.configSpec.timeout, env=env, cwd=cwd.cwd, echo=echo
@@ -303,7 +303,7 @@ class TerraformConfigurator(ShellConfigurator):
             else:
                 raise UnfurlTaskError(
                     task,
-                    "terrform init failed in %s; TF_DATA_DIR=%s" % (cwd.cwd, dataDir),
+                    f"terrform init failed in {cwd.cwd}; TF_DATA_DIR={dataDir}",
                 )
 
         # process the result

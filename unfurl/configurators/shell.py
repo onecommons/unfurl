@@ -84,7 +84,7 @@ def _truncate(s):
     if not s:
         return ""
     if len(s) > 1000:
-        return "%s [%s omitted...]  %s" % (s[:500], len(s), s[-500:])
+        return f"{s[:500]} [{len(s)} omitted...]  {s[-500:]}"
     return s
 
 
@@ -212,7 +212,7 @@ class ShellConfigurator(TemplateConfigurator):
         if not cmd:
             return "missing command to execute"
         if isinstance(cmd, list) and not params.get("shell") and not which(cmd[0]):
-            return "'%s' is not executable" % cmd[0]
+            return f"'{cmd[0]}' is not executable"
         return True
 
     def can_dry_run(self, task):

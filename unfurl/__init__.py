@@ -31,7 +31,7 @@ vendor_dir = os.path.join(os.path.abspath(os.path.dirname(__file__)), "vendor")
 sys.path.insert(0, vendor_dir)
 
 
-class DefaultNames(object):
+class DefaultNames:
     SpecDirectory = "spec"
     EnsembleDirectory = "ensemble"
     Ensemble = "ensemble.yaml"

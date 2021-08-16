@@ -22,7 +22,7 @@ from six.moves.urllib.parse import urlparse
 _basepath = os.path.abspath(os.path.dirname(__file__))
 
 
-class Project(object):
+class Project:
     """
     A Unfurl project is a folder that contains at least a local configuration file (unfurl.yaml),
     one or more ensemble.yaml files which maybe optionally organized into one or more git repositories.
@@ -151,8 +151,7 @@ class Project(object):
         if fullPath:
             if not os.path.exists(fullPath):
                 raise UnfurlError(
-                    "The default ensemble found in %s does not exist: %s"
-                    % (self.localConfig.config.path, os.path.abspath(fullPath))
+                    f"The default ensemble found in {self.localConfig.config.path} does not exist: {os.path.abspath(fullPath)}"
                 )
             return fullPath
         else:
@@ -166,8 +165,7 @@ class Project(object):
             if os.path.exists(fullPath2):
                 return fullPath2
             raise UnfurlError(
-                'The can not find an ensemble in a default location: "%s" or "%s"'
-                % (fullPath, fullPath2)
+                f'The can not find an ensemble in a default location: "{fullPath}" or "{fullPath2}"'
             )
 
     def get_relative_path(self, path):
@@ -253,7 +251,7 @@ class Project(object):
         return newRepo
 
 
-class LocalConfig(object):
+class LocalConfig:
     """
     Represents the local configuration file, which provides the environment that manifests run in, including:
       instances imported from other ensembles, inputs, environment variables, secrets and local configuration.
@@ -374,7 +372,7 @@ class LocalConfig(object):
                 counter = 0
                 while name in self.projects:
                     counter += 1
-                    name += "-%s" % counter
+                    name += f"-{counter}"
 
             externalProject = dict(
                 url=repo.url,
@@ -393,7 +391,7 @@ class LocalConfig(object):
         return True
 
 
-class LocalEnv(object):
+class LocalEnv:
     """
     This class represents the local environment that an ensemble runs in, including
     the local project it is part of and the home project.
@@ -448,9 +446,7 @@ class LocalEnv(object):
                 # if pathORproject:
                 #    self.manifestPath = pathORproject.getInstance(manifestPath)
                 # else:
-                raise UnfurlError(
-                    "Ensemble manifest does not exist: '%s'" % manifestPath
-                )
+                raise UnfurlError(f"Ensemble manifest does not exist: '{manifestPath}'")
             else:
                 pathORproject = self.find_manifest_path(manifestPath)
         else:
@@ -481,13 +477,13 @@ class LocalEnv(object):
         )
 
     def get_vault_password(self, vaultId="default"):
-        secret = os.getenv("UNFURL_VAULT_%s_PASSWORD" % vaultId.upper())
+        secret = os.getenv(f"UNFURL_VAULT_{vaultId.upper()}_PASSWORD")
         if not secret:
             context = self.get_context()
             secret = (
                 context.get("secrets", {})
                 .get("attributes", {})
-                .get("vault_%s_password" % vaultId)
+                .get(f"vault_{vaultId}_password")
             )
         return secret
 
@@ -544,7 +540,7 @@ class LocalEnv(object):
     def find_manifest_path(self, manifestPath):
         if not os.path.exists(manifestPath):
             raise UnfurlError(
-                "Manifest file does not exist: '%s'" % os.path.abspath(manifestPath)
+                f"Manifest file does not exist: '{os.path.abspath(manifestPath)}'"
             )
 
         if os.path.isdir(manifestPath):
@@ -560,10 +556,7 @@ class LocalEnv(object):
                     if os.path.exists(test):
                         return self.get_project(test, self.homeProject)
                     else:
-                        message = (
-                            "Can't find an Unfurl ensemble or project in folder '%s'"
-                            % manifestPath
-                        )
+                        message = f"Can't find an Unfurl ensemble or project in folder '{manifestPath}'"
                         raise UnfurlError(message)
         else:
             return manifestPath

@@ -120,7 +120,7 @@ def _create_repo(gitDir, ignore=True):
         os.makedirs(gitDir)
     repo = git.Repo.init(gitDir)
     repo.index.add(add_hidden_git_files(gitDir))
-    repo.index.commit("Initial Commit for %s" % uuid.uuid1())
+    repo.index.commit(f"Initial Commit for {uuid.uuid1()}")
 
     if ignore:
         Repo.ignore_dir(gitDir)
@@ -152,7 +152,7 @@ def write_ensemble_manifest(
 def add_hidden_git_files(gitDir):
     # write .gitignore and  .gitattributes
     gitIgnorePath = write_template(gitDir, ".gitignore", "gitignore.j2", {})
-    gitAttributesContent = "**/*%s merge=union\n" % DefaultNames.JobsLog
+    gitAttributesContent = f"**/*{DefaultNames.JobsLog} merge=union\n"
     gitAttributesPath = _write_file(gitDir, ".gitattributes", gitAttributesContent)
     return [os.path.abspath(gitIgnorePath), os.path.abspath(gitAttributesPath)]
 
@@ -236,7 +236,7 @@ def create_project(
     template=None,
     submodule=False,
     creating_home=False,
-    **kw
+    **kw,
 ):
     if existing:
         repo = Repo.find_containing_repo(projectdir)
@@ -408,8 +408,7 @@ def create_new_ensemble(templateVars, project, targetPath, mono):
         specRepo, relPath, revision, bare = project.find_path_in_repos(sourceDir)
         if not specRepo:
             raise UnfurlError(
-                '"%s" is not in a git repository. Cloning from plain file directories not yet supported'
-                % os.path.abspath(sourceDir)
+                f'"{os.path.abspath(sourceDir)}" is not in a git repository. Cloning from plain file directories not yet supported'
             )
         manifestPath = write_ensemble_manifest(
             os.path.join(project.projectRoot, destDir),
@@ -446,15 +445,14 @@ def clone_remote_project(source, destDir):
     # else: # otherwise clone to dest
     if os.path.exists(destDir) and os.listdir(destDir):
         raise UnfurlError(
-            'Can not clone project into "%s": folder is not empty' % destDir
+            f'Can not clone project into "{destDir}": folder is not empty'
         )
     Repo.create_working_dir(repoURL, destDir, revision)  # clone source repo
     targetDir = os.path.join(destDir, filePath)
     sourceRoot = Project.find_path(targetDir)
     if not sourceRoot:
         raise UnfurlError(
-            'Error: cloned "%s" to "%s" but couldn\'t find an Unfurl project'
-            % (source, destDir)
+            f'Error: cloned "{source}" to "{destDir}" but couldn\'t find an Unfurl project'
         )
     sourceProject = Project(sourceRoot)
     return sourceProject, targetDir
@@ -517,8 +515,7 @@ def clone(source, dest, includeLocal=False, **options):
         if sourceNotInProject:
             # source wasn't in a project
             raise UnfurlError(
-                "Can't clone \"%s\": it isn't in an Unfurl project or repository"
-                % source
+                f"Can't clone \"{source}\": it isn't in an Unfurl project or repository"
             )
             # XXX create a new project from scratch for the ensemble
             # if os.path.exists(dest) and os.listdir(dest):
@@ -592,9 +589,9 @@ def _create_in_cloned_project(paths, clonedProject, dest, mono):
         # dest: should be a path relative to the clonedProject's root
         assert not os.path.isabs(dest)
         destDir, manifest = create_new_ensemble(paths, clonedProject, dest, mono)
-        return manifest, 'Created new ensemble at "%s" in cloned project at "%s"' % (
-            destDir,
-            clonedProject.projectRoot,
+        return (
+            manifest,
+            f'Created new ensemble at "{destDir}" in cloned project at "{clonedProject.projectRoot}"',
         )
 
 
@@ -726,7 +723,7 @@ def create_venv(projectDir, pipfileLocation, unfurlLocation):
             )  # e.g. templates/python3.8
 
         if not os.path.isdir(pipfileLocation):
-            return 'Pipfile location is not a valid directory: "%s"' % pipfileLocation
+            return f'Pipfile location is not a valid directory: "{pipfileLocation}"'
 
         # copy Pipfiles to project root
         if os.path.abspath(projectDir) != os.path.abspath(pipfileLocation):
@@ -739,7 +736,7 @@ def create_venv(projectDir, pipfileLocation, unfurlLocation):
         # need to run without args first so lock isn't overwritten
         retcode = _run_pip_env(do_install, kw)
         if retcode:
-            return "Pipenv (step 1) failed: %s" % retcode
+            return f"Pipenv (step 1) failed: {retcode}"
 
         # we need to set these so pipenv doesn't try to recreate the virtual environment
         environments.PIPENV_USE_SYSTEM = 1
@@ -757,7 +754,7 @@ def create_venv(projectDir, pipfileLocation, unfurlLocation):
             ]  # use the same version as current
         retcode = _run_pip_env(do_install, kw)
         if retcode:
-            return "Pipenv (step 2) failed: %s" % retcode
+            return f"Pipenv (step 2) failed: {retcode}"
 
         return ""
     finally:

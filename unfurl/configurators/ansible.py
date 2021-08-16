@@ -77,7 +77,7 @@ class AnsibleConfigurator(TemplateConfigurator):
     """The current resource is the inventory."""
 
     def __init__(self, configSpec):
-        super(AnsibleConfigurator, self).__init__(configSpec)
+        super().__init__(configSpec)
         self._cleanupRoutines = []
 
     def can_dry_run(self, task):
@@ -152,7 +152,7 @@ class AnsibleConfigurator(TemplateConfigurator):
             project_id = host.attributes.get("project_id")
             if project_id:
                 # hack for gcp because this name is set in .ssh/config by `gcloud compute config-ssh --quiet`
-                hostname = "%s.%s.%s" % (host.name, host.attributes["zone"], project_id)
+                hostname = f"{host.name}.{host.attributes['zone']}.{project_id}"
             else:
                 hostname = host.name
             hosts = {hostname: hostVars}
@@ -243,7 +243,7 @@ class AnsibleConfigurator(TemplateConfigurator):
         if task.dry_run:
             args.append("--check")
         if task.configSpec.timeout:
-            args.append("--timeout=%s" % task.configSpec.timeout)
+            args.append(f"--timeout={task.configSpec.timeout}")
         if task.verbose > 0:
             args.append("-" + ("v" * task.verbose))
         return list(args)
@@ -357,7 +357,7 @@ class ResultCallback(CallbackModule):
     # see ansible.executor.task_result.TaskResult and ansible.playbook.task.Task
 
     def __init__(self):
-        super(ResultCallback, self).__init__()
+        super().__init__()
         self.results = []
         # named tuple of OrderedDict<task_name:list<result>>
         self.resultsByStatus = _ResultsByStatus(
@@ -374,7 +374,7 @@ class ResultCallback(CallbackModule):
         taskname = result.task_name
         fields = result._task_fields.keys()
         keys = result._result.keys()
-        return "%s: %s(%s) => %s" % (host, taskname, fields, keys)
+        return f"{host}: {taskname}({fields}) => {keys}"
 
     def _add_result(self, status, result):
         self.results.append(result)
@@ -388,22 +388,22 @@ class ResultCallback(CallbackModule):
     def v2_runner_on_ok(self, result):
         self._add_result("ok", result)
         # print("ok", self.getInfo(result))
-        super(ResultCallback, self).v2_runner_on_ok(result)
+        super().v2_runner_on_ok(result)
 
     def v2_runner_on_skipped(self, result):
         self._add_result("skipped", result)
         # print("skipped", self.getInfo(result))
-        super(ResultCallback, self).v2_runner_on_skipped(result)
+        super().v2_runner_on_skipped(result)
 
     def v2_runner_on_failed(self, result, **kwargs):
         self._add_result("failed", result)
         # print("failed", self.getInfo(result))
-        super(ResultCallback, self).v2_runner_on_failed(result, **kwargs)
+        super().v2_runner_on_failed(result, **kwargs)
 
     def v2_runner_on_unreachable(self, result):
         self._add_result("unreachable", result)
         # print("unreachable", self.getInfo(result))
-        super(ResultCallback, self).v2_runner_on_unreachable(result)
+        super().v2_runner_on_unreachable(result)
 
 
 def _init_global_context(options):

@@ -61,10 +61,10 @@ class _ProgressPrinter(git.RemoteProgress):
     def update(self, op_code, cur_count, max_count=None, message=""):
         # we use print instead of logging because we don't want to clutter logs with this message
         if message and logger.getEffectiveLevel() <= logging.INFO:
-            print("fetching from %s, received: %s " % (self.gitUrl, message))
+            print(f"fetching from {self.gitUrl}, received: {message} ")
 
 
-class Repo(object):
+class Repo:
     @staticmethod
     def find_containing_repo(rootDir, gitDir=".git"):
         """
@@ -158,8 +158,7 @@ class Repo(object):
         if os.path.exists(localRepoPath):
             if not os.path.isdir(localRepoPath) or os.listdir(localRepoPath):
                 raise UnfurlError(
-                    "couldn't create directory, it already exists and isn't empty: %s"
-                    % localRepoPath
+                    f"couldn't create directory, it already exists and isn't empty: {localRepoPath}"
                 )
         logger.info("Fetching %s %s to %s", gitUrl, revision or "", localRepoPath)
         progress = _ProgressPrinter()
@@ -171,14 +170,13 @@ class Repo(object):
             repo = git.Repo.clone_from(gitUrl, localRepoPath, progress, **kwargs)
         except git.exc.GitCommandError as err:
             raise UnfurlError(
-                'couldn\'t create working directory, clone failed: "%s"\nTry re-running that command to diagnose the problem.'
-                % err._cmdline
+                f'couldn\'t create working directory, clone failed: "{err._cmdline}"\nTry re-running that command to diagnose the problem.'
             )
         Repo.ignore_dir(localRepoPath)
         return GitRepo(repo)
 
 
-class RepoView(object):
+class RepoView:
     # view of Repo optionally filtered by path
     # XXX and revision too
     def __init__(self, repository, repo, path=""):
@@ -409,7 +407,7 @@ class GitRepo(Repo):
         if os.path.isabs(path):
             # get path relative to repository's root
             path = os.path.relpath(path, self.working_dir)
-        return "git-local://%s:%s/%s" % (self.get_initial_revision(), name, path)
+        return f"git-local://{self.get_initial_revision()}:{name}/{path}"
 
     # XXX: def getDependentRepos()
     # XXX: def canManage()
@@ -452,7 +450,7 @@ class GitRepo(Repo):
     #     repo.git.commit("")
 
 
-class RevisionManager(object):
+class RevisionManager:
     def __init__(self, manifest, localEnv=None):
         self.manifest = manifest
         self.revisions = None
