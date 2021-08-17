@@ -124,7 +124,7 @@ def merge_dicts(b, a, cls=None, replaceKeys=None, defaultStrategy="merge"):
 
 
 def _cache_anchors(_anchorCache, obj):
-    if not hasattr(obj, 'yaml_anchor'):
+    if not hasattr(obj, "yaml_anchor"):
         return
     anchor = obj.yaml_anchor()
     if anchor and anchor.value:
@@ -201,8 +201,7 @@ def get_template(doc, key, value, path, cls, includes=None):
                 )
                 if len(prefix) == len(templatePath):
                     raise UnfurlError(
-                        'recursive include "%s" in "%s" when including %s'
-                        % (templatePath, path, key.key)
+                        f'recursive include "{templatePath}" in "{path}" when including {key.key}'
                     )
             if includes is None:
                 includes = CommentedMap()
@@ -222,7 +221,7 @@ def _find_template(doc, key, path, cls, fail):
             if not fail:
                 return None
             else:
-                raise UnfurlError("could not find anchor '%s'" % key.anchor)
+                raise UnfurlError(f"could not find anchor '{key.anchor}'")
         # XXX we don't know the path to the anchor so we can't support relative paths also
     elif key.relative:
         stop = None
@@ -237,7 +236,7 @@ def _find_template(doc, key, path, cls, fail):
             if not fail:
                 return None
             else:
-                raise UnfurlError("could relative path '%s'" % ("." * key.relative))
+                raise UnfurlError(f"could relative path '{('.' * key.relative)}'")
     for index, segment in enumerate(key.pointer):
         if isinstance(template, Sequence):
             # Array indexes should be turned into integers
@@ -268,7 +267,7 @@ def has_template(doc, key, value, path, cls):
     return _find_template(doc, key, path, cls, False) is not None
 
 
-class _MissingInclude(object):
+class _MissingInclude:
     def __init__(self, key, value):
         self.key = key
         self.value = value
@@ -351,7 +350,7 @@ def expand_dict(doc, path, includes, current, cls=dict):
                 continue  # include path not found
             else:
                 if len(current) > 1:  # XXX include merge directive keys in count
-                    raise UnfurlError("can not merge non-map value %s" % template)
+                    raise UnfurlError(f"can not merge non-map value {template}")
                 else:
                     return template  # current dict is replaced with a value
         # elif key.startswith("q+"):
@@ -397,7 +396,7 @@ def expand_doc(doc, current=None, cls=dict):
     if current is None:
         current = doc
     if not isinstance(doc, Mapping) or not isinstance(current, Mapping):
-        raise UnfurlError("top level element %s is not a dict" % doc)
+        raise UnfurlError(f"top level element {doc} is not a dict")
     expanded = expand_dict(doc, (), includes, current, cls)
     if hasattr(doc, "_anchorCache"):
         expanded._anchorCache = doc._anchorCache
@@ -409,7 +408,7 @@ def expand_doc(doc, current=None, cls=dict):
             _delete_deleted_keys(expanded)
             return includes, expanded
         if len(missing) == last:  # no progress
-            raise UnfurlError("missing includes: %s" % missing)
+            raise UnfurlError(f"missing includes: {missing}")
         last = len(missing)
         includes = CommentedMap()
         expanded = expand_dict(expanded, (), includes, current, cls)
@@ -598,7 +597,9 @@ def restore_includes(includes, originalDoc, changedDoc, cls=dict):
             if not stillHasTemplate:
                 if includeValue != "raw":
                     if has_template(originalDoc, includeKey, includeValue, key, cls):
-                        template = get_template(originalDoc, includeKey, "raw", key, cls)
+                        template = get_template(
+                            originalDoc, includeKey, "raw", key, cls
+                        )
                     else:
                         template = get_template(
                             expandedOriginalDoc, includeKey, "raw", key, cls

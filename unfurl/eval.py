@@ -44,10 +44,10 @@ def _map_value(value, ctx, wantList=False, applyTemplates=True):
             ctx.base_dir = getattr(value, "base_dir", oldBaseDir)
             if ctx.base_dir and ctx.base_dir != oldBaseDir:
                 ctx.trace("found base_dir", ctx.base_dir)
-            return dict(
-                (key, _map_value(v, ctx, wantList, applyTemplates))
+            return {
+                key: _map_value(v, ctx, wantList, applyTemplates)
                 for key, v in value.items()
-            )
+            }
         finally:
             ctx.base_dir = oldBaseDir
     elif isinstance(value, (MutableSequence, tuple)):
@@ -57,7 +57,7 @@ def _map_value(value, ctx, wantList=False, applyTemplates=True):
     return value
 
 
-class _Tracker(object):
+class _Tracker:
     def __init__(self):
         self.count = 0
         self.referenced = []
@@ -91,7 +91,7 @@ class _Tracker(object):
 _defaultStrictness = True
 
 
-class RefContext(object):
+class RefContext:
     """
     The context of the expression being evaluated.
     """
@@ -147,7 +147,7 @@ class RefContext(object):
 
     def trace(self, *msg):
         if self._trace:
-            print("%s (ctx: %s)" % (" ".join(str(a) for a in msg), self._lastResource))
+            print(f"{' '.join(str(a) for a in msg)} (ctx: {self._lastResource})")
 
     def add_external_reference(self, external):
         result = Result(external)
@@ -194,7 +194,7 @@ class RefContext(object):
         self.referenced = _Tracker()
 
 
-class Expr(object):
+class Expr:
     def __init__(self, exp, vars=None):
         self.vars = {"true": True, "false": False, "null": None}
 
@@ -221,7 +221,7 @@ class Expr(object):
 
     def __repr__(self):
         # XXX vars
-        return "Expr('%s')" % self.source
+        return f"Expr('{self.source}')"
 
     def resolve(self, context):
         # returns a list of Result
@@ -241,7 +241,7 @@ class Expr(object):
         return eval_exp([currentResource], paths, context)
 
 
-class Ref(object):
+class Ref:
     """A Ref objects describes a path to metadata associated with a resource."""
 
     def __init__(self, exp, vars=None):
@@ -271,22 +271,22 @@ class Ref(object):
         ctx = ctx.copy(
             vars=self.vars, wantList=wantList, trace=self.trace, strict=strict
         )
-        base_dir = getattr(self.source, 'base_dir', None)
+        base_dir = getattr(self.source, "base_dir", None)
         if base_dir:
             ctx.base_dir = base_dir
 
         ctx.trace(
-            "Ref.resolve(wantList=%s) start strict %s" % (wantList, ctx.strict),
+            f"Ref.resolve(wantList={wantList}) start strict {ctx.strict}",
             self.source,
         )
         results = eval_ref(self.source, ctx, True)
-        ctx.trace("Ref.resolve(wantList=%s) evalRef" % wantList, self.source, results)
+        ctx.trace(f"Ref.resolve(wantList={wantList}) evalRef", self.source, results)
         if results and self.foreach:
             results = for_each(self.foreach, results, ctx)
         assert not isinstance(results, ResultsList), results
         results = ResultsList(results, ctx)
         ctx.add_reference(self, results)
-        ctx.trace("Ref.resolve(wantList=%s) results" % wantList, self.source, results)
+        ctx.trace(f"Ref.resolve(wantList={wantList}) results", self.source, results)
         if wantList and not wantList == "result":
             return results
         else:
@@ -513,8 +513,7 @@ def eval_ref(val, ctx, top=False):
                     unexpected = False
                 if unexpected:
                     raise UnfurlError(
-                        "unexpected '%s' found, did you intend it for the parent?"
-                        % unexpected
+                        f"unexpected '{unexpected}' found, did you intend it for the parent?"
                     )
                 val = func(args, ctx)
                 if key == "q":
@@ -588,7 +587,7 @@ def lookup(result, key, context):
         ctx = context.copy(context._lastResource)
         result = result.project(key, ctx)
         value = result.resolved
-        context.trace("lookup %s, got %s" % (key, value))
+        context.trace(f"lookup {key}, got {value}")
 
         if not context._rest:
             assert not Ref.is_ref(value)
@@ -661,7 +660,7 @@ def recursive_eval(v, exp, context):
         if _treat_as_singular(result, exp[0]):
             rest = exp[1:]
             context._rest = rest
-            context.trace("evaluating item %s with key %s" % (item, exp[0].key))
+            context.trace(f"evaluating item {item} with key {exp[0].key}")
             iv = eval_item(
                 result, exp[0], context
             )  # returns a generator that yields up to one result
@@ -686,7 +685,7 @@ def recursive_eval(v, exp, context):
                 context.trace("recursive result", r)
                 assert isinstance(r, Result), r
                 yield r
-            context.trace("found recursive %s matchFirst: %s" % (found, matchFirst))
+            context.trace(f"found recursive {found} matchFirst: {matchFirst}")
             if found and matchFirst:
                 return
         else:

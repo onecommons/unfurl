@@ -70,7 +70,7 @@ def get_package_digest():
 
     basedir = os.path.dirname(_basepath)
     if os.path.isdir(os.path.join(basedir, ".git")):
-        return Repo(basedir).git.describe("--dirty", '--always')
+        return Repo(basedir).git.describe("--dirty", "--always")
 
     try:
         pbr = [p for p in files("unfurl") if "pbr.json" in str(p)][0]
@@ -85,7 +85,7 @@ class UnfurlError(Exception):
             (etype, value, traceback) = sys.exc_info()
             if value:
                 message = str(message) + ": " + str(value)
-        super(UnfurlError, self).__init__(message)
+        super().__init__(message)
         self.stackInfo = (etype, value, traceback) if saveStack and value else None
         if log:
             logger.error(message, exc_info=True)
@@ -98,13 +98,13 @@ class UnfurlError(Exception):
 
 class UnfurlValidationError(UnfurlError):
     def __init__(self, message, errors=None):
-        super(UnfurlValidationError, self).__init__(message)
+        super().__init__(message)
         self.errors = errors or []
 
 
 class UnfurlTaskError(UnfurlError):
     def __init__(self, task, message, log=logging.ERROR):
-        super(UnfurlTaskError, self).__init__(message, True, False)
+        super().__init__(message, True, False)
         self.task = task
         task._errors.append(self)
         self.severity = log
@@ -114,8 +114,8 @@ class UnfurlTaskError(UnfurlError):
 
 class UnfurlAddingResourceError(UnfurlTaskError):
     def __init__(self, task, resourceSpec, name, log=logging.DEBUG):
-        message = "error updating resource %s" % name
-        super(UnfurlAddingResourceError, self).__init__(task, message, log)
+        message = f"error updating resource {name}"
+        super().__init__(task, message, log)
         self.resourceSpec = resourceSpec
 
 
@@ -159,7 +159,7 @@ class sensitive_bytes(AnsibleUnsafeBytes, sensitive):
 
     def decode(self, *args, **kwargs):
         """Wrapper method to ensure type conversions maintain sensitive context"""
-        return sensitive_str(super(sensitive_bytes, self).decode(*args, **kwargs))
+        return sensitive_str(super().decode(*args, **kwargs))
 
 
 # also mark AnsibleUnsafe so wrap_var doesn't strip out sensitive status
@@ -168,7 +168,7 @@ class sensitive_str(AnsibleUnsafeText, sensitive):
 
     def encode(self, *args, **kwargs):
         """Wrapper method to ensure type conversions maintain sensitive context"""
-        return sensitive_bytes(super(sensitive_str, self).encode(*args, **kwargs))
+        return sensitive_bytes(super().encode(*args, **kwargs))
 
 
 class sensitive_dict(dict, sensitive):
@@ -193,7 +193,7 @@ def to_yaml_text(val):
 
 def assert_form(src, types=Mapping, test=True):
     if not isinstance(src, types) or not test:
-        raise UnfurlError("Malformed definition: %s" % src)
+        raise UnfurlError(f"Malformed definition: {src}")
     return src
 
 
@@ -210,7 +210,7 @@ def register_class(className, factory, shortName=None, replace=True):
         _shortNameRegistry[shortName] = className
     if not replace and className in _ClassRegistry:
         if _ClassRegistry[className] is not factory:
-            raise UnfurlError("class already registered for %s" % className)
+            raise UnfurlError(f"class already registered for {className}")
     _ClassRegistry[className] = factory
 
 
@@ -471,7 +471,7 @@ class ChainMap(Mapping):
         return "ChainMap(%r)" % (self._maps,)
 
 
-class Generate(object):
+class Generate:
     """
     Roughly equivalent to "yield from" but works in Python < 3.3
 

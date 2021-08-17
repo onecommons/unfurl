@@ -75,7 +75,7 @@ class ColorHandler(logging.StreamHandler):
         click.secho(f" {message}", file=self.stream, **self.STYLE_MESSAGE[level])
 
 
-class sensitive(object):
+class sensitive:
     """Base class for marking a value as sensitive. Depending on the context,
     sensitive values will either be encrypted or redacted when outputed.
     """

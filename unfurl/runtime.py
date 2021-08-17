@@ -370,7 +370,7 @@ class EntityInstance(OperationalInstance, ResourceRef):
 
     @property
     def key(self):
-        return "%s::.%s::%s" % (self.parent.key, self.parentRelation[1:], self.name)
+        return f"{self.parent.key}::.{self.parentRelation[1:]}::{self.name}"
 
     def as_ref(self, options=None):
         return {"ref": self.key}
@@ -445,7 +445,7 @@ class EntityInstance(OperationalInstance, ResourceRef):
         return state
 
     def __repr__(self):
-        return "%s('%s')" % (self.__class__, self.name)
+        return f"{self.__class__}('{self.name}')"
 
 
 # both have occurrences
@@ -463,7 +463,7 @@ class CapabilityInstance(EntityInstance):
             self._relationships = []
         if len(self._relationships) != len(self.template.relationships):
             # instantiate missing relationships (they are only added, never deleted)
-            instantiated = set(id(c.template) for c in self._relationships)
+            instantiated = {id(c.template) for c in self._relationships}
             for template in self.template.relationships:
                 if id(template) not in instantiated:
                     rel = RelationshipInstance(
@@ -480,7 +480,7 @@ class CapabilityInstance(EntityInstance):
     @property
     def key(self):
         # XXX implement something like _ChildResources to enable ::name instead of [.name]
-        return "%s::.%s::[.name=%s]" % (self.parent.key, "capabilities", self.name)
+        return f"{self.parent.key}::.{'capabilities'}::[.name={self.name}]"
 
 
 class RelationshipInstance(EntityInstance):
@@ -499,11 +499,11 @@ class RelationshipInstance(EntityInstance):
     def key(self):
         # XXX implement something like _ChildResources to enable ::name instead of [.name=name]
         if self.source:
-            return "%s::.requirements::[.name=%s]" % (self.source.key, self.name)
+            return f"{self.source.key}::.requirements::[.name={self.name}]"
         elif self.parent is self.root:  # it's a default relationship
-            return "::.requirements::[.name=%s]" % self.name
+            return f"::.requirements::[.name={self.name}]"
         else:  # capability is parent
-            return "%s::.relationships::[.name=%s]" % (self.parent.key, self.name)
+            return f"{self.parent.key}::.relationships::[.name={self.name}]"
 
     def merge_props(self, matchfn):
         env = {}
@@ -554,8 +554,7 @@ class NodeInstance(EntityInstance):
             # only node instances have unique names
             if parent.root.find_resource(name):
                 raise UnfurlError(
-                    'can not create node instance "%s", its name is already in use'
-                    % name
+                    f'can not create node instance "{name}", its name is already in use'
                 )
 
         # next three may be initialized either by Manifest.createNodeInstance or by its property
@@ -581,10 +580,9 @@ class NodeInstance(EntityInstance):
         assert relationship and relationship.capability and relationship.target
         # find the Capability instance that corresponds to this relationship template's capability
         targetNodeInstance = self.root.find_resource(relationship.target.name)
-        assert targetNodeInstance, (
-            "target instance %s should have been already created"
-            % relationship.target.name
-        )
+        assert (
+            targetNodeInstance
+        ), f"target instance {relationship.target.name} should have been already created"
         for cap in targetNodeInstance.capabilities:
             if cap.template is relationship.capability:
                 for relInstance in cap.relationships:
@@ -597,15 +595,14 @@ class NodeInstance(EntityInstance):
         # if self._requirements is None:
         if len(self._requirements) != len(self.template.requirements):
             # instantiate missing relationships (they are only added, never deleted)
-            instantiated = set(id(r.template) for r in self._requirements)
+            instantiated = {id(r.template) for r in self._requirements}
             for name, template in self.template.requirements.items():
                 assert template.relationship
                 if id(template.relationship) not in instantiated:
                     relInstance = self._find_relationship(template.relationship)
                     if not relInstance:
                         raise UnfurlError(
-                            'can not find relation instance for requirement "%s" on node "%s"'
-                            % (name, self.name)
+                            f'can not find relation instance for requirement "{name}" on node "{self.name}"'
                         )
                     assert template.relationship is relInstance.template
                     assert self.template is relInstance.template.source
@@ -621,13 +618,13 @@ class NodeInstance(EntityInstance):
         elif isinstance(match, CapabilityInstance):
             return [r for r in self.requirements if r.parent == match]
         else:
-            raise UnfurlError('invalid match for get_requirements: "%s"' % match)
+            raise UnfurlError(f'invalid match for get_requirements: "{match}"')
 
     @property
     def capabilities(self):
         if len(self._capabilities) != len(self.template.capabilities):
             # instantiate missing capabilities (they are only added, never deleted)
-            instantiated = set(id(c.template) for c in self._capabilities)
+            instantiated = {id(c.template) for c in self._capabilities}
             for name, template in self.template.capabilities.items():
                 if id(template) not in instantiated:
                     # if capabilities:
@@ -664,7 +661,7 @@ class NodeInstance(EntityInstance):
         # this only includes named artifacts
         if len(self._artifacts) != len(self.template.artifacts):
             # instantiate artifacts (they are only added, never deleted)
-            instantiated = set(id(c.template) for c in self._artifacts)
+            instantiated = {id(c.template) for c in self._artifacts}
             for name, template in self.template.artifacts.items():
                 if id(template) not in instantiated:
                     artifact = ArtifactInstance(
@@ -714,10 +711,10 @@ class NodeInstance(EntityInstance):
 
     @property
     def key(self):
-        return "::%s" % self.name
+        return f"::{self.name}"
 
     def get_operational_dependencies(self):
-        for dep in super(NodeInstance, self).get_operational_dependencies():
+        for dep in super().get_operational_dependencies():
             yield dep
 
         for instance in self.requirements:
@@ -792,7 +789,7 @@ class NodeInstance(EntityInstance):
         return None
 
     def __repr__(self):
-        return "NodeInstance('%s')" % self.name
+        return f"NodeInstance('{self.name}')"
 
 
 class TopologyInstance(NodeInstance):

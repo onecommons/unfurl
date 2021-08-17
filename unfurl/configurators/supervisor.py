@@ -50,12 +50,12 @@ class SupervisorConfigurator(Configurator):
             if not os.path.isdir(programDir):
                 os.makedirs(programDir)
             with open(confPath, "w") as conff:
-                conf = "[program:%s]\n" % name
-                conf += "\n".join("%s= %s" % (k, v) for k, v in program.items())
+                conf = f"[program:{name}]\n"
+                conf += "\n".join(f"{k}= {v}" for k, v in program.items())
                 if "environment" not in program:
                     conf += "\nenvironment= "
                     conf += ",".join(
-                        '%s="%s"' % (k, v.replace("%", "%%"))
+                        f'{k}="{v.replace("%", "%%")}"'
                         for (k, v) in task.get_environment(True).items()
                     )
                 conff.write(conf)

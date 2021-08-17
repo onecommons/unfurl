@@ -71,7 +71,7 @@ class ConfigChange(OperationalInstance, ChangeRecord):
                 yield d
 
 
-class JobOptions(object):
+class JobOptions:
     """
     Options available to select which tasks are run, e.g. read-only
 
@@ -389,18 +389,18 @@ class ConfigTask(ConfigChange, TaskView):
 
     def summary(self, asJson=False):
         if self.target.name != self.target.template.name:
-            rname = "%s (%s)" % (self.target.name, self.target.template.name)
+            rname = f"{self.target.name} ({self.target.template.name})"
         else:
             rname = self.target.name
 
         if self.configSpec.name != self.configSpec.className:
-            cname = "%s (%s)" % (self.configSpec.name, self.configSpec.className)
+            cname = f"{self.configSpec.name} ({self.configSpec.className})"
         else:
             cname = self.configSpec.name
 
         if self._configurator:
             cClass = self._configurator.__class__
-            configurator = "%s.%s" % (cClass.__module__, cClass.__name__)
+            configurator = f"{cClass.__module__}.{cClass.__name__}"
         else:
             configurator = self.configSpec.className
 
@@ -427,7 +427,7 @@ class ConfigTask(ConfigChange, TaskView):
             ).format(cname=cname, rname=rname, **summary)
 
     def __repr__(self):
-        return "ConfigTask(%s:%s)" % (self.target, self.name)
+        return f"ConfigTask({self.target}:{self.name})"
 
 
 class Job(ConfigChange):
@@ -440,7 +440,7 @@ class Job(ConfigChange):
     def __init__(self, manifest, rootResource, jobOptions, previousId=None):
         assert isinstance(jobOptions, JobOptions)
         self.__dict__.update(jobOptions.__dict__)
-        super(Job, self).__init__(self.parentJob, self.startTime, Status.ok, previousId)
+        super().__init__(self.parentJob, self.startTime, Status.ok, previousId)
         self.dry_run = jobOptions.dryrun
         self.jobOptions = jobOptions
         self.manifest = manifest
@@ -513,10 +513,7 @@ class Job(ConfigChange):
         # if there were circular dependencies or errors then notReady won't be empty
         if notReady:
             for parent, req in get_render_requests(notReady):
-                message = "can't fulfill %s: never ran %s" % (
-                    req.target.name,
-                    req.future_dependencies,
-                )
+                message = f"can't fulfill {req.target.name}: never ran {req.future_dependencies}"
                 logger.debug(message)
                 req.task.finished(ConfiguratorResult(False, False, result=message))
 
@@ -535,7 +532,7 @@ class Job(ConfigChange):
         joboptions = self.jobOptions
         WorkflowPlan = Plan.get_plan_class_for_workflow(joboptions.workflow)
         if not WorkflowPlan:
-            raise UnfurlError("unknown workflow: %s" % joboptions.workflow)
+            raise UnfurlError(f"unknown workflow: {joboptions.workflow}")
         plan = WorkflowPlan(self.rootResource, self.manifest.tosca, joboptions)
         plan_requests = list(plan.execute_plan())
 
@@ -670,7 +667,7 @@ class Job(ConfigChange):
         missing = [dep for dep in dependencies if not dep.operational and dep.required]
         if missing:
             reason = "required dependencies not operational: %s" % ", ".join(
-                ["%s is %s" % (dep.name, dep.status.name) for dep in missing]
+                [f"{dep.name} is {dep.status.name}" for dep in missing]
             )
         else:
             reason = ""
@@ -739,17 +736,17 @@ class Job(ConfigChange):
                 if not missing:
                     errors = task.configSpec.find_invalidate_inputs(task.inputs)
                     if errors:
-                        reason = "invalid inputs: %s" % str(errors)
+                        reason = f"invalid inputs: {str(errors)}"
                     else:
                         preErrors = task.configSpec.find_invalid_preconditions(
                             task.target
                         )
                         if preErrors:
-                            reason = "invalid preconditions: %s" % str(preErrors)
+                            reason = f"invalid preconditions: {str(preErrors)}"
                         else:
                             errors = task.configurator.can_run(task)
                             if not errors or not isinstance(errors, bool):
-                                reason = "configurator declined: %s" % str(errors)
+                                reason = f"configurator declined: {str(errors)}"
                             else:
                                 can_run = True
         except Exception:
@@ -1093,7 +1090,7 @@ class Job(ConfigChange):
                             ),
                         )
                     )
-                    nodeStr = 'Node "%s" (%s):' % (target.name, status)
+                    nodeStr = f'Node "{target.name}" ({status}):'
                     output.append(" " * indent + nodeStr)
                 if isGroup:
                     output.append(
@@ -1104,10 +1101,10 @@ class Job(ConfigChange):
                     output.append(" " * indent + "- " + request.name)
 
         opts = self.jobOptions.get_user_settings()
-        options = ",".join(["%s = %s" % (k, opts[k]) for k in opts if k != "planOnly"])
-        header = "Plan for %s" % self.workflow
+        options = ",".join([f"{k} = {opts[k]}" for k in opts if k != "planOnly"])
+        header = f"Plan for {self.workflow}"
         if options:
-            header += " (%s)" % options
+            header += f" ({options})"
         output = [header + ":\n"]
         _summary(self.plan_requests, None, 0)
         if len(output) <= 1:
@@ -1122,16 +1119,11 @@ class Job(ConfigChange):
         outputs = self.get_outputs()
         if outputs:
             outputString = "\nOutputs:\n    " + "\n    ".join(
-                "%s: %s" % (name, value)
-                for name, value in serialize_value(outputs).items()
+                f"{name}: {value}" for name, value in serialize_value(outputs).items()
             )
 
         if not self.workDone:
-            return "Job %s completed: %s. Found nothing to do. %s" % (
-                self.changeId,
-                self.status.name,
-                outputString,
-            )
+            return f"Job {self.changeId} completed: {self.status.name}. Found nothing to do. {outputString}"
 
         def format(i, task):
             return "%d. %s; %s" % (i, task.summary(), task.result or "skipped")
@@ -1257,7 +1249,7 @@ def run_job(manifestPath=None, _opts=None):
     return _run_job(job, opts)
 
 
-class Runner(object):
+class Runner:
     # this class is only used by unit tests, application uses run_job() above
 
     def __init__(self, manifest):

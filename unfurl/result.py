@@ -71,7 +71,7 @@ def serialize_value(value, **kw):
         return value
 
 
-class ResourceRef(object):
+class ResourceRef:
     # ABC requires 'parent', and '_resolve'
     _templar = None
 
@@ -121,7 +121,7 @@ class ResourceRef(object):
         return self.root._templar
 
 
-class ChangeRecord(object):
+class ChangeRecord:
     """
     A ChangeRecord represents a job or task in the change log file.
     It consists of a change ID and named attributes.
@@ -199,18 +199,16 @@ class ChangeRecord(object):
         return re.match("^A[A-Za-z0-9]{11}$", test)
 
     @classmethod
-    def make_change_id(self, timestamp=None, taskid=0, previousId=None):
+    def make_change_id(cls, timestamp=None, taskid=0, previousId=None):
         b62 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
         if not timestamp:
             timestamp = datetime.utcnow()
 
-        year = timestamp.year - self.EpochStartTime.year  # 2020
+        year = timestamp.year - cls.EpochStartTime.year  # 2020
         if year < 0:
-            raise UnfurlError("changeId timestamp too far in the past: %s" % timestamp)
+            raise UnfurlError(f"changeId timestamp too far in the past: {timestamp}")
         if year > len(b62):
-            raise UnfurlError(
-                "changeId timestamp too far in the future: %s" % timestamp
-            )
+            raise UnfurlError(f"changeId timestamp too far in the future: {timestamp}")
 
         # year, month, day, hour, minute, second, wday, yday, dst
         jobIdFragment = "".join([b62[n] for n in timestamp.utctimetuple()[1:6]])
@@ -220,25 +218,19 @@ class ChangeRecord(object):
         if previousId:
             if previousId[:8] == changeId[:8]:
                 # in case last job started less than 1/62nd of a second ago
-                return self.make_change_id(
+                return cls.make_change_id(
                     timestamp + timedelta(milliseconds=16200), taskid, previousId
                 )
             if previousId > changeId:
                 raise UnfurlError(
-                    "New changeId is earlier than the previous changeId: %s (%s) < %s (%s) Is time set correctly?"
-                    % (
-                        changeId,
-                        self.decode(changeId),
-                        previousId,
-                        self.decode(previousId),
-                    )
+                    f"New changeId is earlier than the previous changeId: {changeId} ({cls.decode(changeId)}) < {previousId} ({cls.decode(previousId)}) Is time set correctly?"
                 )
         return changeId
 
     def parse(self, log):
         terms = log.split("\t")
         if not terms:
-            raise UnfurlError('can not parse ChangeRecord from "%s"' % log)
+            raise UnfurlError(f'can not parse ChangeRecord from "{log}"')
         attributes = dict(startTime=None)
         for i, term in enumerate(terms):
             if i == 0:
@@ -252,7 +244,7 @@ class ChangeRecord(object):
         self.__dict__.update(attributes)
 
     @classmethod
-    def format_log(klass, changeId, attributes):
+    def format_log(cls, changeId, attributes):
         r"format: changeid\tkey=value\tkey=value"
         terms = [changeId] + ["{}={}".format(k, v) for k, v in attributes.items()]
         return "\t".join(terms) + "\n"
@@ -269,7 +261,7 @@ class ChangeRecord(object):
         return self.format_log(self.changeId, default)
 
 
-class ChangeAware(object):
+class ChangeAware:
     def has_changed(self, changeRecord):
         """
         Whether or not this object changed since the give ChangeRecord.
@@ -441,7 +433,7 @@ class Result(ChangeAware):
         return "Result(%r, %r, %r)" % (self.resolved, self.external, self.select)
 
 
-class Results(object):
+class Results:
     """
     Evaluating expressions are not guaranteed to be idempotent (consider quoting)
     and resolving the whole tree up front can lead to evaluations of circular references unless the
@@ -591,9 +583,7 @@ class ResultsMap(Results, MutableMapping):
         list(self.values())
 
     def get_resolved(self):
-        return dict(
-            (key, v) for key, v in self._attributes.items() if isinstance(v, Result)
-        )
+        return {key: v for key, v in self._attributes.items() if isinstance(v, Result)}
 
     def __contains__(self, key):
         return key in self._attributes

@@ -39,7 +39,7 @@ class Manifest(AttributeManager):
     rootResource = None
 
     def __init__(self, path, localEnv=None):
-        super(Manifest, self).__init__(yaml)
+        super().__init__(yaml)
         self.localEnv = localEnv
         self.path = path
         self.repo = self._find_repo()
@@ -249,7 +249,7 @@ class Manifest(AttributeManager):
         if pname:
             parent = self.get_root_resource().find_resource(pname)
             if parent is None:
-                raise UnfurlError("can not find parent instance %s" % pname)
+                raise UnfurlError(f"can not find parent instance {pname}")
 
         resource = self._create_entity_instance(
             NodeInstance, rname, resourceSpec, parent
@@ -263,12 +263,12 @@ class Manifest(AttributeManager):
                 # parent will be the capability, should have already been created
                 capabilityId = val.get("capability")
                 if not capabilityId:
-                    raise UnfurlError("requirement is missing capability %s" % key)
+                    raise UnfurlError(f"requirement is missing capability {key}")
                 capability = capabilityId and self.get_root_resource().query(
                     capabilityId
                 )
                 if not capability or not isinstance(capability, CapabilityInstance):
-                    raise UnfurlError("can not find capability %s" % capabilityId)
+                    raise UnfurlError(f"can not find capability {capabilityId}")
                 if capability._relationships is None:
                     capability._relationships = []
                 requirement = self._create_entity_instance(
@@ -303,9 +303,9 @@ class Manifest(AttributeManager):
         if importName is not None:
             imported = self.imports.find_import(importName)
             if not imported:
-                raise UnfurlError("missing import %s" % importName)
+                raise UnfurlError(f"missing import {importName}")
             if imported.shadow:
-                raise UnfurlError("already imported %s" % importName)
+                raise UnfurlError(f"already imported {importName}")
             template = imported.template
         else:
             template = self.load_template(templateName)
@@ -316,7 +316,7 @@ class Manifest(AttributeManager):
                 changerecord = self._get_last_change(operational)
                 template = self.load_template(templateName, changerecord)
         if template is None:
-            raise UnfurlError("missing resource template %s" % templateName)
+            raise UnfurlError(f"missing resource template {templateName}")
         # logger.debug("creating instance for template %s: %s", templateName, template)
 
         # omit keys that match <<REDACTED>> so can we use the computed property
@@ -335,14 +335,7 @@ class Manifest(AttributeManager):
     def status_summary(self):
         def summary(instance, indent):
             output.append(
-                "%s%s %s %s %s"
-                % (
-                    " " * indent,
-                    instance,
-                    instance.status,
-                    instance.state,
-                    instance.created,
-                )
+                f"{' ' * indent}{instance} {instance.status} {instance.state} {instance.created}"
             )
             indent += 4
             for child in instance.instances:
@@ -370,7 +363,7 @@ class Manifest(AttributeManager):
     def find_repo_from_git_url(self, path, isFile, importLoader):
         repoURL, filePath, revision = split_git_url(path)
         if not repoURL:
-            raise UnfurlError("invalid git URL %s" % path)
+            raise UnfurlError(f"invalid git URL {path}")
         assert self.localEnv
         basePath = get_base_dir(importLoader.path)  # checks if dir or not
         repo, revision, bare = self.localEnv.find_or_create_working_dir(
@@ -386,7 +379,7 @@ class Manifest(AttributeManager):
                 repository.repo and repository.repo != repo
             ) or repository.repository.tpl != toscaRepository.tpl:
                 raise UnfurlError(
-                    'Repository "%s" already defined' % toscaRepository.name
+                    f'Repository "{toscaRepository.name}" already defined'
                 )
         self.repositories[repository.name] = RepoView(toscaRepository, repo, file_name)
         return repository
@@ -524,7 +517,7 @@ class Manifest(AttributeManager):
 
 class SnapShotManifest(Manifest):
     def __init__(self, manifest, commitId):
-        super(SnapShotManifest, self).__init__(manifest.path, self.localEnv)
+        super().__init__(manifest.path, self.localEnv)
         self.commitId = commitId
         oldManifest = manifest.repo.show(manifest.path, commitId)
         self.repo = manifest.repo

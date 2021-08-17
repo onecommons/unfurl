@@ -5,7 +5,7 @@ from . import __version__
 from .util import get_package_digest
 
 
-class Lock(object):
+class Lock:
     def __init__(self, ensemble):
         self.ensemble = ensemble
 
