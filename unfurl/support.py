@@ -58,7 +58,7 @@ Priority = IntEnum(
 )
 
 
-class Reason(object):
+class Reason:
     pass
 
 
@@ -66,7 +66,7 @@ for r in "add reconfigure force upgrade update missing error degraded prune".spl
     setattr(Reason, r, r)
 
 
-class Defaults(object):
+class Defaults:
     shouldRun = Priority.required
     workflow = "deploy"
 
@@ -126,7 +126,7 @@ class Templar(ansible.template.Templar):
             # template() will eagerly evaluate template strings in lists and dicts
             # defeating the lazy evaluation ResultsMap and ResultsList is intending to provide
             return variable
-        return super(Templar, self).template(variable, **kw)
+        return super().template(variable, **kw)
 
     @staticmethod
     def find_overrides(data, overrides=None):
@@ -196,7 +196,7 @@ def is_template(val, ctx):
 class _VarTrackerDict(dict):
     def __getitem__(self, key):
         try:
-            val = super(_VarTrackerDict, self).__getitem__(key)
+            val = super().__getitem__(key)
         except KeyError:
             logger.debug('Missing variable "%s" in template', key)
             raise
@@ -209,11 +209,11 @@ class _VarTrackerDict(dict):
 
 def apply_template(value, ctx, overrides=None):
     if not isinstance(value, six.string_types):
-        msg = "Error rendering template: source must be a string, not %s" % type(value)
+        msg = f"Error rendering template: source must be a string, not {type(value)}"
         if ctx.strict:
             raise UnfurlError(msg)
         else:
-            return "<<%s>>" % msg
+            return f"<<{msg}>>"
     value = value.strip()
 
     # implementation notes:
@@ -262,8 +262,8 @@ def apply_template(value, ctx, overrides=None):
             msg = str(e)
             match = re.search(r"has no attribute '(\w+)'", msg)
             if match:
-                msg = 'missing attribute or key: "%s"' % match.group(1)
-            value = "<<Error rendering template: %s>>" % msg
+                msg = f'missing attribute or key: "{match.group(1)}"'
+            value = f"<<Error rendering template: {msg}>>"
             if ctx.strict:
                 logger.debug(value, exc_info=True)
                 raise UnfurlError(value)
@@ -369,7 +369,7 @@ def get_input(arg, ctx):
     try:
         return ctx.currentResource.root.find_resource("inputs").attributes[arg]
     except KeyError:
-        raise UnfurlError("undefined input '%s'" % arg)
+        raise UnfurlError(f"undefined input '{arg}'")
 
 
 set_eval_func("get_input", get_input, True)
@@ -457,11 +457,8 @@ def get_attribute(args, ctx):
         attribute_name = args.pop(0)
         # need to include candidate_name as a test in addition to selecting it
         # so that the HOST search looks for that and not just ".names" (which all entities have)
-        query = "%s::.names[%s]?::%s::%s?" % (
-            start,
-            candidate_name,
-            candidate_name,
-            attribute_name,
+        query = (
+            f"{start}::.names[{candidate_name}]?::{candidate_name}::{attribute_name}?"
         )
         if args:  # nested attribute or list index lookup
             query += "::" + "::".join(args)
@@ -550,7 +547,7 @@ def get_import(arg, ctx):
     try:
         imported = ctx.currentResource.root.imports[arg]
     except KeyError:
-        raise UnfurlError("Can't find import '%s'" % arg)
+        raise UnfurlError(f"Can't find import '{arg}'")
     if arg == "secret":
         return SecretResource(arg, imported)
     else:
@@ -588,7 +585,7 @@ class Imports(collections.OrderedDict):
                 value = self[key]._replace(resource=value)
             else:
                 value = _Import(value, {})
-        return super(Imports, self).__setitem__(key, value)
+        return super().__setitem__(key, value)
 
 
 class ExternalResource(ExternalValue):
@@ -597,7 +594,7 @@ class ExternalResource(ExternalValue):
     """
 
     def __init__(self, name, importSpec):
-        super(ExternalResource, self).__init__("external", name)
+        super().__init__("external", name)
         self.resource = importSpec.resource
         self.schema = importSpec.spec.get("schema")
 
@@ -607,8 +604,7 @@ class ExternalResource(ExternalValue):
             if messages:
                 (message, schemaErrors) = messages
                 raise UnfurlValidationError(
-                    "schema validation failed for attribute '%s': %s"
-                    % (name, schemaErrors),
+                    f"schema validation failed for attribute '{name}': {schemaErrors}",
                     schemaErrors,
                 )
 
@@ -640,7 +636,7 @@ class ExternalResource(ExternalValue):
 class SecretResource(ExternalResource):
     def resolve_key(self, name=None, currentResource=None):
         # raises KeyError if not found
-        val = super(SecretResource, self).resolve_key(name, currentResource)
+        val = super().resolve_key(name, currentResource)
         if isinstance(val, Result):
             val.resolved = wrap_sensitive_value(val.resolved)
             return val
@@ -662,7 +658,7 @@ set_eval_func("local", shortcut)
 set_eval_func("secret", shortcut)
 
 
-class DelegateAttributes(object):
+class DelegateAttributes:
     def __init__(self, interface, resource):
         self.interface = interface
         self.resource = resource
@@ -790,7 +786,7 @@ def _is_sensitive(defs, key, value):
     return defMeta.get("sensitive") and not value.external
 
 
-class AttributeManager(object):
+class AttributeManager:
     """
     Tracks changes made to Resources
 

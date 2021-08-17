@@ -366,7 +366,7 @@ def _run_remote(runtime, options, localEnv):
     logger.debug('running command remotely on "%s"', runtime)
     cmdLine = _args or sys.argv[1:]
     if _args:  # set by test driver to override command line
-        print("TESTING: running remote with _args %s" % _args)
+        print(f"TESTING: running remote with _args {_args}")
     env, remote, shell = _remote_cmd(runtime, cmdLine, localEnv)
     logger.debug("executing remote command: %s", remote)
     rv = subprocess.call(remote, env=env, shell=shell)
@@ -550,7 +550,10 @@ def plan(ctx, ensemble=None, **options):
 @click.pass_context
 @click.argument("projectdir", default="", type=click.Path(exists=False))
 @click.option(
-    "--mono", default=False, is_flag=True, help="Create one repository for the project."
+    "--mono",
+    default=False,
+    is_flag=True,
+    help="Don't create a separate ensemble repository.",
 )
 @click.option(
     "--existing",
@@ -572,6 +575,12 @@ def plan(ctx, ensemble=None, **options):
     type=click.Path(exists=True),
     help="Absolute path to a directory of project templates.",
 )
+@click.option(
+    "--shared-repository",
+    default=None,
+    type=click.Path(exists=True),
+    help="Create the ensemble in an repository outside the project.",
+)
 def init(ctx, projectdir, **options):
     """
     Create a new project or, if [project_dir] exists or is inside a project, create a new ensemble"""
@@ -590,6 +599,7 @@ def init(ctx, projectdir, **options):
         # if projectPath is deeper than projectDir (happens if it is .unfurl) set projectDir to that
         if len(os.path.abspath(projectPath)) > len(os.path.abspath(projectdir)):
             projectdir = projectPath
+        # this will clone the default ensemble if it exists or use ensemble-template
         message = initmod.clone(projectPath, projectdir, **options)
         click.echo(message)
         return
@@ -609,8 +619,8 @@ def init(ctx, projectdir, **options):
         os.path.abspath(projectdir), **options
     )
     if homePath:
-        click.echo("unfurl home created at %s" % homePath)
-    click.echo("New Unfurl project created at %s" % projectPath)
+        click.echo(f"unfurl home created at {homePath}")
+    click.echo(f"New Unfurl project created at {projectPath}")
 
 
 # XXX add --upgrade option
@@ -642,11 +652,11 @@ def home(ctx, init=False, render=False, replace=False, **options):
     homePath = initmod.create_home(render=render, replace=replace, **options)
     action = "rendered" if render else "created"
     if homePath:
-        click.echo("unfurl home %s at %s" % (action, homePath))
+        click.echo(f"unfurl home {action} at {homePath}")
     else:
         currentHome = get_home_config_path(options.get("home"))
         if currentHome:
-            click.echo("Can't %s home, it already exists at %s" % (action, currentHome))
+            click.echo(f"Can't {action} home, it already exists at {currentHome}")
         else:
             click.echo("Error: home path is empty")
 
@@ -683,9 +693,9 @@ def runtime(ctx, project_folder, init=False, **options):
     runtime_ = options.get("runtime") or "venv:"
     error = initmod.init_engine(project_path, runtime_)
     if not error:
-        click.echo('Created runtime "%s" in "%s"' % (runtime_, project_path))
+        click.echo(f'Created runtime "{runtime_}" in "{project_path}"')
     else:
-        click.echo('Failed to create runtime "%s": %s' % (runtime_, error))
+        click.echo(f'Failed to create runtime "{runtime_}": {error}')
 
 
 @cli.command(short_help="Clone a project, ensemble or service template")
@@ -740,7 +750,7 @@ def git(ctx, gitargs, dir="."):
         click.echo("Can't run git command, no repositories found")
     for repo in repos:
         repoPath = os.path.relpath(repo.working_dir, os.path.abspath(dir))
-        click.echo("*** Running 'git %s' in './%s'" % (" ".join(gitargs), repoPath))
+        click.echo(f"*** Running 'git {' '.join(gitargs)}' in './{repoPath}'")
         _status, stdout, stderr = repo.run_cmd(gitargs)
         click.echo(stdout + "\n")
         if stderr.strip():
@@ -799,7 +809,7 @@ def commit(ctx, message, ensemble, skip_add, no_edit, **options):
             if not message:
                 return  # aborted
     committed = manifest.commit(message, False)
-    click.echo("committed to %s repositories" % committed)
+    click.echo(f"committed to {committed} repositories")
 
 
 @cli.command(short_help="Show the git status for paths relevant to this ensemble.")
@@ -844,7 +854,7 @@ def version(ctx, semver=False, remote=False, **options):
     if semver:
         click.echo(__version__())
     else:
-        click.echo("unfurl version %s (%s)" % (__version__(True), get_package_digest()))
+        click.echo(f"unfurl version {__version__(True)} ({get_package_digest()})")
 
     if remote and not options.get("no_runtime"):
         click.echo("Remote:")
@@ -865,7 +875,7 @@ def help(ctx, cmd=""):
         ctx.info_name = cmd  # hack
         click.echo(command.get_help(ctx), color=ctx.color)
     else:
-        raise click.UsageError("no help found for unknown command '%s'" % cmd, ctx=ctx)
+        raise click.UsageError(f"no help found for unknown command '{cmd}'", ctx=ctx)
 
 
 def main():
@@ -879,7 +889,7 @@ def main():
     except click.ClickException as e:
         if obj.get("verbose", 0) > 0:
             traceback.print_exc(file=sys.stderr)
-        click.secho("Error: %s" % e.format_message(), fg="red", err=True)
+        click.secho(f"Error: {e.format_message()}", fg="red", err=True)
         sys.exit(e.exit_code)
     except Exception as err:
         if obj.get("verbose", 0) > 0:

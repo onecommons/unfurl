@@ -45,7 +45,7 @@ def get_dir(context, relativeTo, mkdir=False):
     return filepath.get()
 
 
-class FilterModule(object):
+class FilterModule:
     def filters(self):
         return {
             "ref": ref,

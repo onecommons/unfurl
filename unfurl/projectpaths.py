@@ -32,7 +32,7 @@ import logging
 logger = logging.getLogger("unfurl")
 
 
-class WorkFolder(object):
+class WorkFolder:
     PENDING_EXT = ".pending"
     PREVIOUS_EXT = ".previous"
     ERROR_EXT = ".error"
@@ -178,7 +178,7 @@ class File(ExternalValue):
     """
 
     def __init__(self, name, baseDir="", loader=None, yaml=None, encoding=None):
-        super(File, self).__init__("file", name)
+        super().__init__("file", name)
         self.base_dir = baseDir or ""
         self.loader = loader
         self.yaml = yaml
@@ -261,7 +261,7 @@ class TempFile(ExternalValue):
 
     def __init__(self, obj, suffix="", yaml=None, encoding=None):
         tp = save_to_tempfile(obj, suffix, yaml=yaml, encoding=encoding)
-        super(TempFile, self).__init__("tempfile", tp.name)
+        super().__init__("tempfile", tp.name)
         self.tp = tp
 
     def __digestable__(self, options):
@@ -297,7 +297,7 @@ set_eval_func(
 
 class FilePath(ExternalValue):
     def __init__(self, abspath, base_dir="", rel_to=""):
-        super(FilePath, self).__init__("path", os.path.normpath(abspath))
+        super().__init__("path", os.path.normpath(abspath))
         self.path = abspath[len(base_dir) + 1 :]
         self.rel_to = rel_to
 
@@ -323,11 +323,7 @@ class FilePath(ExternalValue):
                     digest = "git:" + revision  # root of repo
                 if repo.is_dirty(True, relPath):
                     fstat = os.stat(fullpath)
-                    return "%s:%s:%s" % (
-                        digest,
-                        fstat[stat.ST_SIZE],
-                        fstat[stat.ST_MTIME],
-                    )
+                    return f"{digest}:{fstat[stat.ST_SIZE]}:{fstat[stat.ST_MTIME]}"
                 else:
                     return digest
 
@@ -336,11 +332,7 @@ class FilePath(ExternalValue):
                 return "contents:" + f.read()
         else:
             fstat = os.stat(fullpath)
-            return "stat:%s:%s:%s" % (
-                stablepath,
-                fstat[stat.ST_SIZE],
-                fstat[stat.ST_MTIME],
-            )
+            return f"stat:{stablepath}:{fstat[stat.ST_SIZE]}:{fstat[stat.ST_MTIME]}"
 
 
 def _get_path(ctx, path, relativeTo=None, mkdir=True):
@@ -349,7 +341,7 @@ def _get_path(ctx, path, relativeTo=None, mkdir=True):
 
     base = _get_base_dir(ctx, relativeTo)
     if base is None:
-        raise UnfurlError('Named directory or repository "%s" not found' % relativeTo)
+        raise UnfurlError(f'Named directory or repository "{relativeTo}" not found')
     fullpath = os.path.join(base, path)
     if mkdir:
         dir = os.path.dirname(fullpath)

@@ -33,7 +33,7 @@ import logging
 logger = logging.getLogger("unfurl.task")
 
 
-class ConfiguratorResult(object):
+class ConfiguratorResult:
     """
     Modified indicates whether the underlying state of configuration,
     was changed i.e. the physically altered the system this configuration represents.
@@ -94,7 +94,7 @@ class AutoRegisterClass(type):
 
 
 @six.add_metaclass(AutoRegisterClass)
-class Configurator(object):
+class Configurator:
 
     shortName = None
     """shortName can be used to customize the "short name" of the configurator
@@ -213,14 +213,12 @@ class Configurator(object):
             bool: True if configuration's digest has changed, False if it is the same.
         """
         _parameters = getattr(changeset, "digestKeys", "")
-        newKeys = set(
-            k for k in task.inputs.keys() if k not in self.exclude_from_digest
-        )
+        newKeys = {k for k in task.inputs.keys() if k not in self.exclude_from_digest}
         task.logger.debug("checking digest for %s: %s", task.target.name, _parameters)
         if not _parameters:
             return bool(newKeys)
         keys = _parameters.split(",")
-        oldInputs = set(key for key in keys if "::" not in key)
+        oldInputs = {key for key in keys if "::" not in key}
         if oldInputs - newKeys:
             return True  # an old input was removed
 
@@ -245,7 +243,7 @@ class Configurator(object):
         return mismatch
 
 
-class TaskView(object):
+class TaskView:
     """The interface presented to configurators."""
 
     def __init__(self, manifest, configSpec, target, reason=None, dependencies=None):
@@ -447,7 +445,7 @@ class TaskView(object):
 
     def find_connection(self, target, relation="tosca.relationships.ConnectsTo"):
         connection = self.query(
-            "$OPERATION_HOST::.requirements::*[.type=%s][.target=$target]" % relation,
+            f"$OPERATION_HOST::.requirements::*[.type={relation}][.target=$target]",
             vars=dict(target=target),
         )
         # alternative query: [.type=unfurl.nodes.K8sCluster]::.capabilities::.relationships::[.type=unfurl.relationships.ConnectsTo.K8sCluster][.source=$OPERATION_HOST]
@@ -548,7 +546,7 @@ class TaskView(object):
         except:
             if not throw:
                 UnfurlTaskError(
-                    self, "error while evaluating query: %s" % query, logging.WARNING
+                    self, f"error while evaluating query: {query}", logging.WARNING
                 )
                 return None
             raise
@@ -678,7 +676,7 @@ class TaskView(object):
             try:
                 resources = yaml.load(resources)
             except:
-                err = UnfurlTaskError(self, "unable to parse as YAML: %s" % resources)
+                err = UnfurlTaskError(self, f"unable to parse as YAML: {resources}")
                 return None, [err]
 
         if isinstance(resources, collections.Mapping):
@@ -686,8 +684,7 @@ class TaskView(object):
         elif not isinstance(resources, collections.MutableSequence):
             err = UnfurlTaskError(
                 self,
-                "update_resources requires a list of updates, not a %s"
-                % type(resources),
+                f"update_resources requires a list of updates, not a {type(resources)}",
             )
             return None, [err]
 

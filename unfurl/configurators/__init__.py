@@ -8,7 +8,7 @@ from ..util import register_short_names
 # and so won't register themselves through AutoRegisterClass
 register_short_names(
     {
-        name: "unfurl.configurators.%s.%sConfigurator" % (name.lower(), name)
+        name: f"unfurl.configurators.{name.lower()}.{name}Configurator"
         for name in "Ansible Shell Supervisor Terraform".split()
     }
 )

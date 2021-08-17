@@ -25,8 +25,7 @@ def is_external_template_compatible(external, template):
     if external.name == template.name:
         if not external.is_compatible_type(template.type):
             raise UnfurlError(
-                'external template "%s" not compatible with local template'
-                % template.name
+                f'external template "{template.name}" not compatible with local template'
             )
         return True
     return False
@@ -56,10 +55,10 @@ def find_parent_resource(root, source):
     for parent in find_resources_from_template_name(root, parentTemplate.name):
         # XXX need to evaluate matches
         return parent
-    raise UnfurlError("could not find instance of template: %s" % parentTemplate.name)
+    raise UnfurlError(f"could not find instance of template: {parentTemplate.name}")
 
 
-class Plan(object):
+class Plan:
     @staticmethod
     def get_plan_class_for_workflow(workflow):
         return dict(
@@ -83,7 +82,7 @@ class Plan(object):
             filterTemplate = self.tosca.get_template(jobOptions.template)
             if not filterTemplate:
                 raise UnfurlError(
-                    "specified template not found: %s" % jobOptions.template
+                    f"specified template not found: {jobOptions.template}"
                 )
             self.filterTemplate = filterTemplate
         else:
@@ -615,10 +614,9 @@ class DeployPlan(Plan):
             assert jobOptions.repair == "error", jobOptions.repair
             return None  # skip repairing this
         else:
-            assert jobOptions.repair == "error", "repair: %s status: %s" % (
-                jobOptions.repair,
-                instance.status,
-            )
+            assert (
+                jobOptions.repair == "error"
+            ), f"repair: {jobOptions.repair} status: {instance.status}"
             return Reason.error  # repair this
 
     def is_instance_read_only(self, instance):
@@ -700,7 +698,7 @@ class WorkflowPlan(Plan):
         """
         workflow = self.tosca.get_workflow(self.jobOptions.workflow)
         if not workflow:
-            raise UnfurlError('workflow not found: "%s"' % self.jobOptions.workflow)
+            raise UnfurlError(f'workflow not found: "{self.jobOptions.workflow}"')
         for step in workflow.initial_steps():
             if self.filterTemplate and not self.filterTemplate.is_compatible_target(
                 step.target
@@ -759,9 +757,7 @@ class RunNowPlan(Plan):
                 if template:
                     resource = self.create_resource(template)
                 else:
-                    raise UnfurlError(
-                        "specified instance not found: %s" % instanceFilter
-                    )
+                    raise UnfurlError(f"specified instance not found: {instanceFilter}")
             resources = [resource]
         else:
             resources = [self.root]

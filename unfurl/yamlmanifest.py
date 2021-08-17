@@ -182,7 +182,7 @@ class ReadOnlyManifest(Manifest):
         path = path or localEnv and localEnv.manifestPath
         if path:
             path = os.path.abspath(path)
-        super(ReadOnlyManifest, self).__init__(path, localEnv)
+        super().__init__(path, localEnv)
         self.manifest = YamlConfig(
             manifest,
             self.path,
@@ -255,6 +255,7 @@ def clone(localEnv, destPath):
         config["metadata"].pop("aliases", None)
     repositories = Manifest._get_repositories(config)
     repositories.pop("self", None)
+    clone.path = destPath
     clone.manifest.path = destPath
     return clone
 
@@ -267,7 +268,7 @@ class YamlManifest(ReadOnlyManifest):
     def __init__(
         self, manifest=None, path=None, validate=True, localEnv=None, vault=None
     ):
-        super(YamlManifest, self).__init__(manifest, path, validate, localEnv, vault)
+        super().__init__(manifest, path, validate, localEnv, vault)
         # instantiate the tosca template
         manifest = self.manifest.expanded
         if self.manifest.path:
@@ -391,14 +392,13 @@ class YamlManifest(ReadOnlyManifest):
             # load the manifest for the imported resource
             location = value.get("manifest")
             if not location:
-                raise UnfurlError("Can not import '%s': no manifest specified" % (name))
+                raise UnfurlError(f"Can not import '{(name)}': no manifest specified")
 
             if "project" in location:
                 importedManifest = self.localEnv.get_external_manifest(location)
                 if not importedManifest:
                     raise UnfurlError(
-                        "Can not import '%s': can't find project '%s'"
-                        % (name, location["project"])
+                        f"Can not import '{name}': can't find project '{location['project']}'"
                     )
             else:
                 # ensemble is in the same project
@@ -415,9 +415,7 @@ class YamlManifest(ReadOnlyManifest):
 
             uri = value.get("uri")
             if uri and not importedManifest.has_uri(uri):
-                raise UnfurlError(
-                    "Error importing '%s', uri mismatch for '%s'" % (path, uri)
-                )
+                raise UnfurlError(f"Error importing '{path}', uri mismatch for '{uri}'")
             rname = value.get("instance", "root")
             if rname == "*":
                 rname = "root"
@@ -427,7 +425,7 @@ class YamlManifest(ReadOnlyManifest):
             resource = root.find_instance_or_external(rname)
             if not resource:
                 raise UnfurlError(
-                    "Can not import '%s': instance '%s' not found" % (name, rname)
+                    f"Can not import '{name}': instance '{rname}' not found"
                 )
             self.imports[name] = (resource, value)
             self._importedManifests[id(root)] = importedManifest
@@ -456,10 +454,7 @@ class YamlManifest(ReadOnlyManifest):
 
     def lock(self):
         # implement simple local file locking -- no waiting on the lock
-        msg = (
-            "Ensemble %s was already locked -- is there a circular reference between external ensembles?"
-            % self.path
-        )
+        msg = f"Ensemble {self.path} was already locked -- is there a circular reference between external ensembles?"
         if self.lockfile:
             raise UnfurlError(msg)
         if not self.lockfilepath:
@@ -471,8 +466,7 @@ class YamlManifest(ReadOnlyManifest):
                     raise UnfurlError(msg)
                 else:
                     raise UnfurlError(
-                        "Lockfile '%s' already created by another process %s "
-                        % (self.lockfilepath, pid)
+                        f"Lockfile '{self.lockfilepath}' already created by another process {pid} "
                     )
         else:
             # ok if we race here, we'll just raise an error
@@ -491,7 +485,7 @@ class YamlManifest(ReadOnlyManifest):
 
     def find_last_operation(self, target, operation):
         if self._operationIndex is None:
-            operationIndex = dict()
+            operationIndex = {}
             if self.changeSets:
                 # add list() for 3.7
                 for change in reversed(list(self.changeSets.values())):
@@ -718,13 +712,13 @@ class YamlManifest(ReadOnlyManifest):
     def get_default_commit_message(self):
         jobRecord = self.manifest.config.get("lastJob")
         if jobRecord:
-            return "Updating status for job %s" % jobRecord["changeId"]
+            return f"Updating status for job {jobRecord['changeId']}"
         else:
             return "Commit by Unfurl"
 
     def get_repo_statuses(self, dirty=False):
         return [
-            'Status for "%s" at %s:\n%s\n\n' % (r.name, r.working_dir, r.status())
+            f'Status for "{r.name}" at {r.working_dir}:\n{r.status()}\n\n'
             for r in self.repositories.values()
             if r.repo and (not dirty or r.is_dirty())
         ]
@@ -827,4 +821,4 @@ class YamlManifest(ReadOnlyManifest):
                 f.write(output.getvalue())
             return fullPath
         except:
-            raise UnfurlError("Error saving changelog %s" % self.changeLogPath, True)
+            raise UnfurlError(f"Error saving changelog {self.changeLogPath}", True)

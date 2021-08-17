@@ -13,7 +13,7 @@ import sys
 import uuid
 
 from . import DefaultNames, __version__, get_home_config_path
-from .localenv import LocalEnv, Project
+from .localenv import LocalEnv, Project, LocalConfig
 from .repo import GitRepo, Repo, is_url_or_git_path, split_git_url
 from .util import UnfurlError
 
@@ -93,7 +93,7 @@ def create_home(home=None, render=False, replace=False, **kw):
         # XXX if repo and update: git stash; git checkout rendered
         ensembleDir = os.path.join(homedir, DefaultNames.EnsembleDirectory)
         ensembleRepo = Repo.find_containing_repo(ensembleDir)
-        configPath = render_project(homedir, repo, ensembleRepo, "home")
+        configPath, ensembleDir = render_project(homedir, repo, ensembleRepo, "home")
         # XXX if repo and update: git commit -m"updated"; git checkout master; git stash pop
         return configPath
     else:
@@ -120,7 +120,7 @@ def _create_repo(gitDir, ignore=True):
         os.makedirs(gitDir)
     repo = git.Repo.init(gitDir)
     repo.index.add(add_hidden_git_files(gitDir))
-    repo.index.commit("Initial Commit for %s" % uuid.uuid1())
+    repo.index.commit(f"Initial Commit for {uuid.uuid1()}")
 
     if ignore:
         Repo.ignore_dir(gitDir)
@@ -152,9 +152,15 @@ def write_ensemble_manifest(
 def add_hidden_git_files(gitDir):
     # write .gitignore and  .gitattributes
     gitIgnorePath = write_template(gitDir, ".gitignore", "gitignore.j2", {})
-    gitAttributesContent = "**/*%s merge=union\n" % DefaultNames.JobsLog
+    gitAttributesContent = f"**/*{DefaultNames.JobsLog} merge=union\n"
     gitAttributesPath = _write_file(gitDir, ".gitattributes", gitAttributesContent)
     return [os.path.abspath(gitIgnorePath), os.path.abspath(gitAttributesPath)]
+
+
+def _set_ensemble_vars(vars, externalProject, ensemblePath):
+    if externalProject:
+        vars["manifestPath"] = externalProject.get_relative_path(ensemblePath)
+        vars["external"] = externalProject.name
 
 
 def render_project(
@@ -178,7 +184,22 @@ def render_project(
     # write the project files
     localConfigFilename = names.LocalConfig
 
+    externalProject = None
+    ensembleDir = os.path.join(projectdir, names.EnsembleDirectory)
+    if ensembleRepo:
+        if ensembleRepo.working_dir not in projectdir:
+            externalProject = find_project(ensembleRepo.working_dir)
+        if externalProject:
+            relPath = externalProject.get_relative_path(
+                os.path.join(ensembleRepo.working_dir, os.path.basename(projectdir))
+            )
+            ensembleDir = externalProject.get_unique_path(relPath)
+        manifestName = names.Ensemble
+        ensemblePath = os.path.join(ensembleDir, manifestName)
+
     vars = dict(vaultpass=get_random_password())
+    if ensembleRepo and ensembleRepo.is_local_only():
+        _set_ensemble_vars(vars, externalProject, ensemblePath)
     write_project_config(
         os.path.join(projectdir, "local"),
         localConfigFilename,
@@ -189,6 +210,8 @@ def render_project(
 
     localInclude = "+?include: " + os.path.join("local", localConfigFilename)
     vars = dict(include=localInclude)
+    if ensembleRepo and not ensembleRepo.is_local_only():
+        _set_ensemble_vars(vars, externalProject, ensemblePath)
     projectConfigPath = write_project_config(
         projectdir,
         names.LocalConfig,
@@ -207,12 +230,8 @@ def render_project(
     )
 
     if ensembleRepo:
-        ensembleDir = os.path.join(projectdir, names.EnsembleDirectory)
-        manifestName = names.Ensemble
         extraVars = dict(
-            ensembleUri=ensembleRepo.get_url_with_path(
-                os.path.join(ensembleDir, manifestName)
-            ),
+            ensembleUri=ensembleRepo.get_url_with_path(ensemblePath),
             # include the ensembleTemplate in the root of the specDir
             ensembleTemplate=names.EnsembleTemplate,
         )
@@ -224,7 +243,13 @@ def render_project(
             extraVars=extraVars,
             templateDir=templateDir,
         )
-    return projectConfigPath
+    if externalProject:
+        # add the external project to the project and localRepositories configuration sections
+        LocalConfig(projectConfigPath).register_project(externalProject)
+        externalProject.register_ensemble(
+            ensemblePath, managedBy=find_project(projectdir)
+        )
+    return projectConfigPath, ensembleDir
 
 
 def create_project(
@@ -236,7 +261,7 @@ def create_project(
     template=None,
     submodule=False,
     creating_home=False,
-    **kw
+    **kw,
 ):
     if existing:
         repo = Repo.find_containing_repo(projectdir)
@@ -262,13 +287,18 @@ def create_project(
     else:
         repo = _create_repo(projectdir)
 
-    ensembleDir = os.path.join(projectdir, DefaultNames.EnsembleDirectory)
-    if mono:
+    shared = kw.get("shared_repository")
+    if shared:
+        ensembleRepo = Repo.find_containing_repo(shared)
+        if not ensembleRepo:
+            raise UnfurlError("can not find shared repository " + shared)
+    elif mono:
         ensembleRepo = repo
     else:
+        ensembleDir = os.path.join(projectdir, DefaultNames.EnsembleDirectory)
         ensembleRepo = _create_repo(ensembleDir, not submodule)
 
-    projectConfigPath = render_project(
+    projectConfigPath, ensembleDir = render_project(
         projectdir,
         repo,
         not empty and ensembleRepo,
@@ -276,7 +306,11 @@ def create_project(
     )
     if not mono:
         ensembleRepo.add_all(ensembleDir)
-        ensembleRepo.repo.index.commit("Default ensemble repository boilerplate")
+        if shared:
+            message = "Adding ensemble"
+        else:
+            message = "Default ensemble repository boilerplate"
+        ensembleRepo.repo.index.commit(message)
 
     if submodule:
         repo.add_sub_module(ensembleDir)
@@ -355,8 +389,10 @@ def _get_ensemble_paths(sourcePath, sourceProject):
             sourceDir = sourceProject.get_relative_path(
                 os.path.dirname(localEnv.manifestPath)
             )
+            # note: if sourceDir.startswith("..") then ensemble lives in another's project's repo
             return dict(sourceDir=sourceDir, localEnv=localEnv)
-        except:
+        except UnfurlError:
+            # XXX if UnfurlError is "could not find external project", reraise
             pass
 
     # didn't find the specified file (or the default ensemble if none was specified)
@@ -377,7 +413,32 @@ def _get_ensemble_paths(sourcePath, sourceProject):
     return {}
 
 
-def create_new_ensemble(templateVars, project, targetPath, mono):
+def _create_ensemble_from_template(templateVars, project, destDir, manifestName):
+    from unfurl import yamlmanifest
+
+    assert project
+    sourceDir = os.path.normpath(
+        os.path.join(project.projectRoot, templateVars["sourceDir"])
+    )
+    specRepo, relPath, revision, bare = project.find_path_in_repos(sourceDir)
+    if not specRepo:
+        raise UnfurlError(
+            '"%s" is not in a git repository. Cloning from plain file directories not yet supported'
+            % os.path.abspath(sourceDir)
+        )
+    manifestPath = write_ensemble_manifest(
+        os.path.join(project.projectRoot, destDir),
+        manifestName,
+        specRepo,
+        sourceDir,
+        templateVars,
+    )
+    localEnv = LocalEnv(manifestPath, project=project)
+    manifest = yamlmanifest.ReadOnlyManifest(localEnv=localEnv)
+    return localEnv, manifest
+
+
+def create_new_ensemble(templateVars, project, targetPath, mono, shared_repo=None):
     """
     If "localEnv" is in templateVars, clone that ensemble;
     otherwise create one from a template with templateVars
@@ -393,42 +454,37 @@ def create_new_ensemble(templateVars, project, targetPath, mono):
     else:
         destDir = targetPath
         manifestName = DefaultNames.Ensemble
+
+    if shared_repo:
+        destProject = find_project(shared_repo.working_dir)
+        assert destProject
+    else:
+        destProject = project
+
     # choose a destDir that doesn't conflict with an existing folder
     # (i.e. if default ensemble already exists)
-    destDir = project.get_unique_path(destDir)
+    destDir = destProject.get_unique_path(destDir)
     # destDir is now absolute
     targetPath = os.path.normpath(os.path.join(destDir, manifestName))
 
     if "localEnv" not in templateVars:
         # we found a template file to clone
-        assert project
-        sourceDir = os.path.normpath(
-            os.path.join(project.projectRoot, templateVars["sourceDir"])
+        localEnv, manifest = _create_ensemble_from_template(
+            templateVars, destProject, destDir, manifestName
         )
-        specRepo, relPath, revision, bare = project.find_path_in_repos(sourceDir)
-        if not specRepo:
-            raise UnfurlError(
-                '"%s" is not in a git repository. Cloning from plain file directories not yet supported'
-                % os.path.abspath(sourceDir)
-            )
-        manifestPath = write_ensemble_manifest(
-            os.path.join(project.projectRoot, destDir),
-            manifestName,
-            specRepo,
-            sourceDir,
-            templateVars,
-        )
-        localEnv = LocalEnv(manifestPath, project=project)
-        manifest = yamlmanifest.ReadOnlyManifest(localEnv=localEnv)
     elif templateVars:
         # didn't find a template file
         # look for an ensemble at the given path or use the source project's default
-        manifest = yamlmanifest.clone(templateVars["localEnv"], targetPath)
+        localEnv = templateVars["localEnv"]
+        manifest = yamlmanifest.clone(localEnv, targetPath)
     else:
         raise UnfurlError("can't find anything to clone")
-    _create_ensemble_repo(manifest, mono and project.projectRepo)
+
+    _create_ensemble_repo(manifest, shared_repo or mono and project.projectRepo)
+    if destProject.projectRoot != project.projectRoot:
+        destProject.register_ensemble(manifest.path, managedBy=project)
+        project.register_ensemble(manifest.path, project=destProject)
     return destDir, manifest
-    # XXX need to add manifest to unfurl.yaml
 
 
 def clone_remote_project(source, destDir):
@@ -446,21 +502,20 @@ def clone_remote_project(source, destDir):
     # else: # otherwise clone to dest
     if os.path.exists(destDir) and os.listdir(destDir):
         raise UnfurlError(
-            'Can not clone project into "%s": folder is not empty' % destDir
+            f'Can not clone project into "{destDir}": folder is not empty'
         )
     Repo.create_working_dir(repoURL, destDir, revision)  # clone source repo
     targetDir = os.path.join(destDir, filePath)
     sourceRoot = Project.find_path(targetDir)
     if not sourceRoot:
         raise UnfurlError(
-            'Error: cloned "%s" to "%s" but couldn\'t find an Unfurl project'
-            % (source, destDir)
+            f'Error: cloned "{source}" to "{destDir}" but couldn\'t find an Unfurl project'
         )
     sourceProject = Project(sourceRoot)
     return sourceProject, targetDir
 
 
-def get_source_project(source):
+def find_project(source):
     sourceRoot = Project.find_path(source)
     if sourceRoot:
         return Project(sourceRoot)
@@ -504,21 +559,31 @@ def clone(source, dest, includeLocal=False, **options):
     if not dest:
         dest = Repo.get_path_for_git_repo(source)  # choose dest based on source url
     # XXX else: # we're assuming dest is directory, handle case where filename is included
-
+    shared = options.get("shared_repository")
+    if shared:
+        shared_repo = Repo.find_containing_repo(shared)
+        if not shared_repo:
+            raise UnfurlError("can not find shared repository " + shared)
+    else:
+        shared_repo = None
     mono = options.get("mono") or options.get("existing")
     isRemote = is_url_or_git_path(source)
     if isRemote:
+        if shared_repo:
+            raise UnfurlError(
+                "shared_repository option not yet supported when cloning remote repositories"
+            )
+
         clonedProject, source = clone_remote_project(source, dest)
         # source is now a path inside the cloned project
         paths = _get_ensemble_paths(source, clonedProject)
     else:
-        sourceProject = get_source_project(source)
+        sourceProject = find_project(source)
         sourceNotInProject = not sourceProject
         if sourceNotInProject:
             # source wasn't in a project
             raise UnfurlError(
-                "Can't clone \"%s\": it isn't in an Unfurl project or repository"
-                % source
+                f"Can't clone \"{source}\": it isn't in an Unfurl project or repository"
             )
             # XXX create a new project from scratch for the ensemble
             # if os.path.exists(dest) and os.listdir(dest):
@@ -536,7 +601,7 @@ def clone(source, dest, includeLocal=False, **options):
             # dest is in the source project (or its a new project)
             # so don't need to clone, just need to create an ensemble
             destDir, manifest = create_new_ensemble(
-                paths, sourceProject, relDestDir, mono
+                paths, sourceProject, relDestDir, mono, shared_repo
             )
             return 'Created ensemble in %s project: "%s"' % (
                 "new" if sourceNotInProject else "existing",
@@ -553,14 +618,16 @@ def clone(source, dest, includeLocal=False, **options):
             clonedProject = Project(dest)
 
     # pass in "" as dest because we already "consumed" dest by cloning the project to that location
-    manifest, message = _create_in_cloned_project(paths, clonedProject, "", mono)
+    manifest, message = _create_in_cloned_project(
+        paths, clonedProject, "", mono, shared_repo
+    )
     if not isRemote and manifest:
         # we need to clone referenced local repos so the new project has access to them
         clone_local_repos(manifest, sourceProject, clonedProject)
     return message
 
 
-def _create_in_cloned_project(paths, clonedProject, dest, mono):
+def _create_in_cloned_project(paths, clonedProject, dest, mono, shared_repo):
     """
     Called by :py:func:`unfurl.init.clone` when cloning an ensemble.
 
@@ -574,7 +641,9 @@ def _create_in_cloned_project(paths, clonedProject, dest, mono):
     """
     from unfurl import yamlmanifest
 
-    ensembleInProjectRepo = is_ensemble_in_project_repo(clonedProject, paths)
+    ensembleInProjectRepo = not shared_repo and is_ensemble_in_project_repo(
+        clonedProject, paths
+    )
     if ensembleInProjectRepo:
         # the ensemble is already part of the source project repository or a submodule
         # we're done
@@ -591,10 +660,12 @@ def _create_in_cloned_project(paths, clonedProject, dest, mono):
         )
         # dest: should be a path relative to the clonedProject's root
         assert not os.path.isabs(dest)
-        destDir, manifest = create_new_ensemble(paths, clonedProject, dest, mono)
-        return manifest, 'Created new ensemble at "%s" in cloned project at "%s"' % (
-            destDir,
-            clonedProject.projectRoot,
+        destDir, manifest = create_new_ensemble(
+            paths, clonedProject, dest, mono, shared_repo
+        )
+        return (
+            manifest,
+            f'Created new ensemble at "{destDir}" in cloned project at "{clonedProject.projectRoot}"',
         )
 
 
@@ -726,7 +797,7 @@ def create_venv(projectDir, pipfileLocation, unfurlLocation):
             )  # e.g. templates/python3.8
 
         if not os.path.isdir(pipfileLocation):
-            return 'Pipfile location is not a valid directory: "%s"' % pipfileLocation
+            return f'Pipfile location is not a valid directory: "{pipfileLocation}"'
 
         # copy Pipfiles to project root
         if os.path.abspath(projectDir) != os.path.abspath(pipfileLocation):
@@ -739,7 +810,7 @@ def create_venv(projectDir, pipfileLocation, unfurlLocation):
         # need to run without args first so lock isn't overwritten
         retcode = _run_pip_env(do_install, kw)
         if retcode:
-            return "Pipenv (step 1) failed: %s" % retcode
+            return f"Pipenv (step 1) failed: {retcode}"
 
         # we need to set these so pipenv doesn't try to recreate the virtual environment
         environments.PIPENV_USE_SYSTEM = 1
@@ -757,7 +828,7 @@ def create_venv(projectDir, pipfileLocation, unfurlLocation):
             ]  # use the same version as current
         retcode = _run_pip_env(do_install, kw)
         if retcode:
-            return "Pipenv (step 2) failed: %s" % retcode
+            return f"Pipenv (step 2) failed: {retcode}"
 
         return ""
     finally:

@@ -18,9 +18,9 @@ import logging
 logger = logging.getLogger("unfurl")
 
 # we want ConfigurationSpec to be standalone and easily serializable
-class ConfigurationSpec(object):
+class ConfigurationSpec:
     @classmethod
-    def getDefaults(self):
+    def getDefaults(cls):
         return dict(
             className=None,
             majorVersion=0,
@@ -90,7 +90,7 @@ class ConfigurationSpec(object):
     def create(self):
         klass = lookup_class(self.className)
         if not klass:
-            raise UnfurlError("Could not load configurator %s" % self.className)
+            raise UnfurlError(f"Could not load configurator {self.className}")
         else:
             return klass(self)
 
@@ -123,7 +123,7 @@ class ConfigurationSpec(object):
         )
 
 
-class PlanRequest(object):
+class PlanRequest:
     error = None
     future_dependencies = ()
 
@@ -155,7 +155,7 @@ class TaskRequest(PlanRequest):
         required=None,
         startState=None,
     ):
-        super(TaskRequest, self).__init__(target)
+        super().__init__(target)
         self.configSpec = configSpec
         self.reason = reason
         self.persist = persist
@@ -196,17 +196,12 @@ class TaskRequest(PlanRequest):
         )
 
     def __repr__(self):
-        return "TaskRequest(%s(%s,%s):%s)" % (
-            self.target,
-            self.target.status,
-            self.target.state,
-            self.name,
-        )
+        return f"TaskRequest({self.target}({self.target.status},{self.target.state}):{self.name})"
 
 
 class SetStateRequest(PlanRequest):
     def __init__(self, target, state):
-        super(SetStateRequest, self).__init__(target)
+        super().__init__(target)
         self.set_state = state
 
     @property
@@ -219,7 +214,7 @@ class SetStateRequest(PlanRequest):
 
 class TaskRequestGroup(PlanRequest):
     def __init__(self, target, workflow):
-        super(TaskRequestGroup, self).__init__(target)
+        super().__init__(target)
         self.workflow = workflow
         self.children = []
 
@@ -243,14 +238,10 @@ class TaskRequestGroup(PlanRequest):
         return artifacts
 
     def __repr__(self):
-        return "TaskRequestGroup(%s:%s:%s)" % (
-            self.target,
-            self.workflow,
-            self.children,
-        )
+        return f"TaskRequestGroup({self.target}:{self.workflow}:{self.children})"
 
 
-class JobRequest(object):
+class JobRequest:
     """
     Yield this to run a child job.
     """
@@ -264,7 +255,7 @@ class JobRequest(object):
         return self.instances[0].root if self.instances else None
 
     def __repr__(self):
-        return "JobRequest(%s)" % (self.instances,)
+        return f"JobRequest({self.instances})"
 
 
 def find_operation_host(target, operation_host):
@@ -458,12 +449,12 @@ def create_task_request(
 
     if kw:
         if reason:
-            name = "for %s: %s.%s" % (reason, interface, action)
+            name = f"for {reason}: {interface}.{action}"
             if reason == jobOptions.workflow:
                 # set the task's workflow instead of using the default ("deploy")
                 kw["workflow"] = reason
         else:
-            name = "%s.%s" % (interface, action)
+            name = f"{interface}.{action}"
         configSpec = ConfigurationSpec(name, action, **kw)
         logger.debug(
             "creating configuration %s with %s to run for %s: %s",
@@ -473,10 +464,7 @@ def create_task_request(
             reason or action,
         )
     else:
-        errorMsg = (
-            'unable to find an implementation for operation "%s" on node "%s"'
-            % (action, resource.template.name)
-        )
+        errorMsg = f'unable to find an implementation for operation "{action}" on node "{resource.template.name}"'
         logger.debug(errorMsg)
         return None
 

@@ -7,7 +7,7 @@ kind: Project
 #  defaults:
     # environment:
     #   environment variables are consumed by the default connections
-    #   set in ~/unfurl_home/unfurl.yaml, set or unset as needed 
+    #   set in ~/unfurl_home/unfurl.yaml, set or unset as needed
     #
     #   AWS_DEFAULT_REGION:
     #   AWS_ACCESS_KEY_ID:
@@ -27,7 +27,10 @@ kind: Project
     #   PACKET_API_TOKEN:
 
 {%if manifestPath %}
-manifests:
+ensembles:
   - file: [%manifestPath%]
     default: true
+    {%- if external | default("") %}
+    project: [%external%]
+    {% endif %}
 {% endif %}
