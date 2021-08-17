@@ -248,12 +248,13 @@ class RepoView:
     def lock(self):
         record = CommentedMap(
             [
-                ("name", self.name),
                 ("url", self.url),
                 ("revision", self.get_current_revision()),
                 ("initial", self.get_initial_revision()),
             ]
         )
+        if self.name:
+            record["name"] = self.name
         if self.origin:
             record["origin"] = self.origin
         return record

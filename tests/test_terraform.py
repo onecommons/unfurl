@@ -21,26 +21,27 @@ class TerraformTest(unittest.TestCase):
     def setUp(self):
         self.maxDiff = None
 
-    def test_terraform(self):
-        cli_runner = CliRunner()
+    def setup_filesystem(self):
         terraform_dir = os.environ["terraform_dir"] = os.path.join(
             os.path.dirname(__file__), "fixtures", "terraform"
         )
+
+        path = os.path.join(os.path.dirname(__file__), "examples")
+        shutil.copy(
+            os.path.join(path, "terraform-simple-ensemble.yaml"), "ensemble.yaml"
+        )
+
+        # copy the terraform lock file so the configurator avoids calling terraform init
+        # if .tox/.terraform already has the providers
+        os.makedirs("terraform-node/home/")
+        shutil.copy(terraform_dir + "/.terraform.lock.hcl", "terraform-node/home/")
+        os.makedirs("terraform-node-json/home/")
+        shutil.copy(terraform_dir + "/.terraform.lock.hcl", "terraform-node-json/home/")
+
+    def test_terraform(self):
+        cli_runner = CliRunner()
         with cli_runner.isolated_filesystem():  # temp_dir="/tmp/tests"):
-            path = os.path.join(os.path.dirname(__file__), "examples")
-            shutil.copy(
-                os.path.join(path, "terraform-simple-ensemble.yaml"), "ensemble.yaml"
-            )
-
-            # copy the terraform lock file so the configurator avoids calling terraform init
-            # if .tox/.terraform already has the providers
-            os.makedirs("terraform-node/home/")
-            shutil.copy(terraform_dir + "/.terraform.lock.hcl", "terraform-node/home/")
-            os.makedirs("terraform-node-json/home/")
-            shutil.copy(
-                terraform_dir + "/.terraform.lock.hcl", "terraform-node-json/home/"
-            )
-
+            self.setup_filesystem()
             manifest = LocalEnv().get_manifest()
             runner = Runner(manifest)
             job = runner.run(JobOptions(startTime=1, check=True))  # deploy
@@ -315,6 +316,16 @@ class TerraformTest(unittest.TestCase):
                 ],
             )
 
+    @unittest.skipIf(
+        "slow" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set"
+    )
+    def test_lifecycle(self):
+        runner = CliRunner()
+        with runner.isolated_filesystem():
+            self.setup_filesystem()
+            for job in lifecycle(manifest=LocalEnv().get_manifest()):
+                assert job.status == Status.ok
+
 
 @unittest.skipIf(
     "terraform" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set"
@@ -322,13 +333,12 @@ class TerraformTest(unittest.TestCase):
 @unittest.skipIf("slow" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
 class TerraformMotoTest(unittest.TestCase):
     def setUp(self):
-        import threading
+        from multiprocessing import Process
 
         from moto.server import main
 
-        t = threading.Thread(name="moto_thread", target=lambda: main([]))
-        t.daemon = True
-        t.start()
+        p = Process(target=main, args=([],))
+        p.start()
 
         time.sleep(0.25)
         url = "http://localhost:5000/moto-api"  # UI lives here
@@ -508,14 +518,3 @@ class TerraformMotoTest(unittest.TestCase):
                     ],
                 },
             )
-
-    def test_lifecycle(self):
-        runner = CliRunner()
-        with runner.isolated_filesystem():
-            with open("unfurl.yaml", "w") as f:
-                f.write(self.project_config)
-            with open("ensemble.yaml", "w") as f:
-                f.write(self.ensemble_config)
-
-            for job in lifecycle(manifest=LocalEnv().get_manifest()):
-                assert job.status == Status.ok

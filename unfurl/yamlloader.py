@@ -381,6 +381,12 @@ class YamlConfig:
             if self.lastModified:
                 statinfo = os.stat(self.path)
                 if statinfo.st_mtime > self.lastModified:
+                    logger.error(
+                        'Not saving "%s", it was unexpectedly modified after it was loaded, %d is after last modified time %d',
+                        self.path,
+                        statinfo.st_mtime,
+                        self.lastModified,
+                    )
                     raise UnfurlError(
                         f'Not saving "{self.path}", it was unexpectedly modified after it was loaded'
                     )
