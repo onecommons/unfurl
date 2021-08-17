@@ -50,7 +50,14 @@ def make_map_with_base(doc, baseDir):
 mergeStrategyKey = "+%"  # values: delete
 
 # b is the merge patch, a is original dict
-def merge_dicts(b, a, cls=None, replaceKeys=None, defaultStrategy="merge"):
+def merge_dicts(
+    b,
+    a,
+    cls=None,
+    replaceKeys=None,
+    defaultStrategy="merge",
+    listStrategy="append_unique",
+):
     """
     Returns a new dict (or cls) that recursively merges b into a.
     b is base, a overrides.
@@ -83,6 +90,7 @@ def merge_dicts(b, a, cls=None, replaceKeys=None, defaultStrategy="merge"):
                             val,
                             defaultStrategy=childStrategy,
                             replaceKeys=replaceKeys,
+                            listStrategy=listStrategy,
                         )
                         continue
                     if strategy == "error":
@@ -95,7 +103,7 @@ def merge_dicts(b, a, cls=None, replaceKeys=None, defaultStrategy="merge"):
                 continue
         elif isinstance(val, MutableSequence) and key in b:
             bval = b[key]
-            if isinstance(bval, MutableSequence):
+            if isinstance(bval, MutableSequence) and listStrategy == "append_unique":
                 # XXX allow more strategies beyond append
                 #     if appendlists == 'all' or key in appendlists:
                 cp[key] = bval + [item for item in val if item not in bval]

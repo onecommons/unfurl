@@ -71,35 +71,6 @@ class TestOctoDnsConfigurator:
 
 DNS_FIXTURE = Path(__file__).parent / "fixtures" / "dns"
 
-ENSEMBLE_ZONE_FILE = f"""
-apiVersion: unfurl/v1alpha1
-kind: Ensemble
-
-spec:
-  service_template:
-    imports:
-      - repository: unfurl
-        file: configurators/octodns-template.yaml
-
-    topology_template:
-      node_templates:
-        test_node:
-          type: unfurl.nodes.DNSZone
-          properties:
-            name: test-domain.com.
-            provider:
-              class: octodns.source.axfr.ZoneFileSource
-              directory: {DNS_FIXTURE}
-              file_extension: .tst
-            records:
-              '':
-                ttl: 60
-                type: A
-                values:
-                  - 2.3.4.5
-                  - 2.3.4.6
-"""
-
 ENSEMBLE_ROUTE53 = f"""
 apiVersion: unfurl/v1alpha1
 kind: Ensemble

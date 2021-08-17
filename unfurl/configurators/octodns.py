@@ -8,11 +8,11 @@ from pathlib import Path
 from octodns.manager import Manager
 from ruamel.yaml import YAML
 
-from unfurl.configurator import Configurator
-from unfurl.eval import map_value
-from unfurl.job import ConfigTask
-from unfurl.projectpaths import WorkFolder
-from unfurl.support import Status
+from ..configurator import Configurator
+from ..job import ConfigTask
+from ..projectpaths import WorkFolder
+from ..support import Status
+from ..merge import merge_dicts
 
 
 @contextmanager
@@ -24,21 +24,6 @@ def change_cwd(new_path: str, log: Logger):
     yield
     log.debug("Changing CWD to: %s", new_path)
     os.chdir(old_path)
-
-
-def dict_merge(d1, d2):
-    """Update two dicts of dicts recursively, if either mapping has leaves that are non-dicts,
-    the second's leaf overwrites the first's.
-
-    https://stackoverflow.com/questions/7204805/how-to-merge-dictionaries-of-dictionaries/24088493#24088493
-    """
-    for k, v in d1.items():
-        if k in d2:
-            if all(isinstance(e, MutableMapping) for e in (v, d2[k])):
-                d2[k] = dict_merge(v, d2[k])
-    d3 = d1.copy()
-    d3.update(d2)
-    return d3
 
 
 @dataclass
@@ -86,10 +71,11 @@ class OctoDnsConfigurator(Configurator):
 
     @staticmethod
     def _extract_properties_from(task) -> DnsProperties:
-        name = map_value(task.vars["SELF"]["name"], task.inputs.context)
-        exclusive = map_value(task.vars["SELF"]["exclusive"], task.inputs.context)
-        provider = map_value(task.vars["SELF"]["provider"], task.inputs.context)
-        records = {name: map_value(task.vars["SELF"]["records"], task.inputs.context)}
+        attrs = task.vars["SELF"]
+        name = attrs.get_copy("name")
+        exclusive = attrs.get_copy("exclusive")
+        provider = attrs.get_copy("provider")
+        records = {name: attrs.get_copy("records") or {}}
         return DnsProperties(name, exclusive, provider, records)
 
     def _render_configure(self, path: str, properties: DnsProperties, log: Logger):
@@ -147,7 +133,7 @@ class OctoDnsConfigurator(Configurator):
 
     @staticmethod
     def _merge_dns_records(new_zone_records: dict, old_zone_records: dict) -> dict:
-        return dict_merge(old_zone_records, new_zone_records)
+        return merge_dicts(old_zone_records, new_zone_records, listStrategy="replace")
 
     @staticmethod
     def _create_yaml_zone_files(folder: WorkFolder, records: dict):
