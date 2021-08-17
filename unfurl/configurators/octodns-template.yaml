@@ -1,0 +1,37 @@
+# Copyright (c) 2020 Adam Souzis
+# SPDX-License-Identifier: MIT
+tosca_definitions_version: tosca_simple_unfurl_1_0_0
+
+node_types:
+  unfurl.nodes.DNSZone:
+    derived_from: tosca.nodes.Root
+    properties:
+      name:
+        description: DNS name of the zone
+        type: string
+      provider:
+        description: OctoDNS provider configuration
+        type: map
+      records:
+        description: DNS records to add to the zone
+        type: map
+        required: false
+      exclusive:
+        description: Remove records from the zone not specified in `records`
+        type: boolean
+        default: false
+    attributes:
+      zone:
+        description: The live zone
+        type: map
+    interfaces:
+      defaults:
+        implementation:
+          className: unfurl.configurators.octodns.OctoDnsConfigurator
+      Standard:
+        operations:
+          delete:
+          configure:
+      Install:
+        operations:
+          check:

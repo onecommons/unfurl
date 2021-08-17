@@ -58,7 +58,7 @@ class WorkFolder:
         ctx = self.task.inputs.context
         return get_path(ctx, path, folder or self.location, mkdir)
 
-    def _get_real_path(self, path=None):
+    def real_path(self, path=None):
         return os.path.join(self.cwd + self.PENDING_EXT, path or "")
 
     def relpath(self, path):
@@ -79,10 +79,10 @@ class WorkFolder:
         """
         # XXX don't write till commit time
         ctx = self.task.inputs.context
-        if not os.path.exists(self._get_real_path()):
+        if not os.path.exists(self.real_path()):
             # lazily create the .pending folder
             self._start()
-        path = self._get_real_path(name)
+        path = self.real_path(name)
         assert os.path.isabs(path), path
         write_file(ctx, contents, path, self.location, encoding)
         return self._get_path(name)

@@ -1,23 +1,17 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
-from __future__ import absolute_import
 import os.path
-
-import six
-from six.moves.configparser import ConfigParser
+from configparser import ConfigParser
+from xmlrpc.client import Fault, ServerProxy
 
 from supervisor import xmlrpc
 
-try:
-    from xmlrpc.client import ServerProxy, Fault
-except ImportError:
-    from xmlrpclib import Server as ServerProxy
-    from xmlrpclib import Fault
-
 from ..configurator import Configurator
 
+
 # support unix domain socket connections
-# (we want to connect the same way as supervisorctl does for security and to automatically support multiple instances)
+# (we want to connect the same way as supervisorctl does for security
+# and to automatically support multiple instances)
 def get_server_proxy(serverurl=None, username=None, password=None):
     # copied from https://github.com/Supervisor/supervisor/blob/b52f49cff287c4d821c2c54d7d1afcd397b699e5/supervisor/options.py#L1718
     return ServerProxy(
@@ -38,18 +32,18 @@ class SupervisorConfigurator(Configurator):
     def render(self, task):
         # host is a supervisord instance configured to load conf files in its "programs" directory
         # so write a .conf file there
-        confDir = task.vars["HOST"]["homeDir"]
+        conf_dir = task.vars["HOST"]["homeDir"]
         name = task.vars["SELF"]["name"]
-        confPath = os.path.join(confDir, "programs", name + ".conf")
+        conf_path = os.path.join(conf_dir, "programs", name + ".conf")
 
         op = task.configSpec.operation
         if op == "configure":
             program = task.vars["SELF"]["program"]
-            programDir = os.path.dirname(confPath)
-            task.logger.debug("writing %s", confPath)
-            if not os.path.isdir(programDir):
-                os.makedirs(programDir)
-            with open(confPath, "w") as conff:
+            program_dir = os.path.dirname(conf_path)
+            task.logger.debug("writing %s", conf_path)
+            if not os.path.isdir(program_dir):
+                os.makedirs(program_dir)
+            with open(conf_path, "w") as conff:
                 conf = f"[program:{name}]\n"
                 conf += "\n".join(f"{k}= {v}" for k, v in program.items())
                 if "environment" not in program:
@@ -60,30 +54,26 @@ class SupervisorConfigurator(Configurator):
                     )
                 conff.write(conf)
         elif op == "delete":
-            if os.path.exists(confPath):
-                os.remove(confPath)
+            if os.path.exists(conf_path):
+                os.remove(conf_path)
 
     def _get_config(self, task):
         host = task.vars["HOST"]
-        confDir = os.path.abspath(host["homeDir"])
+        conf_dir = os.path.abspath(host["homeDir"])
         conf = host["conf"]
-        if six.PY3:
-            parser = ConfigParser(inline_comment_prefixes=(";", "#"), strict=False)
-            parser.read_string(conf)
-        else:
-            parser = ConfigParser()
-            parser.readfp(six.StringIO(conf))
-        serverConfig = dict(parser.items("supervisorctl", vars=dict(here=confDir)))
-        serverConfig.pop("here", None)
-        return serverConfig
+        parser = ConfigParser(inline_comment_prefixes=(";", "#"), strict=False)
+        parser.read_string(conf)
+        server_config = dict(parser.items("supervisorctl", vars=dict(here=conf_dir)))
+        server_config.pop("here", None)
+        return server_config
 
     def run(self, task):
         name = task.vars["SELF"]["name"]
 
         # if homeDir is a relative path it will be relative to the baseDir of the host instance
         # which might be different from the current directory if host is an external instance
-        serverConfig = self._get_config(task)
-        server = get_server_proxy(**serverConfig)
+        server_config = self._get_config(task)
+        server = get_server_proxy(**server_config)
 
         error = None
         op = task.configSpec.operation

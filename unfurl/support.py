@@ -35,9 +35,15 @@ import logging
 
 logger = logging.getLogger("unfurl")
 
-Status = IntEnum(
-    "Status", "unknown ok degraded error pending absent", start=0, module=__name__
-)
+
+class Status(IntEnum):
+    unknown = 0
+    ok = 1
+    degraded = 2
+    error = 3
+    pending = 4
+    absent = 5
+
 
 # see "3.4.1 Node States" p74
 NodeState = IntEnum(

@@ -1,7 +1,6 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
-import six
-from ..configurator import Configurator, Status
+from ..configurator import Configurator
 from ..result import ResultsMap
 from ..util import register_short_names
 
@@ -28,7 +27,7 @@ class TemplateConfigurator(Configurator):
         resultTemplate = task.inputs._attributes.get("resultTemplate")
         errors = []
         if resultTemplate:  # evaluate it now with the result
-            if isinstance(resultTemplate, six.string_types):
+            if isinstance(resultTemplate, str):
                 query = dict(template=resultTemplate)
             else:
                 query = resultTemplate

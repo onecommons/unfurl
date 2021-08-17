@@ -216,7 +216,7 @@ class Configurator:
         newKeys = {k for k in task.inputs.keys() if k not in self.exclude_from_digest}
         task.logger.debug("checking digest for %s: %s", task.target.name, _parameters)
         if not _parameters:
-            return not not newKeys
+            return bool(newKeys)
         keys = _parameters.split(",")
         oldInputs = {key for key in keys if "::" not in key}
         if oldInputs - newKeys:
@@ -797,7 +797,7 @@ class TaskView:
         return None, errors
 
     # XXX multiple task can be accessing the same workfolder
-    def set_work_folder(self, location="operation", preserve=False):
+    def set_work_folder(self, location="operation", preserve=False) -> WorkFolder:
         self._workFolder = WorkFolder(self, location, preserve)
         return self._workFolder
         # return self.job.setFolder(
