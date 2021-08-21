@@ -1,3 +1,4 @@
+if: tag =~ /^\d+\.\d+\.\d+$/
 language: python
 python:
   - "3.9"
