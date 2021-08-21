@@ -39,11 +39,16 @@ jobs:
           wget https://github.com/rancher/k3d/releases/download/"${{ env.k3d_version }}"/k3d-linux-amd64
           chmod +x k3d-linux-amd64
           sudo mv k3d-linux-amd64 /usr/local/bin/k3d
+      - name: Set up the cluster
+        run: | 
+          k3d cluster create
+          kubectl get node
+          k3d kubeconfig merge --all -d
+          kubectl config view
       - name: Install Tox and any other packages
         run: pip install tox
       - name: Run Tox
         # Run tox using the version of Python in `PATH`
-        # -c tosca-parser/tox.ini
         run: | 
           export PY_V=py`python3 --version | awk '{print $2}' | tr -d '.' | cut -c 1-2`
           tox -e $PY_V -- -s
