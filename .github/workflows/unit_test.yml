@@ -51,8 +51,9 @@ jobs:
       - name: Install Tox and any other packages
         run: pip install tox
       - name: Test terraform
-        run: which terraform
-        run: echo $PATH
+        run: |
+          which terraform
+          echo $PATH
       - name: Run Tox
         # Run tox using the version of Python in `PATH`
         run: | 
