@@ -29,11 +29,11 @@ jobs:
       - name: Setup helm
         uses: azure/setup-helm@v1
         with:
-          version: ${{ env.kubectl_version }}
+          version: ${{ env.helm_version }}
       - name: Setup kubectl
         uses: azure/setup-kubectl@v1
         with:
-          version: ${{ env.helm_version }}
+          version: ${{ env.kubectl_version }}
       - name: Setup k3d
         run: |
           wget https://github.com/rancher/k3d/releases/download/"${{ env.k3d_version }}"/k3d-linux-amd64
