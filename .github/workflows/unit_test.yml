@@ -1,0 +1,49 @@
+name: Unfurl unit tests
+
+on: [push]
+
+jobs:
+  test:
+
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: [3.7, 3.8, 3.9]
+    env:
+      TOX_SKIP_ENV: .+(docker|lock)
+      tf_version: 1.0.0
+      helm_version: v3.3.4
+      kubectl_version: v1.21.2
+      k3d_version: v4.4.6
+      UNFURL_LOGGING: info
+    steps:
+      - uses: actions/checkout@v2
+      - name: Setup Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v1
+        with:
+          terraform_version: ${{ env.tf_version }}
+      - name: Setup helm
+        uses: azure/setup-helm@v1
+          with:
+            version: ${{ env.kubectl_version }}
+          id: install
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v1
+          with:
+            version: ${{ env.helm_version }}
+          id: install
+      - name: Setup k3d
+        run: |
+          wget https://github.com/rancher/k3d/releases/download/"${{ env.k3d_version }}"/k3d-linux-amd64
+          chmod +x k3d-linux-amd64
+          sudo mv k3d-linux-amd64 /usr/local/bin/k3d
+      - name: Install Tox and any other packages
+        run: pip install tox
+      - name: Run Tox
+        # Run tox using the version of Python in `PATH`
+        # -c tosca-parser/tox.ini
+        run: tox -c tosca-parser/tox.ini -e py -- -s
