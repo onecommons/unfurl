@@ -29,6 +29,7 @@ jobs:
         uses: hashicorp/setup-terraform@v1
         with:
           terraform_version: ${{ env.tf_version }}
+          terraform_wrapper: false
       - name: Setup helm
         uses: azure/setup-helm@v1
         with:
@@ -50,10 +51,10 @@ jobs:
           kubectl config view
       - name: Install Tox and any other packages
         run: pip install tox
-      - name: Test terraform
-        run: |
-          which terraform
-          echo $PATH
+      # - name: Test terraform
+      #   run: |
+      #     which terraform
+      #     echo $PATH
       - name: Run Tox
         # Run tox using the version of Python in `PATH`
         run: | 
