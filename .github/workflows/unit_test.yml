@@ -50,6 +50,8 @@ jobs:
           kubectl config view
       - name: Install Tox and any other packages
         run: pip install tox
+      - name: Test terraform
+        run: terraform --version
       - name: Run Tox
         # Run tox using the version of Python in `PATH`
         run: | 
