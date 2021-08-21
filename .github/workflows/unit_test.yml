@@ -44,4 +44,4 @@ jobs:
       - name: Run Tox
         # Run tox using the version of Python in `PATH`
         # -c tosca-parser/tox.ini
-        run: tox -c tosca-parser/tox.ini -e py -- -s
+        run: tox -e py -- -s
