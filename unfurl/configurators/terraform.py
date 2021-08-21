@@ -282,7 +282,7 @@ class TerraformConfigurator(ShellConfigurator):
             if providerSchema is not None:
                 save_to_file(providerSchemaPath, providerSchema)
             else:
-                raise UnfurlTaskError(task, f"terraform init failed in {cwd}")
+                raise UnfurlTaskError(task, f"terraform init failed in {cwd.cwd}")
 
         result = self.run_process(
             cmd, timeout=task.configSpec.timeout, env=env, cwd=cwd.cwd, echo=echo

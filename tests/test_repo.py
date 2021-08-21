@@ -271,7 +271,15 @@ ensemble.yaml
 
             result = runner.invoke(
                 cli,
-                ["git", "commit", "-m", "update manifest", "ensemble/ensemble.yaml"],
+                [
+                    "--home",
+                    "./unfurl_home",
+                    "git",
+                    "commit",
+                    "-m",
+                    "update manifest",
+                    "ensemble/ensemble.yaml",
+                ],
             )
             # uncomment this to see output:
             # print("commit result.output", result.exit_code, result.output)

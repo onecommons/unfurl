@@ -429,7 +429,7 @@ spec:
                 runner,
                 ["--home", "./unfurl_home", "init", "--shared-repository=shared", "p1"],
             )
-            result = runCmd(runner, ["deploy", "p1"])
+            result = runCmd(runner, ["--home", "./unfurl_home", "deploy", "p1"])
             self.assertRegex(result.output, "Found nothing to do.")
 
             os.chdir("p1")
