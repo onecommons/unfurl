@@ -45,5 +45,5 @@ jobs:
         # Run tox using the version of Python in `PATH`
         # -c tosca-parser/tox.ini
         run: | 
-          export PY_V=`python3 --version | awk '{print $2}' | tr -d '.' | cut -c 1-2`
+          export PY_V=py`python3 --version | awk '{print $2}' | tr -d '.' | cut -c 1-2`
           tox -e $PY_V -- -s
