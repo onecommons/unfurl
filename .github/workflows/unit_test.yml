@@ -28,14 +28,14 @@ jobs:
           terraform_version: ${{ env.tf_version }}
       - name: Setup helm
         uses: azure/setup-helm@v1
-          with:
-            version: ${{ env.kubectl_version }}
-          id: install
+        with:
+          version: ${{ env.kubectl_version }}
+        id: install
       - name: Setup kubectl
         uses: azure/setup-kubectl@v1
-          with:
-            version: ${{ env.helm_version }}
-          id: install
+        with:
+          version: ${{ env.helm_version }}
+        id: install
       - name: Setup k3d
         run: |
           wget https://github.com/rancher/k3d/releases/download/"${{ env.k3d_version }}"/k3d-linux-amd64
