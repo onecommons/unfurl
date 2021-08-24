@@ -37,7 +37,7 @@ def lifecycle(
         for task in job.workDone.values():
             assert (
                 task.target.status == step.target_status
-            ), f"Step: {step_str}, status: {task.target.status}"
+            ), f"Step: {step_str}, status: {task.target.status.name} should be {step.target_status.name} "
         yield job
 
 

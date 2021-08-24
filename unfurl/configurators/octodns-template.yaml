@@ -7,7 +7,7 @@ node_types:
     derived_from: tosca.nodes.Root
     properties:
       name:
-        description: DNS name of the zone
+        description: DNS name of the zone (end with .)
         type: string
       provider:
         description: OctoDNS provider configuration
@@ -15,15 +15,19 @@ node_types:
       records:
         description: DNS records to add to the zone
         type: map
-        required: false
+        default: {}
       exclusive:
-        description: Remove records from the zone not specified in `records`
+        description: Zone exclusively managed by this instance (removes unrecognized records)
         type: boolean
         default: false
     attributes:
       zone:
-        description: The live zone
+        description: The records found in the zone
         type: map
+      managed_records:
+        description: The records in the zone that are managed by this instance
+        type: map
+        required: false
     interfaces:
       defaults:
         implementation:

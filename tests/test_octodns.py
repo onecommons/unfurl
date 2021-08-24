@@ -21,8 +21,8 @@ class TestOctoDnsConfigurator:
         assert job.status == Status.ok
         assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
         node = job.rootResource.find_resource("test_node")
-        assert node.attributes["zone"]["test-domain.com."][""]["type"] == "A"
-        assert node.attributes["zone"]["test-domain.com."][""]["values"] == [
+        assert node.attributes["zone"][""]["type"] == "A"
+        assert node.attributes["zone"][""]["values"] == [
             "2.3.4.5",
             "2.3.4.6",
         ]
@@ -35,7 +35,7 @@ class TestOctoDnsConfigurator:
         assert job.status == Status.ok
         assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
         node = job.rootResource.find_resource("test_node")
-        assert node.attributes["zone"]["test-domain.com."] == {}
+        assert dict(node.attributes["zone"]) == {}
 
     @mock_route53
     def test_check(self):
@@ -47,7 +47,7 @@ class TestOctoDnsConfigurator:
         task = list(job.workDone.values())[0]
         # this means that dns records were correctly set during deploy:
         assert task.target_status == Status.ok
-        assert task.result.result == {"msg": "DNS records in sync"}
+        assert task.result.result == "DNS records in sync"
 
     @mock_route53
     def test_lifecycle(self):
@@ -65,8 +65,18 @@ class TestOctoDnsConfigurator:
         assert job.status == Status.ok
         node = job.rootResource.find_resource("test_node")
         # records are not merged, only ones defined in yaml are used
-        assert len(node.attributes["zone"]["test-domain.com."]) == 1
+        assert len(node.attributes["zone"]) == 1
         assert manager_sync.called
+
+    @mock_route53
+    def test_lifecycle_exclusive(self):
+        manifest = YamlManifest(
+            ENSEMBLE_ROUTE53.replace("exclusive: false", "exclusive: true")
+        )
+        jobs = lifecycle(manifest)
+        for job in jobs:
+            assert job.rootResource.find_resource("test_node").attributes["exclusive"]
+            assert job.status == Status.ok, job.workflow
 
 
 DNS_FIXTURE = Path(__file__).parent / "fixtures" / "dns"
@@ -87,6 +97,7 @@ spec:
           type: unfurl.nodes.DNSZone
           properties:
             name: test-domain.com.
+            exclusive: false
             provider:
               class: octodns.provider.route53.Route53Provider
               access_key_id: my_AWS_ACCESS_KEY_ID

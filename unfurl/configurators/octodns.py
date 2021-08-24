@@ -1,18 +1,16 @@
 import os
-from collections import MutableMapping
 from contextlib import contextmanager
+from collections import defaultdict
 from dataclasses import dataclass
 from logging import Logger
-from pathlib import Path
 
 from octodns.manager import Manager
-from ruamel.yaml import YAML
+from octodns.zone import Zone
 
 from ..configurator import Configurator
 from ..job import ConfigTask
 from ..projectpaths import WorkFolder
 from ..support import Status
-from ..merge import merge_dicts
 
 
 @contextmanager
@@ -41,33 +39,53 @@ class DnsProperties:
 
 
 class OctoDnsConfigurator(Configurator):
-    """Configurator for managing DNS records with OctoDNS"""
+    """A configurator for managing a DNS zone using OctoDNS.
+    Unless the ``exclusive`` attribute is set on the DNSZone instance, it will ignore records in the zone that are not specified in the ``records`` property.
+    OctoDNS requires the full set of records for a zone so OctoDnsConfigurator will
+    renders OctoDNS's configuration files using the zone data it last retrieved as saved in the ``zone`` attribute.
+    The zone data is refreshed when the configurator is run by a job.
+    The ``managed_records`` attribute tracks the records managed by the specification
+    so that as the specification changes records which are no longer specified will be removed.
+    """
 
     def can_dry_run(self, task):
         return True
 
+    def _update_zone(self, attributes, op, managed):
+        records = attributes.get_copy("zone") or {}
+        if attributes["exclusive"]:
+            records.clear()
+        elif attributes.get("managed_records"):
+            # remove records we added before
+            for key in attributes["managed_records"]:
+                records.pop(key, None)
+        if op == "configure":
+            # (re)add the current records
+            records.update(managed)
+        return records
+
     def render(self, task: ConfigTask):
         """Create yaml config files which will be consumed by OctoDNS"""
-        task.logger.debug("OctoDNS configurator - rendering config files")
         folder = task.set_work_folder()
-        path = folder.real_path()
         properties = self._extract_properties_from(task)
+        managed = properties.records
+
         self._create_main_config_file(folder, properties)
         op = task.configSpec.operation
-        if op == "configure":
-            records = self._render_configure(path, properties, task.logger)
-        elif op == "delete":
-            records = {properties.name: {}}
-        elif op == "check":
-            records = {}
-            self._dump_current_dns_records(path, properties.name, task.logger)
-        else:
-            raise NotImplementedError(f"Operation '{op}' is not allowed")
+        if op not in ["configure", "delete"]:
+            return managed
+        records = self._update_zone(task.target.attributes, op, managed)
+        # create zone files
+        self._write_zone_data(folder, properties.name, records)
+        path = folder.real_path()
+        with change_cwd(f"{path}/dns", task.logger):
+            Manager(config_file="main-config.yaml").validate_configs()
+        return managed
 
-        if records:
-            self._create_yaml_zone_files(folder, records)
-            task.target.attributes["zone"] = records
-        return records
+    @staticmethod
+    def _write_zone_data(folder, zone, records):
+        assert zone.endswith("."), f"{zone} name must end with '.'"
+        folder.write_file(records, f"dns/{zone}yaml")
 
     @staticmethod
     def _extract_properties_from(task) -> DnsProperties:
@@ -75,15 +93,8 @@ class OctoDnsConfigurator(Configurator):
         name = attrs.get_copy("name")
         exclusive = attrs.get_copy("exclusive")
         provider = attrs.get_copy("provider")
-        records = {name: attrs.get_copy("records") or {}}
+        records = attrs.get_copy("records") or {}
         return DnsProperties(name, exclusive, provider, records)
-
-    def _render_configure(self, path: str, properties: DnsProperties, log: Logger):
-        if properties.exclusive:
-            return properties.records
-        self._dump_current_dns_records(path, properties.name, log)
-        current_zone_records = self._read_current_dns_records(path, properties.name)
-        return self._merge_dns_records(properties.records, current_zone_records)
 
     @staticmethod
     def _create_main_config_file(folder: WorkFolder, properties: DnsProperties):
@@ -104,87 +115,110 @@ class OctoDnsConfigurator(Configurator):
         }
         folder.write_file(content, "dns/main-config.yaml")
 
-    @staticmethod
-    def _dump_current_dns_records(path: str, zone_name: str, log: Logger):
-        log.debug("OctoDNS configurator - downloading current DNS records")
+    def _dump_current_dns_records(self, task: ConfigTask, folder: WorkFolder):
+        task.logger.debug("OctoDNS configurator - downloading current DNS records")
 
-        with change_cwd(path, log):
-            try:
-                manager = Manager(config_file="dns/main-config.yaml")
-                manager.dump(
-                    zone_name,
-                    output_dir=f"{path}dns-dump/",
-                    lenient=False,
-                    split=False,
-                    source="target_config",
-                )
-            except Exception as e:
-                log.error("OctoDNS error: %s", e)
+        path = folder.cwd
+        zone_name = task.vars["SELF"]["name"]
+        with change_cwd(path, task.logger):
+            manager = Manager(config_file="dns/main-config.yaml")
+            zone = Zone(zone_name, manager.configured_sub_zones(zone_name))
+            exists = manager.providers["target_config"].populate(zone, lenient=False)
+            if not exists:
+                return {}
+            # now the zone.records has the latest records as a set
+            # copied from https://github.com/octodns/octodns/blob/f6629f1ce49919d523f7d26eb14e9125348a3059/octodns/provider/yaml.py#L160
+            # Order things alphabetically (records sort that way
+            records = list(zone.records)
+            records.sort()
+            data = defaultdict(list)
+            for record in records:
+                d = record.data
+                d["type"] = record._type
+                if record.ttl == manager.providers["source_config"].default_ttl:
+                    # ttl is the default, we don't need to store it
+                    del d["ttl"]
+                if record._octodns:
+                    d["octodns"] = record._octodns
+                data[record.name].append(d)
 
-    @staticmethod
-    def _read_current_dns_records(path: str, zone: str) -> dict:
-        records = {}
-        path = Path(path) / "dns-dump" / f"{zone}yaml"
-        if path.exists():
-            with open(path) as f:
-                yaml = YAML(typ="safe")
-                records[zone] = yaml.load(f.read())
-        return records
+            # Flatten single element lists
+            for k in data.keys():
+                if len(data[k]) == 1:
+                    data[k] = data[k][0]
 
-    @staticmethod
-    def _merge_dns_records(new_zone_records: dict, old_zone_records: dict) -> dict:
-        return merge_dicts(old_zone_records, new_zone_records, listStrategy="replace")
-
-    @staticmethod
-    def _create_yaml_zone_files(folder: WorkFolder, records: dict):
-        for zone, content in records.items():
-            folder.write_file(content, f"dns/{zone}yaml")
+            return dict(data)
 
     def run(self, task: ConfigTask):
         """Apply DNS configuration"""
+        # update zone and managed
         op = task.configSpec.operation
         task.logger.debug(f"OctoDNS configurator - run - {op}")
-        if op == "configure":
+        if op in ["configure", "delete"]:
             yield self._run_octodns_sync(task)  # create or update zone
-        elif op == "delete":
-            yield self._run_octodns_sync(task)  # remove zone records
         elif op == "check":
             yield self._run_check(task)
         else:
             raise NotImplementedError(f"Operation '{op}' is not allowed")
 
-    @staticmethod
-    def _run_octodns_sync(task: ConfigTask):
-        work_folder = task.set_work_folder()
-        with change_cwd(f"{work_folder.cwd}/dns", task.logger):
-            try:
-                manager = Manager(config_file="main-config.yaml")
-                manager.sync(dry_run=task.dry_run)
-                return task.done(success=True, result={"msg": "OctoDNS synced"})
-            except Exception as e:
-                task.logger.error("OctoDNS error: %s", e)
-                return task.done(success=False, result={"msg": f"OctoDNS error: {e}"})
+    def _run_octodns_sync(self, task: ConfigTask):
+        managed = task.rendered
+        # get the latest live records
+        # XXX if check ran during this job don't recheck (check state change?)
+        folder = task.set_work_folder()
+        live = self._dump_current_dns_records(task, folder)
+        zone = task.vars["SELF"]["zone"]
+        if live != zone:  # zone data changed externally
+            task.vars["SELF"]["zone"] = live
+        updated = self._update_zone(
+            task.target.attributes, task.configSpec.operation, managed
+        )
+        # note: render will already written the same data if live hasn't changed
+        self._write_zone_data(folder, task.vars["SELF"]["name"], updated)
+
+        if updated == live:
+            # nothing to do
+            return task.done(success=True, modified=False)
+
+        with change_cwd(f"{folder.cwd}/dns", task.logger):
+            manager = Manager(config_file="main-config.yaml")
+            manager.sync(dry_run=task.dry_run)
+            task.vars["SELF"]["zone"] = updated
+            task.vars["SELF"]["managed_records"] = managed
+            task.logger.debug("setting zone %s and managed %s", updated, managed)
+            return task.done(success=True, modified=True, result="OctoDNS synced")
 
     def _run_check(self, task: ConfigTask):
         """Retrieves current zone data and compares with expected"""
-        work_folder = task.set_work_folder()
-        properties = self._extract_properties_from(task)
-        empty_records = {properties.name: {}}
-        current_records = self._read_current_dns_records(
-            work_folder.cwd, properties.name
-        )
-
-        if current_records == properties.records:
-            return task.done(success=True, result={"msg": "DNS records in sync"})
-        elif current_records == empty_records:
-            return task.done(
-                success=True,
-                status=Status.absent,
-                result={"msg": "DNS records are empty"},
-            )
+        managed = task.rendered
+        folder = task.set_work_folder()
+        records = self._dump_current_dns_records(task, folder)
+        modified = False
+        if task.vars["SELF"]["zone"] != records:
+            task.vars["SELF"]["zone"] = records
+            modified = True
+        self._write_zone_data(folder, task.vars["SELF"]["name"], records)
+        msg = None
+        if task.vars["SELF"]["exclusive"]:
+            if records == managed:
+                status = Status.ok
+            elif not records:
+                status = Status.absent
+            else:
+                msg = "DNS zone is out of sync"
+                status = Status.error
         else:
-            return task.done(
-                success=True,
-                status=Status.error,
-                result={"msg": "DNS records out of sync"},
-            )
+            if not records and managed:
+                status = Status.absent
+            else:
+                for name, value in managed.items():
+                    if name not in records or records[name] != value:
+                        msg = "DNS zone is out of sync"
+                        status = Status.error
+                        break
+                else:
+                    msg = "DNS records in sync"
+                    status = Status.ok
+
+        # XXX save managed in outputs
+        return task.done(True, modified=modified, status=status, result=msg)
