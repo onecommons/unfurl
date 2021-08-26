@@ -28,6 +28,9 @@ node_types:
         description: The records in the zone that are managed by this instance
         type: map
         required: false
+    capabilities:
+        resolve:
+           type: unfurl.capabilities.DNSZone
     interfaces:
       defaults:
         implementation:
@@ -39,3 +42,16 @@ node_types:
       Install:
         operations:
           check:
+
+capability_types:
+
+  unfurl.capabilities.DNSZone:
+    derived_from: tosca.capabilities.Root
+
+relationship_types:
+  unfurl.relationships.DNSRecord:
+    derived_from: tosca.relationships.Root
+    valid_target_types: [unfurl.capabilities.DNSZone]
+    properties:
+      records:
+        type: map

@@ -12,16 +12,20 @@ from ..job import ConfigTask
 from ..projectpaths import WorkFolder
 from ..support import Status
 
+from ..eval import RefContext
+
 
 @contextmanager
 def change_cwd(new_path: str, log: Logger):
-    """Temporally change current working directory"""
-    log.debug("Changing CWD to: %s", new_path)
+    """Temporarily change current working directory"""
+    log.trace("Changing CWD to: %s", new_path)
     old_path = os.getcwd()
     os.chdir(new_path)
-    yield
-    log.debug("Changing CWD to: %s", new_path)
-    os.chdir(old_path)
+    try:
+        yield
+    finally:
+        log.trace("Restoring CWD back to: %s", old_path)
+        os.chdir(old_path)
 
 
 @dataclass
@@ -66,9 +70,11 @@ class OctoDnsConfigurator(Configurator):
 
     def render(self, task: ConfigTask):
         """Create yaml config files which will be consumed by OctoDNS"""
-        folder = task.set_work_folder()
+        folder = task.set_work_folder("home")
         properties = self._extract_properties_from(task)
         managed = properties.records
+        for rel in task.target.get_capabilities("resolve")[0].relationships:
+            managed.update(rel.attributes.get_copy("records", {}))
 
         self._create_main_config_file(folder, properties)
         op = task.configSpec.operation
@@ -77,15 +83,17 @@ class OctoDnsConfigurator(Configurator):
         records = self._update_zone(task.target.attributes, op, managed)
         # create zone files
         self._write_zone_data(folder, properties.name, records)
+
         path = folder.real_path()
-        with change_cwd(f"{path}/dns", task.logger):
+        with change_cwd(path, task.logger):
+            # raises an error if validation fails
             Manager(config_file="main-config.yaml").validate_configs()
         return managed
 
     @staticmethod
     def _write_zone_data(folder, zone, records):
         assert zone.endswith("."), f"{zone} name must end with '.'"
-        folder.write_file(records, f"dns/{zone}yaml")
+        folder.write_file(records, f"{zone}yaml")
 
     @staticmethod
     def _extract_properties_from(task) -> DnsProperties:
@@ -113,7 +121,7 @@ class OctoDnsConfigurator(Configurator):
                 }
             },
         }
-        folder.write_file(content, "dns/main-config.yaml")
+        folder.write_file(content, "main-config.yaml")
 
     def _dump_current_dns_records(self, task: ConfigTask, folder: WorkFolder):
         task.logger.debug("OctoDNS configurator - downloading current DNS records")
@@ -121,7 +129,7 @@ class OctoDnsConfigurator(Configurator):
         path = folder.cwd
         zone_name = task.vars["SELF"]["name"]
         with change_cwd(path, task.logger):
-            manager = Manager(config_file="dns/main-config.yaml")
+            manager = Manager(config_file="main-config.yaml")
             zone = Zone(zone_name, manager.configured_sub_zones(zone_name))
             exists = manager.providers["target_config"].populate(zone, lenient=False)
             if not exists:
@@ -165,7 +173,7 @@ class OctoDnsConfigurator(Configurator):
         managed = task.rendered
         # get the latest live records
         # XXX if check ran during this job don't recheck (check state change?)
-        folder = task.set_work_folder()
+        folder = task.get_work_folder()
         live = self._dump_current_dns_records(task, folder)
         zone = task.vars["SELF"]["zone"]
         if live != zone:  # zone data changed externally
@@ -175,29 +183,33 @@ class OctoDnsConfigurator(Configurator):
         )
         # note: render will already written the same data if live hasn't changed
         self._write_zone_data(folder, task.vars["SELF"]["name"], updated)
+        task.vars["SELF"]["managed_records"] = managed
+        task.logger.debug("setting managed_records %s", managed)
 
         if updated == live:
             # nothing to do
             return task.done(success=True, modified=False)
 
-        with change_cwd(f"{folder.cwd}/dns", task.logger):
+        with change_cwd(folder.cwd, task.logger):
             manager = Manager(config_file="main-config.yaml")
             manager.sync(dry_run=task.dry_run)
             task.vars["SELF"]["zone"] = updated
-            task.vars["SELF"]["managed_records"] = managed
-            task.logger.debug("setting zone %s and managed %s", updated, managed)
+            assert task.target.attributes is task.vars["SELF"]
+            task.logger.debug("setting zone %s", updated)
             return task.done(success=True, modified=True, result="OctoDNS synced")
 
     def _run_check(self, task: ConfigTask):
         """Retrieves current zone data and compares with expected"""
         managed = task.rendered
-        folder = task.set_work_folder()
+        task.vars["SELF"]["managed_records"] = managed
+        folder = task.get_work_folder()
         records = self._dump_current_dns_records(task, folder)
         modified = False
         if task.vars["SELF"]["zone"] != records:
             task.vars["SELF"]["zone"] = records
             modified = True
-        self._write_zone_data(folder, task.vars["SELF"]["name"], records)
+            self._write_zone_data(folder, task.vars["SELF"]["name"], records)
+
         msg = None
         if task.vars["SELF"]["exclusive"]:
             if records == managed:
@@ -213,12 +225,14 @@ class OctoDnsConfigurator(Configurator):
             else:
                 for name, value in managed.items():
                     if name not in records or records[name] != value:
-                        msg = "DNS zone is out of sync"
+                        msg = f"DNS zone is out of sync: expected to find {managed} in {records}"
                         status = Status.error
                         break
                 else:
                     msg = "DNS records in sync"
                     status = Status.ok
 
+        if msg:
+            task.logger.verbose(msg)
         # XXX save managed in outputs
         return task.done(True, modified=modified, status=status, result=msg)
