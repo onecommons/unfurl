@@ -24,6 +24,10 @@ from ruamel.yaml.comments import CommentedMap
 from .util import validate_schema, UnfurlError, assert_form
 from .result import ResultsList, Result, Results, ExternalValue, ResourceRef
 
+import logging
+
+logger = logging.getLogger("unfurl.eval")
+
 
 def map_value(value, resourceOrCxt, applyTemplates=True):
     if not isinstance(resourceOrCxt, RefContext):
@@ -96,13 +100,15 @@ class RefContext:
     The context of the expression being evaluated.
     """
 
+    DefaultTraceLevel = 0
+
     def __init__(
         self,
         currentResource,
         vars=None,
         wantList=False,
         resolveExternal=False,
-        trace=0,
+        trace=None,
         strict=_defaultStrictness,
         task=None,
     ):
@@ -115,7 +121,7 @@ class RefContext:
         self._rest = None
         self.wantList = wantList
         self.resolveExternal = resolveExternal
-        self._trace = trace
+        self._trace = self.DefaultTraceLevel if trace is None else trace
         self.strict = strict
         self.base_dir = currentResource.base_dir
         self.templar = currentResource.templar
@@ -147,7 +153,7 @@ class RefContext:
 
     def trace(self, *msg):
         if self._trace:
-            print(f"{' '.join(str(a) for a in msg)} (ctx: {self._lastResource})")
+            logger.trace(f"{' '.join(str(a) for a in msg)} (ctx: {self._lastResource})")
 
     def add_external_reference(self, external):
         result = Result(external)
