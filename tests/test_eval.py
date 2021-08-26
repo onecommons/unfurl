@@ -1,6 +1,7 @@
 import unittest
 import os
 import json
+
 from unfurl.result import ResultsList, serialize_value, ChangeRecord
 from unfurl.eval import Ref, map_value, RefContext, set_eval_func, ExternalValue
 from unfurl.support import apply_template, TopologyMap
@@ -326,10 +327,17 @@ a_dict:
         child = NodeInstance("r1", {"a": dict(ref="b"), "b": "r1"}, root)
         ctx = RefContext(root)
         x = [{"a": [{"c": 1}, {"c": 2}]}]
-        assert x == ResultsList(x, ctx)
+        r1 = ResultsList(x, ctx)
+        assert x == r1
         self.assertEqual(Ref("b").resolve(RefContext(child)), ["r1"])
         self.assertEqual(Ref("a").resolve(RefContext(child)), ["r1"])
         self.assertEqual(Ref("a").resolve(RefContext(root)), [["r1", "r2"]])
+
+        assert not r1._haskey(1)
+        r1.append("added")
+        assert r1._haskey(1)
+        r1[0]["a"][1] = "not c"
+        assert r1[0]["a"][1] == "not c"
 
     def test_nodeTraversal2(self):
         root = NodeInstance("root", {"a": [{"ref": "::child"}, {"b": 2}]})

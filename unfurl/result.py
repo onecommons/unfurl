@@ -536,9 +536,17 @@ class Results:
             assert not isinstance(resolved, Result), val
             return result
 
+    def _haskey(self, key):
+        # can't use "in" operator for lists
+        try:
+            self._attributes[key]
+            return True
+        except:  # IndexError or KeyError
+            return False
+
     def __setitem__(self, key, value):
         assert not isinstance(value, Result), (key, value)
-        if key in self._attributes:
+        if self._haskey(key):
             resolved = self[key]
             if resolved != value:
                 # exisiting value changed
