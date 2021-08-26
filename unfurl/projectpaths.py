@@ -395,7 +395,7 @@ def _get_base_dir(ctx, name=None):
     """
     Returns an absolute path based on the given folder name:
 
-    ".":   directory that contains the current instance's the ensemble
+    ".":   directory that contains the current instance's ensemble
     "src": directory of the source file this expression appears in
     "home" The "home" directory for the current instance (committed to repository)
     "local": The "local" directory for the current instance (excluded from repository)

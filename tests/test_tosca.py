@@ -308,7 +308,7 @@ class ToscaSyntaxTest(unittest.TestCase):
         # print(json.dumps(job.json_summary(), indent=2))
         assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
         self.assertEqual(job.status.name, "ok")
-        self.assertEqual(job.stats()["ok"], 5)
+        self.assertEqual(job.stats()["ok"], 4)
         self.assertEqual(job.stats()["changed"], 4)
         # print(job._json_plan_summary(True))
         self.assertEqual(
@@ -324,8 +324,8 @@ class ToscaSyntaxTest(unittest.TestCase):
                 {
                     "instance": "defaultNamespace",
                     "status": "Status.ok",
-                    "state": "NodeState.configured",
-                    "managed": "A01100000002",
+                    "state": "NodeState.started",
+                    "managed": None,
                     "plan": [
                         {"operation": "check", "reason": "check"},
                         {

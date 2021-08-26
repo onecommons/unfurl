@@ -337,12 +337,18 @@ class TerraformMotoTest(unittest.TestCase):
 
         from moto.server import main
 
-        p = Process(target=main, args=([],))
-        p.start()
+        self.p = Process(target=main, args=([],))
+        self.p.start()
 
-        time.sleep(0.25)
-        url = "http://localhost:5000/moto-api"  # UI lives here
-        urllib.request.urlopen(url)
+        for n in range(5):
+            time.sleep(0.2)
+            try:
+                url = "http://localhost:5000/moto-api"  # UI lives here
+                urllib.request.urlopen(url)
+            except:  # URLError
+                pass
+            else:
+                break
 
         path = os.path.join(os.path.dirname(__file__), "examples")
         with open(os.path.join(path, "terraform-ensemble.yaml")) as f:
@@ -352,7 +358,7 @@ class TerraformMotoTest(unittest.TestCase):
         self.maxDiff = None
 
     def tearDown(self):
-        pass  # XXX how to shut down the moto server?
+        self.p.terminate()
 
     def test_terraform(self):
         """

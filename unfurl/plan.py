@@ -279,10 +279,10 @@ class Plan:
         # add_target: Operation to notify source some property or attribute of the target changed
 
     def execute_default_undeploy(self, resource, reason=None, inputs=None):
-        # XXX run check before if defined?
+        # XXX run check if joboption set?
         # XXX don't delete if dirty
         # XXX remove_target: Operation called on source when a target instance is removed
-        # (but only called if add_target had been called)
+        # XXX remove_source: Operation called on target when a source instance is removed
 
         if (
             resource.state in [NodeState.starting, NodeState.started]

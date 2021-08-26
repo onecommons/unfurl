@@ -285,9 +285,11 @@ def get_render_requests(requests):
             yield None, req
 
 
-def _get_deps(parent, req, liveDependencies, future_requests):
+def _get_deps(parent, req, liveDependencies, requests):
     previous = None
-    for (root, r) in future_requests:
+    for (root, r) in requests:
+        if req.target.key == r.target.key:
+            continue  # skip self
         if r.target.key in liveDependencies:
             if root:
                 if previous is root or parent is root:
@@ -310,49 +312,56 @@ def set_fulfilled(requests, completed):
     return ready, notReady
 
 
-def _render_request(job, parent, req, future_requests):
+def _render_request(job, parent, req, requests):
     # req is a taskrequests, future_requests are (grouprequest, taskrequest) pairs
     if req.task:
         task = req.task
+        task._attributeManager.attributes = {}
         task.target.root.attributeManager = task._attributeManager
     else:
         task = req.task = job.create_task(req.configSpec, req.target, reason=req.reason)
     task.logger.debug("rendering %s %s", task.target.name, task.name)
+    error = None
     try:
         task.rendered = task.configurator.render(task)
     except Exception:
+        # note: failed rendering may be re-tried later if it has dependencies
+        error = UnfurlTaskError(task, "Configurator render failed", logging.DEBUG)
+
+    if parent and parent.workflow == "undeploy":
+        # when removing an instance don't worry about depending values changing in the future
+        deps = []
+    else:
+        # key => (instance, list<attribute>)
+        liveDependencies = task._attributeManager.find_live_dependencies()
+        # a future request may change the value of these attributes
+        deps = list(_get_deps(parent, req, liveDependencies, requests))
+
+    if deps:
+        req.future_dependencies = deps
+        task.logger.debug(
+            "%s:%s can not render yet, depends on %s",
+            task.target.name,
+            req.configSpec.operation,
+            str(deps),
+        )
+        # rollback changes:
+        task._errors = []
+        task._inputs = None
+        task._attributeManager.attributes = {}
+        if task._workFolder:
+            task._workFolder.discard()
+        return deps, None
+    elif error:
         if task._workFolder:
             task._workFolder.failed()
         task._inputs = None
         task._attributeManager.attributes = {}  # rollback changes
-        # note: failed rendering may be re-tried later
-        return [], UnfurlTaskError(task, "Configurator render failed", logging.DEBUG)
     else:
-        if parent and parent.workflow == "undeploy":
-            # when removing an instance don't worry about depending values changing in the future
-            deps = None
-        else:
-            # key => (instance, list<attribute>)
-            liveDependencies = task._attributeManager.find_live_dependencies()
-            # a future request may change the value of these attributes
-            deps = list(_get_deps(parent, req, liveDependencies, future_requests))
-
-        if deps:
-            req.future_dependencies = deps
-            task.logger.debug(
-                "%s can not render yet, depends on %s", task.target.name, str(deps)
-            )
-            # rollback changes:
-            task._inputs = None
-            task._attributeManager.attributes = {}
-            if task._workFolder:
-                task._workFolder.discard()
-            return deps, None
-        else:
-            task.commit_changes()
-            if task._workFolder:
-                task._workFolder.apply()
-    return [], None
+        task.commit_changes()
+        if task._workFolder:
+            task._workFolder.apply()
+    return deps, error
 
 
 def _add_to_req_list(reqs, parent, request):
@@ -365,13 +374,14 @@ def _add_to_req_list(reqs, parent, request):
 
 def do_render_requests(job, requests):
     ready, notReady, errors = [], [], []
-    render_requests = collections.deque(get_render_requests(requests))
+    flattened_requests = list(get_render_requests(requests))
+    render_requests = collections.deque(flattened_requests)
     while render_requests:
         parent, request = render_requests.popleft()
-        deps, error = _render_request(job, parent, request, render_requests)
+        deps, error = _render_request(job, parent, request, flattened_requests)
         if error:
             errors.append(error)
-        elif deps:
+        if deps:
             # remove if we already added the parent
             if parent and ready and ready[-1] is parent:
                 ready.pop()

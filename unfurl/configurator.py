@@ -3,6 +3,7 @@
 import six
 import collections
 import os
+import copy
 from .support import Status, ResourceChanges, Priority, TopologyMap
 from .result import serialize_value, ChangeAware, Results, ResultsMap, get_digest
 from .util import (
@@ -110,6 +111,15 @@ class Configurator:
         return self.run(task)
 
     def render(self, task):
+        """
+        This method is called is called during the planning phase to give the configurator an
+        opportunity to do early validation and error detection and generate any plan information or configuration files that the user may want to review before the running the deployment task.
+
+        Property access and writes will be tracked and used to establish dynamic dependencies between instances so the plan can be ordered properly. Any updates made to instances maybe reverted if it has dependencies on attributes that might be changed later in the plan, so this method should be idempotent.
+
+        Returns:
+            The value returned here will subsequently be available as ``task.rendered``
+        """
         return None
 
     # yields a JobRequest, TaskRequest or a ConfiguratorResult
@@ -280,7 +290,10 @@ class TaskView:
         {{ inputs.param }}
         """
         if self._inputs is None:
-            inputs = self.configSpec.inputs.copy()
+            assert self._attributeManager
+            assert self.target.root.attributeManager is self._attributeManager
+            # deepcopy because ResultsMap might modify interior maps and lists
+            inputs = copy.deepcopy(self.configSpec.inputs)
             relationship = isinstance(self.target, RelationshipInstance)
             if relationship:
                 target = self.target.target

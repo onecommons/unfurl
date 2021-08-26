@@ -829,12 +829,14 @@ class AttributeManager:
 
     def get_attributes(self, resource):
         if resource.key not in self.attributes:
+            # deepcopy() because lazily created ResultMaps and ResultLists will mutate
+            # the underlying nested structures when resolving values
             if resource.template:
                 specAttributes = resource.template.defaultAttributes
                 _attributes = ChainMap(
                     copy.deepcopy(resource._attributes),
-                    resource.template.properties,
-                    specAttributes,
+                    copy.deepcopy(resource.template.properties),
+                    copy.deepcopy(specAttributes),
                 )
             else:
                 _attributes = ChainMap(copy.deepcopy(resource._attributes))

@@ -256,7 +256,7 @@ class ConfigTask(ConfigChange, TaskView):
             if self.target.last_change != self.changeId:
                 # save to create a linked list of tasks that modified the target
                 self.previousId = self.target.last_change
-            self.target._lastStateChange = self.changeId
+            self.target._lastConfigChange = self.changeId
             return True
         return False
 
@@ -322,10 +322,13 @@ class ConfigTask(ConfigChange, TaskView):
         changes, dependencies = self._attributeManager.commit_changes()
         self.changeList.append(changes)
 
-        self._resolved_inputs.update(self.inputs.get_resolved())
-        self._inputs = None  # need to recreate this because _attributeManager was reset
+        if self._inputs is not None:
+            self._resolved_inputs.update(self.inputs.get_resolved())
+        # need to recreate this because _attributeManager was reset
+        self._inputs = None
 
         # record the live attributes that we are dependent on
+        # note: task start fresh with no dependencies so don't need to worry update or removing previous ones
         for key, (target, attributes) in dependencies.items():
             for name, (live, value) in attributes.items():
                 # hackish: we only want the status of a dependency to reflect its target instance's status
@@ -498,23 +501,32 @@ class Job(ConfigChange):
         ready = self.plan_requests
         if ready is None:
             ready = self.create_plan()
+        # XXX build artifacts needed for render
         self.run_external()  # XXX stats and errors
         self.workDone = collections.OrderedDict()
-        notReady = []
+        ready, notReady, errors = do_render_requests(self, ready)
+        if errors:
+            logger.warning("error rendering: %s", errors)
+        # XXX abort job if errors: return self.rootResource
+        # XXX update_plan(ready, unfulfilled) # try to reorder so we can add to ready
+        logger.trace("ready %s; not ready %s", ready, notReady)
         while ready:
-            # first time render them all, after that only re-render requests if their dependencies were fulfilled
-            ready, unfulfilled, errors = do_render_requests(self, ready)
-            notReady.extend(unfulfilled)
+            self.run_external()
             # create and run tasks for requests that have their dependencies fulfilled
             self.apply(ready)
             # remove requests from notReady if they've had all their dependencies fulfilled
             ready, notReady = set_fulfilled(notReady, ready)
+            logger.trace("ready %s; not ready %s", ready, notReady)
+            # first time render them all, after that only re-render requests if their dependencies were fulfilled
+            ready, unfulfilled, errors = do_render_requests(self, ready)
+            # XXX update_plan(ready, unfulfilled) # try to reorder so we can add to ready
+            notReady.extend(unfulfilled)
 
         # if there were circular dependencies or errors then notReady won't be empty
         if notReady:
             for parent, req in get_render_requests(notReady):
                 message = f"can't fulfill {req.target.name}: never ran {req.future_dependencies}"
-                logger.debug(message)
+                logger.info(message)
                 req.task.finished(ConfiguratorResult(False, False, result=message))
 
         # the jobRequestQueue will have jobs that were added dynamically by a configurator
@@ -677,6 +689,7 @@ class Job(ConfigChange):
         """
         Checked at runtime right before each task is run
         """
+        task.target.root.attributeManager = task._attributeManager
         try:
             if task._configurator:
                 priority = task.configurator.should_run(task)
@@ -723,16 +736,16 @@ class Job(ConfigChange):
         try:
             if task._errors:
                 can_run = False
-                reason = "could not create task"
+                reason = "Error while creating task"  # XXX + str(_errors)
             elif task.dry_run and not task.configurator.can_dry_run(task):
                 can_run = False
                 reason = "dry run not supported"
             else:
                 missing = []
-                if task.configSpec.operation != "check":
+                if task.configSpec.operation not in ["check", "delete"]:
                     missing, reason = self._dependency_check(task.target)
-                if not missing:
-                    missing, reason = self._dependency_check(task)
+                    if not missing:
+                        missing, reason = self._dependency_check(task)
                 if not missing:
                     errors = task.configSpec.find_invalidate_inputs(task.inputs)
                     if errors:
@@ -750,8 +763,8 @@ class Job(ConfigChange):
                             else:
                                 can_run = True
         except Exception:
-            UnfurlTaskError(task, "cantRunTask failed unexpectedly")
-            reason = "unexpected exception in cantRunTask"
+            UnfurlTaskError(task, "can_run_task failed unexpectedly")
+            reason = "unexpected exception in can_run_task"
             can_run = False
 
         if can_run:
@@ -924,6 +937,7 @@ class Job(ConfigChange):
 
         Returns a task.
         """
+        task.target.root.attributeManager = task._attributeManager
         ok, errors = self.can_run_task(task)
         if not ok:
             return task.finished(ConfiguratorResult(False, False, result=errors))

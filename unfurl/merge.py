@@ -18,6 +18,20 @@ def _mapCtor(self):
 
 CommentedMap.mapCtor = property(_mapCtor)
 
+# we can't subclass CommentedMap so we need to monkey patch
+__base__deepcopy__ = CommentedMap.__deepcopy__
+
+
+def __deepcopy__(self, memo):
+    cp = __base__deepcopy__(self, memo)
+    if hasattr(self, "base_dir"):
+        setattr(cp, "base_dir", self.base_dir)
+    return cp
+
+
+if CommentedMap.__deepcopy__ is not __deepcopy__:
+    CommentedMap.__deepcopy__ = __deepcopy__
+
 
 def copy(src):
     cls = getattr(src, "mapCtor", src.__class__)

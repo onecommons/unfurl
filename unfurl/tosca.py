@@ -4,7 +4,7 @@
 TOSCA implementation
 """
 import functools
-
+import copy
 from .tosca_plugins import TOSCA_VERSION
 from .util import UnfurlError, UnfurlValidationError, get_base_dir
 from .eval import Ref, RefContext, map_value
@@ -20,6 +20,7 @@ import toscaparser.artifacts
 from toscaparser.common.exception import ExceptionCollector
 import six
 import logging
+
 from ruamel.yaml.comments import CommentedMap
 
 logger = logging.getLogger("unfurl")
@@ -449,7 +450,13 @@ class EntitySpec(ResourceRef):
         # XXX user should be able to declare default attribute values
         self.propertyDefs = toscaNodeTemplate.get_properties()
         self.attributeDefs = {}
-        self.properties = {prop.name: prop.value for prop in self.propertyDefs.values()}
+        # XXX test_helm.py fails without making a deepcopy
+        # some how chart_values is being modifying outside of a task transaction
+        self.properties = copy.deepcopy(
+            CommentedMap(
+                [(prop.name, prop.value) for prop in self.propertyDefs.values()]
+            )
+        )
         if toscaNodeTemplate.type_definition:
             # add attributes definitions
             attrDefs = toscaNodeTemplate.type_definition.get_attributes_def()
@@ -887,7 +894,7 @@ class TopologySpec(EntitySpec):
             for input in template.inputs
         }
         self.outputs = {output.name: output.value for output in template.outputs}
-        self.properties = {}  # XXX implement substitution_mappings
+        self.properties = CommentedMap()  # XXX implement substitution_mappings
         self.defaultAttributes = {}
         self.propertyDefs = {}
         self.attributeDefs = {}

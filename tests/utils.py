@@ -30,14 +30,18 @@ def lifecycle(
     manifest: Manifest, steps: Optional[Iterable[Step]] = DEFAULT_STEPS
 ) -> Iterable[Job]:
     runner = Runner(manifest)
+    has_default_steps = steps == DEFAULT_STEPS
     for i, step in enumerate(steps, start=1):
         step_str = f"#{i} - {step.workflow}"
         job = runner.run(JobOptions(workflow=step.workflow))
-        assert job.status == Status.ok, step_str
+        assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
+        assert job.status == Status.ok, f"{step_str} is {job.status.name}"
+        # XXX if has_default_steps and i == 3 check that no changes were made
+        # XXX if has_default_steps and i == 4 check that no tasks ran
         for task in job.workDone.values():
             assert (
                 task.target.status == step.target_status
-            ), f"Step: {step_str}, status: {task.target.status.name} should be {step.target_status.name} "
+            ), f"Step: {step_str}, status: {task.target.status.name} should be {step.target_status.name} for {task.target.name}"
         yield job
 
 
@@ -47,5 +51,6 @@ def isolated_lifecycle(
     cli_runner = CliRunner()
     with cli_runner.isolated_filesystem():
         path = shutil.copy(path, ".")
+        # XXX this should save and reload for each step using the cli
         manifest = YamlManifest(path=path)
         yield from lifecycle(manifest, steps)
