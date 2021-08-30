@@ -54,7 +54,7 @@ class RunTest(unittest.TestCase):
 
     @unittest.skipIf("k8s" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
     def test_manifest(self):
-        path = __file__ + "/../examples/helm-ensemble.yaml"
+        path = __file__ + "/../examples/mock-helm-ensemble.yaml"
         manifest = YamlManifest(path=path)
         runner = Runner(manifest)
 
@@ -175,7 +175,7 @@ class RunTest(unittest.TestCase):
 
     @unittest.skipIf("k8s" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
     def test_discover(self):
-        path = __file__ + "/../examples/helm-ensemble.yaml"
+        path = __file__ + "/../examples/mock-helm-ensemble.yaml"
         manifest = YamlManifest(path=path)
         runner = Runner(manifest)
         assert not manifest.lastJob, "expected new manifest"

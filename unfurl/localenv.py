@@ -36,6 +36,7 @@ class Project:
             self.localConfig = LocalConfig()
         self._set_repos()
         self.contextName = "defaults"
+        # XXX this updates and saves the local config to disk -- constructing a Project object shouldn't do that
         self._set_parent_project(homeProject)
 
     def _set_parent_project(self, parentProject):
@@ -399,6 +400,7 @@ class LocalConfig:
         for path, tpl in self.localRepositories.items():
             if normalize_git_url(tpl["url"]) == normalize_git_url(repourl):
                 return path
+        return None
 
     def register_project(self, project):
         """
@@ -526,12 +528,21 @@ class LocalEnv:
                         path = self.project.localConfig.find_repository_path(
                             project_tpl["url"]
                         )
-                        externalProject = self.find_project(path)
-                        externalProject._set_parent_project(self.project)
-                        self.project = externalProject
+                        externalProject = None
+                        if path is not None:
+                            externalProject = self.find_project(path)
+                            if externalProject:
+                                externalProject._set_parent_project(self.project)
+                                self.project = externalProject
+                        if not externalProject:
+                            logger.warning(
+                                'Could not find the project "%s" which manages "%s"',
+                                location["managedBy"],
+                                manifestPath,
+                            )
 
         if self.project:
-            logging.info("Loaded project at %s", self.project.localConfig.config.path)
+            logger.info("Loaded project at %s", self.project.localConfig.config.path)
         self.toolVersions = {}
         self.instanceRepo = self._get_instance_repo()
         self.config = (

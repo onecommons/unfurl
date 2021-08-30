@@ -534,7 +534,7 @@ spec:
     def test_remote_git_repo(self):
         runner = CliRunner()
         with runner.isolated_filesystem():
-            result = runner.invoke(cli, ["init", "--mono"])
+            result = runner.invoke(cli, ["--home", "./unfurl_home", "init", "--mono"])
             assert not result.exception, "\n".join(
                 traceback.format_exception(*result.exc_info)
             )
@@ -557,7 +557,9 @@ spec:
         runner = CliRunner()
         with runner.isolated_filesystem():
             # override home so to avoid interferring with other tests
-            result = runner.invoke(cli, ["init", "test", "--submodule"])
+            result = runner.invoke(
+                cli, ["--home", "./unfurl_home", "init", "test", "--submodule"]
+            )
             assert not result.exception, "\n".join(
                 traceback.format_exception(*result.exc_info)
             )
