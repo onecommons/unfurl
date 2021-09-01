@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 import six
 from .runtime import NodeInstance
-from .util import UnfurlError, Generate
+from .util import UnfurlError
 from .result import ChangeRecord
 from .support import Status, NodeState, Reason
 from .planrequests import (
@@ -159,9 +159,11 @@ class Plan:
         return NodeInstance(template.name, None, parent, template, status)
 
     def _run_operation(self, startState, op, resource, reason=None, inputs=None):
-        return create_task_request(
+        req = create_task_request(
             self.jobOptions, op, resource, reason, inputs, startState
         )
+        if req:
+            yield req
 
     def _execute_default_configure(self, resource, reason=None, inputs=None):
         # 5.8.5.4 Node-Relationship configuration sequence p. 229
@@ -176,14 +178,12 @@ class Plan:
                 for relationship in capability.relationships:
                     # we're the target, source may not have been created yet
                     # XXX if not relationship.source create the instance
-                    req = self._run_operation(
+                    yield from self._run_operation(
                         NodeState.configuring,
                         "Configure.pre_configure_target",
                         relationship,
                         reason,
                     )
-                    if req:
-                        yield req
 
         # we're the source, target has already started
         sourceConfigOps = resource.template.get_requirement_interfaces()
@@ -191,31 +191,25 @@ class Plan:
             if resource.template.get_requirement_interfaces():
                 # Operation to pre-configure the target endpoint
                 for relationship in resource.requirements:
-                    req = self._run_operation(
+                    yield from self._run_operation(
                         NodeState.configuring,
                         "Configure.pre_configure_source",
                         relationship,
                         reason,
                     )
-                    if req:
-                        yield req
 
-        req = self._run_operation(
+        yield from self._run_operation(
             NodeState.configuring, "Standard.configure", resource, reason, inputs
         )
-        if req:
-            yield req
 
         if sourceConfigOps:
             for requirement in resource.requirements:
-                req = self._run_operation(
+                yield from self._run_operation(
                     NodeState.configuring,
                     "Configure.post_configure_source",
                     requirement,
                     reason,
                 )
-                if req:
-                    yield req
 
         if targetConfigOps:
             for capability in resource.capabilities:
@@ -223,14 +217,12 @@ class Plan:
                 # Operation to post-configure the target endpoint.
                 for relationship in capability.relationships:
                     # XXX if not relationship.source create the instance
-                    req = self._run_operation(
+                    yield from self._run_operation(
                         NodeState.configuring,
                         "Configure.post_configure_target",
                         relationship,
                         reason,
                     )
-                    if req:
-                        yield req
 
     def execute_default_deploy(self, resource, reason=None, inputs=None):
         # 5.8.5.2 Invocation Conventions p. 228
@@ -246,20 +238,16 @@ class Plan:
             or self.jobOptions.force
             or (resource.status == Status.error and initialState)
         ):
-            taskRequest = self._run_operation(
+            yield from self._run_operation(
                 NodeState.creating, "Standard.create", resource, reason, inputs
             )
-            if taskRequest:
-                yield taskRequest
 
         if (
             initialState
             or resource.state < NodeState.configured
             or (self.jobOptions.force and resource.state != NodeState.started)
         ):
-            gen = Generate(self._execute_default_configure(resource, reason, inputs))
-            while gen():
-                gen.result = yield gen.next
+            yield from self._execute_default_configure(resource, reason, inputs)
 
             # XXX if the resource had already existed, call target_changed
             # "Operation to notify source some property or attribute of the target changed"
@@ -269,11 +257,9 @@ class Plan:
 
         if initialState or resource.state != NodeState.started or self.jobOptions.force:
             # configured or if no configure operation exists then node just needs to have been created
-            taskRequest = self._run_operation(
+            yield from self._run_operation(
                 NodeState.starting, "Standard.start", resource, reason, inputs
             )
-            if taskRequest:
-                yield taskRequest
         # XXX these are only called when adding instances
         # add_source: Operation to notify the target node of a source node which is now available via a relationship.
         # add_target: Operation to notify source some property or attribute of the target changed
@@ -291,9 +277,7 @@ class Plan:
             nodeState = NodeState.stopping
             op = "Standard.stop"
 
-            req = self._run_operation(nodeState, op, resource, reason, inputs)
-            if req:
-                yield req
+            yield from self._run_operation(nodeState, op, resource, reason, inputs)
 
         if self.workflow == "stop":
             return
@@ -305,9 +289,7 @@ class Plan:
             nodeState = None
             op = "Install.revert"
 
-        req = self._run_operation(nodeState, op, resource, reason, inputs)
-        if req:
-            yield req
+        yield from self._run_operation(nodeState, op, resource, reason, inputs)
 
     def execute_default_install_op(self, operation, resource, reason=None, inputs=None):
         req = create_task_request(
@@ -337,11 +319,7 @@ class Plan:
                 if reason:
                     logger.debug("%s instance %s", reason, resource.name)
                     workflow = "undeploy" if reason == Reason.prune else self.workflow
-                    gen = Generate(
-                        self._generate_configurations(resource, reason, workflow)
-                    )
-                    while gen():
-                        gen.result = yield gen.next
+                    yield from self._generate_configurations(resource, reason, workflow)
 
     def _get_default_generator(self, workflow, resource, reason=None, inputs=None):
         if workflow == "deploy":
@@ -366,11 +344,8 @@ class Plan:
             group = TaskRequestGroup(resource, workflow)
         else:
             group = None
-        gen = Generate(configGenerator)
-        while gen():
-            gen.result = gen.next
-            if gen.result:
-                taskRequest = gen.result
+        for taskRequest in configGenerator:
+            if taskRequest:
                 if group:
                     group.children.append(taskRequest)
                 else:
@@ -430,11 +405,9 @@ class Plan:
                 workflowGenerator = self.execute_workflow(activity.inline, resource)
                 if not workflowGenerator:
                     continue
-                gen = Generate(workflowGenerator)
-                while gen():
-                    gen.result = gen.next
-                    if gen.result:
-                        reqGroup.children.append(gen.result)
+                for result in workflowGenerator:
+                    if result:
+                        reqGroup.children.append(result)
             elif activity.type == "call_operation":
                 # XXX need to pass operation_host (see 3.6.27 Workflow step definition p188)
                 # if target is a group can be value can be node_type or node template name
@@ -457,11 +430,7 @@ class Plan:
                 )
                 if not configGenerator:
                     continue
-                gen = Generate(configGenerator)
-                while gen():
-                    gen.result = gen.next
-                    if gen.result:
-                        reqGroup.children.append(gen.result)
+                reqGroup.children.extend(filter(None, configGenerator))
 
         # XXX  yield step.on_failure  # list of steps
         yield reqGroup
@@ -491,10 +460,7 @@ class Plan:
         return True
 
     def _generate_workflow_configurations(self, instance, oldTemplate):
-        configGenerator = self._generate_configurations(instance, self.workflow)
-        gen = Generate(configGenerator)
-        while gen():
-            gen.result = yield gen.next
+        yield from self._generate_configurations(instance, self.workflow)
 
     def execute_plan(self):
         """
@@ -512,11 +478,7 @@ class Plan:
             for resource in self.find_resources_from_template(template):
                 found = True
                 visited.add(id(resource))
-                gen = Generate(
-                    self._generate_workflow_configurations(resource, template)
-                )
-                while gen():
-                    gen.result = yield gen.next
+                yield from self._generate_workflow_configurations(resource, template)
 
             if (
                 not found
@@ -527,19 +489,13 @@ class Plan:
                 if include:
                     resource = self.create_resource(template)
                     visited.add(id(resource))
-                    gen = Generate(
-                        self._generate_workflow_configurations(resource, None)
-                    )
-                    while gen():
-                        gen.result = yield gen.next
+                    yield from self._generate_workflow_configurations(resource, None)
 
         if opts.prune:
             test = (
                 lambda resource: Reason.prune if id(resource) not in visited else False
             )
-            gen = Generate(self.generate_delete_configurations(test))
-            while gen():
-                gen.result = yield gen.next
+            yield from self.generate_delete_configurations(test)
 
 
 class DeployPlan(Plan):
@@ -642,13 +598,7 @@ class DeployPlan(Plan):
             installOp = None
 
         if installOp:
-            configGenerator = self._generate_configurations(
-                instance, installOp, installOp
-            )
-            if configGenerator:
-                gen = Generate(configGenerator)
-                while gen():
-                    gen.result = yield gen.next
+            yield from self._generate_configurations(instance, installOp, installOp)
 
             if self.is_instance_read_only(instance):
                 return  # we're done
@@ -665,10 +615,7 @@ class DeployPlan(Plan):
             if req:
                 yield req
         else:
-            configGenerator = self._generate_configurations(instance, reason)
-            gen = Generate(configGenerator)
-            while gen():
-                gen.result = yield gen.next
+            yield from self._generate_configurations(instance, reason)
 
 
 class UndeployPlan(Plan):
@@ -676,9 +623,7 @@ class UndeployPlan(Plan):
         """
         yields configSpec, target, reason
         """
-        gen = Generate(self.generate_delete_configurations(self.include_for_deletion))
-        while gen():
-            gen.result = yield gen.next
+        yield from self.generate_delete_configurations(self.include_for_deletion)
 
     def include_for_deletion(self, resource):
         if self.filterTemplate and resource.template != self.filterTemplate:

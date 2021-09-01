@@ -52,4 +52,4 @@ Utility classes and functions
 .. automodule:: unfurl.util
   :members: UnfurlError, UnfurlTaskError, wrap_sensitive_value, is_sensitive,
     sensitive_bytes, sensitive_str, sensitive_dict, sensitive_list,
-    filter_env, Generate
+    filter_env
