@@ -132,7 +132,7 @@ class DockerTest(unittest.TestCase):
         # pickled = pickle.dumps(runner.manifest, -1)
         # manifest2 = pickle.loads(pickled)
 
-        run1 = runner.run(JobOptions(resource="test1"))
+        run1 = runner.run(JobOptions(instance="test1"))
         assert len(run1.workDone) == 1, run1.workDone
         tasks = list(run1.workDone.values())
         # docker login will fail because user doesn't exist:

@@ -70,7 +70,7 @@ class AnsibleConfiguratorTest:
         test that runner figures out the proper tasks to run
         """
         runner = Runner(YamlManifest(self.manifest))
-        run1 = runner.run(JobOptions(resource="test1"))
+        run1 = runner.run(JobOptions(instance="test1"))
         assert not run1.unexpectedAbort, run1.unexpectedAbort.get_stack_trace()
         assert len(run1.workDone) == 1, run1.workDone
         result = list(run1.workDone.values())[0].result

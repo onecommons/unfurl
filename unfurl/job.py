@@ -80,12 +80,24 @@ class JobOptions:
     is it in a ok state?
     """
 
-    defaults = dict(
-        parentJob=None,
+    global_defaults = dict(
+        # global options that we also want to apply to any child or external job
+        verbose=0,
         masterJob=None,
         startTime=None,
         out=None,
-        verbose=0,
+        dryrun=False,
+        planOnly=False,
+        readonly=False,  # only run configurations that won't alter the system
+        requiredOnly=False,
+        commit=False,
+        dirty="auto",  # run the job even if the repository has uncommitted changrs
+        message=None,
+    )
+
+    defaults = dict(
+        global_defaults,
+        parentJob=None,
         instance=None,
         instances=None,
         template=None,
@@ -94,28 +106,20 @@ class JobOptions:
         skip_new=False,  # don't create newly defined instances (override add)
         update=True,  # run configurations that that have changed
         change_detection="evaluate",  # skip, spec, evaluate (skip sets update to False)
-        repair="error",  # or 'degraded' or "missing" or "none", run configurations that are not operational and/or degraded
+        repair="error",  # or 'degraded' or "none", run configurations that are not operational and/or degraded
         upgrade=False,  # run configurations with major version changes or whose spec has changed
         force=False,  # (re)run operation regardless of instance's status or state
         verify=False,  # XXX3 discover first and set status if it differs from expected state
-        readonly=False,  # only run configurations that won't alter the system
         check=False,  # if new instances exist before deploying
-        dryrun=False,
-        planOnly=False,
-        requiredOnly=False,
         prune=False,
         destroyunmanaged=False,
         append=None,
         replace=None,
-        commit=False,
-        dirty="auto",  # run the job even if the repository has uncommitted changrs
-        message=None,
         workflow=Defaults.workflow,
     )
 
     def __init__(self, **kw):
         options = self.defaults.copy()
-        options["instance"] = kw.get("resource")  # old option name
         if kw.get("starttime"):  # rename
             options["startTime"] = kw["starttime"]
         if kw.get("skip_new"):
@@ -125,6 +129,14 @@ class JobOptions:
         options.update(kw)
         self.__dict__.update(options)
         self.userConfig = kw
+
+    def copy(self, **kw):
+        # only copy global
+        _copy = {
+            k: self.userConfig[k]
+            for k in set(self.userConfig) & set(self.global_defaults)
+        }
+        return JobOptions(**dict(_copy, **kw))
 
     def get_user_settings(self):
         # only include settings different from the defaults
@@ -639,10 +651,8 @@ class Job(ConfigChange):
     def run_job_request(self, jobRequest):
         logger.debug("running jobrequest: %s", jobRequest)
         self.jobRequestQueue.remove(jobRequest)
-        resourceNames = [r.name for r in jobRequest.instances]
-        jobOptions = JobOptions(
-            parentJob=self, repair="missing", instances=resourceNames
-        )
+        resourceNames = [r.key for r in jobRequest.instances]
+        jobOptions = self.jobOptions.copy(parentJob=self, instances=resourceNames)
         childJob = create_job(self.manifest, jobOptions)
         childJob.set_task_id(self.increment_task_count())
         assert childJob.parentJob is self
@@ -658,13 +668,9 @@ class Job(ConfigChange):
                 assert isinstance(
                     request, JobRequest
                 ), "only JobRequest currently supported"
-                instance_names.extend([r.name for r in request.instances])
-            jobOptions = JobOptions(
-                repair="missing",
+                instance_names.extend([r.key for r in request.instances])
+            jobOptions = self.jobOptions.copy(
                 instances=instance_names,
-                startTime=self.jobOptions.startTime,
-                out=self.jobOptions.out,
-                verbose=self.jobOptions.verbose,
                 masterJob=self.jobOptions.masterJob or self,
             )
             externalJob = create_job(manifest, jobOptions)
@@ -1112,7 +1118,7 @@ class Job(ConfigChange):
                     )
                     _summary(request.children, target, indent + 4)
                 else:
-                    output.append(" " * indent + "- " + request.name)
+                    output.append(" " * indent + "- " + repr(request))
 
         opts = self.jobOptions.get_user_settings()
         options = ",".join([f"{k} = {opts[k]}" for k in opts if k != "planOnly"])

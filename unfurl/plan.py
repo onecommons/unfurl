@@ -438,13 +438,7 @@ class Plan:
 
     def _get_templates(self):
         templates = (
-            []
-            if not self.tosca.nodeTemplates
-            else [
-                t
-                for t in self.tosca.nodeTemplates.values()
-                if not t.is_compatible_type(self.tosca.ConfiguratorType)
-            ]
+            [] if not self.tosca.nodeTemplates else self.tosca.nodeTemplates.values()
         )
 
         # order by ancestors

@@ -389,7 +389,6 @@ def _run_local(ensemble, options):
     else:
         jsonSummary = {}
         summary = options.get("output")
-        logger.debug(job.summary())
         if summary == "text":
             click.echo(job.summary())
         elif summary == "json":

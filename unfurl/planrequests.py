@@ -196,7 +196,10 @@ class TaskRequest(PlanRequest):
         )
 
     def __repr__(self):
-        return f"TaskRequest({self.target}({self.target.status},{self.target.state}):{self.name})"
+        state = " " + (self.target.state and self.target.state.name or "")
+        return (
+            f"TaskRequest({self.target}({self.target.status.name}{state}):{self.name})"
+        )
 
 
 class SetStateRequest(PlanRequest):
@@ -400,7 +403,7 @@ def _filter_config(opts, config, target):
         return None, "required"
     if opts.instance and target.name != opts.instance:
         return None, "instance"
-    if opts.instances and target.name not in opts.instances:
+    if opts.instances and target.key not in opts.instances:
         return None, "instances"
     return config, None
 

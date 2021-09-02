@@ -2,8 +2,6 @@ import unittest
 from unfurl.yamlmanifest import YamlManifest
 from unfurl.job import Runner, JobOptions, Status
 from unfurl.configurator import Configurator
-from unfurl.merge import lookup_path
-import datetime
 
 
 class TestConfigurator(Configurator):
@@ -20,7 +18,7 @@ class TestConfigurator(Configurator):
 
             updateSpec = dict(name=".self", status=dict(attributes={"newAttribute": 1}))
             task.logger.info("updateResources: %s", [resourceSpec, updateSpec])
-            jobrequest, errors = task.update_resources([resourceSpec, updateSpec])
+            jobrequest, errors = task.update_instances([resourceSpec, updateSpec])
             if shouldYield:
                 job = yield jobrequest
                 assert job, jobrequest
@@ -42,7 +40,6 @@ spec:
               configure:
                 implementation:
                   className: Test
-                  majorVersion: 0
                   preConditions:
                     properties:
                       meetsTheRequirement:
@@ -101,7 +98,7 @@ class ConfiguratorTest(unittest.TestCase):
         #     self.assertEqual(str(notYetProvided[1]),
         # """[<ValidationError: "'copyOfMeetsTheRequirement' is a required property">]""")
 
-        jobOptions1 = JobOptions(resource="test1", startTime=1)
+        jobOptions1 = JobOptions(instance="test1", startTime=1)
         run1 = runner.run(jobOptions1)
         # print(run1.out.getvalue())
         assert not run1.unexpectedAbort, run1.unexpectedAbort.get_stack_trace()
@@ -125,7 +122,7 @@ class ConfiguratorTest(unittest.TestCase):
 
         self.verifyRoundtrip(run1.out.getvalue(), jobOptions1)
 
-        jobOptions2 = JobOptions(resource="test2", startTime=2)
+        jobOptions2 = JobOptions(instance="test2", startTime=2)
         run2 = runner.run(jobOptions2)
         assert not run2.unexpectedAbort, run2.unexpectedAbort.get_stack_trace()
         assert run2.status == Status.error, run2.status
@@ -140,7 +137,7 @@ class ConfiguratorTest(unittest.TestCase):
 
     def test_addingResources(self):
         runner = Runner(YamlManifest(manifest))
-        jobOptions = JobOptions(resource="test3", startTime=1)
+        jobOptions = JobOptions(instance="test3", startTime=1)
         run = runner.run(jobOptions)
         assert not run.unexpectedAbort, run.unexpectedAbort.get_stack_trace()
         # self.assertEqual(list(run.workDone.keys()), [('test3', 'test'), ('added1', 'config1')])
@@ -158,7 +155,7 @@ class ConfiguratorTest(unittest.TestCase):
         jobOptions.repair = "none"
         self.verifyRoundtrip(run.out.getvalue(), jobOptions)
 
-        jobOptions = JobOptions(resource="test4", startTime=2)
+        jobOptions = JobOptions(instance="test4", startTime=2)
         run = runner.run(jobOptions)
         assert not run.unexpectedAbort, run.unexpectedAbort.get_stack_trace()
         self.assertEqual(

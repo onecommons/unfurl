@@ -73,7 +73,6 @@ def create_default_topology():
 
 
 class ToscaSpec:
-    ConfiguratorType = "unfurl.nodes.Configurator"
     InstallerType = "unfurl.nodes.Installer"
 
     def _overlay(self, overlays):
@@ -161,6 +160,7 @@ class ToscaSpec:
         if isinstance(toscaDef, ToscaTemplate):
             self.template = toscaDef
         else:
+            self.template = None
             topology_tpl = toscaDef.get("topology_template")
             if not topology_tpl:
                 toscaDef["topology_template"] = dict(
@@ -174,7 +174,7 @@ class ToscaSpec:
             try:
                 self._parse_template(path, inputs, toscaDef, resolver)
             except:
-                if not ExceptionCollector.exceptionsCaught():
+                if not ExceptionCollector.exceptionsCaught() or not self.template:
                     raise  # unexpected error
 
             decorators = self.load_decorators()
