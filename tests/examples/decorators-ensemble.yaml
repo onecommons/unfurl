@@ -2,10 +2,9 @@ apiVersion: unfurl/v1alpha1
 kind: Ensemble
 spec:
   service_template:
-    # XXX parsing decorators fails here
-    # imports:
-    # - file: spec/decorators-import-template.yaml
-    +include: spec/decorators-import-template.yaml
+    imports:
+      - file: spec/decorators-import-template.yaml
+
     decorators:
       missing:
         properties:

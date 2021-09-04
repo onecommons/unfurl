@@ -9,7 +9,7 @@ from .tosca_plugins import TOSCA_VERSION
 from .util import UnfurlError, UnfurlValidationError, get_base_dir
 from .eval import Ref, RefContext, map_value
 from .result import ResourceRef, ResultsList
-from .merge import patch_dict
+from .merge import patch_dict, merge_dicts
 from toscaparser.tosca_template import ToscaTemplate
 from toscaparser.properties import Property
 from toscaparser.elements.entity_type import EntityType
@@ -179,6 +179,7 @@ class ToscaSpec:
 
             decorators = self.load_decorators()
             if decorators:
+                logger.debug("applying decorators %s", decorators)
                 # copy errors before we clear them in _overlay
                 errorsSoFar = ExceptionCollector.exceptions[:]
                 self._overlay(decorators)
@@ -241,8 +242,8 @@ class ToscaSpec:
         for path, import_tpl in self.template.nested_tosca_tpls.items():
             imported = import_tpl.get("decorators")
             if imported:
-                decorators.update(imported)
-        decorators.update(self.template.tpl.get("decorators") or {})
+                decorators = merge_dicts(decorators, imported)
+        decorators = merge_dicts(decorators, self.template.tpl.get("decorators") or {})
         return decorators
 
     def load_imported_default_templates(self):
