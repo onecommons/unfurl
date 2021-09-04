@@ -232,6 +232,7 @@ class ToscaSyntaxTest(unittest.TestCase):
         path = __file__ + "/../examples/testimport-ensemble.yaml"
         manifest = YamlManifest(path=path)
         self.assertEqual(2, len(manifest.tosca.template.nested_tosca_tpls.keys()))
+        assert "imported-repo" in manifest.tosca.template.repositories
 
         runner = Runner(manifest)
         output = six.StringIO()

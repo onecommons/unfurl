@@ -374,6 +374,7 @@ class Manifest(AttributeManager):
     def add_repository(self, repo, toscaRepository, file_name):
         repository = self.repositories.get(toscaRepository.name)
         if repository:
+            # already exist, make sure it's the same repo
             repo = repo or repository.repo
             if (
                 repository.repo and repository.repo != repo
@@ -381,7 +382,7 @@ class Manifest(AttributeManager):
                 raise UnfurlError(
                     f'Repository "{toscaRepository.name}" already defined'
                 )
-        self.repositories[repository.name] = RepoView(toscaRepository, repo, file_name)
+        self.repositories[toscaRepository.name] = RepoView(toscaRepository, repo, file_name)
         return repository
 
     def update_repositories(self, config, inlineRepositories=None):

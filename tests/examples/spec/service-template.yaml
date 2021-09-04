@@ -6,6 +6,8 @@ imports:
 repositories:
   spec:
     url: file:.
+  imported-repo:
+    url: file:.
 node_types:
   Test:
     derived_from: tosca.nodes.Root
