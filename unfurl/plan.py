@@ -9,9 +9,12 @@ from .planrequests import (
     TaskRequest,
     TaskRequestGroup,
     SetStateRequest,
+    JobRequest,
     create_task_request,
     filter_task_request,
     ConfigurationSpec,
+    find_parent_resource,
+    find_resources_from_template_name,
 )
 from .tosca import find_standard_interface
 
@@ -39,23 +42,6 @@ def get_success_status(workflow):
     elif workflow == "undeploy":
         return Status.absent
     return None
-
-
-def find_resources_from_template_name(root, name):
-    # XXX make faster
-    for resource in root.get_self_and_descendents():
-        if resource.template.name == name:
-            yield resource
-
-
-def find_parent_resource(root, source):
-    parentTemplate = find_parent_template(source.toscaEntityTemplate)
-    if not parentTemplate:
-        return root
-    for parent in find_resources_from_template_name(root, parentTemplate.name):
-        # XXX need to evaluate matches
-        return parent
-    raise UnfurlError(f"could not find instance of template: {parentTemplate.name}")
 
 
 class Plan:
@@ -776,13 +762,6 @@ def get_ancestor_templates(source):
         for ancestor in get_ancestor_templates(rel.target):
             yield ancestor
     yield source
-
-
-def find_parent_template(source):
-    for rel, req, reqDef in source.relationships:
-        if rel.type == "tosca.relationships.HostedOn":
-            return rel.target
-        return None
 
 
 def get_operational_dependents(resource, seen=None):

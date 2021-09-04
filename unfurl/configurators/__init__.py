@@ -46,7 +46,7 @@ class TemplateConfigurator(Configurator):
                 errors = [e]
             else:
                 if results:
-                    jr, errors = task.update_resources(results)
+                    jr, errors = task.update_instances(results)
             if errors:
                 task.logger.warning(
                     "error processing resultTemplate for %s: %s",

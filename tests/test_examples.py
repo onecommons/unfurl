@@ -128,7 +128,7 @@ class RunTest(unittest.TestCase):
                         "changed": True,
                         "configurator": "tests.test_examples.DummyShellConfigurator",
                         "priority": "required",
-                        "reason": "for subtask: for step:helm: unfurl.interfaces.install.Helm.execute",
+                        "reason": "subtask: for step:helm: unfurl.interfaces.install.Helm.execute",
                     },
                     {
                         "status": "ok",

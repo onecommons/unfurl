@@ -23,11 +23,11 @@ from .projectpaths import WorkFolder
 from .planrequests import (
     TaskRequest,
     JobRequest,
-    ConfigurationSpec,  # used by unit tests
+    ConfigurationSpec,  # import used by unit tests
     create_task_request,
     find_operation_host,
+    create_instance_from_spec,
 )
-from .plan import find_parent_resource
 
 import logging
 
@@ -611,7 +611,7 @@ class TaskView:
     #     return self._manifest.loadConfigSpec(name, configSpec)
 
     def create_sub_task(
-        self, operation, resource=None, inputs=None, persist=False, required=False
+        self, operation=None, resource=None, inputs=None, persist=False, required=False
     ):
         """Create a subtask that will be executed if yielded by `run()`
 
@@ -628,15 +628,19 @@ class TaskView:
         if inputs is None:
             inputs = self.configSpec.inputs
 
+        if not operation:
+            operation = f"{self.configSpec.interface}.{self.configSpec.operation}"
         if isinstance(operation, six.string_types):
             taskRequest = create_task_request(
                 self.job.jobOptions,
                 operation,
                 resource,
-                "for subtask: " + self.configSpec.name,
+                "subtask: " + self.configSpec.name,
                 inputs,
+                # filter has matched this parent task, don't apply it again
+                skip_filter=True,
             )
-            if taskRequest.error:
+            if not taskRequest or taskRequest.error:
                 return None
             else:
                 taskRequest.persist = persist
@@ -651,20 +655,67 @@ class TaskView:
         #  expr = "::%s::.configurations::%s" % (configSpec.target, configSpec.name)
         #  self.add_dependency(expr, required=required)
 
-        # operation should be a ConfigurationSpec
+        # otherwise operation should be a ConfigurationSpec
         return TaskRequest(operation, resource, "subtask", persist, required)
+
+    def _update_instance(self, existingResource, resourceSpec):
+        from .manifest import Manifest
+
+        updated = False
+        # XXX2 if spec is defined (not just status), there should be a way to
+        # indicate this should replace an existing resource or throw an error
+        if "readyState" in resourceSpec:
+            # we need to set this explicitly for the attribute manager to track status
+            # XXX track all status attributes (esp. state and created) and remove this hack
+            operational = Manifest.load_status(resourceSpec)
+            if operational.local_status is not None:
+                existingResource.local_status = operational.local_status
+            if operational.state is not None:
+                existingResource.state = operational.state
+            updated = True
+
+        attributes = resourceSpec.get("attributes")
+        if attributes:
+            for key, value in map_value(attributes, existingResource).items():
+                existingResource.attributes[key] = value
+                self.logger.debug(
+                    "setting attribute %s with %s on %s",
+                    key,
+                    value,
+                    existingResource.name,
+                )
+            updated = True
+        return updated
+
+    def _parse_instances_tpl(self, instances):
+        if isinstance(instances, six.string_types):
+            try:
+                instances = yaml.load(instances)
+            except:
+                err = UnfurlTaskError(self, f"unable to parse as YAML: {instances}")
+                return None, err
+
+        if isinstance(instances, collections.Mapping):
+            instances = [instances]
+        elif not isinstance(instances, collections.MutableSequence):
+            err = UnfurlTaskError(
+                self,
+                f"update_instances requires a list of updates, not a {type(instances)}",
+            )
+            return None, err
+        return instances, None
 
     # # XXX how can we explicitly associate relations with target resources etc.?
     # # through capability attributes and dependencies/relationship attributes
-    def update_resources(self, resources):
-        """Notifies Unfurl of new or changes to instances made while the configurator was running.
+    def update_instances(self, instances):
+        """Notify Unfurl of new or changes to instances made while the configurator was running.
 
         Operational status indicates if the instance currently exists or not.
         This will queue a new child job if needed.
 
         .. code-block:: YAML
 
-          - name:     aNewResource
+          - name:     aNewInstance
             template: aNodeTemplate
             parent:   HOST
             attributes:
@@ -677,115 +728,43 @@ class TaskView:
                 anAttribute: aNewValue
 
         Args:
-          resources (list or str): Either a list or string that is parsed as YAML.
+          instances (list or str): Either a list or string that is parsed as YAML.
 
         Returns:
           :class:`JobRequest`: To run the job based on the supplied spec
               immediately, yield the returned JobRequest.
         """
-        from .manifest import Manifest
-
-        if isinstance(resources, six.string_types):
-            try:
-                resources = yaml.load(resources)
-            except:
-                err = UnfurlTaskError(self, f"unable to parse as YAML: {resources}")
-                return None, [err]
-
-        if isinstance(resources, collections.Mapping):
-            resources = [resources]
-        elif not isinstance(resources, collections.MutableSequence):
-            err = UnfurlTaskError(
-                self,
-                f"update_resources requires a list of updates, not a {type(resources)}",
-            )
+        instances, err = self._parse_instances_tpl(instances)
+        if err:
             return None, [err]
 
         errors = []
         newResources = []
         newResourceSpecs = []
-        for resourceSpec in resources:
+        for resourceSpec in instances:
             # we might have items that aren't resource specs
             if not isinstance(resourceSpec, collections.Mapping):
                 continue
-            originalResourceSpec = resourceSpec
+            # XXX deepcopy fails in test_terraform
+            # originalResourceSpec = copy.deepcopy(resourceSpec)
+            originalResourceSpec = copy.copy(resourceSpec)
             rname = resourceSpec.get("name", "SELF")
             if rname == ".self" or rname == "SELF":
                 existingResource = self.target
                 rname = existingResource.name
             else:
                 existingResource = self.find_instance(rname)
+
+            newResource = None
             try:
-
                 if existingResource:
-                    updated = False
-                    # XXX2 if spec is defined (not just status), there should be a way to
-                    # indicate this should replace an existing resource or throw an error
-                    if "readyState" in resourceSpec:
-                        # we need to set this explicitly for the attribute manager to track status
-                        # XXX track all status attributes (esp. state and created) and remove this hack
-                        operational = Manifest.load_status(resourceSpec)
-                        if operational.local_status is not None:
-                            existingResource.local_status = operational.local_status
-                        if operational.state is not None:
-                            existingResource.state = operational.state
-                        updated = True
-
-                    attributes = resourceSpec.get("attributes")
-                    if attributes:
-                        for key, value in map_value(
-                            attributes, existingResource
-                        ).items():
-                            existingResource.attributes[key] = value
-                            self.logger.debug(
-                                "setting attribute %s with %s on %s",
-                                key,
-                                value,
-                                existingResource.name,
-                            )
-                        updated = True
-
+                    updated = self._update_instance(existingResource, resourceSpec)
                     if updated:
-                        self.logger.info("updating resources %s", existingResource.name)
-                    continue
-
-                pname = resourceSpec.get("parent")
-                if pname in [".self", "SELF"]:
-                    resourceSpec["parent"] = self.target.name
-                elif pname == "HOST":
-                    resourceSpec["parent"] = (
-                        self.target.parent.name if self.target.parent else "root"
-                    )
-
-                if isinstance(resourceSpec.get("template"), dict):
-                    # inline node template, add it to the spec
-                    tname = resourceSpec["template"].pop("name", rname)
-                    nodeSpec = self._manifest.tosca.add_node_template(
-                        tname, resourceSpec["template"]
-                    )
-                    resourceSpec["template"] = nodeSpec.name
-
-                if resourceSpec.get("readyState") and "created" not in resourceSpec:
-                    # setting "created" to the target's key indicates that
-                    # the target is responsible for deletion
-                    # if "created" is not defined, set it if readyState is set
-                    resourceSpec["created"] = self.target.key
-
-                if (
-                    self.job
-                    and "parent" not in resourceSpec
-                    and "template" in resourceSpec
-                ):
-                    nodeSpec = self._manifest.tosca.get_template(
-                        resourceSpec["template"]
-                    )
-                    parent = find_parent_resource(self.target.root, nodeSpec)
+                        self.logger.info("updating instances %s", existingResource.name)
                 else:
-                    parent = self.target.root
-                # note: if resourceSpec[parent] is set it overrides the parent keyword
-                resource = self._manifest.create_node_instance(
-                    rname, resourceSpec, parent=parent
-                )
+                    newResource = create_instance_from_spec(
+                        self._manifest, self.target, rname, resourceSpec
+                    )
 
                 # XXX
                 # if resource.required or resourceSpec.get("dependent"):
@@ -795,8 +774,9 @@ class TaskView:
                     UnfurlAddingResourceError(self, originalResourceSpec, rname)
                 )
             else:
-                newResourceSpecs.append(originalResourceSpec)
-                newResources.append(resource)
+                if newResource:
+                    newResourceSpecs.append(originalResourceSpec)
+                    newResources.append(newResource)
 
         if newResourceSpecs:
             self._resourceChanges.add_resources(newResourceSpecs)
@@ -828,7 +808,7 @@ class Dependency(Operational):
     Dependencies are used to determine if a configuration needs re-run.
     They are automatically created when configurator accesses live attributes
     while handling a task. They also can be created when the configurator
-    invokes these apis: `create_sub_task, `update_resources`, query`, `add_dependency`.
+    invokes these apis: `create_sub_task, `update_instances`, query`, `add_dependency`.
     """
 
     def __init__(

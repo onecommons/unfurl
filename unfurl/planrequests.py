@@ -435,6 +435,59 @@ def _find_implementation(interface, operation, template):
     return default
 
 
+def find_resources_from_template_name(root, name):
+    # XXX make faster
+    for resource in root.get_self_and_descendents():
+        if resource.template.name == name:
+            yield resource
+
+
+def find_parent_template(source):
+    for rel, req, reqDef in source.relationships:
+        if rel.type == "tosca.relationships.HostedOn":
+            return rel.target
+        return None
+
+
+def find_parent_resource(root, source):
+    parentTemplate = find_parent_template(source.toscaEntityTemplate)
+    if not parentTemplate:
+        return root
+    for parent in find_resources_from_template_name(root, parentTemplate.name):
+        # XXX need to evaluate matches
+        return parent
+    raise UnfurlError(f"could not find instance of template: {parentTemplate.name}")
+
+
+def create_instance_from_spec(_manifest, target, rname, resourceSpec):
+    pname = resourceSpec.get("parent")
+    # get the actual parent if pname is a reserved name:
+    if pname in [".self", "SELF"]:
+        resourceSpec["parent"] = target.name
+    elif pname == "HOST":
+        resourceSpec["parent"] = target.parent.name if target.parent else "root"
+
+    if isinstance(resourceSpec.get("template"), dict):
+        # inline node template, add it to the spec
+        tname = resourceSpec["template"].pop("name", rname)
+        nodeSpec = _manifest.tosca.add_node_template(tname, resourceSpec["template"])
+        resourceSpec["template"] = nodeSpec.name
+
+    if resourceSpec.get("readyState") and "created" not in resourceSpec:
+        # setting "created" to the target's key indicates that
+        # the target is responsible for deletion
+        # if "created" is not defined, set it if readyState is set
+        resourceSpec["created"] = target.key
+
+    if "parent" not in resourceSpec and "template" in resourceSpec:
+        nodeSpec = _manifest.tosca.get_template(resourceSpec["template"])
+        parent = find_parent_resource(target.root, nodeSpec)
+    else:
+        parent = target.root
+    # note: if resourceSpec[parent] is set it overrides the parent keyword
+    return _manifest.create_node_instance(rname, resourceSpec, parent=parent)
+
+
 def create_task_request(
     jobOptions,
     operation,

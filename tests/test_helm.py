@@ -150,7 +150,7 @@ class HelmTest(unittest.TestCase):
                         "changed": True,
                         "configurator": "unfurl.configurators.shell.ShellConfigurator",
                         "priority": "required",
-                        "reason": "for subtask: for add: Standard.configure",
+                        "reason": "subtask: for add: Standard.configure",
                     },
                 ],
             },
