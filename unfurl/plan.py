@@ -298,6 +298,9 @@ class Plan:
                 resource.created, six.string_types
             ) and not ChangeRecord.is_change_id(resource.created):
                 continue
+            # don't delete if it has a "protected" directive
+            if "protected" in resource.template.directives:
+                continue
 
             # if resource exists (or unknown)
             if resource.status not in [Status.absent, Status.pending]:
@@ -332,7 +335,7 @@ class Plan:
             group = None
         for taskRequest in configGenerator:
             if taskRequest:
-                if group:
+                if group and not isinstance(taskRequest, JobRequest):
                     group.children.append(taskRequest)
                 else:
                     yield taskRequest
@@ -605,9 +608,10 @@ class UndeployPlan(Plan):
         """
         yield from self.generate_delete_configurations(self.include_for_deletion)
 
-    def include_for_deletion(self, resource):
-        if self.filterTemplate and resource.template != self.filterTemplate:
+    def include_for_deletion(self, instance):
+        if self.filterTemplate and instance.template != self.filterTemplate:
             return None
+
         # return value is used as "reason"
         return self.workflow
 
