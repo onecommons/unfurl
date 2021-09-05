@@ -566,6 +566,8 @@ class LocalEnv:
                     self.logger.warning(
                         'Could not load home project at: "%s"', self.homeConfigPath
                     )
+                else:
+                    self.logger.info('Using home project at: "%s"', self.homeConfigPath)
         return homeProject
 
     def _find_path_or_project(self, manifestPath):
@@ -765,6 +767,7 @@ class LocalEnv:
         # git-local repos must already exist
         if not repo and not repoURL.startswith("git-local://"):
             project = self.project or self.homeProject
+            assert project 
             while project:
                 if basepath is None or self.project.is_path_in_project(basepath):
                     repo = project.create_working_dir(repoURL, revision)

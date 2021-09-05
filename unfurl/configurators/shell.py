@@ -233,6 +233,7 @@ class ShellConfigurator(TemplateConfigurator):
 
     def run(self, task):
         cmd, cwd = task.rendered
+        task.logger.trace("executing %s", cmd)
         params = task.inputs
         isString = isinstance(cmd, six.string_types)
         # default for shell: True if command is a string otherwise False

@@ -147,7 +147,7 @@ class ConfigChangeTest(unittest.TestCase):
             # print(job.out.getvalue())
             self.assertEqual(
                 {
-                    "id": "A01100000000",
+                    "id": "A01110000000",
                     "status": "ok",
                     "total": 3,
                     "ok": 3,
@@ -177,7 +177,7 @@ class ConfigChangeTest(unittest.TestCase):
             #     print(f.read())
             self.assertEqual(
                 {
-                    "id": "A01100GC0000",
+                    "id": "A01110GC0000",
                     "status": "ok",
                     "total": 0,
                     "ok": 0,
@@ -208,7 +208,7 @@ class ConfigChangeTest(unittest.TestCase):
             # print(job.out.getvalue())
             self.assertEqual(
                 {
-                    "id": "A01100GC0000",
+                    "id": "A01110GC0000",
                     "status": "ok",
                     "total": 1,
                     "ok": 1,
@@ -271,7 +271,7 @@ class ConfigChangeTest(unittest.TestCase):
             # print(job.out.getvalue())
             self.assertEqual(
                 {
-                    "id": "A01100000000",
+                    "id": "A01110000000",
                     "status": "ok",
                     "total": 1,
                     "ok": 1,
@@ -303,7 +303,7 @@ class ConfigChangeTest(unittest.TestCase):
             # print(job.out.getvalue())
             self.assertEqual(
                 {
-                    "id": "A01100GC0000",
+                    "id": "A01110GC0000",
                     "status": "ok",
                     "total": 1,
                     "ok": 1,

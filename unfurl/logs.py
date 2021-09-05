@@ -66,13 +66,16 @@ class ColorHandler(logging.StreamHandler):
     def emit(self, record: logging.LogRecord) -> None:
         message = self.format(record)
         level = Levels[record.levelname]
-        click.secho(
-            " UNFURL ", nl=False, file=self.stream, fg="white", bg="bright_cyan"
-        )
-        click.secho(
-            f" {level.name} ", nl=False, file=self.stream, **self.STYLE_LEVEL[level]
-        )
-        click.secho(f" {message}", file=self.stream, **self.STYLE_MESSAGE[level])
+        try:
+            click.secho(
+                " UNFURL ", nl=False, file=self.stream, fg="white", bg="bright_cyan"
+            )
+            click.secho(
+                f" {level.name} ", nl=False, file=self.stream, **self.STYLE_LEVEL[level]
+            )
+            click.secho(f" {message}", file=self.stream, **self.STYLE_MESSAGE[level])
+        except:
+            pass
 
 
 class sensitive:

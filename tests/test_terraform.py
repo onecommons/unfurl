@@ -358,7 +358,10 @@ class TerraformMotoTest(unittest.TestCase):
         self.maxDiff = None
 
     def tearDown(self):
-        self.p.terminate()
+        try:
+            self.p.terminate()
+        except:
+            pass
 
     def test_terraform(self):
         """

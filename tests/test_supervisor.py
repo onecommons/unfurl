@@ -79,7 +79,6 @@ class TestSupervisorLifecycle:
         jobs = isolated_lifecycle(src_path)
         try:
             for job in jobs:
-                # print("JOB", job.workflow, job.json_summary())
                 assert job.status == Status.ok, job.workflow
         finally:
             # NOTE: to manually kill: pkill -lf supervisord

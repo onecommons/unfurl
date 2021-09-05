@@ -278,7 +278,11 @@ def create_project(
     newHome = ""
     homePath = get_home_config_path(home)
     # don't try to create the home project if we are already creating the home project
-    if not creating_home and projectdir != os.path.dirname(homePath):
+    if (
+        not creating_home
+        and homePath is not None
+        and projectdir != os.path.dirname(homePath)
+    ):
         # create the home project (but only if it doesn't exist already)
         newHome = create_home(home, **kw)
 

@@ -156,13 +156,15 @@ class ChangeRecord:
             self.startTime = datetime.utcnow()
         elif isinstance(startTime, datetime):
             self.startTime = startTime
-        elif isinstance(startTime, int):  # helper for deterministic testing
-            self.startTime = self.EpochStartTime.replace(hour=startTime)
         else:
             try:
-                self.startTime = datetime.strptime(startTime, self.DateTimeFormat)
+                startTime = int(startTime)  # helper for deterministic testing
+                self.startTime = self.EpochStartTime.replace(hour=startTime)
             except ValueError:
-                self.startTime = self.EpochStartTime
+                try:
+                    self.startTime = datetime.strptime(startTime, self.DateTimeFormat)
+                except ValueError:
+                    self.startTime = self.EpochStartTime
 
     def get_start_time(self):
         return self.startTime.strftime(self.DateTimeFormat)
