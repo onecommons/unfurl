@@ -1,7 +1,24 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
 tosca_definitions_version: tosca_simple_unfurl_1_0_0
-  # unfurl.relationships.InstalledBy used for implementation if no implementation is specified
+
+imports:
+  - repository: unfurl
+    file: tosca_plugins/artifacts.yaml
+
+topology_template:
+  node_templates:
+    helm-artifacts:
+      type: unfurl.nodes.LocalRepository
+      directives:
+        - default # we need this so that this node template is imported
+      artifacts:
+        helm:
+          type: artifact.AsdfTool
+          file: helm
+          properties:
+            version: 3.6.3
+
 node_types:
   unfurl.nodes.HelmRepository:
     derived_from: tosca.nodes.Root
@@ -18,11 +35,12 @@ node_types:
     interfaces:
       Standard:
         create: helm repo add {{ SELF.name }} "{{ SELF.url }}"
-        delete: "helm repo remove {{ SELF.name }}"
+        delete: helm repo remove {{ SELF.name }}
       Install:
         check:
-          implementation: helm repo list -o json {% if task.verbose > 0 %}--debug{%endif%}
+          implementation: helm
           inputs:
+            command: helm repo list -o json {% if task.verbose > 0 %}--debug{%endif%}
             done:
               success: True # helm repo list returns error if there are no repos so set success true regardless
             resultTemplate: |
@@ -35,8 +53,9 @@ node_types:
                   {% endfor%}
                 {%endif%}
         discover:
-          implementation: helm repo list -o json {% if task.verbose > 0 %}--debug{%endif%}
+          implementation: helm
           inputs:
+            command: helm repo list -o json {% if task.verbose > 0 %}--debug{%endif%}
             done:
               success: True # helm repo list returns error if there are no repos so set success true regardless
             resultTemplate: |
@@ -79,7 +98,7 @@ node_types:
         type: unfurl.interfaces.Helm
         operations:
           execute:
-            implementation: Shell
+            implementation: helm
             inputs:
               chart: { get_property: ["SELF", "chart"] }
               release_name: { get_property: ["SELF", "release_name"] }
