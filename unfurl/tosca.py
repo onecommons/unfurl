@@ -229,12 +229,22 @@ class ToscaSpec:
         return None
 
     def add_node_template(self, name, tpl):
+        custom_types = None
+        if "custom_types" in tpl:
+            custom_types = tpl.pop("custom_types")
+            if custom_types:
+                # XXX check for conflicts, throw error
+                self.template.topology_template.custom_defs.update(custom_types)
+
         nodeTemplate = self.template.topology_template.add_template(name, tpl)
         nodeSpec = NodeSpec(nodeTemplate, self)
         self.nodeTemplates[name] = nodeSpec
         if self.discovered is None:
             self.discovered = CommentedMap()
         self.discovered[name] = tpl
+        # add custom_types back for serialization later
+        if custom_types:
+            tpl["custom_types"] = custom_types
         return nodeSpec
 
     def load_decorators(self):
@@ -315,15 +325,36 @@ class ToscaSpec:
             nodeName, artifactName = name.split("~a~")
             if nodeName:
                 nodeTemplate = self.nodeTemplates.get(nodeName)
-                if nodeTemplate:
-                    artifact = nodeTemplate.artifacts.get(artifactName)
-                    if artifact:
-                        return artifact
+                if not nodeTemplate:
+                    return None
+                artifact = nodeTemplate.artifacts.get(artifactName)
+                if artifact:
+                    return artifact
             # its an anonymous artifact, create inline artifact
-            tpl = ArtifactSpec.get_spec_from_name(artifactName)
+            tpl = self._get_artifact_spec_from_name(artifactName)
+            # tpl is a dict or an tosca artifact
             return ArtifactSpec(tpl, nodeTemplate, spec=self)
         else:
             return self.nodeTemplates.get(name)
+
+    def _get_artifact_declared_tpl(self, repositoryName, file):
+        # see if this is declared in a repository node template with the same name
+        repository = self.nodeTemplates.get(repositoryName)
+        if repository:
+            artifact = repository.artifacts.get(file)
+            if artifact:
+                return artifact.toscaEntityTemplate.entity_tpl.copy()
+        return None
+
+    def _get_artifact_spec_from_name(self, name):
+        repository, sep, file = name.partition(":")
+        artifact = self._get_artifact_declared_tpl(repository, file)
+        if artifact:
+            return artifact
+        spec = CommentedMap(file=file)
+        if repository:
+            spec["repository"] = repository
+        return spec
 
     def is_type_name(self, typeName):
         return (
@@ -332,7 +363,7 @@ class ToscaSpec:
         )
 
     def find_matching_templates(self, typeName):
-        for template in self.nodeTemplates:
+        for template in self.nodeTemplates.values():
             if template.is_compatible_type(typeName):
                 yield template
 
@@ -370,7 +401,13 @@ class ToscaSpec:
             self.discovered = tpl["discovered"]
             for name, impl in tpl["discovered"].items():
                 if name not in node_templates:
+                    custom_types = impl.pop("custom_types", None)
                     node_templates[name] = impl
+                    if custom_types:
+                        # XXX check for conflicts, throw error
+                        toscaDef.setdefault("types", CommentedMap()).update(
+                            custom_types
+                        )
 
     def load_instance(self, impl):
         if "type" not in impl:
@@ -533,21 +570,51 @@ class EntitySpec(ResourceRef):
     def artifacts(self):
         return {}
 
+    @staticmethod
+    def get_name_from_artifact_spec(artifact_tpl):
+        name = artifact_tpl.get("name", artifact_tpl.get("file", ""))
+        return artifact_tpl.get("repository", "") + "--" + name
+
     def find_or_create_artifact(self, nameOrTpl, path=None):
         if not nameOrTpl:
             return None
         if isinstance(nameOrTpl, six.string_types):
+            name = nameOrTpl
             artifact = self.artifacts.get(nameOrTpl)
             if artifact:
                 return artifact
-            # name not found, assume its a file path or URL
-            tpl = dict(file=nameOrTpl)
+            repositoryName = ""
         else:
-            name = ArtifactSpec.get_name_from_spec(nameOrTpl)
-            artifact = self.artifacts.get(name)
-            if artifact:
-                return artifact
+            # inline, anonymous templates can only specify a file and repository
+            # because ArtifactInstance don't have way to refer to the inline template
+            # and only encode the file and repository in get_name_from_artifact_spec()
             tpl = nameOrTpl
+            name = nameOrTpl["file"]
+            repositoryName = nameOrTpl.get("repository")
+
+        # if the artifact is defined in a repository, make a copy of it
+        if not repositoryName:
+            # see if artifact is declared in local repository
+            for localStore in self.spec.find_matching_templates(
+                "unfurl.nodes.LocalRepository"
+            ):
+                artifact = localStore.artifacts.get(name)
+                if artifact:
+                    # found, make a inline copy
+                    tpl = artifact.toscaEntityTemplate.entity_tpl.copy()
+                    tpl["name"] = name
+                    tpl["repository"] = localStore.name
+                    break
+            else:
+                # name not found, assume it's a file path or URL
+                tpl = dict(file=name)
+        else:
+            # see if this is declared in a repository node template with the same name
+            artifact_tpl = self.spec._get_artifact_declared_tpl(repositoryName, name)
+            if artifact_tpl:
+                tpl = artifact_tpl
+                tpl["repository"] = repositoryName
+
         # create an anonymous, inline artifact
         return ArtifactSpec(tpl, self, path=path)
 
@@ -971,6 +1038,17 @@ class Workflow:
 
 
 class ArtifactSpec(EntitySpec):
+    buildin_fields = (
+        "file",
+        "repository",
+        "deploy_path",
+        "version",
+        "checksum",
+        "checksum_algorithm",
+        "mime_type",
+        "file_extensions",
+    )
+
     def __init__(self, artifact_tpl, template=None, spec=None, path=None):
         # 3.6.7 Artifact definition p. 84
         self.parentNode = template
@@ -979,7 +1057,8 @@ class ArtifactSpec(EntitySpec):
             artifact = artifact_tpl
         else:
             # inline artifact
-            name = self.get_name_from_spec(artifact_tpl)
+            name = self.get_name_from_artifact_spec(artifact_tpl)
+            artifact_tpl.pop("name", None)  # "name" isn't a valid key
             custom_defs = spec and spec.template.topology_template.custom_defs or {}
             artifact = toscaparser.artifacts.Artifact(
                 name, artifact_tpl, custom_defs, path
@@ -991,24 +1070,15 @@ class ArtifactSpec(EntitySpec):
             and spec.template.repositories.get(artifact.repository)
             or None
         )
+        # map artifacts fields into properties
+        for prop in self.buildin_fields:
+            self.defaultAttributes[prop] = getattr(artifact, prop)
 
     def get_uri(self):
         if self.parentNode:
             return self.parentNode.name + "~a~" + self.name
         else:
             return "~a~" + self.name
-
-    @staticmethod
-    def get_name_from_spec(artifact_tpl):
-        return artifact_tpl.get("repository", "") + ":" + artifact_tpl.get("file", "")
-
-    @staticmethod
-    def get_spec_from_name(name):
-        first, sep, rest = name.partition(":")
-        spec = CommentedMap(file=rest)
-        if first:
-            spec["repository"] = first
-        return spec
 
     @property
     def file(self):

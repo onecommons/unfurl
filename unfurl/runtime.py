@@ -416,6 +416,9 @@ class EntityInstance(OperationalInstance, ResourceRef):
     def names(self):
         return self.attributes
 
+    def get_default_relationships(self, relation=None):
+        return self.root.get_default_relationships(relation)
+
     def __eq__(self, other):
         if self is other:
             return True
@@ -521,6 +524,11 @@ class ArtifactInstance(EntityInstance):
     parentRelation = "_artifacts"
     templateType = ArtifactSpec
 
+    def __init__(
+        self, name="", attributes=None, parent=None, template=None, status=None
+    ):
+        EntityInstance.__init__(self, name, attributes, parent, template, status)
+
     @property
     def base_dir(self):
         return self.template.base_dir
@@ -540,7 +548,12 @@ class ArtifactInstance(EntityInstance):
         return self.template.get_path_and_fragment(resolver, tpl)
 
     def as_import_spec(self):
-        return self.template.as_import_spec
+        return self.template.as_import_spec()
+
+    def get_operational_dependencies(self):
+        # skip dependency on the parent
+        for d in self.dependencies:
+            yield d
 
 
 class NodeInstance(EntityInstance):
@@ -561,6 +574,7 @@ class NodeInstance(EntityInstance):
         self._capabilities = []
         self._requirements = []
         self._artifacts = []
+        self._named_artifacts = None
         self.instances = []
         EntityInstance.__init__(self, name, attributes, parent, template, status)
 
@@ -617,6 +631,8 @@ class NodeInstance(EntityInstance):
             return [r for r in self.requirements if r.target == match]
         elif isinstance(match, CapabilityInstance):
             return [r for r in self.requirements if r.parent == match]
+        elif isinstance(match, ArtifactInstance):
+            return []
         else:
             raise UnfurlError(f'invalid match for get_requirements: "{match}"')
 
@@ -645,30 +661,22 @@ class NodeInstance(EntityInstance):
             if capability.template.name == name
         ]
 
-    def find_or_create_artifact(self, tpl, base):
-        if isinstance(tpl, six.string_types):
-            artifact = self.artifacts.get(tpl)
-            if artifact:
-                return artifact
-
-        # not found, create anonymous Artifact
-        template = self.template.find_or_create_artifact(tpl, path=base)
-        artifact = ArtifactInstance(template.name, parent=self, template=template)
-        return artifact
-
     @property
-    def artifacts(self):
-        # this only includes named artifacts
-        if len(self._artifacts) != len(self.template.artifacts):
-            # instantiate artifacts (they are only added, never deleted)
-            instantiated = {id(c.template) for c in self._artifacts}
+    def artifacts(self) -> dict:
+        # only include named artifacts
+        if self._named_artifacts is None:
+            self._named_artifacts = {}
+            instantiated = {a.name: a for a in self._artifacts}
             for name, template in self.template.artifacts.items():
-                if id(template) not in instantiated:
+                artifact = instantiated.get(name)
+                if not artifact:
                     artifact = ArtifactInstance(
                         template.name, parent=self, template=template
                     )
                     assert artifact in self._artifacts
-        return {artifact.name: artifact for artifact in self._artifacts}
+
+                self._named_artifacts[template.name] = artifact
+        return self._named_artifacts
 
     def _get_default_relationships(self, relation=None):
         if self.root is self:
@@ -746,6 +754,7 @@ class NodeInstance(EntityInstance):
     def descendents(self):
         return list(self.get_self_and_descendents())
 
+    # XXX use find_instance instead and remove find_resource
     def find_resource(self, resourceid):
         if self.name == resourceid:
             return self
@@ -754,6 +763,8 @@ class NodeInstance(EntityInstance):
             if child:
                 return child
         return None
+
+    find_instance = find_resource
 
     def find_instance_or_external(self, resourceid):
         instance = self.find_resource(resourceid)

@@ -1,0 +1,51 @@
+apiVersion: unfurl/v1alpha1
+kind: Ensemble
+spec:
+  service_template:
+    types:
+      unfurl.artifacts.Test:
+        derived_from: unfurl.artifacts.TemplateOperation
+        interfaces:
+         Standard:
+          operations:
+            create:
+              implementation: Template
+              inputs:
+                done:
+                  status: ok
+
+    topology_template:
+      node_templates:
+        localstore:
+          type: unfurl.nodes.LocalRepository
+          artifacts:
+            build_artifact:
+              type: unfurl.artifacts.Test
+              file: "build_artifact"
+
+        node1:
+          type: tosca.nodes.Root
+          properties:
+            outputVar: unset
+          interfaces:
+           Standard:
+            operations:
+              configure:
+                implementation: build_artifact
+                inputs:
+                  input1:
+                    get_env: envvar1
+                  done:
+                    status: ok
+                    result:
+                      outputVar: "{{ inputs.input1 }}"
+                  resultTemplate: |
+                    - name: .self
+                      attributes:
+                        outputVar: "{{ outputVar }}"
+              delete:
+                implementation: build_artifact
+                inputs:
+                  done:
+                    status: absent
+changes: [] # add so changes are saved here

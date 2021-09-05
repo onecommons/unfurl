@@ -348,9 +348,11 @@ class YamlManifest(ReadOnlyManifest):
                 )
                 logger.debug("PATH set to %s", os.environ["PATH"])
 
+        # self.load_external_ensemble("localhost", tpl)
         importsSpec = self.context.get("external", {})
         # note: external "localhost" is defined in UNFURL_HOME's context by convention
-        self.load_imports(importsSpec)
+        for name, value in importsSpec.items():
+            self.load_external_ensemble(name, value)
         self.load_connections(self.context.get("connections"))
 
         # need to set rootResource before createNodeInstance() is called
@@ -382,53 +384,50 @@ class YamlManifest(ReadOnlyManifest):
             )
             self.tosca.import_connections(tosca)
 
-    def load_imports(self, importsSpec):
+    def load_external_ensemble(self, name, value):
         """
         :manifest: artifact template (file and optional repository name)
         :instance: "*" or name # default is root
         :schema: # expected schema for attributes
         """
-        for name, value in importsSpec.items():
-            # load the manifest for the imported resource
-            location = value.get("manifest")
-            if not location:
-                raise UnfurlError(f"Can not import '{(name)}': no manifest specified")
+        # load the manifest for the imported resource
+        location = value.get("manifest")
+        if not location:
+            raise UnfurlError(f"Can not import '{(name)}': no manifest specified")
 
-            if "project" in location:
-                importedManifest = self.localEnv.get_external_manifest(location)
-                if not importedManifest:
-                    raise UnfurlError(
-                        f"Can not import '{name}': can't find project '{location['project']}'"
-                    )
-            else:
-                # ensemble is in the same project
-                baseDir = getattr(location, "base_dir", self.get_base_dir())
-                artifact = ArtifactSpec(location, path=baseDir, spec=self.tosca)
-                path = artifact.get_path()
-                localEnv = LocalEnv(path, parent=self.localEnv)
-                if self.path and os.path.abspath(self.path) == os.path.abspath(
-                    localEnv.manifestPath
-                ):
-                    # don't import self (might happen when context is shared)
-                    continue
-                importedManifest = localEnv.get_manifest()
-
-            uri = value.get("uri")
-            if uri and not importedManifest.has_uri(uri):
-                raise UnfurlError(f"Error importing '{path}', uri mismatch for '{uri}'")
-            rname = value.get("instance", "root")
-            if rname == "*":
-                rname = "root"
-            # use find_instance_or_external() not find_resource() to handle export instances transitively
-            # e.g. to allow us to layer localhost manifests
-            root = importedManifest.get_root_resource()
-            resource = root.find_instance_or_external(rname)
-            if not resource:
+        if "project" in location:
+            importedManifest = self.localEnv.get_external_manifest(location)
+            if not importedManifest:
                 raise UnfurlError(
-                    f"Can not import '{name}': instance '{rname}' not found"
+                    f"Can not import '{name}': can't find project '{location['project']}'"
                 )
-            self.imports[name] = (resource, value)
-            self._importedManifests[id(root)] = importedManifest
+        else:
+            # ensemble is in the same project
+            baseDir = getattr(location, "base_dir", self.get_base_dir())
+            artifact = ArtifactSpec(location, path=baseDir, spec=self.tosca)
+            path = artifact.get_path()
+            localEnv = LocalEnv(path, parent=self.localEnv)
+            if self.path and os.path.abspath(self.path) == os.path.abspath(
+                localEnv.manifestPath
+            ):
+                # don't import self (might happen when context is shared)
+                return
+            importedManifest = localEnv.get_manifest()
+
+        uri = value.get("uri")
+        if uri and not importedManifest.has_uri(uri):
+            raise UnfurlError(f"Error importing '{path}', uri mismatch for '{uri}'")
+        rname = value.get("instance", "root")
+        if rname == "*":
+            rname = "root"
+        # use find_instance_or_external() not find_resource() to handle export instances transitively
+        # e.g. to allow us to layer localhost manifests
+        root = importedManifest.get_root_resource()
+        resource = root.find_instance_or_external(rname)
+        if not resource:
+            raise UnfurlError(f"Can not import '{name}': instance '{rname}' not found")
+        self.imports[name] = (resource, value)
+        self._importedManifests[id(root)] = importedManifest
 
     def load_changes(self, changes, changeLogPath):
         # self.changeSets[changeid => ChangeRecords]
@@ -521,7 +520,9 @@ class YamlManifest(ReadOnlyManifest):
         return (resource.name, status)
 
     def save_requirement(self, resource):
-        if not resource.last_change and not resource.local_status > Status.ok:
+        if not resource.last_change and (
+            not resource.local_status or resource.local_status <= Status.ok
+        ):
             # no reason to serialize requirements that haven't been instantiated
             return None
         name, status = self.save_entity_instance(resource)
@@ -529,7 +530,9 @@ class YamlManifest(ReadOnlyManifest):
         return (name, status)
 
     def _save_entity_if_instantiated(self, resource):
-        if not resource.last_change and not resource.local_status > Status.ok:
+        if not resource.last_change and (
+            not resource.local_status or resource.local_status <= Status.ok
+        ):
             # no reason to serialize capabilities that haven't been instantiated
             return None
         return self.save_entity_instance(resource)

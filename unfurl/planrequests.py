@@ -36,6 +36,7 @@ class ConfigurationSpec:
             primary=None,
             dependencies=None,
             outputs=None,
+            interface=None,
         )
 
     def __init__(
@@ -56,6 +57,7 @@ class ConfigurationSpec:
         primary=None,
         dependencies=None,
         outputs=None,
+        interface=None,
     ):
         assert name and className, "missing required arguments"
         self.name = name
@@ -73,6 +75,8 @@ class ConfigurationSpec:
         self.preConditions = preConditions
         self.postConditions = postConditions
         self.artifact = primary
+        self.dependencies = dependencies
+        self.interface = interface
 
     def find_invalidate_inputs(self, inputs):
         if not self.inputSchema:
@@ -105,7 +109,6 @@ class ConfigurationSpec:
     def __eq__(self, other):
         if not isinstance(other, ConfigurationSpec):
             return False
-        # XXX3 add unit tests
         return (
             self.name == other.name
             and self.operation == other.operation
@@ -120,6 +123,7 @@ class ConfigurationSpec:
             and self.outputs == other.outputs
             and self.preConditions == other.preConditions
             and self.postConditions == other.postConditions
+            and self.interface == other.interface
         )
 
 
@@ -164,14 +168,69 @@ class TaskRequest(PlanRequest):
         self.startState = startState
         self.task = None
 
+    def _get_artifact_plan(self, artifact):
+        # the artifact has an interface so it needs to be installed on the operation_host
+        if artifact and artifact.get_interfaces():
+            # the same global artifact can have different local names when declared on a node template
+            # but are uniquely identified by (file, repository) so use that to generate a unique node template name
+            name = "__artifact__" + artifact.get_name_from_artifact_spec(
+                artifact.as_import_spec()
+            )
+            operation_host = (
+                find_operation_host(self.target, self.configSpec.operationHost)
+                or self.target.root
+            )
+            existing = operation_host.root.find_instance(name)
+            if existing:
+                if existing.operational:
+                    return None
+                else:
+                    return JobRequest([existing])
+            else:
+                if not operation_host.template.spec.get_template(name):
+                    # template isn't defined, define inline
+                    artifact_tpl = artifact.toscaEntityTemplate.entity_tpl
+                    template = dict(
+                        name=name,
+                        directives=['protected'],
+                        type="unfurl.nodes.ArtifactInstaller",
+                        artifacts={"install": artifact_tpl},
+                    )
+                    artifact_type = artifact_tpl["type"]
+                    if (
+                        artifact_type
+                        not in operation_host.template.spec.template.topology_template.custom_defs
+                    ):
+                        # operation_host must be in an external ensemble that doesn't have the type def
+                        artifact_type_def = self.target.template.spec.template.topology_template.custom_defs[
+                            artifact_type
+                        ]
+                        template["custom_types"] = {artifact_type: artifact_type_def}
+                else:
+                    template = name
+
+                return JobRequest(
+                    [operation_host],
+                    update=dict(
+                        name=name,
+                        parent=operation_host.name,
+                        template=template,
+                        attributes=artifact.properties,
+                    ),
+                )
+        return None
+
     def get_operation_artifacts(self):
-        artifact = self.configSpec.artifact
-        # XXX self.configSpec.dependencies
-        if artifact and artifact.template.get_interfaces():
-            # has an artifact with a type that needs installation
-            if not artifact.operational:
-                return [artifact]
-        return []
+        artifacts = []
+        jobRequest = self._get_artifact_plan(self.configSpec.artifact)
+        if jobRequest:
+            artifacts.append(jobRequest)
+        if self.configSpec.dependencies:
+            for artifact in self.configSpec.dependencies:
+                jobRequest = self._get_artifact_plan(artifact)
+                if jobRequest:
+                    artifacts.append(jobRequest)
+        return artifacts
 
     @property
     def name(self):
@@ -249,13 +308,45 @@ class JobRequest:
     Yield this to run a child job.
     """
 
-    def __init__(self, resources, errors):
+    def __init__(self, resources, errors=None, update=None):
         self.instances = resources
-        self.errors = errors
+        self.errors = errors or []
+        self.update = update
+
+    def get_instance_specs(self):
+        if self.update:
+            return [self.update]
+        else:
+            return [r.name for r in self.instances]
+
+    @property
+    def name(self):
+        if self.update:
+            return self.update["name"]
+        elif self.instances:
+            return self.instances[0].name
+        else:
+            return ""
+
+    @property
+    def target(self):
+        # XXX replace instances with target
+        if self.instances:
+            return self.instances[0]
+        else:
+            return None
 
     @property
     def root(self):
-        return self.instances[0].root if self.instances else None
+        if self.instances:
+            # all instances need the same root
+            assert (
+                len(self.instances) == 1
+                or len(set(id(i.root) for i in self.instances)) == 1
+            )
+            return self.instances[0].root
+        else:
+            return None
 
     def __repr__(self):
         return f"JobRequest({self.instances})"
@@ -286,6 +377,8 @@ def get_render_requests(requests):
                 yield req, child  # yields root as parent
         elif isinstance(req, TaskRequest):
             yield None, req
+        elif not isinstance(req, SetStateRequest):
+            assert not req, f"unexpected type of request: {req}"
 
 
 def _get_deps(parent, req, liveDependencies, requests):
@@ -402,9 +495,9 @@ def _filter_config(opts, config, target):
     if opts.requiredOnly and not config.required:
         return None, "required"
     if opts.instance and target.name != opts.instance:
-        return None, "instance"
-    if opts.instances and target.key not in opts.instances:
-        return None, "instances"
+        return None, f"instance {opts.instance}"
+    if opts.instances and target.name not in opts.instances:
+        return None, f"instances {opts.instances}"
     return config, None
 
 
@@ -414,7 +507,7 @@ def filter_task_request(jobOptions, req):
     configSpec, filterReason = _filter_config(jobOptions, configSpec, req.target)
     if not configSpec:
         logger.debug(
-            "skipping configspec %s for %s: doesn't match %s filter",
+            "skipping configspec '%s' for '%s': doesn't match filter: '%s'",
             configSpecName,
             req.target.name,
             filterReason,
@@ -515,6 +608,7 @@ def create_task_request(
         kw = None
 
     if kw:
+        kw["interface"] = interface
         if reason:
             name = f"for {reason}: {interface}.{action}"
             if reason == jobOptions.workflow:
@@ -579,19 +673,44 @@ def _set_default_command(kw, implementation, inputs):
     kw["inputs"] = shellArgs
 
 
+def _set_classname(kw, artifact, inputs):
+    if not artifact:  # malformed implementation
+        return None
+    implementation = artifact.file
+    className = artifact.properties.get("className")
+    if className:
+        kw["className"] = className
+        return kw
+
+    # see if implementation looks like a python class
+    if "#" in implementation and len(shlex.split(implementation)) == 1:
+        path, fragment = artifact.get_path_and_fragment()
+        mod = load_module(path)
+        kw["className"] = mod.__name__ + "." + fragment
+        return kw
+    elif lookup_class(implementation):
+        kw["className"] = implementation
+        return kw
+
+    # otherwise assume it's a shell command line
+    logger.debug("interpreting 'implementation' as a shell command: %s", implementation)
+    _set_default_command(kw, implementation, inputs)
+    return kw
+
+
 def _get_config_spec_args_from_implementation(iDef, inputs, target, operation_host):
     implementation = iDef.implementation
     kw = dict(inputs=inputs, outputs=iDef.outputs, operation_host=operation_host)
     configSpecArgs = ConfigurationSpec.getDefaults()
-    artifact = None
+    artifactTpl = None
     dependencies = None
     if isinstance(implementation, dict):
-        operation_instance = find_operation_host(
-            target, implementation.get("operation_host") or operation_host
-        )
+        # operation_instance = find_operation_host(
+        #     target, implementation.get("operation_host") or operation_host
+        # )
         for name, value in implementation.items():
             if name == "primary":
-                artifact = value
+                artifactTpl = value
             elif name == "dependencies":
                 dependencies = value
             elif name in configSpecArgs:
@@ -600,38 +719,27 @@ def _get_config_spec_args_from_implementation(iDef, inputs, target, operation_ho
     else:
         # "either because it refers to a named artifact specified in the artifacts section of a type or template,
         # or because it represents the name of a script in the CSAR file that contains the definition."
-        artifact = implementation
-        operation_instance = find_operation_host(target, operation_host)
+        artifactTpl = implementation
+        # operation_instance = find_operation_host(target, operation_host)
 
-    instance = operation_instance or target
+    # if not operation_instance:
+    #     operation_instance = operation_instance or target.root
     base_dir = getattr(iDef.value, "base_dir", iDef._source)
-    if artifact:
-        artifact = instance.find_or_create_artifact(artifact, base_dir)
+    # hmm.. the artifact might be defined in the target template not operation_host
+    # plus external operation_host probably won't have local repository
+    # localstore is lame anyways
+    if artifactTpl:
+        artifact = target.template.find_or_create_artifact(artifactTpl, base_dir)
+    else:
+        artifact = None
     kw["primary"] = artifact
 
     if dependencies:
         kw["dependencies"] = [
-            instance.find_or_create_artifact(artifactTpl, base_dir)
+            target.template.find_or_create_artifact(artifactTpl, base_dir)
             for artifactTpl in dependencies
         ]
 
     if "className" not in kw:
-        if not artifact:  # malformed implementation
-            return None
-        implementation = artifact.file
-        # see if implementation looks like a python class
-        if "#" in implementation and len(shlex.split(implementation)) == 1:
-            path, fragment = artifact.get_path_and_fragment()
-            mod = load_module(path)
-            kw["className"] = mod.__name__ + "." + fragment
-            return kw
-        elif lookup_class(implementation):
-            kw["className"] = implementation
-            return kw
-
-        # otherwise assume it's a shell command line
-        logger.debug(
-            "interpreting 'implementation' as a shell command: %s", implementation
-        )
-        _set_default_command(kw, implementation, inputs)
+        return _set_classname(kw, artifact, inputs)
     return kw

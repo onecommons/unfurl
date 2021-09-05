@@ -30,6 +30,7 @@ from .planrequests import (
     do_render_requests,
     get_render_requests,
     set_fulfilled,
+    create_instance_from_spec,
 )
 from .plan import Plan, get_success_status
 from .localenv import LocalEnv
@@ -85,6 +86,7 @@ class JobOptions:
         verbose=0,
         masterJob=None,
         startTime=None,
+        starttime=None,
         out=None,
         dryrun=False,
         planOnly=False,
@@ -101,6 +103,7 @@ class JobOptions:
         instance=None,
         instances=None,
         template=None,
+        instance_updates=(),
         # default options:
         add=True,  # add new templates
         skip_new=False,  # don't create newly defined instances (override add)
@@ -466,8 +469,8 @@ class Job(ConfigChange):
         self.timeElapsed = 0
         self.plan_requests = None
         self.task_count = 0
-        self.external_jobs = []
         self.external_requests = None
+        self.external_jobs = None
 
     def get_operational_dependencies(self):
         # XXX3 this isn't right, root job might have too many and child job might not have enough
@@ -490,15 +493,6 @@ class Job(ConfigChange):
             task.configurator
         except Exception:
             UnfurlTaskError(task, "unable to create task")
-
-        # if configSpec.hasBatchConfigurator():
-        # search targets parents for a batchConfigurator
-        # XXX how to associate a batchConfigurator with a resource and when is its task created?
-        # batchConfigurator tasks more like a job because they have multiple changeids
-        #  batchConfiguratorJob = findBatchConfigurator(configSpec, target)
-        #  batchConfiguratorJob.add(task)
-        #  return None
-
         return task
 
     def validate_job_options(self):
@@ -510,12 +504,20 @@ class Job(ConfigChange):
             )
 
     def run(self):
-        ready = self.plan_requests
-        if ready is None:
+        if self.plan_requests is None:
             ready = self.create_plan()
-        # XXX build artifacts needed for render
-        self.run_external()  # XXX stats and errors
+        else:
+            ready = self.plan_requests[:]
+
+        self.external_jobs = self.run_external()
+        # logger.warning("error running job on external ensemble")
+
         self.workDone = collections.OrderedDict()
+        # run artifact job requests before render
+        while ready and isinstance(ready[0], JobRequest):
+            jr = ready.pop(0)
+            self.run_job_request(jr)
+
         ready, notReady, errors = do_render_requests(self, ready)
         if errors:
             logger.warning("error rendering: %s", errors)
@@ -523,13 +525,13 @@ class Job(ConfigChange):
         # XXX update_plan(ready, unfulfilled) # try to reorder so we can add to ready
         logger.trace("ready %s; not ready %s", ready, notReady)
         while ready:
-            self.run_external()
+            # XXX need to call self.run_external() here if update_plan() adds external job
             # create and run tasks for requests that have their dependencies fulfilled
             self.apply(ready)
             # remove requests from notReady if they've had all their dependencies fulfilled
             ready, notReady = set_fulfilled(notReady, ready)
             logger.trace("ready %s; not ready %s", ready, notReady)
-            # first time render them all, after that only re-render requests if their dependencies were fulfilled
+            # the first time we render them all, after that only re-render requests if their dependencies were fulfilled
             ready, unfulfilled, errors = do_render_requests(self, ready)
             # XXX update_plan(ready, unfulfilled) # try to reorder so we can add to ready
             notReady.extend(unfulfilled)
@@ -551,30 +553,39 @@ class Job(ConfigChange):
 
         return self.rootResource
 
+    def _update_joboption_instances(self):
+        if not self.jobOptions.instances:
+            return
+        # process any instances that are a full resource spec
+        self.jobOptions.instances = [
+            resourceSpec
+            if isinstance(resourceSpec, str)
+            else create_instance_from_spec(
+                self.manifest, self.rootResource, resourceSpec["name"], resourceSpec
+            ).name
+            for resourceSpec in self.jobOptions.instances
+        ]
+
     def create_plan(self):
         self.validate_job_options()
         joboptions = self.jobOptions
+        self._update_joboption_instances()
+        self.plan_requests = []
         WorkflowPlan = Plan.get_plan_class_for_workflow(joboptions.workflow)
         if not WorkflowPlan:
             raise UnfurlError(f"unknown workflow: {joboptions.workflow}")
         plan = WorkflowPlan(self.rootResource, self.manifest.tosca, joboptions)
         plan_requests = list(plan.execute_plan())
 
-        self.plan_requests = plan_requests
-
         request_artifacts = []
-        artifact_jobs = []
         for r in plan_requests:
             artifacts = r.get_operation_artifacts()
             if artifacts:
-                artifacts = [
-                    artifacts
-                    for artifact in artifacts
-                    if artifact not in request_artifacts
-                ]
                 request_artifacts.extend(artifacts)
-                artifact_jobs.append(JobRequest(artifacts, []))
-        # artifacts come first
+
+        # remove duplicates
+        artifact_jobs = list({ajr.name: ajr for ajr in request_artifacts}.values())
+        # put artifact jobs needed for operations before the rest
         plan_requests = artifact_jobs + plan_requests
 
         # create JobRequests for each external job we need to run by grouping requests by their manifest
@@ -590,7 +601,7 @@ class Job(ConfigChange):
                 self.plan_requests = reqs
 
         self.external_requests = external_requests
-        return self.plan_requests
+        return self.plan_requests[:]
 
     def _get_success_status(self, workflow, success):
         if isinstance(success, Status):
@@ -650,9 +661,10 @@ class Job(ConfigChange):
 
     def run_job_request(self, jobRequest):
         logger.debug("running jobrequest: %s", jobRequest)
-        self.jobRequestQueue.remove(jobRequest)
-        resourceNames = [r.key for r in jobRequest.instances]
-        jobOptions = self.jobOptions.copy(parentJob=self, instances=resourceNames)
+        if self.jobRequestQueue:
+            self.jobRequestQueue.remove(jobRequest)
+        instance_specs = jobRequest.get_instance_specs()
+        jobOptions = self.jobOptions.copy(parentJob=self, instances=instance_specs)
         childJob = create_job(self.manifest, jobOptions)
         childJob.set_task_id(self.increment_task_count())
         assert childJob.parentJob is self
@@ -661,24 +673,26 @@ class Job(ConfigChange):
 
     def run_external(self):
         # note: manifest.lock() will raise error if there circular dependencies
-        for manifest, requests in self.external_requests:
-            instance_names = []
-            manifest = None
+        external_jobs = []
+        external_requests = self.external_requests[:]
+        while external_requests:
+            manifest, requests = external_requests.pop(0)
+            instance_specs = []
             for request in requests:
                 assert isinstance(
                     request, JobRequest
                 ), "only JobRequest currently supported"
-                instance_names.extend([r.key for r in request.instances])
+                instance_specs.extend(request.get_instance_specs())
             jobOptions = self.jobOptions.copy(
-                instances=instance_names,
+                instances=instance_specs,
                 masterJob=self.jobOptions.masterJob or self,
             )
-            externalJob = create_job(manifest, jobOptions)
-            self.externalJobs.append(externalJob)
-            _run_job(externalJob, jobOptions)
-            if externalJob.status == Status.error:
-                return False
-        return True
+            external_job = create_job(manifest, jobOptions)
+            external_jobs.append(external_job)
+            _run_job(external_job, jobOptions)
+            if external_job.status == Status.error:
+                break
+        return external_jobs
 
     def _dependency_check(self, instance):
         dependencies = list(instance.get_operational_dependencies())
@@ -1013,11 +1027,24 @@ class Job(ConfigChange):
         ]
         """
 
+        def _job_request_summary(requests, manifest):
+            for request in requests:
+                # XXX better reporting
+                node = dict(instance=request.name)
+                if manifest:
+                    node["job_request"] = manifest.path
+                else:
+                    node["job_request"] = "local"
+                if request.target:
+                    node["status"] = str(request.target.status)
+                yield node
+
         def _summary(requests, target, parent):
             children = parent
             for request in requests:
                 if isinstance(request, JobRequest):
-                    continue  # XXX
+                    children.extend(_job_request_summary([request], None))
+                    continue
                 isGroup = isinstance(request, TaskRequestGroup)
                 if isGroup and not request.children:
                     continue  # don't include in the plan
@@ -1044,6 +1071,8 @@ class Job(ConfigChange):
                     children.append(request._summary_dict())
 
         summary = []
+        for (m, requests) in self.external_requests:
+            summary.extend(self._job_request_summary(requests, m))
         _summary(self.plan_requests, None, summary)
         if not pretty:
             return summary
@@ -1063,6 +1092,10 @@ class Job(ConfigChange):
             outputs=serialize_value(self.get_outputs()),
             tasks=[task.summary(True) for task in self.workDone.values()],
         )
+        if self.external_jobs:
+            summary["external_jobs"] = [
+                external.json_summary() for external in self.external_jobs
+            ]
         if pretty:
             return json.dumps(summary, indent=2)
         return summary
@@ -1092,11 +1125,16 @@ class Job(ConfigChange):
             Standard.create (reason add)
             Standard.configure (reason add)
         """
+        INDENT = 4
 
         def _summary(requests, target, indent):
             for request in requests:
                 isGroup = isinstance(request, TaskRequestGroup)
                 if isGroup and not request.children:
+                    continue
+                if isinstance(request, JobRequest):
+                    nodeStr = f'JobRequest for "{request.name}":'
+                    output.append(" " * indent + nodeStr)
                     continue
                 if request.target is not target:
                     target = request.target
@@ -1116,7 +1154,7 @@ class Job(ConfigChange):
                     output.append(
                         "%s- %s:" % (" " * indent, (request.workflow or "sequence"))
                     )
-                    _summary(request.children, target, indent + 4)
+                    _summary(request.children, target, indent + INDENT)
                 else:
                     output.append(" " * indent + "- " + repr(request))
 
@@ -1126,6 +1164,12 @@ class Job(ConfigChange):
         if options:
             header += f" ({options})"
         output = [header + ":\n"]
+
+        for m, jr in self.external_requests:
+            output += [f" External jobs on {m.path}:"]
+            for j in jr:
+                output.append(" " * INDENT + j.name)
+
         _summary(self.plan_requests, None, 0)
         if len(output) <= 1:
             output.append("Nothing to do.")
@@ -1190,7 +1234,11 @@ def _plan(manifest, jobOptions):
         manifest.lastJob and manifest.lastJob["changeId"],
     )
     job.create_plan()
-    logger.info("Create plan:\n%s", job._plan_summary())
+    if jobOptions.masterJob:
+        msg = "Created plan for external job:"
+    else:
+        msg = "Created plan:"
+    logger.info(msg + "\n%s", job._plan_summary())
     return job
 
 

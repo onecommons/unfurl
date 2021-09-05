@@ -138,9 +138,7 @@ class UndeployTest(unittest.TestCase):
 
         manifest2 = YamlManifest(job.out.getvalue())
         # don't delete installerNode
-        instances = [
-            v.key for (n, v) in job.rootResource.all.items() if n != "installerNode"
-        ]
+        instances = [n for n in job.rootResource.all if n != "installerNode"]
         job = Runner(manifest2).run(
             JobOptions(workflow="undeploy", instances=instances, startTime=2)
         )

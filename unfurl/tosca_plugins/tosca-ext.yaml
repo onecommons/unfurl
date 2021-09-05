@@ -5,11 +5,81 @@ metadata:
   template_name: Unfurl types
   template_author: onecommons.org
   template_version: 1.0.0
+
+artifact_types:
+  unfurl.artifacts.HasConfigurator:
+    derived_from: tosca.artifacts.Root
+    properties:
+      className:
+        type: string
+        description: Name of the python class that implements the configurator interface
+
+  unfurl.artifacts.TemplateOperation:
+    derived_from: unfurl.artifacts.HasConfigurator
+    properties:
+      className:
+        type: string
+        default: unfurl.configurators.TemplateConfigurator
+
+  unfurl.artifacts.ShellExecutable:
+    derived_from: unfurl.artifacts.HasConfigurator
+    properties:
+      className:
+        type: string
+        default: unfurl.configurators.shell.ShellConfigurator
+
+  unfurl.artifacts.AnsiblePlaybook:
+    derived_from: unfurl.artifacts.HasConfigurator
+    properties:
+      className:
+        type: string
+        default: unfurl.configurators.ansible.AnsibleConfigurator
+
+  unfurl.artifacts.TerraformModule:
+    derived_from: unfurl.artifacts.HasConfigurator
+    interfaces:
+      className:
+        type: string
+        default: unfurl.configurators.terraform.TerraformConfigurator
+
 node_types:
   tosca.nodes.Root:
     interfaces:
       Install: # all nodes can implement this interface
         type: unfurl.interfaces.Install
+
+  unfurl.nodes.Repository:
+    derived_from: tosca.nodes.Root
+
+  unfurl.nodes.LocalRepository:
+    derived_from: unfurl.nodes.Repository
+
+  unfurl.nodes.ArtifactInstaller:
+    derived_from: tosca.nodes.Root
+    description: Node templates of this type are "discovered" when artifacts that need to be installed on an operation_host
+    artifacts:
+      install:
+        type: tosca.artifacts.Root
+    interfaces:
+      defaults:
+        implementation:
+          className: unfurl.configurators.DelegateConfigurator
+        inputs:
+          target:
+            eval:
+              .artifacts::install
+          inputs: {}
+      Standard:
+        operations:
+          delete:
+          create:
+          configure:
+          start:
+          stop:
+      Install:
+        operations:
+          check:
+
 
   unfurl.nodes.Installer:
     derived_from: tosca.nodes.Root
