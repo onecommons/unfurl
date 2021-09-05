@@ -82,12 +82,22 @@ class TemplateConfigurator(Configurator):
 
 class DelegateConfigurator(Configurator):
     def can_dry_run(self, task):
-        return True  # ok because this will also be called on the subtask
+        # ok because this will also be called on the subtask
+        return True
+
+    def render(self, task):
+        return task.create_sub_task(
+            task.inputs.get("operation"),
+            task.inputs.get("target"),
+            task.inputs.get("inputs"),
+        )
+
+    def should_run(self, task):
+        # only run if create_sub_task() succeeded in render()
+        return not not task.rendered
 
     def run(self, task):
-        subtaskRequest = task.create_sub_task(
-            task.inputs["operation"], task.inputs.get("target")
-        )
+        subtaskRequest = task.rendered
         assert subtaskRequest
         # note: this will call canRun() and if needed canDryRun() on subtask but not shouldRun()
         subtask = yield subtaskRequest

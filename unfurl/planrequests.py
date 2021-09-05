@@ -496,6 +496,7 @@ def create_task_request(
     inputs=None,
     startState=None,
     operation_host=None,
+    skip_filter=False,
 ):
     """implementation can either be a named artifact (including a python configurator class),
     or a file path"""
@@ -540,7 +541,10 @@ def create_task_request(
         reason or action,
         startState=startState,
     )
-    return filter_task_request(jobOptions, req)
+    if skip_filter:
+        return req
+    else:
+        return filter_task_request(jobOptions, req)
 
 
 def _set_default_command(kw, implementation, inputs):
