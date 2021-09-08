@@ -192,7 +192,6 @@ class HelmTest(unittest.TestCase):
             if sys.version_info[0] < 3:
                 return  # task order not guaranteed in python 2.7
             self.assertEqual(
-                summary,
                 {
                     "job": {
                         "id": "A01120000000",
@@ -286,6 +285,7 @@ class HelmTest(unittest.TestCase):
                         },
                     ],
                 },
+                summary,
             )
             # reuse the same runner because the manifest's status has been updated
             run2 = runner.run(
@@ -303,7 +303,6 @@ class HelmTest(unittest.TestCase):
             #     task["targetStatus"] == "absent" for task in summary2["tasks"]
             # ), list(summary2["tasks"])
             self.assertEqual(
-                summary2,
                 {
                     "job": {
                         "id": "A01130000000",
@@ -358,4 +357,5 @@ class HelmTest(unittest.TestCase):
                         },
                     ],
                 },
+                summary2,
             )

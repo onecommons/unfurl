@@ -634,8 +634,6 @@ class Job(ConfigChange):
                     "Skipping task %s because previous operation failed", taskRequest
                 )
                 continue
-            logger.info("Running task %s", taskRequest)
-
             if isinstance(taskRequest, JobRequest):
                 self.jobRequestQueue.append(taskRequest)
                 self.run_job_request(taskRequest)
@@ -863,12 +861,17 @@ class Job(ConfigChange):
 
     def _run_operation(self, req, workflow, depth):
         if isinstance(req, SetStateRequest):
+            logger.debug("Setting state with %s", req)
             self._set_state(req)
             return None
+
         assert isinstance(req, TaskRequest)
+        if req.required is False:  # set after should_run() is called
+            return None
         if req.error:
             return None
 
+        logger.info("Running task %s", req)
         test, msg = self._entry_test(req, workflow)
         if not test:
             logger.debug(
@@ -885,17 +888,6 @@ class Job(ConfigChange):
             req.configSpec, req.target, reason=req.reason
         )
         if task:
-            proceed, msg = self.should_run_task(task)
-            if not proceed:
-                logger.debug(
-                    "skipping task %s for instance %s with state %s and status %s: %s",
-                    req.configSpec.operation,
-                    req.target.name,
-                    req.target.state,
-                    req.target.status,
-                    msg,
-                )
-                return None
             resource = req.target
             startingStatus = resource._localStatus
             if req.startState is not None:

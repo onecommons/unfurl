@@ -611,7 +611,7 @@ class TaskView:
     #     return self._manifest.loadConfigSpec(name, configSpec)
 
     def create_sub_task(
-        self, operation=None, resource=None, inputs=None, persist=False, required=False
+        self, operation=None, resource=None, inputs=None, persist=False, required=None
     ):
         """Create a subtask that will be executed if yielded by `run()`
 

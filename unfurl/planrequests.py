@@ -192,7 +192,7 @@ class TaskRequest(PlanRequest):
                     artifact_tpl = artifact.toscaEntityTemplate.entity_tpl
                     template = dict(
                         name=name,
-                        directives=['protected'],
+                        directives=["protected"],
                         type="unfurl.nodes.ArtifactInstaller",
                         artifacts={"install": artifact_tpl},
                     )
@@ -349,7 +349,7 @@ class JobRequest:
             return None
 
     def __repr__(self):
-        return f"JobRequest({self.instances})"
+        return f"JobRequest({self.name})"
 
 
 def find_operation_host(target, operation_host):
@@ -416,10 +416,26 @@ def _render_request(job, parent, req, requests):
         task.target.root.attributeManager = task._attributeManager
     else:
         task = req.task = job.create_task(req.configSpec, req.target, reason=req.reason)
-    task.logger.debug("rendering %s %s", task.target.name, task.name)
+
     error = None
+    proceed = False
     try:
-        task.rendered = task.configurator.render(task)
+        proceed, msg = job.should_run_task(task)
+        if proceed:
+            task.logger.debug("rendering %s %s", task.target.name, task.name)
+            task.rendered = task.configurator.render(task)
+        else:
+            req.required = False
+            if task._errors:
+                error = task._errors[0]
+            logger.debug(
+                "skipping task %s for instance %s with state %s and status %s: %s",
+                req.configSpec.operation,
+                req.target.name,
+                req.target.state,
+                req.target.status,
+                msg,
+            )
     except Exception:
         # note: failed rendering may be re-tried later if it has dependencies
         error = UnfurlTaskError(task, "Configurator render failed", logging.DEBUG)
@@ -447,7 +463,7 @@ def _render_request(job, parent, req, requests):
         task._attributeManager.attributes = {}
         if task._workFolder:
             task._workFolder.discard()
-        return deps, None
+        return deps, None, proceed
     elif error:
         if task._workFolder:
             task._workFolder.failed()
@@ -457,7 +473,7 @@ def _render_request(job, parent, req, requests):
         task.commit_changes()
         if task._workFolder:
             task._workFolder.apply()
-    return deps, error
+    return deps, error, proceed
 
 
 def _add_to_req_list(reqs, parent, request):
@@ -474,7 +490,7 @@ def do_render_requests(job, requests):
     render_requests = collections.deque(flattened_requests)
     while render_requests:
         parent, request = render_requests.popleft()
-        deps, error = _render_request(job, parent, request, flattened_requests)
+        deps, error, proceed = _render_request(job, parent, request, flattened_requests)
         if error:
             errors.append(error)
         if deps:
@@ -482,7 +498,7 @@ def do_render_requests(job, requests):
             if parent and ready and ready[-1] is parent:
                 ready.pop()
             _add_to_req_list(notReady, parent, request)
-        else:
+        elif proceed:
             if not parent or not notReady or notReady[-1] is not parent:
                 # don't add if the parent was placed on the notReady list
                 _add_to_req_list(ready, parent, request)

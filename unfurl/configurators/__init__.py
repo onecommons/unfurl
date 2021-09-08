@@ -86,15 +86,20 @@ class DelegateConfigurator(Configurator):
         return True
 
     def render(self, task):
-        return task.create_sub_task(
+        # should_run rendered already
+        return task.rendered
+
+    def should_run(self, task):
+        task.rendered = task.create_sub_task(
             task.inputs.get("operation"),
             task.inputs.get("target"),
             task.inputs.get("inputs"),
         )
-
-    def should_run(self, task):
-        # only run if create_sub_task() succeeded in render()
-        return not not task.rendered
+        # only run if create_sub_task() returned a TaskRequest
+        if task.rendered:
+            return task.rendered.configSpec.should_run()
+        else:
+            return False
 
     def run(self, task):
         subtaskRequest = task.rendered
