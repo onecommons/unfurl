@@ -86,6 +86,8 @@ Inputs
 
   :operation:  (*required*) The operation to delegate to.
   :target: The name of the instance to delegate to. If omitted the current target will be used.
+  :inputs: Inputs to pass to the operation. If omitted the current inputs will be used.
+
 
 .. _shell:
 
@@ -145,7 +147,7 @@ Terraform
 ==========
 
 The Terraform configurator will be invoked on any `node template` with the type :ref:`unfurl.nodes.Installer.Terraform<unfurl_types>`.
-It can also be used to implement any operation regardless of the node type by setting the `implementation` to ``Terraform``.
+It can also be used to implement any operation regardless of the node type by setting the ``implementation`` to ``Terraform``.
 It will invoke the appropriate terraform command (e.g "apply" or "destroy") based on the job's workflow.
 
 The Terraform configurator manages the Terraform state file itself
@@ -288,6 +290,9 @@ Inputs
  :configuration:  A map that will included as parameters to Ansible's Docker container module
     They are enumerated `here <https://docs.ansible.com/ansible/latest/modules/docker_container_module.html#docker-container-module>`_
 
+Example
+-------
+
 .. code-block:: YAML
 
   node_templates:
@@ -307,12 +312,81 @@ Inputs
               detach:  no
               output_logs: yes
 
+DNS
+====
+
+The DNS installer support nearly all major DNS providers using `OctoDNS <https://github.com/octodns/octodns>`_.
+
+Required TOSCA import: ``configurators/dns-template.yaml`` (in the ``unfurl`` repository)
+
+unfurl.nodes.DNSZone
+---------------------
+
+TOSCA node type that represents a DNS zone.
+
+Properties
+~~~~~~~~~~
+
+  :name: (*required*) DNS hostname of the zone (should end with ".").
+  :provider: (*required*) A map containing the `OctoDNS provider <https://github.com/octodns/octodns#supported-providers>`_ configuration
+  :records: A map of DNS records to add to the zone (default: an empty map)
+  :exclusive: Set to true if the zone is exclusively managed by this instance (removes unrecognized records) (default: false)
+
+Attributes
+~~~~~~~~~~
+
+  :zone: A map containing the records found in the live zone
+  :managed_records: A map containing the current records that are managed by this instance
+
+
+unfurl.relationships.DNSRecords
+-------------------------------
+
+TOSCA relationship type to connect a DNS record to a DNS zone.
+The DNS records specified here will be added, updated or removed from the zone when the relationship is established, changed or removed.
+
+Properties
+~~~~~~~~~~
+
+  :records: (*required*) A map containing the DNS records to add to the zone.
+
+Example
+-------
+
+.. code-block:: YAML
+
+  node_templates:
+    example_com_zone:
+      type: unfurl.nodes.DNSZone
+      properties:
+        name: example.com.
+        provider:
+          # Amazon Route53 (Note: this provider requires that the zone already exists.)
+          class: octodns.provider.route53.Route53Provider
+
+    test_app:
+      type: tosca.nodes.WebServer
+      requirements:
+        - host: compute
+        - dns:
+            node: example_com_zone
+            relationship:
+               type:   unfurl.relationships.DNSRecords
+               properties:
+                 records:
+                  www:
+                    type: A
+                    value:
+                      # get the ip address of the Compute instance that this is hosted on
+                      eval: .source::.requirements::[.name=host]::.target::public_address
+
+
 .. _helm:
 
 Helm
 ====
 
-Requires Helm 3, which will be installed automatically if the default ``.unfurl_home`` ensemble is deployed.
+Requires Helm 3, which will be installed automatically if missing.
 
 Required TOSCA import: ``configurators/helm-template.yaml`` (in the ``unfurl`` repository)
 

@@ -42,7 +42,7 @@ class DnsProperties:
     """DNS records to add to the zone"""
 
 
-class OctoDnsConfigurator(Configurator):
+class DNSConfigurator(Configurator):
     """A configurator for managing a DNS zone using OctoDNS.
     Unless the ``exclusive`` attribute is set on the DNSZone instance, it will ignore records in the zone that are not specified in the ``records`` property.
     OctoDNS requires the full set of records for a zone so OctoDnsConfigurator will

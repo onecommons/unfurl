@@ -34,7 +34,7 @@ node_types:
     interfaces:
       defaults:
         implementation:
-          className: unfurl.configurators.octodns.OctoDnsConfigurator
+          className: unfurl.configurators.dns.DNSConfigurator
       Standard:
         operations:
           delete:
@@ -49,7 +49,7 @@ capability_types:
     derived_from: tosca.capabilities.Root
 
 relationship_types:
-  unfurl.relationships.DNSRecord:
+  unfurl.relationships.DNSRecords:
     derived_from: tosca.relationships.Root
     valid_target_types: [unfurl.capabilities.DNSZone]
     properties:

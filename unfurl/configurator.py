@@ -85,8 +85,8 @@ class ConfiguratorResult:
 class AutoRegisterClass(type):
     def __new__(mcls, name, bases, dct):
         cls = type.__new__(mcls, name, bases, dct)
-        if cls.shortName:
-            name = cls.shortName
+        if cls.short_name:
+            name = cls.short_name
         elif name.endswith("Configurator"):
             name = name[: -len("Configurator")]
         if name:
@@ -97,7 +97,7 @@ class AutoRegisterClass(type):
 @six.add_metaclass(AutoRegisterClass)
 class Configurator:
 
-    shortName = None
+    short_name = None
     """shortName can be used to customize the "short name" of the configurator
     as an alternative to using the full name ("module.class") when setting the implementation on an operation.
     (Titlecase recommended)"""
@@ -140,7 +140,7 @@ class Configurator:
     def can_dry_run(self, task):
         """
         Returns whether this configurator can handle a dry-runs for the given task.
-        (And should check :py:attribute::`task.dry_run` in during run()"".
+        (And should check :attr:`.TaskView.dry_run` in during run().
 
         Args:
             task (:obj:`TaskView`) The task about to be run.
@@ -152,9 +152,8 @@ class Configurator:
 
     def can_run(self, task):
         """
-        Return whether or not the configurator can execute the given task.
-
-        Does this configurator support the requested action and parameters
+        Return whether or not the configurator can execute the given task
+        depending on if this configurator support the requested action and parameters
         and given the current state of the target instance?
 
         Args:
@@ -254,7 +253,17 @@ class Configurator:
 
 
 class TaskView:
-    """The interface presented to configurators."""
+    """The interface presented to configurators.
+
+    The following public attributes are available:
+
+    Attributes:
+        target: The instance this task is operating on.
+        reason (str): The reason this operation was planned. See :class:`~unfurl.support.Reason`
+        cwd (str): Current working directory
+        dry_run (bool): Dry run only
+        verbose (int): Verbosity level set for this job (-1 error, 0 normal, 1 verbose, 2 debug)
+    """
 
     def __init__(self, manifest, configSpec, target, reason=None, dependencies=None):
         # public:
@@ -473,7 +482,7 @@ class TaskView:
         """Mark the given value as sensitive. Sensitive values will be encrypted or redacted when outputed.
 
         Returns:
-          sensitive: A copy of the value converted the appropriate subtype of :class:`unfurl.sensitive` value or the value itself if it can't be converted.
+          sensitive: A copy of the value converted the appropriate subtype of :class:`unfurl.logs.sensitive` value or the value itself if it can't be converted.
 
         """
         return wrap_sensitive_value(
@@ -616,7 +625,7 @@ class TaskView:
         """Create a subtask that will be executed if yielded by `run()`
 
         Args:
-          operation (str): The operation call (like `interface.operation`)
+          operation (str): The operation call (like ``interface.operation``)
           resource (:class:`NodeInstance`) The current target if missing.
 
         Returns:

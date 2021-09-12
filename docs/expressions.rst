@@ -196,31 +196,43 @@ external
 file
 ^^^^
 
-  Read or write a file
-  ``encoding`` can be "binary", "vault", "json", "yaml" or an encoding registered with the Python codec registry
+  Read or write a file. If the ``contents`` keyword argument is present, a file will be written
+  upon evaluation of this function, otherwise it will be read.
 
   .. code-block:: YAML
 
-       eval:
-         file:
-         contents:
-       select: contents
+      # read
+      eval:
+        file: foo/local.config
+      select: contents
+
+      # write
+      eval:
+        file: path.txt.vault
+        contents: "this will be saved as a vault encrypted file"
+        encoding: vault
+      select: path
 
   ========= ===============================
   Key       Value
   ========= ===============================
   file:     path
+  dir?:     path
   encoding? "binary" | "vault" | "json" | "yaml" | python_text_encoding
   contents? any
   ========= ===============================
 
   ``encoding`` can be "binary", "vault", "json", "yaml" or an encoding registered with the Python codec registry
 
-  Key can be one of:
+  The ``select`` clause can evaluate the following keys:
 
-  path # absolute path
-  contents # file contents (None if it doesn't exist)
-  encoding
+  ========= ===============================
+  Key       Returns
+  ========= ===============================
+  path:     absolute path of the file
+  encoding  encoding of the file
+  contents? file contents (None if it doesn't exist)
+  ========= ===============================
 
 foreach
 ^^^^^^^

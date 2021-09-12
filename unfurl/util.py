@@ -205,9 +205,9 @@ def register_short_names(shortNames):
     _shortNameRegistry.update(shortNames)
 
 
-def register_class(className, factory, shortName=None, replace=True):
-    if shortName:
-        _shortNameRegistry[shortName] = className
+def register_class(className, factory, short_name=None, replace=True):
+    if short_name:
+        _shortNameRegistry[short_name] = className
     if not replace and className in _ClassRegistry:
         if _ClassRegistry[className] is not factory:
             raise UnfurlError(f"class already registered for {className}")
@@ -508,12 +508,12 @@ def filter_env(rules, env=None, addOnly=False):
 
     Rules applied in the order they are declared in the ``rules`` dictionary. The following examples show the different patterns for the rules:
 
-        :foo \: bar: Add foo=bar
-        :+foo:  Copy foo
-        :+foo \: bar: Copy foo, set it bar if not present
-        :+!foo*: Copy all except keys matching "foo*"
-        :-!foo:  Remove all except foo
-        :^foo \: /bar/bin: Treat foo like a PATH and prepend value: /bar/bin:$foo
+        :foo \: bar: Add ``foo=bar``
+        :+foo:  Copy ``foo`` from the current environment
+        :+foo \: bar: Copy ``foo``, or add ``foo=bar`` if it is not present
+        :+!foo*: Copy all name from the current environment except those matching ``foo*``
+        :-!foo:  Remove all names except for ``foo``
+        :^foo \: /bar/bin: Treat ``foo`` like ``PATH`` and prepend ``/bar/bin:$foo``
     """
     if env is None:
         env = os.environ
@@ -549,7 +549,7 @@ def filter_env(rules, env=None, addOnly=False):
                     start.update(match)
                 elif val is not None:  # name isn't in existing, use default is set
                     start[name] = val
-        else:
+        elif val is not None:  # don't set if val is None
             start[name] = val
     return start
 

@@ -13,7 +13,7 @@ API for writing configurators
   :undoc-members:
 
 .. automodule:: unfurl.support
-  :members: Status, NodeState, Priority
+  :members: Status, NodeState, Priority, Reason
   :undoc-members:
 
 .. automodule:: unfurl.result
@@ -46,7 +46,7 @@ Utility classes and functions
 .. automodule:: unfurl.eval
   :members: Ref, map_value, eval_ref, RefContext
 
-.. automodule:: unfurl
+.. automodule:: unfurl.logs
   :members: sensitive
 
 .. automodule:: unfurl.util

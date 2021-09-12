@@ -9,7 +9,7 @@ from ..util import register_short_names
 register_short_names(
     {
         name: f"unfurl.configurators.{name.lower()}.{name}Configurator"
-        for name in "Ansible Shell Supervisor Terraform".split()
+        for name in "Ansible Shell Supervisor Terraform DNS".split()
     }
 )
 

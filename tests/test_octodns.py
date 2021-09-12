@@ -111,7 +111,7 @@ class TestOctoDnsConfigurator:
         for job in jobs:
             assert job.status == Status.ok, job.workflow
 
-    @patch("unfurl.configurators.octodns.Manager.sync")
+    @patch("unfurl.configurators.dns.Manager.sync")
     def test_exclusive(self, manager_sync):
         runner = Runner(YamlManifest(ENSEMBLE_EXCLUSIVE))
 
@@ -144,7 +144,7 @@ spec:
   service_template:
     imports:
       - repository: unfurl
-        file: configurators/octodns-template.yaml
+        file: configurators/dns-template.yaml
 
     topology_template:
       node_templates:
@@ -179,7 +179,7 @@ spec:
   service_template:
     imports:
       - repository: unfurl
-        file: configurators/octodns-template.yaml
+        file: configurators/dns-template.yaml
 
     topology_template:
       node_templates:
@@ -208,7 +208,7 @@ spec:
   service_template:
     imports:
       - repository: unfurl
-        file: configurators/octodns-template.yaml
+        file: configurators/dns-template.yaml
 
     topology_template:
       node_templates:
@@ -228,7 +228,7 @@ spec:
             - dns:
                 node: test_zone
                 relationship:
-                   type:   unfurl.relationships.DNSRecord
+                   type:   unfurl.relationships.DNSRecords
                    properties:
                      records:
                       www:
