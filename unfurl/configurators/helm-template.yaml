@@ -2,6 +2,20 @@
 # SPDX-License-Identifier: MIT
 tosca_definitions_version: tosca_simple_unfurl_1_0_0
 
+dsl_definitions:
+  environment: &environment
+      # set these to pass k8s connection setting to helm
+      # leading + means copy from current environment if present
+      # note: helm also honors KUBECONFIG
+      +HELM_KUBECONTEXT:
+          eval: $connections::context
+      +HELM_KUBETOKEN:
+          eval: $connections::credential[token_type=api_key]::token
+      +HELM_KUBEAPISERVER:
+          eval: $connections::host # XXX
+      +HELM_KUBECAFILE:
+          eval: $connections::credential::keys::cert_file
+
 imports:
   - repository: unfurl
     file: tosca_plugins/artifacts.yaml
@@ -98,7 +112,9 @@ node_types:
         type: unfurl.interfaces.Helm
         operations:
           execute:
-            implementation: helm
+            implementation:
+              primary: helm
+              environment: *environment
             inputs:
               chart: { get_property: ["SELF", "chart"] }
               release_name: { get_property: ["SELF", "release_name"] }
@@ -109,9 +125,6 @@ node_types:
                   template: >-
                     helm {{inputs.helmcmd}} {{inputs.release_name}} {{inputs.chart }}
                       -o json --namespace {{"namespace" | eval }}
-                      {% if "context" | eval %}
-                       --kubecontext {{ "context" | eval }}
-                      {% endif %}
                       {% if inputs.chart_values | default('', true) %}
                       --values {{ valuesfile }}
                       {% endif %}
@@ -126,9 +139,10 @@ node_types:
                 vars:
                   valuesfile:
                     eval:
-                      tempfile:
-                        eval:
-                          $inputs::chart_values
+                      file: '{{ "values.yaml" | abspath("local") }}'
+                      contents:
+                        eval: $inputs::chart_values
+                    select: path
               # XXX if still deploying readyState should be set to pending instead of ok but delegate the check to this release
               resultTemplate: |
                 {%if returncode == 0 %}
@@ -174,15 +188,14 @@ node_types:
               operation: Helm.execute
               helmcmd: '{{ "upgrade" if ".::.present" | eval else "install"}}'
           delete:
-            implementation: unfurl.configurators.ShellConfigurator
+            implementation:
+              primary: helm
+              environment: *environment
             inputs:
               command:
                 eval:
                   template: >-
                     helm uninstall {{ "release_name" | eval }} --namespace {{"namespace" | eval }}
-                      {% if "context" | eval %}
-                       --kubecontext {{ "context" | eval }}
-                      {% endif %}
                       {% if task.verbose > 0 %}--debug{%endif%}
                       {% if task.timeout %}--timeout {{task.timeout}}{%endif%}
                       {% if inputs.flags is defined -%}

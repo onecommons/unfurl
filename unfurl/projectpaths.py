@@ -246,7 +246,7 @@ def _file_func(arg, ctx):
         kw.get("encoding"),
     )
     if "contents" in kw:
-        file.write(kw["contents"])
+        file.write(map_value(kw["contents"], ctx))
     return file
 
 
