@@ -91,7 +91,7 @@ def _truncate(s):
 # XXX we should know if cmd if not os.access(implementation, os.X):
 class ShellConfigurator(TemplateConfigurator):
     exclude_from_digest = TemplateConfigurator.exclude_from_digest + ("cwd", "echo")
-    _defaultCmd = None
+    _default_cmd = None
 
     @staticmethod
     def _cmd(cmd, keeplines):
@@ -208,7 +208,7 @@ class ShellConfigurator(TemplateConfigurator):
 
     def can_run(self, task):
         params = task.inputs
-        cmd = params.get("command", self._defaultCmd)
+        cmd = params.get("command", self._default_cmd)
         if not cmd:
             return "missing command to execute"
         if isinstance(cmd, list) and not params.get("shell") and not which(cmd[0]):

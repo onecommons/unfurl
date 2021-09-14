@@ -245,16 +245,20 @@ get_dir
 
   Return an absolute path to the given named folder where ``name`` is one of:
 
-  :.:   directory that contains the current instance's the ensemble
-  :src: directory of the source file this expression appears in
-  :home: The "home" directory for the current instance (committed to repository)
+  :.:   Directory that contains the current instance's ensemble
+  :src: Directory of the source file this expression appears in
+  :artifacts: Directory for the current instance (committed to repository).
   :local: The "local" directory for the current instance (excluded from repository)
-  :tmp:   A temporary directory (removed after unfurl exits)
+  :secret: The "secrets" directory for the current instance (files written there are vault encrypted)
+  :tmp:   A temporary directory for the instance (removed after unfurl exits)
+  :tasks: Job specific directory for the current instance (excluded from repository).
+  :operation: Operation specific directory for the current instance (excluded from repository).
+  :workflow: Workflow specific directory for the current instance (excluded from repository).
   :spec.src: The directory of the source file the current instance's template appears in.
-  :spec.home: The "home" directory of the source file the current instance's template.
-  :spec.local: The "local" directory of the source file the current instance's template.
+  :spec.home: Directory unique to current instance's TOSCA template (committed to the spec repository).
+  :spec.local: Local directory unique to current instance's TOSCA template (excluded from repository).
   :project: The root directory of the current project.
-  :unfurl.home: The location of home project (``UNFURL_HOME``).
+  :unfurl.home: The location of home project (UNFURL_HOME).
 
   Otherwise look for a repository with the given name and return its path or None if not found.
 

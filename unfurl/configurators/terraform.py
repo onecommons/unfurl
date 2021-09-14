@@ -4,7 +4,7 @@ from ..util import save_to_file, UnfurlTaskError, wrap_var
 from .shell import ShellConfigurator
 from ..support import Status
 from ..result import Result
-from ..projectpaths import get_path, FilePath
+from ..projectpaths import get_path, FilePath, Folders
 import json
 import os
 import os.path
@@ -26,14 +26,14 @@ def _get_env(env, verbose, dataDir):
     return env
 
 
-def mark_block(schema, items, task, sensitiveNames):
+def mark_block(schema, items, task, sensitive_names):
     blockTypes = schema.get("block_types", {})
     attributes = schema.get("attributes", {})
     for obj in items:
         for name, value in obj.items():
             attributeSchema = attributes.get(name)
             if attributeSchema:
-                if attributeSchema.get("sensitive") or name in sensitiveNames:
+                if attributeSchema.get("sensitive") or name in sensitive_names:
                     #   mark sensitive
                     obj[name] = task.sensitive(value)
             else:
@@ -44,19 +44,19 @@ def mark_block(schema, items, task, sensitiveNames):
                     # "single", "map", "list", "set"
                     objectType = blockSchema["nesting_mode"]
                     if objectType == "single":
-                        mark_block(blockSchema["block"], [value], task, sensitiveNames)
+                        mark_block(blockSchema["block"], [value], task, sensitive_names)
                     elif objectType == "map":
                         mark_block(
-                            blockSchema["block"], value.values(), task, sensitiveNames
+                            blockSchema["block"], value.values(), task, sensitive_names
                         )
                     else:
-                        mark_block(blockSchema["block"], value, task, sensitiveNames)
+                        mark_block(blockSchema["block"], value, task, sensitive_names)
 
 
-def mark_sensitive(schemas, state, task, sensitiveNames=()):
+def mark_sensitive(schemas, state, task, sensitive_names=()):
     for name, attrs in state["outputs"].items():
         value = attrs["value"]
-        if attrs.get("sensitive") or name in sensitiveNames:
+        if attrs.get("sensitive") or name in sensitive_names:
             state["outputs"][name]["value"] = task.sensitive(value)
 
     for resource in state["resources"]:
@@ -68,7 +68,9 @@ def mark_sensitive(schemas, state, task, sensitiveNames=()):
         if providerSchema:
             schema = providerSchema["resource_schemas"].get(type)
             if schema:
-                mark_block(schema["block"], resource["instances"], task, sensitiveNames)
+                mark_block(
+                    schema["block"], resource["instances"], task, sensitive_names
+                )
             else:
                 task.logger.warning(
                     "resource type '%s' not found in terraform schema", type
@@ -108,10 +110,10 @@ def generate_main(relpath, tfvars, outputs):
 
 
 class TerraformConfigurator(ShellConfigurator):
-    _defaultCmd = "terraform"
+    _default_cmd = "terraform"
 
     # provider schemas don't always mark keys as sensitive that they should, so just in case:
-    sensitiveNames = ["access_token", "key_material", "password", "private_key"]
+    sensitive_names = ["access_token", "key_material", "password", "private_key"]
 
     def can_dry_run(self, task):
         return True
@@ -205,7 +207,9 @@ class TerraformConfigurator(ShellConfigurator):
         # the terraform state file is associate with the current instance
         # read the (possible encrypted) version from the repository
         # and write out it as plaintext json into the local directory
-        yamlPath = get_path(task.inputs.context, "terraform.tfstate.yaml")
+        yamlPath = get_path(
+            task.inputs.context, "terraform.tfstate.yaml", Folders.artifacts
+        )
         if os.path.exists(yamlPath):
             # if exists in home, load and write out state file as json
             with open(yamlPath, "r") as f:
@@ -218,14 +222,14 @@ class TerraformConfigurator(ShellConfigurator):
         # read the (possible encrypted) version from the repository
         # and write out it as plaintext json into the local directory
         jobId = task.get_job_id(task.changeId)
-        return get_path(task.inputs.context, jobId + ".plan", "local", True)
+        return cwd.get_path(jobId + ".plan")
 
     def render(self, task):
-        workdir = task.inputs.get("workdir") or "home"
+        workdir = task.inputs.get("workdir") or Folders.tasks
         cwd = task.set_work_folder(workdir, preserve=True)
-        # options:
+        # generate
         _, terraform = self._cmd(
-            task.inputs.get("command", self._defaultCmd), task.inputs.get("keeplines")
+            task.inputs.get("command", self._default_cmd), task.inputs.get("keeplines")
         )
 
         # write out any needed files to cwd, eg. main.tf.json
@@ -265,7 +269,7 @@ class TerraformConfigurator(ShellConfigurator):
         return [cmd, terraform, statePath]
 
     def run(self, task):
-        cwd = task.get_work_folder()
+        cwd = task.get_work_folder(Folders.tasks)
         cmd, terraform, statePath = task.rendered
         echo = task.verbose > -1
 
@@ -322,9 +326,11 @@ class TerraformConfigurator(ShellConfigurator):
             statePath = os.path.join(cwd.cwd, statePath)
             with open(statePath) as sf:
                 state = json.load(sf)
-            state = mark_sensitive(providerSchema, state, task, self.sensitiveNames)
+            state = mark_sensitive(providerSchema, state, task, self.sensitive_names)
             # save state file in home as yaml, encrypting sensitive values
-            cwd.write_file(state, "terraform.tfstate.yaml")
+            task.set_work_folder(Folders.artifacts).write_file(
+                state, "terraform.tfstate.yaml"
+            )
             outputs = {
                 name: wrap_var(attrs["value"])
                 for name, attrs in state["outputs"].items()

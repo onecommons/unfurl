@@ -70,13 +70,15 @@ class DNSConfigurator(Configurator):
 
     def render(self, task: ConfigTask):
         """Create yaml config files which will be consumed by OctoDNS"""
-        folder = task.set_work_folder("home")
         properties = self._extract_properties_from(task)
         managed = properties.records
         for rel in task.target.get_capabilities("resolve")[0].relationships:
             managed.update(rel.attributes.get_copy("records", {}))
 
+        # set up for the syncing that happens in run()
+        folder = task.set_work_folder()
         self._create_main_config_file(folder, properties)
+
         op = task.configSpec.operation
         if op not in ["configure", "delete"]:
             return managed
@@ -84,7 +86,7 @@ class DNSConfigurator(Configurator):
         # create zone files
         self._write_zone_data(folder, properties.name, records)
 
-        path = folder.real_path()
+        path = folder.cwd
         with change_cwd(path, task.logger):
             # raises an error if validation fails
             Manager(config_file="main-config.yaml").validate_configs()

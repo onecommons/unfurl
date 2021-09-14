@@ -139,7 +139,7 @@ node_types:
                 vars:
                   valuesfile:
                     eval:
-                      file: '{{ "values.yaml" | abspath("local") }}'
+                      file: '{{ "values.yaml" | abspath("tasks") }}'
                       contents:
                         eval: $inputs::chart_values
                     select: path

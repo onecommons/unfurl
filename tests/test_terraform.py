@@ -33,10 +33,12 @@ class TerraformTest(unittest.TestCase):
 
         # copy the terraform lock file so the configurator avoids calling terraform init
         # if .tox/.terraform already has the providers
-        os.makedirs("terraform-node/home/")
-        shutil.copy(terraform_dir + "/.terraform.lock.hcl", "terraform-node/home/")
-        os.makedirs("terraform-node-json/home/")
-        shutil.copy(terraform_dir + "/.terraform.lock.hcl", "terraform-node-json/home/")
+        os.makedirs("tasks/terraform-node")
+        shutil.copy(terraform_dir + "/.terraform.lock.hcl", "tasks/terraform-node/")
+        os.makedirs("tasks/terraform-node-json")
+        shutil.copy(
+            terraform_dir + "/.terraform.lock.hcl", "tasks/terraform-node-json/"
+        )
 
     def test_terraform(self):
         cli_runner = CliRunner()

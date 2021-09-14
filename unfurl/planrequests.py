@@ -461,18 +461,14 @@ def _render_request(job, parent, req, requests):
         task._errors = []
         task._inputs = None
         task._attributeManager.attributes = {}
-        if task._workFolder:
-            task._workFolder.discard()
+        task.discard_work_folders()
         return deps, None, proceed
     elif error:
-        if task._workFolder:
-            task._workFolder.failed()
+        task.fail_work_folders()
         task._inputs = None
         task._attributeManager.attributes = {}  # rollback changes
     else:
         task.commit_changes()
-        if task._workFolder:
-            task._workFolder.apply()
     return deps, error, proceed
 
 

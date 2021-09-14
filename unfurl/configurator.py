@@ -283,7 +283,7 @@ class TaskView:
         self._dependenciesChanged = False
         self.dependencies = dependencies or []
         self._resourceChanges = ResourceChanges()
-        self._workFolder = None
+        self._workFolders = {}
         # public:
         self.operationHost = find_operation_host(target, configSpec.operationHost)
 
@@ -798,17 +798,40 @@ class TaskView:
             return jobRequest, errors
         return None, errors
 
-    # XXX multiple task can be accessing the same workfolder
     def set_work_folder(self, location="operation", preserve=False) -> WorkFolder:
-        self._workFolder = WorkFolder(self, location, preserve)
-        return self._workFolder
+        wf = WorkFolder(self, location, preserve)
+        self._workFolders[location] = wf
+        return wf
+        # XXX multiple tasks can be accessing the same workfolder, so:
         # return self.job.setFolder(
         #     self, location, preserve
         # )
 
-    def get_work_folder(self):
-        return self._workFolder
-        # return self.job.getFolder(self)
+    def get_work_folder(self, location=None):
+        # return self.job.getFolder(self, location)
+        if location is None:
+            # XXX error if there is more than one?
+            return next(iter(self._workFolders.values()))
+        else:
+            return self._workFolders[location]
+
+    def discard_work_folders(self):
+        while self._workFolders:
+            _, wf = self._workFolders.popitem()
+            wf.discard()
+
+    def fail_work_folders(self):
+        while self._workFolders:
+            _, wf = self._workFolders.popitem()
+            wf.failed()
+
+    def apply_work_folders(self, *names):
+        if not names:  # no args were passed, apply them all
+            names = self._workFolders.keys()
+        for name in names:
+            wf = self._workFolders.get(name)
+            if wf:
+                wf.apply()
 
 
 class Dependency(Operational):

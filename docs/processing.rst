@@ -10,6 +10,8 @@ When a YAML configuration is loaded, will look for dictionary keys that match th
 
 and treat them as merge directives that update the dictionary by processing the directive and merging in its resolved value.
 
+Merge directives can have the following components:
+
 .. productionlist::
      merge key      : "+"["?"]["include"][anchor][relative_path][absolute_path]
      anchor         : "*"[PCHAR]*[PCHAR except "."]
@@ -30,27 +32,31 @@ A leading '?' indicates that reference maybe missing, otherwise the processing w
 
 ``absolute path``: [/path]+ A path that is resolved following <jsonpointer> RFC
 
-The value of the merge key:
-
+If the value of the merge directive is empty, merge the result using algorithm described below.
 If the directive contains "include" and the value is a string, treat the value as a file path or a URL to a YAML or JSON file.
+If the value is "raw", include the result without any further processing.
 
-Otherwise, if empty, perform the default merge behavior. If set to "raw", include the value without any further processing.
+The resolved value is merged into the directive's dictionary using the following rules\:
 
-The resolved value is merged into the directive's dictionary using the following rules:
+  If the result of the lookup is not a JSON object or YAML map\:
 
-  If the result of the lookup is not a JSON object or YAML map:
-    if the map containing the merge key has no other keys, it will replaced by the result, otherwise abort processing with a merge error
-    if the map being replaced appears as an item in a list and the result of the merge is also a list, the list is spliced in place.
+    If the map containing the merge key has no other keys\:
+      it will replaced by the result, otherwise abort processing with a merge error
+
+    If the map being replaced appears as an item in a list and the result of the merge is also a list\:
+      the list is spliced in place.
+
     (If you don't want that behavior just wrap the include in another list, e.g "[{+/list1: null}]")
 
-  otherwise recursively merge the maps:
-    for each key in the result object:
-      if the key doesn't exist in the target:
-        add the key and value
-      if value of the target key is not an object,
-        ignore this
-      else:
-        target[key] = merge(target[key], resolved[key])
+    Otherwise, recursively merge the maps\:
+      for each key in the result object
+        if the key doesn't exist in the target\:
+          add the key and value
+        if value of the target key is not an object\:
+          ignore this key
+
+        otherwise, merge two values following these rules.
+
 
 Restoring merge directives
 ~~~~~~~~~~~~~~~~~~~~~~~~~~

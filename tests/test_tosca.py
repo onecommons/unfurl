@@ -257,13 +257,13 @@ class ToscaSyntaxTest(unittest.TestCase):
         src = _get_base_dir(ctx, "src")
         self.assertEqual(src, base)
 
-        # home: <ensemble>/<instance name>/home
-        home = _get_base_dir(ctx, "home")
-        self.assertEqual(os.path.join(base, "testPrefix", "home"), home)
+        # home: <ensemble>/artifacts/<instance name>
+        home = _get_base_dir(ctx, "artifacts")
+        self.assertEqual(os.path.join(base, "artifacts", "testPrefix"), home)
 
-        # local: <ensemble>/<instance name>/local/
+        # local: <ensemble>/local/<instance name>
         local = _get_base_dir(ctx, "local")
-        self.assertEqual(os.path.join(base, "testPrefix", "local"), local)
+        self.assertEqual(os.path.join(base, "local", "testPrefix"), local)
 
         tmp = _get_base_dir(ctx, "tmp")
         assert tmp.endswith("testPrefix"), tmp

@@ -21,6 +21,7 @@ from .configurator import (
     TaskView,
     ConfiguratorResult,
 )
+from .projectpaths import PERSISTENT_FOLDERS
 from .planrequests import (
     PlanRequest,
     TaskRequest,
@@ -553,6 +554,15 @@ class Job(ConfigChange):
 
         return self.rootResource
 
+    def _apply_workfolders(self):
+        for task in self.workDone.values():
+            task.apply_work_folders()
+
+    def _apply_persistent_workfolders(self, reqs):
+        for parent, child in get_render_requests(reqs):
+            # these folders are persistent so we need to move them into their permanent location before we run the task
+            child.task.apply_work_folders(*PERSISTENT_FOLDERS)
+
     def _update_joboption_instances(self):
         if not self.jobOptions.instances:
             return
@@ -626,7 +636,12 @@ class Job(ConfigChange):
         failed = False
         task = None
         successStatus = False
-        workflow = parent and parent.workflow or None
+        if parent:
+            workflow = parent.workflow
+        else:
+            workflow = None
+            self._apply_persistent_workfolders(taskRequests)
+
         for taskRequest in taskRequests:
             # if parent is set, stop processing requests once one fails
             if parent and failed:
@@ -1264,6 +1279,8 @@ def _run_job(job, jobOptions):
             job.unexpectedAbort = UnfurlError(
                 "unexpected exception while running job", True, True
             )
+
+        job._apply_workfolders()
         manifest.commit_job(job)
     finally:
         job.timeElapsed = perf_counter() - startTime
