@@ -302,6 +302,10 @@ class Plan:
             if "protected" in resource.template.directives:
                 continue
 
+            # don't delete if it has a "virtual" directive
+            if "virtual" in resource.template.directives:
+                continue
+
             # if resource exists (or unknown)
             if resource.status not in [Status.absent, Status.pending]:
                 reason = include(resource)
@@ -433,7 +437,7 @@ class Plan:
         # order by ancestors
         return list(
             order_templates(
-                {t.name: t for t in templates},
+                {t.name: t for t in templates if "virtual" not in t.directives},
                 self.filterTemplate and self.filterTemplate.name,
                 self.interface,
             )
@@ -475,6 +479,7 @@ class Plan:
                     yield from self._generate_workflow_configurations(resource, None)
 
         if opts.prune:
+            # XXX warn or error if prune used with a filter option
             test = (
                 lambda resource: Reason.prune if id(resource) not in visited else False
             )
