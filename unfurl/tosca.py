@@ -94,7 +94,7 @@ class ToscaSpec:
                     ExceptionCollector.appendException(
                         UnfurlValidationError(
                             f'error evaluating decorator match expression "{expression}"',
-                            True,
+                            log=True,
                         )
                     )
 
@@ -106,7 +106,10 @@ class ToscaSpec:
             ctx = RefContext(node, dict(template=tpl))
             ctx.base_dir = getattr(patchsrc, "base_dir", ctx.base_dir)
             patch = map_value(patchsrc, ctx)
-            return patch_dict(tpl, patch, True)
+            logger.trace("patching node %s was %s", node.name, tpl)
+            patched = patch_dict(tpl, patch, True)
+            logger.trace("patched node %s: now %s", node.name, patched)
+            return patched
 
         return [_patch(m) for m in matches]
 

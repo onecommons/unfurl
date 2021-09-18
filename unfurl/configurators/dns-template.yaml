@@ -20,6 +20,9 @@ node_types:
         description: Zone exclusively managed by this instance (removes unrecognized records)
         type: boolean
         default: false
+      default_ttl:
+        type: integer
+        default: 300
     attributes:
       zone:
         description: The records found in the zone

@@ -97,8 +97,8 @@ class UnfurlError(Exception):
 
 
 class UnfurlValidationError(UnfurlError):
-    def __init__(self, message, errors=None):
-        super().__init__(message)
+    def __init__(self, message, errors=None, log=False):
+        super().__init__(message, log=log)
         self.errors = errors or []
 
 

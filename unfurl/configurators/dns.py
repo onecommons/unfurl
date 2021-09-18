@@ -40,6 +40,7 @@ class DnsProperties:
     """OctoDNS provider configuration"""
     records: dict
     """DNS records to add to the zone"""
+    default_ttl: int
 
 
 class DNSConfigurator(Configurator):
@@ -104,7 +105,8 @@ class DNSConfigurator(Configurator):
         exclusive = attrs.get_copy("exclusive")
         provider = attrs.get_copy("provider")
         records = attrs.get_copy("records") or {}
-        return DnsProperties(name, exclusive, provider, records)
+        default_ttl = attrs.get_copy("default_ttl", 300)
+        return DnsProperties(name, exclusive, provider, records, default_ttl)
 
     @staticmethod
     def _create_main_config_file(folder: WorkFolder, properties: DnsProperties):
@@ -113,6 +115,8 @@ class DNSConfigurator(Configurator):
                 "source_config": {
                     "class": "octodns.provider.yaml.YamlProvider",
                     "directory": "./",
+                    "enforce_order": True,
+                    "default_ttl": properties.default_ttl,
                 },
                 "target_config": properties.provider,
             },
