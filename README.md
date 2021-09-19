@@ -1,9 +1,8 @@
 <p align="center">
-  <img src="docs/unfurl_logo.svg" width="400px">
+  <img src="https://unfurl.run/docs/_images/unfurl_logo.svg" width="400px">
 </p>
 
 <p align="center">
-  <a href="https://unfurl.run/docs/" alt="Documentation"><img src="https://img.shields.io/badge/docs-unfurl-informational"/></a>
   <a href="https://badge.fury.io/py/unfurl"><img src="https://badge.fury.io/py/unfurl.svg" alt="PyPI version" height="20"></a>
 </p>
 

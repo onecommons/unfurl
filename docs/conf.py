@@ -21,7 +21,7 @@ release = VERSION
 # extensions coming with Sphinx (named 'sphinx.ext.*') or your custom
 # ones.
 extensions = [
-    "recommonmark",
+    "myst_parser",
     "sphinx.ext.autodoc",
     "sphinx.ext.napoleon",
     "sphinx.ext.githubpages",
@@ -39,6 +39,10 @@ suppress_warnings = ["autosectionlabel.*"]
 autodoc_typehints = "description"
 modindex_common_prefix = ["unfurl."]
 
+myst_enable_extensions = [
+    "colon_fence",
+]
+
 # :unfurl_site:`title <page>` or :unfurl_site:`page`
 extlinks = {
     "onecommons": ("https://onecommons.org/%s", None),
@@ -52,8 +56,8 @@ extlinks = {
         "TOSCA 1.3 Specification",
     ),
     "cli": (
-    "cli.html#%s",
-    "Command Line",
+        "cli.html#%s",
+        "Command Line",
     ),
 }
 
@@ -81,6 +85,7 @@ html_theme_options = {
 }
 
 import sphinx_rtd_theme
+
 html_theme = "sphinx_rtd_theme"
 
 # Add any paths that contain custom static files (such as style sheets) here,
