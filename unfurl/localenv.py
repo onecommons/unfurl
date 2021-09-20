@@ -345,6 +345,7 @@ class LocalConfig:
         "connections",
         "manifest",
         "environment",
+        "repositories"
     ]
 
     def __init__(self, path=None, validate=True):

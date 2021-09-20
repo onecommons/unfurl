@@ -8,7 +8,7 @@ metadata:
 
 artifact_types:
   unfurl.artifacts.HasConfigurator:
-    derived_from: tosca.artifacts.Root
+    derived_from: tosca.artifacts.Implementation
     properties:
       className:
         type: string

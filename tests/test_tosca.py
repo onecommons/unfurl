@@ -449,6 +449,9 @@ class AbstractTemplateTest(unittest.TestCase):
           kind: Project
           contexts:
             defaults:
+              repositories:
+                in_context:
+                  url: file:.
               secrets:
                 attributes:
                   vault_default_password: a_password
@@ -468,7 +471,8 @@ kind: Manifest
 spec:
   service_template:
     imports:
-      - foreignmanifest.yaml#/spec/service_template
+      - file: foreignmanifest.yaml#/spec/service_template
+        repository: in_context
     topology_template:
       outputs:
         server_ip:

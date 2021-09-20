@@ -392,9 +392,9 @@ class Manifest(AttributeManager):
                 toscaRepository = Repository(name, tpl)
                 self.repositories[name] = RepoView(toscaRepository, None)
         if inlineRepositories:
-            for repository in inlineRepositories:
+            for name, repository in inlineRepositories.items():
                 if isinstance(repository, dict):
-                    repository = Repository(repository.pop("name"), repository)
+                    repository = Repository(name, repository)
                 self.add_repository(None, repository, "")
         return self._set_repositories()
 
@@ -481,7 +481,7 @@ class Manifest(AttributeManager):
                 reponame = repo.setdefault("name", os.path.basename(path))
                 # replace spec with just its name
                 artifactTpl["repository"] = reponame
-                inlineRepository = repo
+                inlineRepository = {reponame: repo}
         else:
             artifactTpl = dict(file=templatePath)
 
@@ -496,13 +496,9 @@ class Manifest(AttributeManager):
 
         artifact = ArtifactSpec(artifactTpl, path=baseDir)
 
-        extraRepos = []
-        if inlineRepository:
-            extraRepos.append(inlineRepository)
-
         tpl = CommentedMap()
         tpl["repositories"] = self.update_repositories(
-            expanded or yamlConfig.config, extraRepos
+            expanded or yamlConfig.config, inlineRepository
         )
         loader = toscaparser.imports.ImportsLoader(
             None,

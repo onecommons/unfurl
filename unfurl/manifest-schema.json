@@ -89,6 +89,7 @@
         "locals": { "$ref": "#/definitions/external" },
         "secrets": { "$ref": "#/definitions/external" },
         "connections": { "$ref": "#/definitions/namedObjects" },
+        "repositories": { "$ref": "#/definitions/namedObjects" },
         "external": {
           "type": "object",
           "allOf": [

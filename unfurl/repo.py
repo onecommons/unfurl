@@ -222,14 +222,17 @@ class RepoView:
         return self.repo.is_dirty(untracked_files=True, path=self.path)
 
     def add_all(self):
+        assert not self.readOnly
         self.repo.repo.git.add("--all", self.path or ".")
 
     def commit(self, message, addAll=False):
+        assert not self.readOnly
         if addAll:
             self.add_all()
         return self.repo.repo.index.commit(message)
 
     def status(self):
+        assert not self.readOnly
         return self.repo.run_cmd(["status", self.path or "."])[1]
 
     def get_initial_revision(self):

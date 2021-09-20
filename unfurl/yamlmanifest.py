@@ -199,7 +199,7 @@ class ReadOnlyManifest(Manifest):
         if localEnv:
             self.context = localEnv.get_context(self.context)
         spec["inputs"] = self.context.get("inputs", spec.get("inputs", {}))
-        self.update_repositories(manifest)
+        self.update_repositories(manifest, self.context.get("repositories"))
 
     @property
     def uris(self):
@@ -377,6 +377,7 @@ class YamlManifest(ReadOnlyManifest):
             tosca = ToscaSpec(
                 dict(
                     tosca_definitions_version=TOSCA_VERSION,
+
                     topology_template=dict(
                         node_templates={}, relationship_templates=tpl
                     ),
