@@ -46,6 +46,7 @@
         }
       ]
     },
+    "default_context":  { "type": "string" },
     "projects": {
       "type": "object",
       "allOf": [

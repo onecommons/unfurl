@@ -85,6 +85,7 @@
       "properties": {
         "inputs": { "$ref": "#/definitions/attributes" },
         "runtime": { "type": "string" },
+        "defaultProject": { "type": "string" },
         "environment": { "type": "object" },
         "locals": { "$ref": "#/definitions/external" },
         "secrets": { "$ref": "#/definitions/external" },

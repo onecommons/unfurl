@@ -29,5 +29,8 @@ ensembles:
     default: true
     {%- if external | default("") %}
     project: [%external%]
+    {% endif -%}
+    {%- if context | default("") %}
+    context: [%context%]
     {% endif %}
 {% endif %}

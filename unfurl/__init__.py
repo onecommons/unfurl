@@ -42,6 +42,11 @@ class DefaultNames:
     JobsLog = "jobs.tsv"
     ProjectDirectory = ".unfurl"
 
+    def __init__(self, **names):
+        self.__dict__.update(
+            {name: value for name, value in names.items() if value}
+        )
+
 
 def get_home_config_path(homepath):
     # if homepath is explicitly it overrides UNFURL_HOME

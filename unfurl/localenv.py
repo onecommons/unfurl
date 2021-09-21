@@ -35,11 +35,15 @@ class Project:
         else:
             self.localConfig = LocalConfig()
         self._set_repos()
-        self.contextName = "defaults"
         # XXX this updates and saves the local config to disk -- constructing a Project object shouldn't do that
+        # especially since we localenv might not have found the ensemble yet
         self._set_parent_project(homeProject)
 
     def _set_parent_project(self, parentProject):
+        assert not parentProject or parentProject.projectRoot != self.projectRoot, (
+            parentProject.projectRoot,
+            self.projectRoot,
+        )
         self.parentProject = parentProject
         if self.projectRepo and parentProject:
             parentProject.localConfig.register_project(self)
@@ -241,7 +245,8 @@ class Project:
 
     def get_manifest_path(self, localEnv, manifestPath):
         if manifestPath:
-            location = self.localConfig.find_ensemble_by_name(manifestPath)
+            # at this point a named manifest
+            location = self.find_ensemble_by_name(manifestPath)
             if not location:
                 raise UnfurlError(
                     'Could not find ensemble "%s" in "%s"'
@@ -251,15 +256,14 @@ class Project:
             location = self.localConfig.get_default_manifest_tpl()
 
         if location:
-            self.contextName = location.get("context", self.contextName)
-            if "project" in location:
+            contextName = location.get("context", self.get_default_context())
+            if "project" in location and location["project"] != self.name:
                 externalLocalEnv = localEnv._get_external_localenv(location)
                 if externalLocalEnv:
                     # if the manifest lives in an external projects repo,
-                    # set that project as the parent project and register our project with it
-                    if externalLocalEnv.project:
-                        self._set_parent_project(externalLocalEnv.project)
-                    return externalLocalEnv.manifestPath
+                    # _get_external_localenv() above will have set that project
+                    # as the parent project and register our project with it
+                    return externalLocalEnv.manifestPath, contextName
                 else:
                     raise UnfurlError(
                         'Could not find external project "%s" referenced by ensemble "%s"'
@@ -272,11 +276,12 @@ class Project:
                         "The default ensemble found in %s does not exist: %s"
                         % (self.localConfig.config.path, os.path.abspath(fullPath))
                     )
-                return fullPath
+                return fullPath, contextName
         else:
             # no manifest specified in the project config so check the default locations
+            assert not manifestPath
             fullPath = self.search_for_manifest()  # raises if not found
-            return fullPath
+            return fullPath, self.get_default_context()
 
     def _set_contexts(self):
         contexts = self.localConfig.config.expanded.get("contexts", {})
@@ -287,29 +292,30 @@ class Project:
             )
         self.contexts = contexts
 
-    def get_context(self, context):
-        contextName = self.contextName
+    def get_context(self, contextName, context=None):
         localContext = self.contexts.get("defaults") or {}
-        if contextName != "defaults" and self.contexts.get(contextName):
+        if contextName and contextName != "defaults" and self.contexts.get(contextName):
             localContext = merge_dicts(
                 localContext,
                 self.contexts[contextName],
                 replaceKeys=LocalConfig.replaceKeys,
             )
 
-        return merge_dicts(context, localContext, replaceKeys=LocalConfig.replaceKeys)
+        return merge_dicts(
+            context or {}, localContext, replaceKeys=LocalConfig.replaceKeys
+        )
 
     def find_ensemble_by_path(self, path):
         path = os.path.abspath(path)
         for tpl in self.localConfig.ensembles:
             file = tpl.get("file")
-            if file and os.path.abspath(file) == path:
+            if file and os.path.normpath(os.path.join(self.projectRoot, file)) == path:
                 return tpl
 
     def find_ensemble_by_name(self, name):
         for tpl in self.localConfig.ensembles:
             alias = tpl.get("alias")
-            if alias == name:
+            if alias and alias == name:
                 return tpl
 
     @property
@@ -319,16 +325,48 @@ class Project:
             name = os.path.basename(dirname)
         return name
 
-    def register_ensemble(self, manifestPath, *, project=None, managedBy=None):
+    def get_default_context(self):
+        return self.localConfig.config.expanded.get("default_context")
+
+    def get_default_project_path(self, context_name):
+        # place new ensembles in the shared project for this context
+        default_project = self.get_context(context_name).get("defaultProject")
+        if not default_project:
+            return None
+
+        # search for the default_project
+        project = self
+        while project:
+            project_info = project.localConfig.projects.get(default_project)
+            if project_info:
+                return project.localConfig.find_repository_path(project_info["url"])
+            project = project.parentProject
+
+        raise UnfurlError(
+            'Could not find path to default project "%s" in context "%s"'
+            % (default_project, context_name)
+        )
+
+    def register_ensemble(
+        self, manifestPath, *, project=None, managedBy=None, context=None
+    ):
         relPath = (project if project else self).get_relative_path(manifestPath)
+        manifestPath
         props = dict(file=relPath)
+        props["alias"] = os.path.basename(os.path.dirname(manifestPath))
         if managedBy:
             props["managedBy"] = managedBy.name
         if project:
             props["project"] = project.name
+        if context:
+            props["context"] = context
         self.localConfig.ensembles.append(props)
         if managedBy or project:
-            self.localConfig.register_project(managedBy or project)
+            assert not (managedBy and project)
+            self.localConfig.register_project(managedBy or project, changed=True)
+        elif context:
+            self.localConfig.config.config["ensembles"] = self.localConfig.ensembles
+            self.localConfig.config.save()
 
 
 class LocalConfig:
@@ -345,7 +383,7 @@ class LocalConfig:
         "connections",
         "manifest",
         "environment",
-        "repositories"
+        "repositories",
     ]
 
     def __init__(self, path=None, validate=True):
@@ -403,7 +441,23 @@ class LocalConfig:
                 return path
         return None
 
-    def register_project(self, project):
+    def _get_project_name(self, project):
+        repo = project.projectRepo
+        for name, val in self.projects.items():
+            if normalize_git_url(val["url"]) == normalize_git_url(repo.url):
+                return name
+
+        # if project isn't already in projects, use generated name
+        # XXX need to replace characters that don't match our namedObjects pattern manifest-schema.json
+        name = project.name
+        counter = 0
+        while name in self.projects:
+            counter += 1
+            name += "-%s" % counter
+
+        return name
+
+    def register_project(self, project, for_context=None, changed=False):
         """
         Register an external project with current project.
         If the external project's repository is only local (without a remote origin repository) then save it in the local config if it exists.
@@ -423,20 +477,7 @@ class LocalConfig:
         lock = repo.as_repo_view().lock()
         if localRepositories.get(repo.working_dir) != lock:
             localRepositories[repo.working_dir] = lock
-        else:
-            return False  # no change
-
-        for name, val in self.projects.items():
-            if normalize_git_url(val["url"]) == normalize_git_url(repo.url):
-                break
-        else:
-            # if project isn't already in projects, use generated name
-            # XXX need to replace characters that don't match our namedObjects pattern manifest-schema.json
-            name = project.name
-            counter = 0
-            while name in self.projects:
-                counter += 1
-                name += "-%s" % counter
+            changed = True
 
         externalProject = dict(
             url=repo.url,
@@ -446,17 +487,31 @@ class LocalConfig:
         if file and file != ".":
             externalProject["file"] = file
 
+        name = self._get_project_name(project)
         self.projects[name] = externalProject
         if repo.is_local_only():
             projectConfig = local
         else:
             projectConfig = self.config.config
-        projectConfig.setdefault("projects", {})[name] = externalProject
+        project_tpl = projectConfig.setdefault("projects", {})
+        if project_tpl.get(name) != externalProject:
+            project_tpl[name] = externalProject
+            changed = True
 
-        if key:
-            self.config.save_include(key)
-        self.config.config["ensembles"] = self.ensembles
-        self.config.save()
+        if for_context:
+            # set the project to be the default project for the given context
+            context = projectConfig.setdefault("contexts", {}).setdefault(
+                for_context, {}
+            )
+            if context.get("defaultProject") != name:
+                context["defaultProject"] = name
+                changed = True
+
+        if changed:
+            if key:
+                self.config.save_include(key)
+            self.config.config["ensembles"] = self.ensembles
+            self.config.save()
         return name
 
 
@@ -466,19 +521,91 @@ class LocalEnv:
     the local project it is part of and the home project.
     """
 
+    def _find_external_project(self, manifestPath, project):
+        # We're pointing directly at a manifest path, check if it is might be part of an external project
+        context_name = None
+        location = project.find_ensemble_by_path(manifestPath)
+        if location:
+            context_name = location.get("context")
+            if "managedBy" in location:
+                # this ensemble is managed by another project
+                project_tpl = project.localConfig.projects[location["managedBy"]]
+                path = project.localConfig.find_repository_path(project_tpl["url"])
+                externalProject = None
+                if path is not None:
+                    externalProject = self.find_project(path)
+                    if externalProject:
+                        externalProject._set_parent_project(project)
+                        return externalProject, context_name
+                if not externalProject:
+                    self.logger.warning(
+                        'Could not find the project "%s" which manages "%s"',
+                        location["managedBy"],
+                        manifestPath,
+                    )
+        return project, context_name
+
+    def _resolve_path_and_project(self, manifestPath):
+        if manifestPath:
+            # raises manifestPath is directory without either a manifest or project
+            foundManifestPath, project = self._find_given_manifest_or_project(
+                os.path.abspath(manifestPath)
+            )
+        else:
+            # not specified: search current directory and parents for either a manifest or a project
+            # raises if not found
+            foundManifestPath, project = self._search_for_manifest_or_project(".")
+
+        if foundManifestPath:
+            self.manifestPath = foundManifestPath
+            if not project:
+                project = self.find_project(os.path.dirname(foundManifestPath))
+        elif project:
+            # the path was pointing to a project, not a manifest
+            manifestPath = ""
+        else:
+            # if manifestPath doesn't point to a project or ensemble,
+            # look for a project in the current directory and then see if the project has a manifest with that name
+            project = self.find_project(".")
+            if not project:
+                raise UnfurlError(
+                    "Ensemble manifest does not exist: '%s'" % manifestPath
+                )
+
+        if project:
+            if foundManifestPath:
+                # We're pointing directly at a manifest path,
+                # look up project info to get its context
+                # if it is managedBy by another project, switch to that project
+                (
+                    self.project,
+                    self.manifest_context_name,
+                ) = self._find_external_project(foundManifestPath, project)
+            else:
+                self.project = project
+                # not found, see if the manifest if it is located in a shared project or is referenced by name
+                # raises if not found
+                (
+                    self.manifestPath,
+                    self.manifest_context_name,
+                ) = project.get_manifest_path(self, manifestPath)
+        else:
+            self.project = None
+
     def __init__(self, manifestPath=None, homePath=None, parent=None, project=None):
         """
         If manifestPath is None find the first unfurl.yaml or ensemble.yaml
         starting from the current directory.
 
-        If homepath is set it overrides UNFURL_HOME
+        If homepath is set it overrides $UNFURL_HOME
         (and an empty string disable the home path).
-        Otherwise the home path will be set to UNFURL_HOME or the default home location.
+        Otherwise the home path will be set to $UNFURL_HOME or the default home location.
         """
         import logging
 
         logger = logging.getLogger("unfurl")
         self.logger = logger
+        self.manifest_context_name = None
 
         if parent:
             self._projects = parent._projects
@@ -486,61 +613,16 @@ class LocalEnv:
             self.homeConfigPath = parent.homeConfigPath
         else:
             self._projects = {}
-            if project:  # this arg is used in init.py when creating a project
-                self._projects[project.localConfig.config.path] = project
             self._manifests = {}
             self.homeConfigPath = get_home_config_path(homePath)
         self.homeProject = self._get_home_project()
 
-        if manifestPath:
-            pathORproject = self._find_path_or_project(manifestPath)
-            if pathORproject:
-                manifestPath = ""  # consumed by _find_path_or_project
-            else:
-                # if manifestPath doesn't point to a project or ensemble,
-                # look for a project in the current directory and then see if the project has a manifest with that name
-                pathORproject = self.find_project(".")
-                if not pathORproject:
-                    raise UnfurlError(
-                        "Ensemble manifest does not exist: '%s'" % manifestPath
-                    )
-        else:
-            # not specified: search current directory and parents for either a manifest or a project
-            # raises if not found
-            pathORproject = self.search_for_manifest_or_project(".")
-
-        if isinstance(pathORproject, Project):
-            self.project = pathORproject
-            # raises if not found:
-            self.manifestPath = pathORproject.get_manifest_path(self, manifestPath)
-        else:
-            self.manifestPath = pathORproject
-            if project:  # this arg is used in init.py when creating a project
-                self.project = project
-            else:
-                self.project = self.find_project(os.path.dirname(pathORproject))
-                if self.project:
-                    # We're pointing directly at a manifest path, check if it is might be part of an external project
-                    location = self.project.find_ensemble_by_path(manifestPath)
-                    if (
-                        location and "managedBy" in location
-                    ):  # this ensemble is managed by another project
-                        project_tpl = project[location["managedBy"]]
-                        path = self.project.localConfig.find_repository_path(
-                            project_tpl["url"]
-                        )
-                        externalProject = None
-                        if path is not None:
-                            externalProject = self.find_project(path)
-                            if externalProject:
-                                externalProject._set_parent_project(self.project)
-                                self.project = externalProject
-                        if not externalProject:
-                            logger.warning(
-                                'Could not find the project "%s" which manages "%s"',
-                                location["managedBy"],
-                                manifestPath,
-                            )
+        self._resolve_path_and_project(manifestPath)
+        if project:
+            # this arg is used in init.py when creating a project
+            # overrides what was set by _resolve_path_and_project()
+            self._projects[project.localConfig.config.path] = project
+            self.project = project
 
         if self.project:
             logger.info("Loaded project at %s", self.project.localConfig.config.path)
@@ -559,7 +641,8 @@ class LocalEnv:
         if self.homeConfigPath:
             if not os.path.exists(self.homeConfigPath):
                 self.logger.warning(
-                    'UNFURL_HOME is set but does not exist: "%s"', self.homeConfigPath
+                    'UNFURL_HOME environment variable is set but does not exist: "%s"',
+                    self.homeConfigPath,
                 )
             else:
                 homeProject = self.get_project(self.homeConfigPath, None)
@@ -570,16 +653,6 @@ class LocalEnv:
                 else:
                     self.logger.info('Using home project at: "%s"', self.homeConfigPath)
         return homeProject
-
-    def _find_path_or_project(self, manifestPath):
-        manifestPath = os.path.abspath(manifestPath)
-        if os.path.exists(manifestPath):
-            pathORproject = self.find_manifest_path(manifestPath)
-            assert pathORproject
-        else:
-            # if manifestPath does not exist check project config
-            pathORproject = self.find_project(".")
-        return pathORproject
 
     def get_vault_password(self, vaultId="default"):
         secret = os.getenv(f"UNFURL_VAULT_{vaultId.upper()}_PASSWORD")
@@ -649,32 +722,30 @@ class LocalEnv:
             os.path.join(projectRoot, location.get("file") or ""), parent=self
         )
 
-    # manifestPath specified
-    #  doesn't exist: error
-    #  is a directory: either instance repo or a project
-    def find_manifest_path(self, manifestPath):
+    def _find_given_manifest_or_project(self, manifestPath):
         if not os.path.exists(manifestPath):
-            raise UnfurlError(
-                f"Manifest file does not exist: '{os.path.abspath(manifestPath)}'"
-            )
-
+            return None, None
         if os.path.isdir(manifestPath):
             test = os.path.join(manifestPath, DefaultNames.Ensemble)
             if os.path.exists(test):
-                return test
+                return test, None
             else:
                 test = os.path.join(manifestPath, DefaultNames.LocalConfig)
                 if os.path.exists(test):
-                    return self.get_project(test, self.homeProject)
+                    return "", self.get_project(test, self.homeProject)
                 else:
                     test = os.path.join(manifestPath, DefaultNames.ProjectDirectory)
                     if os.path.exists(test):
-                        return self.get_project(test, self.homeProject)
+                        return "", self.get_project(test, self.homeProject)
                     else:
                         message = f"Can't find an Unfurl ensemble or project in folder '{manifestPath}'"
                         raise UnfurlError(message)
         else:
-            return manifestPath
+            test = os.path.join(manifestPath, DefaultNames.LocalConfig)
+            if os.path.exists(test):
+                return None, self.get_project(test, self.homeProject)
+            # assume its a pointing to an ensemble
+            return manifestPath, None
 
     def _get_instance_repo(self):
         instanceDir = os.path.dirname(self.manifestPath)
@@ -693,20 +764,20 @@ class LocalEnv:
         else:
             return repos
 
-    def search_for_manifest_or_project(self, dir):
+    def _search_for_manifest_or_project(self, dir):
         current = os.path.abspath(dir)
         while current and current != os.sep:
             test = os.path.join(current, DefaultNames.LocalConfig)
             if os.path.exists(test):
-                return self.get_project(test, self.homeProject)
+                return "", self.get_project(test, self.homeProject)
 
             test = os.path.join(current, DefaultNames.Ensemble)
             if os.path.exists(test):
-                return test
+                return test, None
 
             test = os.path.join(current, DefaultNames.ProjectDirectory)
             if os.path.exists(test):
-                return self.get_project(test, self.homeProject)
+                return "", self.get_project(test, self.homeProject)
 
             current = os.path.dirname(current)
 
@@ -729,7 +800,7 @@ class LocalEnv:
         context = context or {}
         project = self.project or self.homeProject
         if project:
-            return project.get_context(context)
+            return project.get_context(self.manifest_context_name, context)
         return context
 
     def get_runtime(self):
@@ -756,7 +827,13 @@ class LocalEnv:
 
     def find_git_repo(self, repoURL, revision=None):
         project = self.project or self.homeProject
+        count = 0
         while project:
+            count += 1
+            assert count < 4, (
+                project.projectRoot,
+                project.parentProject and project.parentProject.projectRoot,
+            )
             repo = project.find_git_repo(repoURL, revision)
             if repo:
                 return repo
@@ -768,7 +845,7 @@ class LocalEnv:
         # git-local repos must already exist
         if not repo and not repoURL.startswith("git-local://"):
             project = self.project or self.homeProject
-            assert project 
+            assert project
             while project:
                 if basepath is None or self.project.is_path_in_project(basepath):
                     repo = project.create_working_dir(repoURL, revision)
@@ -846,7 +923,10 @@ class LocalEnv:
         if asdfDataDir:  # asdf is installed
             # current project has higher priority over home project
             project = self.project or self.homeProject
+            count = 0
             while project:
                 paths += project.get_asdf_paths(asdfDataDir, self.toolVersions)
+                count += 1
+                assert count < 4
                 project = project.parentProject
         return paths

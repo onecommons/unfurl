@@ -548,6 +548,7 @@ def plan(ctx, ensemble=None, **options):
 @cli.command(short_help="Create a new unfurl project or ensemble")
 @click.pass_context
 @click.argument("projectdir", default="", type=click.Path(exists=False))
+@click.argument("ensemble_name", default="")
 @click.option(
     "--mono",
     default=False,
@@ -571,8 +572,19 @@ def plan(ctx, ensemble=None, **options):
 )
 @click.option(
     "--template",
-    type=click.Path(exists=True),
+    type=click.Path(exists=False),
     help="Absolute path to a directory of project templates.",
+)
+@click.option(
+    "--create-context",
+    is_flag=True,
+    default=False,
+    help="Create (if missing) a context with the same name and set this as the default repository for ensembles uses this context.",
+)
+@click.option(
+    "--use-context",
+    default=None,
+    help="Associate the given context with this ensemble.",
 )
 @click.option(
     "--shared-repository",
@@ -580,9 +592,11 @@ def plan(ctx, ensemble=None, **options):
     type=click.Path(exists=True),
     help="Create the ensemble in an repository outside the project.",
 )
-def init(ctx, projectdir, **options):
+def init(ctx, projectdir, ensemble_name=None, **options):
     """
-    Create a new project or, if [project_dir] exists or is inside a project, create a new ensemble"""
+    Create a new project or, if [project_dir] exists or is inside a project, create a new ensemble.
+    If [ensemble_name] is omitted, use a default name.
+    """
     options.update(ctx.obj)
     if not projectdir:
         # if adding a project to an existing repository use '.unfurl' as the default name
@@ -599,7 +613,7 @@ def init(ctx, projectdir, **options):
         if len(os.path.abspath(projectPath)) > len(os.path.abspath(projectdir)):
             projectdir = projectPath
         # this will clone the default ensemble if it exists or use ensemble-template
-        message = initmod.clone(projectPath, projectdir, **options)
+        message = initmod.clone(projectPath, projectdir, ensemble_name, **options)
         click.echo(message)
         return
     if os.path.exists(projectdir):
@@ -615,7 +629,7 @@ def init(ctx, projectdir, **options):
             )
 
     homePath, projectPath, repo = initmod.create_project(
-        os.path.abspath(projectdir), **options
+        os.path.abspath(projectdir), ensemble_name, **options
     )
     if homePath:
         click.echo(f"unfurl home created at {homePath}")

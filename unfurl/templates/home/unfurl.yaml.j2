@@ -2,6 +2,11 @@
 apiVersion: unfurl/v1alpha1
 kind: Project
 +?include: local/unfurl.yaml
+
+{%- if default_context | default("") %}
+default_context: [%default_context%]
+{% endif %}
+
 contexts:
   defaults:
     # this exposes this project's ensemble as "localhost" to all the projects

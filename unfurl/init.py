@@ -50,10 +50,13 @@ def write_template(folder, filename, template, vars, templateDir=None):
     from .runtime import NodeInstance
     from .support import apply_template
 
-    if templateDir and not os.path.isabs(templateDir):
+    if templateDir and not (os.path.isabs(templateDir) or templateDir[0] == "."):
+        # built-in template
         templateDir = os.path.join(_templatePath, templateDir)
+
     if not templateDir or not os.path.exists(os.path.join(templateDir, template)):
-        templateDir = _templatePath  # use default file if missing from templateDir
+        # use default file if missing from templateDir
+        templateDir = _templatePath
 
     with open(os.path.join(templateDir, template)) as f:
         source = f.read()
@@ -76,7 +79,9 @@ def write_project_config(
     return write_template(projectdir, filename, templatePath, _vars, templateDir)
 
 
-def create_home(home=None, render=False, replace=False, **kw):
+def create_home(
+    home=None, render=False, replace=False, runtime=None, no_runtime=None, **kw
+):
     """
     Create the home project if missing
     """
@@ -93,7 +98,9 @@ def create_home(home=None, render=False, replace=False, **kw):
         # XXX if repo and update: git stash; git checkout rendered
         ensembleDir = os.path.join(homedir, DefaultNames.EnsembleDirectory)
         ensembleRepo = Repo.find_containing_repo(ensembleDir)
-        configPath, ensembleDir = render_project(homedir, repo, ensembleRepo, "home")
+        configPath, ensembleDir = render_project(
+            homedir, repo, ensembleRepo, None, "home"
+        )
         # XXX if repo and update: git commit -m"updated"; git checkout master; git stash pop
         return configPath
     else:
@@ -103,8 +110,8 @@ def create_home(home=None, render=False, replace=False, **kw):
     newHome, configPath, repo = create_project(
         homedir,
         template="home",
-        runtime=kw.get("runtime") or "venv:",
-        no_runtime=kw.get("no_runtime"),
+        runtime=runtime or "venv:",
+        no_runtime=no_runtime,
         msg="Create the unfurl home repository",
         creating_home=True,
     )
@@ -157,18 +164,21 @@ def add_hidden_git_files(gitDir):
     return [os.path.abspath(gitIgnorePath), os.path.abspath(gitAttributesPath)]
 
 
-def _set_ensemble_vars(vars, externalProject, ensemblePath):
+def _set_ensemble_vars(vars, externalProject, ensemblePath, context):
     if externalProject:
         vars["manifestPath"] = externalProject.get_relative_path(ensemblePath)
         vars["external"] = externalProject.name
+    vars["context"] = context
 
 
 def render_project(
     projectdir,
     repo,
     ensembleRepo,
+    homePath,
     templateDir=None,
     names=DefaultNames,
+    use_context=None,
 ):
     """
     Creates a folder named `projectdir` with a git repository with the following files:
@@ -188,7 +198,7 @@ def render_project(
     ensembleDir = os.path.join(projectdir, names.EnsembleDirectory)
     if ensembleRepo:
         if ensembleRepo.working_dir not in projectdir:
-            externalProject = find_project(ensembleRepo.working_dir)
+            externalProject = find_project(ensembleRepo.working_dir, homePath)
         if externalProject:
             relPath = externalProject.get_relative_path(
                 os.path.join(ensembleRepo.working_dir, os.path.basename(projectdir))
@@ -199,7 +209,7 @@ def render_project(
 
     vars = dict(vaultpass=get_random_password())
     if ensembleRepo and ensembleRepo.is_local_only():
-        _set_ensemble_vars(vars, externalProject, ensemblePath)
+        _set_ensemble_vars(vars, externalProject, ensemblePath, use_context)
     write_project_config(
         os.path.join(projectdir, "local"),
         localConfigFilename,
@@ -210,8 +220,11 @@ def render_project(
 
     localInclude = "+?include: " + os.path.join("local", localConfigFilename)
     vars = dict(include=localInclude)
+    if use_context:
+        # since this is specified while creating the project set this as the default context
+        vars["default_context"] = use_context
     if ensembleRepo and not ensembleRepo.is_local_only():
-        _set_ensemble_vars(vars, externalProject, ensemblePath)
+        _set_ensemble_vars(vars, externalProject, ensemblePath, use_context)
     projectConfigPath = write_project_config(
         projectdir,
         names.LocalConfig,
@@ -247,68 +260,35 @@ def render_project(
         # add the external project to the project and localRepositories configuration sections
         LocalConfig(projectConfigPath).register_project(externalProject)
         externalProject.register_ensemble(
-            ensemblePath, managedBy=find_project(projectdir)
+            ensemblePath, managedBy=find_project(projectdir, homePath)
         )
     return projectConfigPath, ensembleDir
 
 
-def create_project(
-    projectdir,
-    home=None,
-    mono=False,
-    existing=False,
-    empty=False,
-    template=None,
-    submodule=False,
-    creating_home=False,
-    **kw,
-):
-    if existing:
-        repo = Repo.find_containing_repo(projectdir)
-        if not repo:
-            raise UnfurlError("Could not find an existing repository")
-        if not repo.repo.head.is_valid():
-            raise UnfurlError(
-                "Existing repository is empty: unable to create project in empty git repositories"
-            )
+def _find_project_repo(projectdir):
+    repo = Repo.find_containing_repo(projectdir)
+    if not repo:
+        raise UnfurlError("Could not find an existing repository")
+    if not repo.repo.head.is_valid():
+        raise UnfurlError(
+            "Existing repository is empty: unable to create project in empty git repositories"
+        )
+    return repo
 
-    else:
-        repo = None
 
-    newHome = ""
-    homePath = get_home_config_path(home)
-    # don't try to create the home project if we are already creating the home project
-    if (
-        not creating_home
-        and homePath is not None
-        and projectdir != os.path.dirname(homePath)
-    ):
-        # create the home project (but only if it doesn't exist already)
-        newHome = create_home(home, **kw)
-
-    if repo:
-        add_hidden_git_files(projectdir)
-    else:
-        repo = _create_repo(projectdir)
-
-    shared = kw.get("shared_repository")
+def _find_ensemble_repo(projectdir, shared, submodule, ensemble_name):
     if shared:
         ensembleRepo = Repo.find_containing_repo(shared)
         if not ensembleRepo:
             raise UnfurlError("can not find shared repository " + shared)
-    elif mono:
-        ensembleRepo = repo
     else:
-        ensembleDir = os.path.join(projectdir, DefaultNames.EnsembleDirectory)
+        ensembleDir = os.path.join(projectdir, ensemble_name)
         ensembleRepo = _create_repo(ensembleDir, not submodule)
+    return ensembleRepo
 
-    projectConfigPath, ensembleDir = render_project(
-        projectdir,
-        repo,
-        not empty and ensembleRepo,
-        template,
-    )
-    if not mono:
+
+def _commit_repos(projectdir, repo, ensembleRepo, shared, kw, ensembleDir, newHome):
+    if ensembleRepo:
         ensembleRepo.add_all(ensembleDir)
         if shared:
             message = "Adding ensemble"
@@ -316,7 +296,7 @@ def create_project(
             message = "Default ensemble repository boilerplate"
         ensembleRepo.repo.index.commit(message)
 
-    if submodule:
+    if kw.get("submodule"):
         repo.add_sub_module(ensembleDir)
 
     if not newHome and not kw.get("no_runtime") and kw.get("runtime"):
@@ -329,6 +309,99 @@ def create_project(
 
     repo.add_all(projectdir)
     repo.repo.index.commit(kw.get("msg") or "Create a new Unfurl project")
+
+
+def _get_shared(kw, homePath):
+    shared = kw.get("shared_repository")
+    if shared:
+        return shared
+    context = kw.get("use_context")
+    if context and homePath:
+        homeProject = find_project(homePath, None)
+        assert homeProject
+        return homeProject.get_default_project_path(context)
+    return None
+
+
+def create_project(
+    projectdir,
+    ensemble_name=None,
+    home=None,
+    mono=False,
+    existing=False,
+    empty=False,
+    template=None,
+    creating_home=False,
+    **kw,
+):
+    create_context = kw.get("create_context")
+    use_context = kw.get("use_context")
+    if existing:
+        repo = _find_project_repo(projectdir)
+    else:
+        repo = None
+
+    if create_context:
+        # set context to the project name
+        create_context = os.path.basename(projectdir)
+        # defaults for a repository for an entire context
+        mono = True
+        if not ensemble_name:
+            empty = True
+
+    names = DefaultNames(EnsembleDirectory=ensemble_name)
+    newHome = ""
+    homePath = get_home_config_path(home)
+    # don't try to create the home project if we are already creating the home project
+    if (
+        not creating_home
+        and homePath is not None
+        and projectdir != os.path.dirname(homePath)
+    ):
+        # create the home project (but only if it doesn't exist already)
+        newHome = create_home(
+            home, runtime=kw.get("runtime"), no_runtime=kw.get("no_runtime")
+        )
+
+    if repo:
+        add_hidden_git_files(projectdir)
+    else:
+        repo = _create_repo(projectdir)
+
+    shared = _get_shared(kw, homePath)
+    submodule = kw.get("submodule")
+    if mono:
+        ensembleRepo = repo
+    else:
+        ensembleRepo = _find_ensemble_repo(
+            projectdir, shared, submodule, names.EnsembleDirectory
+        )
+
+    projectConfigPath, ensembleDir = render_project(
+        projectdir,
+        repo,
+        not empty and ensembleRepo,
+        homePath,
+        template,
+        names,
+        create_context or use_context,
+    )
+    if homePath and create_context:
+        newProject = find_project(projectConfigPath, homePath)
+        assert newProject
+        homeProject = newProject.parentProject
+        assert homeProject
+        homeProject.localConfig.register_project(newProject, create_context)
+
+    _commit_repos(
+        projectdir,
+        repo,
+        not mono and ensembleRepo,
+        shared,
+        kw,
+        ensembleDir,
+        newHome,
+    )
 
     return newHome, projectConfigPath, repo
 
@@ -442,7 +515,9 @@ def _create_ensemble_from_template(templateVars, project, destDir, manifestName)
     return localEnv, manifest
 
 
-def create_new_ensemble(templateVars, project, targetPath, mono, shared_repo=None):
+def create_new_ensemble(
+    templateVars, project, targetPath, mono, context, shared_repo, homePath
+):
     """
     If "localEnv" is in templateVars, clone that ensemble;
     otherwise create one from a template with templateVars
@@ -460,7 +535,7 @@ def create_new_ensemble(templateVars, project, targetPath, mono, shared_repo=Non
         manifestName = DefaultNames.Ensemble
 
     if shared_repo:
-        destProject = find_project(shared_repo.working_dir)
+        destProject = find_project(shared_repo.working_dir, homePath)
         assert destProject
     else:
         destProject = project
@@ -486,12 +561,15 @@ def create_new_ensemble(templateVars, project, targetPath, mono, shared_repo=Non
 
     _create_ensemble_repo(manifest, shared_repo or mono and project.projectRepo)
     if destProject.projectRoot != project.projectRoot:
-        destProject.register_ensemble(manifest.path, managedBy=project)
-        project.register_ensemble(manifest.path, project=destProject)
+        # cross reference each other
+        destProject.register_ensemble(manifest.path, managedBy=project, context=context)
+        project.register_ensemble(manifest.path, project=destProject, context=context)
+    else:
+        project.register_ensemble(manifest.path, context=context)
     return destDir, manifest
 
 
-def clone_remote_project(source, destDir):
+def clone_remote_project(source, destDir, homePath):
     # check if source is a git url
     repoURL, filePath, revision = split_git_url(source)
     # not yet supported: add repo to local project
@@ -515,13 +593,15 @@ def clone_remote_project(source, destDir):
         raise UnfurlError(
             f'Error: cloned "{source}" to "{destDir}" but couldn\'t find an Unfurl project'
         )
-    sourceProject = Project(sourceRoot)
+    sourceProject = find_project(sourceRoot, homePath)
     return sourceProject, targetDir
 
 
-def find_project(source):
+def find_project(source, home_path):
     sourceRoot = Project.find_path(source)
     if sourceRoot:
+        if home_path:
+            return Project(sourceRoot, Project(home_path))
         return Project(sourceRoot)
     return None
 
@@ -540,7 +620,25 @@ def is_ensemble_in_project_repo(project, paths):
     return True
 
 
-def clone(source, dest, includeLocal=False, **options):
+def _get_context_and_shared_repo(project, options):
+    # when creating ensemble, get the default project for the given context if set
+    # XXX if not --new-repository
+    shared_repo = None
+    shared = options.get("shared_repository")
+    context = options.get("use_context")
+    if not context:
+        context = project.get_default_context()
+    if not shared and context:
+        shared = project.get_default_project_path(context)
+    if shared:
+        shared_repo = Repo.find_containing_repo(shared)
+        if not shared_repo:
+            raise UnfurlError("can not find shared repository " + shared)
+
+    return context, shared_repo
+
+
+def clone(source, dest, ensemble_name=DefaultNames.EnsembleDirectory, **options):
     """
     Clone the ``source`` ensemble to ``dest``. If ``dest`` isn't in a project, create one.
     ``source`` can point to an ensemble_template, a service_template, an existing ensemble
@@ -563,26 +661,21 @@ def clone(source, dest, includeLocal=False, **options):
     if not dest:
         dest = Repo.get_path_for_git_repo(source)  # choose dest based on source url
     # XXX else: # we're assuming dest is directory, handle case where filename is included
-    shared = options.get("shared_repository")
-    if shared:
-        shared_repo = Repo.find_containing_repo(shared)
-        if not shared_repo:
-            raise UnfurlError("can not find shared repository " + shared)
-    else:
-        shared_repo = None
     mono = options.get("mono") or options.get("existing")
+    homePath = get_home_config_path(options.get("home"))
     isRemote = is_url_or_git_path(source)
     if isRemote:
-        if shared_repo:
+        if options.get("shared_repository"):
             raise UnfurlError(
                 "shared_repository option not yet supported when cloning remote repositories"
             )
 
-        clonedProject, source = clone_remote_project(source, dest)
+        clonedProject, source = clone_remote_project(source, dest, homePath)
         # source is now a path inside the cloned project
         paths = _get_ensemble_paths(source, clonedProject)
+        context, shared_repo = _get_context_and_shared_repo(clonedProject, options)
     else:
-        sourceProject = find_project(source)
+        sourceProject = find_project(source, homePath)
         sourceNotInProject = not sourceProject
         if sourceNotInProject:
             # source wasn't in a project
@@ -599,13 +692,16 @@ def clone(source, dest, includeLocal=False, **options):
             # )
             # sourceProject = Project(projectConfigPath)
 
+        context, shared_repo = _get_context_and_shared_repo(sourceProject, options)
         relDestDir = sourceProject.get_relative_path(dest)
         paths = _get_ensemble_paths(source, sourceProject)
         if not relDestDir.startswith(".."):
             # dest is in the source project (or its a new project)
             # so don't need to clone, just need to create an ensemble
+            if not relDestDir or relDestDir == ".":
+                relDestDir = ensemble_name
             destDir, manifest = create_new_ensemble(
-                paths, sourceProject, relDestDir, mono, shared_repo
+                paths, sourceProject, relDestDir, mono, context, shared_repo, homePath
             )
             return 'Created ensemble in %s project: "%s"' % (
                 "new" if sourceNotInProject else "existing",
@@ -619,11 +715,11 @@ def clone(source, dest, includeLocal=False, **options):
             )
             # adjust if project is not at the root of its repo:
             dest = Project.normalize_path(os.path.join(dest, relPathToProject))
-            clonedProject = Project(dest)
+            clonedProject = find_project(dest, homePath)
 
     # pass in "" as dest because we already "consumed" dest by cloning the project to that location
     manifest, message = _create_in_cloned_project(
-        paths, clonedProject, "", mono, shared_repo
+        paths, clonedProject, "", mono, context, shared_repo, homePath
     )
     if not isRemote and manifest:
         # we need to clone referenced local repos so the new project has access to them
@@ -631,7 +727,9 @@ def clone(source, dest, includeLocal=False, **options):
     return message
 
 
-def _create_in_cloned_project(paths, clonedProject, dest, mono, shared_repo):
+def _create_in_cloned_project(
+    paths, clonedProject, dest, mono, context, shared_repo, homePath
+):
     """
     Called by :py:func:`unfurl.init.clone` when cloning an ensemble.
 
@@ -665,7 +763,7 @@ def _create_in_cloned_project(paths, clonedProject, dest, mono, shared_repo):
         # dest: should be a path relative to the clonedProject's root
         assert not os.path.isabs(dest)
         destDir, manifest = create_new_ensemble(
-            paths, clonedProject, dest, mono, shared_repo
+            paths, clonedProject, dest, mono, context, shared_repo, homePath
         )
         return (
             manifest,

@@ -3,6 +3,10 @@ apiVersion: unfurl/v1alpha1
 kind: Project
 [%include | default("") %]
 
+{%- if default_context | default("") %}
+default_context: [%default_context%]
+{% endif %}
+
 # contexts:
 #  defaults:
     # environment:
@@ -32,5 +36,8 @@ ensembles:
     default: true
     {%- if external | default("") %}
     project: [%external%]
+    {% endif -%}
+    {%- if context | default("") %}
+    context: [%context%]
     {% endif %}
 {% endif %}

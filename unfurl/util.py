@@ -568,6 +568,7 @@ required_envvars = [
     "HTTPS_PROXY",
     "NO_PROXY",
     "PYTHONPATH",
+    "VIRTUAL_ENV",
     "UNFURL_TMPDIR",
     "UNFURL_LOGGING",
     "UNFURL_HOME",

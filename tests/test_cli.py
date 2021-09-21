@@ -2,15 +2,16 @@ import os
 import traceback
 import unittest
 from collections.abc import MutableSequence
-
+from pathlib import Path
 import six
 import unfurl
 from click.testing import CliRunner
 from unfurl.__main__ import _args, cli
 from unfurl.configurator import Configurator
-from unfurl.localenv import LocalEnv
-from unfurl.util import sensitive_list
+from unfurl.localenv import LocalEnv, Project
+from unfurl.util import sensitive_list, UnfurlError
 from unfurl.yamlloader import yaml
+from unfurl.yamlmanifest import YamlManifest
 
 manifest = """
 apiVersion: unfurl/v1alpha1
@@ -235,6 +236,7 @@ spec:
         runtime = "docker:onecommons/unfurl:0.2.4"
         _args[:] = [
             f"--runtime={runtime}",
+            "-vvv",
             "deploy",
             "ensemble.yaml",
         ]
@@ -428,7 +430,12 @@ spec:
             runCmd(
                 runner,
                 ["--home", "./unfurl_home", "init", "--shared-repository=shared", "p1"],
+                True,
             )
+
+            self.assertIn("p1", os.listdir("shared"))
+            self.assertNotIn("p1", os.listdir("p1"))
+
             result = runCmd(runner, ["--home", "./unfurl_home", "deploy", "p1"])
             self.assertRegex(result.output, "Found nothing to do.")
 
@@ -443,9 +450,14 @@ spec:
                     "--shared-repository=../shared",
                     "new_ensemble_in_shared",
                 ],
+                True,
             )
+
+            self.assertIn("new_ensemble_in_shared", os.listdir("../shared"))
+            self.assertNotIn("new_ensemble_in_shared", os.listdir("."))
+
             result = runCmd(
-                runner, ["--home", "../unfurl_home", "deploy", "new_ensemble_in_share"]
+                runner, ["--home", "../unfurl_home", "deploy", "new_ensemble_in_shared"]
             )
             self.assertRegex(result.output, "Found nothing to do.")
 
@@ -455,10 +467,142 @@ spec:
             result = runCmd(runner, ["--home", "./unfurl_home", "deploy", "p1copy"])
             self.assertRegex(result.output, "Found nothing to do.")
 
+    def test_context_args(self):
+        runner = CliRunner()
+        with runner.isolated_filesystem():
+            runCmd(
+                runner,
+                ["--home", "./unfurl_home", "init", "--create-context", "production"],
+            )
+            # print_config("production", "./unfurl_home")
 
-def runCmd(runner, args):
+            homeProject = Project("unfurl_home/unfurl.yaml")
+            # print("home", homeProject.localConfig.config.expanded)
+            assert (
+                homeProject.localConfig.config.expanded["contexts"]["production"][
+                    "defaultProject"
+                ]
+                == "production"
+            )
+            project = Project("production/unfurl.yaml", homeProject)
+            assert (
+                project.localConfig.config.expanded["default_context"] == "production"
+            )
+
+            runCmd(
+                runner,
+                ["--home", "./unfurl_home", "init", "--use-context=production", "p1"],
+            )
+            # print_config("p1", "./unfurl_home")
+
+            # creates in production project because that's the defaultProject
+            self.assertNotIn("ensemble", os.listdir("p1"))
+            self.assertNotIn("p1", os.listdir("p1"))
+            self.assertIn("p1", os.listdir("production"))
+
+            localEnv = LocalEnv("p1", homePath="./unfurl_home")
+            ensemble_record = localEnv.project.localConfig.config.expanded["ensembles"][
+                0
+            ]
+            # file is relative to the project
+            assert ensemble_record["file"] == "p1/ensemble.yaml", ensemble_record
+            assert ensemble_record["context"] == "production", ensemble_record
+            assert ensemble_record["project"] == "production", ensemble_record
+            assert (
+                localEnv.project.localConfig.config.expanded["default_context"]
+                == "production"
+            )
+
+            with self.assertRaises(UnfurlError) as err:
+                LocalEnv("missing", homePath="./unfurl_home")
+            assert "Ensemble manifest does not exist" in str(err.exception)
+
+            result = runCmd(runner, ["--home", "./unfurl_home", "deploy", "p1"])
+            self.assertRegex(result.output, "Found nothing to do.")
+
+            # test clone ensemble in existing project
+            result = runCmd(
+                runner,
+                [
+                    "--home",
+                    "./unfurl_home",
+                    "init",
+                    "--use-context=production",
+                    "p1",
+                    "new_ensemble_in_shared",
+                ],
+            )
+            os.chdir("p1")
+
+            self.assertNotIn("new_ensemble_in_shared", os.listdir("."))
+            self.assertIn("new_ensemble_in_shared", os.listdir("../production"))
+
+            with self.assertRaises(UnfurlError) as err:
+                localEnv = LocalEnv("missing2", homePath="../unfurl_home")
+            assert "Could not find ensemble" in str(err.exception)
+
+            # print_config(".", "../unfurl_home")
+
+            localEnv = LocalEnv("new_ensemble_in_shared", homePath="../unfurl_home")
+            assert localEnv.manifest_context_name == "production"
+            assert (
+                localEnv.project.localConfig.config.expanded["default_context"]
+                == "production"
+            )
+
+            # default context is set for the new
+            ensemble_record = localEnv.project.localConfig.config.expanded["ensembles"][
+                1
+            ]
+            assert ensemble_record["file"] == "new_ensemble_in_shared/ensemble.yaml"
+            assert ensemble_record["context"] == "production"
+            assert ensemble_record["project"] == "production"
+
+            result = runCmd(
+                runner, ["--home", "../unfurl_home", "deploy", "new_ensemble_in_shared"]
+            )
+            self.assertRegex(result.output, "Found nothing to do.")
+
+            os.chdir("..")
+
+            runCmd(runner, ["--home", "./unfurl_home", "clone", "p1", "p1copy"])
+
+            localEnv = LocalEnv("p1copy", homePath="./unfurl_home")
+            assert localEnv.manifest_context_name == "production"
+            # default context is set for the new
+            ensemble_record = localEnv.project.localConfig.config.expanded["ensembles"][
+                0
+            ]
+            assert ensemble_record["context"] == "production"
+            assert ensemble_record["file"] == "p1/ensemble.yaml"
+            assert ensemble_record["project"] == "production"
+
+            result = runCmd(runner, ["--home", "./unfurl_home", "deploy", "p1copy"])
+            self.assertRegex(result.output, "Found nothing to do.")
+
+
+def print_config(dir, homedir=None):
+    if homedir:
+        print("!home")
+        with open(Path(homedir) / "unfurl.yaml") as f:
+            print(f.read())
+
+        print("!home/local")
+        with open(Path(homedir) / "local" / "unfurl.yaml") as f:
+            print(f.read())
+
+    print(f"!{dir}!")
+    with open(Path(dir) / "unfurl.yaml") as f:
+        print(f.read())
+    print(f"!{dir}/local!")
+    with open(Path(dir) / "local" / "unfurl.yaml") as f:
+        print(f.read())
+
+
+def runCmd(runner, args, print_result=False):
     result = runner.invoke(cli, args)
-    # print("result.output", result.exit_code, result.output)
+    if print_result:
+        print("result.output", result.exit_code, result.output)
     assert not result.exception, "\n".join(traceback.format_exception(*result.exc_info))
     assert result.exit_code == 0, result
     return result
