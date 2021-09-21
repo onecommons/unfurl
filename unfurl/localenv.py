@@ -351,7 +351,6 @@ class Project:
         self, manifestPath, *, project=None, managedBy=None, context=None
     ):
         relPath = (project if project else self).get_relative_path(manifestPath)
-        manifestPath
         props = dict(file=relPath)
         props["alias"] = os.path.basename(os.path.dirname(manifestPath))
         if managedBy:

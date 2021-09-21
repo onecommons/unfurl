@@ -43,13 +43,11 @@ logger = logging.getLogger("unfurl")
 
 
 class Folders:
-    pass
+    Persistent = ("artifacts", "secret", "local")
 
 
 for r in "artifacts secret local tasks operation workflow".split():
     setattr(Folders, r, r)
-
-PERSISTENT_FOLDERS = ("artifacts", "secret", "local")
 
 
 class WorkFolder:
@@ -74,7 +72,7 @@ class WorkFolder:
     @property
     def cwd(self):
         """An absolute path to the permanent location of this directory."""
-        if self.location in PERSISTENT_FOLDERS:
+        if self.location in Folders.Persistent:
             return self._cwd
         else:  # otherwise always will be in pending
             return self.pending_path()
@@ -492,7 +490,7 @@ def _get_base_dir(ctx, name=None):
         return ctx.base_dir
     elif name == "tmp":
         return os.path.join(instance.root.tmp_dir, instance.name)
-    elif name in PERSISTENT_FOLDERS:
+    elif name in Folders.Persistent:
         return os.path.join(instance.base_dir, name, instance.name)
     elif name in ["tasks", "operation", "workflow"]:
         # these will always in "pending" while a task is running

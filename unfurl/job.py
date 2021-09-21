@@ -21,7 +21,7 @@ from .configurator import (
     TaskView,
     ConfiguratorResult,
 )
-from .projectpaths import PERSISTENT_FOLDERS
+from .projectpaths import Folders
 from .planrequests import (
     PlanRequest,
     TaskRequest,
@@ -561,7 +561,7 @@ class Job(ConfigChange):
     def _apply_persistent_workfolders(self, reqs):
         for parent, child in get_render_requests(reqs):
             # these folders are persistent so we need to move them into their permanent location before we run the task
-            child.task.apply_work_folders(*PERSISTENT_FOLDERS)
+            child.task.apply_work_folders(*Folders.Persistent)
 
     def _update_joboption_instances(self):
         if not self.jobOptions.instances:

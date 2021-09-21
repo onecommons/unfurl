@@ -19,7 +19,7 @@ from . import merge
 from .eval import Ref, map_value, RefContext
 from .runtime import RelationshipInstance, Operational
 from .yamlloader import yaml
-from .projectpaths import WorkFolder
+from .projectpaths import WorkFolder, Folders
 from .planrequests import (
     TaskRequest,
     JobRequest,
@@ -798,7 +798,9 @@ class TaskView:
             return jobRequest, errors
         return None, errors
 
-    def set_work_folder(self, location="operation", preserve=False) -> WorkFolder:
+    def set_work_folder(self, location="operation", preserve=None) -> WorkFolder:
+        if preserve is None:
+            preserve = True if location in Folders.Persistent else False
         wf = WorkFolder(self, location, preserve)
         self._workFolders[location] = wf
         return wf
