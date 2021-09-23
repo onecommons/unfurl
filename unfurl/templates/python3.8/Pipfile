@@ -24,7 +24,7 @@ GitPython = "*"
 Babel = ">=2.3.4,!=2.4.0"
 PyYAML = ">=3.12"
 subprocess32 = "*"
-ansible = {version = ">=2.9.10,<2.10.0", extras = ["azure"]}
+ansible = {version = ">=2.9.10,<4.3.0", extras = ["azure"]}
 mitogen = "==0.2.7"
 openshift = "*"
 octodns = "*"
