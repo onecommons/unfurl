@@ -105,9 +105,10 @@ class DockerTest(unittest.TestCase):
         self.assertEqual(container["Config"]["Image"], "busybox")
         self.assertIn("hello", container["Output"].strip())
 
-        # XXX why does check task (task[0]) fail 50% of time??
+        assert tasks[0].status.name == "ok", tasks[0].status
         assert tasks[1].status.name == "ok", tasks[1].status
         assert not run1.unexpectedAbort, run1.unexpectedAbort.get_stack_trace()
+        assert tasks[0].target.status.name == "ok", tasks[0].target.status
         assert tasks[1].target.status.name == "ok", tasks[1].target.status
 
         run2 = runner.run(JobOptions(workflow="undeploy", template="container1"))

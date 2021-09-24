@@ -21,36 +21,7 @@ node_types:
           docker_container:
           image_path:
         inputs:
-          # https://medium.com/@BeNitinAgarwal/lifecycle-of-docker-container-d2da9f85959
-          # https://stackoverflow.com/questions/32427684/what-are-the-possible-states-for-a-docker-container
-          resultTemplate: |
-            {% set status = outputs.docker_container.State.Status | d("") %}
-            {% set error = outputs.docker_container.State.Error | d("") %}
-            readyState:
-              state: {{ {'created': 'created', 'restarting': 'starting', '': 'initial',
-                        'running': 'started', 'removing': 'deleting',
-                        'paused': 'stopped',  'stopped': 'stopped', 'exited': 'deleted', 'dead': 'deleted'}[status] }}
-              local: {%if error %}error
-                          {% elif status == 'exited' or status == 'dead' %}absent
-                          {% elif status == 'running' %}ok
-                          {%else%}pending{%endif%}
-      Install:
-        check:
-          inputs:
-            playbookArgs:
-              - --check
-              - --diff
             playbook:
-              - docker_container:
-                  name:
-                    eval: name
-                  state: started
-      Standard:
-        operations:
-          configure:
-            description: Create or update a container
-            inputs:
-              playbook:
                 eval:
                   template: |
                     #jinja2: variable_start_string: '<%', variable_end_string: '%>'
@@ -71,8 +42,8 @@ node_types:
                         # https://docs.ansible.com/ansible/latest/modules/docker_container_module.html#docker-container-module
                         # https://github.com/ansible/ansible/blob/stable-2.8/lib/ansible/modules/cloud/docker/docker_container.py
                         name: "{{ 'name' | eval }}" # required
-                        state: started
                         image: "{{ image_path }}" # Repository path and tag
+                        state: "{{ '$inputs::state' | eval }}"
                         # XXX :
                         # api_version: max(set(capabilities.versions) | set(host::versions))
                         # published_ports: {{ if(SELF.publish_all, 'all', SELF.publish_ports }}
@@ -81,24 +52,38 @@ node_types:
                         # env: {{ env }}?
                         <<: <% inputs.configuration | default({}) | mapValue | to_json %>
                     {% endfilter %}
+            # https://medium.com/@BeNitinAgarwal/lifecycle-of-docker-container-d2da9f85959
+            # https://stackoverflow.com/questions/32427684/what-are-the-possible-states-for-a-docker-container
+            resultTemplate: |
+              {% set status = outputs.docker_container.State.Status | d("") %}
+              {% set error = outputs.docker_container.State.Error | d("") %}
+              readyState:
+                state: {{ {'created': 'created', 'restarting': 'starting', '': 'initial',
+                          'running': 'started', 'removing': 'deleting',
+                          'paused': 'stopped',  'stopped': 'stopped', 'exited': 'deleted', 'dead': 'deleted'}[status] }}
+                local: {%if error %}error
+                            {% elif status == 'exited' or status == 'dead' %}absent
+                            {% elif status == 'running' %}ok
+                            {%else%}pending{%endif%}
+      Install:
+        operations:
+          check:
+            inputs:
+              playbookArgs:
+              - --check
+              - --diff
+              state: started
+      Standard:
+        operations:
+          configure:
+            inputs:
+              state: started
           start:
             inputs:
-              playbook:
-                - docker_container:
-                    name:
-                      eval: name
-                    state: started
+              state: started
           stop:
             inputs:
-              playbook:
-                - docker_container:
-                    name:
-                      eval: name
-                    state: stopped
+              state: stopped
           delete:
             inputs:
-              playbook:
-                - docker_container:
-                    name:
-                      eval: name
-                    state: absent
+              state: absent
