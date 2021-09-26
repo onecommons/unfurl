@@ -3,7 +3,7 @@ name: Deploy to dockerhub and pypi
 on:
   push:
     tags:
-    - '*'
+      - '*'
 jobs:
   deploy_dockerhub:
     runs-on: ubuntu-latest
