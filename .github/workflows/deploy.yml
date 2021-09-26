@@ -4,7 +4,7 @@ on:
   push:
     branches:
     tags:
-    - 'v*.*.*'
+      - 'v*.*.*'
 jobs:
   deploy_dockerhub:
     runs-on: ubuntu-latest
