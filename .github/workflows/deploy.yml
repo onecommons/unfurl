@@ -2,8 +2,10 @@ name: Deploy to dockerhub and pypi
 
 on:
   push:
-    tags: 
-      - v*.*.*
+    branches:
+    - 'docker-build-and-deploy'
+    tags:
+    - 'v*.*.*'
 jobs:
   deploy_dockerhub:
     runs-on: ubuntu-latest
