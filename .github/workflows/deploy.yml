@@ -3,8 +3,8 @@ name: Deploy to dockerhub and pypi
 on:
   push:
     tags: 
-      - /^\d+\.\d+\.\d+$/
-
+#      - /^\d+\.\d+\.\d+$/
+      - v*.*.*
 jobs:
   deploy_dockerhub:
     runs-on: ubuntu-latest
