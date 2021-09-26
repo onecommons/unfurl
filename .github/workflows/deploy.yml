@@ -2,6 +2,7 @@ name: Deploy to dockerhub and pypi
 
 on:  
   push:
+    branches: []
     tags:
       - '*'
 jobs:
@@ -16,7 +17,7 @@ jobs:
     steps:
       - name: Get the tag name
         id: get_version
-        run: echo ${{github.ref}}
+        run: echo ${{GITHUB_REF}}
       - name: Login to DockerHub
         uses: docker/login-action@v1 
         with:
