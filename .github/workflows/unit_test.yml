@@ -1,59 +1,59 @@
-name: Unfurl unit tests
+# name: Unfurl unit tests
 
-on: [push]
+# on: [push]
 
-jobs:
-  test:
+# jobs:
+#   test:
 
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python: [3.7, 3.8, 3.9]
-    env:
-      TOX_SKIP_ENV: .+(docker|lock)
-      # tf_version: 1.0.0
-      # helm_version: v3.3.4
-      # kubectl_version: v1.21.2
-      k3d_version: v4.4.6
-      UNFURL_LOGGING: info
-    steps:
-      - uses: actions/checkout@v2
-        with:
-          submodules: recursive
-          fetch-depth: 0
-      - name: Setup Python
-        uses: actions/setup-python@v2
-        with:
-          python-version: ${{ matrix.python }}
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v1
-        with:
-          # terraform_version: ${{ env.tf_version }}
-          terraform_wrapper: false
-      - name: Setup helm
-        uses: azure/setup-helm@v1
-        # with:
-        #   version: ${{ env.helm_version }}
-      - name: Setup kubectl
-        uses: azure/setup-kubectl@v1
-        # with:
-        #   version: ${{ env.kubectl_version }}
-      - name: Setup k3d
-        run: |
-          wget https://github.com/rancher/k3d/releases/download/"${{ env.k3d_version }}"/k3d-linux-amd64
-          chmod +x k3d-linux-amd64
-          sudo mv k3d-linux-amd64 /usr/local/bin/k3d
-      - name: Set up the cluster
-        run: |
-          k3d cluster create
-          kubectl get node
-          k3d kubeconfig merge --all -d
-          kubectl config view
-      - name: Install Tox and any other packages
-        run: pip install tox
-      - name: Run Tox
-        # Run tox using the version of Python in `PATH`
-        run: |
-          export PY_V=py`python3 --version | awk '{print $2}' | tr -d '.' | cut -c 1-2`
-          tox -c tosca-parser/tox.ini -e $PY_V
-          tox -e $PY_V -- -n auto --dist loadfile
+#     runs-on: ubuntu-latest
+#     strategy:
+#       matrix:
+#         python: [3.7, 3.8, 3.9]
+#     env:
+#       TOX_SKIP_ENV: .+(docker|lock)
+#       # tf_version: 1.0.0
+#       # helm_version: v3.3.4
+#       # kubectl_version: v1.21.2
+#       k3d_version: v4.4.6
+#       UNFURL_LOGGING: info
+#     steps:
+#       - uses: actions/checkout@v2
+#         with:
+#           submodules: recursive
+#           fetch-depth: 0
+#       - name: Setup Python
+#         uses: actions/setup-python@v2
+#         with:
+#           python-version: ${{ matrix.python }}
+#       - name: Setup Terraform
+#         uses: hashicorp/setup-terraform@v1
+#         with:
+#           # terraform_version: ${{ env.tf_version }}
+#           terraform_wrapper: false
+#       - name: Setup helm
+#         uses: azure/setup-helm@v1
+#         # with:
+#         #   version: ${{ env.helm_version }}
+#       - name: Setup kubectl
+#         uses: azure/setup-kubectl@v1
+#         # with:
+#         #   version: ${{ env.kubectl_version }}
+#       - name: Setup k3d
+#         run: |
+#           wget https://github.com/rancher/k3d/releases/download/"${{ env.k3d_version }}"/k3d-linux-amd64
+#           chmod +x k3d-linux-amd64
+#           sudo mv k3d-linux-amd64 /usr/local/bin/k3d
+#       - name: Set up the cluster
+#         run: |
+#           k3d cluster create
+#           kubectl get node
+#           k3d kubeconfig merge --all -d
+#           kubectl config view
+#       - name: Install Tox and any other packages
+#         run: pip install tox
+#       - name: Run Tox
+#         # Run tox using the version of Python in `PATH`
+#         run: |
+#           export PY_V=py`python3 --version | awk '{print $2}' | tr -d '.' | cut -c 1-2`
+#           tox -c tosca-parser/tox.ini -e $PY_V
+#           tox -e $PY_V -- -n auto --dist loadfile
