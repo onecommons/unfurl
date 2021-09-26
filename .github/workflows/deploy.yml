@@ -1,10 +1,12 @@
 name: Deploy to dockerhub and pypi
 
 on:
-  create
+  create:
+    tags:
+      - '*'
 jobs:
   deploy_dockerhub:
-    if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+#    if: ${{ startsWith(github.ref, 'refs/tags/v') }}
     runs-on: ubuntu-latest
     env:
       PYPI_USER: "__token__"
