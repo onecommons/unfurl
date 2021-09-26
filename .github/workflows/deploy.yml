@@ -1,9 +1,9 @@
 name: Deploy to dockerhub and pypi
 
 on:
-  create:
+  push:
     tags:
-      - 'v*.*.*'
+    - '*'
 jobs:
   deploy_dockerhub:
     runs-on: ubuntu-latest
