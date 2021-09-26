@@ -30,5 +30,4 @@ jobs:
           file: ./docker/Dockerfile
           push: true
           tags: |
-             onecommons/unfurl:latest
              onecommons/unfurl:$TAG:-${github.sha}
