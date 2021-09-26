@@ -18,9 +18,9 @@ jobs:
       - name: Get the tag name
         id: get_version
         run: echo ::set-output name=tag::${${{github.ref}}#refs/*/}
-      - name: Get the tag name
+      - name: Print the tag name
         id: print_version
-        run: echo ${{ steps.vars.outputs.tag }}
+        run: echo "${{ steps.vars.outputs.tag }}"
       # - name: Login to DockerHub
       #   uses: docker/login-action@v1 
       #   with:
