@@ -31,4 +31,4 @@ jobs:
           file: ./docker/Dockerfile
           push: true
           tags: |
-             onecommons/unfurl:${{ steps.get_tag_name.outputs.tag }}:-${{github.sha}}
+             onecommons/unfurl:${{ steps.get_tag_name.outputs.tag }}-${{github.sha}}
