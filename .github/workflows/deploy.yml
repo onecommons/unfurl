@@ -1,8 +1,7 @@
 name: Deploy to dockerhub and pypi
 
 on:
-  push:
-    branches:
+  create:
     tags:
       - 'v*.*.*'
 jobs:
