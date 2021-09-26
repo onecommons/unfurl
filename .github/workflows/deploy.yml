@@ -18,17 +18,20 @@ jobs:
       - name: Get the tag name
         id: get_version
         run: echo ::set-output name=tag::${${{github.ref}}#refs/*/}
-      - name: Login to DockerHub
-        uses: docker/login-action@v1 
-        with:
-          username: ${{ env.DOCKERHUB_USER }}
-          password: ${{ env.DOCKERHUB_PASS }}
-      - name: Build and push
-        id: docker_build
-        uses: docker/build-push-action@v2
-        with:
-          context: ./
-          file: ./docker/Dockerfile
-          push: true
-          tags: |
-             onecommons/unfurl:${{ steps.vars.outputs.tag }}:-${github.sha}
+      - name: Get the tag name
+        id: get_version
+        run: echo ${{ steps.vars.outputs.tag }}
+      # - name: Login to DockerHub
+      #   uses: docker/login-action@v1 
+      #   with:
+      #     username: ${{ env.DOCKERHUB_USER }}
+      #     password: ${{ env.DOCKERHUB_PASS }}
+      # - name: Build and push
+      #   id: docker_build
+      #   uses: docker/build-push-action@v2
+      #   with:
+      #     context: ./
+      #     file: ./docker/Dockerfile
+      #     push: true
+      #     tags: |
+      #        onecommons/unfurl:${{ steps.vars.outputs.tag }}:-${{github.sha}}
