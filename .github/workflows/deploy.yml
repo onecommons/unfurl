@@ -3,7 +3,6 @@ name: Deploy to dockerhub and pypi
 on:
   push:
     branches:
-    - 'docker-build-and-deploy'
     tags:
     - 'v*.*.*'
 jobs:
