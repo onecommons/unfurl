@@ -18,7 +18,7 @@ jobs:
       - name: Get the tag name
         id: get_version
 #        run: echo "::set-output name=tag::${${{github.ref}}#refs/*/}"
-        run: echo "::set-output name=tag::$(babis)"
+        run: echo "::set-output name=tag::babis"
       - name: Print the tag name
         id: print_version
         run: echo "${{ steps.get_version.outputs.tag }}"
