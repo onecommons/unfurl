@@ -17,7 +17,7 @@ jobs:
     steps:
       - name: Get the tag name
         id: get_version
-        run: echo ${{env.GITHUB_REF}}
+        run: echo ::set-output name=tag::${{github.ref#refs/*/}}
       - name: Login to DockerHub
         uses: docker/login-action@v1 
         with:
@@ -31,4 +31,4 @@ jobs:
           file: ./docker/Dockerfile
           push: true
           tags: |
-             onecommons/unfurl:$TAG:-${github.sha}
+             onecommons/unfurl:${{ steps.vars.outputs.tag }}:-${github.sha}
