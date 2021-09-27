@@ -36,12 +36,8 @@ script:
 jobs:
   include:
     - stage: deploy # only run after test jobs complete
-      if: branch == master OR tag =~ /^\d+\.\d+\.\d+$/
+      if: tag =~ /^\d+\.\d+\.\d+$/
       python: 3.9
-      script: # build, tag and push to docker hub
-       - echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USER" --password-stdin
-       - docker build -t "onecommons/unfurl:${TRAVIS_TAG:-$TRAVIS_COMMIT}" -f ./docker/Dockerfile .
-       - docker push onecommons/unfurl:${TRAVIS_TAG:-$TRAVIS_COMMIT}
       deploy:
         on:
           all_branches: true
@@ -52,6 +48,3 @@ jobs:
         edge: true # opt in to dpl v2
         distributions: "sdist bdist_wheel"
         skip_existing: true
-      after_deploy:
-        - docker tag "onecommons/unfurl:${TRAVIS_TAG:-$TRAVIS_COMMIT}" onecommons/unfurl:latest
-        - docker push onecommons/unfurl:latest
