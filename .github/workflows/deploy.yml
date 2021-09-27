@@ -15,7 +15,7 @@ jobs:
     steps:
       - name: Get the tag name
         id: get_tag_name
-        run: export TAG=${{github.ref}} && echo "::set-output name=tag::${TAG#refs/tags/}"
+        run: echo "::set-output name=tag::"`git describe --contains --always`
       - name: Login to DockerHub
         uses: docker/login-action@v1 
         with:
@@ -33,4 +33,5 @@ jobs:
           file: ./docker/Dockerfile
           push: true
           tags: |
-             onecommons/unfurl:${{ steps.get_tag_name.outputs.tag }}-${{github.sha}}
+             onecommons/unfurl:latest
+             onecommons/unfurl:${{ steps.get_tag_name.outputs.tag }}
