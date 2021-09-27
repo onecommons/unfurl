@@ -11,9 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       PYPI_USER: "__token__"
-      PYPI_PASS: "pypi-AgEIcHlwaS5vcmcCJDJiNGM2N2IxLTVkMTYtNDI4Yi05YjU3LWI1ZGY2MDUxYzAzZAACN3sicGVybWlzc2lvbnMiOiB7InByb2plY3RzIjogWyJ1bmZ1cmwiXX0sICJ2ZXJzaW9uIjogMX0AAAYg5xpGBy3vWbQmv6DCV8YLtHTgdCXgo_z7L2Sx51TUqkc"
       DOCKERHUB_USER: "ocbuilds"
-      DOCKERHUB_PASS: "b88c8381-dda9-4872-9d73-713db99d6657"
     steps:
       - name: Get the tag name
         id: get_tag_name
@@ -22,7 +20,7 @@ jobs:
         uses: docker/login-action@v1 
         with:
           username: ${{ env.DOCKERHUB_USER }}
-          password: ${{ env.DOCKERHUB_PASS }}
+          password: ${{ secrets.DOCKER_HUB }}
       - name: fetch repo
         uses: actions/checkout@v2
         with:
