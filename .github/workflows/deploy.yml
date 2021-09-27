@@ -13,9 +13,6 @@ jobs:
       PYPI_USER: "__token__"
       DOCKERHUB_USER: "ocbuilds"
     steps:
-      - name: Get the tag name
-        id: get_tag_name
-        run: echo "::set-output name=tag::"`git describe --contains --always`
       - name: Login to DockerHub
         uses: docker/login-action@v1 
         with:
@@ -26,6 +23,9 @@ jobs:
         with:
           submodules: recursive
           fetch-depth: 0
+      - name: Get the tag name
+        id: get_tag_name
+        run: echo "::set-output name=tag::"`git describe --contains --always`
       - name: Build and push
         id: docker_build
         uses: docker/build-push-action@v2
