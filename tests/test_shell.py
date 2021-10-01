@@ -9,7 +9,7 @@ from unfurl.configurators.shell import ShellConfigurator, subprocess
 from unfurl.job import JobOptions, Runner
 from unfurl.yamlmanifest import YamlManifest
 
-from .utils import isolated_lifecycle
+from .utils import isolated_lifecycle, DEFAULT_STEPS
 
 
 class TestShellConfigurator:
@@ -138,7 +138,8 @@ class TestDryRun:
 class TestShellLifecycle:
     def test_lifecycle(self):
         path = Path(__file__).parent / "examples" / "shell-ensemble.yaml"
-        jobs = isolated_lifecycle(str(path))
+        # undeploy isn't implemented, skip those
+        jobs = isolated_lifecycle(str(path), DEFAULT_STEPS[:4])
         for job in jobs:
             assert job.status == Status.ok, job.workflow
 
@@ -152,7 +153,7 @@ configurations:
       className: unfurl.configurators.shell.ShellConfigurator
       timeout: 1
     inputs:
-      command: sleep 15 
+      command: sleep 15
 spec:
   service_template:
     topology_template:

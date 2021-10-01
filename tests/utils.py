@@ -1,5 +1,7 @@
 import shutil
 import traceback
+import os
+import os.path
 from dataclasses import dataclass
 from typing import Optional, Iterable
 
@@ -29,9 +31,9 @@ DEFAULT_STEPS = (
     Step("deploy", Status.ok, changed=-1),  # check that some changes were made
     Step("check", Status.ok, changed=0),  # check that no changes were made
     # XXX add total=0 to check that no tasks ran (after reconfigure is smarter)
-    Step("deploy", Status.ok),
-    Step("undeploy", Status.absent),
-    Step("check", Status.absent),
+    Step("deploy", Status.ok, changed=0),
+    Step("undeploy", Status.absent, changed=-1),
+    Step("check", Status.absent, changed=0),
 )
 
 
@@ -83,13 +85,14 @@ def _home(env):
         return env
 
 
-def init_project(cli_runner, path, env=None):
+def init_project(cli_runner, path, env=None, args=None):
+    args = args or [
+        "init",
+        "--mono",
+    ]
     result = cli_runner.invoke(
         cli,
-        [
-            "init",
-            "--mono",
-        ],
+        args,
         env=_home(env),
     )
     # uncomment this to see output:
@@ -97,15 +100,26 @@ def init_project(cli_runner, path, env=None):
     assert not result.exception, "\n".join(traceback.format_exception(*result.exc_info))
     assert result.exit_code == 0, result
 
-    return shutil.copy(path, "ensemble/ensemble.yaml")
+    if os.path.isfile(path):
+        return shutil.copy(path, "ensemble/ensemble.yaml")
+    return path
 
 
 def isolated_lifecycle(
-    path: str, steps: Optional[Iterable[Step]] = DEFAULT_STEPS, env=None
+    path: str,
+    steps: Optional[Iterable[Step]] = DEFAULT_STEPS,
+    env=None,
+    init_args=None,
+    tmp_dir=None,
 ) -> Iterable[Job]:
     cli_runner = CliRunner()
-    with cli_runner.isolated_filesystem():
-        init_project(cli_runner, path, env)
+    with cli_runner.isolated_filesystem(
+        tmp_dir or os.getenv("UNFURL_TEST_TMPDIR")
+    ) as tmp_path:
+        print(f"using {tmp_path}")
+        path = init_project(cli_runner, path, env, init_args)
+        if path and os.path.isdir(path):
+            os.chdir(path)
         for i, step in enumerate(steps, start=1):
             print(f"starting step #{i} - {step.workflow}")
             args = [

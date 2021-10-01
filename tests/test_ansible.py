@@ -10,7 +10,7 @@ from unfurl.job import JobOptions, Runner
 from unfurl.runtime import Status
 from unfurl.yamlmanifest import YamlManifest
 
-from .utils import isolated_lifecycle
+from .utils import isolated_lifecycle, DEFAULT_STEPS
 
 if not sys.warnoptions:
     # Ansible generates tons of ResourceWarnings
@@ -82,6 +82,7 @@ class AnsibleConfiguratorTest:
 class TestAnsibleLifecycle:
     def test_lifecycle(self):
         path = Path(__file__).parent / "examples" / "ansible-simple-ensemble.yaml"
-        jobs = isolated_lifecycle(str(path))
+        # undeploy isn't implemented, skip those steps
+        jobs = isolated_lifecycle(str(path), DEFAULT_STEPS[:4])
         for job in jobs:
             assert job.status == Status.ok, job.workflow
