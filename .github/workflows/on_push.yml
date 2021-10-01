@@ -1,10 +1,7 @@
-name: Unfurl unit tests
-
+name: test and push docker image
 on: [push]
-
 jobs:
   test:
-
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -57,3 +54,34 @@ jobs:
           export PY_V=py`python3 --version | awk '{print $2}' | tr -d '.' | cut -c 1-2`
           tox -c tosca-parser/tox.ini -e $PY_V
           tox -e $PY_V -- -n auto --dist loadfile
+  deploy_dockerhub:
+    needs: test
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    env:
+      PYPI_USER: "__token__"
+      DOCKERHUB_USER: "ocbuilds"
+    steps:
+      - name: Login to DockerHub
+        uses: docker/login-action@v1
+        with:
+          username: ${{ env.DOCKERHUB_USER }}
+          password: ${{ secrets.DOCKER_HUB }}
+      - name: fetch repo
+        uses: actions/checkout@v2
+        with:
+          submodules: recursive
+          fetch-depth: 0
+      - name: Get the tag name
+        id: get_tag_name
+        run: echo "::set-output name=tag::"`git describe --contains --always`
+      - name: Build and push
+        id: docker_build
+        uses: docker/build-push-action@v2
+        with:
+          context: ./
+          file: ./docker/Dockerfile
+          push: true
+          tags: |
+             onecommons/unfurl:latest
+             onecommons/unfurl:${{ steps.get_tag_name.outputs.tag }}
