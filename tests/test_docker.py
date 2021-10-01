@@ -4,10 +4,12 @@ import pickle
 from unfurl.yamlmanifest import YamlManifest
 from unfurl.job import Runner, JobOptions
 import toscaparser.repositories
+from pathlib import Path
+from .utils import isolated_lifecycle, DEFAULT_STEPS
 
 manifest = """
 apiVersion: unfurl/v1alpha1
-kind: Manifest
+kind: Ensemble
 spec:
   service_template:
     imports:
@@ -147,3 +149,12 @@ class DockerTest(unittest.TestCase):
         registry = tasks[0].result.outputs.get("registry")
         assert registry and isinstance(registry, toscaparser.repositories.Repository)
         assert not run1.unexpectedAbort, run1.unexpectedAbort.get_stack_trace()
+
+    def test_lifecycle(self):
+        src_path = str(Path(__file__).parent / "examples" / "docker-ensemble.yaml")
+        list(
+            isolated_lifecycle(
+                src_path,
+                steps=DEFAULT_STEPS[1:],
+            )
+        )

@@ -252,11 +252,7 @@ class ShellConfigurator(TemplateConfigurator):
             echo=echo,
         )
         success = self._process_result(task, result, cwd)
-        done = task.inputs.get_copy("done", {})
-        if done:
-            task.logger.trace("evaluated done template with %s", done)
-        success = done.pop("success", success)
-        yield task.done(success, result=result.__dict__, **done)
+        yield self.done(task, success=success, result=result.__dict__)
 
     def resolve_dry_run(self, cmd, task):
         is_string = isinstance(cmd, six.string_types)

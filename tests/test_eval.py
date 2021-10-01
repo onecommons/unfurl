@@ -1,6 +1,7 @@
 import unittest
 import os
 import json
+import pickle
 
 from unfurl.result import ResultsList, serialize_value, ChangeRecord
 from unfurl.eval import Ref, map_value, RefContext, set_eval_func, ExternalValue
@@ -399,6 +400,8 @@ a_dict:
         resource = self._getTestResource()
         resource.attributeManager = AttributeManager(yaml)
         resource._templar._loader.set_vault_secrets(vault.secrets)
+        pickled = pickle.dumps(resource, -1)
+        assert pickle.loads(pickled)
 
         filePath = map_value(expr, resource)
         with open(filePath, "rb") as vf:

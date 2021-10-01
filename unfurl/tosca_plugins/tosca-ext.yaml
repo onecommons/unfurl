@@ -56,7 +56,7 @@ node_types:
 
   unfurl.nodes.ArtifactInstaller:
     derived_from: tosca.nodes.Root
-    description: Node templates of this type are "discovered" when artifacts that need to be installed on an operation_host
+    description: Node templates of this type are "discovered" when artifacts need to be installed on an operation_host
     artifacts:
       install:
         type: tosca.artifacts.Root

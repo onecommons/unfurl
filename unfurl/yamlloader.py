@@ -165,6 +165,11 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         self.loader = manifest.loader
         self.expand = expand
 
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        state["loader"] = None
+        return state
+
     def get_url(self, importLoader, repository_name, file_name, isFile=None):
         # returns url or path, isFile, fragment
         importLoader.stream = None

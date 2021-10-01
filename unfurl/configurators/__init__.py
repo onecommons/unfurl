@@ -67,6 +67,13 @@ class TemplateConfigurator(Configurator):
             runResult = task.inputs.get("run")
         return runResult
 
+    def done(self, task, **kw):
+        done = task.inputs.get_copy("done", {})
+        if done:
+            task.logger.trace("evaluated done template with %s", done)
+            kw.update(done)  # "done" overrides kw
+        return task.done(**kw)
+
     def run(self, task):
         runResult = task.rendered
         done = task.inputs.get_copy("done", {})

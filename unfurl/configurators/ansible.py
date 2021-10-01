@@ -323,10 +323,12 @@ class AnsibleConfigurator(TemplateConfigurator):
             else:
                 modified = False
 
-            result = task.done(
-                status == Status.ok and not task._errors,
-                modified,
-                targetStatus,
+            success = status == Status.ok and not task._errors
+            result = self.done(
+                task,
+                success=success,
+                status=targetStatus,
+                modified=modified,
                 result=results,
                 outputs=outputs,
             )
