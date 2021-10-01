@@ -179,8 +179,10 @@ class HelmTest(unittest.TestCase):
                 os.path.dirname(__file__), "examples", "helm-simple-ensemble.yaml"
             )
             path = init_project(cli_runner, src_path)
-            # os.environ['UNFURL_HOME'] = '' # disable home
-            runner = Runner(YamlManifest(localEnv=LocalEnv(path)))
+            # init_project creates home at "./unfurl_home"
+            runner = Runner(
+                YamlManifest(localEnv=LocalEnv(path, homePath="./unfurl_home"))
+            )
             run = runner.run(JobOptions(workflow="check", startTime=2))
             summary = run.json_summary()
             assert not run.unexpectedAbort, run.unexpectedAbort.get_stack_trace()
@@ -193,44 +195,61 @@ class HelmTest(unittest.TestCase):
                 return  # task order not guaranteed in python 2.7
             self.assertEqual(
                 {
+                    "external_jobs": [
+                        {
+                            "job": {
+                                "id": "A01120000000",
+                                "status": "ok",
+                                "total": 2,
+                                "ok": 2,
+                                "error": 0,
+                                "unknown": 0,
+                                "skipped": 0,
+                                "changed": 2,
+                            },
+                            "outputs": {},
+                            "tasks": [
+                                {
+                                    "changed": True,
+                                    "configurator": "unfurl.configurators.DelegateConfigurator",
+                                    "operation": "configure",
+                                    "priority": "required",
+                                    "reason": "add",
+                                    "status": "ok",
+                                    "target": "__artifact__helm-artifacts--helm",
+                                    "targetState": "configured",
+                                    "targetStatus": "ok",
+                                    "template": "__artifact__helm-artifacts--helm",
+                                    "type": "unfurl.nodes.ArtifactInstaller",
+                                },
+                                {
+                                    "changed": True,
+                                    "configurator": "unfurl.configurators.shell.ShellConfigurator",
+                                    "operation": "configure",
+                                    "priority": "required",
+                                    "reason": "subtask: for add: Standard.configure",
+                                    "status": "ok",
+                                    "target": "install",
+                                    "targetState": None,
+                                    "targetStatus": "unknown",
+                                    "template": "install",
+                                    "type": "artifact.AsdfTool",
+                                },
+                            ],
+                        }
+                    ],
                     "job": {
                         "id": "A01120000000",
                         "status": "ok",
-                        "total": 6,
-                        "ok": 6,
+                        "total": 4,
+                        "ok": 4,
                         "error": 0,
                         "unknown": 0,
                         "skipped": 0,
-                        "changed": 6,
+                        "changed": 4,
                     },
                     "outputs": {},
                     "tasks": [
-                        {
-                            "changed": True,
-                            "configurator": "unfurl.configurators.DelegateConfigurator",
-                            "operation": "configure",
-                            "priority": "required",
-                            "reason": "add",
-                            "status": "ok",
-                            "target": "__artifact__helm-artifacts--helm",
-                            "targetState": "configured",
-                            "targetStatus": "ok",
-                            "template": "__artifact__helm-artifacts--helm",
-                            "type": "unfurl.nodes.ArtifactInstaller",
-                        },
-                        {
-                            "changed": True,
-                            "configurator": "unfurl.configurators.shell.ShellConfigurator",
-                            "operation": "configure",
-                            "priority": "required",
-                            "reason": "subtask: for add: Standard.configure",
-                            "status": "ok",
-                            "target": "install",
-                            "targetState": None,
-                            "targetStatus": "unknown",
-                            "template": "install",
-                            "type": "artifact.AsdfTool",
-                        },
                         {
                             "status": "ok",
                             "target": "stable_repo",
