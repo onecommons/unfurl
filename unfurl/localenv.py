@@ -284,6 +284,7 @@ class Project:
             return fullPath, self.get_default_context()
 
     def _set_contexts(self):
+        # merge project contexts with parent contexts
         contexts = self.localConfig.config.expanded.get("contexts", {})
         if self.parentProject:
             parentContexts = self.parentProject.contexts
@@ -293,6 +294,7 @@ class Project:
         self.contexts = contexts
 
     def get_context(self, contextName, context=None):
+        # merge the named context with defaults and the given context
         localContext = self.contexts.get("defaults") or {}
         if contextName and contextName != "defaults" and self.contexts.get(contextName):
             localContext = merge_dicts(
@@ -546,12 +548,12 @@ class LocalEnv:
 
     def _resolve_path_and_project(self, manifestPath):
         if manifestPath:
-            # raises manifestPath is directory without either a manifest or project
+            # raises if manifestPath is a directory without either a manifest or project
             foundManifestPath, project = self._find_given_manifest_or_project(
                 os.path.abspath(manifestPath)
             )
         else:
-            # not specified: search current directory and parents for either a manifest or a project
+            # manifestPath not specified so search current directory and parents for either a manifest or a project
             # raises if not found
             foundManifestPath, project = self._search_for_manifest_or_project(".")
 
@@ -560,9 +562,10 @@ class LocalEnv:
             if not project:
                 project = self.find_project(os.path.dirname(foundManifestPath))
         elif project:
-            # the path was pointing to a project, not a manifest
+            # the manifestPath was pointing to a project, not a manifest
             manifestPath = ""
         else:
+            assert manifestPath
             # if manifestPath doesn't point to a project or ensemble,
             # look for a project in the current directory and then see if the project has a manifest with that name
             project = self.find_project(".")

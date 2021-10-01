@@ -456,13 +456,16 @@ def _get_ensemble_paths(sourcePath, sourceProject):
         return {}
     """
     template = None
-    if not os.path.exists(sourcePath or "."):
-        return {}
+    relPath = sourcePath or "."
+    if not os.path.exists(relPath):
+        raise UnfurlError(
+            f'Given clone source "{os.path.abspath(relPath)}" does not exist.'
+        )
     isServiceTemplate = sourcePath.endswith(DefaultNames.ServiceTemplate)
     if not isServiceTemplate:
         # we only support cloning TOSCA service templates if their names end in "service-template.yaml"
         try:
-            localEnv = LocalEnv(sourcePath, project=sourceProject)
+            localEnv = LocalEnv(relPath, project=sourceProject)
             sourceDir = sourceProject.get_relative_path(
                 os.path.dirname(localEnv.manifestPath)
             )
@@ -546,18 +549,18 @@ def create_new_ensemble(
     # destDir is now absolute
     targetPath = os.path.normpath(os.path.join(destDir, manifestName))
 
+    if not templateVars:
+        raise UnfurlError("can't find anything to clone")
     if "localEnv" not in templateVars:
         # we found a template file to clone
         localEnv, manifest = _create_ensemble_from_template(
             templateVars, destProject, destDir, manifestName
         )
-    elif templateVars:
+    else:
         # didn't find a template file
         # look for an ensemble at the given path or use the source project's default
         localEnv = templateVars["localEnv"]
         manifest = yamlmanifest.clone(localEnv, targetPath)
-    else:
-        raise UnfurlError("can't find anything to clone")
 
     _create_ensemble_repo(manifest, shared_repo or mono and project.projectRepo)
     if destProject.projectRoot != project.projectRoot:
@@ -672,7 +675,9 @@ def clone(source, dest, ensemble_name=DefaultNames.EnsembleDirectory, **options)
 
         clonedProject, source = clone_remote_project(source, dest, homePath)
         # source is now a path inside the cloned project
-        paths = _get_ensemble_paths(source, clonedProject)
+        templateVars = _get_ensemble_paths(source, clonedProject)
+        if not templateVars:
+            raise UnfurlError(f'Can\'t find anything to clone in "{source}"')
         context, shared_repo = _get_context_and_shared_repo(clonedProject, options)
     else:
         sourceProject = find_project(source, homePath)
@@ -694,14 +699,20 @@ def clone(source, dest, ensemble_name=DefaultNames.EnsembleDirectory, **options)
 
         context, shared_repo = _get_context_and_shared_repo(sourceProject, options)
         relDestDir = sourceProject.get_relative_path(dest)
-        paths = _get_ensemble_paths(source, sourceProject)
+        templateVars = _get_ensemble_paths(source, sourceProject)
         if not relDestDir.startswith(".."):
             # dest is in the source project (or its a new project)
             # so don't need to clone, just need to create an ensemble
             if not relDestDir or relDestDir == ".":
                 relDestDir = ensemble_name
             destDir, manifest = create_new_ensemble(
-                paths, sourceProject, relDestDir, mono, context, shared_repo, homePath
+                templateVars,
+                sourceProject,
+                relDestDir,
+                mono,
+                context,
+                shared_repo,
+                homePath,
             )
             return 'Created ensemble in %s project: "%s"' % (
                 "new" if sourceNotInProject else "existing",
@@ -719,7 +730,7 @@ def clone(source, dest, ensemble_name=DefaultNames.EnsembleDirectory, **options)
 
     # pass in "" as dest because we already "consumed" dest by cloning the project to that location
     manifest, message = _create_in_cloned_project(
-        paths, clonedProject, "", mono, context, shared_repo, homePath
+        templateVars, clonedProject, "", mono, context, shared_repo, homePath
     )
     if not isRemote and manifest:
         # we need to clone referenced local repos so the new project has access to them
@@ -728,7 +739,7 @@ def clone(source, dest, ensemble_name=DefaultNames.EnsembleDirectory, **options)
 
 
 def _create_in_cloned_project(
-    paths, clonedProject, dest, mono, context, shared_repo, homePath
+    templateVars, clonedProject, dest, mono, context, shared_repo, homePath
 ):
     """
     Called by :py:func:`unfurl.init.clone` when cloning an ensemble.
@@ -744,12 +755,12 @@ def _create_in_cloned_project(
     from unfurl import yamlmanifest
 
     ensembleInProjectRepo = not shared_repo and is_ensemble_in_project_repo(
-        clonedProject, paths
+        clonedProject, templateVars
     )
     if ensembleInProjectRepo:
         # the ensemble is already part of the source project repository or a submodule
         # we're done
-        manifest = yamlmanifest.ReadOnlyManifest(localEnv=paths["localEnv"])
+        manifest = yamlmanifest.ReadOnlyManifest(localEnv=templateVars["localEnv"])
         return manifest, "Cloned project to " + clonedProject.projectRoot
     else:
         # create local/unfurl.yaml in the new project
@@ -763,7 +774,7 @@ def _create_in_cloned_project(
         # dest: should be a path relative to the clonedProject's root
         assert not os.path.isabs(dest)
         destDir, manifest = create_new_ensemble(
-            paths, clonedProject, dest, mono, context, shared_repo, homePath
+            templateVars, clonedProject, dest, mono, context, shared_repo, homePath
         )
         return (
             manifest,
