@@ -139,7 +139,7 @@ spec:
             # Host container properties
             host:
              properties:
-               num_cpus: { eval: ::inputs::cpus }
+               num_cpus: { eval: ::root::inputs::cpus }
                disk_size: 10 GB
                mem_size: 512 MB
             # Guest Operating System properties

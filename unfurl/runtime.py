@@ -807,10 +807,11 @@ class TopologyInstance(NodeInstance):
     templateType = TopologySpec
 
     def __init__(self, template, status=None):
-        NodeInstance.__init__(self, "root", template=template, status=status)
-        # add these as special child resources so they can be accessed like "::inputs::foo"
-        self.inputs = NodeInstance("inputs", template.inputs, self)
-        self.outputs = NodeInstance("outputs", template.outputs, self)
+        attributes = dict(inputs=template.inputs, outputs=template.outputs)
+        NodeInstance.__init__(
+            self, "root", attributes, template=template, status=status
+        )
+
         self._relationships = None
         self._tmpDir = None
 
@@ -849,8 +850,7 @@ class TopologyInstance(NodeInstance):
 
     def get_operational_dependencies(self):
         for instance in self.instances:
-            if instance.name not in ["inputs", "outputs"]:
-                yield instance
+            yield instance
 
     @property
     def tmp_dir(self):

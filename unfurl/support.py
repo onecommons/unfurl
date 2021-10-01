@@ -367,7 +367,7 @@ set_eval_func("lookup", lookup_func)
 
 def get_input(arg, ctx):
     try:
-        return ctx.currentResource.root.find_resource("inputs").attributes[arg]
+        return ctx.currentResource.root.attributes["inputs"][arg]
     except KeyError:
         raise UnfurlError(f"undefined input '{arg}'")
 
@@ -842,8 +842,11 @@ class AttributeManager:
                 _attributes = ChainMap(copy.deepcopy(resource._attributes))
 
             vars = dict(NODES=TopologyMap(resource.root))
-            if hasattr(resource.root, "inputs"):
-                vars["TOPOLOGY"] = dict(inputs=resource.root.inputs._attributes)
+            if "inputs" in resource.root._attributes:
+                vars["TOPOLOGY"] = dict(
+                    inputs=resource.root._attributes["inputs"],
+                    outputs=resource.root._attributes["outputs"],
+                )
             ctx = RefContext(resource, vars)
             attributes = ResultsMap(_attributes, ctx)
             self.attributes[resource.key] = (resource, attributes)

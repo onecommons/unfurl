@@ -587,8 +587,8 @@ class YamlManifest(ReadOnlyManifest):
         status = CommentedMap()
 
         # record the input and output values
-        status["inputs"] = serialize_value(resource.inputs.attributes)
-        status["outputs"] = serialize_value(resource.outputs.attributes)
+        status["inputs"] = serialize_value(resource.attributes["inputs"])
+        status["outputs"] = serialize_value(resource.attributes["outputs"])
 
         save_status(resource, status)
         # getOperationalDependencies() skips inputs and outputs

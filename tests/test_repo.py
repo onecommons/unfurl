@@ -527,7 +527,7 @@ spec:
             testNode = _latestJobs[-1].rootResource.find_resource("testNode")
             assert testNode and testNode.attributes["externalEnsemble"]
             externalEnsemble = testNode.attributes["externalEnsemble"]
-            assert "aOutput" in externalEnsemble.outputs.attributes
+            assert "aOutput" in externalEnsemble.attributes["outputs"]
             # make sure we loaded it from the source (not a local checkout)
             assert externalEnsemble.base_dir.startswith(os.path.dirname(__file__))
 

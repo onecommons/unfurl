@@ -315,7 +315,10 @@ class TaskView:
                 task=self.get_settings(),
                 connections=list(self._get_connections()),
                 allConnections=self._get_all_connections(),
-                TOPOLOGY=dict(inputs=target.root.inputs._attributes),
+                TOPOLOGY=dict(
+                    inputs=target.root._attributes["inputs"],
+                    outputs=target.root._attributes["outputs"],
+                ),
                 NODES=TopologyMap(target.root),
                 SELF=self.target.attributes,
                 HOST=HOST,
@@ -872,9 +875,9 @@ class Dependency(Operational):
 
     @property
     def local_status(self):
-        if self.target:
+        if self.target and self.target is not self.target.root:
             return self.target.status
-        else:
+        else:  # the root has inputs which don't have operational status
             return Status.ok
 
     @property

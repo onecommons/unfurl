@@ -488,7 +488,7 @@ class Job(ConfigChange):
             yield task
 
     def get_outputs(self):
-        return self.rootResource.outputs.attributes
+        return self.rootResource.attributes["outputs"]
 
     def run_query(self, query, trace=0):
         from .eval import eval_for_func, RefContext
