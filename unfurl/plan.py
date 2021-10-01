@@ -287,32 +287,31 @@ class Plan:
     def generate_delete_configurations(self, include):
         for resource in get_operational_dependents(self.root):
             # reverse to teardown leaf nodes first
-            logger.debug("checking instance for removal: %s", resource.name)
-            if resource.shadow or resource.template.abstract:  # readonly resource
-                continue
-            # check if creation and deletion is managed externally
-            if not resource.created and not self.jobOptions.destroyunmanaged:
-                continue
-            # check if creation and deletion is managed by another instance
-            if isinstance(
+            skip = None
+            if resource.shadow or resource.template.abstract:
+                skip = "read-only instance"
+            elif not resource.created and not self.jobOptions.destroyunmanaged:
+                skip = "instance wasn't created by this ensemble"
+            elif isinstance(
                 resource.created, six.string_types
             ) and not ChangeRecord.is_change_id(resource.created):
-                continue
-            # don't delete if it has a "protected" directive
-            if "protected" in resource.template.directives:
+                skip = "creation and deletion is managed by another instance"
+            elif "protected" in resource.template.directives:
+                skip = 'instance with "protected" directive'
+            elif "virtual" in resource.template.directives:
+                skip = 'instance with "virtual" directive'
+            elif resource.status in [Status.absent, Status.pending]:
+                skip = "instance doesn't exists"
+
+            if skip:
+                logger.verbose("skip instance %s for removal: %s", resource.name, skip)
                 continue
 
-            # don't delete if it has a "virtual" directive
-            if "virtual" in resource.template.directives:
-                continue
-
-            # if resource exists (or unknown)
-            if resource.status not in [Status.absent, Status.pending]:
-                reason = include(resource)
-                if reason:
-                    logger.debug("%s instance %s", reason, resource.name)
-                    workflow = "undeploy" if reason == Reason.prune else self.workflow
-                    yield from self._generate_configurations(resource, reason, workflow)
+            reason = include(resource)
+            if reason:
+                logger.debug("%s instance %s", reason, resource.name)
+                workflow = "undeploy" if reason == Reason.prune else self.workflow
+                yield from self._generate_configurations(resource, reason, workflow)
 
     def _get_default_generator(self, workflow, resource, reason=None, inputs=None):
         if workflow == "deploy":
