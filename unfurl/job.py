@@ -242,6 +242,12 @@ class ConfigTask(ConfigChange, TaskView):
                     "discover",
                 ]:
                     self.target.created = self.changeId
+            self.logger.trace(
+                "status was explicitly set for %s with local_status %s",
+                self.target.name,
+                self.target.local_status,
+            )
+
             return True
         elif not result.success:
             # if any task failed and (maybe) modified, target.status will be set to error or unknown
@@ -276,10 +282,8 @@ class ConfigTask(ConfigChange, TaskView):
             return True
         return False
 
-    def finished_workflow(self, successStatus):
+    def _finished_workflow(self, successStatus, workflow):
         instance = self.target
-        if instance.local_status == successStatus:
-            return  # hasn't changed
         self.modified_target = True
         instance.local_status = successStatus
         self.target_status = successStatus
@@ -287,7 +291,11 @@ class ConfigTask(ConfigChange, TaskView):
             # save to create a linked list of tasks that modified the target
             self.previousId = instance.last_change
         instance._lastConfigChange = self.changeId
-        if successStatus == Status.ok and instance.created is None:
+        if (
+            workflow == "deploy"
+            and successStatus == Status.ok
+            and instance.created is None
+        ):
             instance.created = self.changeId
 
     def finished(self, result):
@@ -622,14 +630,21 @@ class Job(ConfigChange):
 
     def apply_group(self, depth, groupRequest):
         workflow = groupRequest.workflow
+        starting_status = groupRequest.target.local_status
         task, success = self.apply(groupRequest.children, depth, groupRequest)
         if task:
             successStatus = self._get_success_status(workflow, success)
-            # logging.debug("successStatus %s for %s", task.target.state, workflow)
-            if successStatus is not None:
+            if successStatus is not None and starting_status != successStatus:
+                # target's status needs to change
+                task.logger.trace(
+                    "successStatus %s for %s with local_status %s",
+                    successStatus.name,
+                    task.target.name,
+                    task.target.local_status,
+                )
                 # one of the child tasks succeeded and the workflow is one that modifies the target
                 # update the target's status
-                task.finished_workflow(successStatus)
+                task._finished_workflow(successStatus, workflow)
         return task
 
     def apply(self, taskRequests, depth=0, parent=None):
