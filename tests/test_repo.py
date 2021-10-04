@@ -149,10 +149,16 @@ class GitRepoTest(unittest.TestCase):
                 ".gitignore",
                 ".gitattributes",
             }
-            expectedFiles = expectedCommittedFiles | {"local", "ensemble"}
+            expectedFiles = expectedCommittedFiles | {
+                "local",
+                "ensemble",
+                "secrets",
+                ".secrets",
+            }
             self.assertEqual(set(os.listdir("deploy_dir")), expectedFiles)
             files = set(_path for (_path, _stage) in repo.index.entries)
             expectedCommittedFiles.add("ensemble/ensemble.yaml")
+            expectedCommittedFiles.add(".secrets/secrets.yaml")
             expected = {"deploy_dir/" + f for f in expectedCommittedFiles}
             expected.add("README")  # the original file in the repo
             self.assertEqual(files, expected)
@@ -223,6 +229,7 @@ class GitRepoTest(unittest.TestCase):
 *** Running 'git ls-files' in './.'
 .gitattributes
 .gitignore
+.secrets/secrets.yaml
 ensemble-template.yaml
 unfurl.yaml
 

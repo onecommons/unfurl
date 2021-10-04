@@ -1,7 +1,7 @@
 #jinja2: variable_start_string: '[%', variable_end_string: '%]'
 apiVersion: unfurl/v1alpha1
 kind: Project
-+?include: local/unfurl.yaml
+[%include | default("") %]
 
 {%- if default_context | default("") %}
 default_context: [%default_context%]

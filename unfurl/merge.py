@@ -372,7 +372,9 @@ def expand_dict(doc, path, includes, current, cls=dict):
                 continue  # include path not found
             else:
                 if len(current) > 1:  # XXX include merge directive keys in count
-                    raise UnfurlError(f"can not merge non-map value {template}")
+                    raise UnfurlError(
+                        f"can not merge non-map value of type {type(template)}: {template}"
+                    )
                 else:
                     return template  # current dict is replaced with a value
         # elif key.startswith("q+"):

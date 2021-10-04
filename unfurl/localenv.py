@@ -21,6 +21,11 @@ from six.moves.urllib.parse import urlparse
 _basepath = os.path.abspath(os.path.dirname(__file__))
 
 
+import logging
+
+logger = logging.getLogger("unfurl")
+
+
 class Project:
     """
     A Unfurl project is a folder that contains at least a local configuration file (unfurl.yaml),
@@ -306,6 +311,27 @@ class Project:
         return merge_dicts(
             context or {}, localContext, replaceKeys=LocalConfig.replaceKeys
         )
+
+    def get_vault_password(self, contextName="defaults", vaultId="default"):
+        secret = os.getenv(f"UNFURL_VAULT_{vaultId.upper()}_PASSWORD")
+        if not secret:
+            context = self.get_context(contextName)
+            secret = (
+                context.get("secrets", {})
+                .get("attributes", {})
+                .get(f"vault_{vaultId}_password")
+            )
+        return secret
+
+    def make_vault_lib(self, contextName="defaults", vaultId="default"):
+        password = self.get_vault_password(contextName, vaultId)
+        logger.error("password %s %s", password, self.projectRoot)
+        if password is not None:
+            return make_vault_lib(
+                password,
+                vaultId,
+            )
+        return None
 
     def find_ensemble_by_path(self, path):
         path = os.path.abspath(path)
@@ -656,17 +682,6 @@ class LocalEnv:
                     self.logger.info('Using home project at: "%s"', self.homeConfigPath)
         return homeProject
 
-    def get_vault_password(self, vaultId="default"):
-        secret = os.getenv(f"UNFURL_VAULT_{vaultId.upper()}_PASSWORD")
-        if not secret:
-            context = self.get_context()
-            secret = (
-                context.get("secrets", {})
-                .get("attributes", {})
-                .get(f"vault_{vaultId}_password")
-            )
-        return secret
-
     def get_manifest(self, path=None):
         from .yamlmanifest import YamlManifest
 
@@ -677,12 +692,17 @@ class LocalEnv:
         else:
             manifest = self._manifests.get(self.manifestPath)
             if not manifest:
+                # should load vault ids from context
                 vaultId = "default"
-                vault = make_vault_lib(self.get_vault_password(vaultId), vaultId)
-                if vault:
-                    self.logger.info(
-                        "Vault password found, configuring vault id: %s", vaultId
-                    )
+                project = self.project or self.homeProject
+                if project:
+                    vault = project.make_vault_lib(self.manifest_context_name, vaultId)
+                    if vault:
+                        self.logger.info(
+                            "Vault password found, configuring vault id: %s", vaultId
+                        )
+                else:
+                    vault = None
                 manifest = YamlManifest(localEnv=self, vault=vault)
                 self._manifests[self.manifestPath] = manifest
             return manifest

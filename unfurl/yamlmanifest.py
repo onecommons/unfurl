@@ -14,7 +14,7 @@ import itertools
 from . import DefaultNames
 from .util import UnfurlError, to_yaml_text, filter_env
 from .merge import patch_dict, intersect_dict
-from .yamlloader import YamlConfig
+from .yamlloader import YamlConfig, make_yaml
 from .result import serialize_value, ChangeRecord
 from .support import ResourceChanges, Defaults, Imports, Status
 from .localenv import LocalEnv
@@ -27,6 +27,7 @@ from .tosca import ToscaSpec, TOSCA_VERSION
 
 from ruamel.yaml.comments import CommentedMap
 from codecs import open
+from ansible.parsing.dataloader import DataLoader
 
 import logging
 
@@ -330,6 +331,30 @@ class YamlManifest(ReadOnlyManifest):
         ):  # setBaseDir() may create a new templar
             rootResource._templar._loader.set_vault_secrets(self.manifest.vault.secrets)
         rootResource.envRules = self.context.get("environment") or CommentedMap()
+        if not self.localEnv:
+            return
+
+        # use the password associated with the project the repository appears in.
+        repos = {repo.working_dir: repo for repo in self.repositories.values()}
+        project = self.localEnv.project or self.localEnv.homeProject
+        while project:
+            loader = DataLoader()
+            vault = project.make_vault_lib()
+            if vault:
+                yaml = make_yaml(vault)
+                loader.set_vault_secrets(vault.secrets)
+                for repoview in project.workingDirs.values():
+                    repository = repos.pop(repoview.working_dir, None)
+                    if repository:
+                        repository.load_secrets(loader)
+                        repository.yaml = yaml
+
+            project = project.parentProject
+
+        # left over:
+        for repository in repos.values():
+            repository.load_secrets(rootResource._templar._loader)
+            repository.yaml = self.yaml
 
     def create_topology_instance(self, status):
         """

@@ -2,11 +2,12 @@
 # SPDX-License-Identifier: MIT
 import os
 import os.path
+from pathlib import Path
 import git
 from git.repo.fun import is_git_dir
 import logging
 from six.moves.urllib.parse import urlparse
-from .util import UnfurlError
+from .util import UnfurlError, save_to_file, to_text
 import toscaparser.repositories
 from ruamel.yaml.comments import CommentedMap
 
@@ -176,6 +177,29 @@ class Repo:
         return GitRepo(repo)
 
 
+def commit_secrets(working_dir, yaml):
+    if not yaml or not getattr(yaml.representer, "vault", None):
+        return
+    # compare .secrets with secrets
+    for root, dirs, files in os.walk(working_dir):
+        if "secrets" not in Path(root).parts:
+            continue
+        for filename in files:
+            dotsecrets = Path(root.replace("secrets", ".secrets"))
+            filepath = Path(root) / filename
+            if (
+                not dotsecrets.is_dir()
+                or filename not in list(dotsecrets.iterdir())
+                or filepath.stat().st_mtime > (dotsecrets / filename).stat().st_mtime
+            ):
+                with open(filepath, "r") as vf:
+                    vaultContents = vf.read()
+                encoding = (
+                    None if vaultContents.startswith("$ANSIBLE_VAULT;") else "vault"
+                )
+                save_to_file(str(dotsecrets / filename), vaultContents, yaml, encoding)
+
+
 class RepoView:
     # view of Repo optionally filtered by path
     # XXX and revision too
@@ -190,6 +214,7 @@ class RepoView:
         self.repo = repo
         self.path = path
         self.readOnly = not repo
+        self.yaml = None
 
     @property
     def working_dir(self):
@@ -225,8 +250,36 @@ class RepoView:
         assert not self.readOnly
         self.repo.repo.git.add("--all", self.path or ".")
 
+    def load_secrets(self, _loader):
+        for root, dirs, files in os.walk(self.working_dir):
+            if ".secrets" not in Path(root).parts:
+                continue
+            for filename in files:
+                secretsdir = Path(root.replace(".secrets", "secrets"))
+                filepath = Path(root) / filename
+                stinfo = filepath.stat()
+                if (
+                    not secretsdir.is_dir()
+                    or filename not in list(secretsdir.iterdir())
+                    or stinfo.st_mtime > (secretsdir / filename).stat().st_mtime
+                ):
+                    target = secretsdir / filename
+                    try:
+                        contents = _loader.load_from_file(str(filepath))
+                    except Exception as err:
+                        logger.warning("could not decrypt %s: %s", filepath, err)
+                        continue
+                    with open(str(target), "w") as f:
+                        f.write(contents)
+                    os.utime(target, (stinfo.st_atime, stinfo.st_mtime))
+
+    def commit_secrets(self):
+        commit_secrets(self.working_dir, self.yaml)
+
     def commit(self, message, addAll=False):
         assert not self.readOnly
+        if self.yaml:
+            self.commit_secrets()
         if addAll:
             self.add_all()
         return self.repo.repo.index.commit(message)

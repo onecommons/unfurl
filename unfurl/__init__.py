@@ -38,14 +38,13 @@ class DefaultNames:
     EnsembleTemplate = "ensemble-template.yaml"
     ServiceTemplate = "service-template.yaml"
     LocalConfig = "unfurl.yaml"
+    SecretsConfig = "secrets.yaml"
     HomeDirectory = ".unfurl_home"
     JobsLog = "jobs.tsv"
     ProjectDirectory = ".unfurl"
 
     def __init__(self, **names):
-        self.__dict__.update(
-            {name: value for name, value in names.items() if value}
-        )
+        self.__dict__.update({name: value for name, value in names.items() if value})
 
 
 def get_home_config_path(homepath):

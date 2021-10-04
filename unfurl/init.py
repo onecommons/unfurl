@@ -14,8 +14,9 @@ import uuid
 
 from . import DefaultNames, __version__, get_home_config_path
 from .localenv import LocalEnv, Project, LocalConfig
-from .repo import GitRepo, Repo, is_url_or_git_path, split_git_url
+from .repo import GitRepo, Repo, is_url_or_git_path, split_git_url, commit_secrets
 from .util import UnfurlError
+from .yamlloader import make_yaml, make_vault_lib
 
 _templatePath = os.path.join(os.path.abspath(os.path.dirname(__file__)), "templates")
 
@@ -98,7 +99,7 @@ def create_home(
         # XXX if repo and update: git stash; git checkout rendered
         ensembleDir = os.path.join(homedir, DefaultNames.EnsembleDirectory)
         ensembleRepo = Repo.find_containing_repo(ensembleDir)
-        configPath, ensembleDir = render_project(
+        configPath, ensembleDir, password = render_project(
             homedir, repo, ensembleRepo, None, "home"
         )
         # XXX if repo and update: git commit -m"updated"; git checkout master; git stash pop
@@ -207,7 +208,8 @@ def render_project(
         manifestName = names.Ensemble
         ensemblePath = os.path.join(ensembleDir, manifestName)
 
-    vars = dict(vaultpass=get_random_password())
+    vaultpass = get_random_password()
+    vars = dict(vaultpass=vaultpass)
     if ensembleRepo and ensembleRepo.is_local_only():
         _set_ensemble_vars(vars, externalProject, ensemblePath, use_context)
     write_project_config(
@@ -218,8 +220,20 @@ def render_project(
         templateDir,
     )
 
-    localInclude = "+?include: " + os.path.join("local", localConfigFilename)
-    vars = dict(include=localInclude)
+    write_project_config(
+        os.path.join(projectdir, "secrets"),
+        names.SecretsConfig,
+        "secrets.yaml.j2",
+        vars,
+        templateDir,
+    )
+
+    localInclude = "+?include-local: " + os.path.join("local", localConfigFilename)
+    secretsInclude = "+?include-secrets: " + os.path.join(
+        "secrets", names.SecretsConfig
+    )
+
+    vars = dict(include=localInclude + "\n" + secretsInclude)
     if use_context:
         # since this is specified while creating the project set this as the default context
         vars["default_context"] = use_context
@@ -262,7 +276,7 @@ def render_project(
         externalProject.register_ensemble(
             ensemblePath, managedBy=find_project(projectdir, homePath)
         )
-    return projectConfigPath, ensembleDir
+    return projectConfigPath, ensembleDir, vaultpass
 
 
 def _find_project_repo(projectdir):
@@ -377,7 +391,7 @@ def create_project(
             projectdir, shared, submodule, names.EnsembleDirectory
         )
 
-    projectConfigPath, ensembleDir = render_project(
+    projectConfigPath, ensembleDir, password = render_project(
         projectdir,
         repo,
         not empty and ensembleRepo,
@@ -392,6 +406,11 @@ def create_project(
         homeProject = newProject.parentProject
         assert homeProject
         homeProject.localConfig.register_project(newProject, create_context)
+
+    if password:
+        print("committing", password, "for", projectConfigPath)
+        yaml = make_yaml(make_vault_lib(password, "default"))
+        commit_secrets(os.path.dirname(projectConfigPath), yaml)
 
     _commit_repos(
         projectdir,
