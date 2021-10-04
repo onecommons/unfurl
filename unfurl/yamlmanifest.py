@@ -173,6 +173,18 @@ def save_task(task):
     return output
 
 
+def relabel_dict(connections):
+    if not connections:
+        return {}
+    # handle items like newname : oldname to rename merged connections
+    renames = {(v if isinstance(v, str) else n): n for n, v in connections.items()}
+    tpl = {}
+    for name, c in connections.items():
+        if isinstance(c, dict):
+            tpl[renames[name]] = c
+    return tpl
+
+
 class ReadOnlyManifest(Manifest):
     """Loads an ensemble from a manifest but doesn't instantiate the instance model."""
 
@@ -199,7 +211,9 @@ class ReadOnlyManifest(Manifest):
         if localEnv:
             self.context = localEnv.get_context(self.context)
         spec["inputs"] = self.context.get("inputs", spec.get("inputs", {}))
-        self.update_repositories(manifest, self.context.get("repositories"))
+        self.update_repositories(
+            manifest, relabel_dict(self.context.get("repositories"))
+        )
 
     @property
     def uris(self):
@@ -273,7 +287,9 @@ class YamlManifest(ReadOnlyManifest):
         manifest = self.manifest.expanded
         if self.manifest.path:
             self.lockfilepath = self.manifest.path + ".lock"
-        self._set_spec(manifest)
+
+        more_spec = self._load_context(self.context)
+        self._set_spec(manifest, more_spec)
         assert self.tosca
         spec = manifest.get("spec", {})
         status = manifest.get("status", {})
@@ -353,7 +369,6 @@ class YamlManifest(ReadOnlyManifest):
         # note: external "localhost" is defined in UNFURL_HOME's context by convention
         for name, value in importsSpec.items():
             self.load_external_ensemble(name, value)
-        self.load_connections(self.context.get("connections"))
 
         # need to set rootResource before createNodeInstance() is called
         self.rootResource = root
@@ -361,29 +376,22 @@ class YamlManifest(ReadOnlyManifest):
             self.create_node_instance(key, val, root)
         return root
 
-    def load_connections(self, connections):
-        if connections:
-            # handle items like newname : oldname to rename merged connections
-            renames = {
-                (v if isinstance(v, six.string_types) else n): n
-                for n, v in connections.items()
-            }
-            tpl = {}
-            for name, c in connections.items():
-                if isinstance(c, dict):
-                    if "default_for" not in c:
-                        c["default_for"] = "ANY"
-                    tpl[renames[name]] = c
-            tosca = ToscaSpec(
-                dict(
-                    tosca_definitions_version=TOSCA_VERSION,
+    def _load_context(self, context):
+        connections = context.get("connections")
+        imports = context.get("imports")
 
-                    topology_template=dict(
-                        node_templates={}, relationship_templates=tpl
-                    ),
-                )
-            )
-            self.tosca.import_connections(tosca)
+        connections = relabel_dict(connections)
+        for name, c in connections.items():
+            if "default_for" not in c:
+                c["default_for"] = "ANY"
+        tosca = dict(
+            topology_template=dict(
+                node_templates={}, relationship_templates=connections
+            ),
+        )
+        if imports:
+            tosca["imports"] = imports
+        return tosca
 
     def load_external_ensemble(self, name, value):
         """

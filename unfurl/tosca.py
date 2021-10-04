@@ -423,7 +423,9 @@ class ToscaSpec:
     def import_connections(self, importedSpec):
         # user-declared telationship templates, source and target will be None
         for template in importedSpec.template.relationship_templates:
-            assert template.default_for  # it's a default relationship template
+            if not template.default_for:
+                # assume its default relationship template
+                template.default_for = "ANY"
             relTemplate = RelationshipSpec(template, self)
             if template.name not in self.relationshipTemplates:  # not defined yet
                 self.relationshipTemplates[template.name] = relTemplate

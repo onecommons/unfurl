@@ -479,7 +479,9 @@ def diff_dicts(old, new, cls=dict):
 # XXX rename function, confusing name
 def patch_dict(old, new, preserve=False):
     """
-    Transform old into new while preserving old as much as possible.
+    Transform old into new based on object equality while preserving as much of old object as possible.
+
+    If ``preserve`` is True ``new`` will be merged in without removing ``old`` items.
     """
     # start with old to preserve original order
     for key, val in list(old.items()):
@@ -491,11 +493,15 @@ def patch_dict(old, new, preserve=False):
                 elif isinstance(val, MutableSequence) and isinstance(
                     newval, MutableSequence
                 ):
-                    # preserve old item in list if they are equal to the new item
-                    old[key] = [
-                        (val[val.index(item)] if item in val else item)
-                        for item in newval
-                    ]
+                    if preserve:
+                        # add new items that don't appear in old list
+                        old[key] = val + [item for item in newval if item not in val]
+                    else:
+                        # preserve old item in list if they are equal to the new item
+                        old[key] = [
+                            (val[val.index(item)] if item in val else item)
+                            for item in newval
+                        ]
                 else:
                     old[key] = newval
         elif not preserve:

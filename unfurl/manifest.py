@@ -17,6 +17,7 @@ from .runtime import (
 )
 from .util import UnfurlError, to_enum, sensitive_str, get_base_dir
 from .repo import RevisionManager, split_git_url, RepoView
+from .merge import patch_dict
 from .yamlloader import YamlConfig, yaml, ImportResolver
 from .job import ConfigChange
 import toscaparser.imports
@@ -50,7 +51,7 @@ class Manifest(AttributeManager):
         self.specDigest = None
         self.repositories = {}
 
-    def _set_spec(self, config):
+    def _set_spec(self, config, more_spec=None):
         """
         Set the TOSCA service template.
         """
@@ -58,7 +59,7 @@ class Manifest(AttributeManager):
             name: repo.repository.tpl for name, repo in self.repositories.items()
         }
         spec = config.get("spec", {})
-        self.tosca = self._load_spec(spec, self.path, repositories)
+        self.tosca = self._load_spec(spec, self.path, repositories, more_spec)
         self.specDigest = self.get_spec_digest(spec)
 
     def _find_repo(self):
@@ -70,7 +71,7 @@ class Manifest(AttributeManager):
                 return repo
         return None
 
-    def _load_spec(self, spec, path, repositories):
+    def _load_spec(self, spec, path, repositories, more_spec):
         if "service_template" in spec:
             toscaDef = spec["service_template"] or {}
         elif "tosca" in spec:  # backward compat
@@ -85,6 +86,9 @@ class Manifest(AttributeManager):
 
         # make sure this is present
         toscaDef["tosca_definitions_version"] = TOSCA_VERSION
+
+        if more_spec:
+            patch_dict(toscaDef, more_spec, True)
 
         if not isinstance(toscaDef, CommentedMap):
             toscaDef = CommentedMap(toscaDef.items())
@@ -382,7 +386,9 @@ class Manifest(AttributeManager):
                 raise UnfurlError(
                     f'Repository "{toscaRepository.name}" already defined'
                 )
-        self.repositories[toscaRepository.name] = RepoView(toscaRepository, repo, file_name)
+        self.repositories[toscaRepository.name] = RepoView(
+            toscaRepository, repo, file_name
+        )
         return repository
 
     def update_repositories(self, config, inlineRepositories=None):
