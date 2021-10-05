@@ -454,7 +454,8 @@ class AbstractTemplateTest(unittest.TestCase):
                   url: file:.
               secrets:
                 attributes:
-                  vault_default_password: a_password
+                  vault_secrets:
+                    default: a_password
               external:
                foreign:
                   manifest:

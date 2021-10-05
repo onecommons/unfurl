@@ -5,6 +5,7 @@ import sys
 import codecs
 import json
 import functools
+from typing import Union
 import six
 from six.moves import urllib
 
@@ -153,6 +154,15 @@ def make_vault_lib(passwordBytes, vaultId="default"):
         vault_secrets = [(vaultId, VaultSecret(passwordBytes))]
         return VaultLib(secrets=vault_secrets)
     return None
+
+
+def make_vault_lib_ex(secrets: [str, Union[str, bytes]]):
+    vault_secrets = []
+    for vaultId, passwordBytes in secrets:
+        if isinstance(passwordBytes, six.string_types):
+            passwordBytes = to_bytes(passwordBytes)
+        vault_secrets.append((vaultId, VaultSecret(passwordBytes)))
+    return VaultLib(secrets=vault_secrets)
 
 
 _refResolver = RefResolver("", None)

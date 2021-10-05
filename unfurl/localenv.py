@@ -14,7 +14,7 @@ import six
 from .repo import Repo, normalize_git_url, split_git_url, RepoView
 from .util import UnfurlError
 from .merge import merge_dicts
-from .yamlloader import YamlConfig, make_vault_lib
+from .yamlloader import YamlConfig, make_vault_lib_ex
 from . import DefaultNames, get_home_config_path
 from six.moves.urllib.parse import urlparse
 
@@ -314,22 +314,27 @@ class Project:
 
     def get_vault_password(self, contextName="defaults", vaultId="default"):
         secret = os.getenv(f"UNFURL_VAULT_{vaultId.upper()}_PASSWORD")
-        if not secret:
-            context = self.get_context(contextName)
-            secret = (
-                context.get("secrets", {})
-                .get("attributes", {})
-                .get(f"vault_{vaultId}_password")
-            )
-        return secret
+        if secret:
+            return secret
+        context = self.get_context(contextName)
+        secrets = context.get("secrets", {}).get("attributes", {}).get(f"vault_secrets")
+        if secrets:
+            return secrets.get(vaultId)
 
-    def make_vault_lib(self, contextName="defaults", vaultId="default"):
-        password = self.get_vault_password(contextName, vaultId)
-        if password is not None:
-            return make_vault_lib(
-                password,
-                vaultId,
-            )
+    def get_vault_passwords(self, contextName="defaults"):
+        # we want to support multiple vault ids
+        context = self.get_context(contextName)
+        secrets = context.get("secrets", {}).get("attributes", {}).get(f"vault_secrets")
+        if not secrets:
+            return
+        for vaultId, password in secrets.items():
+            password = os.getenv(f"UNFURL_VAULT_{vaultId.upper()}_PASSWORD", password)
+            yield vaultId, password
+
+    def make_vault_lib(self, contextName="defaults"):
+        secrets = list(self.get_vault_passwords(contextName))
+        if secrets:
+            return make_vault_lib_ex(secrets)
         return None
 
     def find_ensemble_by_path(self, path):
@@ -688,6 +693,13 @@ class LocalEnv:
                     self.logger.info('Using home project at: "%s"', self.homeConfigPath)
         return homeProject
 
+    def get_vault_password(self, vaultId="default"):
+        # used by __main__.vaultclient
+        project = self.project or self.homeProject
+        if project:
+            return project.get_vault_password(self.manifest_context_name, vaultId)
+        return None
+
     def get_manifest(self, path=None):
         from .yamlmanifest import YamlManifest
 
@@ -699,13 +711,13 @@ class LocalEnv:
             manifest = self._manifests.get(self.manifestPath)
             if not manifest:
                 # should load vault ids from context
-                vaultId = "default"
                 project = self.project or self.homeProject
                 if project:
-                    vault = project.make_vault_lib(self.manifest_context_name, vaultId)
+                    vault = project.make_vault_lib(self.manifest_context_name)
                     if vault:
                         self.logger.info(
-                            "Vault password found, configuring vault id: %s", vaultId
+                            "Vault password found, configuring vault ids: %s",
+                            [s[0] for s in vault.secrets],
                         )
                 else:
                     vault = None

@@ -8,4 +8,5 @@ environments:
       AWS_SECRET_ACCESS_KEY: not_so_secret
     secrets:
       attributes:
-        vault_default_password: testing
+        vault_secrets:
+          default: testing

@@ -918,7 +918,7 @@ def vaultclient():
     except Exception as err:
         click.echo(str(err), err=True)
         return 1
-
+    # XXX check for --vault-id and pass to get_vault_password
     print(localEnv.get_vault_password() or "")
     return 0
 

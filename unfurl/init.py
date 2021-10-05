@@ -11,6 +11,7 @@ import shutil
 import string
 import sys
 import uuid
+import logging
 
 from . import DefaultNames, __version__, get_home_config_path
 from .localenv import LocalEnv, Project, LocalConfig
@@ -209,15 +210,21 @@ def render_project(
         ensemblePath = os.path.join(ensembleDir, manifestName)
 
     vaultpass = get_random_password()
-    vars = dict(vaultpass=vaultpass)
+    # XXX vaultid should match the project name so we can see which password was used to encrypt a file
+    vars = dict(vaultpass=vaultpass, vaultid="default")
     if ensembleRepo and ensembleRepo.is_local_only():
         _set_ensemble_vars(vars, externalProject, ensemblePath, use_context)
-    write_project_config(
+    localProjectConfig = write_project_config(
         os.path.join(projectdir, "local"),
         localConfigFilename,
         "unfurl.local.yaml.j2",
         vars,
         templateDir,
+    )
+    logger = logging.getLogger("unfurl")
+    logger.warning(
+        "A password was generated and included in the local config file at %s -- please keep this password safe, without it you will not be able to decrypt any encrypt files committed to the repository.",
+        localProjectConfig,
     )
 
     write_project_config(
