@@ -28,25 +28,25 @@
                 "type": "string",
                 "description": "Alternative name to specify this ensemble on the command line instead of its file path"
               },
-              "context": { "type": "string",
-                    "description": "The name of the context to use for this ensemble."
+              "environment": { "type": "string",
+                    "description": "The name of the environment to use for this ensemble."
               }
             },
             "required": ["file"]
           }
     },
-    "contexts": {
+    "environments": {
       "type": "object",
       "allOf": [
         { "$ref": "./manifest-schema.json#/definitions/namedObjects" },
         {
           "additionalProperties": {
-            "$ref": "./manifest-schema.json#/definitions/context"
+            "$ref": "./manifest-schema.json#/definitions/environment"
           }
         }
       ]
     },
-    "default_context":  { "type": "string" },
+    "default_environment":  { "type": "string" },
     "projects": {
       "type": "object",
       "allOf": [

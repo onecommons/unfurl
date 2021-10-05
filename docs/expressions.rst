@@ -249,7 +249,7 @@ get_dir
   :src: Directory of the source file this expression appears in
   :artifacts: Directory for the current instance (committed to repository).
   :local: The "local" directory for the current instance (excluded from repository)
-  :secret: The "secrets" directory for the current instance (files written there are vault encrypted)
+  :secrets: The "secrets" directory for the current instance (files written there are vault encrypted when committed to the repository)
   :tmp:   A temporary directory for the instance (removed after unfurl exits)
   :tasks: Job specific directory for the current instance (excluded from repository).
   :operation: Operation specific directory for the current instance (excluded from repository).

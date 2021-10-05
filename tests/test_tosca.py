@@ -37,7 +37,7 @@ class SetAttributeConfigurator(Configurator):
 _manifestDoc = """
 apiVersion: unfurl/v1alpha1
 kind: Manifest
-context:
+environment:
   inputs: %s
 spec:
   service_template:
@@ -447,7 +447,7 @@ class AbstractTemplateTest(unittest.TestCase):
         localConfig = """
           apiVersion: unfurl/v1alpha1
           kind: Project
-          contexts:
+          environments:
             defaults:
               repositories:
                 in_context:

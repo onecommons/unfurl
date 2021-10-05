@@ -3,12 +3,12 @@ Unfurl Projects
 ===============
 
 Ensembles are meant to be self-contained and independent of their environment with any
-environment-dependent values and settings placed in the Ensemble's context.
+environment-dependent values and settings placed in the Ensemble's environment.
 
-Unfurl projects define these contexts and assign them to the project's ensembles.
+Unfurl projects define these environments and assign them to the project's ensembles.
 
-Contexts
-========
+Environments
+============
 
 Contexts can contain:
 
@@ -63,7 +63,7 @@ If specified, the package will be installed in "developer mode" (``-e``) by Pip.
   ``source .venv/bin/activate; pip3 install -e --upgrade unfurl``
 
 
-Environment
+Variables
 -----------
 
 Specifies the runtimes environment variables to set or copy from the current environment (see `Environment`)
@@ -77,6 +77,16 @@ Secrets
 -------
 
 Secrets are like locals except they are marked :std:ref:`sensitive` and redacted or encrypted when necessary. They are accessed through the `secret` expression function. See :std:ref:`Secrets` for more info.
+
+Repositories
+------------
+
+You can specify repositories using TOSCA's ``repositories`` syntax in the environment so ensemble can reference a repository by name to specify its location.
+
+Imports
+-------
+
+You can include TOSCA's ``import`` statements in the environment and those TOSCA templates will be imported into the ensemble's service template.
 
 Connections
 -----------
@@ -92,17 +102,19 @@ This specifies instances and connections that will be imported from external ens
 Inheritance and precedence
 --------------------------
 
-A Unfurl project can set context defaults. It can also declare named contexts and associate ensembles with a named context.
+A Unfurl project can set environment defaults. It can also declare named environments and associate ensembles with a named environment.
 
-An Ensemble can also declare what properties and values it is expecting in its context along with defaults.
+An ensemble can also declare what properties and values it is expecting in its environment along with defaults values.
 
-The following search order is applied when looking context up settings and objects:
+The following search order is applied when search for settings and objects in the ensemble's environment:
 
-1. named context in current project
-2. named context in home project
-3. defaults in current project
-4. defaults in home projects
-5. context section in the ensemble manifest
+1. named environment in current project
+2. named environment in the environment's default project
+3. named environment in the home project
+4. defaults in current project
+5. defaults in the environment's default project
+6. defaults in home projects
+7. environment section in the ensemble's manifest
 
 External ensembles
 ==================
@@ -111,7 +123,7 @@ The `external` section of the manifest lets you declare instances that are impor
 
 There are 3 instances that are always implicitly imported even if they are not declared:
 
-- The `localhost` instance that represents the machine Unfurl is currently executing on. This instance is accessed through the `ORCHESTRATOR` keyword in TOSCA and is defined in the home manifest that resides in your Unfurl home folder.
+- The ``localhost`` instance that represents the machine Unfurl is currently executing on. This instance is accessed through the ``ORCHESTRATOR`` keyword in TOSCA and is defined in the home manifest that resides in your Unfurl home folder.
 
 :manifest: A map specifying the location of the manifest. It must contain a ``file`` key with the path to the ensemble and optionally either a ``repository`` key indicating the name of the repository where the file is located or a ``project`` key to indicate the project the ensemble is in.
 :instance: (default: "*") The name of the instance within the ensemble to make available.
@@ -132,6 +144,7 @@ ensemble/ensemble.yaml
 ensemble-template.yaml
 unfurl.yaml
 local/unfurl.yaml
+secrets/secrets.yaml
 
 If the --existing option is used, the project will be added to the nearest repository found in a parent folder.
 If the --mono option is used, the ensemble add the project repo instead of it's own.

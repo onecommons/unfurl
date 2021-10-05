@@ -4,10 +4,10 @@ kind: Project
 [%include | default("") %]
 
 {%- if default_context | default("") %}
-default_context: [%default_context%]
+default_environment: [%default_context%]
 {% endif %}
 
-contexts:
+environments:
   defaults:
     # this exposes this project's ensemble as "localhost" to all the projects
     # that inherit this context

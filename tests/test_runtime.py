@@ -493,7 +493,7 @@ class ImportTest(unittest.TestCase):
                 """
 apiVersion: %s
 kind: Manifest
-context:
+environment:
  external:
   test:
     manifest:

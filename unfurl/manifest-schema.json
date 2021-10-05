@@ -75,11 +75,11 @@
       "type": "object",
       "$$target": "#/definitions/schema"
     },
-    "context": {
-      "title": "context",
+    "environment": {
+      "title": "environment",
       "$$target": [
-        "#/definitions/context",
-        "./manifest-schema.json#/definitions/context"
+        "#/definitions/environment",
+        "./manifest-schema.json#/definitions/environment"
       ],
       "type": "object",
       "properties": {
@@ -91,6 +91,7 @@
         "secrets": { "$ref": "#/definitions/external" },
         "connections": { "$ref": "#/definitions/namedObjects" },
         "repositories": { "$ref": "#/definitions/namedObjects" },
+        "imports": { "type": "array" },
         "external": {
           "type": "object",
           "allOf": [
@@ -331,7 +332,7 @@
       },
       "required": ["uri"]
     },
-    "context": { "$ref": "#/definitions/context" },
+    "environment": { "$ref": "#/definitions/environment" },
     "spec": {
       "type": "object",
       "anyOf": [

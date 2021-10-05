@@ -38,7 +38,7 @@ unfurl.yaml
 Sections
 ---------
 
-.. jsonschema:: manifest-schema.json#/definitions/context
+.. jsonschema:: manifest-schema.json#/definitions/environment
 
 .. jsonschema:: manifest-schema.json#/definitions/instance
 

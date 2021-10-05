@@ -4,17 +4,17 @@ kind: Project
 # this file is including into unfurl.yaml but is listed in .gitignore
 # so you can add configuration that you don't want committed to the repository,
 # such as secrets, local settings, and local instances.
-contexts:
+environments:
   defaults:
-    # use "environment" to modify environment variables
+    # use "variables" to modify environment variables
     # keys are processed in order and a leader "+" and "-"
     # will copy or remove the variable from the environment
     # e.g.:
-    # environment:
+    # variables:
     #   -*:       # will remove all environment variables
     #   +HOME:    # will add HOME back
     #   FOO: bar  # set FOO
-    environment: {}
+    variables: {}
 
     {%- if vaultpass %}
     secrets:
@@ -31,6 +31,6 @@ ensembles:
     project: [%external%]
     {% endif -%}
     {%- if context | default("") %}
-    context: [%context%]
+    environment: [%context%]
     {% endif %}
 {% endif %}

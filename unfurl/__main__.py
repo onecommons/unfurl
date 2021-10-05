@@ -253,9 +253,9 @@ def _venv(runtime, env):
 def _remote_cmd(runtime_, cmd_line, local_env):
     context = local_env.get_context()
     kind, sep, rest = runtime_.partition(":")
-    if context.get("environment"):
+    if context.get("variables"):
         addOnly = kind == "docker"
-        env = filter_env(local_env.map_value(context["environment"]), addOnly=addOnly)
+        env = filter_env(local_env.map_value(context["variables"]), addOnly=addOnly)
     else:
         env = None
 
@@ -576,15 +576,15 @@ def plan(ctx, ensemble=None, **options):
     help="Absolute path to a directory of project templates.",
 )
 @click.option(
-    "--create-context",
+    "--create-environment",
     is_flag=True,
     default=False,
-    help="Create (if missing) a context with the same name and set this as the default repository for ensembles uses this context.",
+    help="Create (if missing) a environment with the same name and set this as the default repository for ensembles uses this context.",
 )
 @click.option(
-    "--use-context",
+    "--use-environment",
     default=None,
-    help="Associate the given context with this ensemble.",
+    help="Associate the given environment with this ensemble.",
 )
 @click.option(
     "--shared-repository",

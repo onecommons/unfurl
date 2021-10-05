@@ -329,7 +329,7 @@ def _get_shared(kw, homePath):
     shared = kw.get("shared_repository")
     if shared:
         return shared
-    context = kw.get("use_context")
+    context = kw.get("use_environment")
     if context and homePath:
         homeProject = find_project(homePath, None)
         assert homeProject
@@ -348,8 +348,8 @@ def create_project(
     creating_home=False,
     **kw,
 ):
-    create_context = kw.get("create_context")
-    use_context = kw.get("use_context")
+    create_context = kw.get("create_environment")
+    use_context = kw.get("use_environment")
     if existing:
         repo = _find_project_repo(projectdir)
     else:
@@ -408,7 +408,6 @@ def create_project(
         homeProject.localConfig.register_project(newProject, create_context)
 
     if password:
-        print("committing", password, "for", projectConfigPath)
         yaml = make_yaml(make_vault_lib(password, "default"))
         commit_secrets(os.path.dirname(projectConfigPath), yaml)
 
@@ -647,7 +646,7 @@ def _get_context_and_shared_repo(project, options):
     # XXX if not --new-repository
     shared_repo = None
     shared = options.get("shared_repository")
-    context = options.get("use_context")
+    context = options.get("use_environment")
     if not context:
         context = project.get_default_context()
     if not shared and context:

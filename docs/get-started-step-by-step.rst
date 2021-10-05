@@ -31,7 +31,7 @@ By default, the first time you create an Unfurl project it will automatically ge
 It will include configurations to the main cloud providers that will look for their standard environment variables
 such as ``AWS_ACCESS_KEY_ID`` and ``AWS_SECRET_ACCESS_KEY``.
 Individual unfurl projects can filter or set the variables in its environment
-through the `environment` subsection of the `context` in the project file.
+through the `variables` subsection of the `environment` in the project file.
 
 B) Explicitly create and edit your home project
 -----------------------------------------------
@@ -44,7 +44,7 @@ using the ``runtime`` command, for example: ``unfurl runtime --init ~/.unfurl_ho
 
 Now you can customize your home project, for example:
 
-1. Edit the default context and create new contexts in ``unfurl.yaml``
+1. Edit the default environment and create new environments in ``unfurl.yaml``
 
 2. Add secrets or configure secret manager
 
@@ -95,6 +95,8 @@ Once created, the project directory will look like:
 | ├── ensemble-template.yaml
 | ├── local
 | │   └── unfurl.yaml
+| ├── secrets
+| │   └── secrets.yaml
 | ├── ensemble
 | │   └── public
 | │   └── ensemble.yaml

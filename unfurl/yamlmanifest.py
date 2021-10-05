@@ -208,7 +208,7 @@ class ReadOnlyManifest(Manifest):
             logger.debug("loaded ensemble manifest at %s", self.manifest.path)
         manifest = self.manifest.expanded
         spec = manifest.get("spec", {})
-        self.context = manifest.get("context", CommentedMap())
+        self.context = manifest.get("environment", CommentedMap())
         if localEnv:
             self.context = localEnv.get_context(self.context)
         spec["inputs"] = self.context.get("inputs", spec.get("inputs", {}))
@@ -330,7 +330,7 @@ class YamlManifest(ReadOnlyManifest):
             self.manifest.vault and self.manifest.vault.secrets
         ):  # setBaseDir() may create a new templar
             rootResource._templar._loader.set_vault_secrets(self.manifest.vault.secrets)
-        rootResource.envRules = self.context.get("environment") or CommentedMap()
+        rootResource.envRules = self.context.get("variables") or CommentedMap()
         if not self.localEnv:
             return
 
@@ -378,8 +378,8 @@ class YamlManifest(ReadOnlyManifest):
         # let's do it before we import any other manifests.
         # But only if we're the main manifest.
         if not self.localEnv or self.is_path_to_self(self.localEnv.manifestPath):
-            if self.context.get("environment"):
-                env = filter_env(map_value(self.context["environment"], root))
+            if self.context.get("variables"):
+                env = filter_env(map_value(self.context["variables"], root))
                 intersect_dict(os.environ, env)  # remove keys not in env
                 os.environ.update(env)
             paths = self.localEnv and self.localEnv.get_paths()

@@ -261,7 +261,7 @@ class Project:
             location = self.localConfig.get_default_manifest_tpl()
 
         if location:
-            contextName = location.get("context", self.get_default_context())
+            contextName = location.get("environment", self.get_default_context())
             if "project" in location and location["project"] != self.name:
                 externalLocalEnv = localEnv._get_external_localenv(location)
                 if externalLocalEnv:
@@ -290,7 +290,7 @@ class Project:
 
     def _set_contexts(self):
         # merge project contexts with parent contexts
-        contexts = self.localConfig.config.expanded.get("contexts", {})
+        contexts = self.localConfig.config.expanded.get("environments", {})
         if self.parentProject:
             parentContexts = self.parentProject.contexts
             contexts = merge_dicts(
@@ -325,7 +325,6 @@ class Project:
 
     def make_vault_lib(self, contextName="defaults", vaultId="default"):
         password = self.get_vault_password(contextName, vaultId)
-        logger.error("password %s %s", password, self.projectRoot)
         if password is not None:
             return make_vault_lib(
                 password,
@@ -354,7 +353,7 @@ class Project:
         return name
 
     def get_default_context(self):
-        return self.localConfig.config.expanded.get("default_context")
+        return self.localConfig.config.expanded.get("default_environment")
 
     def get_default_project_path(self, context_name):
         # place new ensembles in the shared project for this context
@@ -386,8 +385,15 @@ class Project:
         if project:
             props["project"] = project.name
         if context:
-            props["context"] = context
-        self.localConfig.ensembles.append(props)
+            props["environment"] = context
+        location = self.find_ensemble_by_path(manifestPath)
+        logger.error(
+            "register_ensemble %s %s %s", relPath, location, self.localConfig.ensembles
+        )
+        if location:
+            location.update(props)
+        else:
+            self.localConfig.ensembles.append(props)
         if managedBy or project:
             assert not (managedBy and project)
             self.localConfig.register_project(managedBy or project, changed=True)
@@ -527,7 +533,7 @@ class LocalConfig:
 
         if for_context:
             # set the project to be the default project for the given context
-            context = projectConfig.setdefault("contexts", {}).setdefault(
+            context = projectConfig.setdefault("environments", {}).setdefault(
                 for_context, {}
             )
             if context.get("defaultProject") != name:
@@ -553,7 +559,7 @@ class LocalEnv:
         context_name = None
         location = project.find_ensemble_by_path(manifestPath)
         if location:
-            context_name = location.get("context")
+            context_name = location.get("environment")
             if "managedBy" in location:
                 # this ensemble is managed by another project
                 project_tpl = project.localConfig.projects[location["managedBy"]]

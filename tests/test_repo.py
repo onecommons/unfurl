@@ -81,8 +81,8 @@ awsTestManifest = """\
   +include:
     file: ensemble-template.yaml
     repository: spec
-  context:
-    environment:
+  environment:
+    variables:
       AWS_ACCESS_KEY_ID: mockAWS_ACCESS_KEY_ID
     connections:
       aws_test: aws
@@ -499,7 +499,7 @@ ensemble.yaml
             externalProjectManifest = """
 apiVersion: unfurl/v1alpha1
 kind: Ensemble
-context:
+environment:
  external:
   test:
     manifest:

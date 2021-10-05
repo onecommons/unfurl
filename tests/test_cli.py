@@ -16,7 +16,7 @@ from unfurl.yamlmanifest import YamlManifest
 manifest = """
 apiVersion: unfurl/v1alpha1
 kind: Ensemble
-context:
+environment:
   locals:
     schema:
       prop2:
@@ -59,7 +59,7 @@ spec:
 localConfig = """
 apiVersion: unfurl/v1alpha1
 kind: Project
-contexts:
+environments:
   defaults: #used if manifest isnt found in `manifests` list below
    secrets:
     attributes:
@@ -82,7 +82,7 @@ contexts:
 ensembles:
   - alias: anEnsemble
     file: git/default-manifest.yaml
-    context: test
+    environment: test
 """
 
 
@@ -467,31 +467,44 @@ spec:
             result = runCmd(runner, ["--home", "./unfurl_home", "deploy", "p1copy"])
             self.assertRegex(result.output, "Found nothing to do.")
 
-    def test_context_args(self):
+    def test_environment_args(self):
         runner = CliRunner()
         with runner.isolated_filesystem():
             runCmd(
                 runner,
-                ["--home", "./unfurl_home", "init", "--create-context", "production"],
+                [
+                    "--home",
+                    "./unfurl_home",
+                    "init",
+                    "--create-environment",
+                    "production",
+                ],
             )
             # print_config("production", "./unfurl_home")
 
             homeProject = Project("unfurl_home/unfurl.yaml")
             # print("home", homeProject.localConfig.config.expanded)
             assert (
-                homeProject.localConfig.config.expanded["contexts"]["production"][
+                homeProject.localConfig.config.expanded["environments"]["production"][
                     "defaultProject"
                 ]
                 == "production"
             )
             project = Project("production/unfurl.yaml", homeProject)
             assert (
-                project.localConfig.config.expanded["default_context"] == "production"
+                project.localConfig.config.expanded["default_environment"]
+                == "production"
             )
 
             runCmd(
                 runner,
-                ["--home", "./unfurl_home", "init", "--use-context=production", "p1"],
+                [
+                    "--home",
+                    "./unfurl_home",
+                    "init",
+                    "--use-environment=production",
+                    "p1",
+                ],
             )
             # print_config("p1", "./unfurl_home")
 
@@ -506,10 +519,10 @@ spec:
             ]
             # file is relative to the project
             assert ensemble_record["file"] == "p1/ensemble.yaml", ensemble_record
-            assert ensemble_record["context"] == "production", ensemble_record
+            assert ensemble_record["environment"] == "production", ensemble_record
             assert ensemble_record["project"] == "production", ensemble_record
             assert (
-                localEnv.project.localConfig.config.expanded["default_context"]
+                localEnv.project.localConfig.config.expanded["default_environment"]
                 == "production"
             )
 
@@ -527,7 +540,7 @@ spec:
                     "--home",
                     "./unfurl_home",
                     "init",
-                    "--use-context=production",
+                    "--use-environment=production",
                     "p1",
                     "new_ensemble_in_shared",
                 ],
@@ -546,7 +559,7 @@ spec:
             localEnv = LocalEnv("new_ensemble_in_shared", homePath="../unfurl_home")
             assert localEnv.manifest_context_name == "production"
             assert (
-                localEnv.project.localConfig.config.expanded["default_context"]
+                localEnv.project.localConfig.config.expanded["default_environment"]
                 == "production"
             )
 
@@ -555,7 +568,7 @@ spec:
                 1
             ]
             assert ensemble_record["file"] == "new_ensemble_in_shared/ensemble.yaml"
-            assert ensemble_record["context"] == "production"
+            assert ensemble_record["environment"] == "production"
             assert ensemble_record["project"] == "production"
 
             result = runCmd(
@@ -573,7 +586,7 @@ spec:
             ensemble_record = localEnv.project.localConfig.config.expanded["ensembles"][
                 0
             ]
-            assert ensemble_record["context"] == "production"
+            assert ensemble_record["environment"] == "production"
             assert ensemble_record["file"] == "p1/ensemble.yaml"
             assert ensemble_record["project"] == "production"
 

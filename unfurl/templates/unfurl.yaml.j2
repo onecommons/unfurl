@@ -4,12 +4,12 @@ kind: Project
 [%include | default("") %]
 
 {%- if default_context | default("") %}
-default_context: [%default_context%]
+default_environment: [%default_context%]
 {% endif %}
 
-# contexts:
+# environments:
 #  defaults:
-    # environment:
+    # variables:
     #   environment variables are consumed by the default connections
     #   set in ~/unfurl_home/unfurl.yaml, set or unset as needed
     #
@@ -38,6 +38,6 @@ ensembles:
     project: [%external%]
     {% endif -%}
     {%- if context | default("") %}
-    context: [%context%]
+    environment: [%context%]
     {% endif %}
 {% endif %}
