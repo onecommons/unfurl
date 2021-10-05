@@ -75,6 +75,30 @@ def create_default_topology():
 class ToscaSpec:
     InstallerType = "unfurl.nodes.Installer"
 
+    def evaluate_imports(self, toscaDef):
+        if not toscaDef.get('imports'):
+            return False
+        modified = []
+        for import_tpl in toscaDef['imports']:
+            if not isinstance(import_tpl, dict) or 'when' not in import_tpl:
+                modified.append(import_tpl)
+                continue
+
+            match = Ref(import_tpl['when']).resolve_one(
+                    RefContext(self.topology, trace=1)
+                )
+            if match:
+                logger.debug("include import of %s, match found for %s", import_tpl['file'], import_tpl['when'])
+                modified.append(import_tpl)
+            else:
+                logger.verbose("skipping import of %s, no match for %s", import_tpl['file'], import_tpl['when'])
+            # else don't include
+
+        if len(modified) < len(toscaDef['imports']):
+            toscaDef['imports'] = modified
+            return True
+        return False
+
     def _overlay(self, overlays):
         def _find_matches():
             ExceptionCollector.start()  # clears previous errors
@@ -199,7 +223,9 @@ class ToscaSpec:
                         f"TOSCA validation failed for {path}: \n{message}",
                         ExceptionCollector.getExceptions(),
                     )
-                # overlay modifies tosaDef in-place, try reparsing it
+
+            if decorators or self.evaluate_imports(toscaDef):
+                # overlay and evaluate_imports modifies tosaDef in-place, try reparsing it
                 self._parse_template(path, inputs, toscaDef, resolver)
 
             if ExceptionCollector.exceptionsCaught():
@@ -984,6 +1010,10 @@ class TopologySpec(EntitySpec):
 
     def is_compatible_type(self, typeStr):
         return False
+
+    @property
+    def primary_provider(self):
+        return self.spec.relationshipTemplates.get("primary_provider")
 
     @property
     def base_dir(self):

@@ -2,6 +2,7 @@ import shutil
 import traceback
 import os
 import os.path
+from pathlib import Path
 from dataclasses import dataclass
 from typing import Optional, Iterable
 
@@ -85,7 +86,7 @@ def _home(env):
         return env
 
 
-def init_project(cli_runner, path, env=None, args=None):
+def init_project(cli_runner, path=None, env=None, args=None):
     args = args or [
         "init",
         "--mono",
@@ -100,7 +101,7 @@ def init_project(cli_runner, path, env=None, args=None):
     assert not result.exception, "\n".join(traceback.format_exception(*result.exc_info))
     assert result.exit_code == 0, result
 
-    if os.path.isfile(path):
+    if path and os.path.isfile(path):
         return shutil.copy(path, "ensemble/ensemble.yaml")
     return path
 
@@ -136,3 +137,29 @@ def isolated_lifecycle(
             assert result.exit_code == 0, result
             assert _latestJobs
             yield _check_job(_latestJobs[-1], i, step)
+
+def print_config(dir, homedir=None):
+    if homedir:
+        print("!home")
+        with open(Path(homedir) / "unfurl.yaml") as f:
+            print(f.read())
+
+        print("!home/local")
+        with open(Path(homedir) / "local" / "unfurl.yaml") as f:
+            print(f.read())
+
+    print(f"!{dir}!")
+    with open(Path(dir) / "unfurl.yaml") as f:
+        print(f.read())
+    print(f"!{dir}/local!")
+    with open(Path(dir) / "local" / "unfurl.yaml") as f:
+        print(f.read())
+
+
+def runCmd(runner, args, print_result=False):
+    result = runner.invoke(cli, args)
+    if print_result:
+        print("result.output", result.exit_code, result.output)
+    assert not result.exception, "\n".join(traceback.format_exception(*result.exc_info))
+    assert result.exit_code == 0, result
+    return result

@@ -2,7 +2,6 @@ import os
 import traceback
 import unittest
 from collections.abc import MutableSequence
-from pathlib import Path
 import six
 import unfurl
 from click.testing import CliRunner
@@ -12,6 +11,7 @@ from unfurl.localenv import LocalEnv, Project
 from unfurl.util import sensitive_list, UnfurlError
 from unfurl.yamlloader import yaml
 from unfurl.yamlmanifest import YamlManifest
+from .utils import runCmd, print_config
 
 manifest = """
 apiVersion: unfurl/v1alpha1
@@ -592,30 +592,3 @@ spec:
 
             result = runCmd(runner, ["--home", "./unfurl_home", "deploy", "p1copy"])
             self.assertRegex(result.output, "Found nothing to do.")
-
-
-def print_config(dir, homedir=None):
-    if homedir:
-        print("!home")
-        with open(Path(homedir) / "unfurl.yaml") as f:
-            print(f.read())
-
-        print("!home/local")
-        with open(Path(homedir) / "local" / "unfurl.yaml") as f:
-            print(f.read())
-
-    print(f"!{dir}!")
-    with open(Path(dir) / "unfurl.yaml") as f:
-        print(f.read())
-    print(f"!{dir}/local!")
-    with open(Path(dir) / "local" / "unfurl.yaml") as f:
-        print(f.read())
-
-
-def runCmd(runner, args, print_result=False):
-    result = runner.invoke(cli, args)
-    if print_result:
-        print("result.output", result.exit_code, result.output)
-    assert not result.exception, "\n".join(traceback.format_exception(*result.exc_info))
-    assert result.exit_code == 0, result
-    return result
