@@ -4,7 +4,7 @@
 Internal classes supporting the runtime.
 """
 import collections
-from collections import MutableSequence
+from collections import MutableSequence, Mapping
 import copy
 import os
 import os.path
@@ -309,9 +309,20 @@ def apply_template(value, ctx, overrides=None):
     return value
 
 
-set_eval_func(
-    "template", lambda args, ctx: (apply_template(args, ctx, ctx.kw.get("overrides")))
-)
+def _template_func(args, ctx):
+    args = map_value(args, ctx, False)  # don't apply templates yet
+    if isinstance(args, Mapping) and "path" in args:
+        path = args["path"]
+        if is_template(path, ctx):  # path could be a template expression
+            path = apply_template(path, ctx)
+        with open(path) as f:
+            value = f.read()
+    else:
+        value = args
+    return apply_template(value, ctx, ctx.kw.get("overrides"))
+
+
+set_eval_func("template", _template_func)
 
 
 def run_lookup(name, templar, *args, **kw):

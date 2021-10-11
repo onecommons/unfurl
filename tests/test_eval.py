@@ -365,8 +365,20 @@ a_dict:
             vars={"valuesfile": {"eval": {"tempfile": value}}},
         )
         result = map_value(template, resource)
+        # result is a path to the tempfile
         with open(result) as tp:
             self.assertEqual(tp.read(), json.dumps(value, indent=2))
+
+    def test_template_path(self):
+        resource = self._getTestResource()
+        template_contents = "{{ foo }}"
+        # write template_contents to a temp file and have the template function read that file
+        template = dict(
+            eval={"template": dict(path={"eval": {"tempfile": template_contents}})},
+            vars={"foo": "resolved"},
+        )
+        result = map_value(template, resource)
+        self.assertEqual(result, "resolved")
 
     def test_changerecord(self):
         assert ChangeRecord.is_change_id("A01110000005")

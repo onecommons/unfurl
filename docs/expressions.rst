@@ -396,7 +396,21 @@ tempfile
 template
 ^^^^^^^^
 
-  Evaluate contents as an Ansible-flavored Jinja2 template
+Evaluate file or inline contents as an Ansible-flavored Jinja2 template.
+
+.. code-block:: YAML
+
+  eval:
+    template:
+      path: path/to/template.j2
+
+.. code-block:: YAML
+
+  eval:
+    template: >
+      {%if testVar %}success{%else%}failed{%endif%}
+  vars:
+    testVar: true
 
 validate
 ^^^^^^^^
