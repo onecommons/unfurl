@@ -1,0 +1,67 @@
+# Copyright (c) 2021 Adam Souzis
+# SPDX-License-Identifier: MIT
+tosca_definitions_version: tosca_simple_unfurl_1_0_0
+metadata:
+  template_name: localhost
+  template_description: Node types to represent the local system the orchestrator is running on
+  template_author: onecommons.org
+  template_version: 1.0.0
+
+node_types:
+  unfurl.nodes.Localhost:
+    derived_from: tosca.nodes.Compute
+    attributes:
+      architecture:
+        type: string
+      type:
+        type: string
+      os_distribution:
+        type: string
+      os_version:
+        type: string
+
+    capabilities:
+      os:
+        type: tosca.capabilities.OperatingSystem
+        properties:
+          architecture:
+              eval: .parent::architecture
+          type:
+              eval: .parent::os_type
+          distribution:
+              eval: .parent::os_distribution
+          version:
+              eval: .parent::os_version
+
+    interfaces:
+      Standard:
+        operations:
+          configure:
+      Install:
+        operations:
+          check:
+      defaults:
+        implementation: Ansible
+        outputs:
+          localhost:
+        inputs:
+          playbook:
+            q:
+              - hosts: localhost
+                connection: local
+                gather_facts: false
+                tasks:
+                  - name: gather subset
+                    ansible.builtin.setup:
+                      gather_subset:
+                        - 'min'
+                  - set_fact:
+                      localhost: "{{ hostvars['localhost'].ansible_facts }}"
+          resultTemplate:
+            attributes:
+                architecture: "{{ outputs.localhost.architecture }}"
+                os_type: "{{ outputs.localhost.os_family }}"
+                os_distribution: "{{ outputs.localhost.distribution }}"
+                os_version: "{{ outputs.localhost.distribution_version }}"
+                package_manager: "{{ outputs.localhost.pkg_mgr }}"
+            readyState: ok

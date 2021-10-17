@@ -1,5 +1,46 @@
 from pathlib import Path
 from .utils import isolated_lifecycle
+from unfurl.yamlmanifest import YamlManifest
+from unfurl.job import Runner
+
+ensemble = """
+apiVersion: unfurl/v1alpha1
+kind: Ensemble
+spec:
+  service_template:
+    imports:
+      - repository: unfurl
+        file: tosca_plugins/localhost.yaml
+
+    topology_template:
+      node_templates:
+        localhost:
+          type: unfurl.nodes.Localhost
+"""
+
+
+def test_localhost():
+    runner = Runner(YamlManifest(ensemble))
+    run1 = runner.run()
+    assert not run1.unexpectedAbort, run1.unexpectedAbort.get_stack_trace()
+    assert len(run1.workDone) == 1, run1.summary()
+    assert run1.json_summary()["job"]["ok"] == 1, run1.summary()
+    localhost = runner.manifest.get_root_resource().find_resource("localhost")
+    assert localhost
+    if localhost.attributes["os_type"] == "Darwin":
+        assert (
+            localhost.attributes["package_manager"] == "homebrew"
+        ), localhost.attributes
+    else:  # assume running on a linus
+        localhost.attributes["package_manager"] in [
+            "apt",
+            "yum",
+            "rpm",
+        ], localhost.attributes["package_manager"]
+    assert localhost.attributes["architecture"]
+    assert localhost.attributes["architecture"] == localhost.query(
+        ".capabilities::architecture"
+    )
 
 
 def test_lifecycle():
