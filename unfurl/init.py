@@ -12,6 +12,7 @@ import string
 import sys
 import uuid
 import logging
+from jinja2.loaders import FileSystemLoader
 
 from . import DefaultNames, __version__, get_home_config_path
 from .localenv import LocalEnv, Project, LocalConfig
@@ -56,6 +57,11 @@ def write_template(folder, filename, template, vars, templateDir=None):
         # built-in template
         templateDir = os.path.join(_templatePath, templateDir)
 
+    if templateDir:
+        searchPath = [templateDir, _templatePath]
+    else:
+        searchPath = [_templatePath]
+
     if not templateDir or not os.path.exists(os.path.join(templateDir, template)):
         # use default file if missing from templateDir
         templateDir = _templatePath
@@ -64,7 +70,9 @@ def write_template(folder, filename, template, vars, templateDir=None):
         source = f.read()
     instance = NodeInstance()
     instance._baseDir = _templatePath
-    content = apply_template(source, RefContext(instance, vars))
+
+    overrides = dict(loader=FileSystemLoader(searchPath))
+    content = apply_template(source, RefContext(instance, vars), overrides)
     return _write_file(folder, filename, content)
 
 
@@ -240,7 +248,8 @@ def render_project(
         "secrets", names.SecretsConfig
     )
 
-    vars = dict(include=localInclude + "\n" + secretsInclude)
+    # note: local overrides secrets
+    vars = dict(include=secretsInclude + "\n" + localInclude)
     if use_context:
         # since this is specified while creating the project set this as the default context
         vars["default_context"] = use_context

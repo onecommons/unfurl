@@ -233,6 +233,10 @@ class ToscaSyntaxTest(unittest.TestCase):
         manifest = YamlManifest(path=path)
         self.assertEqual(2, len(manifest.tosca.template.nested_tosca_tpls.keys()))
         assert "imported-repo" in manifest.tosca.template.repositories
+        assert "nested-imported-repo" in manifest.tosca.template.repositories, [
+            tosca_tpl.get("repositories")
+            for tosca_tpl in manifest.tosca.template.nested_tosca_tpls.values()
+        ]
 
         runner = Runner(manifest)
         output = six.StringIO()
@@ -287,6 +291,9 @@ class ToscaSyntaxTest(unittest.TestCase):
         self.assertEqual(os.path.normpath(spec), base)
 
         selfPath = _get_base_dir(ctx, "self")
+        self.assertEqual(os.path.normpath(selfPath), base)
+
+        selfPath = _get_base_dir(ctx, "nested-imported-repo")
         self.assertEqual(os.path.normpath(selfPath), base)
 
     @unittest.skipIf("k8s" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")

@@ -8,35 +8,65 @@ default_environment: [%default_context%]
 {% endif %}
 
 environments:
+  # This is the home project so the environment settings defined here are inherited
+  # whenever UNFURL_HOME is set to this project.
+  # So it is convenient to define global configuration here.
+
   defaults:
-    # this exposes this project's ensemble as "localhost" to all the projects
-    # that inherit this context
-    connections:
-    # Below we define a few for the most common cloud providers
-    # these connection types set their properties using
-    # environments variables commonly associated with each cloud provider.
-    # You can set or unset which environment variables are available
-    # in the "variables" section in your project
-    # or directly set the properties by adding them to your projects connections.
-    # You can also delete the connection by setting its key to null (e.g. aws: )
-    # or can add additional ones of the same type that can be explicitly referenced by name.
-      aws:
-        type: unfurl.relationships.ConnectsTo.AWSAccount
 
-      gcp:
-        type: unfurl.relationships.ConnectsTo.GCPProject
+    # Below we define a few connections for the most common cloud providers.
+    # Connections can use the appropriate environment variables but they are typed
+    # and allow Unfurl to reason about them compared to just setting the variables directly.
 
-      azure:
-        type: unfurl.relationships.ConnectsTo.Azure
+    #  The examples below only show some of the available properties for each connection type.
+    #  For more, see https://unfurl.run/docs/tosca.html
 
-      k8s:
-        type: unfurl.relationships.ConnectsTo.K8sCluster
+    # Sensitive values can be set as environment variables in secrets/secrets.yaml or in local/unfurl.yaml
+    # depending on whether you want them committed to repository as encrypted values or not.
+    # See secrets/secrets.yaml for examples
+
+    # connections:
+      # aws:
+      #   type: unfurl.relationships.ConnectsTo.AWSAccount
+      #   properties:
+      #      AWS_DEFAULT_REGION: us-east1
+      #      # set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in secrets or local config
+
+      # gcp:
+      #   type: unfurl.relationships.ConnectsTo.GCPProject
+      #   properties:
+      #     CLOUDSDK_CORE_PROJECT:
+      #     CLOUDSDK_COMPUTE_REGION: us-central1
+      #     CLOUDSDK_COMPUTE_ZONE: us-central1-a
+      #     # place application-credentials.json in the "secrets" so that it is automatically encrypted
+      #     GOOGLE_APPLICATION_CREDENTIALS: "{{ 'secrets/application-credentials.json' | abspath('src') }}"
+
+      #      # for more properties, see https://unfurl.run/docs/tosca.html
+      #
+      # azure:
+      #   type: unfurl.relationships.ConnectsTo.Azure
+      #   properties:
+      #     AZURE_CLIENT_ID:
+
+      # k8s:
+      #   type: unfurl.relationships.ConnectsTo.K8sCluster
+      #   properties:
+      #     context:
 
       # packet:
       #   type: unfurl.relationships.ConnectsTo.Packet
       #   properties:
       #     project: # required property, need to set this
 
+      # Project that inherit this configuration can delete or rename the connections defined here
+      # by setting its key to null or setting its key to the name of one of the connections defined here.
+      # For example:
+      # primary_provider: gcp # set the gcp connection as the primary_provider
+      # aws:                   # delete the aws connection
+
+
+    # this exposes this project's ensemble as "localhost" to all the projects
+    # that inherit this context
     external:
       localhost:
         manifest:

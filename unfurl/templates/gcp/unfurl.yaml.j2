@@ -8,16 +8,16 @@ default_environment: [%default_context%]
 
 environments:
   defaults:
-    # this exposes this project's ensemble as "localhost" to all the projects
-    # that inherit this context
     connections:
-    # Below we define a few for the most common cloud providers
-    # these connection types set their properties using
-    # environments variables commonly associated with each cloud provider.
-    # You can set or unset which environment variables are available
-    # in the "environment" section in your project
-    # or directly set the properties by adding them to your projects connections.
-    # You can also delete the connection by setting its key to null (e.g. aws: )
-    # or can add additional ones of the same type that can be explicitly referenced by name.
-      primary_provider:
-        type: unfurl.relationships.ConnectsTo.GCPProject
+
+      # declare the primary_provider as a connection to a Google Cloud project:
+
+      # primary_provider:
+      #   type: unfurl.relationships.ConnectsTo.GCPProject
+      #   properties:
+      #     GOOGLE_APPLICATION_CREDENTIALS: "{{ 'secrets/project-credentials.json' | abspath('src') }}"
+
+      # Alternatively, if you have already declared the connection in UNFURL_HOME you can rename the existing connection by
+      # setting "primary_provider" to the name of the inherited connection, for example:
+
+      # primary_provider: gcp

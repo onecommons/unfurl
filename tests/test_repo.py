@@ -85,7 +85,7 @@ awsTestManifest = """\
     variables:
       AWS_ACCESS_KEY_ID: mockAWS_ACCESS_KEY_ID
     connections:
-      aws_test: aws
+      aws_test: primary_provider
   changes: [] # set this so we save changes here instead of the job changelog files
   spec:
     service_template:
@@ -212,7 +212,7 @@ class GitRepoTest(unittest.TestCase):
         """
         runner = CliRunner()
         with runner.isolated_filesystem():
-            result = runner.invoke(cli, ["--home", "../unfurl_home", "init"])
+            result = runner.invoke(cli, ["--home", "", "init"])
             # uncomment this to see output:
             # print("result.output", result.exit_code, result.output)
             assert not result.exception, "\n".join(
@@ -220,7 +220,7 @@ class GitRepoTest(unittest.TestCase):
             )
             self.assertEqual(result.exit_code, 0, result)
 
-            result = runner.invoke(cli, ["--home", "../unfurl_home", "git", "ls-files"])
+            result = runner.invoke(cli, ["--home", "", "git", "ls-files"])
             assert not result.exception, "\n".join(
                 traceback.format_exception(*result.exc_info)
             )
@@ -245,9 +245,7 @@ ensemble.yaml
                 contents = f.read()
                 self.assertIn("ensemble", contents)
 
-            result = runner.invoke(
-                cli, ["--home", "../unfurl_home", "deploy", "--commit"]
-            )
+            result = runner.invoke(cli, ["--home", "", "deploy", "--commit"])
             # uncomment this to see output:
             # print("result.output", result.exit_code, result.output)
             assert not result.exception, "\n".join(
@@ -262,7 +260,16 @@ ensemble.yaml
         runner = CliRunner()
         with runner.isolated_filesystem():
             # override home so to avoid interferring with other tests
-            result = runner.invoke(cli, ["--home", "./unfurl_home", "init", "--mono"])
+            result = runner.invoke(
+                cli,
+                [
+                    "--home",
+                    "./unfurl_home",
+                    "init",
+                    "--mono",
+                    "--template=aws",
+                ],
+            )
             # uncomment this to see output:
             # print("result.output", result.exit_code, result.output)
             assert not result.exception, "\n".join(
@@ -448,13 +455,6 @@ ensemble.yaml
             )
             self.assertEqual(result.exit_code, 0, result)
 
-            assert os.path.exists("unfurl_home/.tool-versions")
-            assert LocalEnv("unfurl_home").get_manifest()
-            paths = os.environ["PATH"].split(os.pathsep)
-            assert len(paths) >= len(installDirs)
-            for dirs, path in zip(installDirs, paths):
-                self.assertIn(os.sep.join(dirs), path)
-
             # test that projects are registered in the home
             # use this project because the repository it is in has a non-local origin set:
             project = os.path.join(
@@ -469,6 +469,15 @@ ensemble.yaml
                 traceback.format_exception(*result.exc_info)
             )
             self.assertEqual(result.exit_code, 0, result)
+
+            # XXX replace above command with deploying an ensemble with an implementation artifact
+            #     that will trigger asdf to be installed so we can re-enable testing it:
+            # assert os.path.exists("unfurl_home/.tool-versions")
+            # assert LocalEnv("unfurl_home").get_manifest()
+            # paths = os.environ["PATH"].split(os.pathsep)
+            # assert len(paths) >= len(installDirs)
+            # for dirs, path in zip(installDirs, paths):
+            #     self.assertIn(os.sep.join(dirs), path)
 
             # assert added to projects
             basedir = os.path.dirname(os.path.dirname(__file__))

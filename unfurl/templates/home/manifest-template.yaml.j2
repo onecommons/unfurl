@@ -17,62 +17,35 @@ spec:
       readyState: ok
 
   service_template:
-    imports:
-      - repository: unfurl
-        file: configurators/supervisor-template.yaml
-
     repositories:
       asdf:
         url: https://github.com/asdf-vm/asdf.git#v0.8.0
 
+    imports:
+      - repository: unfurl
+        file: configurators/supervisor-template.yaml
+      - repository: unfurl
+        file: tosca_plugins/localhost.yaml
+      - repository: unfurl
+        file: tosca_plugins/artifacts.yaml
+
     topology_template:
       node_templates:
-        asdfBootstrap:
-          type: unfurl.nodes.Installer
-          interfaces:
-            Standard:
-              create:
-                # if asdf not installed, install it from asdf repo
-                implementation: |
-                  if ! [ -x "$(command -v asdf)" ]; then
-                    ASDF_REPO={{ "asdf" | get_dir }}
-                    export ASDF_DATA_DIR="${ASDF_DATA_DIR:-$ASDF_REPO}"
-                    source $ASDF_REPO/asdf.sh
-                  fi
-                  asdf plugin add terraform
-                  asdf install terraform 0.13.6
-                  asdf local terraform 0.13.6
-                  asdf plugin add gcloud
-                  asdf install gcloud 313.0.0
-                  asdf local gcloud 313.0.0
-                  asdf plugin add helm
-                  asdf install helm 3.3.4
-                  asdf local helm 3.3.4
-                inputs:
-                  # set this so .tool-versions is written to the project root
-                  cwd: '{{ "project" | get_dir }}'
-                  keeplines: true
-                  # asdf.sh requires bash
-                  shell: '{{ "bash" | which }}'
-
         localhost:
-          type: tosca.nodes.Compute
+          type: unfurl.nodes.Localhost
 
-        defaultK8sCluster:
-          # set the "default" directive so this template will only be used
-          # if no other matching template is defined elsewhere
-          directives:
-            - default
-          type: unfurl.nodes.K8sCluster
+        # uncomment if you want to default to using the current context in your kubeconfig
+        # defaultK8sCluster:
+        #   # set the "default" directive so this template will only be used
+        #   # if no other matching template is defined elsewhere
+        #   directives:
+        #     - default
+        #   type: unfurl.nodes.K8sCluster
 
-        # uncomment and deploy if you want to share a supervisord instance across projects
+        # uncomment and deploy if you want to share a local supervisord instance across projects
         # supervisord:
         #   type: unfurl.nodes.Supervisor
         #   directives:
         #     - default
         #   requirements:
         #   - host: localhost
-
-      # Connections to cloud providers and other services
-      # are modeled as TOSCA "connects-to" relationships
-      relationship_templates: {}
