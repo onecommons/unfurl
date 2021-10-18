@@ -43,7 +43,8 @@
       "$$target": [
         "#/definitions/namedObjects",
         "./manifest-schema.json#/definitions/namedObjects"
-      ]
+      ],
+      "default": {}
     },
     "secret": {
       "type": "object",
@@ -86,10 +87,15 @@
         "inputs": { "$ref": "#/definitions/attributes" },
         "runtime": { "type": "string" },
         "defaultProject": { "type": "string" },
-        "environment": { "type": "object" },
+        "variables": { "anyOf": [{ "type": "object" }, { "type": "null" }] },
         "locals": { "$ref": "#/definitions/external" },
         "secrets": { "$ref": "#/definitions/external" },
-        "connections": { "$ref": "#/definitions/namedObjects" },
+        "connections": {
+          "anyOf": [
+            { "$ref": "#/definitions/namedObjects" },
+            { "type": "null" }
+          ]
+        },
         "repositories": { "$ref": "#/definitions/namedObjects" },
         "imports": { "type": "array" },
         "external": {
@@ -187,7 +193,10 @@
             "state": { "$ref": "#/definitions/state" }
           }
         },
-        "priority": { "type": "string", "enum": ["ignore", "optional", "required"] },
+        "priority": {
+          "type": "string",
+          "enum": ["ignore", "optional", "required"]
+        },
         "lastStateChange": { "$ref": "#/definitions/changeId" },
         "lastConfigChange": { "$ref": "#/definitions/changeId" }
       },
@@ -258,8 +267,9 @@
             "summary": { "type": "string" },
             "specDigest": { "type": "string" },
             "endCommit": { "type": "string" },
-            "changelog": { "type": "string",
-                "description": "path to the full job record"
+            "changelog": {
+              "type": "string",
+              "description": "path to the full job record"
             }
           }
         }

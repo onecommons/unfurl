@@ -805,7 +805,7 @@ def get_commit_message(manifest):
     "--skip-add",
     default=False,
     is_flag=True,
-    help="Don't add files for committing (if set, must first manually add)",
+    help="Don't add files for committing (user must add using git)",
 )
 def commit(ctx, message, ensemble, skip_add, no_edit, **options):
     """Commit any outstanding changes to this ensemble."""

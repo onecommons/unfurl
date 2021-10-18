@@ -253,10 +253,7 @@ class Project:
             # at this point a named manifest
             location = self.find_ensemble_by_name(manifestPath)
             if not location:
-                raise UnfurlError(
-                    'Could not find ensemble "%s" in "%s"'
-                    % (manifestPath, self.localConfig.config.path)
-                )
+                raise UnfurlError(f'Could not find ensemble "{manifestPath}"')
         else:
             location = self.localConfig.get_default_manifest_tpl()
 
@@ -290,7 +287,7 @@ class Project:
 
     def _set_contexts(self):
         # merge project contexts with parent contexts
-        contexts = self.localConfig.config.expanded.get("environments", {})
+        contexts = self.localConfig.config.expanded.get("environments") or {}
         if self.parentProject:
             parentContexts = self.parentProject.contexts
             contexts = merge_dicts(
@@ -416,11 +413,10 @@ class LocalConfig:
     # don't merge the value of the keys of these dicts:
     replaceKeys = [
         "inputs",
-        "attributes",
-        "schemas",
+        "attributes",  # for secrets, locals, external
+        "schema",  # for secrets, locals, external
         "connections",
-        "manifest",
-        "environment",
+        "variables",
         "repositories",
     ]
 

@@ -76,26 +76,33 @@ class ToscaSpec:
     InstallerType = "unfurl.nodes.Installer"
 
     def evaluate_imports(self, toscaDef):
-        if not toscaDef.get('imports'):
+        if not toscaDef.get("imports"):
             return False
         modified = []
-        for import_tpl in toscaDef['imports']:
-            if not isinstance(import_tpl, dict) or 'when' not in import_tpl:
+        for import_tpl in toscaDef["imports"]:
+            if not isinstance(import_tpl, dict) or "when" not in import_tpl:
                 modified.append(import_tpl)
                 continue
 
-            match = Ref(import_tpl['when']).resolve_one(
-                    RefContext(self.topology, trace=1)
-                )
+            match = Ref(import_tpl["when"]).resolve_one(
+                RefContext(self.topology, trace=0)
+            )
             if match:
-                logger.debug("include import of %s, match found for %s", import_tpl['file'], import_tpl['when'])
+                logger.debug(
+                    "include import of %s, match found for %s",
+                    import_tpl["file"],
+                    import_tpl["when"],
+                )
                 modified.append(import_tpl)
             else:
-                logger.verbose("skipping import of %s, no match for %s", import_tpl['file'], import_tpl['when'])
-            # else don't include
+                logger.verbose(
+                    "skipping import of %s, no match for %s",
+                    import_tpl["file"],
+                    import_tpl["when"],
+                )
 
-        if len(modified) < len(toscaDef['imports']):
-            toscaDef['imports'] = modified
+        if len(modified) < len(toscaDef["imports"]):
+            toscaDef["imports"] = modified
             return True
         return False
 

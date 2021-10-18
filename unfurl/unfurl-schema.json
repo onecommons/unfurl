@@ -8,45 +8,54 @@
     "kind": { "const": "Project" },
     "ensembles": {
       "type": "array",
-      "items" : {
-            "type": "object",
-            "properties": {
-              "file": {
-                "type": "string",
-                "description": "Path to ensemble manifest, relative to the the project it is located in."
-              },
-              "project": {
-                "type": "string",
-                "description": "The project the ensemble is located in if different from the current project."
-              },
-              "managedBy": {
-                "type": "string",
-                "description": "The project that is managing the ensemble if different from the current project."
-              },
-              "default": { "type": "boolean", "description": "Use this ensemble if not is specified." },
-              "alias": {
-                "type": "string",
-                "description": "Alternative name to specify this ensemble on the command line instead of its file path"
-              },
-              "environment": { "type": "string",
-                    "description": "The name of the environment to use for this ensemble."
-              }
-            },
-            "required": ["file"]
+      "items": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "string",
+            "description": "Path to ensemble manifest, relative to the the project it is located in."
+          },
+          "project": {
+            "type": "string",
+            "description": "The project the ensemble is located in if different from the current project."
+          },
+          "managedBy": {
+            "type": "string",
+            "description": "The project that is managing the ensemble if different from the current project."
+          },
+          "default": {
+            "type": "boolean",
+            "description": "Use this ensemble if not is specified."
+          },
+          "alias": {
+            "type": "string",
+            "description": "Alternative name to specify this ensemble on the command line instead of its file path"
+          },
+          "environment": {
+            "type": "string",
+            "description": "The name of the environment to use for this ensemble."
           }
+        },
+        "required": ["file"]
+      }
     },
     "environments": {
-      "type": "object",
-      "allOf": [
-        { "$ref": "./manifest-schema.json#/definitions/namedObjects" },
+      "anyOf": [
+        { "type": "null" },
         {
-          "additionalProperties": {
-            "$ref": "./manifest-schema.json#/definitions/environment"
-          }
+          "type": "object",
+          "allOf": [
+            { "$ref": "./manifest-schema.json#/definitions/namedObjects" },
+            {
+              "additionalProperties": {
+                "$ref": "./manifest-schema.json#/definitions/environment"
+              }
+            }
+          ]
         }
       ]
     },
-    "default_environment":  { "type": "string" },
+    "default_environment": { "type": "string" },
     "projects": {
       "type": "object",
       "allOf": [
