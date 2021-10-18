@@ -47,3 +47,52 @@ artifact_types:
       Standard:
         create: pipenv install {{SELF.file}}
         delete: pipenv remove {{SELF.file}}
+
+  unfurl.artifacts.TerraformModule:
+    derived_from: unfurl.artifacts.HasConfigurator
+    interfaces:
+      className:
+        type: string
+        default: unfurl.configurators.terraform.TerraformConfigurator
+
+node_types:
+  unfurl.nodes.Installer.Terraform:
+    derived_from: unfurl.nodes.Installer
+    properties:
+      main:
+        type: string
+        default:
+          eval:
+            get_dir: spec.home
+    interfaces:
+      defaults:
+        implementation:
+          className: unfurl.configurators.terraform.TerraformConfigurator
+        inputs:
+           main: { get_property: [SELF, main] }
+      Standard:
+        operations:
+          delete:
+          create:
+      Install:
+        operations:
+          check:
+
+topology_template:
+  node_templates:
+    configurator-artifacts:
+      type: unfurl.nodes.LocalRepository
+      directives:
+        - default # we need this so that this node template is imported
+      artifacts:
+        terraform:
+          type: artifact.AsdfTool
+          file: terraform
+          properties:
+            version: 1.0.9
+
+        gcloud:
+          type: artifact.AsdfTool
+          file: gcloud
+          properties:
+            version: 360.0.0

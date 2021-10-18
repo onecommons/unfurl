@@ -35,13 +35,6 @@ artifact_types:
         type: string
         default: unfurl.configurators.ansible.AnsibleConfigurator
 
-  unfurl.artifacts.TerraformModule:
-    derived_from: unfurl.artifacts.HasConfigurator
-    interfaces:
-      className:
-        type: string
-        default: unfurl.configurators.terraform.TerraformConfigurator
-
 node_types:
   tosca.nodes.Root:
     interfaces:
@@ -99,28 +92,6 @@ node_types:
   unfurl.nodes.Default:
     derived_from: unfurl.nodes.Installation
     description: "Used if pre-existing instances are declared with no TOSCA template"
-
-  unfurl.nodes.Installer.Terraform:
-    derived_from: unfurl.nodes.Installer
-    properties:
-      main:
-        type: string
-        default:
-          eval:
-            get_dir: spec.home
-    interfaces:
-      defaults:
-        implementation:
-          className: unfurl.configurators.terraform.TerraformConfigurator
-        inputs:
-           main: { get_property: [SELF, main] }
-      Standard:
-        operations:
-          delete:
-          create:
-      Install:
-        operations:
-          check:
 
   unfurl.nodes.K8sCluster:
     derived_from: tosca.nodes.Root

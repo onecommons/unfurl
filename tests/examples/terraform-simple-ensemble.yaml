@@ -2,6 +2,10 @@ apiVersion: unfurl/v1alpha1
 kind: Ensemble
 spec:
   service_template:
+    imports:
+      - repository: unfurl
+        file: tosca_plugins/artifacts.yaml
+
     topology_template:
       node_templates:
         terraform-node:
