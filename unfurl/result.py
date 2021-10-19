@@ -1,6 +1,6 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
-from collections import Mapping, MutableSequence, MutableMapping
+from collections.abc import Mapping, MutableSequence, MutableMapping
 from datetime import datetime, timedelta
 import six
 import hashlib

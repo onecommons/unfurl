@@ -1,7 +1,7 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
 import six
-import collections
+from collections.abc import Mapping, MutableSequence
 import os
 import copy
 from .support import Status, ResourceChanges, Priority, TopologyMap
@@ -707,9 +707,9 @@ class TaskView:
                 err = UnfurlTaskError(self, f"unable to parse as YAML: {instances}")
                 return None, err
 
-        if isinstance(instances, collections.Mapping):
+        if isinstance(instances, Mapping):
             instances = [instances]
-        elif not isinstance(instances, collections.MutableSequence):
+        elif not isinstance(instances, MutableSequence):
             err = UnfurlTaskError(
                 self,
                 f"update_instances requires a list of updates, not a {type(instances)}",
@@ -755,7 +755,7 @@ class TaskView:
         newResourceSpecs = []
         for resourceSpec in instances:
             # we might have items that aren't resource specs
-            if not isinstance(resourceSpec, collections.Mapping):
+            if not isinstance(resourceSpec, Mapping):
                 continue
             # XXX deepcopy fails in test_terraform
             # originalResourceSpec = copy.deepcopy(resourceSpec)
@@ -898,10 +898,10 @@ class Dependency(Operational):
     def has_value_changed(value, changeset):
         if isinstance(value, Results):
             return Dependency.has_value_changed(value._attributes, changeset)
-        elif isinstance(value, collections.Mapping):
+        elif isinstance(value, Mapping):
             if any(Dependency.has_value_changed(v, changeset) for v in value.values()):
                 return True
-        elif isinstance(value, (collections.MutableSequence, tuple)):
+        elif isinstance(value, (MutableSequence, tuple)):
             if any(Dependency.has_value_changed(v, changeset) for v in value):
                 return True
         elif isinstance(value, ChangeAware):

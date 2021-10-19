@@ -11,14 +11,7 @@ import re
 import os
 import fnmatch
 import shutil
-import collections
-
-if os.name == "posix" and sys.version_info[0] < 3:
-    import subprocess32 as subprocess
-else:
-    import subprocess
-
-from collections import Mapping
+from collections.abc import Mapping, MutableSequence
 import os.path
 from jsonschema import Draft7Validator, validators, RefResolver
 import jsonschema.exceptions
@@ -132,9 +125,9 @@ def wrap_sensitive_value(obj, vault=None):
                 return sensitive_bytes(obj)
     elif isinstance(obj, six.string_types):
         return sensitive_str(obj)
-    elif isinstance(obj, collections.Mapping):
+    elif isinstance(obj, Mapping):
         return sensitive_dict(obj)
-    elif isinstance(obj, collections.MutableSequence):
+    elif isinstance(obj, MutableSequence):
         return sensitive_list(obj)
     else:
         return obj
@@ -146,9 +139,9 @@ def is_sensitive(obj):
         return test()
     if isinstance(obj, AnsibleVaultEncryptedUnicode):
         return True
-    elif isinstance(obj, collections.Mapping):
+    elif isinstance(obj, Mapping):
         return any(is_sensitive(i) for i in obj.values())
-    elif isinstance(obj, collections.MutableSequence):
+    elif isinstance(obj, MutableSequence):
         return any(is_sensitive(i) for i in obj)
     return False
 

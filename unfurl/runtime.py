@@ -8,7 +8,7 @@ Each instance have a status; attributes that describe its state; and a TOSCA tem
 which describes its capabilities, relationships and available interfaces for configuring and interacting with it.
 """
 import six
-import collections
+from collections.abc import Mapping
 
 from ansible.parsing.dataloader import DataLoader
 
@@ -296,7 +296,7 @@ class OperationalInstance(Operational):
     state = property(**state())
 
 
-class _ChildResources(collections.Mapping):
+class _ChildResources(Mapping):
     def __init__(self, resource):
         self.resource = resource
 

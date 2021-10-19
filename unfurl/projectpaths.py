@@ -28,7 +28,7 @@ import os
 import stat
 import shutil
 import codecs
-from collections import MutableSequence
+from collections.abc import MutableSequence
 from .eval import set_eval_func, map_value
 from .result import ExternalValue
 from .util import (

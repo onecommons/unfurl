@@ -1,6 +1,8 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
+
 import collections
+from collections.abc import MutableSequence
 import functools
 import logging
 import sys
@@ -212,7 +214,7 @@ class AnsibleConfigurator(TemplateConfigurator):
         return vars
 
     def _make_playbook(self, playbook, task):
-        assert_form(playbook, collections.MutableSequence)
+        assert_form(playbook, MutableSequence)
         # XXX use host group instead of localhost depending on operation_host
         hosts = task.operationHost and task.operationHost.name or "localhost"
         if playbook and not "hosts" in playbook[0]:
@@ -239,7 +241,7 @@ class AnsibleConfigurator(TemplateConfigurator):
 
     def get_playbook_args(self, task):
         args = task.inputs.get("playbookArgs", [])
-        if not isinstance(args, collections.MutableSequence):
+        if not isinstance(args, MutableSequence):
             args = [args]
         if task.dry_run:
             args.append("--check")

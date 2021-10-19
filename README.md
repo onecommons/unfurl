@@ -70,7 +70,7 @@ You can also install `unfurl` directly from this repository to get the latest co
 
 Linux or MacOs
 
-Python (3.7, 3.8, or 3.9); git
+Python (3.7, 3.8, 3.9 or 3.10); git
 
 Python 3.6 is not tested automatically but should work. However you should make sure you have the latest version of pip installed (`pip install -U pip`) and may need to have Rust installed for the [crytography library](https://github.com/pyca/cryptography/blob/main/docs/installation.rst).
 

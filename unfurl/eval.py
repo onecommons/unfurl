@@ -19,7 +19,7 @@ import six
 import re
 import operator
 import collections
-from collections import Mapping, MutableSequence
+from collections.abc import Mapping, MutableSequence
 from ruamel.yaml.comments import CommentedMap
 from .util import validate_schema, UnfurlError, assert_form
 from .result import ResultsList, Result, Results, ExternalValue, ResourceRef

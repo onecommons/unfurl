@@ -5,7 +5,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python: [3.7, 3.8, 3.9]
+        python: [3.7, 3.8, 3.9, 3.10]
     env:
       TOX_SKIP_ENV: .+(docker|lock)
       # tf_version: 1.0.0
@@ -51,7 +51,7 @@ jobs:
       - name: Run Tox
         # Run tox using the version of Python in `PATH`
         run: |
-          export PY_V=py`python3 --version | awk '{print $2}' | tr -d '.' | cut -c 1-2`
+          export PY_V=py3`python -c "import sys; print(sys.version_info.minor, end='')"`
           tox -c tosca-parser/tox.ini -e $PY_V
           tox -e $PY_V -- -n auto --dist loadfile
   deploy_dockerhub:

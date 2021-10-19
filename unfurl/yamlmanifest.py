@@ -5,7 +5,7 @@
 from __future__ import absolute_import
 import six
 import sys
-import collections
+from collections.abc import MutableSequence, Mapping
 import numbers
 import os
 import os.path
@@ -115,11 +115,11 @@ def save_status(operational, status=None):
 
 
 def save_result(value):
-    if isinstance(value, collections.Mapping):
+    if isinstance(value, Mapping):
         return CommentedMap(
             (key, save_result(v)) for key, v in value.items() if v is not None
         )
-    elif isinstance(value, (collections.MutableSequence, tuple)):
+    elif isinstance(value, (MutableSequence, tuple)):
         return [save_result(item) for item in value]
     elif value is not None and not isinstance(value, (numbers.Real, bool)):
         return to_yaml_text(value)

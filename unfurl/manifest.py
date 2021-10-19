@@ -1,6 +1,6 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
-import collections
+from collections.abc import Mapping
 import os.path
 import hashlib
 import json
@@ -156,7 +156,7 @@ class Manifest(AttributeManager):
         instance._lastConfigChange = status.get("lastConfigChange")
 
         readyState = status.get("readyState")
-        if not isinstance(readyState, collections.Mapping):
+        if not isinstance(readyState, Mapping):
             instance._localStatus = to_enum(Status, readyState)
         else:
             instance._localStatus = to_enum(Status, readyState.get("local"))

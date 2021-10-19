@@ -3,7 +3,8 @@
 import itertools
 import re
 import six
-from collections import Mapping, MutableSequence, namedtuple, Sequence
+from collections import namedtuple
+from collections.abc import Mapping, MutableSequence, Sequence
 
 from ruamel.yaml.comments import CommentedMap, CommentedBase
 

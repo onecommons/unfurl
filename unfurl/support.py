@@ -4,7 +4,7 @@
 Internal classes supporting the runtime.
 """
 import collections
-from collections import MutableSequence, Mapping
+from collections.abc import MutableSequence, Mapping
 import copy
 import os
 import os.path
