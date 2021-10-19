@@ -1,7 +1,7 @@
   apiVersion: unfurl/v1alpha1
   kind: Project
 
-  contexts:
+  environmentd:
     defaults: # "defaults" are merged with optional contexts defined below
       local:
        schema:
@@ -16,7 +16,7 @@
       # inputs:
       # locals:
       # secrets:
-      # environment:
+      # variables:
       # external:
     # user-defined contexts:
     production: {}
@@ -27,4 +27,4 @@
       alias: "named_ensemble"
       project: "in_another_project"
       default: true
-      context: production # "defaults" context is used if not specified
+      environment: production # "defaults" context is used if not specified

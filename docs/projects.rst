@@ -10,57 +10,7 @@ Unfurl projects define these environments and assign them to the project's ensem
 Environments
 ============
 
-Contexts can contain:
-
-Runtime
--------
-
-An isolated execution environment to run the ensemble's job in. This can be directory to a Python virtual environment or a Docker container. If this is missing, it will look a Python virtual environment directory (``.venv``) in the project's directory. By default, Unfurl will create a Python virtual environment in :ref:`~/unfurl_home<configure>` when the home project is created.
-
-
-The format for the ``venv:`` runtime specifier is one of:
-
-``venv:[folder with a Pipfile]:[unfurl version]``
-
-or
-
-``venv:`` (use the default folder and default unfurl version)
-
-If the Pipfile folder isn't specified the default one that ships with the Unfurl package will be used. In either case it will be copied to the root of the project the runtime is being installed in.
-When the Python virtual environment is created it install the packages specified in the Pipfile (and Pipfile.lock if present).
-
-Now you can use ``pipenv`` to install additional packages and commit the changes to ``Pipfile`` and ``Pipfile.lock`` to the project repository.
-
-You can also specify the version of unfurl to use when the runtime is invoked.
-
-The format for the unfurl version specifier is: ``[URL or path to an Unfurl git repository] ['@' [tag]]``
-
-If ``@tag`` is omitted the tag for the current release will be used.
-If ``@`` included without a tag the latest revision will be used
-If no path or url is specified ``git+https://github.com/onecommons/unfurl.git`` will be used.
-
-Some examples:
-
-``@tag``
-
-``./path/to/local/repo``
-
-``./path/to/local/repo@tag``
-
-``./path/to/local/repo@``
-
-``git+https://example.com/forked/unfurl.git``
-
-``@``
-
-If omitted, the same version of Unfurl that is currently running will be used.
-If specified, the package will be installed in "developer mode" (``-e``) by Pip.
-
-.. tip::
-
-  You can now upgrade Unfurl using pip normally from with in the virtual environment:
-
-  ``source .venv/bin/activate; pip3 install -e --upgrade unfurl``
+Environments can contain:
 
 
 Variables
@@ -91,8 +41,12 @@ You can include TOSCA's ``import`` statements in the environment and those TOSCA
 Connections
 -----------
 
-A map of connection templates containing account credentials to use. Inherited connection templates
-can be renamed locally by including an item with the new name as its key and old name as its the value.
+A map of connection templates. Connection templates are TOSCA relationship templates that represent connections to cloud providers and other online services.
+The properties for each connection type match the environments variables commonly associated with each cloud provider.
+You can directly set the properties here or set the corresponding environments variables. If directly set here they will set the corresponding environments variable when executing a job.
+
+Inherited connection templates can be renamed locally by including an item with the new name as its key and old name as its the value.
+You can also delete the connection by setting its key to null.
 
 External
 --------
@@ -172,4 +126,49 @@ that ship with Unfurl.
 Runtimes
 ========
 
-TODO
+A runtime is an isolated execution environment where a job is run. This can be directory to a Python virtual environment or a Docker container.
+If this is missing, it will look a Python virtual environment directory (``.venv``) in the project's directory. By default, Unfurl will create a Python virtual environment in :ref:`~/unfurl_home<configure>` when the home project is created.
+
+The format for the ``venv:`` runtime specifier is one of:
+
+``venv:[folder with a Pipfile]:[unfurl version]``
+
+or
+
+``venv:`` (use the default folder and default unfurl version)
+
+If the Pipfile folder isn't specified the default one that ships with the Unfurl package will be used. In either case it will be copied to the root of the project the runtime is being installed in.
+When the Python virtual environment is created it install the packages specified in the Pipfile (and Pipfile.lock if present).
+
+Now you can use ``pipenv`` to install additional packages and commit the changes to ``Pipfile`` and ``Pipfile.lock`` to the project repository.
+
+You can also specify the version of unfurl to use when the runtime is invoked.
+
+The format for the unfurl version specifier is: ``[URL or path to an Unfurl git repository] ['@' [tag]]``
+
+If ``@tag`` is omitted the tag for the current release will be used.
+If ``@`` included without a tag the latest revision will be used
+If no path or url is specified ``git+https://github.com/onecommons/unfurl.git`` will be used.
+
+Some examples:
+
+``@tag``
+
+``./path/to/local/repo``
+
+``./path/to/local/repo@tag``
+
+``./path/to/local/repo@``
+
+``git+https://example.com/forked/unfurl.git``
+
+``@``
+
+If omitted, the same version of Unfurl that is currently running will be used.
+If specified, the package will be installed in "developer mode" (``-e``) by Pip.
+
+.. tip::
+
+  You can now upgrade Unfurl using pip normally from with in the virtual environment:
+
+  ``source .venv/bin/activate; pip3 install -e --upgrade unfurl``

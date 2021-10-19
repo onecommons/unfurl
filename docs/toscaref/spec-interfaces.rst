@@ -9,8 +9,8 @@ Interfaces provide a way to map logical tasks to executable operations.
 Declaration
 +++++++++++
 
-Node Types and requirements Interface
---------------------------------------
+Node Types and Interfaces
+-----------------------------
 
 .. code:: yaml
 
@@ -34,9 +34,9 @@ Node Types and requirements Interface
          ...
 
 
-Each interface declaration under the different ``interfaces``/``source_interfaces``/``target_interfaces`` sections is a dictionary of operations.
+Each interface declaration under the ``interfaces`` section is a dictionary of operations.
 
-Operation Declaration in Node Types and requirements Interfaces
+Operation Declaration in Node Types Interfaces
 ----------------------------------------------------------------
 
 .. code:: yaml
@@ -49,15 +49,11 @@ Operation Declaration in Node Types and requirements Interfaces
            implementation: ...
            inputs:
              ...
-           executor: ...
-           max_retries: ...
-           retry_interval: ...
-
 
 Definition
 ++++++++++
 
-.. list-table:: 
+.. list-table::
    :widths: 10 10 10 50
    :header-rows: 1
 
@@ -65,27 +61,14 @@ Definition
      - Required
      - Type
      - Description
-   * - implementation 
+   * - implementation
      - yes
      - string
      - The script or plugin task name to execute.
    * - inputs
      - no
      - dict
-     - Schema of inputs that will be passed to the implementation as kwargs.
-   * - executor 
-     - no
-     - string
-     - Valid values: central _deployment_agent, host_agent
-   * - max_retries
-     - no
-     - number
-     - Maximum number of retries for a task. -1 means infinite retries (Default: task_retries in manager tosca Cloudify Manager Type for remote workflows and task_retries workflow configuration for local workflows).
-   * - retry_interval
-     - no
-     - number
-     - Minimum wait time (in seconds) in between task retries (Default: task_retry_interval in manager tosca Manager Type for remote workflows and task_retry_interval workflow configuration for local workflows).
-
+     - Schema of inputs that will be passed to the implementation.
 
 Simple Mapping
 ++++++++++++++
@@ -122,7 +105,7 @@ Operation Input Schema Definition
            executor: ...
 
 
-.. list-table:: 
+.. list-table::
    :widths: 10 10 10 50
    :header-rows: 1
 
@@ -130,7 +113,7 @@ Operation Input Schema Definition
      - Required
      - Type
      - Description
-   * - description 
+   * - description
      - no
      - string
      - Description for the input.
@@ -138,7 +121,7 @@ Operation Input Schema Definition
      - no
      - string
      - stringInput type. Not specifying a data type means the type can be anything (also types not listed in the valid types). Valid types: string, integer, boolean
-   * - default 
+   * - default
      - no
      - <any>
      - An optional default value for the input.
@@ -271,7 +254,7 @@ In the above example we’ve declared an ``executor`` for our ``deployer`` plugi
 
 
 Here we added a ``deploy`` operation to our ``my_deployment_interface``
-interface. 
+interface.
 
 .. note:: Note that its ``executor`` attribute is configured to ``host_agent`` which means that even though the ``deployer`` plugin is configured to execute operations on the ``central_deployment_agent``, the ``deploy`` operation will be executed on hosts of the ``nodejs_app`` rather than the TOSCA manager.
 
@@ -364,4 +347,3 @@ Here, we added an input to the ``deploy`` operation under the ``my_deployment_in
 .. note:: Note that interface inputs are NOT the same type of objects as the inputs defined in the ``inputs`` section of the service template. Interface inputs are passed directly to a plugin’s operation (as \**kwargs to our ``deploy`` operation in the ``deployer`` plugin) or, in the case of our ``start`` operations, to the Script Plugin.
 
 .. seealso:: For more information, refer to :tosca_spec2:`TOSCA Interface Section <_Toc50125307>`
-

@@ -841,10 +841,11 @@ class LocalEnv:
         return context
 
     def get_runtime(self):
-        context = self.get_context()
-        runtime = context.get("runtime")
-        if runtime:
-            return runtime
+        # XXX replace this with top-level section for runtime
+        # context = self.get_context()
+        # runtime = context.get("runtime")
+        # if runtime:
+        #     return runtime
         project = self.project or self.homeProject
         while project:
             if project.venv:

@@ -85,7 +85,6 @@
       "type": "object",
       "properties": {
         "inputs": { "$ref": "#/definitions/attributes" },
-        "runtime": { "type": "string" },
         "defaultProject": { "type": "string" },
         "variables": { "anyOf": [{ "type": "object" }, { "type": "null" }] },
         "locals": { "$ref": "#/definitions/attributes" },
@@ -127,7 +126,7 @@
         },
         "uri": { "type": "string", "format": "uri" },
         "instance": { "type": "string" },
-        "schema": { "$ref": "#/definitions/attributes" },
+        "schema": { "$ref": "#/definitions/attributes" }
       }
     },
     "instance": {
