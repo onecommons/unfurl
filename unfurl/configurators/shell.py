@@ -90,7 +90,7 @@ def _truncate(s):
 
 
 def clean_output(value: str) -> str:
-    return re.sub(r"[\x00-\x1f\x7f-\x9f]", "", unstyle(value))
+    return re.sub(r"[\x00-\x08\x0f-\x1f\x7f-\x9f]", "", unstyle(value))
 
 
 # XXX we should know if cmd if not os.access(implementation, os.X):
