@@ -14,7 +14,7 @@ import uuid
 import logging
 from jinja2.loaders import FileSystemLoader
 
-from . import DefaultNames, __version__, get_home_config_path
+from . import DefaultNames, __version__, get_home_config_path, is_version_unreleased
 from .localenv import LocalEnv, Project, LocalConfig
 from .repo import GitRepo, Repo, is_url_or_git_path, split_git_url, commit_secrets
 from .util import UnfurlError
@@ -868,6 +868,7 @@ def init_engine(projectDir, runtime):
         return create_venv(
             projectDir, pipfileLocation, _get_unfurl_requirement_url(unfurlLocation)
         )
+    # XXX else kind == 'docker':
     return "unrecognized runtime uri"
 
 
@@ -889,7 +890,7 @@ def _run_pip_env(do_install, kw):
     return retcode
 
 
-# XXX provide an option for an uUfurl installation can be shared across runtimes.
+# XXX provide an option for an unfurl installation can be shared across runtimes.
 def _add_unfurl_to_venv(projectdir):
     """
     Set the virtualenv inside `projectdir` to use the unfurl package currently being executed.
@@ -904,10 +905,10 @@ def _add_unfurl_to_venv(projectdir):
         if os.path.isdir(sitePackageDir):
             break
     else:
-        # XXX report error: can't find site-package folder
-        return
+        return "Pipenv failed: can't find site-package folder"
     _write_file(sitePackageDir, "unfurl.pth", base)
     _write_file(sitePackageDir, "unfurl.egg-link", base)
+    return ""
 
 
 def create_venv(projectDir, pipfileLocation, unfurlLocation):
@@ -970,9 +971,12 @@ def create_venv(projectDir, pipfileLocation, unfurlLocation):
         if unfurlLocation:
             kw["editable_packages"] = [unfurlLocation]
         else:
-            kw["packages"] = [
-                "unfurl==" + __version__()
-            ]  # use the same version as current
+            if is_version_unreleased():
+                return _add_unfurl_to_venv(projectDir)
+            else:
+                kw["packages"] = [
+                    "unfurl==" + __version__()
+                ]  # use the same version as current
         retcode = _run_pip_env(do_install, kw)
         if retcode:
             return f"Pipenv (step 2) failed: {retcode}"

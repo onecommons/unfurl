@@ -27,6 +27,10 @@ def version_tuple(v=None):
     return tuple(int(x.lstrip("dev") or 0) for x in v.split("."))
 
 
+def is_version_unreleased():
+    return len(version_tuple()) > 3
+
+
 vendor_dir = os.path.join(os.path.abspath(os.path.dirname(__file__)), "vendor")
 sys.path.insert(0, vendor_dir)
 
