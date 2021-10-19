@@ -222,14 +222,14 @@ class TaskRequest(PlanRequest):
 
     def get_operation_artifacts(self):
         artifacts = []
-        jobRequest = self._get_artifact_plan(self.configSpec.artifact)
-        if jobRequest:
-            artifacts.append(jobRequest)
         if self.configSpec.dependencies:
             for artifact in self.configSpec.dependencies:
                 jobRequest = self._get_artifact_plan(artifact)
                 if jobRequest:
                     artifacts.append(jobRequest)
+        jobRequest = self._get_artifact_plan(self.configSpec.artifact)
+        if jobRequest:
+            artifacts.append(jobRequest)
         return artifacts
 
     @property
