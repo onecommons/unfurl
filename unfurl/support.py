@@ -180,7 +180,16 @@ class Templar(ansible.template.Templar):
 
 
 def _get_template_test_reg_ex():
-    return Templar(DataLoader())._clean_regex
+    environment = Templar(DataLoader()).environment
+    return re.compile(
+        r"(?:%s|%s|%s|%s)"
+        % (
+            environment.variable_start_string,
+            environment.block_start_string,
+            environment.block_end_string,
+            environment.variable_end_string,
+        )
+    )
 
 
 _clean_regex = _get_template_test_reg_ex()

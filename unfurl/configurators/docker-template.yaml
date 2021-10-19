@@ -18,7 +18,7 @@ node_types:
         implementation:
           className: unfurl.configurators.ansible.AnsibleConfigurator
         outputs:
-          docker_container:
+          container:
           image_path:
         inputs:
             playbook:
@@ -55,8 +55,8 @@ node_types:
             # https://medium.com/@BeNitinAgarwal/lifecycle-of-docker-container-d2da9f85959
             # https://stackoverflow.com/questions/32427684/what-are-the-possible-states-for-a-docker-container
             resultTemplate: |
-              {% set status = outputs.docker_container.State.Status | d("") %}
-              {% set error = outputs.docker_container.State.Error | d("") %}
+              {% set status = outputs.container.State.Status | d("") %}
+              {% set error = outputs.container.State.Error | d("") %}
               readyState:
                 state: {{ {'created': 'created', 'restarting': 'starting', '': 'initial',
                           'running': 'started', 'removing': 'deleting',

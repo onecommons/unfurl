@@ -4,14 +4,14 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
-pipenv = ">=2020.6.2"
+pipenv = ">=v2021.5.29"
 click = ">=8.0.1"
 click-log = "*"
 pyrsistent = "==0.15.7"
 jsonschema = {version = "==3.2", extras = ["format_nongpl"]}
 "ruamel.yaml" = ">=0.16.13"
-ansible = {version = ">=2.9.10,<2.10.0", extras = ["azure"]}
-pbr = ">=2.0.0,!=2.1.0"
+ansible = ">=4.2.0"
+pbr = "!=2.1.0,>=2.0.0"
 cliff = "!=2.9.0,>=2.8.0"
 python-dateutil = ">=2.5.3"
 six = ">=1.10.0"
@@ -22,12 +22,12 @@ importlib-metadata = "*"
 subprocess32 = "*"
 docker = {extras = ["tls"], version = "*"}
 openshift = "*"
-octodns = "*"
+octodns = "<1.0,>=0.9.12"
 boto = "*"
 boto3 = "*"
 supervisor = "*"
 google-auth = "*"
-GitPython = "*"
+GitPython = "<=3.1.14"
 Babel = ">=2.3.4,!=2.4.0"
 PyYAML = ">=3.12"
 cryptography = "*"

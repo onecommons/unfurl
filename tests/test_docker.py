@@ -99,8 +99,8 @@ class DockerTest(unittest.TestCase):
         # configure (start op shouldn't run since docker_container sets state to started)
         assert len(run1.workDone) == 2, run1.workDone
         tasks = list(run1.workDone.values())
-        # print(run1.out.getvalue())
-        container = tasks[1].result.outputs.get("docker_container")
+        # print([task.result.outputs for task in tasks])
+        container = tasks[1].result.outputs.get("container")
         assert container
         self.assertEqual(container["Name"], "/test_docker")
         self.assertEqual(container["State"]["Status"], "exited")

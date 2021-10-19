@@ -6,28 +6,28 @@ verify_ssl = true
 [dev-packages]
 
 [packages]
-pipenv = ">=2020.6.2"
+pipenv = ">=v2021.5.29"
 click = ">=8.0.1"
 click-log = "*"
 jsonschema = {version = "==3.2", extras = ["format_nongpl"]}
 "ruamel.yaml" = ">=0.16.13"
 docker = {extras = ["tls"], version = "*"}
 pbr = "!=2.1.0,>=2.0.0"
-cliff = ">=2.8.0,!=2.9.0"
+cliff = "!=2.9.0,>=2.8.0"
 python-dateutil = ">=2.5.3"
 six = ">=1.10.0"
 stevedore = ">=1.20.0"
 requests = ">=2.14.2"
 enum34 = "*"
 Jinja2 = "==2.11.3"
-GitPython = "*"
+GitPython = "<=3.1.14"
 Babel = ">=2.3.4,!=2.4.0"
 PyYAML = ">=3.12"
 subprocess32 = "*"
-ansible = {version = ">=2.9.10,<2.10.0", extras = ["azure"]}
+ansible = ">=4.2.0"
 mitogen = "==0.2.7"
 openshift = "*"
-octodns = "*"
+octodns = ">=0.9.12,<1.0"
 boto = "*"
 boto3 = "*"
 supervisor = "*"

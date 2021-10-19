@@ -9,7 +9,9 @@ from ..configurator import Configurator, Status
 from ..runtime import RelationshipInstance
 from .ansible import AnsibleConfigurator
 import json
-from ansible.module_utils.k8s.common import K8sAnsibleMixin
+from ansible_collections.kubernetes.core.plugins.module_utils.common import (
+    K8sAnsibleMixin,
+)
 
 
 def _get_connection_config(instance):
@@ -163,7 +165,7 @@ class ResourceConfigurator(AnsibleConfigurator):
                 moduleSpec["namespace"] = definition["metadata"]["namespace"]
         else:
             moduleSpec["resource_definition"] = definition
-        return [dict(k8s=moduleSpec)]
+        return [{"community.kubernetes.k8s": moduleSpec}]
 
     def process_result(self, task, result):
         # overrides super.processResult
@@ -172,9 +174,7 @@ class ResourceConfigurator(AnsibleConfigurator):
         if resource:
             data = resource.get("kind") == "Secret" and resource.get("data")
             if data:
-                resource["data"] = {
-                    k: task.sensitive(v) for k, v in data.items()
-                }
+                resource["data"] = {k: task.sensitive(v) for k, v in data.items()}
             if task.configSpec.operation in ["check", "discover"]:
                 states = dict(
                     Active=Status.ok,

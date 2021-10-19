@@ -65,10 +65,11 @@ def get_ansible_results(result, extraKeys=(), facts=()):
     outputs = {}
     if facts:
         ansible_facts = result._result.get("ansible_facts")
-        if ansible_facts:
-            for fact in facts:
-                if fact in ansible_facts:
-                    outputs[fact] = ansible_facts[fact]
+        for fact in facts:
+            if ansible_facts and fact in ansible_facts:
+                outputs[fact] = ansible_facts[fact]
+            elif fact in result._result:
+                outputs[fact] = result._result[fact]
     resultDict["ignored"] = ignoredKeys
     return resultDict, outputs
 
