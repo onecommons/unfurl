@@ -80,5 +80,6 @@
       }
     }
   },
-  "required": ["apiVersion", "kind"]
+  "required": ["apiVersion", "kind"],
+  "additionalProperties": false
 }

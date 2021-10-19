@@ -108,7 +108,8 @@
             }
           ]
         }
-      }
+      },
+      "additionalProperties": false
     },
     "external": {
       "title": "External",
@@ -127,7 +128,8 @@
         "uri": { "type": "string", "format": "uri" },
         "instance": { "type": "string" },
         "schema": { "$ref": "#/definitions/attributes" }
-      }
+      },
+      "additionalProperties": false
     },
     "instance": {
       "title": "Instance",

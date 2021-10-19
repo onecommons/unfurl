@@ -1,17 +1,16 @@
   apiVersion: unfurl/v1alpha1
   kind: Project
 
-  environmentd:
+  environments:
     defaults: # "defaults" are merged with optional contexts defined below
-      local:
+      locals:
        schema:
          name1:
            type: string
-      secret:
+      secrets:
        schema:
          name1:
            type: string
-
       # # values are merged with the manifest's context:
       # inputs:
       # locals:
