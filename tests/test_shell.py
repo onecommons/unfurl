@@ -47,7 +47,7 @@ class TestShellConfigurator:
 
         delta = datetime.now() - start_time
         assert job.status == Status.error
-        assert delta < timedelta(seconds=1.5)
+        assert delta < timedelta(seconds=2), delta - timedelta(seconds=2)
 
 
 class TestDryRun:
