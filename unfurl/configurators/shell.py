@@ -28,6 +28,7 @@ import os
 import sys
 import shlex
 import six
+import re
 from click.termui import unstyle
 
 if os.name == "posix" and sys.version_info[0] < 3:
@@ -86,6 +87,10 @@ def _truncate(s):
     if len(s) > 1000:
         return f"{s[:500]} [{len(s)} omitted...]  {s[-500:]}"
     return s
+
+
+def clean_output(value: str) -> str:
+    return re.sub(r"[\x00-\x1f\x7f-\x9f]", "", unstyle(value))
 
 
 # XXX we should know if cmd if not os.access(implementation, os.X):
@@ -193,8 +198,8 @@ class ShellConfigurator(TemplateConfigurator):
             task.logger.info("shell task run success: %s", result.cmd)
             task.logger.debug("shell task output: %s", _truncate(result.stdout))
         # strips terminal escapes after we printed output via logger
-        result.stdout = unstyle(result.stdout or "")
-        result.stderr = unstyle(result.stderr or "")
+        result.stdout = clean_output(result.stdout or "")
+        result.stderr = clean_output(result.stderr or "")
         return not error
 
     def _process_result(self, task, result, cwd):
