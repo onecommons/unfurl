@@ -23,11 +23,13 @@ Extensions
 * add "default_for" keyword to relationship templates
 * add "defaults" section to interface definitions
 * add "types" section to the service template can contain any entity type definition.
+* add "when" keyword to "imports" to allow conditional imports
+* add "decorators" section for rule-based enhancements of node templates
 
-Not yet implemented 
+Not yet implemented
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-The following feature are either not yet implemented or don't currently 
+The following feature are either not yet implemented or don't currently
 conform with the TOSCA 1.3 specification:
 
 * The ``get_operation_output`` function (use :ref:`resultTemplate<resulttemplate>` instead)

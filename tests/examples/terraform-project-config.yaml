@@ -7,6 +7,5 @@ environments:
       AWS_ACCESS_KEY_ID: dummy
       AWS_SECRET_ACCESS_KEY: not_so_secret
     secrets:
-      attributes:
-        vault_secrets:
-          default: testing
+      vault_secrets:
+        default: testing

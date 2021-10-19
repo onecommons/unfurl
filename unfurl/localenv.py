@@ -314,14 +314,14 @@ class Project:
         if secret:
             return secret
         context = self.get_context(contextName)
-        secrets = context.get("secrets", {}).get("attributes", {}).get(f"vault_secrets")
+        secrets = context.get("secrets", {}).get(f"vault_secrets")
         if secrets:
             return secrets.get(vaultId)
 
     def get_vault_passwords(self, contextName="defaults"):
         # we want to support multiple vault ids
         context = self.get_context(contextName)
-        secrets = context.get("secrets", {}).get("attributes", {}).get(f"vault_secrets")
+        secrets = context.get("secrets", {}).get(f"vault_secrets")
         if not secrets:
             return
         for vaultId, password in secrets.items():
@@ -413,8 +413,9 @@ class LocalConfig:
     # don't merge the value of the keys of these dicts:
     replaceKeys = [
         "inputs",
-        "attributes",  # for secrets, locals, external
-        "schema",  # for secrets, locals, external
+        "secrets",
+        "locals",
+        "external",
         "connections",
         "variables",
         "repositories",
@@ -852,13 +853,14 @@ class LocalEnv:
         return None
 
     def get_local_instance(self, name, context):
+        # returns NodeInstance, spec
         assert name in ["locals", "secrets", "local", "secret"]
-        local = context.get(name, {})
+        attributes = dict(context.get(name) or {})
+        # schema is reserved property name
+        spec = dict(schema=attributes.pop("schema", None))
         return (
-            self.config.create_local_instance(
-                name.rstrip("s"), local.get("attributes", {})
-            ),
-            local,
+            self.config.create_local_instance(name.rstrip("s"), attributes),
+            spec,
         )
 
     def find_git_repo(self, repoURL, revision=None):

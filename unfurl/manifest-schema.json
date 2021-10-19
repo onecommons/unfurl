@@ -88,8 +88,8 @@
         "runtime": { "type": "string" },
         "defaultProject": { "type": "string" },
         "variables": { "anyOf": [{ "type": "object" }, { "type": "null" }] },
-        "locals": { "$ref": "#/definitions/external" },
-        "secrets": { "$ref": "#/definitions/external" },
+        "locals": { "$ref": "#/definitions/attributes" },
+        "secrets": { "$ref": "#/definitions/attributes" },
         "connections": {
           "anyOf": [
             { "$ref": "#/definitions/namedObjects" },
@@ -128,7 +128,6 @@
         "uri": { "type": "string", "format": "uri" },
         "instance": { "type": "string" },
         "schema": { "$ref": "#/definitions/attributes" },
-        "attributes": { "$ref": "#/definitions/attributes" }
       }
     },
     "instance": {

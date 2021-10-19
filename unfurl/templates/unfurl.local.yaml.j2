@@ -19,10 +19,9 @@ environments:
     {%- if vaultpass %}
     # make sure you keep this password in a safe place as this file isn't committed to the repository.
     secrets:
-      attributes:
-        vault_secrets:
-            [% vaultid | default("default") %]: "[% vaultpass %]"
-        # Note: The UNFURL_VAULT_[% vaultid | default("default") | upper %]_PASSWORD environment variable overrides this.
+      vault_secrets:
+          [% vaultid | default("default") %]: "[% vaultpass %]"
+      # Note: The UNFURL_VAULT_[% vaultid | default("default") | upper %]_PASSWORD environment variable overrides this.
     {% endif %}
 
 {%if manifestPath %}

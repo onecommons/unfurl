@@ -132,8 +132,9 @@ There are 3 instances that are always implicitly imported even if they are not d
 
 Locals and secrets:
 
-:``attributes``: a map of the providing the names and values of locals or secrets
-:``schema``: a JSON schema properties object describing the schema for each attribute. If missing, validation of the attributes will be skipped.
+A map of names and values of locals or secrets with one reserved name:
+
+:``schema``: a JSON schema ``properties`` object describing the schema for the map. If missing, validation of the attributes will be skipped.
 
 Project defaults
 ================

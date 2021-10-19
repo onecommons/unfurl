@@ -62,7 +62,6 @@ kind: Project
 environments:
   defaults: #used if manifest isnt found in `manifests` list below
    secrets:
-    attributes:
       aDict:
         key1: a string
         key2: 2
@@ -72,7 +71,6 @@ environments:
             env: "UNFURL_{{ key | upper }}"
   test:
     locals:
-      attributes:
         prop1: 'found'
         prop2: 1
         aDict:

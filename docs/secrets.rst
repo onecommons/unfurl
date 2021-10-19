@@ -13,9 +13,9 @@ You can apply any of these techniques to different secrets and projects can inhe
 .. code-block:: YAML
 
   secrets:
-    attributes:
       # include secrets from a file that will not be committed to the repository:
       +?include: local/secrets.yaml
+
       # plaintext:
       not_so_secret: admin
 

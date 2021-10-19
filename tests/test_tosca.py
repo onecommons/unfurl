@@ -460,7 +460,6 @@ class AbstractTemplateTest(unittest.TestCase):
                 in_context:
                   url: file:.
               secrets:
-                attributes:
                   vault_secrets:
                     default: a_password
               external:
