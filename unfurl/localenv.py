@@ -17,6 +17,7 @@ from .merge import merge_dicts
 from .yamlloader import YamlConfig, make_vault_lib_ex
 from . import DefaultNames, get_home_config_path
 from six.moves.urllib.parse import urlparse
+from toscaparser.repositories import Repository
 
 _basepath = os.path.abspath(os.path.dirname(__file__))
 
@@ -50,32 +51,44 @@ class Project:
             self.projectRoot,
         )
         self.parentProject = parentProject
-        if self.projectRepo and parentProject:
+        if parentProject:
             parentProject.localConfig.register_project(self)
         self._set_contexts()
+
+    def _set_project_repoview(self):
+        path = self.projectRoot
+        if path in self.workingDirs:
+            self.project_repoview = self.workingDirs[path]
+            return
+
+        # project maybe part of a containing repo (if created with --existing option)
+        repo = Repo.find_containing_repo(path)
+        # make sure projectroot isn't excluded from the containing repo
+        if not repo or repo.is_path_excluded(path):
+            repo = None
+            url = "file:" + path
+        else:
+            url = repo.get_url_with_path(path)
+            path = os.path.relpath(path, repo.working_dir)
+
+        self.project_repoview = RepoView(
+            Repository("project", dict(url=url)),
+            repo,
+            path,
+        )
+        if repo:
+            self.workingDirs[repo.working_dir] = self.project_repoview
 
     def _set_repos(self):
         # abspath => RepoView:
         self.workingDirs = Repo.find_git_working_dirs(self.projectRoot)
-        # the project repo if it exists manages the project config (unfurl.yaml)
-        projectRoot = self.projectRoot
-        if projectRoot in self.workingDirs:
-            self.projectRepo = self.workingDirs[projectRoot].repo
-        else:
-            # project maybe part of a containing repo (if created with --existing option)
-            repo = Repo.find_containing_repo(self.projectRoot)
-            # make sure projectroot isn't excluded from the containing repo
-            if repo and not repo.is_path_excluded(self.projectRoot):
-                self.projectRepo = repo
-                self.workingDirs[repo.working_dir] = repo.as_repo_view()
-            else:
-                self.projectRepo = None
+        self._set_project_repoview()
 
-        if self.projectRepo:
+        if self.project_repoview.repo:
             # Repo.findGitWorkingDirs() doesn't look inside git working dirs
             # so look for repos in dirs that might be excluded from git
-            for dir in self.projectRepo.find_excluded_dirs(self.projectRoot):
-                if projectRoot in dir and os.path.isdir(dir):
+            for dir in self.project_repoview.repo.find_excluded_dirs(self.projectRoot):
+                if self.projectRoot in dir and os.path.isdir(dir):
                     Repo.update_git_working_dirs(self.workingDirs, dir, os.listdir(dir))
 
         # add referenced local repositories outside of the project
@@ -148,8 +161,8 @@ class Project:
 
     def get_repos(self):
         repos = [r.repo for r in self.workingDirs.values()]
-        if self.projectRepo and self.projectRepo not in repos:
-            repos.append(self.projectRepo)
+        if self.project_repoview.repo and self.project_repoview.repo not in repos:
+            repos.append(self.project_repoview.repo)
         return repos
 
     def search_for_manifest(self):
@@ -477,7 +490,7 @@ class LocalConfig:
         return None
 
     def _get_project_name(self, project):
-        repo = project.projectRepo
+        repo = project.project_repoview
         for name, val in self.projects.items():
             if normalize_git_url(val["url"]) == normalize_git_url(repo.url):
                 return name
@@ -507,9 +520,9 @@ class LocalConfig:
         if not key:
             local = self.config.config
 
-        repo = project.projectRepo
+        repo = project.project_repoview
         localRepositories = local.setdefault("localRepositories", {})
-        lock = repo.as_repo_view().lock()
+        lock = repo.lock()
         if localRepositories.get(repo.working_dir) != lock:
             localRepositories[repo.working_dir] = lock
             changed = True

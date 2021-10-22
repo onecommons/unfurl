@@ -596,7 +596,9 @@ def create_new_ensemble(
         localEnv = templateVars["localEnv"]
         manifest = yamlmanifest.clone(localEnv, targetPath)
 
-    _create_ensemble_repo(manifest, shared_repo or mono and project.projectRepo)
+    _create_ensemble_repo(
+        manifest, shared_repo or mono and project.project_repoview.repo
+    )
     if destProject.projectRoot != project.projectRoot:
         # cross reference each other
         destProject.register_ensemble(manifest.path, managedBy=project, context=context)
@@ -645,14 +647,14 @@ def find_project(source, home_path):
 
 def is_ensemble_in_project_repo(project, paths):
     # check if source points to an ensemble that is part of the project repo
-    if not project.projectRepo or "localEnv" not in paths:
+    if not project.project_repoview.repo or "localEnv" not in paths:
         return False
     sourceDir = paths["sourceDir"]
     assert not os.path.isabs(sourceDir)
     pathToEnsemble = os.path.join(project.projectRoot, sourceDir)
     if not os.path.isdir(pathToEnsemble):
         return False
-    if project.projectRepo.is_path_excluded(sourceDir):
+    if project.project_repoview.repo.is_path_excluded(sourceDir):
         return False
     return True
 
@@ -754,8 +756,8 @@ def clone(source, dest, ensemble_name=DefaultNames.EnsembleDirectory, **options)
             )
         else:
             # XXX we are not trying to adjust the clone location to be a parent of dest
-            sourceProject.projectRepo.clone(dest)
-            relPathToProject = sourceProject.projectRepo.find_repo_path(
+            sourceProject.project_repoview.repo.clone(dest)
+            relPathToProject = sourceProject.project_repoview.repo.find_repo_path(
                 sourceProject.projectRoot
             )
             # adjust if project is not at the root of its repo:

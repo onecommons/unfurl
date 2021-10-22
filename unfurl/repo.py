@@ -210,6 +210,7 @@ class RepoView:
             name = tpl.pop("name")
             tpl["url"] = normalize_git_url(tpl["url"])
             repository = toscaparser.repositories.Repository(name, tpl)
+        assert repository or repo
         self.repository = repository
         self.repo = repo
         self.path = path
@@ -230,6 +231,10 @@ class RepoView:
     @property
     def url(self):
         return self.repository.url if self.repository else self.repo.url
+
+    def is_local_only(self):
+        # if it doesn't have a repo then it most be local
+        return not self.repo or self.repo.is_local_only()
 
     @property
     def origin(self):

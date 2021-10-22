@@ -444,21 +444,7 @@ class Manifest(AttributeManager):
                     inProject = True
 
             if inProject:
-                repo = self.localEnv.project.projectRepo
-                path = self.localEnv.project.projectRoot
-                if repo:
-                    assert path
-                    url = repo.get_url_with_path(path)
-                    path = os.path.relpath(path, repo.working_dir)
-                else:
-                    url = "file:" + path
-
-                repository = RepoView(
-                    Repository("spec", dict(url=url)),
-                    self.localEnv.project.projectRepo,
-                    path,
-                )
-                repositories["spec"] = repository
+                repositories["spec"] = self.localEnv.project.project_repoview
             else:
                 repositories["spec"] = repositories["self"]
         return {name: repo.repository.tpl for name, repo in self.repositories.items()}
