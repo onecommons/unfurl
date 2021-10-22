@@ -753,12 +753,8 @@ class YamlManifest(ReadOnlyManifest):
         else:
             return "Commit by Unfurl"
 
-    def get_repo_statuses(self, dirty=False):
-        return [
-            f'Status for "{r.name}" at {r.working_dir}:\n{r.status()}\n\n'
-            for r in self.repositories.values()
-            if r.repo and (not dirty or r.is_dirty())
-        ]
+    def get_repo_status(self, dirty=False):
+        return "".join([r.get_repo_status(dirty) for r in self.repositories.values()])
 
     def add_all(self):
         for repository in self.repositories.values():

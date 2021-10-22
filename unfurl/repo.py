@@ -180,6 +180,18 @@ class Repo:
 def commit_secrets(working_dir, yaml):
     if not yaml or not getattr(yaml.representer, "vault", None):
         return
+    saved = []
+    for filepath, dotsecrets in find_dirty_secrets(working_dir):
+        with open(filepath, "r") as vf:
+            vaultContents = vf.read()
+        encoding = None if vaultContents.startswith("$ANSIBLE_VAULT;") else "vault"
+        secretpath = dotsecrets / filepath.name
+        save_to_file(str(secretpath), vaultContents, yaml, encoding)
+        saved.append(secretpath)
+    return saved
+
+
+def find_dirty_secrets(working_dir):
     # compare .secrets with secrets
     for root, dirs, files in os.walk(working_dir):
         if "secrets" not in Path(root).parts:
@@ -189,15 +201,10 @@ def commit_secrets(working_dir, yaml):
             filepath = Path(root) / filename
             if (
                 not dotsecrets.is_dir()
-                or filename not in list(dotsecrets.iterdir())
+                or filename not in list([p.name for p in dotsecrets.iterdir()])
                 or filepath.stat().st_mtime > (dotsecrets / filename).stat().st_mtime
             ):
-                with open(filepath, "r") as vf:
-                    vaultContents = vf.read()
-                encoding = (
-                    None if vaultContents.startswith("$ANSIBLE_VAULT;") else "vault"
-                )
-                save_to_file(str(dotsecrets / filename), vaultContents, yaml, encoding)
+                yield filepath, dotsecrets
 
 
 class RepoView:
@@ -249,6 +256,8 @@ class RepoView:
     def is_dirty(self):
         if self.readOnly:
             return False
+        for filepath, dotsecrets in find_dirty_secrets(self.working_dir):
+            return True
         return self.repo.is_dirty(untracked_files=True, path=self.path)
 
     def add_all(self):
@@ -278,20 +287,47 @@ class RepoView:
                         f.write(contents)
                     os.utime(target, (stinfo.st_atime, stinfo.st_mtime))
 
-    def commit_secrets(self):
-        commit_secrets(self.working_dir, self.yaml)
+    def save_secrets(self):
+        return commit_secrets(self.working_dir, self.yaml)
 
     def commit(self, message, addAll=False):
         assert not self.readOnly
         if self.yaml:
-            self.commit_secrets()
+            for saved in self.save_secrets():
+                self.repo.repo.git.add(str(saved.relative_to(self.repo.working_dir)))
         if addAll:
             self.add_all()
         return self.repo.repo.index.commit(message)
 
-    def status(self):
+    def get_default_commit_message(self):
+        return "Commit by Unfurl"
+
+    def git_status(self):
         assert not self.readOnly
         return self.repo.run_cmd(["status", self.path or "."])[1]
+
+    def _secrets_status(self):
+        modified = "\n   ".join(
+            [
+                str(filepath.relative_to(self.repo.working_dir))
+                for filepath, dotsecrets in find_dirty_secrets(self.working_dir)
+            ]
+        )
+        if modified:
+            return f"\n\nSecrets to be committed:\n   {modified}"
+        return ""
+
+    def get_repo_status(self, dirty=False):
+        if self.repo and (not dirty or self.is_dirty()):
+            git_status = self.git_status()
+            if self.name:
+                header = f"for {self.name} at {self.working_dir}"
+            else:
+                header = f"for {self.working_dir}"
+            secrets_status = self._secrets_status()
+            return f"Status {header}:\n{git_status}{secrets_status}\n\n"
+        else:
+            return ""
 
     def get_initial_revision(self):
         if not self.repo:

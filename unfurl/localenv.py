@@ -14,7 +14,7 @@ import six
 from .repo import Repo, normalize_git_url, split_git_url, RepoView
 from .util import UnfurlError
 from .merge import merge_dicts
-from .yamlloader import YamlConfig, make_vault_lib_ex
+from .yamlloader import YamlConfig, make_vault_lib_ex, make_yaml
 from . import DefaultNames, get_home_config_path
 from six.moves.urllib.parse import urlparse
 from toscaparser.repositories import Repository
@@ -54,6 +54,8 @@ class Project:
         if parentProject:
             parentProject.localConfig.register_project(self)
         self._set_contexts()
+        # depends on _set_contexts():
+        self.project_repoview.yaml = make_yaml(self.make_vault_lib())
 
     def _set_project_repoview(self):
         path = self.projectRoot
@@ -165,7 +167,7 @@ class Project:
             repos.append(self.project_repoview.repo)
         return repos
 
-    def search_for_manifest(self):
+    def search_for_manifest(self, can_be_empty):
         fullPath = os.path.join(
             self.projectRoot, DefaultNames.EnsembleDirectory, DefaultNames.Ensemble
         )
@@ -174,10 +176,12 @@ class Project:
         fullPath2 = os.path.join(self.projectRoot, DefaultNames.Ensemble)
         if os.path.exists(fullPath2):
             return fullPath2
-        raise UnfurlError(
-            'The can not find an ensemble in a default location: "%s" or "%s"'
-            % (fullPath, fullPath2)
-        )
+        if not can_be_empty:
+            raise UnfurlError(
+                'The can not find an ensemble in a default location: "%s" or "%s"'
+                % (fullPath, fullPath2)
+            )
+        return None
 
     def get_relative_path(self, path):
         return os.path.relpath(os.path.abspath(path), self.projectRoot)
@@ -261,7 +265,7 @@ class Project:
         self.workingDirs[localRepoPath] = RepoView(dict(name="", url=gitUrl), newRepo)
         return newRepo
 
-    def get_manifest_path(self, localEnv, manifestPath):
+    def get_manifest_path(self, localEnv, manifestPath, can_be_empty):
         if manifestPath:
             # at this point a named manifest
             location = self.find_ensemble_by_name(manifestPath)
@@ -295,7 +299,7 @@ class Project:
         else:
             # no manifest specified in the project config so check the default locations
             assert not manifestPath
-            fullPath = self.search_for_manifest()  # raises if not found
+            fullPath = self.search_for_manifest(can_be_empty)  # raises if not found
             return fullPath, self.get_default_context()
 
     def _set_contexts(self):
@@ -593,7 +597,7 @@ class LocalEnv:
                     )
         return project, context_name
 
-    def _resolve_path_and_project(self, manifestPath):
+    def _resolve_path_and_project(self, manifestPath, can_be_empty):
         if manifestPath:
             # raises if manifestPath is a directory without either a manifest or project
             foundManifestPath, project = self._find_given_manifest_or_project(
@@ -637,11 +641,18 @@ class LocalEnv:
                 (
                     self.manifestPath,
                     self.manifest_context_name,
-                ) = project.get_manifest_path(self, manifestPath)
+                ) = project.get_manifest_path(self, manifestPath, can_be_empty)
         else:
             self.project = None
 
-    def __init__(self, manifestPath=None, homePath=None, parent=None, project=None):
+    def __init__(
+        self,
+        manifestPath=None,
+        homePath=None,
+        parent=None,
+        project=None,
+        can_be_empty=False,
+    ):
         """
         If manifestPath is None find the first unfurl.yaml or ensemble.yaml
         starting from the current directory.
@@ -666,7 +677,7 @@ class LocalEnv:
             self.homeConfigPath = get_home_config_path(homePath)
         self.homeProject = self._get_home_project()
 
-        self._resolve_path_and_project(manifestPath)
+        self._resolve_path_and_project(manifestPath, can_be_empty)
         if project:
             # this arg is used in init.py when creating a project
             # overrides what was set by _resolve_path_and_project()
@@ -718,6 +729,7 @@ class LocalEnv:
             localEnv = LocalEnv(path, parent=self)
             return localEnv.get_manifest()
         else:
+            assert self.manifestPath
             manifest = self._manifests.get(self.manifestPath)
             if not manifest:
                 # should load vault ids from context
@@ -798,6 +810,8 @@ class LocalEnv:
             return manifestPath, None
 
     def _get_instance_repo(self):
+        if not self.manifestPath:
+            return None
         instanceDir = os.path.dirname(self.manifestPath)
         if self.project and instanceDir in self.project.workingDirs:
             return self.project.workingDirs[instanceDir].repo

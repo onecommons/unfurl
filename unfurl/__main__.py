@@ -222,7 +222,7 @@ def _get_runtime(options, ensemblePath):
     runtime = options.get("runtime")
     localEnv = None
     if not runtime:
-        localEnv = LocalEnv(ensemblePath, options.get("home"))
+        localEnv = LocalEnv(ensemblePath, options.get("home"), can_be_empty=True)
         runtime = localEnv.get_runtime()
     return runtime, localEnv
 
@@ -756,7 +756,7 @@ def clone(ctx, source, dest, **options):
 def git(ctx, gitargs, dir="."):
     """
     unfurl git --dir=/path/to/start [gitoptions] [gitcmd] [gitcmdoptions]: Runs command on each project repository."""
-    localEnv = LocalEnv(dir, ctx.obj.get("home"))
+    localEnv = LocalEnv(dir, ctx.obj.get("home"), can_be_empty=True)
     repos = localEnv.get_repos()
     status = 0
     if not repos:
@@ -774,14 +774,13 @@ def git(ctx, gitargs, dir="."):
     return status
 
 
-def get_commit_message(manifest):
-    statuses = manifest.get_repo_statuses(True)
+def get_commit_message(committer):
+    statuses = committer.get_repo_status(True)
     if not statuses:
         click.echo("Nothing to commit!")
         return None
-    defaultMsg = manifest.get_default_commit_message()
+    defaultMsg = committer.get_default_commit_message()
     MARKER = "# Everything below is ignored\n"
-    statuses = "".join(statuses)
     statusMsg = "# " + "\n# ".join(statuses.rstrip().splitlines())
     message = click.edit(defaultMsg + "\n\n" + MARKER + statusMsg)
     if message is not None:
@@ -810,18 +809,22 @@ def get_commit_message(manifest):
 def commit(ctx, message, ensemble, skip_add, no_edit, **options):
     """Commit any outstanding changes to this ensemble."""
     options.update(ctx.obj)
-    localEnv = LocalEnv(ensemble, options.get("home"))
-    manifest = localEnv.get_manifest()
+    localEnv = LocalEnv(ensemble, options.get("home"), can_be_empty=True)
+    if localEnv.manifestPath:
+        committer = localEnv.get_manifest()
+    else:
+        committer = localEnv.project.project_repoview
+
     if not skip_add:
-        manifest.add_all()
+        committer.add_all()
     if not message:
         if no_edit:
-            message = manifest.get_default_commit_message()
+            message = committer.get_default_commit_message()
         else:
-            message = get_commit_message(manifest)
+            message = get_commit_message(committer)
             if not message:
                 return  # aborted
-    committed = manifest.commit(message, False)
+    committed = committer.commit(message, False)
     click.echo(f"committed to {committed} repositories")
 
 
@@ -837,14 +840,16 @@ def commit(ctx, message, ensemble, skip_add, no_edit, **options):
 def git_status(ctx, ensemble, dirty, **options):
     """Show the git status for repository paths that are relevant to this ensemble."""
     options.update(ctx.obj)
-    localEnv = LocalEnv(ensemble, options.get("home"))
-    manifest = localEnv.get_manifest()
-    statuses = manifest.get_repo_statuses(dirty)
+    localEnv = LocalEnv(ensemble, options.get("home"), can_be_empty=True)
+    if localEnv.manifestPath:
+        committer = localEnv.get_manifest()
+    else:
+        committer = localEnv.project.project_repoview
+    statuses = committer.get_repo_status(dirty)
     if not statuses:
         click.echo("No status to display.")
     else:
-        for status in statuses:
-            click.echo(status)
+        click.echo(statuses)
 
 
 @cli.command()
@@ -914,7 +919,7 @@ def main():
 
 def vaultclient():
     try:
-        localEnv = LocalEnv(".")
+        localEnv = LocalEnv(".", can_be_empty=True)
     except Exception as err:
         click.echo(str(err), err=True)
         return 1
