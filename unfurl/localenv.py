@@ -94,10 +94,16 @@ class Project:
                     Repo.update_git_working_dirs(self.workingDirs, dir, os.listdir(dir))
 
         # add referenced local repositories outside of the project
-        for path in self.localConfig.localRepositories:
+        for path, tpl in self.localConfig.localRepositories.items():
             if os.path.isdir(path):
-                # XXX assumes its a git repo, should compare and validate lock metadata
-                Repo.update_git_working_dirs(self.workingDirs, path, os.listdir(path))
+                repo = Repo.find_containing_repo(path)
+                if repo:  # make sure it's a git repo
+                    # XXX validate that repo matches url and metadata in tpl
+                    self.workingDirs[path] = RepoView(
+                        dict(url=repo.url, name=tpl.get("name", "")),
+                        repo,
+                        split_git_url(tpl["url"])[1],
+                    )
 
     @staticmethod
     def normalize_path(path):
@@ -757,7 +763,10 @@ class LocalEnv:
 
     def get_external_manifest(self, location):
         localEnv = self._get_external_localenv(location)
-        return localEnv.get_manifest()
+        if localEnv:
+            return localEnv.get_manifest()
+        else:
+            return None
 
     def _get_external_localenv(self, location):
         assert "project" in location
@@ -770,11 +779,13 @@ class LocalEnv:
             project = self.homeProject.localConfig.projects.get(projectName)
             # allow "home" to refer to the home project
             if not project and projectName == "home":
-                repo = self.homeProject.repo
+                repo = self.homeProject.project_repoview
                 file = ""
         if project:
-            repo = self.find_git_repo(project["url"])
-            file = project.get("file") or ""
+            url, file, revision = split_git_url(project["url"])
+            repo = self.find_git_repo(url)
+            if project.get("file"):
+                file = os.path.join(file, project.get("file"))
 
         if not repo:
             return None

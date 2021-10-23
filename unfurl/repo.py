@@ -221,6 +221,8 @@ class RepoView:
         self.repository = repository
         self.repo = repo
         self.path = path
+        if repo and path and repository:
+            self.repository.url = repo.get_url_with_path(path)
         self.readOnly = not repo
         self.yaml = None
 
@@ -247,7 +249,7 @@ class RepoView:
     def origin(self):
         if (
             self.repo
-            and normalize_git_url(self.repo.url) != self.url
+            and normalize_git_url(self.repo.url) != split_git_url(self.url)[0]
             and self.repo.url != self.repo.working_dir
         ):
             return self.repo.url

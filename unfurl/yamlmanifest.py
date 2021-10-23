@@ -427,13 +427,15 @@ class YamlManifest(ReadOnlyManifest):
         # load the manifest for the imported resource
         location = value.get("manifest")
         if not location:
-            raise UnfurlError(f"Can not import '{(name)}': no manifest specified")
+            raise UnfurlError(
+                f"Can not import external ensemble '{(name)}': no manifest specified"
+            )
 
         if "project" in location:
             importedManifest = self.localEnv.get_external_manifest(location)
             if not importedManifest:
                 raise UnfurlError(
-                    f"Can not import '{name}': can't find project '{location['project']}'"
+                    f"Can not import external ensemble '{name}': can't find project '{location['project']}'"
                 )
         else:
             # ensemble is in the same project
@@ -450,7 +452,9 @@ class YamlManifest(ReadOnlyManifest):
 
         uri = value.get("uri")
         if uri and not importedManifest.has_uri(uri):
-            raise UnfurlError(f"Error importing '{path}', uri mismatch for '{uri}'")
+            raise UnfurlError(
+                f"Error importing external ensemble at '{path}', uri mismatch for '{uri}'"
+            )
         rname = value.get("instance", "root")
         if rname == "*":
             rname = "root"
@@ -459,7 +463,9 @@ class YamlManifest(ReadOnlyManifest):
         root = importedManifest.get_root_resource()
         resource = root.find_instance_or_external(rname)
         if not resource:
-            raise UnfurlError(f"Can not import '{name}': instance '{rname}' not found")
+            raise UnfurlError(
+                f"Can not import external ensemble '{name}': instance '{rname}' not found"
+            )
         self.imports[name] = (resource, value)
         self._importedManifests[id(root)] = importedManifest
 

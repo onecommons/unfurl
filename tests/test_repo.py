@@ -428,6 +428,7 @@ ensemble.yaml
         "slow" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set"
     )
     def test_home_template(self):
+        # test creating and deploying the home template
         runner = CliRunner()
         with runner.isolated_filesystem():
             # override home so to avoid interferring with other tests
@@ -455,8 +456,8 @@ ensemble.yaml
             )
             self.assertEqual(result.exit_code, 0, result)
 
-            # test that projects are registered in the home
-            # use this project because the repository it is in has a non-local origin set:
+            # test that invoking an ensemble will cause the project it is in to registered in the home project
+            # we use this ensemble because it is in a repository with a non-local origin set:
             project = os.path.join(
                 os.path.dirname(__file__), "examples/testimport-ensemble.yaml"
             )
@@ -482,22 +483,24 @@ ensemble.yaml
             # assert added to projects
             basedir = os.path.dirname(os.path.dirname(__file__))
             repo = GitRepo(Repo(basedir))
-            gitUrl = repo.url
+            gitUrl = normalize_git_url(repo.url) + "#:tests/examples"
+            # assert added to projects
             # travis-ci does a shallow clone so it doesn't have the initial initial revision
             initial = repo.get_initial_revision()
             with open("./unfurl_home/unfurl.yaml") as f:
                 contents = f.read()
+                # print(contents)
                 for line in [
                     "examples:",
                     "url: " + gitUrl,
                     "initial: " + initial,
-                    "file: tests/examples",
                 ]:
-                    self.assertIn(line, contents)
+                    self.assertIn(line, contents), line
 
             # assert added to localRepositories
             with open("./unfurl_home/local/unfurl.yaml") as f:
                 contents = f.read()
+                # print(contents)
                 for line in [
                     "url: " + normalize_git_url(gitUrl),
                     "initial: " + initial,
@@ -537,7 +540,7 @@ spec:
             )
             self.assertEqual(result.exit_code, 0, result)
 
-            # assert that we loaded the external ensemble from test "_examples" project
+            # assert that we loaded the external ensemble from the test "examples" project
             # and we're able to reference its outputs
             assert _latestJobs
             testNode = _latestJobs[-1].rootResource.find_resource("testNode")
