@@ -512,14 +512,17 @@ class Job(ConfigChange):
                 'selected instance not found: "%s"', self.jobOptions.instance
             )
 
-    def run(self):
+    def render(self):
         if self.plan_requests is None:
             ready = self.create_plan()
         else:
             ready = self.plan_requests[:]
 
+        # currently external jobs are just for installing artifacts
+        # XXX need to make sure to only run those when that changes
         self.external_jobs = self.run_external()
-        # logger.warning("error running job on external ensemble")
+        if self.external_jobs and self.external_jobs[-1].status == Status.error:
+            return [], [], ["error running job on external ensemble"]
 
         self.workDone = collections.OrderedDict()
         # run artifact job requests before render
@@ -527,9 +530,14 @@ class Job(ConfigChange):
             jr = ready.pop(0)
             self.run_job_request(jr)
 
-        ready, notReady, errors = do_render_requests(self, ready)
+        return do_render_requests(self, ready)
+
+    def run(self):
+        ready, notReady, errors = self.render()
         if errors:
-            logger.warning("error rendering: %s", errors)
+            logger.error("Aborting job: there were errors during rendering: %s", errors)
+            return self.rootResource
+
         # XXX abort job if errors: return self.rootResource
         # XXX update_plan(ready, unfulfilled) # try to reorder so we can add to ready
         logger.trace("ready %s; not ready %s", ready, notReady)
@@ -1198,9 +1206,6 @@ class Job(ConfigChange):
         return "\n".join(output)
 
     def summary(self):
-        if self.jobOptions.planOnly:
-            return self._plan_summary()
-
         outputString = ""
         outputs = self.get_outputs()
         if outputs:

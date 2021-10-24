@@ -386,7 +386,7 @@ def _run_local(ensemble, options):
         click.echo("Job unexpected aborted")
         if options.get("verbose", 0) > 0:
             raise job.unexpectedAbort
-    else:
+    elif not job.jobOptions.planOnly:
         jsonSummary = {}
         summary = options.get("output")
         if summary == "text":
