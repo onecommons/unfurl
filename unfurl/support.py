@@ -24,6 +24,7 @@ from .util import (
     is_sensitive,
     load_module,
     load_class,
+    sensitive,
 )
 from .merge import intersect_dict, merge_dicts
 from unfurl.projectpaths import get_path
@@ -114,9 +115,7 @@ set_eval_func("python", eval_python)
 
 set_eval_func(
     "sensitive",
-    lambda arg, ctx: wrap_sensitive_value(
-        map_value(arg, ctx), ctx.templar and ctx.templar._loader._vault
-    ),
+    lambda arg, ctx: wrap_sensitive_value(map_value(arg, ctx)),
 )
 
 
@@ -289,9 +288,8 @@ def apply_template(value, ctx, overrides=None):
                         # we still need to wrap the entire result as sensitive because we
                         # don't know how the referenced senstive results were transformed by the template
                         ctx.trace("setting template result as sensitive")
-                        return wrap_sensitive_value(
-                            value, templar._loader._vault
-                        )  # mark the template result as sensitive
+                        # mark the template result as sensitive
+                        return wrap_sensitive_value(value)
                     if result.external:
                         external_result = result
 
@@ -798,7 +796,7 @@ class TopologyMap(dict):
         return len(tuple(self.resource.get_self_and_descendents()))
 
 
-def _is_sensitive(defs, key, value):
+def _is_sensitive_schema(defs, key, value):
     defSchema = (key in defs and defs[key].schema) or {}
     defMeta = defSchema.get("metadata", {})
     # attribute marked as sensitive and value isn't a secret so mark value as sensitive
@@ -881,14 +879,12 @@ class AttributeManager:
 
     @staticmethod
     def _save_sensitive(defs, key, value, instance):
-        sensitive = _is_sensitive(defs, key, value)
+        sensitive = _is_sensitive_schema(defs, key, value)
         if sensitive:
-            savedValue = wrap_sensitive_value(
-                value.resolved, instance.templar._loader._vault
-            )
+            savedValue = wrap_sensitive_value(value.resolved)
         else:
             savedValue = value.as_ref()  # serialize Result
-        return savedValue, sensitive
+        return savedValue
 
     @staticmethod
     def _check_attribute(specd, key, value, instance):
@@ -938,16 +934,15 @@ class AttributeManager:
                     _attributes[key] = value
                 else:
                     changed, isLive = self._check_attribute(specd, key, value, resource)
-                    savedValue, sensitive = self._save_sensitive(
-                        defs, key, value, resource
-                    )
+                    savedValue = self._save_sensitive(defs, key, value, resource)
+                    is_sensitive = isinstance(savedValue, sensitive)
                     # save the Result not savedValue because we need the ExternalValue
-                    live[key] = (isLive, savedValue if sensitive else value)
+                    live[key] = (isLive, savedValue if is_sensitive else value)
                     if not isLive:
                         assert not changed  # changed implies isLive
                         continue  # it hasn't changed and it is part of the spec so don't save it as an attribute
 
-                    if changed and sensitive:
+                    if changed and is_sensitive:
                         foundSensitive.append(key)
                         # XXX if defMeta.get('immutable') and key in specd:
                         #  error('value of attribute "%s" changed but is marked immutable' % key)

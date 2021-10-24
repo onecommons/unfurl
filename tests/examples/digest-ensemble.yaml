@@ -7,6 +7,10 @@ spec:
         referenced:
           - eval:
               tempfile: "the contents"
+        sensitive_prop:
+          eval:
+            sensitive: shhh
+        cleartext_prop: public
   service_template:
     topology_template:
       node_templates:
@@ -18,6 +22,10 @@ spec:
               configure:
                 implementation: Template
                 inputs:
+                  cleartext_input: public
+                  sensitive_input:
+                    eval:
+                      sensitive: shhh
                   run: # this will evaluate all these expressions
                    dir_in_git: "{{ '../fixtures/helmrepo' | abspath('project') }}"
                    file_in_git: "{{ '../fixtures/setup.py' | abspath('project') }}"
@@ -26,4 +34,12 @@ spec:
                    # XXX test:
                    dir_not_in_git:
                    excluded_file:
+
+                  # "done" is excluded from the digest but any references during its evaluation will be included
+                  # include sensitive values to test that they are excluded from the digest
+                  done:
+                    result:
+                      cmd: "{{ inputs.sensitive_input }} {{ '::anInstance::sensitive_prop' | eval }} {{ '::anInstance::cleartext_prop' | eval }} {{ inputs.cleartext_input }}"
+
+
 changes: []

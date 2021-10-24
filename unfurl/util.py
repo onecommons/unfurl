@@ -112,7 +112,7 @@ class UnfurlAddingResourceError(UnfurlTaskError):
         self.resourceSpec = resourceSpec
 
 
-def wrap_sensitive_value(obj, vault=None):
+def wrap_sensitive_value(obj):
     # we don't remember the vault and vault id associated with this value
     # so the value will be rekeyed with whichever vault is associated with the serializing yaml
     if isinstance(obj, bytes):

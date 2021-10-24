@@ -77,8 +77,10 @@ def test_digests(caplog):
     job = runner.run(JobOptions(startTime=1, out=output))  # deploy
     assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
     # print(job.out.getvalue())
+    digestKeys = job.manifest.manifest.config["changes"][0]["digestKeys"]
+    assert digestKeys == "run,cleartext_input,::anInstance::cleartext_prop"
     digest = job.manifest.manifest.config["changes"][0]["digestValue"]
-    assert digest == "51a474d43031bde30ec0832e11ca03cf70e5a36f"
+    assert digest == "961216502983569ae51c5c8f96b106ccecca0d3e"
 
     filepath = FilePath(__file__ + "/../fixtures/helmrepo")
     digestContents = filepath.__digestable__(dict(manifest=manifest))

@@ -14,6 +14,7 @@ from .util import (
     filter_env,
     to_enum,
     wrap_sensitive_value,
+    sensitive,
 )
 from . import merge
 from .eval import Ref, map_value, RefContext
@@ -186,13 +187,22 @@ class Configurator:
         """
         # XXX user definition should be able to exclude inputs from digest
         inputs = task._resolved_inputs
-        keys = [k for k in inputs.keys() if k not in self.exclude_from_digest]
 
+        # sensitive values are always redacted so no point in including them in the digest
+        # (for cleaner output and security-in-depth)
+        keys = [
+            k
+            for k in inputs.keys()
+            if k not in self.exclude_from_digest
+            and not isinstance(inputs[k].resolved, sensitive)
+        ]
         values = [inputs[key] for key in keys]
 
-        keys += [dep.expr for dep in task.dependencies]
+        for dep in task.dependencies:
+            if not isinstance(dep.expected, sensitive):
+                keys.append(dep.expr)
+                values.append(dep.expected)
 
-        values += [dep.expected for dep in task.dependencies]
         if keys:
             inputdigest = get_digest(values, manifest=task._manifest)
         else:
@@ -488,9 +498,7 @@ class TaskView:
           sensitive: A copy of the value converted the appropriate subtype of :class:`unfurl.logs.sensitive` value or the value itself if it can't be converted.
 
         """
-        return wrap_sensitive_value(
-            value, self.operationHost and self.operationHost.templar._loader._vault
-        )
+        return wrap_sensitive_value(value)
 
     def add_message(self, message):
         self.messages.append(message)
