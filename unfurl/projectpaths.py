@@ -307,10 +307,10 @@ def _file_func(arg, ctx):
     kw = map_value(ctx.kw, ctx)
     file = File(
         map_value(arg, ctx),
-        kw.get("dir", ctx.currentResource.base_dir),
+        map_value(kw.get("dir", ctx.currentResource.base_dir), ctx),
         ctx.templar and ctx.templar._loader,
         ctx.currentResource.root.attributeManager.yaml,
-        kw.get("encoding"),
+        map_value(kw.get("encoding"), ctx),
     )
     if "contents" in kw:
         file.write(map_value(kw["contents"], ctx))
