@@ -757,7 +757,7 @@ def git(ctx, gitargs, dir="."):
     """
     unfurl git --dir=/path/to/start [gitoptions] [gitcmd] [gitcmdoptions]: Runs command on each project repository."""
     localEnv = LocalEnv(dir, ctx.obj.get("home"), can_be_empty=True)
-    repos = localEnv.get_repos()
+    repos = localEnv.get_git_repos()
     status = 0
     if not repos:
         click.echo("Can't run git command, no repositories found")

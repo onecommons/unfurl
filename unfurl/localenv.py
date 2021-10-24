@@ -167,7 +167,7 @@ class Project:
                                     paths.append(path)
         return paths
 
-    def get_repos(self):
+    def get_git_repos(self):
         repos = [r.repo for r in self.workingDirs.values()]
         if self.project_repoview.repo and self.project_repoview.repo not in repos:
             repos.append(self.project_repoview.repo)
@@ -824,14 +824,15 @@ class LocalEnv:
         if not self.manifestPath:
             return None
         instanceDir = os.path.dirname(self.manifestPath)
-        if self.project and instanceDir in self.project.workingDirs:
-            return self.project.workingDirs[instanceDir].repo
-        else:
-            return Repo.find_containing_repo(instanceDir)
-
-    def get_repos(self):
         if self.project:
-            repos = self.project.get_repos()
+            repo = self.project.find_path_in_repos(instanceDir)[0]
+            if repo:
+                return repo
+        return Repo.find_containing_repo(instanceDir)
+
+    def get_git_repos(self):
+        if self.project:
+            repos = self.project.get_git_repos()
         else:
             repos = []
         if self.instanceRepo and self.instanceRepo not in repos:
