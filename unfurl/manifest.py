@@ -247,6 +247,18 @@ class Manifest(AttributeManager):
     #         postConditions=spec.get("postConditions"),
     #     )
 
+    def _create_requirement(self, key, val):
+        # parent will be the capability, should have already been created
+        capabilityId = val.get("capability")
+        if not capabilityId:
+            raise UnfurlError(f"requirement is missing capability {key}")
+        capability = capabilityId and self.get_root_resource().query(capabilityId)
+        if not capability or not isinstance(capability, CapabilityInstance):
+            raise UnfurlError(f"can not find capability {capabilityId}")
+        if capability._relationships is None:
+            capability._relationships = []
+        return self._create_entity_instance(RelationshipInstance, key, val, capability)
+
     def create_node_instance(self, rname, resourceSpec, parent=None):
         # if parent property is set it overrides the parent argument
         pname = resourceSpec.get("parent")
@@ -264,20 +276,7 @@ class Manifest(AttributeManager):
 
         if resourceSpec.get("requirements"):
             for key, val in resourceSpec["requirements"].items():
-                # parent will be the capability, should have already been created
-                capabilityId = val.get("capability")
-                if not capabilityId:
-                    raise UnfurlError(f"requirement is missing capability {key}")
-                capability = capabilityId and self.get_root_resource().query(
-                    capabilityId
-                )
-                if not capability or not isinstance(capability, CapabilityInstance):
-                    raise UnfurlError(f"can not find capability {capabilityId}")
-                if capability._relationships is None:
-                    capability._relationships = []
-                requirement = self._create_entity_instance(
-                    RelationshipInstance, key, val, capability
-                )
+                requirement = self._create_requirement(key, val)
                 requirement.source = resource
                 resource.requirements.append(requirement)
 
