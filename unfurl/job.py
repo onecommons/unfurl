@@ -354,6 +354,9 @@ class ConfigTask(ConfigChange, TaskView):
         # record the live attributes that we are dependent on
         # note: task start fresh with no dependencies so don't need to worry update or removing previous ones
         for key, (target, attributes) in dependencies.items():
+            if key.startswith("::.requirements"):
+                # hackish: exclude default connections (which are represented as root relationships)
+                continue
             for name, (live, value) in attributes.items():
                 # hackish: we only want the status of a dependency to reflect its target instance's status
                 # when the attribute is live (as opposed to a static property set in the spec)
