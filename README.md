@@ -108,3 +108,4 @@ Unfurl is in early stages of development and should not be used in production. I
 
 * Locking is not implemented to prevent multiple instances of unfurl running at the same time from modifying the same resources.
 * Incremental updates are only partially implemented. You can incrementally update an ensemble by explicitly limit jobs with the `--force` and `--instance` [command line options](docs/cli.html#unfurl-deploy).
+* Google Cloud SDK [doesn't yet work](https://issuetracker.google.com/issues/202172882?pli=1) with Python 3.10.

@@ -531,7 +531,9 @@ class Job(ConfigChange):
         # run artifact job requests before render
         while ready and isinstance(ready[0], JobRequest):
             jr = ready.pop(0)
-            self.run_job_request(jr)
+            childjob = self.run_job_request(jr)
+            if childjob.status == Status.error:
+                return [], [], ["error running artifact job"]
 
         return do_render_requests(self, ready)
 

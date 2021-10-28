@@ -412,9 +412,6 @@ class Project:
         if context:
             props["environment"] = context
         location = self.find_ensemble_by_path(manifestPath)
-        logger.error(
-            "register_ensemble %s %s %s", relPath, location, self.localConfig.ensembles
-        )
         if location:
             location.update(props)
         else:

@@ -49,7 +49,7 @@ def get_digest(tpl, **kw):
     m = hashlib.sha1()  # use same digest function as git
     for contents in _get_digest(tpl, kw):
         if not isinstance(contents, bytes):
-            contents = contents.encode("utf-8")
+            contents = str(contents).encode("utf-8")
         m.update(contents)
     return m.hexdigest()
 
