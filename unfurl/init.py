@@ -231,7 +231,9 @@ def render_project(
     )
     logger = logging.getLogger("unfurl")
     logger.warning(
-        "A password was generated and included in the local config file at %s -- please keep this password safe, without it you will not be able to decrypt any encrypt files committed to the repository.",
+        "A password was generated and included in the local config file at %s -- "
+        "please keep this password safe, without it you will not be able to decrypt any encrypted files "
+        "committed to the repository.",
         localProjectConfig,
     )
 
@@ -930,10 +932,10 @@ def create_venv(projectDir, pipfileLocation, unfurlLocation):
         os.chdir(projectDir)
         # need to set env vars and change current dir before importing pipenv
         from pipenv import environments
-        from pipenv.core import do_install, ensure_python
+        from pipenv.core import do_install
         from pipenv.utils import python_version
 
-        pythonPath = str(ensure_python())
+        pythonPath = os.environ["PIPENV_PYTHON"]
         assert pythonPath, pythonPath
         if not pipfileLocation:
             versionStr = python_version(pythonPath)
