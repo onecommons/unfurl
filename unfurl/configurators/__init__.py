@@ -3,6 +3,8 @@
 from ..configurator import Configurator
 from ..result import ResultsMap
 from ..util import register_short_names
+from ..support import Status
+import importlib
 
 # need to define these now because these configurators are lazily imported
 # and so won't register themselves through AutoRegisterClass
@@ -12,6 +14,18 @@ register_short_names(
         for name in "Ansible Shell Supervisor Terraform DNS".split()
     }
 )
+
+
+class PythonPackageCheckConfigurator(Configurator):
+    def run(self, task):
+        try:
+            importlib.import_module(task.target.file)
+            status = Status.ok
+        except ImportError:
+            status = Status.absent
+        except:
+            status = Status.error
+        yield task.done(True, status=status)
 
 
 class TemplateConfigurator(Configurator):

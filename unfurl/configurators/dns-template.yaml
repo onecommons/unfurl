@@ -34,6 +34,11 @@ node_types:
     capabilities:
         resolve:
            type: unfurl.capabilities.DNSZone
+    requirements:
+        - host:
+           capability: unfurl.capabilities.DNSZone
+           occurrences: [0, 1] # it isn't always required
+
     interfaces:
       defaults:
         implementation:

@@ -40,13 +40,13 @@ artifact_types:
         delete:
 
   artifact.PythonPackage:
-    derived_from: unfurl.artifacts.ShellExecutable
+    derived_from: tosca.artifacts.Root
     interfaces:
       Install:
-        check:  pipenv check {{SELF.file}
+        check: unfurl.configurators.PythonPackageCheckConfigurator
       Standard:
-        create: pipenv install {{SELF.file}}
-        delete: pipenv remove {{SELF.file}}
+        create: pipenv --bare install {{SELF.file}}
+        delete: pipenv --bare remove {{SELF.file}}
 
   unfurl.artifacts.TerraformModule:
     derived_from: unfurl.artifacts.HasConfigurator

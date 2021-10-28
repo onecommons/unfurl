@@ -1,0 +1,72 @@
+# Copyright (c) 2020 Adam Souzis
+# SPDX-License-Identifier: MIT
+tosca_definitions_version: tosca_simple_unfurl_1_0_0
+metadata:
+  template_name: Google Cloud Platform
+  template_author: onecommons.org
+  template_version: 0.1.0
+
+node_types:
+  unfurl.nodes.GoogleCloudProject:
+    derived_from: unfurl.nodes.CloudAccount
+    properties:
+      # admin_email
+      projectId:
+        type: string
+      projectNumber:
+        type: integer
+        required: false
+      name:
+        description: "User defined name of the project"
+        type: string
+      billingAccount:
+        type: string
+        required: false
+    requirements:
+      - host:
+          node: unfurl.nodes.GoogleCloudResource
+          occurrences: [0, 1]
+
+  #  https://cloud.google.com/resource-manager/
+  unfurl.nodes.GoogleCloudResource:
+    derived_from: tosca.nodes.Root
+    properties:
+      displayName:
+        description: "User defined name of the resource"
+        type: string
+      id:
+        type: integer
+      type:
+        type: string
+      name:
+        type: string
+        default: {concat: [{get_property: [SELF, type]}, /, {get_property: [SELF, id]}]}
+
+  unfurl.nodes.GoogleCloudOrganization:
+    derived_from: unfurl.nodes.GoogleCloudResource
+    properties:
+      type:
+        type: string
+        default: "organization"
+      organization_id: # alias id for easy lookup
+        type: integer
+        default:
+          eval: id
+      parent:
+        type: string
+        default:
+          eval: .parent::.name
+
+  unfurl.nodes.GoogleCloudFolder:
+    derived_from: unfurl.nodes.GoogleCloudResource
+    properties:
+      type:
+        type: string
+        default: "folder"
+      parent:
+        type: string
+        default:
+          eval: .parent::.name
+    requirements:
+      - host:
+          node: unfurl.nodes.GoogleCloudResource
