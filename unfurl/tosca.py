@@ -20,6 +20,7 @@ import toscaparser.artifacts
 from toscaparser.common.exception import ExceptionCollector
 import six
 import logging
+import re
 
 from ruamel.yaml.comments import CommentedMap
 
@@ -47,6 +48,25 @@ def is_function(function):
 
 
 functions.is_function = is_function
+
+
+def validate_unfurl_identifier(name):
+    # should match NamedObject in unfurl json schema
+    return re.match(r"^[A-Za-z._][A-Za-z0-9._:\-]*$", name) is not None
+
+
+def encode_unfurl_identifier(name):
+    def encode(match):
+        return f"-{ord(match.group(0))}-"
+
+    return re.sub(r"[^A-Za-z0-9._:\-]", encode, name)
+
+
+def decode_unfurl_identifier(name):
+    def decode(match):
+        return chr(int(match.group(1)))
+
+    return re.sub(r"-([0-9]+)-", decode, name)
 
 
 def find_standard_interface(op):
@@ -384,6 +404,7 @@ class ToscaSpec:
 
     def _get_artifact_spec_from_name(self, name):
         repository, sep, file = name.partition(":")
+        file = decode_unfurl_identifier(file)
         artifact = self._get_artifact_declared_tpl(repository, file)
         if artifact:
             return artifact
@@ -524,6 +545,14 @@ class EntitySpec(ResourceRef):
         self.toscaEntityTemplate = toscaNodeTemplate
         self.spec = spec
         self.name = toscaNodeTemplate.name
+        if not validate_unfurl_identifier(self.name):
+            ExceptionCollector.appendException(
+                UnfurlValidationError(
+                    f'"{self.name}" is not a valid TOSCA template name',
+                    log=True,
+                )
+            )
+
         self.type = toscaNodeTemplate.type
         # nodes have both properties and attributes
         # as do capability properties and relationships
@@ -615,8 +644,14 @@ class EntitySpec(ResourceRef):
 
     @staticmethod
     def get_name_from_artifact_spec(artifact_tpl):
-        name = artifact_tpl.get("name", artifact_tpl.get("file", ""))
-        return artifact_tpl.get("repository", "") + "--" + name
+        name = artifact_tpl.get(
+            "name", encode_unfurl_identifier(artifact_tpl.get("file", ""))
+        )
+        repository_name = artifact_tpl.get("repository", "")
+        if repository_name:
+            return repository_name + "--" + name
+        else:
+            return name
 
     def find_or_create_artifact(self, nameOrTpl, path=None):
         if not nameOrTpl:
