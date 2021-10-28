@@ -446,7 +446,8 @@ class AbstractTemplateTest(unittest.TestCase):
                    implementation: SetAttribute
       instances:
         anInstance:
-         type: test.nodes.AbstractTest
+          template:
+            type: test.nodes.AbstractTest
     """
             % API_VERSION
         )
@@ -527,7 +528,7 @@ spec:
                             "status": "ok",
                             "target": "foreign:anInstance",
                             "targetStatus": "ok",
-                            "targetState": "started",
+                            "targetState": None,  # "started",
                             "template": "anInstance",
                             "type": "test.nodes.AbstractTest",
                         }

@@ -34,31 +34,36 @@ spec:
     test1:
         attributes:
           meetsTheRequirement: "copy"
-        interfaces:
-          Standard:
-            operations:
-              configure:
-                implementation:
-                  className: Test
-                  preConditions:
-                    properties:
-                      meetsTheRequirement:
-                        type: string
-                    required: ['meetsTheRequirement']
+        readyState: pending
+        template:
+          type: unfurl.nodes.Default
+          interfaces:
+            Standard:
+              operations:
+                configure:
+                  implementation:
+                    className: Test
+                    preConditions:
+                      properties:
+                        meetsTheRequirement:
+                          type: string
+                      required: ['meetsTheRequirement']
     test2:
         attributes:
           meetsTheRequirement: false
         +/spec/instances/test1:
     test3:
         +/spec/instances/test1:
-        properties:
-          resourceName: added1
-          addresources: true
+        template:
+          properties:
+            resourceName: added1
+            addresources: true
     test4:
         +/spec/instances/test3:
-        properties:
-          resourceName: added2
-          yieldresources: true
+        template:
+          properties:
+            resourceName: added2
+            yieldresources: true
 """
 
 

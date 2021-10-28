@@ -216,13 +216,15 @@ class RunTest(unittest.TestCase):
     spec:
       instances:
         anInstance:
-          # template: foo
-          interfaces:
-            Standard:
-              operations:
-               configure:
-                implementation:    TestSubtask
-                inputs: {}
+          template:
+            type: unfurl.nodes.Default
+            interfaces:
+              Standard:
+                operations:
+                 configure:
+                  implementation:    TestSubtask
+                  inputs: {}
+          readyState: pending
     """
             % API_VERSION
         )
@@ -231,6 +233,7 @@ class RunTest(unittest.TestCase):
         output = six.StringIO()
         job = runner.run(JobOptions(add=True, out=output, startTime="test"))
         assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
+        # print(output.getvalue())
         # workDone includes subtasks
         assert len(job.workDone) == 2, job.workDone
 
@@ -509,6 +512,7 @@ environment:
 spec:
   instances:
     importer:
+      template: importer
   service_template:
     topology_template:
       node_templates:

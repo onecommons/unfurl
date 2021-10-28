@@ -506,7 +506,7 @@ class DeployPlan(Plan):
         """
         assert template and instance
         jobOptions = self.jobOptions
-        if jobOptions.add and not jobOptions.skip_new:
+        if jobOptions.add and not jobOptions.skip_new and instance.status != Status.ok:
             if not instance.last_change:  # never instantiated before
                 return Reason.add
 
@@ -529,7 +529,11 @@ class DeployPlan(Plan):
 
         reason = self.check_for_repair(instance)
         # there isn't a new config to run, see if the last applied config needs to be re-run
-        if not reason and (jobOptions.change_detection != "skip"):
+        if (
+            not reason
+            and (jobOptions.change_detection != "skip")
+            and instance.last_change
+        ):
             # XXX distinguish between "spec" and "evaluate" change_detection
             return Reason.reconfigure
         return reason

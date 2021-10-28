@@ -23,7 +23,7 @@ from .manifest import Manifest
 from .tosca import ArtifactSpec
 from .runtime import TopologyInstance
 from .eval import map_value
-from .tosca import ToscaSpec, TOSCA_VERSION
+from .planrequests import create_instance_from_spec
 
 from ruamel.yaml.comments import CommentedMap
 from codecs import open
@@ -318,8 +318,9 @@ class YamlManifest(ReadOnlyManifest):
         # create an new instances declared in the spec:
         for name, instance in spec.get("instances", {}).items():
             if not rootResource.find_resource(name):
-                # XXX like Plan.createResource() parent should be hostedOn target if defined
-                self.create_node_instance(name, instance or {}, rootResource)
+                if "readyState" not in instance:
+                    instance["readyState"] = "ok"
+                create_instance_from_spec(self, rootResource, name, instance)
 
         self._configure_root(rootResource)
         self._ready(rootResource)
@@ -567,18 +568,23 @@ class YamlManifest(ReadOnlyManifest):
             return None
         name, status = self.save_entity_instance(resource)
         status["capability"] = resource.parent.key
-        return (name, status)
+        return [{name: status}]
 
     def _save_entity_if_instantiated(self, resource):
         if not resource.last_change and (
-            not resource.local_status or resource.local_status <= Status.ok
+            not resource.local_status
+            # or resource.local_status in [Status.unknown, Status.ok]  # , Status.pending]
         ):
-            # no reason to serialize capabilities that haven't been instantiated
+            # no reason to serialize entities that haven't been instantiated
             return None
         return self.save_entity_instance(resource)
 
     def save_resource(self, resource, discovered):
-        name, status = self.save_entity_instance(resource)
+        ret = self._save_entity_if_instantiated(resource)
+        if not ret:
+            return ret
+        name, status = ret
+
         if self.tosca.discovered and resource.template.name in self.tosca.discovered:
             discovered[resource.template.name] = self.tosca.discovered[
                 resource.template.name
@@ -602,7 +608,7 @@ class YamlManifest(ReadOnlyManifest):
                 filter(None, map(self.save_requirement, resource.requirements))
             )
             if requirements:
-                status["requirements"] = CommentedMap(requirements)
+                status["requirements"] = requirements
 
         if resource._artifacts:
             # assumes names are unique!
@@ -616,7 +622,12 @@ class YamlManifest(ReadOnlyManifest):
 
         if resource.instances:
             status["instances"] = CommentedMap(
-                map(lambda r: self.save_resource(r, discovered), resource.instances)
+                filter(
+                    None,
+                    map(
+                        lambda r: self.save_resource(r, discovered), resource.instances
+                    ),
+                )
             )
 
         return (name, status)
@@ -632,9 +643,12 @@ class YamlManifest(ReadOnlyManifest):
         save_status(resource, status)
         # getOperationalDependencies() skips inputs and outputs
         status["instances"] = CommentedMap(
-            map(
-                lambda r: self.save_resource(r, discovered),
-                resource.get_operational_dependencies(),
+            filter(
+                None,
+                map(
+                    lambda r: self.save_resource(r, discovered),
+                    resource.get_operational_dependencies(),
+                ),
             )
         )
         return status

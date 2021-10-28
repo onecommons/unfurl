@@ -429,8 +429,13 @@ class ToscaSpec:
                 )
 
         for name, impl in tpl.get("instances", {}).items():
-            if name not in node_templates and impl is not None:
-                node_templates[name] = self.load_instance(impl.copy())
+            if (
+                name not in node_templates
+                and isinstance(impl, dict)
+                and "template" not in impl
+            ):
+                # add this as a template
+                node_templates[name] = self.instance_to_template(impl.copy())
 
         if "discovered" in tpl:
             # node templates added dynamically by configurators
@@ -445,7 +450,7 @@ class ToscaSpec:
                             custom_types
                         )
 
-    def load_instance(self, impl):
+    def instance_to_template(self, impl):
         if "type" not in impl:
             impl["type"] = "unfurl.nodes.Default"
         installer = impl.pop("install", None)

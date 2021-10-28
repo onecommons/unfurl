@@ -251,7 +251,9 @@ class Manifest(AttributeManager):
         # parent will be the capability, should have already been created
         capabilityId = val.get("capability")
         if not capabilityId:
-            raise UnfurlError(f"requirement is missing capability {key}")
+            nodeId = val.get("node")
+            if not nodeId:
+                raise UnfurlError(f"requirement is missing capability {key}")
         capability = capabilityId and self.get_root_resource().query(capabilityId)
         if not capability or not isinstance(capability, CapabilityInstance):
             raise UnfurlError(f"can not find capability {capabilityId}")
@@ -275,7 +277,8 @@ class Manifest(AttributeManager):
                 self._create_entity_instance(CapabilityInstance, key, val, resource)
 
         if resourceSpec.get("requirements"):
-            for key, val in resourceSpec["requirements"].items():
+            for req in resourceSpec["requirements"]:
+                key, val = next(iter(req.items()))
                 requirement = self._create_requirement(key, val)
                 requirement.source = resource
                 resource.requirements.append(requirement)
