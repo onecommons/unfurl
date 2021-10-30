@@ -19,6 +19,12 @@ spec:
           private_address: "annotated"
           ports: []
 
+      node3::a_connection:
+        relationship:
+           type:  tosca.relationships.ConnectsTo
+           properties:
+              foo: bar
+
     node_types:
       testy.nodes.aNodeType:
         derived_from: tosca.nodes.Root
@@ -51,6 +57,12 @@ spec:
           properties:
             private_address: "base"
             ports: []
+
+        node3:
+          type: tosca:Root
+          requirements:
+            - a_connection:
+                node: my_server
 
         my_server:
           type: tosca.nodes.Compute

@@ -136,7 +136,7 @@ class ToscaSpec:
                     )
                     if not match:
                         continue
-                    if isinstance(match, ResultsList):
+                    if isinstance(match, (list, ResultsList)):
                         for item in match:
                             yield (item, _tpl)
                     else:
@@ -450,13 +450,12 @@ class ToscaSpec:
                 )
 
         for name, impl in tpl.get("instances", {}).items():
-            if (
-                name not in node_templates
-                and isinstance(impl, dict)
-                and "template" not in impl
-            ):
+            if name not in node_templates and isinstance(impl, dict):
                 # add this as a template
-                node_templates[name] = self.instance_to_template(impl.copy())
+                if "template" not in impl:
+                    node_templates[name] = self.instance_to_template(impl.copy())
+                elif isinstance(impl["template"], dict):
+                    node_templates[name] = impl["template"]
 
         if "discovered" in tpl:
             # node templates added dynamically by configurators
@@ -738,9 +737,12 @@ class NodeSpec(EntitySpec):
         try:
             return super().__reflookup__(key)
         except KeyError:
-            relationship = self.get_relationship(key)
-            if not relationship:
+            req = self.get_requirement(key)
+            if not req:
                 raise KeyError(key)
+            relationship = req.relationship
+            # hack!
+            relationship.toscaEntityTemplate.entity_tpl = list(req.entity_tpl.values())[0]
             return relationship
 
     @property
@@ -772,7 +774,7 @@ class NodeSpec(EntitySpec):
             nodeTemplate = self.toscaEntityTemplate
             for (relTpl, req, reqDef) in nodeTemplate.relationships:
                 name, values = next(iter(req.items()))
-                reqSpec = RequirementSpec(name, reqDef, self)
+                reqSpec = RequirementSpec(name, req, self)
                 if relTpl.target:
                     nodeSpec = self.spec.get_template(relTpl.target.name)
                     assert nodeSpec
@@ -836,8 +838,8 @@ class NodeSpec(EntitySpec):
             # XXX this won't distinguish between more than one relationship between the same two nodes
             # to fix this have the RelationshipTemplate remember the name of the requirement
             if (
-                relSpec.toscaEntityTemplate.source
-                is reqSpec.parentNode.toscaEntityTemplate
+                relSpec.toscaEntityTemplate.source.name
+                == reqSpec.parentNode.toscaEntityTemplate.name
             ):
                 assert not reqSpec.relationship or reqSpec.relationship is relSpec
                 reqSpec.relationship = relSpec
@@ -949,9 +951,9 @@ class RequirementSpec:
         self.source = self.parentNode = parent  # NodeSpec
         self.spec = parent.spec
         self.name = name
-        self.requirements_tpl = req
+        self.entity_tpl = req
         self.relationship = None
-        # requirements_tpl may specify:
+        # entity_tpl may specify:
         # capability (definition name or type name), node (template name or type name), and node_filter,
         # relationship (template name or type name or inline relationship template)
         # occurrences

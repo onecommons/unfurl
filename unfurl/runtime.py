@@ -508,14 +508,20 @@ class RelationshipInstance(EntityInstance):
         else:  # capability is parent
             return f"{self.parent.key}::.relationships::[.name={self.name}]"
 
-    def merge_props(self, matchfn):
+    def merge_props(self, matchfn, delete_if_none=False):
         env = {}
         capability = self.parent
         for name, val in capability.template.find_props(capability.attributes, matchfn):
-            if val is not None:
+            if val is None:
+                if delete_if_none:
+                    env.pop(name, None)
+            else:
                 env[name] = val
         for name, val in self.template.find_props(self.attributes, matchfn):
-            if val is not None:
+            if val is None:
+                if delete_if_none:
+                    env.pop(name, None)
+            else:
                 env[name] = val
         return env
 

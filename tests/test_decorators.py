@@ -1,7 +1,5 @@
 import unittest
-import os
 from click.testing import CliRunner
-import unfurl.manifest
 from unfurl.yamlmanifest import YamlManifest
 from unfurl.eval import Ref, map_value, RefContext
 
@@ -28,5 +26,11 @@ class DecoratorTest(unittest.TestCase):
             for name in ["anode", "anothernode"]:
                 node = manifest.tosca.nodeTemplates[name]
                 self.assertEqual(
-                    {"ports": [], "private_address": "annotated", 'imported': 'foo'}, node.properties
+                    {"ports": [], "private_address": "annotated", "imported": "foo"},
+                    node.properties,
                 )
+            assert {"foo": "bar"} == (
+                manifest.tosca.template.tpl["topology_template"]["node_templates"][
+                    "node3"
+                ]["requirements"][0]["a_connection"]["relationship"]["properties"]
+            )

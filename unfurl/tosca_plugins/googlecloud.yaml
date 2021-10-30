@@ -27,11 +27,11 @@ node_types:
       organization_id:
         type: integer
         default:
-          eval: {get_property: [HOST, organization_id]}
+          eval: .parent::.ancestors::organization_id
       billing_account:
         type: string
         default:
-          eval: {get_property: [HOST, billing_account]}
+          eval: .parent::.ancestors::billing_account
       folder_id:
         type: integer
         default:

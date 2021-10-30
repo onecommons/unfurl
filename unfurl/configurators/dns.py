@@ -73,8 +73,9 @@ class DNSConfigurator(Configurator):
         """Create yaml config files which will be consumed by OctoDNS"""
         properties = self._extract_properties_from(task)
         managed = properties.records
-        for rel in task.target.get_capabilities("resolve")[0].relationships:
-            managed.update(rel.attributes.get_copy("records", {}))
+        for cap in task.target.get_capabilities("resolve"):
+            for rel in cap.relationships:
+                managed.update(rel.attributes.get_copy("records", {}))
 
         # set up for the syncing that happens in run()
         folder = task.set_work_folder()

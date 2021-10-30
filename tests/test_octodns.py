@@ -210,18 +210,17 @@ spec:
       - repository: unfurl
         file: configurators/dns-template.yaml
 
-    # XXX ::dns just returns root relationship instead of what the user specified
-    # decorators:
-    #   'tosca.nodes.WebServer::dns':
-    #       relationship:
-    #          type:   unfurl.relationships.DNSRecords
-    #          properties:
-    #            records:
-    #             www:
-    #               type: A
-    #               value:
-    #                 q:
-    #                   eval: .source::.requirements::[.name=host]::.target::public_address
+    decorators:
+      tosca.nodes.WebServer::dns:
+          relationship:
+             type: unfurl.relationships.DNSRecords
+             properties:
+               records:
+                www:
+                  type: A
+                  value:
+                    q:
+                      eval: .source::.requirements::[.name=host]::.target::public_address
 
     topology_template:
       node_templates:
@@ -240,14 +239,6 @@ spec:
             - host: compute
             - dns:
                 node: test_zone
-                relationship:
-                   type:   unfurl.relationships.DNSRecords
-                   properties:
-                     records:
-                      www:
-                        type: A
-                        value:
-                          eval: .source::.requirements::[.name=host]::.target::public_address
         compute:
           type: tosca.nodes.Compute
           interfaces:

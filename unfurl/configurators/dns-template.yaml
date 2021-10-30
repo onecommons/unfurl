@@ -2,6 +2,23 @@
 # SPDX-License-Identifier: MIT
 tosca_definitions_version: tosca_simple_unfurl_1_0_0
 
+decorators:
+  unfurl.nodes.DNSZone::parent_zone:
+      relationship:
+         type: unfurl.relationships.DNSRecords
+         properties:
+           records:
+             q:
+              eval:
+                if: $zone
+                then: "{{ {subdomain.split('.')[0] : zone['']} }}"
+                else: {}
+              vars:
+                subdomain:
+                  eval: .source::name
+                zone:
+                  eval: .source::zone
+
 node_types:
   unfurl.nodes.DNSZone:
     derived_from: tosca.nodes.Root
@@ -35,7 +52,7 @@ node_types:
         resolve:
            type: unfurl.capabilities.DNSZone
     requirements:
-        - host:
+        - parent_zone:
            capability: unfurl.capabilities.DNSZone
            occurrences: [0, 1] # it isn't always required
 

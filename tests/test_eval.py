@@ -3,7 +3,7 @@ import os
 import json
 import pickle
 
-from unfurl.result import ResultsList, serialize_value, ChangeRecord
+from unfurl.result import ResultsList, serialize_value, ChangeRecord, Result
 from unfurl.eval import Ref, map_value, RefContext, set_eval_func, ExternalValue
 from unfurl.support import apply_template, TopologyMap
 from unfurl.util import sensitive_str
@@ -120,16 +120,18 @@ class EvalTest(unittest.TestCase):
         ]:
             ref = Ref(exp)
             # print ('eval', ref.source, ref)
+            result = ref.resolve(RefContext(resource, trace=0))
+            assert all(not isinstance(i, Result) for i in result)
             if isinstance(expected, set):
                 # for results where order isn't guaranteed in python2.7
                 self.assertEqual(
-                    set(ref.resolve(RefContext(resource))),
+                    set(result),
                     expected,
                     "expr was: " + ref.source,
                 )
             else:
                 self.assertEqual(
-                    ref.resolve(RefContext(resource, trace=0)),
+                    result,
                     expected,
                     "expr was: " + ref.source,
                 )
@@ -156,6 +158,7 @@ class EvalTest(unittest.TestCase):
         self.assertEqual(["expected"], result4)
         test5 = {"ref": {"or": ["$a", "b"]}, "vars": {"a": None}}
         result5 = Ref(test5).resolve_one(RefContext(resource))
+        assert all(not isinstance(i, Result) for i in result5)
         self.assertEqual(
             resource.attributes["b"], result5
         )  # this doesn't seem obvious!
