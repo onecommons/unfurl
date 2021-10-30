@@ -500,7 +500,7 @@ class YamlManifest(ReadOnlyManifest):
         if not self.lockfilepath:
             return False
         if os.path.exists(self.lockfilepath):
-            with open(self.lockfile) as lf:
+            with open(self.lockfilepath) as lf:
                 pid = lf.read()
                 if os.getpid() == int(pid):
                     raise UnfurlError(msg)
@@ -570,17 +570,21 @@ class YamlManifest(ReadOnlyManifest):
         status["capability"] = resource.parent.key
         return [{name: status}]
 
-    def _save_entity_if_instantiated(self, resource):
+    def _save_entity_if_instantiated(self, resource, checkstatus=True):
         if not resource.last_change and (
             not resource.local_status
-            # or resource.local_status in [Status.unknown, Status.ok]  # , Status.pending]
+            or (
+                checkstatus
+                and resource.local_status in [Status.unknown, Status.ok, Status.pending]
+            )
         ):
             # no reason to serialize entities that haven't been instantiated
             return None
         return self.save_entity_instance(resource)
 
     def save_resource(self, resource, discovered):
-        ret = self._save_entity_if_instantiated(resource)
+        # XXX checkstatus break unit tests:
+        ret = self._save_entity_if_instantiated(resource, False)
         if not ret:
             return ret
         name, status = ret
@@ -594,10 +598,7 @@ class YamlManifest(ReadOnlyManifest):
             capabilities = list(
                 filter(
                     None,
-                    map(
-                        self._save_entity_if_instantiated,
-                        resource.capabilities,
-                    ),
+                    map(self._save_entity_if_instantiated, resource.capabilities),
                 )
             )
             if capabilities:
