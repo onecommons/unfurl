@@ -474,7 +474,6 @@ class Manifest(AttributeManager):
             repo = artifactTpl.get("repository")
             if isinstance(repo, dict):
                 # a full repository spec maybe part of the include
-                repo = repo.copy()
                 reponame = repo.setdefault("name", os.path.basename(path))
                 # replace spec with just its name
                 artifactTpl["repository"] = reponame

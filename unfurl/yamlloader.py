@@ -41,7 +41,7 @@ from .merge import (
     _cache_anchors,
     restore_includes,
 )
-from .repo import is_url_or_git_path, normalize_git_url
+from .repo import is_url_or_git_path
 from toscaparser.common.exception import URLException, ExceptionCollector
 from toscaparser.utils.gettextutils import _
 import toscaparser.imports
@@ -182,7 +182,11 @@ class ImportResolver(toscaparser.imports.ImportResolver):
 
     def get_repository(self, name, tpl):
         if isinstance(tpl, dict) and 'url' in tpl:
-            tpl['url'] = normalize_git_url(tpl['url'])
+            url = tpl['url']
+            if "@" in url: # scp style used by git: user@server:project.git
+                # convert to ssh://user@server/project.git
+                url = "ssh://" + url.replace(":", "/", 1)
+            tpl['url'] = url
         return Repository(name, tpl)
 
     def get_url(self, importLoader, repository_name, file_name, isFile=None):
