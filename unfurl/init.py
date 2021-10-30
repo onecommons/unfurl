@@ -181,6 +181,16 @@ def _set_ensemble_vars(vars, externalProject, ensemblePath, context):
     vars["context"] = context
 
 
+def _warn_about_new_password(localProjectConfig):
+    logger = logging.getLogger("unfurl")
+    logger.warning(
+        "A password was generated and included in the local config file at %s -- "
+        "please keep this password safe, without it you will not be able to decrypt any encrypted files "
+        "committed to the repository.",
+        localProjectConfig,
+    )
+
+
 def render_project(
     projectdir,
     repo,
@@ -229,13 +239,7 @@ def render_project(
         vars,
         templateDir,
     )
-    logger = logging.getLogger("unfurl")
-    logger.warning(
-        "A password was generated and included in the local config file at %s -- "
-        "please keep this password safe, without it you will not be able to decrypt any encrypted files "
-        "committed to the repository.",
-        localProjectConfig,
-    )
+    _warn_about_new_password(localProjectConfig)
 
     write_project_config(
         os.path.join(projectdir, "secrets"),
@@ -261,6 +265,13 @@ def render_project(
         projectdir,
         names.LocalConfig,
         "unfurl.yaml.j2",
+        vars,
+        templateDir,
+    )
+    write_project_config(
+        projectdir,
+        names.LocalConfigTemplate,
+        "local-unfurl-template.yaml.j2",
         vars,
         templateDir,
     )
@@ -776,6 +787,37 @@ def clone(source, dest, ensemble_name=DefaultNames.EnsembleDirectory, **options)
     return message
 
 
+def _create_local_config(clonedProject):
+    local_template = os.path.join(
+        clonedProject.projectRoot, DefaultNames.LocalConfigTemplate
+    )
+    PLACEHOLDER = "$generate_new_vault_password"
+    if os.path.isfile(local_template):
+        with open(local_template) as s:
+            contents = s.read()
+
+        contents = "\n".join(
+            [line for line in contents.splitlines() if not line.startswith("##")]
+        )
+        dest = os.path.join(
+            clonedProject.projectRoot, "local", DefaultNames.LocalConfig
+        )
+        if PLACEHOLDER in contents:
+            contents = contents.replace(PLACEHOLDER, get_random_password())
+            _warn_about_new_password(dest)
+
+        _write_file(
+            os.path.join(clonedProject.projectRoot, "local"),
+            DefaultNames.LocalConfig,
+            contents,
+        )
+
+        logging.info(
+            f'Generated new a local project configuration file at "{dest}"\n'
+            "Please review it for any instructions on configuring this project."
+        )
+
+
 def _create_in_cloned_project(
     templateVars, clonedProject, dest, mono, context, shared_repo, homePath
 ):
@@ -795,20 +837,14 @@ def _create_in_cloned_project(
     ensembleInProjectRepo = not shared_repo and is_ensemble_in_project_repo(
         clonedProject, templateVars
     )
+    # create local/unfurl.yaml in the new project
+    _create_local_config(clonedProject)
     if ensembleInProjectRepo:
         # the ensemble is already part of the source project repository or a submodule
         # we're done
         manifest = yamlmanifest.ReadOnlyManifest(localEnv=templateVars["localEnv"])
         return manifest, "Cloned project to " + clonedProject.projectRoot
     else:
-        # create local/unfurl.yaml in the new project
-        # XXX vaultpass should only be set for the new ensemble being created
-        write_project_config(
-            os.path.join(clonedProject.projectRoot, "local"),
-            DefaultNames.LocalConfig,
-            "unfurl.local.yaml.j2",
-            dict(vaultpass=get_random_password()),
-        )
         # dest: should be a path relative to the clonedProject's root
         assert not os.path.isabs(dest)
         destDir, manifest = create_new_ensemble(

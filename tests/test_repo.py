@@ -145,6 +145,7 @@ class GitRepoTest(unittest.TestCase):
             self.assertEqual(result.exit_code, 0, result)
             expectedCommittedFiles = {
                 "unfurl.yaml",
+                "unfurl-local-template.yaml",
                 "ensemble-template.yaml",
                 ".gitignore",
                 ".gitattributes",
@@ -231,6 +232,7 @@ class GitRepoTest(unittest.TestCase):
 .gitignore
 .secrets/secrets.yaml
 ensemble-template.yaml
+unfurl-local-template.yaml
 unfurl.yaml
 
 *** Running 'git ls-files' in './ensemble'
@@ -238,8 +240,7 @@ unfurl.yaml
 .gitignore
 ensemble.yaml
 """
-            if not six.PY2:  # order not guaranteed in py2
-                self.assertEqual(output.strip(), result.output.strip())
+            self.assertEqual(output.strip(), result.output.strip())
 
             with open(".git/info/exclude") as f:
                 contents = f.read()
