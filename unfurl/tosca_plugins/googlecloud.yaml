@@ -1,4 +1,4 @@
-# Copyright (c) 2020 Adam Souzis
+# Copyright (c) 2021 Adam Souzis
 # SPDX-License-Identifier: MIT
 tosca_definitions_version: tosca_simple_unfurl_1_0_0
 metadata:
@@ -6,20 +6,52 @@ metadata:
   template_author: onecommons.org
   template_version: 0.1.0
 
+imports:
+    - repository: unfurl
+      file: tosca_plugins/artifacts.yaml # makes sure gcloud is installed
+
 node_types:
+  unfurl.nodes.GoogleCloudObject:
+    derived_from: tosca.nodes.Root
+
   unfurl.nodes.GoogleCloudProject:
     derived_from: unfurl.nodes.CloudAccount
     properties:
-      # admin_email
-      projectId:
-        type: string
-      projectNumber:
-        type: integer
-        required: false
       name:
         description: "User defined name of the project"
         type: string
-      billingAccount:
+      project_id:
+        type: string
+        default:
+          eval: name
+      organization_id:
+        type: integer
+        default:
+          eval: {get_property: [HOST, organization_id]}
+      billing_account:
+        type: string
+        default:
+          eval: {get_property: [HOST, billing_account]}
+      folder_id:
+        type: integer
+        default:
+          eval: .parent[type=unfurl.nodes.GoogleCloudFolder]::id
+      activate_apis:
+        type: list
+        default: []
+
+    attributes:
+      project_number:
+        type: integer
+        required: false
+      service_account_id:
+        type: string
+        required: false
+      account_id:
+        type: string
+        default:
+          eval: project_id
+      service_account_email:
         type: string
         required: false
     requirements:
@@ -27,11 +59,92 @@ node_types:
           node: unfurl.nodes.GoogleCloudResource
           occurrences: [0, 1]
 
+    interfaces:
+      Standard:
+        operations:
+          delete:
+          configure:
+      Install:
+        operations:
+          check:
+      defaults:
+        implementation:
+          className: unfurl.configurators.terraform.TerraformConfigurator
+        inputs:
+          # XXX use yaml so we can merge in extra params directly to the project_factory module
+          main: |
+            module "project-factory" {
+              source  = "terraform-google-modules/project-factory/google"
+              version = "~> 10.1"
+
+              name              = "{{ SELF.name }}"
+              billing_account   = "{{ SELF.billing_account }}"
+              activate_apis = {{ SELF.activate_apis | mapValue | to_json }}
+              {%if SELF.folder_id %}
+                folder_id = "{{ SELF.folder_id }}"
+                org_id = ""
+              {% else %}
+                org_id = "{{ SELF.organization_id }}"
+              {% endif %}
+            }
+
+            output "project_id" {
+              value       = module.project-factory.project_id
+            }
+
+            output "project_number" {
+              value       = module.project-factory.project_number
+            }
+
+            output "project_name" {
+              value       = module.project-factory.project_name
+            }
+
+            output "service_account_name" {
+              value       = module.project-factory.service_account_name
+            }
+
+            output "service_account_id" {
+              value       = module.project-factory.service_account_id
+            }
+
+            output "service_account_email" {
+              value       = module.project-factory.service_account_email
+            }
+
+          resultTemplate: |
+            # merge all outputs into attributes
+            attributes:
+              <<: {{ outputs | mapValue | to_json }}
+
+  unfurl.nodes.GoogleCloudServiceKey:
+    derived_from: unfurl.nodes.GoogleCloudObject
+    properties:
+      account_id:
+        type: string
+      filename:
+        type: string
+        default: # XXX replace('@', '-') | replace('.iam.gserviceaccount.com', '')
+          eval: {concat: [{get_property: [SELF, account_id]}, "-credentials.json"]}
+      download_location:
+        type: string
+        default: secrets
+    interfaces:
+      Standard:
+        create:
+            # "Downloads key to seed-service-account/local/credentials.json"
+            implementation: gcloud
+            inputs:
+              command: >
+                gcloud iam service-accounts keys create "{{ SELF.filename | abspath(SELF.download_location) }}"
+                 --iam-account "{{SELF.account_id}}" --user-output-enabled false
+
+
   #  https://cloud.google.com/resource-manager/
   unfurl.nodes.GoogleCloudResource:
-    derived_from: tosca.nodes.Root
+    derived_from: unfurl.nodes.GoogleCloudObject
     properties:
-      displayName:
+      display_name:
         description: "User defined name of the resource"
         type: string
       id:
