@@ -393,11 +393,13 @@ class Manifest(AttributeManager):
         )
         return repository
 
-    def update_repositories(self, config, inlineRepositories=None):
+    def update_repositories(self, config, inlineRepositories=None, resolver=None):
+        if not resolver:
+          resolver = self.get_import_resolver(self)
         repositories = self._get_repositories(config)
         for name, tpl in repositories.items():
             if name not in self.repositories:
-                toscaRepository = Repository(name, tpl)
+                toscaRepository = resolver.get_repository(name, tpl)
                 self.repositories[name] = RepoView(toscaRepository, None)
         if inlineRepositories:
             for name, repository in inlineRepositories.items():
@@ -472,9 +474,11 @@ class Manifest(AttributeManager):
             repo = artifactTpl.get("repository")
             if isinstance(repo, dict):
                 # a full repository spec maybe part of the include
+                repo = repo.copy()
                 reponame = repo.setdefault("name", os.path.basename(path))
                 # replace spec with just its name
                 artifactTpl["repository"] = reponame
+
                 inlineRepository = {reponame: repo}
         else:
             artifactTpl = dict(file=templatePath)
@@ -491,14 +495,16 @@ class Manifest(AttributeManager):
         artifact = ArtifactSpec(artifactTpl, path=baseDir)
 
         tpl = CommentedMap()
+
+        resolver = self.get_import_resolver(warnWhenNotFound)
         tpl["repositories"] = self.update_repositories(
-            expanded or yamlConfig.config, inlineRepository
+            expanded or yamlConfig.config, inlineRepository, resolver
         )
         loader = toscaparser.imports.ImportsLoader(
             None,
             artifact.base_dir,
             tpl=tpl,
-            resolver=self.get_import_resolver(warnWhenNotFound),
+            resolver=resolver,
         )
         return loader._load_import_template(None, artifact.as_import_spec())
 

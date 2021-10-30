@@ -8,6 +8,8 @@ repositories:
     url: file:.
   imported-repo:
     url: file:.
+  almost-an-url:
+    url: git@github.com:onecommons/unfurl.git
 node_types:
   Test:
     derived_from: tosca.nodes.Root
