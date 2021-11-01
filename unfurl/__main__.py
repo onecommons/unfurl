@@ -379,7 +379,7 @@ def _run_remote(runtime, options, localEnv):
 def _run_local(ensemble, options):
     logger = logging.getLogger("unfurl")
     job = run_job(ensemble, options)
-    _latestJobs.append(job)
+    _latestJobs.append(job)  # testing only
     if not job:
         click.echo("Unable to create job")
     elif job.unexpectedAbort:
@@ -405,6 +405,8 @@ def _run_local(ensemble, options):
                 click.echo(result)
         if jsonSummary is not None:
             click.echo(json.dumps(jsonSummary, indent=2))
+    if job and job.log_path:
+        click.echo("Done, full log written to " + job.log_path)
 
     if not job or (
         "jobexitcode" in options
