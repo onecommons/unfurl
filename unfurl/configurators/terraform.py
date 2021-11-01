@@ -59,6 +59,7 @@ def mark_sensitive(schemas, state, task, sensitive_names=()):
         if attrs.get("sensitive") or name in sensitive_names:
             state["outputs"][name]["value"] = task.sensitive(value)
 
+    # XXX use sensitive_attributes to find attributes to mark sensitive
     for resource in state["resources"]:
         provider = resource["provider"]
         type = resource["type"]
@@ -114,7 +115,13 @@ class TerraformConfigurator(ShellConfigurator):
     _default_cmd = "terraform"
 
     # provider schemas don't always mark keys as sensitive that they should, so just in case:
-    sensitive_names = ["access_token", "key_material", "password", "private_key"]
+    sensitive_names = [
+        "access_token",
+        "key_material",
+        "password",
+        "private_key",
+        "server_ca_cert",
+    ]
 
     def can_dry_run(self, task):
         return True
@@ -154,9 +161,16 @@ class TerraformConfigurator(ShellConfigurator):
             Write out tf.json if necessary.
         """
         # generated tf.json get written to as main.unfurl.tmp.tf.json
-        main = task.inputs.get_copy("main")
         write_vars = True
         contents = None
+        main = task.inputs.get_copy("main")
+        if not main:
+            main = get_path(task.inputs.context, "", "spec.home")
+            if not os.path.exists(main):
+                raise UnfurlTaskError(
+                    task,
+                    f'Input parameter "main" not specifed and default terraform module directory does not exist at "{main}"',
+                )
         if isinstance(main, six.string_types):
             if os.path.exists(main):
                 # it's a directory -- if difference from cwd, treat it as a module to call
@@ -208,9 +222,10 @@ class TerraformConfigurator(ShellConfigurator):
         # the terraform state file is associate with the current instance
         # read the (possible encrypted) version from the repository
         # and write out it as plaintext json into the local directory
-        yamlPath = get_path(
-            task.inputs.context, "terraform.tfstate.yaml", Folders.artifacts
-        )
+        folderName = task.inputs.get("stateLocation") or Folders.secrets
+        if folderName == "remote":  # don't use local state file
+            return ""
+        yamlPath = get_path(task.inputs.context, "terraform.tfstate.yaml", folderName)
         if os.path.exists(yamlPath):
             # if exists in home, load and write out state file as json
             with open(yamlPath, "r") as f:
@@ -243,18 +258,23 @@ class TerraformConfigurator(ShellConfigurator):
         if task.dry_run or task.configSpec.operation == "check":
             action = [
                 "plan",
-                "-state=" + statePath,
                 "-detailed-exitcode",
                 "-refresh=true",
                 "-out",
                 planPath,
             ]
+            if statePath:
+                action.append("-state=" + statePath)
             if task.configSpec.operation == "delete":
                 action.append("-destroy")
         elif task.configSpec.operation == "delete":
-            action = ["destroy", "-auto-approve", "-state=" + statePath]
+            action = ["destroy", "-auto-approve"]
+            if statePath:
+                action.append("-state=" + statePath)
         elif task.configSpec.workflow == "deploy":
-            action = ["apply", "-auto-approve", "-state=" + statePath]
+            action = ["apply", "-auto-approve"]
+            if statePath:
+                action.append("-state=" + statePath)
             if os.path.isfile(planPath) and os.path.isfile(statePath):
                 action.append(
                     planPath
@@ -323,21 +343,25 @@ class TerraformConfigurator(ShellConfigurator):
                 status = Status.ok
 
         if success and not (task.dry_run or task.configSpec.operation == "check"):
-            # read state file
-            statePath = os.path.join(cwd.cwd, statePath)
-            with open(statePath) as sf:
-                state = json.load(sf)
-            state = mark_sensitive(providerSchema, state, task, self.sensitive_names)
-            # save state file in home as yaml, encrypting sensitive values
-            task.set_work_folder(Folders.artifacts).write_file(
-                state, "terraform.tfstate.yaml"
-            )
-            outputs = {
-                name: wrap_var(attrs["value"])
-                for name, attrs in state["outputs"].items()
-            }
-            state.update(result.__dict__)
-            state["outputs"] = outputs  # replace outputs
+            if statePath:
+                # read state file
+                statePath = os.path.join(cwd.cwd, statePath)
+                with open(statePath) as sf:
+                    state = json.load(sf)
+                state = mark_sensitive(
+                    providerSchema, state, task, self.sensitive_names
+                )
+                # save state file in home as yaml, encrypting sensitive values
+                folder = Folders.secrets  # Folders.artifacts
+                task.set_work_folder(folder).write_file(state, "terraform.tfstate.yaml")
+                outputs = {
+                    name: wrap_var(attrs["value"])
+                    for name, attrs in state["outputs"].items()
+                }
+                state.update(result.__dict__)
+                state["outputs"] = outputs  # replace outputs
+            else:
+                state = {}
             success = not self.process_result_template(task, state)
         else:
             outputs = None

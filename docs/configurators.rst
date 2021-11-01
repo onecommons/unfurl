@@ -56,8 +56,8 @@ Execution environment
 
   Note: Because Ansible is initialized at the beginning of execution,
   if the ``no-runtime`` command option is used or if no runtime is available
-  ``ANSIBLE_CONFIG`` will only be applied if in the environment that executes Unfurl.
-  It will not be applied if set in a `context`.
+  ``ANSIBLE_CONFIG`` will only be applied in the environment that executes Unfurl.
+  It will not be applied if set via `environment` declaration.
 
   .. _Ansible Configurations Documentation: https://docs.ansible.com/ansible/latest/reference_appendices/config.html#the-configuration-file.
 
@@ -150,9 +150,9 @@ The Terraform configurator will be invoked on any `node template` with the type 
 It can also be used to implement any operation regardless of the node type by setting the ``implementation`` to ``Terraform``.
 It will invoke the appropriate terraform command (e.g "apply" or "destroy") based on the job's workflow.
 
-The Terraform configurator manages the Terraform state file itself
+Unless you set the ``stateLocation`` input parameter to "remote", the Terraform configurator manages the Terraform state file itself
 and commits it to the ensemble's repository so you don't use Terraform's remote state -- it will be self-contained and sharable like the rest of the Ensemble.
-Any data marked sensitive will be encrypted using Ansible Vault.
+Any sensitive state will be encrypted using Ansible Vault.
 
 You can use the ``unfurl.nodes.Installer.Terraform`` node type with your node template to the avoid boilerplate and set the needed inputs.
 
@@ -161,10 +161,12 @@ Inputs
 
   :main: The contents of the root Terraform module or a path to a directory containing the Terraform configuration. If it is a directory path, the configurator will treat it as a local Terraform module. Otherwise, if ``main`` is a string it will be treated as HCL and if it is a map, it will be written out as JSON. (See the note below about HCL in YAML.) If omitted, the configurator will look in ``get_dir("spec.home")`` for the Terraform configuration.
   :tfvars: A map of Terraform variables to passed to the main Terraform module or a string equivalent to ".tfvars" file.
-  :workdir:  String indicating the project location to execute Terraform in (see `get_dir`). Default: "home"
+  :stateLocation: If set to "secrets" (the default) the Terraform state file will be encrypted and saved into the instance's "secrets" folder.
+                  If set to "artifacts", it will be saved in the instance's "artifacts" folder with only sensitive values encrypted inline.
+                  If set to "remote", Unfurl will not manage the Terraform state at all.
   :command: Path to the ``terraform`` executable. Default: "terraform"
-  :resultTemplate: A map that corresponds to the Terraform state JSON file,
-    See the Terraform providers' schema documentation for details but top-level keys will include "resources" and "outputs".
+  :resultTemplate: A Jinja2 template that is processed with the Terraform state JSON file as its variables.
+     See the Terraform providers' schema documentation for details but top-level keys will include "resources" and "outputs".
 
 Other ``implementation`` keys
 -----------------------------

@@ -145,6 +145,8 @@ class WorkFolder:
                 instance.name,
                 task.configSpec.workflow,
             )
+        elif name == Folders.tasks:
+            return os.path.join(instance.base_dir, pending, "tasks", instance.name)
         else:
             assert False, f"unexpected name '{name}' for workfolder"
 
@@ -475,13 +477,13 @@ def _get_base_dir(ctx, name=None):
     :artifacts: directory for the current instance (committed to repository).
     :local: The "local" directory for the current instance (excluded from repository)
     :secrets: The "secrets" directory for the current instance (files written there are vault encrypted)
-    :tmp:   A temporary directory for the instance (removed after unfurl exits)
+    :tmp:   A temporary directory for the current instance (removed after unfurl exits)
     :tasks: Job specific directory for the current instance (excluded from repository).
     :operation: Operation specific directory for the current instance (excluded from repository).
     :workflow: Workflow specific directory for the current instance (excluded from repository).
     :spec.src: The directory of the source file the current instance's template appears in.
-    :spec.home: Directory unique to current instance's TOSCA template (committed to the spec repository).
-    :spec.local: Local directory unique to current instance's TOSCA template (excluded from repository).
+    :spec.home: Directory unique to the current instance's TOSCA template (committed to the spec repository).
+    :spec.local: Local directory unique to the current instance's TOSCA template (excluded from repository).
     :project: The root directory of the current project.
     :unfurl.home: The location of home project (UNFURL_HOME).
 
@@ -498,12 +500,14 @@ def _get_base_dir(ctx, name=None):
         return os.path.join(instance.root.tmp_dir, instance.name)
     elif name in Folders.Persistent:
         return os.path.join(instance.base_dir, name, instance.name)
-    elif name in ["tasks", "operation", "workflow"]:
+    elif name in Folders.Job:
         # these will always in "pending" while a task is running
         if ctx.task and instance is ctx.task.target:
             return WorkFolder._get_job_path(ctx.task, name, "pending")
-        elif name == "tasks":
-            return os.path.join(instance.base_dir, "pending", "tasks", instance.name)
+        elif name == "tasks":  # in case we don't have a ctx.task
+            return os.path.join(
+                instance.base_dir, "pending", Folders.tasks, instance.name
+            )
         else:
             assert (
                 False
