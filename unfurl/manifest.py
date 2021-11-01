@@ -395,7 +395,7 @@ class Manifest(AttributeManager):
 
     def update_repositories(self, config, inlineRepositories=None, resolver=None):
         if not resolver:
-          resolver = self.get_import_resolver(self)
+            resolver = self.get_import_resolver(self)
         repositories = self._get_repositories(config)
         for name, tpl in repositories.items():
             if name not in self.repositories:
@@ -403,6 +403,12 @@ class Manifest(AttributeManager):
                 self.repositories[name] = RepoView(toscaRepository, None)
         if inlineRepositories:
             for name, repository in inlineRepositories.items():
+                if name in self.repositories:
+                    logger.verbose(
+                        'skipping inline repository definition for "%s", it was previously defined',
+                        name,
+                    )
+                    continue
                 if isinstance(repository, dict):
                     repository = Repository(name, repository)
                 self.add_repository(None, repository, "")
