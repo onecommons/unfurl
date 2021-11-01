@@ -181,12 +181,14 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         return state
 
     def get_repository(self, name, tpl):
-        if isinstance(tpl, dict) and 'url' in tpl:
-            url = tpl['url']
-            if "@" in url: # scp style used by git: user@server:project.git
+        if isinstance(tpl, dict) and "url" in tpl:
+            url = tpl["url"]
+            if (
+                "://" not in url and "@" in url
+            ):  # scp style used by git: user@server:project.git
                 # convert to ssh://user@server/project.git
                 url = "ssh://" + url.replace(":", "/", 1)
-            tpl['url'] = url
+            tpl["url"] = url
         return Repository(name, tpl)
 
     def get_url(self, importLoader, repository_name, file_name, isFile=None):
@@ -379,6 +381,7 @@ class YamlConfig:
         path = os.path.abspath(os.path.join(baseDir or self.get_base_dir(), path))
         if warnWhenNotFound and not os.path.isfile(path):
             return path, None
+        logger.debug("attempting to load YAML file: %s", path)
         with open(path, "r") as f:
             config = self.yaml.load(f)
         return path, config

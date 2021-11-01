@@ -1,9 +1,12 @@
+# This template is intended to be included in your ensemble.yaml manifest file
+# (by default, found at ensemble/ensemble.yaml)
+# Edit it to include any reusable your ensemble needs, such as its service_template.
 apiVersion: unfurl/v1alpha1
-kind: Ensemble
 spec:
   service_template:
     topology_template:
       node_templates: {}
+
         # # this is an example of a minimal node template
         # # it is essentially defining an untyped node
         # minimalNode:

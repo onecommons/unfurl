@@ -1,13 +1,12 @@
 #jinja2: variable_start_string: '[%', variable_end_string: '%]'
-apiVersion: unfurl/v1alpha1
-kind: Ensemble
-
-# This Ensemble manifest was generated during creation of your ~/unfurl_home and models
+# This Ensemble template was generated during creation of your ~/unfurl_home and models
 # the local environment Unfurl runs inside of, e.g. the client machine or container,
 # its local network, etc.
-
-# It is a regular Ensemble so you can configure your local environment
-# by adding your own templates and deploying this like any other Ensemble.
+# It is intended to be included in your ensemble.yaml manifest file
+# (by default, found at ensemble/ensemble.yaml)
+# You can use it to configure your local environment by adding your own templates
+# and deploying it like any other Ensemble.
+apiVersion: unfurl/v1alpha1
 
 spec:
   instances:
