@@ -345,10 +345,9 @@ class YamlManifest(ReadOnlyManifest):
                 yaml = make_yaml(vault)
                 loader.set_vault_secrets(vault.secrets)
                 for repoview in project.workingDirs.values():
-                    repository = repos.pop(repoview.working_dir, None)
-                    if repository:
-                        repository.load_secrets(loader)
-                        repository.yaml = yaml
+                    repoview.load_secrets(loader)
+                    repoview.yaml = yaml
+                    repos.pop(repoview.working_dir, None)
 
             project = project.parentProject
 

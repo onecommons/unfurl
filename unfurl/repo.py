@@ -267,9 +267,11 @@ class RepoView:
         self.repo.repo.git.add("--all", self.path or ".")
 
     def load_secrets(self, _loader):
+        logger.trace("looking for secrets %s", self.working_dir)
         for root, dirs, files in os.walk(self.working_dir):
             if ".secrets" not in Path(root).parts:
                 continue
+            logger.trace("checking if secret files where changed or added %s", files)
             for filename in files:
                 secretsdir = Path(root.replace(".secrets", "secrets"))
                 filepath = Path(root) / filename
@@ -288,6 +290,7 @@ class RepoView:
                     with open(str(target), "w") as f:
                         f.write(contents)
                     os.utime(target, (stinfo.st_atime, stinfo.st_mtime))
+                    logger.verbose("decrypted secret file to %s", target)
 
     def save_secrets(self):
         return commit_secrets(self.working_dir, self.yaml)
