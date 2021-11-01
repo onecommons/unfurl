@@ -225,6 +225,12 @@ class ToscaSyntaxTest(unittest.TestCase):
         vaultString = "server_ip: !vault |\n      $ANSIBLE_VAULT;1.1;AES256"
         assert vaultString in job.out.getvalue(), job.out.getvalue()
 
+        from unfurl.yamlloader import cleartext_yaml
+
+        manifest = YamlManifest(manifestDoc, vault=cleartext_yaml.representer.vault)
+        outputIp, job = self._runInputAndOutputs(manifest)
+        assert "!vault" not in job.out.getvalue(), job.out.getvalue()
+
     def test_import(self):
         """
         Tests nested imports and url fragment resolution.

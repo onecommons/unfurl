@@ -37,6 +37,7 @@ from .util import (
     save_to_tempfile,
     save_to_file,
 )
+from .yamlloader import cleartext_yaml
 import logging
 
 logger = logging.getLogger("unfurl")
@@ -44,9 +45,10 @@ logger = logging.getLogger("unfurl")
 
 class Folders:
     Persistent = ("artifacts", "secrets", "local")
+    Job = ("tasks", "operation", "workflow")
 
 
-for r in "artifacts secrets local tasks operation workflow".split():
+for r in Folders.Persistent + Folders.Job:
     setattr(Folders, r, r)
 
 
@@ -113,15 +115,21 @@ class WorkFolder:
         else:
             path = self.get_path(name)
         assert os.path.isabs(path), path
-        write_file(ctx, contents, path, self.location, encoding)
+        if self.location == Folders.artifacts:
+            yaml = None  # default yaml will encrypt if configured
+        else:
+            # don't encrypt files that arent' being commited to the repo
+            # or already going to be encrypted (i.e. the secrets folders)
+            yaml = cleartext_yaml
+        write_file(ctx, contents, path, self.location, encoding, yaml=yaml)
         return self.get_path(name)  # XXX ??
 
     @staticmethod
     def _get_job_path(task, name, pending=""):
         instance = task.target
-        if name in ["artifacts", "secret", "local", "tasks"]:
+        if name in [Folders.artifacts, Folders.secrets, Folders.local, Folders.tasks]:
             return os.path.join(instance.base_dir, pending, name, instance.name)
-        elif name == "operation":
+        elif name == Folders.operation:
             return os.path.join(
                 instance.base_dir,
                 pending,
@@ -129,7 +137,7 @@ class WorkFolder:
                 instance.name,
                 task.configSpec.operation,
             )
-        elif name == "workflow":
+        elif name == Folders.workflow:
             return os.path.join(
                 instance.base_dir,
                 pending,
@@ -446,12 +454,12 @@ set_eval_func("abspath", lambda arg, ctx: _abspath(ctx, *_map_args(arg, ctx)))
 set_eval_func("get_dir", lambda arg, ctx: _getdir(ctx, *_map_args(arg, ctx)))
 
 
-def write_file(ctx, obj, path, relativeTo=None, encoding=None):
+def write_file(ctx, obj, path, relativeTo=None, encoding=None, yaml=None):
     file = File(
         get_path(ctx, path, relativeTo),
         ctx.base_dir,
         ctx.templar and ctx.templar._loader,
-        ctx.currentResource.root.attributeManager.yaml,
+        yaml or ctx.currentResource.root.attributeManager.yaml,
         encoding,
     )
     file.write(obj)

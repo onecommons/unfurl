@@ -54,6 +54,13 @@ import logging
 
 logger = logging.getLogger("unfurl")
 
+CLEARTEXT_VAULT = VaultLib(secrets=[("cleartext", b"")])
+
+
+def _use_clear_text(vault):
+    clear_id = CLEARTEXT_VAULT.secrets[0][0]
+    return vault.secrets and all(s[0] == clear_id for s in vault.secrets)
+
 
 def represent_undefined(self, data):
     raise RepresenterError(f"cannot represent an object: <{data}> of type {type(data)}")
@@ -70,14 +77,26 @@ def _represent_sensitive(dumper, data, tag):
 
 
 def represent_sensitive_str(dumper, data):
+    if _use_clear_text(dumper.vault):
+        return SafeRepresenter.represent_str(dumper, data)
     return _represent_sensitive(dumper, data, "!vault")
 
 
-def represent_sensitive_json(dumper, data):
+def represent_sensitive_list(dumper, data):
+    if _use_clear_text(dumper.vault):
+        return SafeRepresenter.represent_list(dumper, data)
+    return _represent_sensitive(dumper, json.dumps(data, sort_keys=True), "!vault-json")
+
+
+def represent_sensitive_dict(dumper, data):
+    if _use_clear_text(dumper.vault):
+        return SafeRepresenter.represent_dict(dumper, data)
     return _represent_sensitive(dumper, json.dumps(data, sort_keys=True), "!vault-json")
 
 
 def represent_sensitive_bytes(dumper, data):
+    if _use_clear_text(dumper.vault):
+        return SafeRepresenter.represent_binary(dumper, data)
     return _represent_sensitive(dumper, data, "!vault-binary")
 
 
@@ -127,24 +146,21 @@ def make_yaml(vault=None):
     yaml.constructor.add_constructor("!vault-binary", construct_vaultbinary)
 
     yaml.representer.vault = vault
+    # write out <<REDACTED>> or encrypt depending on vault.secrets
     yaml.representer.add_representer(sensitive_str, represent_sensitive_str)
-    yaml.representer.add_representer(sensitive_dict, represent_sensitive_json)
-    yaml.representer.add_representer(sensitive_list, represent_sensitive_json)
+    yaml.representer.add_representer(sensitive_dict, represent_sensitive_dict)
+    yaml.representer.add_representer(sensitive_list, represent_sensitive_list)
     yaml.representer.add_representer(sensitive_bytes, represent_sensitive_bytes)
 
-    if six.PY3:
-        represent_unicode = SafeRepresenter.represent_str
-        represent_binary = SafeRepresenter.represent_binary
-    else:
-        represent_unicode = SafeRepresenter.represent_unicode
-        represent_binary = SafeRepresenter.represent_str
-
-    yaml.representer.add_representer(AnsibleUnsafeText, represent_unicode)
-    yaml.representer.add_representer(AnsibleUnsafeBytes, represent_binary)
+    yaml.representer.add_representer(AnsibleUnsafeText, SafeRepresenter.represent_str)
+    yaml.representer.add_representer(
+        AnsibleUnsafeBytes, SafeRepresenter.represent_binary
+    )
     return yaml
 
 
 yaml = make_yaml()
+cleartext_yaml = make_yaml(CLEARTEXT_VAULT)
 
 
 def make_vault_lib(passwordBytes, vaultId="default"):

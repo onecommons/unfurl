@@ -332,7 +332,7 @@ class Project:
             context or {}, localContext, replaceKeys=LocalConfig.replaceKeys
         )
 
-    def get_vault_password(self, contextName="defaults", vaultId="default"):
+    def get_vault_password(self, contextName=None, vaultId="default"):
         secret = os.getenv(f"UNFURL_VAULT_{vaultId.upper()}_PASSWORD")
         if secret:
             return secret
@@ -341,7 +341,7 @@ class Project:
         if secrets:
             return secrets.get(vaultId)
 
-    def get_vault_passwords(self, contextName="defaults"):
+    def get_vault_passwords(self, contextName=None):
         # we want to support multiple vault ids
         context = self.get_context(contextName)
         secrets = context.get("secrets", {}).get(f"vault_secrets")
@@ -351,7 +351,7 @@ class Project:
             password = os.getenv(f"UNFURL_VAULT_{vaultId.upper()}_PASSWORD", password)
             yield vaultId, password
 
-    def make_vault_lib(self, contextName="defaults"):
+    def make_vault_lib(self, contextName=None):
         secrets = list(self.get_vault_passwords(contextName))
         if secrets:
             return make_vault_lib_ex(secrets)
@@ -746,6 +746,11 @@ class LocalEnv:
                         )
                 else:
                     vault = None
+                if not vault:
+                    msg = "No vault password found"
+                    if self.manifest_context_name:
+                        msg += f" for environment {self.manifest_context_name}"
+                    self.logger.debug(msg)
                 manifest = YamlManifest(localEnv=self, vault=vault)
                 self._manifests[self.manifestPath] = manifest
             return manifest
