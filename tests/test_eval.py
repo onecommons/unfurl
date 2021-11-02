@@ -3,7 +3,7 @@ import os
 import json
 import pickle
 
-from unfurl.result import ResultsList, serialize_value, ChangeRecord, Result
+from unfurl.result import ResultsList, ResultsMap, serialize_value, ChangeRecord, Result
 from unfurl.eval import Ref, map_value, RefContext, set_eval_func, ExternalValue
 from unfurl.support import apply_template, TopologyMap
 from unfurl.util import sensitive_str
@@ -225,6 +225,17 @@ class EvalTest(unittest.TestCase):
         vars = {"foo": {"bar": sensitive_str("sensitive")}}
         val = apply_template("{{ foo.bar }}", RefContext(resource, vars, trace=0))
         assert isinstance(val, sensitive_str), type(val)
+
+        val = map_value(
+            "{{ {'key' : zone['n']} }}",  # n returns a ResultsMap
+            RefContext(
+                self._getTestResource(),
+                {"zone": {"n": ResultsMap({"a": "b"}, RefContext(resource))}},
+                trace=0,
+            ),
+        )
+        assert val == {"key": {"a": "b"}}
+        # actually {'key': Results({'a': Result('b', None, ())})}
 
     def test_templateFunc(self):
         query = {

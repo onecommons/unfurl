@@ -13,7 +13,14 @@ import re
 import ast
 from enum import IntEnum
 from .eval import RefContext, set_eval_func, Ref, map_value
-from .result import Results, ResultsMap, Result, ExternalValue, serialize_value
+from .result import (
+    Results,
+    ResultsMap,
+    ResultsList,
+    Result,
+    ExternalValue,
+    serialize_value,
+)
 from .util import (
     ChainMap,
     find_schema_errors,
@@ -30,6 +37,7 @@ from .merge import intersect_dict, merge_dicts
 from unfurl.projectpaths import get_path
 import ansible.template
 from ansible.parsing.dataloader import DataLoader
+from ansible.utils import unsafe_proxy
 from ansible.utils.unsafe_proxy import wrap_var, AnsibleUnsafeText, AnsibleUnsafeBytes
 
 import logging
@@ -215,6 +223,29 @@ class _VarTrackerDict(dict):
             return val
 
 
+def _wrap_dict(v):
+    if isinstance(v, Results):
+        # wrap_var() fails with Results types, this is equivalent:
+        v.applyTemplates = False
+        return v
+    return dict((wrap_var(k), wrap_var(item)) for k, item in v.items())
+
+
+unsafe_proxy._wrap_dict = _wrap_dict
+
+
+def _wrap_sequence(v):
+    if isinstance(v, Results):
+        # wrap_var() fails with Results types, this is equivalent:
+        v.applyTemplates = False
+        return v
+    v_type = type(v)
+    return v_type(wrap_var(item) for item in v)
+
+
+unsafe_proxy._wrap_sequence = _wrap_sequence
+
+
 def apply_template(value, ctx, overrides=None):
     if not isinstance(value, six.string_types):
         msg = f"Error rendering template: source must be a string, not {type(value)}"
@@ -300,11 +331,6 @@ def apply_template(value, ctx, overrides=None):
                 ):
                     # return the external value instead
                     return external_result
-
-                if isinstance(value, Results):
-                    # wrap_var() fails with Results types, this is equivalent:
-                    value.applyTemplates = False
-                    return value
 
                 # wrap result as AnsibleUnsafe so it isn't evaluated again
                 return wrap_var(value)
