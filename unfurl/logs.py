@@ -1,30 +1,14 @@
 import collections.abc
 import logging
 import logging.config
-from enum import Enum
+from enum import IntEnum
 import os
+import tempfile
 
 import click
 
-LOGGING = {
-    "version": 1,
-    "disable_existing_loggers": False,
-    "filters": {
-        "sensitive": {
-            "()": "unfurl.logs.SensitiveFilter",
-        }
-    },
-    "handlers": {
-        "console": {"class": "unfurl.logs.ColorHandler", "filters": ["sensitive"]}
-    },
-    "loggers": {
-        "git": {"level": "INFO", "handlers": ["console"]},
-    },
-    "root": {"level": "INFO", "handlers": ["console"]},
-}
 
-
-class Levels(Enum):
+class Levels(IntEnum):
     CRITICAL = logging.CRITICAL
     ERROR = logging.ERROR
     WARNING = logging.WARNING
@@ -32,6 +16,31 @@ class Levels(Enum):
     VERBOSE = 15
     DEBUG = logging.DEBUG
     TRACE = 5
+
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "file": {"format": "[%(asctime)s] %(name)s:%(levelname)s: %(message)s"}
+    },
+    "filters": {
+        "sensitive": {
+            "()": "unfurl.logs.SensitiveFilter",
+        }
+    },
+    "handlers": {
+        "console": {
+            "class": "unfurl.logs.ColorHandler",
+            "level": logging.INFO,
+            "filters": ["sensitive"],
+        }
+    },
+    "loggers": {
+        "git": {"level": logging.INFO, "handlers": ["console"]},
+    },
+    "root": {"level": Levels.TRACE, "handlers": ["console"]},
+}
 
 
 class UnfurlLogger(logging.Logger):
@@ -109,21 +118,35 @@ def initialize_logging():
     logging.captureWarnings(True)
     logging.addLevelName(Levels.TRACE.value, Levels.TRACE.name)
     logging.addLevelName(Levels.VERBOSE.value, Levels.VERBOSE.name)
-    logging.config.dictConfig(LOGGING)
     if os.getenv("UNFURL_LOGGING"):
-        effective_log_level = Levels[os.getenv("UNFURL_LOGGING").upper()]
-        set_root_log_level(effective_log_level.value)
+        LOGGING["handlers"]["console"]["level"] = Levels[
+            os.getenv("UNFURL_LOGGING").upper()
+        ]
+    logging.config.dictConfig(LOGGING)
 
 
-def set_root_log_level(log_level: int):
-    logging.getLogger().setLevel(log_level)
+def set_console_log_level(log_level: int):
+    LOGGING["handlers"]["console"]["level"] = log_level
+    LOGGING["incremental"] = True
+    logging.config.dictConfig(LOGGING)
+
+
+def get_tmplog_path():
+    # mktemp is safe here, we just want a random file path to write too
+    return tempfile.mktemp("-unfurl.log", dir=os.environ.get("UNFURL_TMPDIR"))
 
 
 def add_log_file(filename):
+    dir = os.path.dirname(filename)
+    if dir and not os.path.isdir(dir):
+        os.makedirs(dir)
+
     handler = logging.FileHandler(filename)
     f = SensitiveFilter()
     formatter = logging.Formatter("[%(asctime)s] %(name)s:%(levelname)s: %(message)s")
     handler.setFormatter(formatter)
-    handler.setLevel(Levels.TRACE.value)
+    log_level = min(LOGGING["handlers"]["console"]["level"], Levels.DEBUG)
+    handler.setLevel(log_level)
     handler.addFilter(f)
     logging.getLogger().addHandler(handler)
+    return filename

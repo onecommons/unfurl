@@ -483,7 +483,6 @@ class Job(ConfigChange):
         self.task_count = 0
         self.external_requests = None
         self.external_jobs = None
-        self.log_path = None
 
     def get_operational_dependencies(self):
         # XXX3 this isn't right, root job might have too many and child job might not have enough
@@ -1236,15 +1235,12 @@ class Job(ConfigChange):
         )
         return line1 + tasks + outputString
 
-    def log_to_file(self):
+    @property
+    def log_path(self):
         log_name = (
             self.startTime.strftime("%Y-%m-%d-%H-%M-%S") + "-" + self.changeId[:-4]
         )
-        logPath = self.manifest.get_job_log_path(log_name, ".log")
-        if not os.path.isdir(os.path.dirname(logPath)):
-            os.makedirs(os.path.dirname(logPath))
-        logs.add_log_file(logPath)
-        self.log_path = logPath
+        return self.manifest.get_job_log_path(log_name, ".log")
 
 
 def create_job(manifest, joboptions, previousId=None):
@@ -1256,7 +1252,6 @@ def create_job(manifest, joboptions, previousId=None):
     job = Job(manifest, root, joboptions, previousId)
 
     if manifest.localEnv and not joboptions.parentJob and not joboptions.startTime:
-        job.log_to_file()
         path = manifest.path
         if joboptions.planOnly:
             logger.info("creating %s plan for %s", joboptions.workflow, path)

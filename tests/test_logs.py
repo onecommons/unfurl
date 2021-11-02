@@ -11,27 +11,21 @@ from unfurl.job import JobOptions, Runner
 from unfurl.localenv import LocalEnv
 from unfurl.logs import Levels, SensitiveFilter
 from unfurl.util import sensitive_str
+from unfurl import logs
 
 
 def test_format_of_job_file_log():
-    cli_runner = CliRunner()
-    with cli_runner.isolated_filesystem():
-        path = Path(__file__).parent / "examples" / "shell-ensemble.yaml"
-        with open(path) as f:
-            ensemble = f.read()
-        with open("ensemble.yaml", "w") as f:
-            f.write(ensemble)
-        manifest = LocalEnv().get_manifest()
-        runner = Runner(manifest)
+    tmplogfile = logs.get_tmplog_path()
+    logs.add_log_file(tmplogfile)
+    logger = logging.getLogger("unfurl")
+    logger.info("starting deploy job for ")
 
-        runner.run(JobOptions(instance="test1"))
-        log_file = list((Path.cwd() / "jobs").glob("*.log"))[0]
-
-        with open(log_file) as f:
-            first_line = f.readline()
-            # check format - it should differ from console log
-            expected_format = r"\[.+\] unfurl:INFO: starting deploy job for .*"
-            assert re.match(expected_format, first_line)
+    with open(tmplogfile) as f:
+        first_line = f.readline()
+        # check format - it should differ from console log
+        expected_format = r"\[.+\] unfurl:INFO: starting deploy job for .*"
+        assert re.match(expected_format, first_line)
+    os.unlink(tmplogfile)
 
 
 class TestLogLevelDetection:
@@ -104,6 +98,7 @@ class TestVerboseLevelDetection:
         verbose = detect_verbose_level(log_level)
         assert verbose == expected
 
+
 class TestSensitiveFilter:
     not_important_args = {
         "name": "xxx",
@@ -140,6 +135,7 @@ class TestSensitiveFilter:
             record.getMessage() == "This should {'also': 'work', 'not': '<<REDACTED>>'}"
         )
 
+
 class TestColorHandler:
     def test_exception_is_printed(self, caplog):
         log = logging.getLogger("test_exception_is_printed")
@@ -150,4 +146,3 @@ class TestColorHandler:
             log.error("I caught an error: %s", e, exc_info=True)
 
         assert "Traceback (most recent call last):" in caplog.text
-

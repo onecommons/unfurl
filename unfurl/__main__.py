@@ -80,7 +80,6 @@ def cli(
     ctx,
     verbose=0,
     quiet=False,
-    logfile=None,
     loglevel=None,
     tmp=None,
     version_check=None,
@@ -93,12 +92,12 @@ def cli(
 
     if tmp is not None:
         os.environ["UNFURL_TMPDIR"] = tmp
-
     effective_log_level = detect_log_level(loglevel, quiet, verbose)
     ctx.obj["verbose"] = detect_verbose_level(effective_log_level)
-    logs.set_root_log_level(effective_log_level.value)
-    if logfile:
-        logs.add_log_file(logfile)
+    if kw["logfile"]:
+        logs.add_log_file(kw["logfile"])
+    logs.set_console_log_level(effective_log_level)
+
     if version_check and version_tuple() < version_tuple(version_check):
         logging.warning(
             "current version %s older than expected version %s",
@@ -377,7 +376,11 @@ def _run_remote(runtime, options, localEnv):
 
 
 def _run_local(ensemble, options):
-    logger = logging.getLogger("unfurl")
+    tmplogfile = None
+    if not options["logfile"]:
+        tmplogfile = logs.get_tmplog_path()
+        logs.add_log_file(tmplogfile)
+
     job = run_job(ensemble, options)
     _latestJobs.append(job)  # testing only
     if not job:
@@ -405,8 +408,19 @@ def _run_local(ensemble, options):
                 click.echo(result)
         if jsonSummary is not None:
             click.echo(json.dumps(jsonSummary, indent=2))
-    if job and job.log_path:
-        click.echo("Done, full log written to " + job.log_path)
+
+    if options["logfile"]:
+        click.echo("Done, full log appended to " + options["logfile"])
+    else:
+        if job and job.log_path:
+            log_path = job.log_path
+            dir = os.path.dirname(log_path)
+            if not os.path.exists(dir):
+                os.makedirs(dir)
+            os.rename(tmplogfile, log_path)
+        else:
+            log_path = tmplogfile
+        click.echo("Done, full log written to " + log_path)
 
     if not job or (
         "jobexitcode" in options
