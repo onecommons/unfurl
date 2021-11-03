@@ -506,15 +506,15 @@ class DeployPlan(Plan):
         """
         assert template and instance
         jobOptions = self.jobOptions
+        if jobOptions.force:
+            return Reason.force
+
         if jobOptions.add and not jobOptions.skip_new and instance.status != Status.ok:
             if not instance.last_change:  # never instantiated before
                 return Reason.add
 
             if instance.status in [Status.unknown, Status.pending, Status.absent]:
                 return Reason.missing
-
-        if jobOptions.force:
-            return Reason.force
 
         # if the specification changed:
         oldTemplate = instance.template

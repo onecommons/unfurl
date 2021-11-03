@@ -803,7 +803,10 @@ class Job(ConfigChange):
                 reason = "dry run not supported"
             else:
                 missing = []
-                if task.configSpec.operation not in ["check", "delete"]:
+                if (
+                    task.configSpec.operation not in ["check", "delete"]
+                    and task.reason != Reason.force
+                ):
                     missing, reason = self._dependency_check(task.target)
                     if not missing:
                         missing, reason = self._dependency_check(task)
