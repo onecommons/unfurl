@@ -11,6 +11,7 @@ decorators:
              q:
               eval:
                 if: $zone
+                # XXX should only select NS records not all ''
                 then: "{{ {subdomain.split('.')[0] : zone['']} }}"
                 else: {}
               vars:

@@ -14,6 +14,16 @@ from ..support import Status
 
 from ..eval import RefContext
 
+# octodns installs natsort_keygen
+from natsort import natsort_keygen
+
+_natsort_key = natsort_keygen()
+
+# octodns requires keys in its yaml config to be sorted this way
+def sort_dict(d):
+    keys_sorted = sorted(d.keys(), key=_natsort_key)
+    return dict((k, d[k]) for k in keys_sorted)
+
 
 @contextmanager
 def change_cwd(new_path: str, log: Logger):
@@ -97,7 +107,7 @@ class DNSConfigurator(Configurator):
     @staticmethod
     def _write_zone_data(folder, zone, records):
         assert zone.endswith("."), f"{zone} name must end with '.'"
-        folder.write_file(records, f"{zone}yaml")
+        folder.write_file(sort_dict(records), f"{zone}yaml")
 
     @staticmethod
     def _extract_properties_from(task) -> DnsProperties:
@@ -155,14 +165,14 @@ class DNSConfigurator(Configurator):
                     del d["ttl"]
                 if record._octodns:
                     d["octodns"] = record._octodns
-                data[record.name].append(d)
+                data[record.name].append(sort_dict(d))
 
             # Flatten single element lists
             for k in data.keys():
                 if len(data[k]) == 1:
                     data[k] = data[k][0]
 
-            return dict(data)
+            return sort_dict(data)
 
     def run(self, task: ConfigTask):
         """Apply DNS configuration"""
