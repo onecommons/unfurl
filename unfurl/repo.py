@@ -102,7 +102,7 @@ class Repo:
         if parent:
             path = parent.find_repo_path(dir)
             if path:  # can be None if dir is already ignored
-                parent.add_to_local_git_ignore(path)
+                parent.add_to_local_git_ignore("/" + path)
                 return path
         return None
 
@@ -276,11 +276,8 @@ class RepoView:
                 secretsdir = Path(root.replace(".secrets", "secrets"))
                 filepath = Path(root) / filename
                 stinfo = filepath.stat()
-                if (
-                    not secretsdir.is_dir()
-                    or filename not in list(secretsdir.iterdir())
-                    or stinfo.st_mtime > (secretsdir / filename).stat().st_mtime
-                ):
+                target = secretsdir / filename
+                if not target.is_file() or stinfo.st_mtime > target.stat().st_mtime:
                     target = secretsdir / filename
                     try:
                         contents = _loader.load_from_file(str(filepath))
@@ -302,7 +299,8 @@ class RepoView:
                 self.repo.repo.git.add(str(saved.relative_to(self.repo.working_dir)))
         if addAll:
             self.add_all()
-        return self.repo.repo.index.commit(message)
+        self.repo.repo.index.commit(message)
+        return 1
 
     def get_default_commit_message(self):
         return "Commit by Unfurl"
