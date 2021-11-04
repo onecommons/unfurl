@@ -351,6 +351,9 @@ class TerraformConfigurator(ShellConfigurator):
             else:
                 status = Status.ok
 
+        # UNFURL  WARNING  shell task run failure: "terraform apply -auto-approve -state=terraform.tfstate" in /Users/adam/_dev/uprojects/live/oc-dev2/gcp/pending/tasks/gitlab-cluster/
+        # UNFURL  INFO  shell task return code: 1, stderr: 2021-11-04T06:23:51.271-0700 [DEBUG] Adding temp file log sink: /var/folders/5r/401zm__s0nsgksswhft5x7lh0000gr/T/terraform-log210889511
+
         if not task.dry_run and task.configSpec.operation != "check":
             outputs = {}
             if statePath and os.path.isfile(os.path.join(cwd.cwd, statePath)):
@@ -374,7 +377,9 @@ class TerraformConfigurator(ShellConfigurator):
                 state["outputs"] = outputs  # replace outputs
             else:
                 state = {}
-            success = not self.process_result_template(task, state)
+            errors = self.process_result_template(task, state)
+            if success:
+                success = not errors
         else:
             outputs = None
 
