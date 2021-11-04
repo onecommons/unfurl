@@ -85,6 +85,16 @@ class WorkFolder:
             os.makedirs(dir)
         return os.path.join(dir, path or "")
 
+    def copy_from(self, path):
+        filename = os.path.basename(path)
+        return shutil.copy(path, self.get_path(filename))
+
+    def copy_to(self, path):
+        dir, filename = os.path.split(path)
+        if not os.path.exists(dir):
+            os.makedirs(dir)
+        return shutil.copy(self.get_path(filename), path)
+
     def pending_path(self, path=None):
         # always return pending path
         if not os.path.exists(self._pending):

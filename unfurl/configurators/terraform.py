@@ -126,7 +126,14 @@ class TerraformConfigurator(ShellConfigurator):
     def can_dry_run(self, task):
         return True
 
-    def _init_terraform(self, task, terraform, cwd, env):
+    def _init_terraform(self, task, terraform, folder, env):
+        cwd = folder.cwd
+        lock_file = get_path(
+            task.inputs.context, ".terraform.lock.hcl", Folders.artifacts
+        )
+        if os.path.exists(lock_file):
+            folder.copy_from(lock_file)
+
         echo = task.verbose > -1
         timeout = task.configSpec.timeout
         cmd = terraform + ["init"]
@@ -134,6 +141,8 @@ class TerraformConfigurator(ShellConfigurator):
         if not self._handle_result(task, result, cwd):
             return None
 
+        if os.path.exists(folder.get_path(".terraform.lock.hcl")):
+            folder.copy_to(lock_file)
         cmd = terraform + "providers schema -json".split(" ")
         result = self.run_process(cmd, timeout=timeout, env=env, cwd=cwd, echo=False)
         if not self._handle_result(task, result, cwd):
@@ -303,7 +312,7 @@ class TerraformConfigurator(ShellConfigurator):
             with open(providerSchemaPath) as psf:
                 providerSchema = json.load(psf)
         else:  # first time
-            providerSchema = self._init_terraform(task, terraform, cwd.cwd, env)
+            providerSchema = self._init_terraform(task, terraform, cwd, env)
             if providerSchema is not None:
                 save_to_file(providerSchemaPath, providerSchema)
             else:
@@ -314,7 +323,7 @@ class TerraformConfigurator(ShellConfigurator):
         )
         if result.returncode and re.search(r"terraform\s+init", result.stderr):
             # modules or plugins out of date, re-run terraform init
-            providerSchema = self._init_terraform(task, terraform, cwd.cwd, env)
+            providerSchema = self._init_terraform(task, terraform, cwd, env)
             if providerSchema:
                 save_to_file(providerSchemaPath, providerSchema)
                 # try again
@@ -342,8 +351,9 @@ class TerraformConfigurator(ShellConfigurator):
             else:
                 status = Status.ok
 
-        if success and not (task.dry_run or task.configSpec.operation == "check"):
-            if statePath:
+        if not task.dry_run and task.configSpec.operation != "check":
+            outputs = {}
+            if statePath and os.path.isfile(os.path.join(cwd.cwd, statePath)):
                 # read state file
                 statePath = os.path.join(cwd.cwd, statePath)
                 with open(statePath) as sf:
@@ -352,8 +362,10 @@ class TerraformConfigurator(ShellConfigurator):
                     providerSchema, state, task, self.sensitive_names
                 )
                 # save state file in home as yaml, encrypting sensitive values
-                folder = Folders.secrets  # Folders.artifacts
-                task.set_work_folder(folder).write_file(state, "terraform.tfstate.yaml")
+                folderName = task.inputs.get("stateLocation") or Folders.secrets
+                task.set_work_folder(folderName).write_file(
+                    state, "terraform.tfstate.yaml"
+                )
                 outputs = {
                     name: wrap_var(attrs["value"])
                     for name, attrs in state["outputs"].items()
