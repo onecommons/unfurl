@@ -810,6 +810,8 @@ class TaskView:
         return None, errors
 
     def set_work_folder(self, location="operation", preserve=None) -> WorkFolder:
+        if location in self._workFolders:
+            return self._workFolders[location]
         if preserve is None:
             preserve = True if location in Folders.Persistent else False
         wf = WorkFolder(self, location, preserve)

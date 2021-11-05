@@ -73,7 +73,7 @@ node_types:
       Standard:
         operations:
           delete:
-          create:
+          configure:
       Install:
         operations:
           check:

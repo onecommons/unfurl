@@ -37,7 +37,7 @@ spec:
                       type: string
             Standard:
               operations:
-                create:
+                confgure:
                   inputs:
                     resultTemplate:
                       attributes:

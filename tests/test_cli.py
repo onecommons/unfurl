@@ -231,7 +231,7 @@ spec:
               +/configurations:
 """
         runner = CliRunner()
-        runtime = "docker:onecommons/unfurl:0.2.4"
+        runtime = "docker:onecommons/unfurl:latest"
         _args[:] = [
             f"--runtime={runtime}",
             "-vvv",

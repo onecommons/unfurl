@@ -54,7 +54,7 @@ spec:
 
             Standard:
               operations:
-                create:
+                configure:
                   inputs:
                     resultTemplate: |
                       # merge all outputs into attributes
