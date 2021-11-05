@@ -14,6 +14,7 @@ import os
 import os.path
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import traceback
@@ -417,7 +418,11 @@ def _run_local(ensemble, options):
             dir = os.path.dirname(log_path)
             if not os.path.exists(dir):
                 os.makedirs(dir)
-            os.rename(tmplogfile, log_path)
+            try:
+                os.rename(tmplogfile, log_path)
+            except OSError:
+                # handle [Errno 18] Invalid cross-device link
+                shutil.copy(tmplogfile, log_path)
         else:
             log_path = tmplogfile
         click.echo("Done, full log written to " + log_path)
@@ -595,7 +600,7 @@ def plan(ctx, ensemble=None, **options):
     "--create-environment",
     is_flag=True,
     default=False,
-    help="Create (if missing) a environment with the same name and set this as the default repository for ensembles uses this context.",
+    help="Create (if missing) a environment with the same name and set this as the default repository for ensembles that use this environment.",
 )
 @click.option(
     "--use-environment",
@@ -746,6 +751,12 @@ def runtime(ctx, project_folder, init=False, **options):
     is_flag=True,
     help="Add project to nearest existing repository.",
 )
+# XXX
+# @click.option(
+#     "--use-environment",
+#     default=None,
+#     help="Associate the given environment with the ensemble.",
+# )
 def clone(ctx, source, dest, **options):
     """Create a new ensemble or project from a service template or an existing ensemble or project.
 

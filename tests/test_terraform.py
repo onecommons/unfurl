@@ -365,12 +365,26 @@ class TerraformMotoTest(unittest.TestCase):
         except:
             pass
 
+    def setup_filesystem(self):
+        terraform_dir = os.environ["terraform_dir"] = os.path.join(
+            os.path.dirname(__file__), "fixtures", "terraform"
+        )
+
+        # copy the terraform lock file so the configurator avoids calling terraform init
+        # if .tox/.terraform already has the providers
+        os.makedirs("tasks/example")
+        shutil.copy(
+            terraform_dir + "/aws-terraform.lock.hcl",
+            "tasks/example/.terraform.lock.hcl",
+        )
+
     def test_terraform(self):
         """
         test that runner figures out the proper tasks to run
         """
         runner = CliRunner()
         with runner.isolated_filesystem():
+            self.setup_filesystem()
             with open("unfurl.yaml", "w") as f:
                 f.write(self.project_config)
 
@@ -387,11 +401,11 @@ class TerraformMotoTest(unittest.TestCase):
             assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
             assert job.status == Status.ok, job.summary()
             example = job.rootResource.find_resource("example")
-            self.assertEqual(example.attributes["tags"], {"Name": "test"})
             self.assertEqual(example.attributes["availability_zone"], "us-east-1a")
             self.assertEqual(
                 type(example.attributes["availability_zone"]), sensitive_str
             )
+            self.assertEqual(example.attributes["tags"], {"Name": "test"})
             # print("deploy")
             # print(job.jsonSummary(True))
             self.assertEqual(
