@@ -231,7 +231,7 @@ spec:
               +/configurations:
 """
         runner = CliRunner()
-        runtime = "docker:onecommons/unfurl:0.2.4"
+        runtime = "docker:onecommons/unfurl:latest"
         _args[:] = [
             f"--runtime={runtime}",
             "-vvv",
@@ -367,7 +367,8 @@ spec:
                 os.path.dirname(__file__), "examples/spec/service-template.yaml"
             )
             result = runner.invoke(
-                cli, ["--home", "./unfurl_home", "clone", specTemplate, "clone1"]
+                cli,
+                ["--home", "./unfurl_home", "clone", "--mono", specTemplate, "clone1"],
             )
             # print("result.output", result.exit_code, result.output)
             assert not result.exception, "\n".join(
@@ -376,7 +377,8 @@ spec:
             self.assertEqual(result.exit_code, 0, result)
 
             result = runner.invoke(
-                cli, ["--home", "./unfurl_home", "deploy", "clone1/tests/examples"]
+                cli,
+                ["--home", "./unfurl_home", "-vvv", "deploy", "clone1/tests/examples"],
             )
             # print("result.output", result.exit_code, result.output)
             assert not result.exception, "\n".join(
@@ -425,6 +427,7 @@ spec:
         with runner.isolated_filesystem():
             runCmd(runner, ["--home", "./unfurl_home", "init", "shared"])
 
+            assert not Project.find_path("p1"), Project.find_path("p1")
             runCmd(
                 runner,
                 ["--home", "./unfurl_home", "init", "--shared-repository=shared", "p1"],
@@ -460,8 +463,8 @@ spec:
             self.assertRegex(result.output, "Found nothing to do.")
 
             os.chdir("..")
-
-            runCmd(runner, ["--home", "./unfurl_home", "clone", "p1", "p1copy"])
+            # clone a project
+            runCmd(runner, ["--home", "./unfurl_home", "clone", "p1", "p1copy"], True)
             result = runCmd(runner, ["--home", "./unfurl_home", "deploy", "p1copy"])
             self.assertRegex(result.output, "Found nothing to do.")
 

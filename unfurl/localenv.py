@@ -184,7 +184,7 @@ class Project:
             return fullPath2
         if not can_be_empty:
             raise UnfurlError(
-                'The can not find an ensemble in a default location: "%s" or "%s"'
+                'Can not find an ensemble in a default location: "%s" or "%s"'
                 % (fullPath, fullPath2)
             )
         return None
@@ -530,6 +530,8 @@ class LocalConfig:
         repo = project.project_repoview
         localRepositories = local.setdefault("localRepositories", {})
         lock = repo.lock()
+        name = self._get_project_name(project)
+        lock["project"] = name
         if localRepositories.get(repo.working_dir) != lock:
             localRepositories[repo.working_dir] = lock
             changed = True
@@ -542,7 +544,6 @@ class LocalConfig:
         if file and file != ".":
             externalProject["file"] = file
 
-        name = self._get_project_name(project)
         self.projects[name] = externalProject
         if repo.is_local_only():
             projectConfig = local
