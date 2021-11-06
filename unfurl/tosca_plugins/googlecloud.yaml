@@ -83,7 +83,7 @@ node_types:
               {%if SELF.folder_id %}
                 folder_id = "{{ SELF.folder_id }}"
                 org_id = ""
-              {% else %}
+              {% elif SELF.organization_id %}
                 org_id = "{{ SELF.organization_id }}"
               {% endif %}
             }
@@ -132,8 +132,13 @@ node_types:
     interfaces:
       Standard:
         create:
-            # "Downloads key to seed-service-account/local/credentials.json"
-            implementation: gcloud
+            # Downloads key to {instance-name}/secretes/{seed-service-account-credentials.json
+            implementation:
+              primary: gcloud
+              preConditions:
+                properties:
+                  account_id:
+                    type: string
             inputs:
               command: >
                 gcloud iam service-accounts keys create "{{ SELF.filename | abspath(SELF.download_location) }}"
