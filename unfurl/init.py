@@ -595,7 +595,7 @@ def _get_context_and_shared_repo(project, options):
 
 
 class EnsembleBuilder:
-    def __init__(self, source: str, ensemble_name: str, options):
+    def __init__(self, source: str, ensemble_name: str, options: dict):
         # user specified url or path
         self.input_source = source
         self.options = options
@@ -604,14 +604,14 @@ class EnsembleBuilder:
         self.home_path = get_home_config_path(options.get("home"))
 
         self.source_project = None  # step 1
-        self.source_path = None  # step 1 relative path into source_project
+        self.source_path = None  # step 1 relative path in source_project
 
         self.templateVars = None  # step 2
         self.environment = None  # step 2 environment name
-        self.shared_repo = None  # step 2 if new ensemble
+        self.shared_repo = None  # step 2
 
         self.dest_project = None  # step 3
-        self.dest_path = None  # step 3 relative path for new ensemble
+        self.dest_path = None  # step 3 relative path in dest_project
 
         self.manifest = None  # final step
 
@@ -657,28 +657,28 @@ class EnsembleBuilder:
             manifestName = DefaultNames.Ensemble
         return destDir, manifestName
 
-    def create_new_ensemble(self, destProject):
+    def create_new_ensemble(self):
         """
         If "localEnv" is in templateVars, clone that ensemble;
         otherwise create one from a template with templateVars
         """
         from unfurl import yamlmanifest
 
+        if self.shared_repo:
+            destProject = find_project(self.shared_repo.working_dir, self.home_path)
+            assert destProject
+        else:
+            destProject = self.dest_project
+
         assert destProject
         assert self.templateVars
         assert not self.manifest
         assert self.dest_path is not None
+
         destDir, manifestName = self._get_ensemble_dir(self.dest_path)
-
-        # if self.shared_repo then self.dest_project will the project there
-        # otherwise the same as destProject
-        assert (
-            self.shared_repo or destProject.projectRoot == self.dest_project.projectRoot
-        ), (self.shared_repo, destProject.projectRoot, self.dest_project.projectRoot)
-
         # choose a destDir that doesn't conflict with an existing folder
         # (i.e. if default ensemble already exists)
-        destDir = self.dest_project.get_unique_path(destDir)
+        destDir = destProject.get_unique_path(destDir)
         # destDir is now absolute
         targetPath = os.path.normpath(os.path.join(destDir, manifestName))
         assert (not self.shared_repo) or targetPath.startswith(
@@ -692,7 +692,7 @@ class EnsembleBuilder:
         if "localEnv" not in templateVars:
             # we found a template file to clone
             localEnv, manifest = _create_ensemble_from_template(
-                self.templateVars, self.dest_project, destDir, manifestName
+                self.templateVars, destProject, destDir, manifestName
             )
         else:
             # didn't find a template file
@@ -702,19 +702,19 @@ class EnsembleBuilder:
 
         _create_ensemble_repo(
             manifest,
-            self.shared_repo or self.mono and destProject.project_repoview.repo,
+            self.shared_repo or self.mono and self.dest_project.project_repoview.repo,
         )
 
         if destProject.projectRoot != self.dest_project.projectRoot:
             # cross reference each other
-            self.dest_project.register_ensemble(
-                manifest.path, managedBy=destProject, context=self.environment
-            )
             destProject.register_ensemble(
-                manifest.path, project=self.dest_project, context=self.environment
+                manifest.path, managedBy=self.dest_project, context=self.environment
+            )
+            self.dest_project.register_ensemble(
+                manifest.path, project=destProject, context=self.environment
             )
         else:
-            self.dest_project.register_ensemble(manifest.path, context=self.environment)
+            destProject.register_ensemble(manifest.path, context=self.environment)
         self.manifest = manifest
         return destDir
 
@@ -793,14 +793,10 @@ class EnsembleBuilder:
             self.ensemble_name
             and self.ensemble_name != DefaultNames.EnsembleDirectory
             or relDestDir == "."
+            or not relDestDir
         ):
             relDestDir = self.ensemble_name
         self.dest_path = relDestDir
-
-        if self.shared_repo:
-            destProject = find_project(self.shared_repo.working_dir, self.home_path)
-            assert destProject
-            self.dest_project = destProject
 
     def set_existing_ensemble(self, sourceProject):
         from unfurl import yamlmanifest
@@ -814,6 +810,40 @@ class EnsembleBuilder:
                 self.manifest = yamlmanifest.ReadOnlyManifest(localEnv=localEnv)
                 return self.manifest
         return None
+
+    def set_source(self, sourceProject):
+        self.source_project = sourceProject
+        # make source relative to the source project
+        source_path = sourceProject.get_relative_path(self.input_source)
+        assert not source_path.startswith("..")
+        self.source_path = source_path
+
+    def set_ensemble(self, isRemote, existingSourceProject, existingDestProject):
+        sourceWasCloned = self.source_project is not existingSourceProject
+        destIsNew = not existingDestProject
+        if destIsNew and self.set_existing_ensemble(existingSourceProject):
+            # if dest_project is new (we just cloned it)
+            # check if we cloned the ensemble already
+            # if so we done, we don't need to create a new one
+            return "Cloned project to " + self.dest_project.projectRoot
+
+        if not self.templateVars:
+            # source wasn't pointing to an ensemble to clone
+            if sourceWasCloned:
+                # but we cloned a project
+                return "Cloned project to " + self.dest_project.projectRoot
+            else:
+                # can't find anything to do, so raise an error
+                raise UnfurlError(
+                    f'Can\'t find anything to clone in "{self.input_source}"'
+                )
+
+        destDir = self.create_new_ensemble()
+        assert self.manifest
+        if not isRemote and existingSourceProject is not self.source_project:
+            # we need to clone the referenced local repos so the new project has access to them
+            clone_local_repos(self.manifest, existingSourceProject, self.source_project)
+        return f'Created new ensemble at "{os.path.abspath(destDir)}"'
 
 
 def clone(source, dest, ensemble_name=DefaultNames.EnsembleDirectory, **options):
@@ -862,11 +892,7 @@ def clone(source, dest, ensemble_name=DefaultNames.EnsembleDirectory, **options)
         else:
             # dest is in the source project
             # so don't need to clone, just need to create an ensemble
-            builder.source_project = sourceProject
-            # make source relative to the source project
-            source_path = sourceProject.get_relative_path(source)
-            assert not source_path.startswith("..")
-            builder.source_path = source_path
+            builder.set_source(sourceProject)
 
     assert builder.source_project
 
@@ -874,25 +900,8 @@ def clone(source, dest, ensemble_name=DefaultNames.EnsembleDirectory, **options)
     builder.configure()
     ##### step 3: create destination project if neccessary
     builder.set_dest_project_and_path(sourceProject, currentProject, dest)
-
-    ##### step 4 create ensemble in destination project
-    if not currentProject and sourceProject:
-        # if dest_project is new (we just cloned it) and dest_path points to an existing ensemble there
-        if builder.set_existing_ensemble(sourceProject):
-            # the ensemble is already part of the source project repository or a submodule
-            # we're done
-            return "Cloned project to " + builder.dest_project.projectRoot
-
-    if not builder.templateVars and builder.source_project is not sourceProject:
-        # no ensemble was found, so just clone
-        return "Cloned project to " + builder.dest_project.projectRoot
-
-    destDir = builder.create_new_ensemble(currentProject or builder.source_project)
-    assert builder.manifest
-    if not isRemote and sourceProject is not builder.source_project:
-        # we need to clone referenced local repos so the new project has access to them
-        clone_local_repos(builder.manifest, sourceProject, builder.source_project)
-    return f'Created new ensemble at "{os.path.abspath(destDir)}"'
+    ##### step 4 create ensemble in destination project if needed
+    return builder.set_ensemble(isRemote, sourceProject, currentProject)
 
 
 def _create_local_config(clonedProject):
