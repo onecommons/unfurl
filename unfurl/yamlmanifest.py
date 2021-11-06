@@ -336,7 +336,7 @@ class YamlManifest(ReadOnlyManifest):
             return
 
         # use the password associated with the project the repository appears in.
-        repos = {repo.working_dir: repo for repo in self.repositories.values()}
+        repos = set(self.repositories.values())
         project = self.localEnv.project or self.localEnv.homeProject
         while project:
             loader = DataLoader()
@@ -345,14 +345,14 @@ class YamlManifest(ReadOnlyManifest):
                 yaml = make_yaml(vault)
                 loader.set_vault_secrets(vault.secrets)
                 for repoview in project.workingDirs.values():
-                    repoview.load_secrets(loader)
-                    repoview.yaml = yaml
-                    repos.pop(repoview.working_dir, None)
-
+                    if repoview in repos:
+                        repoview.load_secrets(loader)
+                        repoview.yaml = yaml
+                        repos.remove(repoview)
             project = project.parentProject
 
         # left over:
-        for repository in repos.values():
+        for repository in repos:
             repository.load_secrets(rootResource._templar._loader)
             repository.yaml = self.yaml
 
