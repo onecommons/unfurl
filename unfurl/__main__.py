@@ -376,6 +376,27 @@ def _run_remote(runtime, options, localEnv):
         sys.exit(rv)
 
 
+def _print_summary(job, options):
+    jsonSummary = {}
+    summary = options.get("output")
+    if summary == "text":
+        click.echo(job.summary())
+    elif summary == "json":
+        jsonSummary = job.json_summary()
+
+    query = options.get("query")
+    if query:
+        result = job.run_query(query, options.get("trace"))
+        if summary == "json":
+            jsonSummary["query"] = query
+            jsonSummary["result"] = result
+        else:
+            click.echo("query: " + query)
+            click.echo(result)
+    if jsonSummary is not None:
+        click.echo(json.dumps(jsonSummary, indent=2))
+
+
 def _run_local(ensemble, options):
     tmplogfile = None
     if not options["logfile"]:
@@ -391,25 +412,7 @@ def _run_local(ensemble, options):
         if options.get("verbose", 0) > 0:
             raise job.unexpectedAbort
     elif not job.jobOptions.planOnly:
-        jsonSummary = {}
-        summary = options.get("output")
-        if summary == "text":
-            click.echo(job.summary())
-        elif summary == "json":
-            jsonSummary = job.json_summary()
-
-        query = options.get("query")
-        if query:
-            result = job.run_query(query, options.get("trace"))
-            if summary == "json":
-                jsonSummary["query"] = query
-                jsonSummary["result"] = result
-            else:
-                click.echo("query: " + query)
-                click.echo(result)
-        if jsonSummary is not None:
-            click.echo(json.dumps(jsonSummary, indent=2))
-
+        _print_summary(job, options)
     if options["logfile"]:
         click.echo("Done, full log appended to " + options["logfile"])
     else:

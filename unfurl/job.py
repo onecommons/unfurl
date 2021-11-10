@@ -521,31 +521,34 @@ class Job(ConfigChange):
         else:
             ready = self.plan_requests[:]
 
+        # run artifact job requests before render
+        if self.external_requests:
+            msg = "Running local installation tasks"
+            logger.info(msg + "\n%s", self._plan_summary([], self.external_requests))
+
         # currently external jobs are just for installing artifacts
-        # XXX need to make sure to only run those when that changes
-        self.external_jobs = self.run_external()
+        # we want to run these even if we just generating a plan
+        self.external_jobs = self.run_external(planOnly=False)
         if self.external_jobs and self.external_jobs[-1].status == Status.error:
             return [], [], ["error running job on external ensemble"]
 
+        ready, notReady, errors = do_render_requests(self, ready)
+        logger.info(self._plan_summary(ready + notReady, []))
+        return ready, notReady, errors
+
+    def run(self, rendered_requests=None):
+        if rendered_requests:
+            ready, notReady, errors = rendered_requests
+        else:
+            ready, notReady, errors = self.render()
+
         self.workDone = collections.OrderedDict()
-        # run artifact job requests before render
-        while ready and isinstance(ready[0], JobRequest):
-            jr = ready.pop(0)
-            childjob = self.run_job_request(jr)
-            if childjob.status == Status.error:
-                return [], [], ["error running artifact job"]
 
-        return do_render_requests(self, ready)
-
-    def run(self):
-        ready, notReady, errors = self.render()
         if errors:
             logger.error("Aborting job: there were errors during rendering: %s", errors)
             return self.rootResource
 
-        # XXX abort job if errors: return self.rootResource
         # XXX update_plan(ready, unfulfilled) # try to reorder so we can add to ready
-        logger.trace("ready %s; not ready %s", ready, notReady)
         while ready:
             # XXX need to call self.run_external() here if update_plan() adds external job
             # create and run tasks for requests that have their dependencies fulfilled
@@ -616,12 +619,10 @@ class Job(ConfigChange):
 
         # remove duplicates
         artifact_jobs = list({ajr.name: ajr for ajr in request_artifacts}.values())
-        # put artifact jobs needed for operations before the rest
-        plan_requests = artifact_jobs + plan_requests
 
         # create JobRequests for each external job we need to run by grouping requests by their manifest
         external_requests = []
-        for key, reqs in itertools.groupby(plan_requests, lambda r: id(r.root)):
+        for key, reqs in itertools.groupby(artifact_jobs, lambda r: id(r.root)):
             # external manifest activating an instance via artifact reification
             # XXX or substitution mapping -- but unique inputs require dynamically creating ensembles??
             reqs = list(reqs)
@@ -629,9 +630,12 @@ class Job(ConfigChange):
             if externalManifest:
                 external_requests.append((externalManifest, reqs))
             else:
-                self.plan_requests = reqs
+                # run artifact jobs as a seperate external job since we need to run them
+                # before the render stage of this job
+                external_requests.append((self.manifest, reqs))
 
         self.external_requests = external_requests
+        self.plan_requests = plan_requests
         return self.plan_requests[:]
 
     def _get_success_status(self, workflow, success):
@@ -712,7 +716,7 @@ class Job(ConfigChange):
         childJob.run()
         return childJob
 
-    def run_external(self):
+    def run_external(self, **opts):
         # note: manifest.lock() will raise error if there circular dependencies
         external_jobs = []
         external_requests = self.external_requests[:]
@@ -727,6 +731,7 @@ class Job(ConfigChange):
             jobOptions = self.jobOptions.copy(
                 instances=instance_specs,
                 masterJob=self.jobOptions.masterJob or self,
+                **opts,
             )
             external_job = create_job(manifest, jobOptions)
             external_jobs.append(external_job)
@@ -750,7 +755,6 @@ class Job(ConfigChange):
         """
         Checked at runtime right before each task is run
         """
-        task.target.root.attributeManager = task._attributeManager
         try:
             if task._configurator:
                 priority = task.configurator.should_run(task)
@@ -1125,7 +1129,7 @@ class Job(ConfigChange):
         else:
             return json.dumps(summary, indent=2)
 
-    def json_summary(self, pretty=False):
+    def json_summary(self, pretty=False, external=False):
         job = dict(id=self.changeId, status=self.status.name)
         job.update(self.stats())
         if not self.startTime:  # skip if startTime was explicitly set
@@ -1135,9 +1139,11 @@ class Job(ConfigChange):
             outputs=serialize_value(self.get_outputs()),
             tasks=[task.summary(True) for task in self.workDone.values()],
         )
+        if external:
+            summary["ensemble"] = self.manifest.path
         if self.external_jobs:
             summary["external_jobs"] = [
-                external.json_summary() for external in self.external_jobs
+                external.json_summary(external=True) for external in self.external_jobs
             ]
         if pretty:
             return json.dumps(summary, indent=2)
@@ -1160,7 +1166,7 @@ class Job(ConfigChange):
             )
         return stats
 
-    def _plan_summary(self):
+    def _plan_summary(self, plan_requests, external_requests):
         """
         Node "site" (status, state, created):
           check: Install.check
@@ -1199,7 +1205,10 @@ class Job(ConfigChange):
                     )
                     _summary(request.children, target, indent + INDENT)
                 else:
-                    output.append(" " * indent + "- " + repr(request))
+                    output.append(" " * indent + f"- operation {request.name}")
+                    if request.task and request.task._workFolders:
+                        for wf in request.task._workFolders.values():
+                            output.append(" " * indent + f"   rendered at {wf.cwd}")
 
         opts = self.jobOptions.get_user_settings()
         options = ",".join([f"{k} = {opts[k]}" for k in opts if k != "planOnly"])
@@ -1208,12 +1217,12 @@ class Job(ConfigChange):
             header += f" ({options})"
         output = [header + ":\n"]
 
-        for m, jr in self.external_requests:
+        for m, jr in external_requests:
             output += [f" External jobs on {m.path}:"]
             for j in jr:
                 output.append(" " * INDENT + j.name)
 
-        _summary(self.plan_requests, None, 0)
+        _summary(plan_requests, None, 0)
         if len(output) <= 1:
             output.append("Nothing to do.")
         return "\n".join(output)
@@ -1278,10 +1287,12 @@ def _plan(manifest, jobOptions):
     )
     job.create_plan()
     if jobOptions.masterJob:
-        msg = "Created plan for external job:"
+        msg = "Created static plan for external job:"
     else:
-        msg = "Created plan:"
-    logger.info(msg + "\n%s", job._plan_summary())
+        msg = "Created static plan:"
+    logger.debug(
+        msg + "\n%s", job._plan_summary(job.plan_requests, job.external_requests)
+    )
     return job
 
 
@@ -1290,11 +1301,15 @@ def _run_job(job, jobOptions):
     startTime = perf_counter()
     try:
         cwd = os.getcwd()
-        if not jobOptions.out:  # out is used by unit tests to avoid writing to disk
-            manifest.lock()
         if manifest.get_base_dir():
             os.chdir(manifest.get_base_dir())
 
+        render_requests = job.render()
+        if jobOptions.planOnly:
+            return job
+
+        if not jobOptions.out:  # out is used by unit tests to avoid writing to disk
+            manifest.lock()
         if jobOptions.dirty == "auto":  # default to false if committing
             checkIfClean = jobOptions.commit
         else:
@@ -1309,7 +1324,7 @@ def _run_job(job, jobOptions):
                     return None
         try:
             display.verbosity = jobOptions.verbose
-            job.run()
+            job.run(render_requests)
         except Exception:
             job.local_status = Status.error
             job.unexpectedAbort = UnfurlError(
@@ -1356,9 +1371,6 @@ def run_job(manifestPath=None, _opts=None):
         return None
 
     job = _plan(manifest, opts)
-    if opts.planOnly:
-        return job
-
     return _run_job(job, opts)
 
 

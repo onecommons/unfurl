@@ -49,6 +49,8 @@ def test_lifecycle():
     for job in isolated_lifecycle(src_path):
         if job.step.step == 2:  # deploy
             summary = job.json_summary()
+            # print("with home", job.json_summary(True))
+            assert "unfurl_home" in summary["external_jobs"][0]["ensemble"]
             # check that the artifact were deployed as an external job
             assert summary["job"] == {
                 "id": "A01120000000",
@@ -71,7 +73,7 @@ def test_lifecycle():
                 "changed": 2,
             }
         else:
-            assert "external_jobs" not in job.json_summary()
+            assert "external_jobs" not in job.json_summary(), job.json_summary(True)
 
 
 def test_lifecycle_no_home():
@@ -80,18 +82,19 @@ def test_lifecycle_no_home():
     for job in isolated_lifecycle(src_path, env=env):
         # verify that the build artifact got installed as part of an job request
         summary = job.json_summary()
-        assert "external_jobs" not in summary
+        # assert "external_jobs" not in summary
         if job.step.step == 2:  # deploy
-            # check that the artifacts were deployed too
-            assert summary["job"] == {
+            # check that the artifacts were deployed in the same ensemble as this one
+            assert summary["external_jobs"][0]["ensemble"] == job.manifest.path
+            assert summary["external_jobs"][0]["job"] == {
                 "id": "A01120000000",
                 "status": "ok",
-                "total": 3,
-                "ok": 3,
+                "total": 2,
+                "ok": 2,
                 "error": 0,
                 "unknown": 0,
                 "skipped": 0,
-                "changed": 3,
+                "changed": 2,
             }
         elif job.step.step == 5:  # undeploy
             # check that the artifacts weren't deleted
