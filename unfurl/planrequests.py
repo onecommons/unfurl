@@ -386,6 +386,8 @@ def _get_deps(parent, req, liveDependencies, requests):
     for (root, r) in requests:
         if req.target.key == r.target.key:
             continue  # skip self
+        if req.required is not None and not req.required:
+            continue  # skip requests that aren't going to run
         if r.target.key in liveDependencies:
             if root:
                 if previous is root or parent is root:
@@ -408,7 +410,7 @@ def set_fulfilled(requests, completed):
     return ready, notReady
 
 
-def _render_request(job, parent, req, requests):
+def _prepare_request(job, req, errors):
     # req is a taskrequests, future_requests are (grouprequest, taskrequest) pairs
     if req.task:
         task = req.task
@@ -416,15 +418,10 @@ def _render_request(job, parent, req, requests):
         task.target.root.attributeManager = task._attributeManager
     else:
         task = req.task = job.create_task(req.configSpec, req.target, reason=req.reason)
-
     error = None
-    proceed = False
     try:
         proceed, msg = job.should_run_task(task)
-        if proceed:
-            task.logger.debug("rendering %s %s", task.target.name, task.name)
-            task.rendered = task.configurator.render(task)
-        else:
+        if not proceed:
             req.required = False
             if task._errors:
                 error = task._errors[0]
@@ -436,6 +433,30 @@ def _render_request(job, parent, req, requests):
                 req.target.status,
                 msg,
             )
+    except Exception:
+        proceed = False
+        # note: failed rendering may be re-tried later if it has dependencies
+        error = UnfurlTaskError(task, "should_run_task failed", logging.DEBUG)
+    if error:
+        task._inputs = None
+        task._attributeManager.attributes = {}  # rollback changes
+        errors.append(error)
+    else:
+        task.commit_changes()
+    return proceed
+
+
+def _render_request(job, parent, req, requests):
+    # req is a taskrequests, future_requests are (grouprequest, taskrequest) pairs
+    assert req.task
+    task = req.task
+    task._attributeManager.attributes = {}
+    task.target.root.attributeManager = task._attributeManager
+
+    error = None
+    try:
+        task.logger.debug("rendering %s %s", task.target.name, task.name)
+        task.rendered = task.configurator.render(task)
     except Exception:
         # note: failed rendering may be re-tried later if it has dependencies
         error = UnfurlTaskError(task, "Configurator render failed", logging.DEBUG)
@@ -462,14 +483,14 @@ def _render_request(job, parent, req, requests):
         task._inputs = None
         task._attributeManager.attributes = {}
         task.discard_work_folders()
-        return deps, None, proceed
+        return deps, None
     elif error:
         task.fail_work_folders()
         task._inputs = None
         task._attributeManager.attributes = {}  # rollback changes
     else:
         task.commit_changes()
-    return deps, error, proceed
+    return deps, error
 
 
 def _add_to_req_list(reqs, parent, request):
@@ -482,11 +503,15 @@ def _add_to_req_list(reqs, parent, request):
 
 def do_render_requests(job, requests):
     ready, notReady, errors = [], [], []
-    flattened_requests = list(get_render_requests(requests))
+    flattened_requests = list(
+        (p, r)
+        for (p, r) in get_render_requests(requests)
+        if _prepare_request(job, r, errors)
+    )
     render_requests = collections.deque(flattened_requests)
     while render_requests:
         parent, request = render_requests.popleft()
-        deps, error, proceed = _render_request(job, parent, request, flattened_requests)
+        deps, error = _render_request(job, parent, request, flattened_requests)
         if error:
             errors.append(error)
         if deps:
@@ -494,10 +519,9 @@ def do_render_requests(job, requests):
             if parent and ready and ready[-1] is parent:
                 ready.pop()
             _add_to_req_list(notReady, parent, request)
-        elif proceed:
-            if not parent or not notReady or notReady[-1] is not parent:
-                # don't add if the parent was placed on the notReady list
-                _add_to_req_list(ready, parent, request)
+        elif not parent or not notReady or notReady[-1] is not parent:
+            # don't add if the parent was placed on the notReady list
+            _add_to_req_list(ready, parent, request)
     return ready, notReady, errors
 
 
