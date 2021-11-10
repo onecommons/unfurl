@@ -191,12 +191,11 @@ class HelmTest(unittest.TestCase):
             # print(runner.manifest.statusSummary())
             # print(run.jsonSummary(True))
             summary = run.json_summary()
-            if sys.version_info[0] < 3:
-                return  # task order not guaranteed in python 2.7
             self.assertEqual(
                 {
                     "external_jobs": [
                         {
+                            "ensemble": summary["external_jobs"][0]["ensemble"],
                             "job": {
                                 "id": "A01120000000",
                                 "status": "ok",
