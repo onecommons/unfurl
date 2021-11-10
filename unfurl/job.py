@@ -1182,7 +1182,7 @@ class Job(ConfigChange):
                 if isGroup and not request.children:
                     continue
                 if isinstance(request, JobRequest):
-                    nodeStr = f'JobRequest for "{request.name}":'
+                    nodeStr = f'Job for "{request.name}":'
                     output.append(" " * indent + nodeStr)
                     continue
                 if request.target is not target:

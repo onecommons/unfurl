@@ -130,6 +130,7 @@ class ConfigurationSpec:
 class PlanRequest:
     error = None
     future_dependencies = ()
+    task = None
 
     def __init__(self, target):
         self.target = target
