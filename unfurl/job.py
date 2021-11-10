@@ -1048,79 +1048,84 @@ class Job(ConfigChange):
     ###########################################################################
     ### Reporting methods
     ###########################################################################
+    @staticmethod
+    def _job_request_summary(requests, manifest):
+        for request in requests:
+            # XXX better reporting
+            node = dict(instance=request.name)
+            if manifest:
+                node["job_request"] = manifest.path
+            else:
+                node["job_request"] = "local"
+            if request.target:
+                node["status"] = str(request.target.status)
+            yield node
+
+    @staticmethod
+    def _switch_target(target, old_summary_list):
+        new_summary_list = []
+        node = dict(
+            instance=target.name,
+            status=str(target.status),
+            state=str(target.state),
+            managed=target.created,
+            plan=new_summary_list,
+        )
+        old_summary_list.append(node)
+        return new_summary_list
+
+    @staticmethod
+    def _list_plan_summary(requests, target, parent_summary_list):
+        summary_list = parent_summary_list
+        for request in requests:
+            if isinstance(request, JobRequest):
+                summary_list.extend(Job._job_request_summary([request], None))
+                continue
+            isGroup = isinstance(request, TaskRequestGroup)
+            if isGroup and not request.children:
+                continue  # don't include in the plan
+            if request.target is not target:
+                # target changed, add it to the parent's list
+                # switch to the "plan" member of the new target
+                target = request.target
+                summary_list = Job._switch_target(target, parent_summary_list)
+            if isGroup:
+                sequence = []
+                group = {}
+                if request.workflow:
+                    group["workflow"] = str(request.workflow)
+                group["sequence"] = sequence
+                summary_list.append(group)
+                Job._list_plan_summary(request.children, target, sequence)
+            else:
+                summary_list.append(request._summary_dict())
+
     def _json_plan_summary(self, pretty=False):
         """
-        plan = instance+,
-        [
+        Return a list of items that look like:
+
           {
-          instance
+          instance: target_name,
+          status: target_status,
           plan: [
               {"operation": "check"
                 "sequence": [
-                    <plan>,
+                    <items like these>
                   ]
               }
             ]
           }
-        ]
         """
-
-        def _job_request_summary(requests, manifest):
-            for request in requests:
-                # XXX better reporting
-                node = dict(instance=request.name)
-                if manifest:
-                    node["job_request"] = manifest.path
-                else:
-                    node["job_request"] = "local"
-                if request.target:
-                    node["status"] = str(request.target.status)
-                yield node
-
-        def _summary(requests, target, parent):
-            children = parent
-            for request in requests:
-                if isinstance(request, JobRequest):
-                    children.extend(_job_request_summary([request], None))
-                    continue
-                isGroup = isinstance(request, TaskRequestGroup)
-                if isGroup and not request.children:
-                    continue  # don't include in the plan
-                if request.target is not target:
-                    target = request.target
-                    children = []
-                    node = dict(
-                        instance=target.name,
-                        status=str(target.status),
-                        state=str(target.state),
-                        managed=target.created,
-                        plan=children,
-                    )
-                    parent.append(node)
-                if isGroup:
-                    sequence = []
-                    group = {}
-                    if request.workflow:
-                        group["workflow"] = str(request.workflow)
-                    group["sequence"] = sequence
-                    children.append(group)
-                    _summary(request.children, target, sequence)
-                else:
-                    children.append(request._summary_dict())
-
         summary = []
         for (m, requests) in self.external_requests:
             summary.extend(self._job_request_summary(requests, m))
-        _summary(self.plan_requests, None, summary)
+        self._list_plan_summary(self.plan_requests, None, summary)
         if not pretty:
             return summary
         else:
             return json.dumps(summary, indent=2)
 
     def json_summary(self, pretty=False):
-        if self.jobOptions.planOnly:
-            return self._json_plan_summary(pretty)
-
         job = dict(id=self.changeId, status=self.status.name)
         job.update(self.stats())
         if not self.startTime:  # skip if startTime was explicitly set
