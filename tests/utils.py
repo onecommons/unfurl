@@ -138,6 +138,7 @@ def isolated_lifecycle(
             assert _latestJobs
             yield _check_job(_latestJobs[-1], i, step)
 
+
 def print_config(dir, homedir=None):
     if homedir:
         print("!home")
@@ -156,10 +157,21 @@ def print_config(dir, homedir=None):
         print(f.read())
 
 
-def runCmd(runner, args, print_result=False):
+def run_cmd(runner, args, print_result=False):
     result = runner.invoke(cli, args)
     if print_result:
         print("result.output", result.exit_code, result.output)
     assert not result.exception, "\n".join(traceback.format_exception(*result.exc_info))
     assert result.exit_code == 0, result
     return result
+
+
+def run_job_cmd(runner, args=None, cmd="deploy", starttime=1, print_result=False):
+    _args = [cmd] + (args or [])
+    if starttime:
+        _args.append(f"--starttime={starttime}")
+    result = run_cmd(runner, _args, print_result)
+    assert _latestJobs
+    job = _latestJobs[-1]
+    summary = job.json_summary()
+    return result, job, summary

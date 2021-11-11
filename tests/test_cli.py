@@ -11,7 +11,7 @@ from unfurl.localenv import LocalEnv, Project
 from unfurl.util import sensitive_list, UnfurlError
 from unfurl.yamlloader import yaml
 from unfurl.yamlmanifest import YamlManifest
-from .utils import runCmd, print_config
+from .utils import run_cmd, print_config
 
 manifest = """
 apiVersion: unfurl/v1alpha1
@@ -282,8 +282,8 @@ spec:
 
             with open("manifest2.yaml", "w") as f:
                 f.write(manifest)
-            runCmd = ["run", "--ensemble", "manifest2.yaml"]
-            result = runner.invoke(cli, runCmd + ["--", "echo", "ok"])
+            run_cmd = ["run", "--ensemble", "manifest2.yaml"]
+            result = runner.invoke(cli, run_cmd + ["--", "echo", "ok"])
             # print("result.output1!", result.output)
             assert not result.exception, "\n".join(
                 traceback.format_exception(*result.exc_info)
@@ -293,7 +293,7 @@ spec:
             ), result.output
             # run same command using ansible
             result = runner.invoke(
-                cli, runCmd + ["--host", "localhost", "--", "echo", "ok"]
+                cli, run_cmd + ["--host", "localhost", "--", "echo", "ok"]
             )
             assert not result.exception, "\n".join(
                 traceback.format_exception(*result.exc_info)
@@ -425,10 +425,10 @@ spec:
     def test_shared_repo(self):
         runner = CliRunner()
         with runner.isolated_filesystem():
-            runCmd(runner, ["--home", "./unfurl_home", "init", "shared"])
+            run_cmd(runner, ["--home", "./unfurl_home", "init", "shared"])
 
             assert not Project.find_path("p1"), Project.find_path("p1")
-            runCmd(
+            run_cmd(
                 runner,
                 ["--home", "./unfurl_home", "init", "--shared-repository=shared", "p1"],
                 True,
@@ -437,12 +437,12 @@ spec:
             self.assertIn("p1", os.listdir("shared"))
             self.assertNotIn("p1", os.listdir("p1"))
 
-            result = runCmd(runner, ["--home", "./unfurl_home", "deploy", "p1"])
+            result = run_cmd(runner, ["--home", "./unfurl_home", "deploy", "p1"])
             self.assertRegex(result.output, "Found nothing to do.")
 
             os.chdir("p1")
 
-            runCmd(
+            run_cmd(
                 runner,
                 [
                     "--home",
@@ -457,21 +457,21 @@ spec:
             self.assertIn("new_ensemble_in_shared", os.listdir("../shared"))
             self.assertNotIn("new_ensemble_in_shared", os.listdir("."))
 
-            result = runCmd(
+            result = run_cmd(
                 runner, ["--home", "../unfurl_home", "deploy", "new_ensemble_in_shared"]
             )
             self.assertRegex(result.output, "Found nothing to do.")
 
             os.chdir("..")
             # clone a project
-            runCmd(runner, ["--home", "./unfurl_home", "clone", "p1", "p1copy"], True)
-            result = runCmd(runner, ["--home", "./unfurl_home", "deploy", "p1copy"])
+            run_cmd(runner, ["--home", "./unfurl_home", "clone", "p1", "p1copy"], True)
+            result = run_cmd(runner, ["--home", "./unfurl_home", "deploy", "p1copy"])
             self.assertRegex(result.output, "Found nothing to do.")
 
     def test_environment_args(self):
         runner = CliRunner()
         with runner.isolated_filesystem():
-            runCmd(
+            run_cmd(
                 runner,
                 [
                     "--home",
@@ -497,7 +497,7 @@ spec:
                 == "production"
             )
 
-            runCmd(
+            run_cmd(
                 runner,
                 [
                     "--home",
@@ -531,11 +531,11 @@ spec:
                 LocalEnv("missing", homePath="./unfurl_home")
             assert "Ensemble manifest does not exist" in str(err.exception)
 
-            result = runCmd(runner, ["--home", "./unfurl_home", "deploy", "p1"])
+            result = run_cmd(runner, ["--home", "./unfurl_home", "deploy", "p1"])
             self.assertRegex(result.output, "Found nothing to do.")
 
             # test clone ensemble in existing project
-            result = runCmd(
+            result = run_cmd(
                 runner,
                 [
                     "--home",
@@ -572,14 +572,14 @@ spec:
             assert ensemble_record["environment"] == "production"
             assert ensemble_record["project"] == "production"
 
-            result = runCmd(
+            result = run_cmd(
                 runner, ["--home", "../unfurl_home", "deploy", "new_ensemble_in_shared"]
             )
             self.assertRegex(result.output, "Found nothing to do.")
 
             os.chdir("..")
 
-            runCmd(runner, ["--home", "./unfurl_home", "clone", "p1", "p1copy"])
+            run_cmd(runner, ["--home", "./unfurl_home", "clone", "p1", "p1copy"])
 
             localEnv = LocalEnv("p1copy", homePath="./unfurl_home")
             assert localEnv.manifest_context_name == "production"
@@ -591,5 +591,5 @@ spec:
             assert ensemble_record["file"] == "p1/ensemble.yaml"
             assert ensemble_record["project"] == "production"
 
-            result = runCmd(runner, ["--home", "./unfurl_home", "deploy", "p1copy"])
+            result = run_cmd(runner, ["--home", "./unfurl_home", "deploy", "p1copy"])
             self.assertRegex(result.output, "Found nothing to do.")

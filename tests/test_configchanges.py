@@ -5,6 +5,7 @@ import traceback
 from click.testing import CliRunner
 from unfurl.__main__ import cli, _latestJobs
 from unfurl.configurator import Configurator
+from .utils import init_project, run_job_cmd
 
 
 version1 = """
@@ -89,6 +90,44 @@ spec:
         node1:
           type: test.nodes.TestPropertyChange
 changes: [] # add so changes are saved here
+"""
+
+inputChangeManifest = """\
+apiVersion: unfurl/v1alpha1
+kind: Ensemble
+spec:
+  service_template:
+    topology_template:
+      inputs:
+        test:
+          type: string
+          default: "default"
+      outputs:
+        test_output:
+          value: {get_property: [node1, testProperty]}
+      node_templates:
+        node1:
+          type: tosca.nodes.SoftwareComponent
+          properties:
+            testProperty: {get_input: test}
+          interfaces:
+            Standard:
+              operations:
+                configure:
+                  implementation:
+                    className: SpecChange
+
+changes: [] # add so changes are saved here
+"""
+
+projectManifest = """\
+apiVersion: unfurl/v1alpha1
+kind: Project
++?include-local: local/unfurl.yaml
+environments:
+  defaults:
+    inputs:
+      test: %s
 """
 
 
@@ -319,3 +358,46 @@ class ConfigChangeTest(unittest.TestCase):
             assert changes["result"] == "B"
             assert changes["digestKeys"] == "::node1::testProperty"
             assert changes["digestValue"] == "ae4f281df5a5d0ff3cad6371f76d5c29b6d953ec"
+
+
+def test_topology_input_change():
+    "Test that changing the value of an input cause dependent tasks to be rerun"
+    cli_runner = CliRunner()
+    with cli_runner.isolated_filesystem():
+        init_project(
+            cli_runner,
+            args=["init", "--mono"],
+        )
+        with open("ensemble/ensemble.yaml", "w") as f:
+            f.write(inputChangeManifest)
+
+        # check that 1 task ran and output == 'default'
+        result, job, summary = run_job_cmd(cli_runner, starttime=1)
+        assert summary["job"]["changed"] == 1
+        assert summary["outputs"]["test_output"] == "default"
+
+        # no changes, nothing to do
+        result, job, summary = run_job_cmd(cli_runner, starttime=2)
+        assert summary["job"]["total"] == 0
+        assert summary["outputs"]["test_output"] == "default"
+
+        # add input and run again
+        input_value = "set_in_project"
+        with open("unfurl.yaml", "w") as f:
+            f.write(projectManifest % input_value)
+        result, job, summary = run_job_cmd(cli_runner, starttime=3)
+        assert summary["job"]["total"] == 1
+        assert summary["outputs"]["test_output"] == input_value
+
+        # change input and run again
+        input_value = "set_in_project2"
+        with open("unfurl.yaml", "w") as f:
+            f.write(projectManifest % input_value)
+        result, job, summary = run_job_cmd(cli_runner, starttime=4)
+        assert summary["job"]["total"] == 1
+        assert summary["outputs"]["test_output"] == input_value
+
+        # no changes, nothing to do
+        result, job, summary = run_job_cmd(cli_runner, starttime=5)
+        assert summary["job"]["total"] == 0
+        assert summary["outputs"]["test_output"] == input_value
