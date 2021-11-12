@@ -35,7 +35,7 @@ node_types:
       folder_id:
         type: integer
         default:
-          eval: .parent[type=unfurl.nodes.GoogleCloudFolder]::id
+          eval: .parent[.type=unfurl.nodes.GoogleCloudFolder]::id
       activate_apis:
         type: list
         default: []
@@ -56,6 +56,7 @@ node_types:
         required: false
     requirements:
       - host:
+          relationship: tosca.relationships.HostedOn
           node: unfurl.nodes.GoogleCloudResource
           occurrences: [0, 1]
 
@@ -159,6 +160,10 @@ node_types:
       name:
         type: string
         default: {concat: [{get_property: [SELF, type]}, /, {get_property: [SELF, id]}]}
+    capabilities:
+      host:
+        type: tosca.capabilities.Container
+        valid_source_types: [ unfurl.nodes.GoogleCloudResource ]
 
   unfurl.nodes.GoogleCloudOrganization:
     derived_from: unfurl.nodes.GoogleCloudResource
@@ -187,4 +192,5 @@ node_types:
           eval: .parent::.name
     requirements:
       - host:
+          relationship: tosca.relationships.HostedOn
           node: unfurl.nodes.GoogleCloudResource
