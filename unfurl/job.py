@@ -1079,7 +1079,7 @@ class Job(ConfigChange):
         return new_summary_list
 
     @staticmethod
-    def _list_plan_summary(requests, target, parent_summary_list):
+    def _list_plan_summary(requests, target, parent_summary_list, include_rendered):
         summary_list = parent_summary_list
         for request in requests:
             if isinstance(request, JobRequest):
@@ -1100,11 +1100,13 @@ class Job(ConfigChange):
                     group["workflow"] = str(request.workflow)
                 group["sequence"] = sequence
                 summary_list.append(group)
-                Job._list_plan_summary(request.children, target, sequence)
+                Job._list_plan_summary(
+                    request.children, target, sequence, include_rendered
+                )
             else:
-                summary_list.append(request._summary_dict())
+                summary_list.append(request._summary_dict(include_rendered))
 
-    def _json_plan_summary(self, pretty=False):
+    def _json_plan_summary(self, pretty=False, include_rendered=True):
         """
         Return a list of items that look like:
 
@@ -1122,8 +1124,8 @@ class Job(ConfigChange):
         """
         summary = []
         for (m, requests) in self.external_requests:
-            summary.extend(self._job_request_summary(requests, m))
-        self._list_plan_summary(self.plan_requests, None, summary)
+            summary.extend(self._job_request_summary(requests, m, include_rendered))
+        self._list_plan_summary(self.plan_requests, None, summary, include_rendered)
         if not pretty:
             return summary
         else:

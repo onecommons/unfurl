@@ -352,7 +352,7 @@ class UndeployTest(unittest.TestCase):
             summary["tasks"],
         )
         self.assertEqual(
-            job._json_plan_summary(),
+            job._json_plan_summary(include_rendered=False),
             [
                 {
                     "instance": "simple",

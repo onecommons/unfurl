@@ -326,7 +326,7 @@ class ToscaSyntaxTest(unittest.TestCase):
         self.assertEqual(job.stats()["changed"], 4)
         # print(job._json_plan_summary(True))
         self.assertEqual(
-            job._json_plan_summary(),
+            job._json_plan_summary(include_rendered=False),
             [
                 {
                     "instance": "stagingCluster",

@@ -249,11 +249,18 @@ class TaskRequest(PlanRequest):
         ]
         return self.future_dependencies
 
-    def _summary_dict(self):
-        return dict(
+    def _summary_dict(self, include_rendered=True):
+        summary = dict(
             operation=self.configSpec.operation or self.configSpec.name,
             reason=self.reason,
         )
+        rendered = {}
+        if self.task and self.task._workFolders:
+            for name, wf in self.task._workFolders.items():
+                rendered[name] = wf.cwd
+        if include_rendered:
+            summary["rendered"] = rendered
+        return summary
 
     def __repr__(self):
         state = " " + (self.target.state and self.target.state.name or "")
@@ -574,7 +581,8 @@ def find_resources_from_template_name(root, name):
 
 def find_parent_template(source):
     for rel, req, reqDef in source.relationships:
-        if rel.type == "tosca.relationships.HostedOn":
+        # special case "host" so it can be declared without full set of relationship / capability types
+        if rel.type == "tosca.relationships.HostedOn" or "host" in req:
             return rel.target
         return None
 

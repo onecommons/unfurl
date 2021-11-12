@@ -62,6 +62,7 @@ def test_plan():
         with open("ensemble/ensemble.yaml", "w") as f:
             f.write(manifest)
         result, job, summary = run_job_cmd(runner, ["--quiet", "plan", "--output=json"])
+        print(result.output)
         # print(job.manifest.status_summary())
         plan = json.loads(result.output.strip())
         # print(plan)

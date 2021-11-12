@@ -292,7 +292,7 @@ class TerraformTest(unittest.TestCase):
                 summary,
             )
             self.assertEqual(
-                job._json_plan_summary(),
+                job._json_plan_summary(include_rendered=False),
                 [
                     {
                         "instance": "terraform-node",
