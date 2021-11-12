@@ -166,8 +166,8 @@ def run_cmd(runner, args, print_result=False):
     return result
 
 
-def run_job_cmd(runner, args=None, cmd="deploy", starttime=1, print_result=False):
-    _args = [cmd] + (args or [])
+def run_job_cmd(runner, args=("deploy",), starttime=1, print_result=False):
+    _args = list(args)
     if starttime:
         _args.append(f"--starttime={starttime}")
     result = run_cmd(runner, _args, print_result)
