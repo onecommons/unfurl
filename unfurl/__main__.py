@@ -379,10 +379,13 @@ def _run_remote(runtime, options, localEnv):
 def _print_summary(job, options):
     jsonSummary = {}
     summary = options.get("output")
-    if summary == "text":
+    if summary == "text" and not job.jobOptions.planOnly:
         click.echo(job.summary())
     elif summary == "json":
-        jsonSummary = job.json_summary()
+        if job.jobOptions.planOnly:
+            jsonSummary = job._json_plan_summary()
+        else:
+            jsonSummary = job.json_summary()
 
     query = options.get("query")
     if query:
@@ -398,6 +401,7 @@ def _print_summary(job, options):
 
 
 def _run_local(ensemble, options):
+    verbose = options.get("verbose", 0)
     tmplogfile = None
     if not options["logfile"]:
         tmplogfile = logs.get_tmplog_path()
@@ -409,12 +413,13 @@ def _run_local(ensemble, options):
         click.echo("Unable to create job")
     elif job.unexpectedAbort:
         click.echo("Job unexpected aborted")
-        if options.get("verbose", 0) > 0:
+        if verbose > 0:
             raise job.unexpectedAbort
-    elif not job.jobOptions.planOnly:
+    else:
         _print_summary(job, options)
     if options["logfile"]:
-        click.echo("Done, full log appended to " + options["logfile"])
+        if verbose > -1:
+            click.echo("Done, full log appended to " + options["logfile"])
     else:
         if job and job.log_path:
             log_path = job.log_path
@@ -428,7 +433,8 @@ def _run_local(ensemble, options):
                 shutil.copy(tmplogfile, log_path)
         else:
             log_path = tmplogfile
-        click.echo("Done, full log written to " + log_path)
+        if verbose > -1:
+            click.echo("Done, full log written to " + log_path)
 
     if not job or (
         "jobexitcode" in options
