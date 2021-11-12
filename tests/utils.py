@@ -157,8 +157,8 @@ def print_config(dir, homedir=None):
         print(f.read())
 
 
-def run_cmd(runner, args, print_result=False):
-    result = runner.invoke(cli, args)
+def run_cmd(runner, args, print_result=False, env=None):
+    result = runner.invoke(cli, args, env=_home(env))
     if print_result:
         print("result.output", result.exit_code, result.output)
     assert not result.exception, "\n".join(traceback.format_exception(*result.exc_info))
@@ -166,11 +166,11 @@ def run_cmd(runner, args, print_result=False):
     return result
 
 
-def run_job_cmd(runner, args=("deploy",), starttime=1, print_result=False):
+def run_job_cmd(runner, args=("deploy",), starttime=1, print_result=False, env=None):
     _args = list(args)
     if starttime:
         _args.append(f"--starttime={starttime}")
-    result = run_cmd(runner, _args, print_result)
+    result = run_cmd(runner, _args, print_result, env)
     assert _latestJobs
     job = _latestJobs[-1]
     summary = job.json_summary()
