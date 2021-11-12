@@ -1,5 +1,6 @@
 import pytest
 import json
+import os
 from click.testing import CliRunner
 from .utils import init_project, run_job_cmd
 from pathlib import Path
@@ -62,11 +63,16 @@ def test_plan():
         with open("ensemble/ensemble.yaml", "w") as f:
             f.write(manifest)
         # suppress logging
-        result, job, summary = run_job_cmd(
-            runner,
-            ["--quiet", "plan", "--output=json"],
-            env={"UNFURL_LOGGING": "critical"},
-        )
+        try:
+            old_env_level = os.environ.get("UNFURL_LOGGING")
+            result, job, summary = run_job_cmd(
+                runner,
+                ["--quiet", "plan", "--output=json"],
+                env={"UNFURL_LOGGING": "critical"},
+            )
+        finally:
+            if old_env_level:
+                os.environ["UNFURL_LOGGING"] = old_env_level
         print(result.output)
         # print(job.manifest.status_summary())
         plan = json.loads(result.output.strip())
