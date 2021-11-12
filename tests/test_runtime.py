@@ -285,10 +285,10 @@ root:
             handler.stream = six.StringIO()
 
             logger = logging.getLogger("unfurl")
-            logger.info("test1 %s", sensitive_str("sensitive"))
+            logger.critical("test1 %s", sensitive_str("sensitive"))
 
             logger = logging.getLogger("another")
-            logger.warning("test2 %s", sensitive_str("sensitive"))
+            logger.critical("test2 %s", sensitive_str("sensitive"))
 
             log_output = handler.stream.getvalue()
             self.assertIn(sensitive_str.redacted_str, log_output)
