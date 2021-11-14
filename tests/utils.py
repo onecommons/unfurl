@@ -5,13 +5,58 @@ import os.path
 from pathlib import Path
 from dataclasses import dataclass
 from typing import Optional, Iterable
+import time
+import unittest
+import urllib.request
 
 from click.testing import CliRunner
 from unfurl.__main__ import cli, _latestJobs
 from unfurl.job import Runner, JobOptions, Job
 from unfurl.manifest import Manifest
 from unfurl.support import Status
-from unfurl.yamlmanifest import YamlManifest
+
+
+class MotoTest(unittest.TestCase):
+    PROJECT_CONFIG = """\
+      apiVersion: unfurl/v1alpha1
+      kind: Project
+      environments:
+        defaults:
+          connections:
+            # declare the primary_provider as a connection to an Amazon Web Services account:
+            primary_provider:
+              type: unfurl.relationships.ConnectsTo.AWSAccount
+              properties:
+                  AWS_DEFAULT_REGION: us-east-1
+                  endpoints:
+                      ec2: http://localhost:5000
+                      sts: http://localhost:5000
+"""
+
+    def setUp(self):
+        from multiprocessing import Process
+
+        from moto.server import main
+
+        self.p = Process(target=main, args=([],))
+        self.p.start()
+
+        for n in range(5):
+            time.sleep(0.2)
+            try:
+                url = "http://localhost:5000/moto-api"  # UI lives here
+                urllib.request.urlopen(url)
+            except:  # URLError
+                pass
+            else:
+                return True
+        return False
+
+    def tearDown(self):
+        try:
+            self.p.terminate()
+        except:
+            pass
 
 
 @dataclass

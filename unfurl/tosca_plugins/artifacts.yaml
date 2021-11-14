@@ -89,7 +89,7 @@ topology_template:
           type: artifact.AsdfTool
           file: terraform
           properties:
-            version: 1.0.9
+            version: 1.0.11
 
         gcloud:
           type: artifact.AsdfTool

@@ -2,7 +2,6 @@ import os
 import shutil
 import time
 import unittest
-import urllib.request
 
 from click.testing import CliRunner
 
@@ -11,7 +10,7 @@ from unfurl.localenv import LocalEnv
 from unfurl.support import Status
 from unfurl.util import sensitive_str
 
-from .utils import lifecycle
+from .utils import lifecycle, MotoTest
 
 
 @unittest.skipIf(
@@ -333,24 +332,9 @@ class TerraformTest(unittest.TestCase):
     "terraform" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set"
 )
 @unittest.skipIf("slow" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
-class TerraformMotoTest(unittest.TestCase):
+class TerraformMotoTest(MotoTest):
     def setUp(self):
-        from multiprocessing import Process
-
-        from moto.server import main
-
-        self.p = Process(target=main, args=([],))
-        self.p.start()
-
-        for n in range(5):
-            time.sleep(0.2)
-            try:
-                url = "http://localhost:5000/moto-api"  # UI lives here
-                urllib.request.urlopen(url)
-            except:  # URLError
-                pass
-            else:
-                break
+        assert super().setUp(), "moto server didn't start"
 
         path = os.path.join(os.path.dirname(__file__), "examples")
         with open(os.path.join(path, "terraform-ensemble.yaml")) as f:
@@ -359,12 +343,6 @@ class TerraformMotoTest(unittest.TestCase):
             self.project_config = f.read()
         self.maxDiff = None
 
-    def tearDown(self):
-        try:
-            self.p.terminate()
-        except:
-            pass
-
     def setup_filesystem(self):
         terraform_dir = os.environ["terraform_dir"] = os.path.join(
             os.path.dirname(__file__), "fixtures", "terraform"
@@ -372,11 +350,13 @@ class TerraformMotoTest(unittest.TestCase):
 
         # copy the terraform lock file so the configurator avoids calling terraform init
         # if .tox/.terraform already has the providers
-        os.makedirs("tasks/example")
-        shutil.copy(
-            terraform_dir + "/aws-terraform.lock.hcl",
-            "tasks/example/.terraform.lock.hcl",
-        )
+        lock_file = terraform_dir + "/aws-terraform.lock.hcl"
+        if os.path.exists(lock_file):
+            os.makedirs("tasks/example")
+            shutil.copy(
+                terraform_dir + "/aws-terraform.lock.hcl",
+                "tasks/example/.terraform.lock.hcl",
+            )
 
     def test_terraform(self):
         """
