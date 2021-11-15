@@ -10,6 +10,7 @@ from .util import UnfurlError, UnfurlValidationError, get_base_dir
 from .eval import Ref, RefContext, map_value
 from .result import ResourceRef, ResultsList
 from .merge import patch_dict, merge_dicts
+from .logs import get_console_log_level
 from toscaparser.tosca_template import ToscaTemplate
 from toscaparser.properties import Property
 from toscaparser.elements.entity_type import EntityType
@@ -243,7 +244,7 @@ class ToscaSpec:
                     ExceptionCollector.exceptions[:0] = errorsSoFar
                     message = "\n".join(
                         ExceptionCollector.getExceptionsReport(
-                            full=(logger.getEffectiveLevel() < logging.INFO)
+                            full=(get_console_log_level() < logging.INFO)
                         )
                     )
                     raise UnfurlValidationError(
@@ -258,7 +259,7 @@ class ToscaSpec:
             if ExceptionCollector.exceptionsCaught():
                 message = "\n".join(
                     ExceptionCollector.getExceptionsReport(
-                        full=(logger.getEffectiveLevel() < logging.INFO)
+                        full=(get_console_log_level() < logging.INFO)
                     )
                 )
                 raise UnfurlValidationError(
@@ -742,7 +743,9 @@ class NodeSpec(EntitySpec):
                 raise KeyError(key)
             relationship = req.relationship
             # hack!
-            relationship.toscaEntityTemplate.entity_tpl = list(req.entity_tpl.values())[0]
+            relationship.toscaEntityTemplate.entity_tpl = list(req.entity_tpl.values())[
+                0
+            ]
             return relationship
 
     @property

@@ -131,6 +131,10 @@ def set_console_log_level(log_level: int):
     logging.config.dictConfig(LOGGING)
 
 
+def get_console_log_level():
+    return LOGGING["handlers"]["console"]["level"]
+
+
 def get_tmplog_path():
     # mktemp is safe here, we just want a random file path to write too
     return tempfile.mktemp("-unfurl.log", dir=os.environ.get("UNFURL_TMPDIR"))
