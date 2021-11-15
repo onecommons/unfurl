@@ -33,7 +33,7 @@ def is_url_or_git_path(url):
     if "@" in url:
         return True
     candidate, sep, frag = url.partition("#")
-    if candidate.rstrip("/").endswith(".git"):
+    if frag or candidate.rstrip("/").endswith(".git"):
         return True
     return False
 

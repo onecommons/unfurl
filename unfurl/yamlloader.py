@@ -211,18 +211,22 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         # returns url or path, isFile, fragment
         importLoader.stream = None
         if repository_name:
-            # don't include file_name, we need to keep it distinct from the repo path till the end
-            url_info = super().get_url(importLoader, repository_name, "", isFile)
+            path = self.get_repository_url(importLoader, repository_name)
+            file_name, sep, fragment = file_name.partition("#")
+            if path.startswith("file:"):
+                path = path[5:]
+                if path.startswith("//"):
+                    path = path[2:]
+                isFile = True
         else:
             url_info = super().get_url(importLoader, repository_name, file_name, isFile)
+            if not url_info:
+                return url_info
             file_name = ""
-        if not url_info:
-            return url_info
+            path, isFile, fragment = url_info
 
-        path, isFile, fragment = url_info
-        if not isFile or is_url_or_git_path(
-            path
-        ):  # only support urls to git repos for now
+        if not isFile or is_url_or_git_path(path):
+            # only support urls to git repos for now
             repo_view = self.manifest.repositories.get(repository_name)
             if repo_view and repo_view.repo:
                 return os.path.join(repo_view.working_dir, file_name), True, fragment
