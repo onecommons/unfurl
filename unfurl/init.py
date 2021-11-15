@@ -898,9 +898,15 @@ def clone(source, dest, ensemble_name=DefaultNames.EnsembleDirectory, **options)
 
     ##### step 2: examine source for template details and determine destination project
     builder.configure()
+
     ##### step 3: create destination project if neccessary
     builder.set_dest_project_and_path(sourceProject, currentProject, dest)
+
     ##### step 4 create ensemble in destination project if needed
+    if options.get("empty"):
+        # don't create an ensemble
+        return "Cloned project to " + builder.dest_project.projectRoot
+
     return builder.set_ensemble(isRemote, sourceProject, currentProject)
 
 
