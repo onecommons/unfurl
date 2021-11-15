@@ -1208,9 +1208,16 @@ class Job(ConfigChange):
                     _summary(request.children, target, indent + INDENT)
                 else:
                     output.append(" " * indent + f"- operation {request.name}")
-                    if request.task and request.task._workFolders:
-                        for wf in request.task._workFolders.values():
-                            output.append(" " * indent + f"   rendered at {wf.cwd}")
+                    if request.task:
+                        if request.task._workFolders:
+                            for wf in request.task._workFolders.values():
+                                output.append(" " * indent + f"   rendered at {wf.cwd}")
+                        if request.future_dependencies:
+                            output.append(
+                                " " * indent + "   (render waiting for dependents)"
+                            )
+                        elif request.task._errors:  # don't report error if waiting
+                            output.append(" " * indent + "   (errors while rendering)")
 
         opts = self.jobOptions.get_user_settings()
         options = ",".join([f"{k} = {opts[k]}" for k in opts if k != "planOnly"])
