@@ -29,6 +29,9 @@ imports:
   - repository: unfurl
     file: tosca_plugins/artifacts.yaml
 
+  - repository: unfurl
+    file: tosca_plugins/k8s.yaml
+
 topology_template:
   node_templates:
     helm-artifacts:

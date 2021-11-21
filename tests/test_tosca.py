@@ -581,9 +581,12 @@ spec:
         mainManifest = (
             """
 apiVersion: %s
-kind: Manifest
+kind: Ensemble
 spec:
   service_template:
+    imports:
+      - repository: unfurl
+        file: tosca_plugins/k8s.yaml  
     topology_template:
       node_templates:
         myCluster:

@@ -4,6 +4,9 @@ spec:
   service_template:
     imports:
       - file: spec/service-template.yaml
+      - repository: unfurl
+        file: tosca_plugins/k8s.yaml
+      
     # unfurl.relationships.InstalledBy used for implementation if no implementation is specified
     node_types:
       unfurl.nodes.HelmRelease:

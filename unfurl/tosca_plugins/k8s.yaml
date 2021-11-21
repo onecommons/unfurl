@@ -1,0 +1,164 @@
+# Copyright (c) 2020 Adam Souzis
+# SPDX-License-Identifier: MIT
+tosca_definitions_version: tosca_simple_unfurl_1_0_0
+
+node_types:
+
+  unfurl.nodes.K8sCluster:
+    derived_from: tosca.nodes.Root
+    capabilities:
+      host:
+        type: tosca.capabilities.Container
+        valid_source_types:
+          [unfurl.nodes.K8sRawResource, unfurl.nodes.K8sNamespace]
+      endpoint:
+        type: unfurl.capabilities.Endpoint.K8sCluster
+    attributes:
+      api_server:
+        description: The address and port of the cluster's API server
+        type: string
+        metadata:
+          # mark this is as immutable to make sure the connection is pointing at the same cluster in subsequent runs
+          immutable: true
+    interfaces:
+      Install:
+        operations:
+          check: unfurl.configurators.k8s.ClusterConfigurator
+          discover: unfurl.configurators.k8s.ClusterConfigurator
+
+  unfurl.nodes.K8sRawResource:
+    derived_from: tosca.nodes.Root
+    requirements:
+      - host:
+          node: unfurl.nodes.K8sCluster
+          relationship: tosca.relationships.HostedOn
+    properties:
+      definition:
+        type: any
+        required: false
+    attributes:
+      apiResource:
+        type: map
+        required: false
+      name:
+        type: string
+        default:
+          eval: .name
+    interfaces:
+      Standard:
+        configure: unfurl.configurators.k8s.ResourceConfigurator
+        delete: unfurl.configurators.k8s.ResourceConfigurator
+      Install:
+        operations:
+          check: unfurl.configurators.k8s.ResourceConfigurator
+          discover: unfurl.configurators.k8s.ResourceConfigurator
+
+  unfurl.nodes.K8sNamespace:
+    derived_from: unfurl.nodes.K8sRawResource
+    capabilities:
+      host:
+        type: tosca.capabilities.Container
+        valid_source_types: [unfurl.nodes.K8sResource]
+    properties:
+      name:
+        type: string
+        default: default
+        metadata:
+          # namespaces can't be renamed
+          immutable: true
+
+  unfurl.nodes.K8sResource:
+    derived_from: unfurl.nodes.K8sRawResource
+    requirements:
+      - host:
+          node: unfurl.nodes.K8sNamespace
+          relationship: tosca.relationships.HostedOn
+    attributes:
+      namespace:
+        type: string
+        default: { get_property: [HOST, name] }
+
+  unfurl.nodes.K8sSecretResource:
+    derived_from: unfurl.nodes.K8sResource
+    properties:
+      data:
+        type: map
+        required: false
+        metadata:
+          sensitive: true
+      apiResource:
+        type: map
+        required: false
+        metadata:
+          sensitive: true
+
+capability_types:
+
+  unfurl.capabilities.Endpoint.K8sCluster:
+    derived_from: tosca.capabilities.Endpoint.Admin
+    description: >
+      Capability to connect to a K8sCluster. See unfurl.relationships.ConnectsTo.K8sCluster
+      for the semantics of its "secure" and "credential" properties.
+    properties:
+      protocol:
+        type: string
+        default: https
+      secure:
+        type: boolean
+        description: >
+          If set to false, the server's certificate should not be checked for validity. This will make your HTTPS connections insecure.
+        required: false
+
+relationship_types:
+
+  unfurl.relationships.ConnectsTo.K8sCluster:
+    derived_from: tosca.relationships.ConnectsTo
+    valid_target_types: [unfurl.capabilities.Endpoint.K8sCluster]
+    properties:
+      KUBECONFIG:
+        type: unfurl.datatypes.EnvVar
+        description: >
+          Path to an existing Kubernetes config file. If not provided, and no other connection
+          options are provided, and the KUBECONFIG environment variable is not set, the default location will be used (~/.kube/config.json).
+        default: {get_env: KUBECONFIG}
+      context:
+        type: string
+        description: >
+          The name of a context found in the config file. If not set the current-context will be used.
+        required: false
+      secure:
+        type: boolean
+        description: >
+          If false, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+        default: true
+      credential:
+        description: >
+          token_type is either "api_key" or "password" (default is "password")
+          Its "keys" map can have the following values:
+          "cert_file": Path to a cert file for the certificate authority
+          "ssl_ca_cert": Path to a client certificate file for TLS
+          "key_file": Path to a client key file for TLS
+        type: tosca.datatypes.Credential
+        required: false
+        metadata:
+          sensitive: true
+      namespace:
+        description: The namespace scope to use, if needed
+        required: false
+        type: string
+      api_server:
+        description: The address and port of the Kubernetes API server
+        required: false
+        type: string
+        default:
+          eval: .target::api_server
+      as:
+        description: Username to impersonate for the operation
+        required: false
+        type: string
+      as-group:
+        description: Groups to impersonate for the operation
+        required: false
+        type: list
+        entry_schema:
+          type: string

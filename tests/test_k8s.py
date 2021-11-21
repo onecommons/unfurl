@@ -91,7 +91,10 @@ apiVersion: unfurl/v1alpha1
 kind: Ensemble
 spec:
   service_template:
-    dsl_definitions:
+    imports:
+      - repository: unfurl
+        file: tosca_plugins/k8s.yaml
+    
     topology_template:
       relationship_templates:
         k8sConnection:
