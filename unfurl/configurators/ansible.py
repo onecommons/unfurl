@@ -191,7 +191,7 @@ class AnsibleConfigurator(TemplateConfigurator):
         if not inventory:
             # XXX merge inventory
             # default to localhost if not inventory
-            inventory = self._make_inventory(task.operationHost, inventory or {}, task)
+            inventory = self._make_inventory(task.operation_host, inventory or {}, task)
         # XXX cache and reuse file
         return cwd.write_file(inventory, "inventory.yaml")
         # don't worry about the warnings in log, see:
@@ -216,7 +216,7 @@ class AnsibleConfigurator(TemplateConfigurator):
     def _make_playbook(self, playbook, task):
         assert_form(playbook, MutableSequence)
         # XXX use host group instead of localhost depending on operation_host
-        hosts = task.operationHost and task.operationHost.name or "localhost"
+        hosts = task.operation_host and task.operation_host.name or "localhost"
         if playbook and not "hosts" in playbook[0]:
             play = dict(hosts=hosts, gather_facts=False, tasks=playbook)
             if hosts == "localhost":
@@ -274,8 +274,8 @@ class AnsibleConfigurator(TemplateConfigurator):
             args = task.rendered
             # build vars from inputs
             extraVars = self.get_vars(task)
-            if task.operationHost and task.operationHost.templar:
-                vault_secrets = task.operationHost.templar._loader._vault.secrets
+            if task.operation_host and task.operation_host.templar:
+                vault_secrets = task.operation_host.templar._loader._vault.secrets
             else:
                 vault_secrets = None
             resultCallback = _run_playbooks(

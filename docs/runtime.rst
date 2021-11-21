@@ -12,7 +12,6 @@ Instances are represented as a dictionary containing its properties and attribut
 
   :inputs: A dictionary containing the inputs passed to the task's operation.
   :connections: See `connections` below.
-  :allConnections:  See `connections` below.
   :SELF: The current task's target instance.
   :HOST: The host of SELF.
   :ORCHESTRATOR: The instance Unfurl is running on (``localhost``)
@@ -54,14 +53,16 @@ As described in `Getting Started`, the ``localhost`` ensemble provides several c
 
 When Unfurl executes an operation it looks for relationship templates between the `OPERATION_HOST` and the node that the operation is targeting, including any connection relationship templates that apply. If those templates contain any environment variables they will be set otherwise they can be accessed through to variables:
 
-:$allConnections: all connections available to the `OPERATION_HOST` as a dictionary where the key is the (mapped) name of the relationship template.
-:$connections:  the current connections between the OPERATION_HOST and the target or the target's HOSTs as a list
+:$connections:  the current connections between the OPERATION_HOST and the target or the target's HOSTs as a dictionary.
+ The keys are the name of the relationship template or the name of the type of the relationship.
 
-For example, both these expressions evaluate to the same value:
+For example, these expressions all evaluate to the same value:
 
-  ``access_key: {{ "$allConnections::aws::AWS_ACCESS_KEY_ID" | eval }}``
+  ``access_key: {{ "$connections::aws::AWS_ACCESS_KEY_ID" | eval }}``
 
-  ``access_key: {{ "$connections::AWS_ACCESS_KEY_ID" | eval }}``
+  ``access_key: {{ "$connections::AWSAccount::AWS_ACCESS_KEY_ID" | eval }}``
+
+  ``access_key: {{ "$connections::*::AWS_ACCESS_KEY_ID" | eval }}``
 
 In addition, because environment value because that properties
  ``AWS_ACCESS_KEY_ID`` is marked as an environment variable in the relationship's type definition, it will also be added to the environment when the operation executed.
@@ -69,12 +70,12 @@ In addition, because environment value because that properties
 Environment Variables
 =====================
 
-You can control the environment variables are available while Unfurl is running
-by the setting the `environment` directive.
-When set in a `context` object it is applied globally or it can be appear in
-the operation's `implementation` declaration where it will only be applied to that operation.
+You can set the environment variables that are available while Unfurl is running
+in the ``variables`` section when declaring an ``environment``.
+These global directives can be overridden when executing an individual operation by
+by adding an `environment` section to an operation's `implementation` declaration.
 
-In either case, `environment` makes a copy of the current environment and applied each of its keys
+In either case, the directives makes a copy of the current environment and applied each of its keys
 in the order they are declared, adding the given key and value as
 environment variables except keys starting with "+" and "-"
 will copy or remove the variable from the current into environment

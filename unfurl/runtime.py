@@ -631,6 +631,8 @@ class NodeInstance(EntityInstance):
         return self._requirements
 
     def get_requirements(self, match):
+        if match is None:
+            return self.requirements
         if isinstance(match, six.string_types):
             return [r for r in self.requirements if r.template.name == match]
         elif isinstance(match, NodeInstance):

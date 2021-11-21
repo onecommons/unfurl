@@ -262,6 +262,20 @@ class Configurator:
         return mismatch
 
 
+class _ConnectionsMap(dict):
+    def __missing__(self, key):
+        # the more specific connections are inserted first so this should find
+        # the most relevant connection of the given type
+        for value in self.values():
+            if (
+                value.resolved.template.is_compatible_type(key)
+                # hackish: match the local name of type
+                or key == value.resolved.type.rpartition(".")[2]
+            ):
+                return value
+        raise KeyError(key)
+
+
 class TaskView:
     """The interface presented to configurators.
 
@@ -295,7 +309,7 @@ class TaskView:
         self._resourceChanges = ResourceChanges()
         self._workFolders = {}
         # public:
-        self.operationHost = find_operation_host(target, configSpec.operationHost)
+        self.operation_host = find_operation_host(target, configSpec.operation_host)
 
     @property
     def inputs(self):
@@ -323,8 +337,7 @@ class TaskView:
             vars = dict(
                 inputs=inputs,
                 task=self.get_settings(),
-                connections=list(self._get_connections()),
-                allConnections=self._get_all_connections(),
+                connections=self._get_connections(),
                 TOPOLOGY=dict(
                     inputs=target.root._attributes["inputs"],
                     outputs=target.root._attributes["outputs"],
@@ -333,8 +346,8 @@ class TaskView:
                 SELF=self.target.attributes,
                 HOST=HOST,
                 ORCHESTRATOR=ORCHESTRATOR and ORCHESTRATOR.attributes or {},
-                OPERATION_HOST=self.operationHost
-                and self.operationHost.attributes
+                OPERATION_HOST=self.operation_host
+                and self.operation_host.attributes
                 or {},
             )
             if relationship:
@@ -354,44 +367,55 @@ class TaskView:
         """
         return self.inputs.context.vars
 
-    def _get_connections(self):
-        seen = set()
-        for parent in reversed(self.target.ancestors):
-            # use reversed() so nearer overrides farther
-            # XXX broken if multiple requirements point to same parent (e.g. dev and prod connections)
-            # XXX test if operationHost is external (e.g locahost) get_requirements() matches local parent
-            found = False
-            if self.operationHost:
-                for rel in self.operationHost.get_requirements(parent):
-                    # examine both the relationship's properties and its capability's properties
-                    found = True
-                    if id(rel) not in seen:
-                        seen.add(id(rel))
-                        yield rel
+    @staticmethod
+    def _get_connection(source, target, seen):
+        """
+        Find the requirements on source that match the target
+        If source is root, requirements will be the connections that are the default_for the target.
+        """
+        if source is target:
+            return None
+        for rel in source.get_requirements(target):
+            if id(rel) not in seen:
+                seen[id(rel)] = rel
 
-            if not found:
-                # not found, see if there's a default connection
-                # XXX this should use the same relationship type as findConnection()
-                for rel in parent.get_default_relationships():
-                    if id(rel) not in seen:
-                        seen.add(id(rel))
-                        yield rel
+    def _get_connections(self):
+        """
+        Build a dictionary of connections by looking for instances that the task's implementation
+        might to connect to (transitively following the target's hostedOn relationship)
+        and adding any connections (relationships) that the operation_host has with those instances.
+        Then add any default connections, prioritizing default connections to those instances.
+        (Connections that explicity set a ``default_for`` key that matches those instances.)
+        """
+        seen = {}
+        for parent in self.target.ancestors:
+            if parent is self.target.root:
+                break
+            if self.operation_host:
+                self._get_connection(self.operation_host, parent, seen)
+            self._get_connection(self.target.root, parent, seen)
+        # get the rest of the default connections
+        self._get_connection(self.target.root, None, seen)
+
+        # reverse so nearest relationships replace less specific ones that have matching names
+        connections = _ConnectionsMap(
+            (rel.name, rel) for rel in reversed(seen.values())
+        )
+        return connections
 
     def _find_relationship_env_vars(self):
         """
-        We look for instances that the task's implementation might to connect to
-        (by following the targets hostedOn relationships)
-        and check if the operation_host has any relationships with those instances too.
-        If it does, collect any environment variables set by those connections.
+        Collect any environment variables set by the connections returned by ``_get_connections()``.
 
-        For example, consider an implementation whose target is a Kubernetes cluster hosted on GCP.
+        Motivating example:
+        Consider an operation whose target is a Kubernetes cluster hosted on GCP.
         The operation_host's connections to those instances might set KUBECONFIG and GOOGLE_APPLICATION_CREDENTIALS
-        respectively and the implementation will probably need both those set when it executes.
+        respectively and the operation's implementation will probably need both those set when it executes.
         """
         env = {}
         t = lambda datatype: datatype.type == "unfurl.datatypes.EnvVar"
         # XXX broken if multiple requirements point to same parent (e.g. dev and prod connections)
-        for rel in self._get_connections():
+        for name, rel in self._get_connections().items():
             env.update(rel.merge_props(t))
 
         return env
@@ -401,7 +425,7 @@ class TaskView:
         # in the returned dict, otherwise only variables added will be returned
 
         # get the environment from the context, the operation
-        # the relationship between the operationhost and the target and its hosts
+        # the relationship between the operation_host and the target and its hosts
         # and any default (ambient) connections
 
         # XXX order of preference (last overrides first):
@@ -466,17 +490,6 @@ class TaskView:
             reason=self.reason,
             cwd=self.cwd,
         )
-
-    def _get_all_connections(self):
-        cons = {}
-        if self.operationHost:
-            for rel in self.operationHost.requirements:
-                cons.setdefault(rel.name, []).append(rel)
-        for rel in self.target.root.requirements:
-            if rel.name not in cons:
-                cons[rel.name] = [rel]
-
-        return cons
 
     def find_connection(self, target, relation="tosca.relationships.ConnectsTo"):
         connection = self.query(

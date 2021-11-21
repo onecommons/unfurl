@@ -67,7 +67,7 @@ class ConfigurationSpec:
         self.minorVersion = minorVersion
         self.workflow = workflow
         self.timeout = timeout
-        self.operationHost = operation_host
+        self.operation_host = operation_host
         self.environment = environment
         self.inputs = inputs or {}
         self.inputSchema = inputSchema
@@ -178,7 +178,7 @@ class TaskRequest(PlanRequest):
                 artifact.as_import_spec()
             )
             operation_host = (
-                find_operation_host(self.target, self.configSpec.operationHost)
+                find_operation_host(self.target, self.configSpec.operation_host)
                 or self.target.root
             )
             existing = operation_host.root.find_instance(name)

@@ -106,9 +106,10 @@ awsTestManifest = """\
                       - name: SELF
                         attributes:
                           # all connections available to the OPERATION_HOST as a dictionary
-                          access_key: {{ "$allConnections::aws_test::AWS_ACCESS_KEY_ID" | eval }}
-                          # the current connections between the OPERATION_HOST and the target or the target's HOSTs as a list
-                          access_key2: {{ "$connections::AWS_ACCESS_KEY_ID" | eval }}
+                          access_key: {{ "$connections::aws_test::AWS_ACCESS_KEY_ID" | eval }}
+                          # the current connections between the OPERATION_HOST and the target or the target's HOSTs
+                          access_key2: {{ "$connections::*::AWS_ACCESS_KEY_ID" | eval }}
+                          access_key3: {{ "$connections::AWSAccount::AWS_ACCESS_KEY_ID" | eval }}
   """
 
 
@@ -321,25 +322,24 @@ ensemble.yaml
 
             assert _latestJobs
             job = _latestJobs[-1]
-            access_key = job.rootResource.find_resource("testNode").attributes[
-                "access_key"
-            ]
+            attrs = job.rootResource.find_resource("testNode").attributes
+            access_key = attrs["access_key"]
             self.assertEqual(access_key, "mockAWS_ACCESS_KEY_ID")
-            access_key2 = job.rootResource.find_resource("testNode").attributes[
-                "access_key2"
-            ]
-            self.assertEqual(access_key2, "mockAWS_ACCESS_KEY_ID")
+            access_key2 = attrs["access_key2"]
+            self.assertEqual(access_key2, "mockAWS_ACCESS_KEY_ID", access_key2)
+            access_key3 = attrs["access_key3"]
+            self.assertEqual(access_key3, "mockAWS_ACCESS_KEY_ID", access_key3)
 
             # check that these are the only recorded changes
-            changes = {
+            expected = {
                 "::testNode": {
                     "access_key": "mockAWS_ACCESS_KEY_ID",
                     "access_key2": "mockAWS_ACCESS_KEY_ID",
+                    "access_key3": "mockAWS_ACCESS_KEY_ID",
                 }
             }
-            self.assertEqual(
-                changes, job.manifest.manifest.config["changes"][0]["changes"]
-            )
+            changes = job.manifest.manifest.config["changes"][0]["changes"]
+            self.assertEqual(expected, changes, changes)
 
             # changeLogPath = (
             #     "ensemble/" + job.manifest.manifest.config["lastJob"]["changes"]
