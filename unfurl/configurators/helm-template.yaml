@@ -8,13 +8,22 @@ dsl_definitions:
       # leading + means copy from current environment if present
       # note: helm also honors KUBECONFIG
       +HELM_KUBECONTEXT:
-          eval: $connections::context
+          eval: $connections::K8sCluster::context
       +HELM_KUBETOKEN:
-          eval: $connections::credential[token_type=api_key]::token
+          eval: $connections::K8sCluster::credential::token
       +HELM_KUBEAPISERVER:
-          eval: $connections::host # XXX
+          eval: $connections::K8sCluster::api_server
       +HELM_KUBECAFILE:
-          eval: $connections::credential::keys::cert_file
+          eval: $connections::K8sCluster::credential::keys::cert_file
+      +HELM_NAMESPACE:
+          eval: $connections::K8sCluster::namespace
+      +HELM_KUBEASGROUPS:
+          eval:
+            concat:
+              eval: $connections::K8sCluster::as_groups
+            sep: ","
+      +HELM_KUBEASUSER:
+          eval: $connections::K8sCluster::as
 
 imports:
   - repository: unfurl
@@ -90,8 +99,9 @@ node_types:
     description: Represents a Helm release
     requirements:
       - host:
-          node: unfurl.nodes.K8sNamespace
           relationship: tosca.relationships.HostedOn
+          # XXX support this grammar:
+          # valid_target_types: [ unfurl.nodes.K8sNamespace, unfurl.nodes.K8sCluster]
       - repository:
           node: unfurl.nodes.HelmRepository
           capability: tosca.capabilities.Node
@@ -105,6 +115,7 @@ node_types:
         type: string
       namespace:
         type: string
+        # if we are hosted on a namespace then use that
         default: {eval: ".::.requirements::[.name=host]::.target::name" }
 
     interfaces:

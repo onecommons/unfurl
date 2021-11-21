@@ -103,8 +103,8 @@ node_types:
       endpoint:
         type: unfurl.capabilities.Endpoint.K8sCluster
     attributes:
-      apiServer:
-        description: URL to the cluster's api server
+      api_server:
+        description: The address and port of the cluster's API server
         type: string
         metadata:
           # mark this is as immutable to make sure the connection is pointing at the same cluster in subsequent runs
@@ -205,11 +205,9 @@ capability_types:
       Capability to connect to a K8sCluster. See unfurl.relationships.ConnectsTo.K8sCluster
       for the semantics of its "secure" and "credential" properties.
     properties:
-      host:
+      protocol:
         type: string
-        description: >
-          URL of the HTTP API of Kubernetes is exposed. Format: https://<host>:<port>"
-        required: false
+        default: https
       secure:
         type: boolean
         description: >
@@ -298,6 +296,26 @@ relationship_types:
         required: false
         metadata:
           sensitive: true
+      namespace:
+        description: The namespace scope to use, if needed
+        required: false
+        type: string
+      api_server:
+        description: The address and port of the Kubernetes API server
+        required: false
+        type: string
+        default:
+          eval: .target::api_server
+      as:
+        description: Username to impersonate for the operation
+        required: false
+        type: string
+      as-group:
+        description: Groups to impersonate for the operation
+        required: false
+        type: list
+        entry_schema:
+          type: string
 
   unfurl.relationships.ConnectsTo.Ansible:
     derived_from: tosca.relationships.ConnectsTo
@@ -363,6 +381,8 @@ relationship_types:
         default: {get_env: [GCP_AUTH_KIND, 'serviceaccount']}
       scopes:
         type: list
+        entry_schema:
+          type: string
         required: false
 
   unfurl.relationships.ConnectsTo.AWSAccount:

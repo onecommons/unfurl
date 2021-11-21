@@ -2,9 +2,7 @@
 # SPDX-License-Identifier: MIT
 from __future__ import absolute_import
 import codecs
-
-import unfurl.logs
-import unfurl.util
+import re
 from ..configurator import Configurator, Status
 from ..runtime import RelationshipInstance
 from .ansible import AnsibleConfigurator
@@ -14,7 +12,7 @@ from ansible_collections.kubernetes.core.plugins.module_utils.common import (
 )
 
 
-def _get_connection_config(instance):
+def _get_connection_config(instance, cluster):
     # see https://docs.ansible.com/ansible/latest/modules/k8s_module.html#k8s-module
     #  for connection settings
     if not instance:
@@ -22,15 +20,37 @@ def _get_connection_config(instance):
     connect = {}
     if isinstance(instance, RelationshipInstance):
         connect = instance.attributes
-        endpoint = instance.parent.attributes
+        # note: endpoint will be root if instance is a default connection
+        if instance.parent is not instance.root:
+            endpoint = instance.parent.attributes
+        else:
+            endpoint = {}
     else:
         endpoint = instance.attributes
 
     connection = {}
-    if "host" in endpoint:  # endpoint capability only
-        connection["host"] = endpoint["host"]
+    # cluster only:
+    if cluster.attributes.get("api_server"):
+        connection["host"] = "https://" + cluster.attributes["api_server"]
 
-    map1 = {"KUBECONFIG": "kubeconfig", "context": "context", "secure": "verify_ssl"}
+    # endpoint capability only
+    protocol = endpoint.get("protocol")
+    ip_address = endpoint.get("ip_address")
+    port = endpoint.get("port")
+    if ip_address and port:
+        connection["host"] = f"{protocol}://{ip_address}:{port}"
+
+    # connection only:
+    api_server = connect.get("api_server")
+    if api_server:
+        connection["host"] = f"https://{api_server}"
+
+    map1 = {
+        "KUBECONFIG": "kubeconfig",
+        "context": "context",
+        "secure": "verify_ssl",
+        "namespace": "namespace",
+    }
     # relationship overrides capability
     for attributes in [endpoint, connect]:
         for key, value in map1.items():
@@ -54,14 +74,17 @@ def _get_connection(task, cluster):
     instance = task.find_connection(
         cluster, relation="unfurl.relationships.ConnectsTo.K8sCluster"
     )
-    return _get_connection_config(instance)
+    return _get_connection_config(instance, cluster)
 
 
 class ClusterConfigurator(Configurator):
     @staticmethod
     def _get_host(connectionConfig):
         client = K8sAnsibleMixin().get_api_client(**connectionConfig)
-        return client.configuration.host
+        url = client.configuration.host
+        if url:
+            return re.sub("^https?://", "", url)
+        return url
 
     def can_run(self, task):
         if task.configSpec.operation not in ["check", "discover"]:
@@ -72,7 +95,7 @@ class ClusterConfigurator(Configurator):
         cluster = task.target
         connectionConfig = _get_connection(task, cluster)
         try:
-            cluster.attributes["apiServer"] = self._get_host(connectionConfig)
+            cluster.attributes["api_server"] = self._get_host(connectionConfig)
         except:
             yield task.done(
                 False,
