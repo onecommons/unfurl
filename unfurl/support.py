@@ -420,7 +420,11 @@ set_eval_func("get_input", get_input, True)
 
 
 def concat(args, ctx):
-    return "".join([str(a) for a in map_value(args, ctx)])
+    result = map_value(args, ctx)
+    if not isinstance(result, MutableSequence):
+        return result
+    sep = ctx.kw.get("sep", "")
+    return sep.join([str(a) for a in result])
 
 
 set_eval_func("concat", concat, True)

@@ -135,6 +135,11 @@ spec:
           type: tosca.nodes.Compute
           properties:
             test:  { concat: ['cpus: ', {get_input: cpus }] }
+            concat2:
+              eval:
+                concat:
+                  eval: ::empty
+                sep: ","
           capabilities:
             # Host container properties
             host:
@@ -174,7 +179,8 @@ class ToscaSyntaxTest(unittest.TestCase):
         self.assertEqual(
             "10 GB", my_server.query({"get_property": ["SELF", "host", "disk_size"]})
         )
-        assert my_server.attributes["test"], "cpus: 2"
+        assert my_server.attributes["test"] == "cpus: 2"
+        assert my_server.attributes["concat2"] is None
         # print(job.out.getvalue())
         testSensitive = manifest.get_root_resource().find_resource("testSensitive")
         for name, toscaType in (
