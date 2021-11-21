@@ -398,8 +398,8 @@ class TaskView:
         self._get_connection(self.target.root, None, seen)
 
         # reverse so nearest relationships replace less specific ones that have matching names
-        connections = _ConnectionsMap(
-            (rel.name, rel) for rel in reversed(seen.values())
+        connections = _ConnectionsMap(  # the list() is for 3.7
+            (rel.name, rel) for rel in reversed(list(seen.values()))
         )
         return connections
 
