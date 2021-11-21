@@ -89,8 +89,9 @@ def merge_dicts(
             childStrategy = "replace"
         else:
             childStrategy = "merge"
-        if isinstance(val, Mapping):
-            strategy = val.get(mergeStrategyKey)
+        # note: for merging treat None as an empty map
+        if isinstance(val, Mapping) or val is None:
+            strategy = val and val.get(mergeStrategyKey)
             if key in b:
                 bval = b[key]
                 if isinstance(bval, Mapping):

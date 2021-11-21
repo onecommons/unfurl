@@ -60,12 +60,18 @@ class ExpandDocTest(unittest.TestCase):
         "test2": [1, {"+/t4": ""}, "+t4", {"+/t4": None}],
         "base": {"list": [1]},
         "test3": {"list": [2, 1, 3], "+/base": None},
+        "test4": {
+          "+/t2": None,
+          "a": None
+        }
     }
 
     expected = {
         "test1": {"a": {"b": 2}, "c": "c", "d": "val", "e": "e"},
         "test2": [1, "a", "b", "+t4", "a", "b"],
         "test3": {"list": [1, 2, 3]},
+        # "a" merged even though it was originally None
+        "test4": {"a": {"b": 1}, "c": "c"},
     }
 
     def test_expandDoc(self):
@@ -79,11 +85,13 @@ class ExpandDocTest(unittest.TestCase):
                 ("test2", 1): [(parse_merge_key("+/t4"), "")],
                 ("test2", 3): [(parse_merge_key("+/t4"), None)],
                 ("test3",): [(parse_merge_key("+/base"), None)],
+                ("test4",): [(parse_merge_key("+/t2"), None)],
             },
         )
         self.assertEqual(expanded["test1"], self.expected["test1"])
         self.assertEqual(expanded["test2"], self.expected["test2"])
         self.assertEqual(expanded["test3"], self.expected["test3"])
+        self.assertEqual(expanded["test4"], self.expected["test4"])
         restore_includes(includes, self.doc, expanded, CommentedMap)
         # restoreInclude should make expanded look like self.doc
         self.assertEqual(expanded["test1"], self.doc["test1"])
