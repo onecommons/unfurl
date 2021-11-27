@@ -263,6 +263,14 @@ class Configurator:
 
 
 class _ConnectionsMap(dict):
+    def by_type(self):
+        # return unique connection by type
+        # reverse so nearest relationships replace less specific ones that have matching names
+        by_type = {  # the list() is for Python 3.7
+            rel.type: rel for rel in reversed(list(self.values()))
+        }
+        return by_type.values()
+
     def __missing__(self, key):
         # the more specific connections are inserted first so this should find
         # the most relevant connection of the given type
@@ -398,7 +406,7 @@ class TaskView:
         self._get_connection(self.target.root, None, seen)
 
         # reverse so nearest relationships replace less specific ones that have matching names
-        connections = _ConnectionsMap(  # the list() is for 3.7
+        connections = _ConnectionsMap(  # the list() is for Python 3.7
             (rel.name, rel) for rel in reversed(list(seen.values()))
         )
         return connections
@@ -414,45 +422,48 @@ class TaskView:
         """
         env = {}
         t = lambda datatype: datatype.type == "unfurl.datatypes.EnvVar"
-        # XXX broken if multiple requirements point to same parent (e.g. dev and prod connections)
-        for name, rel in self._get_connections().items():
-            env.update(rel.merge_props(t))
+        for rel in self._get_connections().by_type(): # only one per connection type
+            env.update(rel.merge_props(t, True))
 
         return env
 
     def get_environment(self, addOnly):
-        # If addOnly is False (the default) all variables in `env` will be included
-        # in the returned dict, otherwise only variables added will be returned
+        """Return a dictionary of environment variables applicable to this task.
 
-        # get the environment from the context, the operation
-        # the relationship between the operation_host and the target and its hosts
-        # and any default (ambient) connections
+        Args:
+          addOnly (bool): If addOnly is False all variables in the current os environment will be included
+              otherwise only variables added will be included.
 
-        # XXX order of preference (last overrides first):
-        # external connections
-        # context
-        # host connections
-        # operation
+        Returns:
+           :dict:
+
+        Variable sources (by order of preference, lowest to highest):
+        1. The ensemble's environment
+        2. Variables set by the connections that are available to this operation.
+        3. Variables declared in the operation's ``environment`` section.
+        """
 
         env = os.environ.copy()
-        # XXX externalEnvVars = self._findRelationshipEnvVarsExternal()
-        # env.update(externalEnvVars)
+        # build rules by order of preference (last overrides first):
+        # 1. ensemble's environment
+        # 2. variables set by connections
+        # 3. operation's environment
 
-        # note: inputs should be evaluated before environment
-        # use merge.copy to preserve basedir
+        # we use merge.copy() to preserve basedir
         rules = merge.copy(self.target.root.envRules)
 
-        relEnvVars = self._find_relationship_env_vars()
+        rules.update(self._find_relationship_env_vars())
 
         if self.configSpec.environment:
             rules.update(self.configSpec.environment)
 
+        # apply rules
         rules = serialize_value(
             map_value(rules, self.inputs.context), resolveExternal=True
         )
         env = filter_env(rules, env, addOnly=addOnly)
-        env.update(relEnvVars)  # XXX should been updated when retrieved above
 
+        # add the variables required by TOSCA 1.3 spec
         targets = []
         if isinstance(self.target, RelationshipInstance):
             targets = [
