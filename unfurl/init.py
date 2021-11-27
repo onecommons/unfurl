@@ -170,7 +170,7 @@ def write_ensemble_manifest(
 def add_hidden_git_files(gitDir):
     # write .gitignore and  .gitattributes
     gitIgnorePath = write_template(gitDir, ".gitignore", "gitignore.j2", {})
-    gitAttributesContent = f"**/*{DefaultNames.JobsLog} merge=union\n"
+    gitAttributesContent = f"**/*{DefaultNames.JobsLog} merge=union\n*.remotelock lockable\n"
     gitAttributesPath = _write_file(gitDir, ".gitattributes", gitAttributesContent)
     return [os.path.abspath(gitIgnorePath), os.path.abspath(gitAttributesPath)]
 

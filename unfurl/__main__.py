@@ -789,12 +789,12 @@ def clone(ctx, source, dest, **options):
 )
 @click.pass_context
 @click.option(
-    "--dir", default=".", type=click.Path(exists=True), help="path to spec repository"
+    "--dir", default=".", type=click.Path(exists=True), help='Path to project or ensemble (default: ".")'
 )
 @click.argument("gitargs", nargs=-1)
 def git(ctx, gitargs, dir="."):
     """
-    unfurl git --dir=/path/to/start [gitoptions] [gitcmd] [gitcmdoptions]: Runs command on each project repository."""
+    unfurl git [git command] [git command arguments]: Run the given git command on each project repository."""
     localEnv = LocalEnv(dir, ctx.obj.get("home"), can_be_empty=True)
     if localEnv.manifestPath:
         repos = {
@@ -844,7 +844,7 @@ def get_commit_message(committer):
 
 @cli.command()
 @click.pass_context
-@click.option("--ensemble", default="", type=click.Path(exists=False))
+@click.argument("project_or_ensemble_path", default=".", type=click.Path(exists=True))
 @click.option("-m", "--message", help="commit message to use")
 @click.option(
     "--no-edit",
@@ -858,10 +858,10 @@ def get_commit_message(committer):
     is_flag=True,
     help="Don't add files for committing (user must add using git)",
 )
-def commit(ctx, message, ensemble, skip_add, no_edit, **options):
-    """Commit any outstanding changes to this ensemble."""
+def commit(ctx, project_or_ensemble_path, message, skip_add, no_edit, **options):
+    """Commit any outstanding changes to the given project or ensemble."""
     options.update(ctx.obj)
-    localEnv = LocalEnv(ensemble, options.get("home"), can_be_empty=True)
+    localEnv = LocalEnv(project_or_ensemble_path, options.get("home"), can_be_empty=True)
     if localEnv.manifestPath:
         committer = localEnv.get_manifest()
     else:
@@ -880,19 +880,19 @@ def commit(ctx, message, ensemble, skip_add, no_edit, **options):
     click.echo(f"committed to {committed} repositories")
 
 
-@cli.command(short_help="Show the git status for paths relevant to this ensemble.")
+@cli.command()
 @click.pass_context
-@click.option("--ensemble", default="", type=click.Path(exists=False))
+@click.argument("project_or_ensemble_path", default=".", type=click.Path(exists=True))
 @click.option(
     "--dirty",
     default=False,
     is_flag=True,
     help="Only show repositories with uncommitted changes",
 )
-def git_status(ctx, ensemble, dirty, **options):
-    """Show the git status for repository paths that are relevant to this ensemble."""
+def git_status(ctx, project_or_ensemble_path, dirty, **options):
+    "Show the git status for paths relevant to the given project or ensemble."
     options.update(ctx.obj)
-    localEnv = LocalEnv(ensemble, options.get("home"), can_be_empty=True)
+    localEnv = LocalEnv(project_or_ensemble_path, options.get("home"), can_be_empty=True)
     if localEnv.manifestPath:
         committer = localEnv.get_manifest()
     else:
@@ -903,6 +903,14 @@ def git_status(ctx, ensemble, dirty, **options):
     else:
         click.echo(statuses)
 
+@cli.command(short_help="Show the git status for paths relevant to this ensemble.")
+@click.pass_context
+@click.argument("ensemble", default=".", type=click.Path(exists=True))
+def status(ctx, ensemble, **options):
+    """Show the status of deployed resources in the given ensemble."""
+    options.update(ctx.obj)
+    localEnv = LocalEnv(ensemble, options.get("home"))
+    click.echo(localEnv.get_manifest().status_summary())
 
 @cli.command()
 @click.pass_context
