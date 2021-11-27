@@ -51,7 +51,7 @@ you can define them with the ``localhost`` ensemble in :ref:`.unfurl_home<config
 
 As described in `Getting Started`, the ``localhost`` ensemble provides several connection relationship templates for connecting to the the most common cloud providers.
 
-When Unfurl executes an operation it looks for relationship templates between the `OPERATION_HOST` and the node that the operation is targeting, including any connection relationship templates that apply. If those templates contain any environment variables they will be set otherwise they can be accessed through to variables:
+When Unfurl executes an operation it looks for relationship templates between the ``OPERATION_HOST`` and the node that the operation is targeting, including any connection relationship templates that apply. If those templates contain any environment variables they will be set otherwise they can be accessed through to variables:
 
 :$connections:  the current connections between the OPERATION_HOST and the target or the target's HOSTs as a dictionary.
  The keys are the name of the relationship template or the name of the type of the relationship.
@@ -73,7 +73,7 @@ Environment Variables
 You can set the environment variables that are available while Unfurl is running
 in the ``variables`` section when declaring an ``environment``.
 These global directives can be overridden when executing an individual operation by
-by adding an `environment` section to an operation's `implementation` declaration.
+by adding an ``environment`` section to an operation's ``implementation`` declaration.
 
 In either case, the directives makes a copy of the current environment and applied each of its keys
 in the order they are declared, adding the given key and value as
@@ -107,4 +107,4 @@ The following environment variables will always be copied from the parent enviro
    :header: "Name"
 
 If the ``ASDF_DATA_DIR`` environment variable is set or the ``https://github.com/asdf-vm/asdf.git`` repository is part of a current project
-and a `.tool-versions` file exists (or ``$ASDF_DEFAULT_TOOL_VERSIONS_FILENAME``) in the root of a current project, then ``PATH`` environment variable will be configured to include the paths to the tools listed in that file.
+and a ``.tool-versions`` file exists (or ``$ASDF_DEFAULT_TOOL_VERSIONS_FILENAME``) in the root of a current project, then ``PATH`` environment variable will be configured to include the paths to the tools listed in that file.

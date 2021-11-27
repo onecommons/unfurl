@@ -19,32 +19,32 @@ API for writing configurators
 .. automodule:: unfurl.result
   :members: ChangeRecord, ChangeAware
 
-Runtime
-~~~~~~~
+Runtime module
+~~~~~~~~~~~~~~
 .. automodule:: unfurl.runtime
   :members: Operational, OperationalInstance
 
 APIs for controlling Unfurl
 ----------------------------
 
+Localenv module
+~~~~~~~~~~~~~~
 .. automodule:: unfurl.localenv
   :members: LocalEnv, Project
   :undoc-members:
 
+Job module
+~~~~~~~~~~~~~~
 .. automodule:: unfurl.job
   :members: run_job, JobOptions, ConfigChange, Job
 
-.. automodule:: unfurl.plan
-  :members: DeployPlan
-
+Init module
+~~~~~~~~~~~
 .. automodule:: unfurl.init
-  :members: clone, _create_in_cloned_project
+  :members: clone
 
 Utility classes and functions
 -----------------------------
-
-.. automodule:: unfurl.eval
-  :members: Ref, map_value, eval_ref, RefContext
 
 .. automodule:: unfurl.logs
   :members: sensitive
@@ -53,3 +53,8 @@ Utility classes and functions
   :members: UnfurlError, UnfurlTaskError, wrap_sensitive_value, is_sensitive,
     sensitive_bytes, sensitive_str, sensitive_dict, sensitive_list,
     filter_env
+
+Eval module
+~~~~~~~~~~~~~~
+.. automodule:: unfurl.eval
+  :members: Ref, map_value, eval_ref, RefContext

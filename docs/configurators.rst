@@ -290,7 +290,7 @@ Inputs
 -------
 
  :configuration:  A map that will included as parameters to Ansible's Docker container module
-    They are enumerated `here <https://docs.ansible.com/ansible/latest/modules/docker_container_module.html#docker-container-module>`_
+    They are enumerated `here <https://docs.ansible.com/ansible/latest/collections/community/docker/docker_container_module.html#ansible-collections-community-docker-docker-container-module#parameters>`_
 
 Example
 -------

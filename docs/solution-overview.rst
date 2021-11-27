@@ -1,11 +1,11 @@
 Solution Overview
 =================
 
-Before getting started, it is important to get yourself familiar with the overall unfurl solution.
+Before getting started, it is important to get yourself familiar with the overall Unfurl solution.
 
-Unfurl is a tool, offered by OneCommons, that allows you to keep track of the changes on the DevOps infrastructure and deploy it. This information can come in handy if you ever want to go back and see exactly how did you make those configuration changes alongwith what results did you get with that configuration. All this information can help with recreating that environment again.
+Unfurl is a tool that allows you to keep track of the changes to your DevOps infrastructure and deploy it. This information can come in handy if you ever want to go back and see exactly how did you make those configuration changes along with what results did you get with that configuration. All this information can help with recreating that environment again.
 
-The question arises, how is it done? Basically, Unfurl integrates with the deployment tools you are already using, like Ansible, Terraform and Helm, organizing their usage into Ensembles, shareable abstractions that ease migrations to new environments as well as share and reuse your work.
+Unfurl integrates with the deployment tools you are already using, like Ansible, Terraform and Helm, organizing their usage into Ensembles, shareable abstractions that ease migrations to new environments as well as share and reuse your work.
 
 Let's dive a bit deeper into the solution.
 
@@ -59,9 +59,9 @@ Step 2: Model your cloud infrastructure
 
 Specify your servers, applications, network, etc. with a declarative model that describes resources and their properties, dependencies, and relationships using the OASIS’s Topology and Orchestration Specification for Cloud Applications (TOSCA) standard. Leverage the TOSCA ecosystem of existing model libraries and tools.
 
-.. note:: 
+.. note::
 
- * TOSCA supports abstract type hierarchies and reusable templates for resources and relationships so your models can be truly cloud-agnostic. 
+ * TOSCA supports abstract type hierarchies and reusable templates for resources and relationships so your models can be truly cloud-agnostic.
  * For more information, refer to :ref:`TOSCA<tosca>` section.
 
 The following key points are important to note:
@@ -143,7 +143,7 @@ Once imported, other ensembles can reference the ensemble’s exported api endpo
 .. seealso:: To know more about publishing your project, refer to the :ref:`Publish your project<publish_project>` section.
 
 
-What Does That Mean 
+What Does That Mean
 ++++++++++++++++++++
 
 Whereas the possibilities are endless with such an open source cloud infrastructure, here are a few use cases associated with Unfurl.

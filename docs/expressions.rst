@@ -57,7 +57,7 @@ concat
 ^^^^^^
 
   The concat function is used to concatenate two or more string values. See :tosca_spec:`concat <_Toc454458585>`.
-  ``concat`` can optionally take a `sep` keyword argument the specifies as a string the separator to use when joining the list.
+  ``concat`` can optionally take a ``sep`` keyword argument the specifies as a string the separator to use when joining the list.
 
 get_artifact
 ^^^^^^^^^^^^
