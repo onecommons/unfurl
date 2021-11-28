@@ -35,11 +35,11 @@ The ultimate goal of Unfurl is enable anyone to clone, fork, and deploy cloud se
 
 ## Features
 
-### **No server, agentless**
+### No server, agentless
 
 Simple, stand-alone CLI that can be used both in your local development environment or in automated CI/CD pipeline.
 
-### **Deploy** infrastructure from simple, application-centric descriptions
+### Deploy infrastructure from simple, application-centric descriptions
 - Model your cloud infrasture with [OASIS TOSCA](https://www.oasis-open.org/committees/tc_home.php?wg_abbrev=tosca) (Topology and Orchestration Specification for Cloud Applications) standard YAML vocabulary.
 - Import reusable and adaptable components or build (and publish) your own. 
 - Easily declare dependencies to enable incremental deployment.
@@ -49,8 +49,8 @@ Simple, stand-alone CLI that can be used both in your local development environm
 
 ### Integrates with the DevOps tools you are already using
 - Includes out-of-the box support for:
-    - Terraform
-    - Ansible
+    - [Terraform](https://unfurl.run/docs/configurators.html#terraform)
+    - [Ansible](https://unfurl.run/docs/configurators.html#ansible)
     - [shell](https://unfurl.run/docs/configurators.html#shell)
     - [Helm](https://unfurl.run/docs/configurators.html#helm)
     - [Octodns](https://unfurl.run/docs/configurators.html#dns)
@@ -150,7 +150,7 @@ Arguments after `--` are passed to the test runner, e.g. to run an individual te
 Unfurl is in early stages of development and should not be used in production. In particular be mindful of these limitations:
 
 * Locking to prevent multiple instances of Unfurl running at the same time from modifying the same resources is only implemented locally.
-* Incremental updates are only partially implemented. You can incrementally update an ensemble by explicitly limit jobs with the `--force` and `--instance` [command line options](https://unfurl.run/docs/cli.html#unfurl-deploy).
+* Incremental updates are only partially implemented. You can incrementally update an ensemble by explicitly limiting jobs with the `--force` and `--instance` [command line options](https://unfurl.run/docs/cli.html#unfurl-deploy).
 * Google Cloud SDK [doesn't yet work](https://issuetracker.google.com/issues/202172882?pli=1) with Python 3.10.
 
 ## Get Started

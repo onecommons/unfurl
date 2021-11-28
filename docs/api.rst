@@ -28,7 +28,7 @@ APIs for controlling Unfurl
 ----------------------------
 
 Localenv module
-~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~
 .. automodule:: unfurl.localenv
   :members: LocalEnv, Project
   :undoc-members:

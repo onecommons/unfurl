@@ -15,9 +15,9 @@ Once you've installed `Unfurl`, you are ready to configure it and create your fi
 1. Configure your home environment
 ===================================
 
-Unfurl creates a "home" directory (by default at ``~/.unfurl_home``) that contains the configuration settings and tools that you want shared by all your Unfurl projects. This is a good place to keep an inventory of the various account settings you'll need to connect to your cloud resources. You can group these settings into `contexts` and `Unfurl projects` with inherit them -- making easy for different projects to switch between contexts.
+Unfurl creates a "home" directory (by default at ``~/.unfurl_home``) that contains the configuration settings and tools that you want shared by all your Unfurl projects. This is a good place to keep an inventory of the various account settings you'll need to connect to your cloud resources. You can group these settings into `environments` and `Unfurl projects` will inherit them -- making it easy for different projects to switch between environments.
 
-Contexts can also be used to isolate the environment Unfurl runs in, enabling you set different versions of tools, create Python virtual environment or run Unfurl in a Docker container.
+The home project can also be used to isolate the  Unfurl runs in, enabling you set different versions of tools, create Python virtual environment or run Unfurl in a Docker container.
 
 Under the hood, Unfurl's home is just a standard `Unfurl` project modeling the local machine it is running on so you can customize it and deploy it like any other `Unfurl` project.
 
