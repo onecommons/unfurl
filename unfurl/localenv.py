@@ -391,7 +391,7 @@ class Project:
         while project:
             project_info = project.localConfig.projects.get(default_project)
             if project_info:
-                return project.localConfig.find_repository_path(project_info["url"])
+                return project.localConfig.find_repository_path(project_info)
             project = project.parentProject
 
         raise UnfurlError(
@@ -490,9 +490,25 @@ class LocalConfig:
         instance._baseDir = self.config.get_base_dir()
         return instance
 
-    def find_repository_path(self, repourl):
+    def find_repository_path(self, project_info: dict):
+        # prioritize matching by url
+        path = self.find_repository_path_by_url(project_info['url'])
+        if path:
+            return path
+        if project_info.get('initial'):
+            return self.find_repository_path_by_revision(project_info['initial'])
+        return None
+
+    def find_repository_path_by_url(self, repourl):
+        url = normalize_git_url(repourl)
         for path, tpl in self.localRepositories.items():
-            if normalize_git_url(tpl["url"]) == normalize_git_url(repourl):
+            if normalize_git_url(tpl["url"]) == url:
+                return path
+        return None
+
+    def find_repository_path_by_revision(self, initial_revision):
+        for path, tpl in self.localRepositories.items():
+            if tpl.get("initial") == initial_revision:
                 return path
         return None
 
@@ -586,7 +602,7 @@ class LocalEnv:
             if "managedBy" in location:
                 # this ensemble is managed by another project
                 project_tpl = project.localConfig.projects[location["managedBy"]]
-                path = project.localConfig.find_repository_path(project_tpl["url"])
+                path = project.localConfig.find_repository_path(project_tpl)
                 externalProject = None
                 if path is not None:
                     externalProject = self.find_project(path)
