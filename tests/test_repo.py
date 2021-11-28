@@ -212,6 +212,7 @@ class GitRepoTest(unittest.TestCase):
         """
         test that the init cli command sets git repos correctly in "polyrepo" mode.
         """
+        self.maxDiff = None
         runner = CliRunner()
         with runner.isolated_filesystem():
             result = runner.invoke(cli, ["--home", "", "init"])
@@ -228,7 +229,7 @@ class GitRepoTest(unittest.TestCase):
             )
             self.assertEqual(result.exit_code, 0, result)
             output = u"""\
-*** Running 'git ls-files' in './.'
+*** Running 'git ls-files' in '.'
 .gitattributes
 .gitignore
 .secrets/secrets.yaml
@@ -241,7 +242,9 @@ unfurl.yaml
 .gitignore
 ensemble.yaml
 """
-            self.assertEqual(output.strip(), result.output.strip())
+            self.assertEqual(
+                output.strip(), result.output.strip(), result.output.strip()
+            )
 
             with open(".git/info/exclude") as f:
                 contents = f.read()

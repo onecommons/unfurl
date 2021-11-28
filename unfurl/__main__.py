@@ -789,7 +789,10 @@ def clone(ctx, source, dest, **options):
 )
 @click.pass_context
 @click.option(
-    "--dir", default=".", type=click.Path(exists=True), help='Path to project or ensemble (default: ".")'
+    "--dir",
+    default=".",
+    type=click.Path(exists=True),
+    help='Path to project or ensemble (default: ".")',
 )
 @click.argument("gitargs", nargs=-1)
 def git(ctx, gitargs, dir="."):
@@ -798,13 +801,13 @@ def git(ctx, gitargs, dir="."):
     localEnv = LocalEnv(dir, ctx.obj.get("home"), can_be_empty=True)
     if localEnv.manifestPath:
         repos = {
-            repo.working_dir: repo.repo
+            os.path.relpath(repo.working_dir, os.path.abspath(dir)): repo.repo
             for repo in localEnv.get_manifest().repositories.values()
             if repo.repo
         }
     elif localEnv.project.project_repoview.repo:
         repo = localEnv.project.project_repoview.repo
-        repos = {repo.working_dir: repo}
+        repos = {os.path.relpath(repo.working_dir, os.path.abspath(dir)): repo}
     else:
         repos = {}
 
@@ -814,8 +817,9 @@ def git(ctx, gitargs, dir="."):
     # sort by working_dir for determinism
     for working_dir in sorted(repos):
         repo = repos[working_dir]
-        repoPath = os.path.relpath(repo.working_dir, os.path.abspath(dir))
-        click.echo(f"*** Running 'git {' '.join(gitargs)}' in './{repoPath}'")
+        if working_dir != ".":
+            working_dir = "./" + working_dir
+        click.echo(f"*** Running 'git {' '.join(gitargs)}' in '{working_dir}'")
         _status, stdout, stderr = repo.run_cmd(gitargs)
         click.echo(stdout + "\n")
         if stderr.strip():
@@ -861,7 +865,9 @@ def get_commit_message(committer):
 def commit(ctx, project_or_ensemble_path, message, skip_add, no_edit, **options):
     """Commit any outstanding changes to the given project or ensemble."""
     options.update(ctx.obj)
-    localEnv = LocalEnv(project_or_ensemble_path, options.get("home"), can_be_empty=True)
+    localEnv = LocalEnv(
+        project_or_ensemble_path, options.get("home"), can_be_empty=True
+    )
     if localEnv.manifestPath:
         committer = localEnv.get_manifest()
     else:
@@ -892,7 +898,9 @@ def commit(ctx, project_or_ensemble_path, message, skip_add, no_edit, **options)
 def git_status(ctx, project_or_ensemble_path, dirty, **options):
     "Show the git status for paths relevant to the given project or ensemble."
     options.update(ctx.obj)
-    localEnv = LocalEnv(project_or_ensemble_path, options.get("home"), can_be_empty=True)
+    localEnv = LocalEnv(
+        project_or_ensemble_path, options.get("home"), can_be_empty=True
+    )
     if localEnv.manifestPath:
         committer = localEnv.get_manifest()
     else:
@@ -903,6 +911,7 @@ def git_status(ctx, project_or_ensemble_path, dirty, **options):
     else:
         click.echo(statuses)
 
+
 @cli.command(short_help="Show the git status for paths relevant to this ensemble.")
 @click.pass_context
 @click.argument("ensemble", default=".", type=click.Path(exists=True))
@@ -911,6 +920,7 @@ def status(ctx, ensemble, **options):
     options.update(ctx.obj)
     localEnv = LocalEnv(ensemble, options.get("home"))
     click.echo(localEnv.get_manifest().status_summary())
+
 
 @cli.command()
 @click.pass_context
