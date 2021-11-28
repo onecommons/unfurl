@@ -283,16 +283,16 @@ class Project:
         if location:
             contextName = location.get("environment", self.get_default_context())
             if "project" in location and location["project"] != self.name:
-                externalLocalEnv = localEnv._get_external_localenv(location)
+                externalLocalEnv = localEnv._get_external_localenv(location, self)
                 if externalLocalEnv:
                     # if the manifest lives in an external projects repo,
                     # _get_external_localenv() above will have set that project
                     # as the parent project and register our project with it
-                    return externalLocalEnv.manifestPath, contextName
+                    return self, externalLocalEnv.manifestPath, contextName
                 else:
                     raise UnfurlError(
                         'Could not find external project "%s" referenced by ensemble "%s"'
-                        % (location["project"], manifestPath)
+                        % (location["project"], manifestPath or location["file"])
                     )
             else:
                 fullPath = self.localConfig.adjust_path(location["file"])
@@ -301,12 +301,16 @@ class Project:
                         "The default ensemble found in %s does not exist: %s"
                         % (self.localConfig.config.path, os.path.abspath(fullPath))
                     )
-                return fullPath, contextName
+                if "managedBy" in location:
+                    project = self.get_managed_project(location, localEnv)
+                else:
+                    project = self
+                return project, fullPath, contextName
         else:
             # no manifest specified in the project config so check the default locations
             assert not manifestPath
             fullPath = self.search_for_manifest(can_be_empty)  # raises if not found
-            return fullPath, self.get_default_context()
+            return self, fullPath, self.get_default_context()
 
     def _set_contexts(self):
         # merge project contexts with parent contexts
@@ -398,6 +402,23 @@ class Project:
             'Could not find path to default project "%s" in context "%s"'
             % (default_project, context_name)
         )
+
+    def get_managed_project(self, location, localEnv):
+        project_tpl = self.localConfig.projects[location["managedBy"]]
+        path = self.localConfig.find_repository_path(project_tpl)
+        externalProject = None
+        if path is not None:
+            externalProject = localEnv.find_project(path)
+            if externalProject:
+                externalProject._set_parent_project(self)
+                return externalProject
+        if not externalProject:
+            localEnv.logger.warning(
+                'Could not find the project "%s" which manages "%s"',
+                location["managedBy"],
+                path,
+            )
+            return self
 
     def register_ensemble(
         self, manifestPath, *, project=None, managedBy=None, context=None
@@ -492,11 +513,11 @@ class LocalConfig:
 
     def find_repository_path(self, project_info: dict):
         # prioritize matching by url
-        path = self.find_repository_path_by_url(project_info['url'])
+        path = self.find_repository_path_by_url(project_info["url"])
         if path:
             return path
-        if project_info.get('initial'):
-            return self.find_repository_path_by_revision(project_info['initial'])
+        if project_info.get("initial"):
+            return self.find_repository_path_by_revision(project_info["initial"])
         return None
 
     def find_repository_path_by_url(self, repourl):
@@ -593,6 +614,8 @@ class LocalEnv:
     the local project it is part of and the home project.
     """
 
+    project = None
+
     def _find_external_project(self, manifestPath, project):
         # We're pointing directly at a manifest path, check if it is might be part of an external project
         context_name = None
@@ -601,20 +624,7 @@ class LocalEnv:
             context_name = location.get("environment")
             if "managedBy" in location:
                 # this ensemble is managed by another project
-                project_tpl = project.localConfig.projects[location["managedBy"]]
-                path = project.localConfig.find_repository_path(project_tpl)
-                externalProject = None
-                if path is not None:
-                    externalProject = self.find_project(path)
-                    if externalProject:
-                        externalProject._set_parent_project(project)
-                        return externalProject, context_name
-                if not externalProject:
-                    self.logger.warning(
-                        'Could not find the project "%s" which manages "%s"',
-                        location["managedBy"],
-                        manifestPath,
-                    )
+                return project.get_managed_project(location, self), context_name
         return project, context_name
 
     def _resolve_path_and_project(self, manifestPath, can_be_empty):
@@ -655,10 +665,10 @@ class LocalEnv:
                     self.manifest_context_name,
                 ) = self._find_external_project(foundManifestPath, project)
             else:
-                self.project = project
                 # not found, see if the manifest if it is located in a shared project or is referenced by name
                 # raises if not found
                 (
+                    self.project,
                     self.manifestPath,
                     self.manifest_context_name,
                 ) = project.get_manifest_path(self, manifestPath, can_be_empty)
@@ -787,19 +797,24 @@ class LocalEnv:
         else:
             return None
 
-    def _get_external_localenv(self, location):
+    def _get_external_localenv(self, location, currentProject=None):
+        # currentProject because this method might be called before self.project was set
         assert "project" in location
         project = None
         repo = None
         projectName = location["project"]
-        if self.project:
-            project = self.project.localConfig.projects.get(projectName)
+        if not currentProject:
+            currentProject = self.project
+        if currentProject:
+            project = currentProject.localConfig.projects.get(projectName)
+
         if not project and self.homeProject:
             project = self.homeProject.localConfig.projects.get(projectName)
             # allow "home" to refer to the home project
             if not project and projectName == "home":
                 repo = self.homeProject.project_repoview
                 file = ""
+
         if project:
             url, file, revision = split_git_url(project["url"])
             repo = self.find_git_repo(url)

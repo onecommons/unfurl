@@ -342,10 +342,14 @@ class Manifest(AttributeManager):
         def summary(instance, indent):
             status = "" if instance.status is None else instance.status.name
             state = instance.state and instance.state.name or ""
-            created = instance.created and f"created by {instance.created}"  or ""
-            output.append(
-                f"{' ' * indent}{instance} {status} {state} {created}"
-            )
+            if instance.created:
+                if isinstance(instance.created, bool):
+                    created = "managed"
+                else:
+                    created = f"created by {instance.created}"
+            else:
+                created = ""
+            output.append(f"{' ' * indent}{instance} {status} {state} {created}")
             indent += 4
             for child in instance.instances:
                 summary(child, indent)
