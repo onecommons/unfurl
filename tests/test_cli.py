@@ -504,6 +504,7 @@ spec:
                     "./unfurl_home",
                     "init",
                     "--use-environment=production",
+                    "--mono",
                     "p1",
                 ],
             )

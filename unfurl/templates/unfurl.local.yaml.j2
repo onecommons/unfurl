@@ -24,6 +24,11 @@ environments:
       # Note: The UNFURL_VAULT_[% vaultid | default("default") | upper %]_PASSWORD environment variable overrides this.
     {% endif %}
 
+{% if default_context | default("") %}
+# This sets the default environment to use for new ensembles created in this project.
+default_environment: [%default_context%]
+{% endif %}
+
 {%if manifestPath %}
 # This lists ensembles managed by this project
 # (note that they can be located in a different project)

@@ -200,6 +200,7 @@ def render_project(
     templateDir=None,
     names=DefaultNames,
     use_context=None,
+    mono=False
 ):
     """
     Creates a folder named `projectdir` with a git repository with the following files:
@@ -221,8 +222,11 @@ def render_project(
         if ensembleRepo.working_dir not in projectdir:
             externalProject = find_project(ensembleRepo.working_dir, homePath)
         if externalProject:
+            dirname, ensembleDirName = os.path.split(projectdir)
+            if ensembleDirName == DefaultNames.ProjectDirectory:
+                ensembleDirName = os.path.basename(dirname)
             relPath = externalProject.get_relative_path(
-                os.path.join(ensembleRepo.working_dir, os.path.basename(projectdir))
+                os.path.join(ensembleRepo.working_dir, ensembleDirName)
             )
             ensembleDir = externalProject.get_unique_path(relPath)
         manifestName = names.Ensemble
@@ -231,8 +235,16 @@ def render_project(
     vaultpass = get_random_password()
     # XXX vaultid should match the project name so we can see which password was used to encrypt a file
     vars = dict(vaultpass=vaultpass, vaultid="default")
-    if ensembleRepo and ensembleRepo.is_local_only():
+
+    # only commit external ensembles references if we are creating a mono repo
+    # otherwise record them in the local config:
+    localExternal = use_context and externalProject and not mono
+    if ensembleRepo and (ensembleRepo.is_local_only() or localExternal):
         _set_ensemble_vars(vars, externalProject, ensemblePath, use_context)
+    if localExternal:
+        # since this is specified while creating the project set this as the default context
+        vars["default_context"] = use_context
+
     localProjectConfig = write_project_config(
         os.path.join(projectdir, "local"),
         localConfigFilename,
@@ -257,10 +269,10 @@ def render_project(
 
     # note: local overrides secrets
     vars = dict(include=secretsInclude + "\n" + localInclude)
-    if use_context:
+    if use_context and not localExternal:
         # since this is specified while creating the project set this as the default context
         vars["default_context"] = use_context
-    if ensembleRepo and not ensembleRepo.is_local_only():
+    if ensembleRepo and not (ensembleRepo.is_local_only() or localExternal):
         _set_ensemble_vars(vars, externalProject, ensemblePath, use_context)
     projectConfigPath = write_project_config(
         projectdir,
@@ -297,12 +309,16 @@ def render_project(
             ensembleDir,
             manifestName,
             repo,
+            projectdir,
             extraVars=extraVars,
             templateDir=templateDir,
         )
     if externalProject:
         # add the external project to the project and localRepositories configuration sections
-        LocalConfig(projectConfigPath).register_project(externalProject)
+        # split repos should not have references to ensembles
+        # so register it with the local project config if not a mono repo
+        configPath = localProjectConfig if localExternal else projectConfigPath
+        LocalConfig(configPath).register_project(externalProject)
         externalProject.register_ensemble(
             ensemblePath, managedBy=find_project(projectdir, homePath)
         )
@@ -414,7 +430,7 @@ def create_project(
 
     shared = _get_shared(kw, homePath)
     submodule = kw.get("submodule")
-    if mono:
+    if mono and not shared:
         ensembleRepo = repo
     else:
         ensembleRepo = _find_ensemble_repo(
@@ -429,6 +445,7 @@ def create_project(
         template,
         names,
         create_context or use_context,
+        mono
     )
     if homePath and create_context:
         newProject = find_project(projectConfigPath, homePath)
