@@ -143,6 +143,7 @@ class TerraformConfigurator(ShellConfigurator):
 
         if os.path.exists(folder.get_path(".terraform.lock.hcl")):
             folder.copy_to(lock_file)
+
         cmd = terraform + "providers schema -json".split(" ")
         result = self.run_process(cmd, timeout=timeout, env=env, cwd=cwd, echo=False)
         if not self._handle_result(task, result, cwd):
@@ -154,15 +155,20 @@ class TerraformConfigurator(ShellConfigurator):
             return None
 
         try:
-            providerSchema = json.loads(result.stdout.strip())
+            providerOutput = result.stdout.strip()
+            providerSchema = json.loads(providerOutput)
             # XXX add to ensemble "lock" section
             # os.path.join(env['TF_DATA_DIR'], "modules", "modules.json")
             # os.path.join(env['TF_DATA_DIR'], "plugins", "plugins.json")
             # missing if there are no providers:
             return providerSchema.get("provider_schemas", {})
         except:
-            task.logger.debug("failed to load provider schema", exc_info=True)
-            return None
+            task.logger.debug(
+                "failed to load provider schema: %s",
+                providerOutput[:200],
+                exc_info=True,
+            )
+            return {}
 
     def _prepare_workspace(self, task, cwd):
         """
@@ -313,9 +319,9 @@ class TerraformConfigurator(ShellConfigurator):
                 providerSchema = json.load(psf)
         else:  # first time
             providerSchema = self._init_terraform(task, terraform, cwd, env)
-            if providerSchema is not None:
+            if providerSchema:
                 save_to_file(providerSchemaPath, providerSchema)
-            else:
+            elif providerSchema is None:
                 raise UnfurlTaskError(task, f"terraform init failed in {cwd.cwd}")
 
         result = self.run_process(
@@ -326,6 +332,12 @@ class TerraformConfigurator(ShellConfigurator):
             providerSchema = self._init_terraform(task, terraform, cwd, env)
             if providerSchema:
                 save_to_file(providerSchemaPath, providerSchema)
+            if providerSchema is None:
+                raise UnfurlTaskError(
+                    task,
+                    f"terrform init failed in {cwd.cwd}; TF_DATA_DIR={dataDir}",
+                )
+            else:
                 # try again
                 result = self.run_process(
                     cmd,
@@ -333,11 +345,6 @@ class TerraformConfigurator(ShellConfigurator):
                     env=env,
                     cwd=cwd.cwd,
                     echo=echo,
-                )
-            else:
-                raise UnfurlTaskError(
-                    task,
-                    f"terrform init failed in {cwd.cwd}; TF_DATA_DIR={dataDir}",
                 )
 
         # process the result
@@ -351,9 +358,6 @@ class TerraformConfigurator(ShellConfigurator):
             else:
                 status = Status.ok
 
-        # UNFURL  WARNING  shell task run failure: "terraform apply -auto-approve -state=terraform.tfstate" in /Users/adam/_dev/uprojects/live/oc-dev2/gcp/pending/tasks/gitlab-cluster/
-        # UNFURL  INFO  shell task return code: 1, stderr: 2021-11-04T06:23:51.271-0700 [DEBUG] Adding temp file log sink: /var/folders/5r/401zm__s0nsgksswhft5x7lh0000gr/T/terraform-log210889511
-
         if not task.dry_run and task.configSpec.operation != "check":
             outputs = {}
             if statePath and os.path.isfile(os.path.join(cwd.cwd, statePath)):
@@ -361,11 +365,15 @@ class TerraformConfigurator(ShellConfigurator):
                 statePath = os.path.join(cwd.cwd, statePath)
                 with open(statePath) as sf:
                     state = json.load(sf)
-                state = mark_sensitive(
-                    providerSchema, state, task, self.sensitive_names
-                )
-                # save state file in home as yaml, encrypting sensitive values
+
                 folderName = task.inputs.get("stateLocation") or Folders.secrets
+                if providerSchema:
+                    state = mark_sensitive(
+                        providerSchema, state, task, self.sensitive_names
+                    )
+                else:  # always use "secrets" if we can't call mark_sensitive()
+                    folderName = Folders.secrets
+                # save state file in home as yaml, encrypting sensitive values
                 task.set_work_folder(folderName).write_file(
                     state, "terraform.tfstate.yaml"
                 )
