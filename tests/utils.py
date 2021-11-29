@@ -17,6 +17,8 @@ from unfurl.support import Status
 
 
 class MotoTest(unittest.TestCase):
+    PORT = 5000
+
     PROJECT_CONFIG = """\
       apiVersion: unfurl/v1alpha1
       kind: Project
@@ -40,7 +42,7 @@ class MotoTest(unittest.TestCase):
 
         from moto.server import main
 
-        self.p = Process(target=main, args=([],))
+        self.p = Process(target=main, args=([f"-p{self.PORT}"],))
         self.p.start()
 
         for n in range(5):

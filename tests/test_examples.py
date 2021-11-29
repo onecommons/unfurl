@@ -350,6 +350,8 @@ spec:
 @unittest.skipIf("docker" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
 @unittest.skipIf("slow" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
 class CampsiteTest(MotoTest):
+    PORT = 5001
+
     def test_examples(self):
         runner = CliRunner()
         with runner.isolated_filesystem():
@@ -358,7 +360,7 @@ class CampsiteTest(MotoTest):
                 args="clone --empty https://github.com/onecommons/unfurl-campsite.git".split(),
             )
             with open("unfurl-campsite/unfurl.yaml", "w") as f:
-                f.write(self.PROJECT_CONFIG)
+                f.write(self.PROJECT_CONFIG.replace("5000", str(self.PORT)))
 
             with open("unfurl-campsite/ensemble.yaml", "w") as f:
                 f.write(campsite_manifest)
