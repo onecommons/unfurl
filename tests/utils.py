@@ -28,6 +28,8 @@ class MotoTest(unittest.TestCase):
               type: unfurl.relationships.ConnectsTo.AWSAccount
               properties:
                   AWS_DEFAULT_REGION: us-east-1
+                  AWS_ACCESS_KEY_ID: mock_aws_key
+                  AWS_SECRET_ACCESS_KEY: mock_aws_secret
                   endpoints:
                       ec2: http://localhost:5000
                       sts: http://localhost:5000
@@ -220,3 +222,12 @@ def run_job_cmd(runner, args=("deploy",), starttime=1, print_result=False, env=N
     job = _latestJobs[-1]
     summary = job.json_summary()
     return result, job, summary
+
+
+if __name__ == "__main__":
+    from multiprocessing import Process
+    from moto.server import main
+
+    print("starting moto at http://localhost:5000/moto-api")
+    p = Process(target=main, args=([],))
+    p.start()

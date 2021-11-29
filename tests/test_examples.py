@@ -10,12 +10,9 @@ from unfurl.job import Runner, JobOptions
 from unfurl.configurator import Configurator
 from unfurl.configurators import TemplateConfigurator
 from unfurl.util import make_temp_dir
-from .utils import isolated_lifecycle, DEFAULT_STEPS
-
-# python 2.7 needs these:
-from unfurl.configurators.shell import ShellConfigurator
-from unfurl.configurators.ansible import AnsibleConfigurator
-from unfurl.configurators.k8s import ClusterConfigurator
+from .utils import isolated_lifecycle, DEFAULT_STEPS, MotoTest, lifecycle, init_project
+from unfurl.localenv import LocalEnv
+from unfurl.support import Status
 
 
 class HelmConfigurator(Configurator):
@@ -326,3 +323,49 @@ def test_unfurl_site_examples():
             init_args="clone https://github.com/onecommons/unfurl_site.git".split(),
         )
     )
+
+
+campsite_manifest = """
+apiVersion: unfurl/v1alpha1
+kind: Ensemble
++include:
+  file: ensemble-template.yaml
+  repository: spec
+spec:
+  service_template:
+    repositories:
+      cloud:
+        url: https://github.com/onecommons/unfurl-examples.git#:cloud/aws
+    topology_template:
+      node_templates:
+        # redefine so it work wth moto
+        dockerhost-bootimage:
+          type: unfurl.nodes.BootImage
+          properties:
+            owner: 137112412989
+            name_regex: amzn
+"""
+
+
+@unittest.skipIf("docker" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
+@unittest.skipIf("slow" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
+class CampsiteTest(MotoTest):
+    def test_examples(self):
+        runner = CliRunner()
+        with runner.isolated_filesystem():
+            init_project(
+                runner,
+                args="clone --empty https://github.com/onecommons/unfurl-campsite.git".split(),
+            )
+            with open("unfurl-campsite/unfurl.yaml", "w") as f:
+                f.write(self.PROJECT_CONFIG)
+
+            with open("unfurl-campsite/ensemble.yaml", "w") as f:
+                f.write(campsite_manifest)
+
+            for job in lifecycle(
+                manifest=LocalEnv("unfurl-campsite/ensemble.yaml").get_manifest(),
+                steps=DEFAULT_STEPS[1:],
+            ):
+                assert job.status == Status.ok
+                break  # just run the first step for now
