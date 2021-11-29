@@ -572,9 +572,7 @@ class Job(ConfigChange):
         # but were not yielding inside runTask
         while self.jobRequestQueue:
             jobRequest = self.jobRequestQueue[0]
-            job = self.run_job_request(jobRequest)
-            if self.should_abort(job):
-                return self.rootResource
+            self.run_job_request(jobRequest)
 
         return self.rootResource
 
@@ -840,9 +838,6 @@ class Job(ConfigChange):
         else:
             logger.info("could not run task %s: %s", task, reason)
             return False, "could not run: " + reason
-
-    def should_abort(self, task):
-        return False  # XXX3
 
     def _set_state(self, req):
         logger.debug("setting state %s for %s", req.set_state, req.target)

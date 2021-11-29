@@ -377,11 +377,16 @@ class YamlManifest(ReadOnlyManifest):
         # Now that we loaded the main manifest and set the root's baseDir
         # let's do it before we import any other manifests.
         # But only if we're the main manifest.
-        if not self.localEnv or self.is_path_to_self(self.localEnv.manifestPath):
+        if not self.localEnv or not self.localEnv.parent:
             if self.context.get("variables"):
                 env = filter_env(map_value(self.context["variables"], root))
-                intersect_dict(os.environ, env)  # remove keys not in env
-                os.environ.update(env)
+            else:
+                env = os.environ.copy()
+            for rel in root.requirements:
+                t = lambda datatype: datatype.type == "unfurl.datatypes.EnvVar"
+                env.update(rel.merge_props(t, True))
+            intersect_dict(os.environ, env)  # remove keys not in env
+            os.environ.update(env)
             paths = self.localEnv and self.localEnv.get_paths()
             if paths:
                 os.environ["PATH"] = (

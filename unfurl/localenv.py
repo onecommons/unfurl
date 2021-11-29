@@ -615,6 +615,7 @@ class LocalEnv:
     """
 
     project = None
+    parent = None
 
     def _find_external_project(self, manifestPath, project):
         # We're pointing directly at a manifest path, check if it is might be part of an external project
@@ -698,6 +699,7 @@ class LocalEnv:
         self.manifest_context_name = None
 
         if parent:
+            self.parent = parent
             self._projects = parent._projects
             self._manifests = parent._manifests
             self.homeConfigPath = parent.homeConfigPath

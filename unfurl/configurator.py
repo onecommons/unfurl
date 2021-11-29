@@ -5,7 +5,14 @@ from collections.abc import Mapping, MutableSequence
 import os
 import copy
 from .support import Status, ResourceChanges, Priority, TopologyMap
-from .result import serialize_value, ChangeAware, Results, ResultsMap, get_digest
+from .result import (
+    serialize_value,
+    ChangeAware,
+    Results,
+    ResultsMap,
+    get_digest,
+    Result,
+)
 from .util import (
     register_class,
     validate_schema,
@@ -275,10 +282,12 @@ class _ConnectionsMap(dict):
         # the more specific connections are inserted first so this should find
         # the most relevant connection of the given type
         for value in self.values():
+            if isinstance(value, Result):
+                value = value.resolved
             if (
-                value.resolved.template.is_compatible_type(key)
+                value.template.is_compatible_type(key)
                 # hackish: match the local name of type
-                or key == value.resolved.type.rpartition(".")[2]
+                or key == value.type.rpartition(".")[2]
             ):
                 return value
         raise KeyError(key)
@@ -422,7 +431,7 @@ class TaskView:
         """
         env = {}
         t = lambda datatype: datatype.type == "unfurl.datatypes.EnvVar"
-        for rel in self._get_connections().by_type(): # only one per connection type
+        for rel in self._get_connections().by_type():  # only one per connection type
             env.update(rel.merge_props(t, True))
 
         return env
