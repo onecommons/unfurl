@@ -10,9 +10,11 @@
 
 Unfurl is a command line tool for managing your DevOps infrastructure. Unfurl lets you easily track configuration, secrets, software and code dependencies, and deployment history all in git.
 
-Unfurl integrates with the deployment tools you are already using -- like Terraform, Ansible, and Helm -- allowing you to encapsulate your DevOps processes into reusable building blocks and describe your cloud infrastructure in simple, application-centric terms.
+Unfurl can integrate with the DevOps tools you are already using -- like Terraform, Ansible, and Helm -- allowing you to encapsulate your DevOps processes into reusable building blocks and describe your cloud infrastructure in simple, application-centric terms.
 
-The ultimate goal of Unfurl is enable anyone to clone, fork, and deploy cloud services as easily as cloning and building code from git -- so we can cooperatively build and run cloud services just like we do with open source software.
+## Vision
+
+The ultimate goal of Unfurl is enable anyone to clone, fork, and deploy live cloud services as easily as cloning and building code from git -- so we can cooperatively build and run cloud services in the same way we create open source software.
 
 ## How it works
 
@@ -37,7 +39,7 @@ The ultimate goal of Unfurl is enable anyone to clone, fork, and deploy cloud se
 
 ### No server, agentless
 
-Simple, stand-alone CLI that can be used both in your local development environment or in automated CI/CD pipeline.
+Simple, stand-alone CLI that can be used both in your local development environment or in an automated CI/CD pipeline.
 
 ### Deploy infrastructure from simple, application-centric descriptions
 - Model your cloud infrasture with [OASIS TOSCA](https://www.oasis-open.org/committees/tc_home.php?wg_abbrev=tosca) (Topology and Orchestration Specification for Cloud Applications) standard YAML vocabulary.
@@ -82,7 +84,7 @@ Simple, stand-alone CLI that can be used both in your local development environm
 
 ### “Day Two” Operations
 - Check, discover and repair commands
-- Define your own workflows for maintenance tasks like backup and restore
+- Define your own workflows for maintenance tasks like backup and restore.
 
 # Installation
 
