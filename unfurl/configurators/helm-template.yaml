@@ -43,7 +43,7 @@ topology_template:
           type: artifact.AsdfTool
           file: helm
           properties:
-            version: 3.6.3
+            version: 3.7.1
 
 node_types:
   unfurl.nodes.HelmRepository:

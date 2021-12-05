@@ -95,4 +95,4 @@ topology_template:
           type: artifact.AsdfTool
           file: gcloud
           properties:
-            version: 360.0.0
+            version: 365.0.1

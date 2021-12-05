@@ -1,13 +1,13 @@
-FROM python:3.9.5-slim
+FROM python:3.9.9-slim
 
 RUN apt-get -qq update && \
     apt-get install -qq -y git curl unzip wget && \
     rm -rf /var/lib/apt/lists/*
 
-ENV TERRAFORM_VERSION=1.0.0 \
-    HELM_VERSION=3.6.1 \
-    GCLOUD_VERSION=345.0.0 \
-    PATH="${PATH}:/google-cloud-sdk/bin" \
+ARG TERRAFORM_VERSION=1.0.11
+ARG HELM_VERSION=3.7.1
+ARG GCLOUD_VERSION=365.0.1
+ENV PATH="${PATH}:/google-cloud-sdk/bin" \
     PYTHONFAULTHANDLER=1 \
     PYTHONUNBUFFERED=1
 
