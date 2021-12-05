@@ -108,7 +108,7 @@ awsTestManifest = """\
                           # all connections available to the OPERATION_HOST as a dictionary
                           access_key: {{ "$connections::aws_test::AWS_ACCESS_KEY_ID" | eval }}
                           # the current connections between the OPERATION_HOST and the target or the target's HOSTs
-                          access_key2: {{ "$connections::*::AWS_ACCESS_KEY_ID" | eval }}
+                          access_key2: {{ "$connections::*::AWS_ACCESS_KEY_ID?" | eval }}
                           access_key3: {{ "$connections::AWSAccount::AWS_ACCESS_KEY_ID" | eval }}
   """
 

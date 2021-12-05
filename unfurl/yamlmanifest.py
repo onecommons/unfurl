@@ -174,16 +174,29 @@ def save_task(task):
     return output
 
 
-def relabel_dict(connections):
+def relabel_dict(context, localEnv, key):
+    connections = context.get(key)
     if not connections:
         return {}
+    contexts = {}
+    if localEnv:
+        project = localEnv.project or localEnv.homeProject
+        if project:
+            contexts = project.contexts
+
     # handle items like newname : oldname to rename merged connections
-    renames = {(v if isinstance(v, str) else n): n for n, v in connections.items()}
-    tpl = {}
-    for name, c in connections.items():
-        if isinstance(c, dict):
-            tpl[renames[name]] = c
-    return tpl
+    def follow_alias(v):
+        if isinstance(v, str):
+            env, sep, name = v.partition(":")
+            if sep:  # found a ":"
+                v = contexts[env][key][name]
+            else:  # look in current dict
+                v = connections[env]
+            return follow_alias(v)  # follow
+        else:
+            return v
+
+    return dict((n, follow_alias(v)) for n, v in connections.items())
 
 
 class ReadOnlyManifest(Manifest):
@@ -213,7 +226,7 @@ class ReadOnlyManifest(Manifest):
             self.context = localEnv.get_context(self.context)
         spec["inputs"] = self.context.get("inputs", spec.get("inputs", {}))
         self.update_repositories(
-            manifest, relabel_dict(self.context.get("repositories"))
+            manifest, relabel_dict(self.context, localEnv, "repositories")
         )
 
     @property
@@ -289,7 +302,7 @@ class YamlManifest(ReadOnlyManifest):
         if self.manifest.path:
             self.lockfilepath = self.manifest.path + ".lock"
 
-        more_spec = self._load_context(self.context)
+        more_spec = self._load_context(self.context, localEnv)
         self._set_spec(manifest, more_spec)
         assert self.tosca
         spec = manifest.get("spec", {})
@@ -406,11 +419,9 @@ class YamlManifest(ReadOnlyManifest):
             self.create_node_instance(key, val, root)
         return root
 
-    def _load_context(self, context):
-        connections = context.get("connections")
+    def _load_context(self, context, localEnv):
         imports = context.get("imports")
-
-        connections = relabel_dict(connections)
+        connections = relabel_dict(context, localEnv, "connections")
         for name, c in connections.items():
             if "default_for" not in c:
                 c["default_for"] = "ANY"
