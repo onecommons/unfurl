@@ -60,10 +60,7 @@ class ExpandDocTest(unittest.TestCase):
         "test2": [1, {"+/t4": ""}, "+t4", {"+/t4": None}],
         "base": {"list": [1]},
         "test3": {"list": [2, 1, 3], "+/base": None},
-        "test4": {
-          "+/t2": None,
-          "a": None
-        }
+        "test4": {"+/t2": None, "a": None},
     }
 
     expected = {
@@ -100,11 +97,20 @@ class ExpandDocTest(unittest.TestCase):
         # self.assertEqual(expanded["test3"], self.doc["test3"])
 
     def test_diff(self):
-        expectedOld = {"a": 1, "b": {"b1": 1, "b2": 1}, "d": 1}
+        expectedOld = {"a": 1, "b": {"b1": 1, "b2": 1}, "d": 1, "f": {}}
         old = copy.copy(expectedOld)
-        new = {"a": 1, "b": {"b1": 2, "b2": 1}, "c": 2}
+        new = {"a": 1, "b": {"b1": 2, "b2": 1}, "c": 2, "e": None, "f": None}
         diff = diff_dicts(old, new)
-        self.assertEqual(diff, {"b": {"b1": 2}, "c": 2, "d": {"+%": "delete"}})
+        self.assertEqual(
+            diff,
+            {
+                "b": {"b1": 2},
+                "c": 2,
+                "d": {"+%": "whiteout"},
+                "e": None,
+                "f": {"+%": "nullout"},
+            },
+        )
         newNew = merge_dicts(old, diff)
         self.assertEqual(newNew, new)
         self.assertEqual(old, expectedOld)

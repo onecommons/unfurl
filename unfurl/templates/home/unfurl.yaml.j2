@@ -59,11 +59,15 @@ environments:
       #     project: # required property, need to set this
 
       # Project that inherit this configuration can delete or rename the connections defined here
-      # by setting its key to null or setting its key to the name of one of the connections defined here.
+      # by setting its key to the name of one of the connections defined here
+      # or in another environment if prefixed with the environment's name
+      # or using a merge directive to delete it
+      #
       # For example:
       # primary_provider: gcp # set the gcp connection as the primary_provider
-      # aws:                   # delete the aws connection
-
+      # primary_provider: production:gcp # set the gcp connection defined in the production environment as the primary_provider
+      # aws: # delete the aws connection
+      #   +%: whiteout
 
     # this exposes this project's ensemble as "localhost" to all the projects
     # that inherit this context

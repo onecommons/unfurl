@@ -62,7 +62,7 @@ def make_map_with_base(doc, baseDir):
 
 # XXX?? because json keys are strings allow number keys to merge with lists
 # other values besides delete not supported because current code can leave those keys in final result
-mergeStrategyKey = "+%"  # values: delete
+mergeStrategyKey = "+%"  # supported values: "whiteout", "nullout"
 
 # b is the merge patch, a is original dict
 def merge_dicts(
@@ -114,9 +114,11 @@ def merge_dicts(
                             "merging %s is not allowed, +%%: error was set" % key
                         )
                 # otherwise we ignore bval because key is already in a
-            if strategy == "delete":
+            if strategy == "whiteout":
                 skip.append(key)
                 continue
+            if strategy == "nullout":
+                val = None
         elif isinstance(val, MutableSequence) and key in b:
             bval = b[key]
             if isinstance(bval, MutableSequence) and listStrategy == "append_unique":
@@ -411,7 +413,7 @@ def _find_missing_includes(includes):
 def _delete_deleted_keys(expanded):
     for key, value in expanded.items():
         if isinstance(value, Mapping):
-            if value.get(mergeStrategyKey) == "delete":
+            if value.get(mergeStrategyKey) == "whiteout":
                 del expanded[key]
             else:
                 _delete_deleted_keys(value)
@@ -445,7 +447,7 @@ def expand_doc(doc, current=None, cls=dict):
 def expand_list(doc, path, includes, value, cls=dict):
     for i, item in enumerate(value):
         if isinstance(item, Mapping):
-            if item.get(mergeStrategyKey) == "delete":
+            if item.get(mergeStrategyKey) == "whiteout":
                 continue
             newitem = expand_dict(doc, path + (i,), includes, item, cls)
             if isinstance(newitem, MutableSequence):
@@ -459,20 +461,26 @@ def expand_list(doc, path, includes, value, cls=dict):
 
 def diff_dicts(old, new, cls=dict):
     """
-    return a dict where old + diff = new
+    given old, new return diff where merge_dicts(old, diff) == new
     """
     diff = cls()
     # start with old to preserve original order
-    for key, val in old.items():
+    for key, oldval in old.items():
         if key in new:
             newval = new[key]
-            if val != newval:
-                if isinstance(val, Mapping) and isinstance(newval, Mapping):
-                    diff[key] = diff_dicts(val, newval, cls)
+            if oldval != newval:
+                if isinstance(oldval, Mapping):
+                    if isinstance(newval, Mapping):
+                        diff[key] = diff_dicts(oldval, newval, cls)
+                    elif newval is None:
+                        # dicts merge with None so add a nullout directive to preserve the None
+                        diff[key] = cls((("+%", "nullout"),))
+                    else:  # new non-dict val replaces old dict
+                        diff[key] = newval
                 else:
                     diff[key] = newval
-        else:
-            diff[key] = {"+%": "delete"}
+        else:  # not in new, so add a whiteout directive to delete this key
+            diff[key] = cls((("+%", "whiteout"),))
 
     for key in new:
         if key not in old:
