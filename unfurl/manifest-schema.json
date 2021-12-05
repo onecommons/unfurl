@@ -46,23 +46,6 @@
       ],
       "default": {}
     },
-    "secret": {
-      "type": "object",
-      "properties": {
-        "ref": {
-          "type": "object",
-          "properties": {
-            "secret": {
-              "type": "string",
-              "pattern": "^[A-Za-z_][A-Za-z0-9_\\-]*$"
-            }
-          },
-          "required": ["secret"]
-        }
-      },
-      "required": ["ref"],
-      "$$target": "#/definitions/secret"
-    },
     "attributes": {
       "title": "attributes",
       "$ref": "#/definitions/namedObjects",

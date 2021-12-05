@@ -392,6 +392,11 @@ class ConfigTask(ConfigChange, TaskView):
             self.target.key, self.configSpec.operation
         )
         if not changeset:
+            self.logger.debug(
+                'Can\'t check for changes: could not find previous "%s" operation for "%s"',
+                self.target.key,
+                self.configSpec.operation,
+            )
             return False
 
         return self.configurator.check_digest(self, changeset)

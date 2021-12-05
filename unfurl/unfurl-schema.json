@@ -44,14 +44,13 @@
         { "type": "null" },
         {
           "type": "object",
-          "allOf": [
-            { "$ref": "./manifest-schema.json#/definitions/namedObjects" },
-            {
-              "additionalProperties": {
-                "$ref": "./manifest-schema.json#/definitions/environment"
-              }
-            }
-          ]
+          "propertyNames": { "pattern": "^[A-Za-z._][A-Za-z0-9._\\-]*$" },
+          "additionalProperties": {
+            "anyOf": [
+              { "type": "null" },
+              { "$ref": "./manifest-schema.json#/definitions/environment"}
+            ]
+          }
         }
       ]
     },
