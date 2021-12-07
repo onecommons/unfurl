@@ -31,10 +31,12 @@ def rename_for_backup(dir):
     return new
 
 
-def get_random_password(count=12, prefix="uv"):
+def get_random_password(count=12, prefix="uv", extra=None):
     srandom = random.SystemRandom()
     start = string.ascii_letters + string.digits
-    source = string.ascii_letters + string.digits + "%&()*+,-./:<>?=@^_`~"
+    if extra is None:
+        extra = "%&()*+,-./:<>?=@^_`~"
+    source = string.ascii_letters + string.digits + extra
     return prefix + "".join(
         srandom.choice(source if i else start) for i in range(count)
     )
@@ -109,7 +111,7 @@ def create_home(
         # XXX if repo and update: git stash; git checkout rendered
         ensembleDir = os.path.join(homedir, DefaultNames.EnsembleDirectory)
         ensembleRepo = Repo.find_containing_repo(ensembleDir)
-        configPath, ensembleDir, password = render_project(
+        configPath, ensembleDir, password_vault = render_project(
             homedir, repo, ensembleRepo, None, "home"
         )
         # XXX if repo and update: git commit -m"updated"; git checkout master; git stash pop
@@ -170,7 +172,9 @@ def write_ensemble_manifest(
 def add_hidden_git_files(gitDir):
     # write .gitignore and  .gitattributes
     gitIgnorePath = write_template(gitDir, ".gitignore", "gitignore.j2", {})
-    gitAttributesContent = f"**/*{DefaultNames.JobsLog} merge=union\n*.remotelock lockable\n"
+    gitAttributesContent = (
+        f"**/*{DefaultNames.JobsLog} merge=union\n*.remotelock lockable\n"
+    )
     gitAttributesPath = _write_file(gitDir, ".gitattributes", gitAttributesContent)
     return [os.path.abspath(gitIgnorePath), os.path.abspath(gitAttributesPath)]
 
@@ -200,7 +204,7 @@ def render_project(
     templateDir=None,
     names=DefaultNames,
     use_context=None,
-    mono=False
+    mono=False,
 ):
     """
     Creates a folder named `projectdir` with a git repository with the following files:
@@ -233,8 +237,11 @@ def render_project(
         ensemblePath = os.path.join(ensembleDir, manifestName)
 
     vaultpass = get_random_password()
-    # XXX vaultid should match the project name so we can see which password was used to encrypt a file
-    vars = dict(vaultpass=vaultpass, vaultid="default")
+    # use project name plus a couple of random digits to avoid collisions
+    vaultid = (
+        Project.get_name_from_dir(projectdir) + get_random_password(2, "", "").upper()
+    )
+    vars = dict(vaultpass=vaultpass, vaultid=vaultid)
 
     # only commit external ensembles references if we are creating a mono repo
     # otherwise record them in the local config:
@@ -268,7 +275,7 @@ def render_project(
     )
 
     # note: local overrides secrets
-    vars = dict(include=secretsInclude + "\n" + localInclude)
+    vars = dict(include=secretsInclude + "\n" + localInclude, vaultid=vaultid)
     if use_context and not localExternal:
         # since this is specified while creating the project set this as the default context
         vars["default_context"] = use_context
@@ -322,7 +329,7 @@ def render_project(
         externalProject.register_ensemble(
             ensemblePath, managedBy=find_project(projectdir, homePath)
         )
-    return projectConfigPath, ensembleDir, vaultpass
+    return projectConfigPath, ensembleDir, make_vault_lib(vaultpass, vaultid)
 
 
 def _find_project_repo(projectdir):
@@ -437,7 +444,7 @@ def create_project(
             projectdir, shared, submodule, names.EnsembleDirectory
         )
 
-    projectConfigPath, ensembleDir, password = render_project(
+    projectConfigPath, ensembleDir, password_vault = render_project(
         projectdir,
         repo,
         not empty and ensembleRepo,
@@ -445,7 +452,7 @@ def create_project(
         template,
         names,
         create_context or use_context,
-        mono
+        mono,
     )
     if homePath and create_context:
         newProject = find_project(projectConfigPath, homePath)
@@ -454,8 +461,8 @@ def create_project(
         assert homeProject
         homeProject.localConfig.register_project(newProject, create_context)
 
-    if password:
-        yaml = make_yaml(make_vault_lib(password, "default"))
+    if password_vault:
+        yaml = make_yaml(password_vault)
         commit_secrets(os.path.dirname(projectConfigPath), yaml)
 
     _commit_repos(

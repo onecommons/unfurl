@@ -311,12 +311,15 @@ def dump(obj, tp, suffix="", yaml=None, encoding=None):
 def _save_to_vault(path, obj, yaml=None, encoding=None, fd=None):
     vaultExt = path.endswith(".vault")
     if vaultExt or encoding == "vault":
-        assert yaml and yaml.representer.vault
-        vault = VaultEditor(yaml.representer.vault)
+        assert yaml and yaml.representer.vault and yaml.representer.vault.secrets
+        vaultlib = yaml.representer.vault
+        vault = VaultEditor(vaultlib)
         f = io.BytesIO()
         vpath = path[: -len(".vault")] if vaultExt else path
         dump(obj, f, vpath, yaml, encoding)
-        b_vaulttext = yaml.representer.vault.encrypt(f.getvalue())
+        # the first vaultid is the most specific to the current project so encrypt with that one
+        vault_id, secret = vaultlib.secrets[0]
+        b_vaulttext = vaultlib.encrypt(f.getvalue(), secret=secret, vault_id=vault_id)
         vault.write_data(b_vaulttext, fd or path)
         return True
     return False

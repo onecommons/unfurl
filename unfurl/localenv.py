@@ -376,7 +376,11 @@ class Project:
 
     @property
     def name(self):
-        dirname, name = os.path.split(self.projectRoot)
+        return self.get_name_from_dir(self.projectRoot)
+
+    @staticmethod
+    def get_name_from_dir(projectRoot):
+        dirname, name = os.path.split(projectRoot)
         if name == DefaultNames.ProjectDirectory:
             name = os.path.basename(dirname)
         return name
@@ -919,10 +923,6 @@ class LocalEnv:
 
     def get_runtime(self):
         # XXX replace this with top-level section for runtime
-        # context = self.get_context()
-        # runtime = context.get("runtime")
-        # if runtime:
-        #     return runtime
         project = self.project or self.homeProject
         while project:
             if project.venv:

@@ -178,14 +178,16 @@ class Repo:
 
 
 def commit_secrets(working_dir, yaml):
-    if not yaml or not getattr(yaml.representer, "vault", None):
-        return
+    vault = yaml and getattr(yaml.representer, "vault", None)
+    if not vault:
+        return []
     saved = []
     for filepath, dotsecrets in find_dirty_secrets(working_dir):
         with open(filepath, "r") as vf:
             vaultContents = vf.read()
         encoding = None if vaultContents.startswith("$ANSIBLE_VAULT;") else "vault"
         secretpath = dotsecrets / filepath.name
+        logger.verbose("encrypting file to %s with %s", secretpath, vault.secrets[0][0])
         save_to_file(str(secretpath), vaultContents, yaml, encoding)
         saved.append(secretpath)
     return saved
