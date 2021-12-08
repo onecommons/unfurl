@@ -849,13 +849,16 @@ class EnsembleBuilder:
             # if dest_project is new (we just cloned it)
             # check if we cloned the ensemble already
             # if so we done, we don't need to create a new one
-            return "Cloned project to " + self.dest_project.projectRoot
+            return (
+                "Cloned project with a pre-existing ensemble to "
+                + self.dest_project.projectRoot
+            )
 
         if not self.templateVars:
             # source wasn't pointing to an ensemble to clone
             if sourceWasCloned:
                 # but we cloned a project
-                return "Cloned project to " + self.dest_project.projectRoot
+                return "Cloned empty project to " + self.dest_project.projectRoot
             else:
                 # can't find anything to do, so raise an error
                 raise UnfurlError(
@@ -929,7 +932,7 @@ def clone(source, dest, ensemble_name=DefaultNames.EnsembleDirectory, **options)
     ##### step 4 create ensemble in destination project if needed
     if options.get("empty"):
         # don't create an ensemble
-        return "Cloned project to " + builder.dest_project.projectRoot
+        return "Cloned empty project to " + builder.dest_project.projectRoot
 
     return builder.set_ensemble(isRemote, sourceProject, currentProject)
 
