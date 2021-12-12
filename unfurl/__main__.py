@@ -268,9 +268,14 @@ def _venv(runtime, env):
 def _remote_cmd(runtime_, cmd_line, local_env):
     context = local_env.get_context()
     kind, sep, rest = runtime_.partition(":")
-    if context.get("variables"):
+    envvar_filter = context.get("variables") or {}
+    for name in ["UNFURL_APPROVE", "UNFURL_LOGGING"]:
+        if name in os.environ:
+            envvar_filter[name] = os.environ[name]
+
+    if envvar_filter:
         addOnly = kind == "docker"
-        env = filter_env(local_env.map_value(context["variables"]), addOnly=addOnly)
+        env = filter_env(local_env.map_value(envvar_filter), addOnly=addOnly)
     else:
         env = None
 
@@ -337,6 +342,7 @@ class DockerCmd:
             "docker",
             "run",
             "--rm",
+            "-it",
             "-w",
             "/data",
             "-u",
