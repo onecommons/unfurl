@@ -268,9 +268,14 @@ def _venv(runtime, env):
 def _remote_cmd(runtime_, cmd_line, local_env):
     context = local_env.get_context()
     kind, sep, rest = runtime_.partition(":")
-    if context.get("variables"):
+    envvar_filter = context.get("variables") or {}
+    for name in ["UNFURL_APPROVE", "UNFURL_LOGGING"]:
+        if name in os.environ:
+            envvar_filter[name] = os.environ[name]
+
+    if envvar_filter:
         addOnly = kind == "docker"
-        env = filter_env(local_env.map_value(context["variables"]), addOnly=addOnly)
+        env = filter_env(local_env.map_value(envvar_filter), addOnly=addOnly)
     else:
         env = None
 
@@ -333,6 +338,7 @@ class DockerCmd:
 
     def build(self) -> list:
         """Prepare command which will be run as subprocess"""
+
         cmd = [
             "docker",
             "run",
@@ -342,6 +348,8 @@ class DockerCmd:
             "-u",
             f"{os.getuid()}:{os.getgid()}",
         ]
+        if sys.stdout.isatty():
+            cmd.append("-it")
         cmd.extend(self.env_vars_to_args())
         cmd.extend(self.default_volumes())
         cmd.extend(self.docker_args)

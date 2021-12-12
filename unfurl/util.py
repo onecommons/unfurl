@@ -532,7 +532,10 @@ def filter_env(rules, env=None, addOnly=False):
     if env is None:
         env = os.environ
 
-    start = {} if addOnly else env.copy()
+    if addOnly:
+        start = {}
+    else:
+        start = env.copy()
     for name, val in rules.items():
         if name[:1] in "+-^":
             # add or remove from env
