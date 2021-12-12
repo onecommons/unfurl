@@ -45,7 +45,7 @@ class TestDockerCmd:
 
         assert (
             " ".join(cmd)
-            == f"docker run --rm {'-it' if sys.stdout.isatty() else ''} -w /data -u 1000:1000 -e HOME=/home/joe -e USER=joe -e ANSWER=42 "
+            == f"docker run --rm -w /data -u 1000:1000 {'-it ' if sys.stdout.isatty() else ''}-e HOME=/home/joe -e USER=joe -e ANSWER=42 "
             "-v /home/joe/project:/data -v /home/joe:/home/joe "
             "-v /var/run/docker.sock:/var/run/docker.sock "
             f"--privileged onecommons/unfurl:latest unfurl --no-runtime "

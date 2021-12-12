@@ -343,12 +343,13 @@ class DockerCmd:
             "docker",
             "run",
             "--rm",
-            "-it" if sys.stdout.isatty() else "",
             "-w",
             "/data",
             "-u",
             f"{os.getuid()}:{os.getgid()}",
         ]
+        if sys.stdout.isatty():
+            cmd.append("-it")
         cmd.extend(self.env_vars_to_args())
         cmd.extend(self.default_volumes())
         cmd.extend(self.docker_args)
