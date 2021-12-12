@@ -75,9 +75,14 @@ jobs:
         with:
           submodules: recursive
           fetch-depth: 0
-      - name: Get the tag name
+      - name: Get the tag name or abbreviated commit digest
         id: get_tag_name
-        run: echo "::set-output name=tag::"`git describe --contains --always`
+        run: |
+          label = $(git describe --contains --always)
+          echo "::set-output name=tag::"${label%^0}
+          if [[ $label =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,4}.0$ ]]; then
+              echo ::set-output name=release::true
+          fi
       - name: Build and push
         id: docker_build
         uses: docker/build-push-action@v2
@@ -92,3 +97,12 @@ jobs:
           tags: |
              onecommons/unfurl:latest
              onecommons/unfurl:${{ steps.get_tag_name.outputs.tag }}
+      - name: build python package
+        if: steps.get_tag_name.outputs.release
+        run: setup.py sdist bdist_wheel
+      - name: release to pypi
+        if: steps.get_tag_name.outputs.release
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          user: __token__
+          password: ${{ secrets.PYPI }}

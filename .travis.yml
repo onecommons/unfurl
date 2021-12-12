@@ -1,5 +1,6 @@
-if: tag =~ /^\d+\.\d+\.\d+$/
+if: false # disable, was if: tag =~ /^\d+\.\d+\.\d+$/
 language: python
+dist: focal
 python:
   - "3.9"
 env:
