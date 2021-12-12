@@ -99,7 +99,7 @@ jobs:
              onecommons/unfurl:${{ steps.get_tag_name.outputs.tag }}
       - name: build python package
         if: steps.get_tag_name.outputs.release
-        run: setup.py sdist bdist_wheel
+        run: python setup.py sdist bdist_wheel
       - name: release to pypi
         if: steps.get_tag_name.outputs.release
         uses: pypa/gh-action-pypi-publish@release/v1
