@@ -1,8 +1,5 @@
-import os
-from contextlib import contextmanager
 from collections import defaultdict
 from dataclasses import dataclass
-from logging import Logger
 
 from octodns.manager import Manager
 from octodns.zone import Zone
@@ -12,7 +9,7 @@ from ..job import ConfigTask
 from ..projectpaths import WorkFolder
 from ..support import Status
 
-from ..eval import RefContext
+from ..util import change_cwd
 
 # octodns installs natsort_keygen
 from natsort import natsort_keygen
@@ -23,19 +20,6 @@ _natsort_key = natsort_keygen()
 def sort_dict(d):
     keys_sorted = sorted(d.keys(), key=_natsort_key)
     return dict((k, d[k]) for k in keys_sorted)
-
-
-@contextmanager
-def change_cwd(new_path: str, log: Logger):
-    """Temporarily change current working directory"""
-    log.trace("Changing CWD to: %s", new_path)
-    old_path = os.getcwd()
-    os.chdir(new_path)
-    try:
-        yield
-    finally:
-        log.trace("Restoring CWD back to: %s", old_path)
-        os.chdir(old_path)
 
 
 @dataclass

@@ -13,7 +13,7 @@ import os
 import json
 from .support import Status, Priority, Defaults, AttributeManager, Reason, NodeState
 from .result import serialize_value, ChangeRecord
-from .util import UnfurlError, UnfurlTaskError, to_enum
+from .util import UnfurlError, UnfurlTaskError, to_enum, change_cwd
 from .merge import merge_dicts
 from .runtime import OperationalInstance
 from . import logs
@@ -529,7 +529,8 @@ class Job(ConfigChange):
         # run artifact job requests before render
         if self.external_requests:
             msg = "Running local installation tasks"
-            logger.info(msg + "\n%s", self._plan_summary([], self.external_requests))
+            plan, count = self._plan_summary([], self.external_requests)
+            logger.info(msg + "\n%s", plan)
 
         # currently external jobs are just for installing artifacts
         # we want to run these even if we just generating a plan
@@ -538,10 +539,9 @@ class Job(ConfigChange):
             return [], [], ["error running job on external ensemble"]
 
         ready, notReady, errors = do_render_requests(self, ready)
-        logger.info(self._plan_summary(ready + notReady, []))
         return ready, notReady, errors
 
-    def run(self, rendered_requests=None):
+    def _run(self, rendered_requests=None):
         if rendered_requests:
             ready, notReady, errors = rendered_requests
         else:
@@ -580,6 +580,43 @@ class Job(ConfigChange):
             self.run_job_request(jobRequest)
 
         return self.rootResource
+
+    def run(self, rendered):
+        manifest = self.manifest
+        startTime = perf_counter()
+        jobOptions = self.jobOptions
+        with change_cwd(manifest.get_base_dir()):
+            try:
+                ready, notReady, errors = rendered
+                if not jobOptions.out:
+                    # out is used by unit tests to avoid writing to disk
+                    manifest.lock()
+                if jobOptions.dirty == "auto":  # default to false if committing
+                    checkIfClean = jobOptions.commit
+                else:
+                    checkIfClean = jobOptions.dirty == "abort"
+                if checkIfClean:
+                    for repo in manifest.repositories.values():
+                        if repo.is_dirty():
+                            logger.error(
+                                "aborting run: uncommitted files in %s (--dirty=ok to override)",
+                                repo.working_dir,
+                            )
+                            return None
+                try:
+                    display.verbosity = jobOptions.verbose
+                    self._run((ready, notReady, errors))
+                except Exception:
+                    self.local_status = Status.error
+                    self.unexpectedAbort = UnfurlError(
+                        "unexpected exception while running job", True, True
+                    )
+
+                self._apply_workfolders()
+                manifest.commit_job(self)
+            finally:
+                self.timeElapsed = perf_counter() - startTime
+                manifest.unlock()
 
     def _apply_workfolders(self):
         for task in self.workDone.values():
@@ -716,7 +753,7 @@ class Job(ConfigChange):
         childJob = create_job(self.manifest, jobOptions)
         childJob.set_task_id(self.increment_task_count())
         assert childJob.parentJob is self
-        childJob.run()
+        childJob._run()
         return childJob
 
     def run_external(self, **opts):
@@ -738,7 +775,9 @@ class Job(ConfigChange):
             )
             external_job = create_job(manifest, jobOptions)
             external_jobs.append(external_job)
-            _run_job(external_job, jobOptions)
+            rendered, count = _render(external_job)
+            if not jobOptions.planOnly and count:
+                external_job.run(rendered)
             if external_job.status == Status.error:
                 break
         return external_jobs
@@ -1177,13 +1216,16 @@ class Job(ConfigChange):
             Standard.configure (reason add)
         """
         INDENT = 4
+        count = 0
 
         def _summary(requests, target, indent):
+            nonlocal count
             for request in requests:
                 isGroup = isinstance(request, TaskRequestGroup)
                 if isGroup and not request.children:
                     continue
                 if isinstance(request, JobRequest):
+                    count += 1
                     nodeStr = f'Job for "{request.name}":'
                     output.append(" " * indent + nodeStr)
                     continue
@@ -1207,6 +1249,7 @@ class Job(ConfigChange):
                     )
                     _summary(request.children, target, indent + INDENT)
                 else:
+                    count += 1
                     output.append(" " * indent + f"- operation {request.name}")
                     if request.task:
                         if request.task._workFolders:
@@ -1227,14 +1270,16 @@ class Job(ConfigChange):
         output = [header + ":\n"]
 
         for m, jr in external_requests:
-            output += [f" External jobs on {m.path}:"]
-            for j in jr:
-                output.append(" " * INDENT + j.name)
+            if jr:
+                count += 1
+                output += [f" External jobs on {m.path}:"]
+                for j in jr:
+                    output.append(" " * INDENT + j.name)
 
         _summary(plan_requests, None, 0)
-        if len(output) <= 1:
+        if not count:
             output.append("Nothing to do.")
-        return "\n".join(output)
+        return "\n".join(output), count
 
     def summary(self):
         outputString = ""
@@ -1299,57 +1344,21 @@ def _plan(manifest, jobOptions):
         msg = "Created static plan for external job:"
     else:
         msg = "Created static plan:"
-    logger.debug(
-        msg + "\n%s", job._plan_summary(job.plan_requests, job.external_requests)
-    )
+    msg, count = job._plan_summary(job.plan_requests, job.external_requests)
+    logger.debug(msg + "\n%s", msg)
     return job
 
 
-def _run_job(job, jobOptions):
-    manifest = job.manifest
-    startTime = perf_counter()
-    try:
-        cwd = os.getcwd()
-        if manifest.get_base_dir():
-            os.chdir(manifest.get_base_dir())
-
-        render_requests = job.render()
-        if jobOptions.planOnly:
-            return job
-
-        if not jobOptions.out:  # out is used by unit tests to avoid writing to disk
-            manifest.lock()
-        if jobOptions.dirty == "auto":  # default to false if committing
-            checkIfClean = jobOptions.commit
-        else:
-            checkIfClean = jobOptions.dirty == "abort"
-        if checkIfClean:
-            for repo in manifest.repositories.values():
-                if repo.is_dirty():
-                    logger.error(
-                        "aborting run: uncommitted files in %s (--dirty=ok to override)",
-                        repo.working_dir,
-                    )
-                    return None
-        try:
-            display.verbosity = jobOptions.verbose
-            job.run(render_requests)
-        except Exception:
-            job.local_status = Status.error
-            job.unexpectedAbort = UnfurlError(
-                "unexpected exception while running job", True, True
-            )
-
-        job._apply_workfolders()
-        manifest.commit_job(job)
-    finally:
-        job.timeElapsed = perf_counter() - startTime
-        os.chdir(cwd)
-        manifest.unlock()
-    return job
+def _render(job):
+    # note: we need to call render() before lock because render might run this ensemble as an external_job
+    with change_cwd(job.manifest.get_base_dir()):
+        ready, notReady, errors = job.render()
+        msg, count = job._plan_summary(ready + notReady, [])
+        logger.info(msg)
+    return (ready, notReady, errors), count
 
 
-def run_job(manifestPath=None, _opts=None):
+def start_job(manifestPath=None, _opts=None):
     """
     Loads the given Ensemble and creates and runs a job.
 
@@ -1377,14 +1386,18 @@ def run_job(manifestPath=None, _opts=None):
             str(e),
             exc_info=opts.verbose >= 2,
         )
-        return None
+        return None, None, False
 
     job = _plan(manifest, opts)
-    return _run_job(job, opts)
+    rendered, count = _render(job)
+    errors = rendered[2]
+    if errors:
+        logger.error("Aborting job: there were errors during rendering: %s", errors)
+    return job, rendered, count and not errors
 
 
 class Runner:
-    # this class is only used by unit tests, application uses run_job() above
+    # this class is only used by unit tests, application uses start_job() above
 
     def __init__(self, manifest):
         self.manifest = manifest
@@ -1394,4 +1407,7 @@ class Runner:
         if jobOptions is None:
             jobOptions = JobOptions()
         job = _plan(self.manifest, jobOptions)
-        return _run_job(job, jobOptions)
+        rendered, count = _render(job)
+        if not jobOptions.planOnly:
+            job.run(rendered)
+        return job

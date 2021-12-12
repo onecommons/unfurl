@@ -26,7 +26,7 @@ import click
 from . import DefaultNames, __version__, get_home_config_path
 from . import init as initmod
 from . import logs, version_tuple
-from .job import run_job
+from .job import start_job
 from .localenv import LocalEnv, Project
 from .logs import Levels
 from .support import Status
@@ -135,7 +135,7 @@ def detect_verbose_level(effective_log_level: Levels) -> int:
     return verbose
 
 
-jobControlOptions = option_group(
+readonlyJobControlOptions = option_group(
     click.option(
         "--dryrun",
         default=False,
@@ -162,7 +162,16 @@ jobControlOptions = option_group(
         help="Set exit code to 1 if job status is not ok.",
     ),
 )
-
+jobControlOptions = option_group(
+    readonlyJobControlOptions,
+    click.option(
+        "--approve",
+        envvar="UNFURL_APPROVE",
+        default=False,
+        is_flag=True,
+        help="Don't prompt for approval to apply changes.",
+    ),
+)
 commonJobFilterOptions = option_group(
     click.option("--template", help="TOSCA template to target"),
     click.option("--instance", help="instance name to target"),
@@ -176,11 +185,17 @@ commonJobFilterOptions = option_group(
     ),
     click.option("--starttime", help="Set the start time of the job."),
     click.option(
-        "--destroyunmanaged",
+        "--force",
         default=False,
         is_flag=True,
-        help="include unmanaged instances for consideration when destroying",
+        help="(Re)run operation regardless of instance's status or state",
     ),
+)
+destroyUnmanagedOption = click.option(
+    "--destroyunmanaged",
+    default=False,
+    is_flag=True,
+    help="include unmanaged instances for consideration when destroying",
 )
 
 
@@ -400,23 +415,17 @@ def _print_summary(job, options):
         click.echo(json.dumps(jsonSummary, indent=2))
 
 
-def _run_local(ensemble, options):
-    verbose = options.get("verbose", 0)
-    tmplogfile = None
-    if not options["logfile"]:
-        tmplogfile = logs.get_tmplog_path()
-        logs.add_log_file(tmplogfile)
-
-    job = run_job(ensemble, options)
-    _latestJobs.append(job)  # testing only
-    if not job:
-        click.echo("Unable to create job")
-    elif job.unexpectedAbort:
-        click.echo("Job unexpected aborted")
-        if verbose > 0:
-            raise job.unexpectedAbort
+def yesno(prompt):
+    click.echo(prompt + " [yN] ", nl=False)
+    c = click.getchar()
+    click.echo(c)
+    if c == "y" or c == "Y":
+        return True
     else:
-        _print_summary(job, options)
+        return False
+
+
+def _stop_logging(job, options, verbose, tmplogfile):
     if options["logfile"]:
         if verbose > -1:
             click.echo("Done, full log appended to " + options["logfile"])
@@ -436,6 +445,37 @@ def _run_local(ensemble, options):
         if verbose > -1:
             click.echo("Done, full log written to " + log_path)
 
+
+def _run_local(ensemble, options):
+    verbose = options.get("verbose", 0)
+    tmplogfile = None
+    if not options["logfile"]:
+        tmplogfile = logs.get_tmplog_path()
+        logs.add_log_file(tmplogfile)
+
+    job, rendered, proceed = start_job(ensemble, options)
+    _latestJobs.append(job)  # testing only
+    if job:
+        declined = False
+        if not job.unexpectedAbort and not job.planOnly and proceed:
+            if options.get("approve") or yesno("proceed with job?"):
+                job.run(rendered)
+            else:
+                declined = True
+        if job.unexpectedAbort:
+            click.echo("Job unexpected aborted")
+            if verbose > 0:
+                raise job.unexpectedAbort
+        elif not declined:
+            _print_summary(job, options)
+    else:
+        click.echo("Unable to create job")
+
+    _stop_logging(job, options, verbose, tmplogfile)
+    return _exit(job, options)
+
+
+def _exit(job, options):
     if not job or (
         "jobexitcode" in options
         and options["jobexitcode"] != "never"
@@ -449,7 +489,7 @@ def _run_local(ensemble, options):
         return 0
 
 
-deployFilterOptions = option_group(
+checkFilterOptions = option_group(
     click.option(
         "--skip-new",
         default=False,
@@ -462,6 +502,10 @@ deployFilterOptions = option_group(
         type=click.Choice(["skip", "spec", "evaluate"]),
         help="How to detect configuration changes to existing instances. (Default: evaluate)",
     ),
+)
+
+deployFilterOptions = option_group(
+    checkFilterOptions,
     click.option(
         "--repair",
         type=click.Choice(["error", "degraded", "none"]),
@@ -475,17 +519,12 @@ deployFilterOptions = option_group(
         help="Apply major versions changes.",
     ),
     click.option(
-        "--force",
-        default=False,
-        is_flag=True,
-        help="(Re)run operation regardless of instance's status or state",
-    ),
-    click.option(
         "--prune",
         default=False,
         is_flag=True,
         help="destroy instances that are no longer used",
     ),
+    destroyUnmanagedOption,
     click.option(
         "--check",
         default=False,
@@ -513,12 +552,14 @@ def deploy(ctx, ensemble=None, **options):
 @click.pass_context
 @click.argument("ensemble", default="", type=click.Path(exists=False))
 @commonJobFilterOptions
-@jobControlOptions
+@checkFilterOptions
+@readonlyJobControlOptions
 def check(ctx, ensemble=None, **options):
     """
     Check and update the status of the ensemble's instances
     """
     options.update(ctx.obj)
+    options["approve"] = True
     return _run(ensemble, options, ctx.info_name)
 
 
@@ -540,6 +581,7 @@ def discover(ctx, ensemble=None, **options):
 @click.argument("ensemble", default="", type=click.Path(exists=False))
 @commonJobFilterOptions
 @jobControlOptions
+@destroyUnmanagedOption
 def undeploy(ctx, ensemble=None, **options):
     """
     Destroy what was deployed.
