@@ -338,11 +338,12 @@ class DockerCmd:
 
     def build(self) -> list:
         """Prepare command which will be run as subprocess"""
+
         cmd = [
             "docker",
             "run",
             "--rm",
-            "-it",
+            "-it" if sys.stdout.isatty() else "",
             "-w",
             "/data",
             "-u",
