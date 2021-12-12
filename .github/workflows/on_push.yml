@@ -78,7 +78,7 @@ jobs:
       - name: Get the tag name or abbreviated commit digest
         id: get_tag_name
         run: |
-          label = $(git describe --contains --always)
+          label=$(git describe --contains --always)
           echo "::set-output name=tag::"${label%^0}
           if [[ $label =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,4}.0$ ]]; then
               echo ::set-output name=release::true
