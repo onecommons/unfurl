@@ -1359,18 +1359,6 @@ def _render(job):
 
 
 def start_job(manifestPath=None, _opts=None):
-    """
-    Loads the given Ensemble and creates and runs a job.
-
-    Args:
-        manifestPath (:obj:`str`, optional) The path the Ensemble manifest.
-         If None, it will look for an ensemble in the current working directory.
-        _opts (:obj:`dict`, optional) A dictionary of job options. Names and values should match
-          the names of the command line options for creating jobs.
-
-    Returns:
-        (:obj:`Job`): The job that just ran.
-    """
     _opts = _opts or {}
     localEnv = LocalEnv(manifestPath, _opts.get("home"))
     opts = JobOptions(**_opts)
@@ -1394,6 +1382,26 @@ def start_job(manifestPath=None, _opts=None):
     if errors:
         logger.error("Aborting job: there were errors during rendering: %s", errors)
     return job, rendered, count and not errors
+
+
+def run_job(manifestPath=None, _opts=None):
+    """
+    Loads the given Ensemble and creates and runs a job.
+
+    Args:
+        manifestPath (:obj:`str`, optional) The path the Ensemble manifest.
+         If None, it will look for an ensemble in the current working directory.
+        _opts (:obj:`dict`, optional) A dictionary of job options. Names and values should match
+          the names of the command line options for creating jobs.
+
+    Returns:
+        (:obj:`Job`): The job that just ran or None if it couldn't be created.
+    """
+    job, rendered, proceed = start_job(manifestPath, _opts)
+    if job:
+        if not job.unexpectedAbort and not job.planOnly and proceed:
+            job.run(rendered)
+    return job
 
 
 class Runner:

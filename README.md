@@ -12,9 +12,13 @@ Unfurl is a command line tool for managing your DevOps infrastructure. Unfurl le
 
 Unfurl can integrate with the DevOps tools you are already using -- like Terraform, Ansible, and Helm -- allowing you to encapsulate your DevOps processes into reusable building blocks and describe your cloud infrastructure in simple, application-centric terms.
 
-## Vision
+## Our Vision
 
-The ultimate goal of Unfurl is enable anyone to clone, fork, and deploy live cloud services as easily as cloning and building code from git -- so we can cooperatively build and run cloud services in the same way we create open source software.
+The ultimate goal of Unfurl is enable anyone to clone, fork, and deploy live cloud services as easily as cloning and building code from git. So that we can have:
+
+* Fully-functional and reproducible archives of web applications.
+* Location independence to decentralized cloud infrastructure.
+* Cooperatively build and run cloud services the same way we build open source software.
 
 ## How it works
 
@@ -23,7 +27,7 @@ The ultimate goal of Unfurl is enable anyone to clone, fork, and deploy live clo
 2\. The repository will contain a few YAML files that you can edit. They describe everything you'll need to deploy your application, such as: 
 * Cloud provider and SaaS services account credentials and other secrets organized into environments.
 * Code repositories and container image registries.
-* A high-level model of your cloud infrastructure and their dependencies such as compute, instances, database using the TOSCA standard.
+* A high-level model of your cloud infrastructure and their dependencies such as compute, instances, database using the [TOSCA](https://www.oasis-open.org/committees/tc_home.php?wg_abbrev=tosca) standard.
 * Operations that invoke Terraform, Ansible, or other command-line tools (which Unfurl can automatically install).
 
 3\. Use `unfurl deploy` to deploy the infrastructure. Unfurl will generate a plan based on your target environment and high-level model and choose the correct operations to call. It will commit to git the latest configuration and a history of changes to your cloud accounts. 
@@ -151,7 +155,8 @@ Arguments after `--` are passed to the test runner, e.g. to run an individual te
 
 Unfurl is in early stages of development and should not be used in production. In particular be mindful of these limitations:
 
-* Locking to prevent multiple instances of Unfurl running at the same time from modifying the same resources is only implemented locally.
+* Only clone and deploy trusted repositories and projects. The docker runtime is not configured to provide isolation so you should assume any project may contain executable code that can gain full access to your system.
+* Locking to prevent multiple instances of Unfurl from modifying the same resources at the same time currently only works with instances accessing the same local copy of an ensemble.
 * Incremental updates are only partially implemented. You can incrementally update an ensemble by explicitly limiting jobs with the `--force` and `--instance` [command line options](https://unfurl.run/docs/cli.html#unfurl-deploy).
 * Google Cloud SDK [doesn't yet work](https://issuetracker.google.com/issues/202172882?pli=1) with Python 3.10.
 

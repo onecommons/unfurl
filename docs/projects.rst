@@ -127,7 +127,12 @@ Runtimes
 ========
 
 A runtime is an isolated execution environment where a job is run. This can be directory to a Python virtual environment or a Docker container.
+The runtime is specified by the :option:`unfurl --runtime` CLI argument.
 If this is missing, it will look a Python virtual environment directory (``.venv``) in the project's directory. By default, Unfurl will create a Python virtual environment in :ref:`~/unfurl_home<configure>` when the home project is created.
+You can disable use of a runtime entirely using the :option:`unfurl --no-runtime` CLI argument.
+
+venv
+------
 
 The format for the ``venv:`` runtime specifier is one of:
 
@@ -172,3 +177,22 @@ If specified, the package will be installed in "developer mode" (``-e``) by Pip.
   You can now upgrade Unfurl using pip normally from with in the virtual environment:
 
   ``source .venv/bin/activate; pip3 install -e --upgrade unfurl``
+
+
+docker
+------
+
+The format for the ``docker:`` runtime specifier is:
+
+``docker:[image]?:[tag]? [docker_args]?``
+
+If ``image`` is omitted, "onecommons/unfurl" is used.
+If ``tag`` is omitted, the image tag is set to the version of the Unfurl instance that is executing this command.
+
+For example, if both omitted (e.g. ``docker:``) and you are running version 0.3.1 of Unfurl, the container image "onecommons/unfurl:0.3.1" will be used.
+
+Anything thing after the tag will be treated as arguments to be passed to the docker run command that is called when executing this runtime.
+
+.. tip::
+
+  Since specifying ``docker_args`` will require a space separator, the whole runtime argument will have to be quoted.
