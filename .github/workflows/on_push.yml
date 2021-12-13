@@ -57,6 +57,13 @@ jobs:
           export PY_V=py3`python -c "import sys; print(sys.version_info.minor, end='')"`
           tox -c tosca-parser/tox.ini -e $PY_V
           tox -e $PY_V -- -n auto --dist loadfile
+      - name: build docs
+        run: tox -e docs
+      - name: upload docs
+        uses: actions/upload-artifact@v1
+        with:
+          name: DocumentationHTML
+          path: docs/_build/html/
   deploy_dockerhub:
     needs: test
     if: github.ref == 'refs/heads/master'
@@ -114,17 +121,15 @@ jobs:
     if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/publish-docs'
     runs-on: ubuntu-latest
     steps:
-      - name: build docs
-        run: tox -e docs
-      - name: upload docs
-        uses: actions/upload-artifact@v1
+      - name: Download documentation
+        uses: actions/download-artifact@v2
         with:
           name: DocumentationHTML
-          path: docs/_build/html/
+          path: build
       - name: Commit documentation changes
         run: |
           git clone ${{github.server_url}}/${{github.repository}} --branch gh-pages --single-branch gh-pages
-          cp -r docs/_build/html/* gh-pages/
+          cp -r build/* gh-pages/
           cd gh-pages
           touch .nojekyll
           git config --local user.email "action@github.com"
