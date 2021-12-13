@@ -62,7 +62,6 @@ jobs:
     if: github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     env:
-      PYPI_USER: "__token__"
       DOCKERHUB_USER: "ocbuilds"
     steps:
       - name: Login to DockerHub
@@ -97,12 +96,43 @@ jobs:
           tags: |
              onecommons/unfurl:latest
              onecommons/unfurl:${{ steps.get_tag_name.outputs.tag }}
+  publish:
+    needs: deploy_dockerhub
+    if: jobs.deploy_dockerhub.steps.get_tag_name.outputs.release
+    steps:
       - name: build python package
-        if: steps.get_tag_name.outputs.release
         run: python setup.py sdist bdist_wheel
       - name: release to pypi
-        if: steps.get_tag_name.outputs.release
-        uses: pypa/gh-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@v1.4.2
         with:
           user: __token__
           password: ${{ secrets.PYPI }}
+          verbose: true
+  docs:
+    needs: test
+    steps:
+      - name: build docs
+        run: tox -e docs
+      - name: upload docs
+        uses: actions/upload-artifact@v1
+        with:
+          name: DocumentationHTML
+          path: docs/_build/html/
+      - name: Commit documentation changes
+        run: |
+          git clone ${{github.server_url}}/${{github.repository}} --branch gh-pages --single-branch gh-pages
+          cp -r docs/_build/html/* gh-pages/
+          cd gh-pages
+          touch .nojekyll
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add .
+          git commit -m "Update documentation" -a || true
+          # The above command will fail if no changes were present, so we ignore
+          # that.
+      - name: Push docs to gh-pages branch
+        uses: ad-m/github-push-action@master
+        with:
+          branch: gh-pages
+          directory: gh-pages
+          github_token: ${{ secrets.GITHUB_TOKEN }}
