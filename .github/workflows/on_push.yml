@@ -98,7 +98,7 @@ jobs:
              onecommons/unfurl:${{ steps.get_tag_name.outputs.tag }}
   publish:
     needs: deploy_dockerhub
-    if: job.deploy_dockerhub.steps.get_tag_name.outputs.release
+    if: needs.deploy_dockerhub.steps.get_tag_name.outputs.release
     runs-on: ubuntu-latest
     steps:
       - name: build python package
