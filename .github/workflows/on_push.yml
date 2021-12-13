@@ -99,6 +99,7 @@ jobs:
   publish:
     needs: deploy_dockerhub
     if: jobs.deploy_dockerhub.steps.get_tag_name.outputs.release
+    runs-on: ubuntu-latest
     steps:
       - name: build python package
         run: python setup.py sdist bdist_wheel
@@ -110,6 +111,7 @@ jobs:
           verbose: true
   docs:
     needs: test
+    runs-on: ubuntu-latest
     steps:
       - name: build docs
         run: tox -e docs
