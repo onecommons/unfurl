@@ -1,0 +1,1389 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+  <meta charset="utf-8" /><meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Python API &mdash; Unfurl Documentation</title>
+      <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+      <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+      <link rel="stylesheet" href="_static/custom.css" type="text/css" />
+    <link rel="shortcut icon" href="_static/favicon32.png"/>
+  <!--[if lt IE 9]>
+    <script src="_static/js/html5shiv.min.js"></script>
+  <![endif]-->
+  
+        <script data-url_root="./" id="documentation_options" src="_static/documentation_options.js"></script>
+        <script src="_static/jquery.js"></script>
+        <script src="_static/underscore.js"></script>
+        <script src="_static/doctools.js"></script>
+        <script src="_static/custom.js"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="prev" title="Glossary" href="glossary.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+            <a href="index.html">
+            <img src="_static/unfurl_logo.svg" class="logo" alt="Logo"/>
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="README.html">Introduction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="README.html#installation">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="get-started-step-by-step.html">Getting Started</a></li>
+<li class="toctree-l1"><a class="reference internal" href="ensembles.html">Ensembles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="projects.html">Unfurl Projects</a></li>
+<li class="toctree-l1"><a class="reference internal" href="secrets.html">Managing Secrets</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tosca.html">TOSCA</a></li>
+<li class="toctree-l1"><a class="reference internal" href="jobs.html">Jobs and Workflows</a></li>
+<li class="toctree-l1"><a class="reference internal" href="runtime.html">Runtime Environment</a></li>
+<li class="toctree-l1"><a class="reference internal" href="configurators.html">Configurators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="configurators.html#installers">Installers</a></li>
+<li class="toctree-l1"><a class="reference internal" href="processing.html">Template Processing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="expressions.html">Expression Functions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="cli.html">Command Line</a></li>
+<li class="toctree-l1"><a class="reference internal" href="jsonschema.html">Configuration Files</a></li>
+<li class="toctree-l1"><a class="reference internal" href="toscaref.html">TOSCA Language Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="glossary.html">Glossary</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Python API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#module-unfurl.configurator">API for writing configurators</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#module-unfurl.runtime">Runtime module</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#apis-for-controlling-unfurl">APIs for controlling Unfurl</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#module-unfurl.localenv">Localenv module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#module-unfurl.job">Job module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#module-unfurl.init">Init module</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#module-unfurl.logs">Utility classes and functions</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#module-unfurl.eval">Eval module</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">Unfurl</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home"></a> &raquo;</li>
+      <li>Python API</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/api.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="python-api">
+<h1><a class="toc-backref" href="#id1">Python API</a><a class="headerlink" href="#python-api" title="Permalink to this headline"></a></h1>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><p><a class="reference internal" href="#python-api" id="id1">Python API</a></p>
+<ul>
+<li><p><a class="reference internal" href="#module-unfurl.configurator" id="id2">API for writing configurators</a></p></li>
+<li><p><a class="reference internal" href="#apis-for-controlling-unfurl" id="id3">APIs for controlling Unfurl</a></p></li>
+<li><p><a class="reference internal" href="#module-unfurl.logs" id="id4">Utility classes and functions</a></p></li>
+</ul>
+</li>
+</ul>
+</div>
+<section id="module-unfurl.configurator">
+<span id="api-for-writing-configurators"></span><h2><a class="toc-backref" href="#id2">API for writing configurators</a><a class="headerlink" href="#module-unfurl.configurator" title="Permalink to this headline"></a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="unfurl.configurator.Configurator">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">unfurl.configurator.</span></span><span class="sig-name descname"><span class="pre">Configurator</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">configurationSpec</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.configurator.Configurator" title="Permalink to this definition"></a></dt>
+<dd><dl class="py method">
+<dt class="sig sig-object py" id="unfurl.configurator.Configurator.can_dry_run">
+<span class="sig-name descname"><span class="pre">can_dry_run</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">task</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.configurator.Configurator.can_dry_run" title="Permalink to this definition"></a></dt>
+<dd><p>Returns whether this configurator can handle a dry-runs for the given task.
+(And should check <a class="reference internal" href="#unfurl.configurator.TaskView.dry_run" title="unfurl.configurator.TaskView.dry_run"><code class="xref py py-attr docutils literal notranslate"><span class="pre">TaskView.dry_run</span></code></a> in during run().</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>task</strong> (<a class="reference internal" href="#unfurl.configurator.TaskView" title="unfurl.configurator.TaskView"><code class="xref py py-obj docutils literal notranslate"><span class="pre">TaskView</span></code></a>) – </p>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p>bool</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.configurator.Configurator.can_run">
+<span class="sig-name descname"><span class="pre">can_run</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">task</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.configurator.Configurator.can_run" title="Permalink to this definition"></a></dt>
+<dd><p>Return whether or not the configurator can execute the given task
+depending on if this configurator support the requested action and parameters
+and given the current state of the target instance?</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>task</strong> (<a class="reference internal" href="#unfurl.configurator.TaskView" title="unfurl.configurator.TaskView"><code class="xref py py-class docutils literal notranslate"><span class="pre">TaskView</span></code></a>) – </p>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p>Should return True or a message describing why the task couldn’t be run.</p>
+</dd>
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p>(bool or str)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.configurator.Configurator.check_digest">
+<span class="sig-name descname"><span class="pre">check_digest</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">task</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">changeset</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.configurator.Configurator.check_digest" title="Permalink to this definition"></a></dt>
+<dd><p>Examine the previous <code class="xref py py-class docutils literal notranslate"><span class="pre">ChangeRecord</span></code> generated by the previous time this operation
+was performed on the target instance and return whether it should be rerun or not.</p>
+<p>The default implementation recalculates the digest of input parameters that
+were accessed in the previous run.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>task</strong> (<a class="reference internal" href="#unfurl.configurator.TaskView" title="unfurl.configurator.TaskView"><code class="xref py py-class docutils literal notranslate"><span class="pre">TaskView</span></code></a>) – </p></li>
+<li><p><strong>changest</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">ChangeRecord</span></code>) – </p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p>True if configuration’s digest has changed, False if it is the same.</p>
+</dd>
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p>bool</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="unfurl.configurator.Configurator.exclude_from_digest">
+<span class="sig-name descname"><span class="pre">exclude_from_digest</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">()</span></em><a class="headerlink" href="#unfurl.configurator.Configurator.exclude_from_digest" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.configurator.Configurator.get_generator">
+<span class="sig-name descname"><span class="pre">get_generator</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">task</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.configurator.Configurator.get_generator" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.configurator.Configurator.render">
+<span class="sig-name descname"><span class="pre">render</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">task</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.configurator.Configurator.render" title="Permalink to this definition"></a></dt>
+<dd><p>This method is called is called during the planning phase to give the configurator an
+opportunity to do early validation and error detection and generate any plan information or configuration files that the user may want to review before the running the deployment task.</p>
+<p>Property access and writes will be tracked and used to establish dynamic dependencies between instances so the plan can be ordered properly. Any updates made to instances maybe reverted if it has dependencies on attributes that might be changed later in the plan, so this method should be idempotent.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns</dt>
+<dd class="field-odd"><p>The value returned here will subsequently be available as <code class="docutils literal notranslate"><span class="pre">task.rendered</span></code></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.configurator.Configurator.run">
+<span class="sig-name descname"><span class="pre">run</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">task</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.configurator.Configurator.run" title="Permalink to this definition"></a></dt>
+<dd><p>This should perform the operation specified in the <code class="xref py py-class docutils literal notranslate"><span class="pre">ConfigurationSpec</span></code>
+on the <code class="xref py py-obj docutils literal notranslate"><span class="pre">task.target</span></code>.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>task</strong> (<a class="reference internal" href="#unfurl.configurator.TaskView" title="unfurl.configurator.TaskView"><code class="xref py py-class docutils literal notranslate"><span class="pre">TaskView</span></code></a>) – </p>
+</dd>
+<dt class="field-even">Yields</dt>
+<dd class="field-even"><p>Should yield either a <a class="reference internal" href="#unfurl.configurator.JobRequest" title="unfurl.configurator.JobRequest"><code class="xref py py-class docutils literal notranslate"><span class="pre">JobRequest</span></code></a>, <a class="reference internal" href="#unfurl.configurator.TaskRequest" title="unfurl.configurator.TaskRequest"><code class="xref py py-class docutils literal notranslate"><span class="pre">TaskRequest</span></code></a>
+or a <code class="xref py py-class docutils literal notranslate"><span class="pre">ConfiguratorResult</span></code> when done</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.configurator.Configurator.save_digest">
+<span class="sig-name descname"><span class="pre">save_digest</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">task</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.configurator.Configurator.save_digest" title="Permalink to this definition"></a></dt>
+<dd><p>Generate a compact, deterministic representation of the current configuration.
+This is saved in the job log and used by <a class="reference internal" href="#unfurl.configurator.Configurator.check_digest" title="unfurl.configurator.Configurator.check_digest"><code class="xref any py py-meth docutils literal notranslate"><span class="pre">check_digest</span></code></a> in subsequent jobs to
+determine if the configuration changed the operation needs to be re-run.</p>
+<p>The default implementation calculates a SHA1 digest of the values of the inputs
+that where accessed while that task was run, with the exception of
+the input parameters listed in <a class="reference internal" href="#unfurl.configurator.Configurator.exclude_from_digest" title="unfurl.configurator.Configurator.exclude_from_digest"><code class="xref any py py-attr docutils literal notranslate"><span class="pre">exclude_from_digest</span></code></a>.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>task</strong> (<a class="reference internal" href="#unfurl.configurator.TaskView" title="unfurl.configurator.TaskView"><code class="xref py py-class docutils literal notranslate"><span class="pre">TaskView</span></code></a>) – </p>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p>A dictionary whose keys are strings that start with “digest”</p>
+</dd>
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p>dict</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="unfurl.configurator.Configurator.short_name">
+<span class="sig-name descname"><span class="pre">short_name</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></em><a class="headerlink" href="#unfurl.configurator.Configurator.short_name" title="Permalink to this definition"></a></dt>
+<dd><p>shortName can be used to customize the “short name” of the configurator
+as an alternative to using the full name (“module.class”) when setting the implementation on an operation.
+(Titlecase recommended)</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.configurator.Configurator.should_run">
+<span class="sig-name descname"><span class="pre">should_run</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">task</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.configurator.Configurator.should_run" title="Permalink to this definition"></a></dt>
+<dd><p>Does this configuration need to be run?</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="unfurl.configurator.JobRequest">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">unfurl.configurator.</span></span><span class="sig-name descname"><span class="pre">JobRequest</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">resources</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">errors</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">update</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.configurator.JobRequest" title="Permalink to this definition"></a></dt>
+<dd><p>Yield this to run a child job.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.configurator.JobRequest.get_instance_specs">
+<span class="sig-name descname"><span class="pre">get_instance_specs</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.configurator.JobRequest.get_instance_specs" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="unfurl.configurator.JobRequest.name">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">name</span></span><a class="headerlink" href="#unfurl.configurator.JobRequest.name" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="unfurl.configurator.JobRequest.root">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">root</span></span><a class="headerlink" href="#unfurl.configurator.JobRequest.root" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="unfurl.configurator.JobRequest.target">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">target</span></span><a class="headerlink" href="#unfurl.configurator.JobRequest.target" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="unfurl.configurator.TaskRequest">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">unfurl.configurator.</span></span><span class="sig-name descname"><span class="pre">TaskRequest</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">configSpec</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">target</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">reason</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">persist</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">required</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">startState</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.configurator.TaskRequest" title="Permalink to this definition"></a></dt>
+<dd><p>Yield this to run a child task. (see <a class="reference internal" href="#unfurl.configurator.TaskView.create_sub_task" title="unfurl.configurator.TaskView.create_sub_task"><code class="xref py py-meth docutils literal notranslate"><span class="pre">unfurl.configurator.TaskView.create_sub_task()</span></code></a>)</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.configurator.TaskRequest.get_operation_artifacts">
+<span class="sig-name descname"><span class="pre">get_operation_artifacts</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.configurator.TaskRequest.get_operation_artifacts" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="unfurl.configurator.TaskRequest.name">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">name</span></span><a class="headerlink" href="#unfurl.configurator.TaskRequest.name" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.configurator.TaskRequest.update_future_dependencies">
+<span class="sig-name descname"><span class="pre">update_future_dependencies</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">completed</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.configurator.TaskRequest.update_future_dependencies" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="unfurl.configurator.TaskView">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">unfurl.configurator.</span></span><span class="sig-name descname"><span class="pre">TaskView</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">manifest</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">configSpec</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">target</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">reason</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dependencies</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.configurator.TaskView" title="Permalink to this definition"></a></dt>
+<dd><p>The interface presented to configurators.</p>
+<p>The following public attributes are available:</p>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="unfurl.configurator.TaskView.target">
+<span class="sig-name descname"><span class="pre">target</span></span><a class="headerlink" href="#unfurl.configurator.TaskView.target" title="Permalink to this definition"></a></dt>
+<dd><p>The instance this task is operating on.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="unfurl.configurator.TaskView.reason">
+<span class="sig-name descname"><span class="pre">reason</span></span><a class="headerlink" href="#unfurl.configurator.TaskView.reason" title="Permalink to this definition"></a></dt>
+<dd><p>The reason this operation was planned. See <a class="reference internal" href="#unfurl.support.Reason" title="unfurl.support.Reason"><code class="xref py py-class docutils literal notranslate"><span class="pre">Reason</span></code></a></p>
+<dl class="field-list simple">
+<dt class="field-odd">Type</dt>
+<dd class="field-odd"><p>str</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="unfurl.configurator.TaskView.cwd">
+<span class="sig-name descname"><span class="pre">cwd</span></span><a class="headerlink" href="#unfurl.configurator.TaskView.cwd" title="Permalink to this definition"></a></dt>
+<dd><p>Current working directory</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type</dt>
+<dd class="field-odd"><p>str</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="unfurl.configurator.TaskView.dry_run">
+<span class="sig-name descname"><span class="pre">dry_run</span></span><a class="headerlink" href="#unfurl.configurator.TaskView.dry_run" title="Permalink to this definition"></a></dt>
+<dd><p>Dry run only</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type</dt>
+<dd class="field-odd"><p>bool</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="unfurl.configurator.TaskView.verbose">
+<span class="sig-name descname"><span class="pre">verbose</span></span><a class="headerlink" href="#unfurl.configurator.TaskView.verbose" title="Permalink to this definition"></a></dt>
+<dd><p>Verbosity level set for this job (-1 error, 0 normal, 1 verbose, 2 debug)</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type</dt>
+<dd class="field-odd"><p>int</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.configurator.TaskView.add_dependency">
+<span class="sig-name descname"><span class="pre">add_dependency</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">expr</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">expected</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">schema</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">required</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">wantList</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">target</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.configurator.TaskView.add_dependency" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.configurator.TaskView.add_message">
+<span class="sig-name descname"><span class="pre">add_message</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">message</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.configurator.TaskView.add_message" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.configurator.TaskView.apply_work_folders">
+<span class="sig-name descname"><span class="pre">apply_work_folders</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">names</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.configurator.TaskView.apply_work_folders" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.configurator.TaskView.create_sub_task">
+<span class="sig-name descname"><span class="pre">create_sub_task</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">operation</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">resource</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">inputs</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">persist</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">required</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.configurator.TaskView.create_sub_task" title="Permalink to this definition"></a></dt>
+<dd><p>Create a subtask that will be executed if yielded by <a class="reference internal" href="#unfurl.configurator.Configurator.run" title="unfurl.configurator.Configurator.run"><code class="xref any py py-meth docutils literal notranslate"><span class="pre">run()</span></code></a></p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>operation</strong> (<em>str</em>) – The operation call (like <code class="docutils literal notranslate"><span class="pre">interface.operation</span></code>)</p></li>
+<li><p><strong>resource</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">NodeInstance</span></code>) – </p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p><a class="reference internal" href="#unfurl.configurator.TaskRequest" title="unfurl.configurator.TaskRequest"><code class="xref py py-class docutils literal notranslate"><span class="pre">TaskRequest</span></code></a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.configurator.TaskView.discard_work_folders">
+<span class="sig-name descname"><span class="pre">discard_work_folders</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.configurator.TaskView.discard_work_folders" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.configurator.TaskView.done">
+<span class="sig-name descname"><span class="pre">done</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">success</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">modified</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">status</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">result</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">outputs</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">captureException</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.configurator.TaskView.done" title="Permalink to this definition"></a></dt>
+<dd><p><a class="reference internal" href="#unfurl.configurator.Configurator.run" title="unfurl.configurator.Configurator.run"><code class="xref any py py-meth docutils literal notranslate"><span class="pre">run()</span></code></a> should call this method and yield its return value before terminating.</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="k">yield</span> <span class="n">task</span><span class="o">.</span><span class="n">done</span><span class="p">(</span><span class="kc">True</span><span class="p">)</span>
+</pre></div>
+</div>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>success</strong> (<em>bool</em>) – indicates if this operation completed without an error.</p></li>
+<li><p><strong>modified</strong> (<em>bool</em>) – (optional) indicates whether the physical instance was modified by this operation.</p></li>
+<li><p><strong>status</strong> (<a class="reference internal" href="#unfurl.support.Status" title="unfurl.support.Status"><em>Status</em></a>) – (optional) should be set if the operation changed the operational status of the target instance.
+If not specified, the runtime will updated the instance status as needed, based
+the operation preformed and observed changes to the instance (attributes changed).</p></li>
+<li><p><strong>result</strong> (<em>dict</em>) – (optional) A dictionary that will be serialized as YAML into the changelog, can contain any useful data about these operation.</p></li>
+<li><p><strong>outputs</strong> (<em>dict</em>) – (optional) Operation outputs, as specified in the toplogy template.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p><code class="xref py py-class docutils literal notranslate"><span class="pre">ConfiguratorResult</span></code></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.configurator.TaskView.fail_work_folders">
+<span class="sig-name descname"><span class="pre">fail_work_folders</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.configurator.TaskView.fail_work_folders" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.configurator.TaskView.find_connection">
+<span class="sig-name descname"><span class="pre">find_connection</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">target</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">relation</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'tosca.relationships.ConnectsTo'</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.configurator.TaskView.find_connection" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.configurator.TaskView.find_instance">
+<span class="sig-name descname"><span class="pre">find_instance</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.configurator.TaskView.find_instance" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.configurator.TaskView.get_environment">
+<span class="sig-name descname"><span class="pre">get_environment</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">addOnly</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.configurator.TaskView.get_environment" title="Permalink to this definition"></a></dt>
+<dd><p>Return a dictionary of environment variables applicable to this task.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>addOnly</strong> (<em>bool</em>) – If addOnly is False all variables in the current os environment will be included
+otherwise only variables added will be included.</p>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p>dict:</p>
+</dd>
+</dl>
+<p>Variable sources (by order of preference, lowest to highest):
+1. The ensemble’s environment
+2. Variables set by the connections that are available to this operation.
+3. Variables declared in the operation’s <code class="docutils literal notranslate"><span class="pre">environment</span></code> section.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.configurator.TaskView.get_settings">
+<span class="sig-name descname"><span class="pre">get_settings</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.configurator.TaskView.get_settings" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.configurator.TaskView.get_work_folder">
+<span class="sig-name descname"><span class="pre">get_work_folder</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">location</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.configurator.TaskView.get_work_folder" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="unfurl.configurator.TaskView.inputs">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">inputs</span></span><a class="headerlink" href="#unfurl.configurator.TaskView.inputs" title="Permalink to this definition"></a></dt>
+<dd><p>Exposes inputs and task settings as expression variables, so they can be accessed like:</p>
+<p>eval: $inputs::param</p>
+<p>or in jinja2 templates:</p>
+<p>{{ inputs.param }}</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.configurator.TaskView.query">
+<span class="sig-name descname"><span class="pre">query</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">query</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dependency</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">required</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">wantList</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">resolveExternal</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">strict</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">vars</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">throw</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.configurator.TaskView.query" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.configurator.TaskView.remove_dependency">
+<span class="sig-name descname"><span class="pre">remove_dependency</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.configurator.TaskView.remove_dependency" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.configurator.TaskView.sensitive">
+<span class="sig-name descname"><span class="pre">sensitive</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">value</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.configurator.TaskView.sensitive" title="Permalink to this definition"></a></dt>
+<dd><p>Mark the given value as sensitive. Sensitive values will be encrypted or redacted when outputed.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns</dt>
+<dd class="field-odd"><p>A copy of the value converted the appropriate subtype of <a class="reference internal" href="#unfurl.logs.sensitive" title="unfurl.logs.sensitive"><code class="xref py py-class docutils literal notranslate"><span class="pre">unfurl.logs.sensitive</span></code></a> value or the value itself if it can’t be converted.</p>
+</dd>
+<dt class="field-even">Return type</dt>
+<dd class="field-even"><p><a class="reference internal" href="#unfurl.logs.sensitive" title="unfurl.logs.sensitive">sensitive</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.configurator.TaskView.set_work_folder">
+<span class="sig-name descname"><span class="pre">set_work_folder</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">location</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'operation'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">preserve</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.configurator.TaskView.set_work_folder" title="Permalink to this definition"></a></dt>
+<dd><dl class="field-list simple">
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p>unfurl.projectpaths.WorkFolder</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.configurator.TaskView.update_instances">
+<span class="sig-name descname"><span class="pre">update_instances</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">instances</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.configurator.TaskView.update_instances" title="Permalink to this definition"></a></dt>
+<dd><p>Notify Unfurl of new or changes to instances made while the configurator was running.</p>
+<p>Operational status indicates if the instance currently exists or not.
+This will queue a new child job if needed.</p>
+<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="p p-Indicator">-</span> <span class="nt">name</span><span class="p">:</span>     <span class="l l-Scalar l-Scalar-Plain">aNewInstance</span>
+  <span class="nt">template</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">aNodeTemplate</span>
+  <span class="nt">parent</span><span class="p">:</span>   <span class="l l-Scalar l-Scalar-Plain">HOST</span>
+  <span class="nt">attributes</span><span class="p">:</span>
+     <span class="nt">anAttribute</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">aValue</span>
+  <span class="nt">readyState</span><span class="p">:</span>
+    <span class="nt">local</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">ok</span>
+    <span class="nt">state</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">state</span>
+<span class="p p-Indicator">-</span> <span class="nt">name</span><span class="p">:</span>     <span class="l l-Scalar l-Scalar-Plain">SELF</span>
+  <span class="nt">attributes</span><span class="p">:</span>
+      <span class="nt">anAttribute</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">aNewValue</span>
+</pre></div>
+</div>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>instances</strong> (<em>list</em><em> or </em><em>str</em>) – Either a list or string that is parsed as YAML.</p>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p><dl class="simple">
+<dt>To run the job based on the supplied spec</dt><dd><p>immediately, yield the returned JobRequest.</p>
+</dd>
+</dl>
+</p>
+</dd>
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p><a class="reference internal" href="#unfurl.configurator.JobRequest" title="unfurl.configurator.JobRequest"><code class="xref py py-class docutils literal notranslate"><span class="pre">JobRequest</span></code></a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="unfurl.configurator.TaskView.vars">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">vars</span></span><a class="headerlink" href="#unfurl.configurator.TaskView.vars" title="Permalink to this definition"></a></dt>
+<dd><p>A dictionary of the same variables that are available to expressions when evaluating inputs.</p>
+</dd></dl>
+
+</dd></dl>
+
+<span class="target" id="module-unfurl.support"></span><p>Internal classes supporting the runtime.</p>
+<dl class="py class">
+<dt class="sig sig-object py" id="unfurl.support.NodeState">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">unfurl.support.</span></span><span class="sig-name descname"><span class="pre">NodeState</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">value</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.support.NodeState" title="Permalink to this definition"></a></dt>
+<dd><p>An enumeration.</p>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="unfurl.support.NodeState.configured">
+<span class="sig-name descname"><span class="pre">configured</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">5</span></em><a class="headerlink" href="#unfurl.support.NodeState.configured" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="unfurl.support.NodeState.configuring">
+<span class="sig-name descname"><span class="pre">configuring</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">4</span></em><a class="headerlink" href="#unfurl.support.NodeState.configuring" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="unfurl.support.NodeState.created">
+<span class="sig-name descname"><span class="pre">created</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">3</span></em><a class="headerlink" href="#unfurl.support.NodeState.created" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="unfurl.support.NodeState.creating">
+<span class="sig-name descname"><span class="pre">creating</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">2</span></em><a class="headerlink" href="#unfurl.support.NodeState.creating" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="unfurl.support.NodeState.deleted">
+<span class="sig-name descname"><span class="pre">deleted</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">11</span></em><a class="headerlink" href="#unfurl.support.NodeState.deleted" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="unfurl.support.NodeState.deleting">
+<span class="sig-name descname"><span class="pre">deleting</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">10</span></em><a class="headerlink" href="#unfurl.support.NodeState.deleting" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="unfurl.support.NodeState.error">
+<span class="sig-name descname"><span class="pre">error</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">12</span></em><a class="headerlink" href="#unfurl.support.NodeState.error" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="unfurl.support.NodeState.initial">
+<span class="sig-name descname"><span class="pre">initial</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">1</span></em><a class="headerlink" href="#unfurl.support.NodeState.initial" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="unfurl.support.NodeState.started">
+<span class="sig-name descname"><span class="pre">started</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">7</span></em><a class="headerlink" href="#unfurl.support.NodeState.started" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="unfurl.support.NodeState.starting">
+<span class="sig-name descname"><span class="pre">starting</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">6</span></em><a class="headerlink" href="#unfurl.support.NodeState.starting" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="unfurl.support.NodeState.stopped">
+<span class="sig-name descname"><span class="pre">stopped</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">9</span></em><a class="headerlink" href="#unfurl.support.NodeState.stopped" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="unfurl.support.NodeState.stopping">
+<span class="sig-name descname"><span class="pre">stopping</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">8</span></em><a class="headerlink" href="#unfurl.support.NodeState.stopping" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="unfurl.support.Priority">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">unfurl.support.</span></span><span class="sig-name descname"><span class="pre">Priority</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">value</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.support.Priority" title="Permalink to this definition"></a></dt>
+<dd><p>An enumeration.</p>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="unfurl.support.Priority.critical">
+<span class="sig-name descname"><span class="pre">critical</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">3</span></em><a class="headerlink" href="#unfurl.support.Priority.critical" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="unfurl.support.Priority.ignore">
+<span class="sig-name descname"><span class="pre">ignore</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">0</span></em><a class="headerlink" href="#unfurl.support.Priority.ignore" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="unfurl.support.Priority.optional">
+<span class="sig-name descname"><span class="pre">optional</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">1</span></em><a class="headerlink" href="#unfurl.support.Priority.optional" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="unfurl.support.Priority.required">
+<span class="sig-name descname"><span class="pre">required</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">2</span></em><a class="headerlink" href="#unfurl.support.Priority.required" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="unfurl.support.Reason">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">unfurl.support.</span></span><span class="sig-name descname"><span class="pre">Reason</span></span><a class="headerlink" href="#unfurl.support.Reason" title="Permalink to this definition"></a></dt>
+<dd><dl class="py attribute">
+<dt class="sig sig-object py" id="unfurl.support.Reason.add">
+<span class="sig-name descname"><span class="pre">add</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'add'</span></em><a class="headerlink" href="#unfurl.support.Reason.add" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="unfurl.support.Reason.degraded">
+<span class="sig-name descname"><span class="pre">degraded</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'degraded'</span></em><a class="headerlink" href="#unfurl.support.Reason.degraded" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="unfurl.support.Reason.error">
+<span class="sig-name descname"><span class="pre">error</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'error'</span></em><a class="headerlink" href="#unfurl.support.Reason.error" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="unfurl.support.Reason.force">
+<span class="sig-name descname"><span class="pre">force</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'force'</span></em><a class="headerlink" href="#unfurl.support.Reason.force" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="unfurl.support.Reason.missing">
+<span class="sig-name descname"><span class="pre">missing</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'missing'</span></em><a class="headerlink" href="#unfurl.support.Reason.missing" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="unfurl.support.Reason.prune">
+<span class="sig-name descname"><span class="pre">prune</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'prune'</span></em><a class="headerlink" href="#unfurl.support.Reason.prune" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="unfurl.support.Reason.reconfigure">
+<span class="sig-name descname"><span class="pre">reconfigure</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'reconfigure'</span></em><a class="headerlink" href="#unfurl.support.Reason.reconfigure" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="unfurl.support.Reason.update">
+<span class="sig-name descname"><span class="pre">update</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'update'</span></em><a class="headerlink" href="#unfurl.support.Reason.update" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="unfurl.support.Reason.upgrade">
+<span class="sig-name descname"><span class="pre">upgrade</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'upgrade'</span></em><a class="headerlink" href="#unfurl.support.Reason.upgrade" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="unfurl.support.Status">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">unfurl.support.</span></span><span class="sig-name descname"><span class="pre">Status</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">value</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.support.Status" title="Permalink to this definition"></a></dt>
+<dd><p>An enumeration.</p>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="unfurl.support.Status.absent">
+<span class="sig-name descname"><span class="pre">absent</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">5</span></em><a class="headerlink" href="#unfurl.support.Status.absent" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="unfurl.support.Status.degraded">
+<span class="sig-name descname"><span class="pre">degraded</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">2</span></em><a class="headerlink" href="#unfurl.support.Status.degraded" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="unfurl.support.Status.error">
+<span class="sig-name descname"><span class="pre">error</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">3</span></em><a class="headerlink" href="#unfurl.support.Status.error" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="unfurl.support.Status.ok">
+<span class="sig-name descname"><span class="pre">ok</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">1</span></em><a class="headerlink" href="#unfurl.support.Status.ok" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="unfurl.support.Status.pending">
+<span class="sig-name descname"><span class="pre">pending</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">4</span></em><a class="headerlink" href="#unfurl.support.Status.pending" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="unfurl.support.Status.unknown">
+<span class="sig-name descname"><span class="pre">unknown</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">0</span></em><a class="headerlink" href="#unfurl.support.Status.unknown" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<span class="target" id="module-unfurl.result"></span><dl class="py class">
+<dt class="sig sig-object py" id="unfurl.result.ChangeRecord">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">unfurl.result.</span></span><span class="sig-name descname"><span class="pre">ChangeRecord</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">jobId</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">startTime</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">taskId</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">previousId</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">parse</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.result.ChangeRecord" title="Permalink to this definition"></a></dt>
+<dd><p>A ChangeRecord represents a job or task in the change log file.
+It consists of a change ID and named attributes.</p>
+<p>A change ID is an identifier with this sequence of 12 characters:
+- “A” serves as a format version identifier
+- 7 alphanumeric characters (0-9, A-Z, and a-z) encoding the date and time the job ran.
+- 4 hexadecimal digits encoding the task id</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.result.ChangeRecord.format_log">
+<em class="property"><span class="pre">classmethod</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">format_log</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">changeId</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">attributes</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.result.ChangeRecord.format_log" title="Permalink to this definition"></a></dt>
+<dd><p>format: changeidtkey=valuetkey=value</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.result.ChangeRecord.log">
+<span class="sig-name descname"><span class="pre">log</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">attributes</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.result.ChangeRecord.log" title="Permalink to this definition"></a></dt>
+<dd><p>changeidtkey=valuetkey=value</p>
+</dd></dl>
+
+</dd></dl>
+
+<section id="module-unfurl.runtime">
+<span id="runtime-module"></span><h3>Runtime module<a class="headerlink" href="#module-unfurl.runtime" title="Permalink to this headline"></a></h3>
+<p>This module defines the core model and implements the runtime operations of the model.</p>
+<p>The state of the system is represented as a collection of Instances.
+Each instance have a status; attributes that describe its state; and a TOSCA template
+which describes its capabilities, relationships and available interfaces for configuring and interacting with it.</p>
+<dl class="py class">
+<dt class="sig sig-object py" id="unfurl.runtime.Operational">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">unfurl.runtime.</span></span><span class="sig-name descname"><span class="pre">Operational</span></span><a class="headerlink" href="#unfurl.runtime.Operational" title="Permalink to this definition"></a></dt>
+<dd><p>This is an abstract base class for Jobs, Resources, and Configurations all have a Status associated with them
+and all use the same algorithm to compute their status from their dependent resouces, tasks, and configurations</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.runtime.Operational.aggregate_status">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">aggregate_status</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">statuses</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.runtime.Operational.aggregate_status" title="Permalink to this definition"></a></dt>
+<dd><p>Returns: ok, degraded, pending or None</p>
+<p>If there are no instances, return None
+If any required are not operational, return pending or error
+If any other are not operational or degraded, return degraded
+Otherwise return ok.
+(Instances with priority set to “ignore” are ignored.)</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.runtime.Operational.get_operational_dependencies">
+<span class="sig-name descname"><span class="pre">get_operational_dependencies</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.runtime.Operational.get_operational_dependencies" title="Permalink to this definition"></a></dt>
+<dd><p>Return an iterator of <a class="reference internal" href="#unfurl.runtime.Operational" title="unfurl.runtime.Operational"><code class="xref any py py-class docutils literal notranslate"><span class="pre">Operational</span></code></a> object that this instance depends on to be operational.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.runtime.Operational.has_changed">
+<span class="sig-name descname"><span class="pre">has_changed</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">changeset</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.runtime.Operational.has_changed" title="Permalink to this definition"></a></dt>
+<dd><p>Whether or not this object changed since the give ChangeRecord.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="unfurl.runtime.Operational.status">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">status</span></span><a class="headerlink" href="#unfurl.runtime.Operational.status" title="Permalink to this definition"></a></dt>
+<dd><p>Return the effective status, considering first the local readyState and
+then the aggregate status’ of its dependencies (see <a class="reference internal" href="#unfurl.runtime.Operational.aggregate_status" title="unfurl.runtime.Operational.aggregate_status"><code class="xref any py py-meth docutils literal notranslate"><span class="pre">aggregate_status()</span></code></a>
+and <a class="reference internal" href="#unfurl.runtime.Operational.get_operational_dependencies" title="unfurl.runtime.Operational.get_operational_dependencies"><code class="xref any py py-meth docutils literal notranslate"><span class="pre">get_operational_dependencies()</span></code></a>).</p>
+<p>If the local_status is non-operational, that takes precedence.
+Otherwise the local_status is compared with its aggregate dependent status
+and worser value is choosen.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="unfurl.runtime.OperationalInstance">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">unfurl.runtime.</span></span><span class="sig-name descname"><span class="pre">OperationalInstance</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">status</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">priority</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">manualOveride</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lastStateChange</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lastConfigChange</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">state</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.runtime.OperationalInstance" title="Permalink to this definition"></a></dt>
+<dd><p>A concrete implementation of Operational</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.runtime.OperationalInstance.get_operational_dependencies">
+<span class="sig-name descname"><span class="pre">get_operational_dependencies</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.runtime.OperationalInstance.get_operational_dependencies" title="Permalink to this definition"></a></dt>
+<dd><p>Return an iterator of <a class="reference internal" href="#unfurl.runtime.Operational" title="unfurl.runtime.Operational"><code class="xref any py py-class docutils literal notranslate"><span class="pre">Operational</span></code></a> object that this instance depends on to be operational.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="unfurl.runtime.OperationalInstance.local_status">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">local_status</span></span><a class="headerlink" href="#unfurl.runtime.OperationalInstance.local_status" title="Permalink to this definition"></a></dt>
+<dd><p>The local_status property.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="unfurl.runtime.OperationalInstance.manual_overide_status">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">manual_overide_status</span></span><a class="headerlink" href="#unfurl.runtime.OperationalInstance.manual_overide_status" title="Permalink to this definition"></a></dt>
+<dd><p>The manualOverideStatus property.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="unfurl.runtime.OperationalInstance.priority">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">priority</span></span><a class="headerlink" href="#unfurl.runtime.OperationalInstance.priority" title="Permalink to this definition"></a></dt>
+<dd><p>The priority property.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="unfurl.runtime.OperationalInstance.state">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">state</span></span><a class="headerlink" href="#unfurl.runtime.OperationalInstance.state" title="Permalink to this definition"></a></dt>
+<dd><p>The state property.</p>
+</dd></dl>
+
+</dd></dl>
+
+</section>
+</section>
+<section id="apis-for-controlling-unfurl">
+<h2><a class="toc-backref" href="#id3">APIs for controlling Unfurl</a><a class="headerlink" href="#apis-for-controlling-unfurl" title="Permalink to this headline"></a></h2>
+<section id="module-unfurl.localenv">
+<span id="localenv-module"></span><h3>Localenv module<a class="headerlink" href="#module-unfurl.localenv" title="Permalink to this headline"></a></h3>
+<p>Classes for managing the local environment.</p>
+<p>Repositories can optionally be organized into projects that have a local configuration.</p>
+<p>By convention, the “home” project defines a localhost instance and adds it to its context.</p>
+<dl class="py class">
+<dt class="sig sig-object py" id="unfurl.localenv.LocalEnv">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">unfurl.localenv.</span></span><span class="sig-name descname"><span class="pre">LocalEnv</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">manifestPath</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">homePath</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">parent</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">project</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">can_be_empty</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.localenv.LocalEnv" title="Permalink to this definition"></a></dt>
+<dd><p>This class represents the local environment that an ensemble runs in, including
+the local project it is part of and the home project.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.localenv.LocalEnv.find_git_repo">
+<span class="sig-name descname"><span class="pre">find_git_repo</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">repoURL</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">revision</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.localenv.LocalEnv.find_git_repo" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.localenv.LocalEnv.find_or_create_working_dir">
+<span class="sig-name descname"><span class="pre">find_or_create_working_dir</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">repoURL</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">revision</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">basepath</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.localenv.LocalEnv.find_or_create_working_dir" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.localenv.LocalEnv.find_path_in_repos">
+<span class="sig-name descname"><span class="pre">find_path_in_repos</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">importLoader</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.localenv.LocalEnv.find_path_in_repos" title="Permalink to this definition"></a></dt>
+<dd><p>If the given path is part of the working directory of a git repository
+return that repository and a path relative to it</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.localenv.LocalEnv.find_project">
+<span class="sig-name descname"><span class="pre">find_project</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">testPath</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.localenv.LocalEnv.find_project" title="Permalink to this definition"></a></dt>
+<dd><p>Walk parents looking for unfurl.yaml</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.localenv.LocalEnv.get_context">
+<span class="sig-name descname"><span class="pre">get_context</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">context</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.localenv.LocalEnv.get_context" title="Permalink to this definition"></a></dt>
+<dd><p>Return a new context that merges the given context with the local context.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.localenv.LocalEnv.get_external_manifest">
+<span class="sig-name descname"><span class="pre">get_external_manifest</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">location</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.localenv.LocalEnv.get_external_manifest" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.localenv.LocalEnv.get_local_instance">
+<span class="sig-name descname"><span class="pre">get_local_instance</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">context</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.localenv.LocalEnv.get_local_instance" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.localenv.LocalEnv.get_manifest">
+<span class="sig-name descname"><span class="pre">get_manifest</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">path</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.localenv.LocalEnv.get_manifest" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.localenv.LocalEnv.get_paths">
+<span class="sig-name descname"><span class="pre">get_paths</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.localenv.LocalEnv.get_paths" title="Permalink to this definition"></a></dt>
+<dd><p>If asdf is installed, build a PATH list from .toolversions
+found in the current project and the home project.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.localenv.LocalEnv.get_project">
+<span class="sig-name descname"><span class="pre">get_project</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">homeProject</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.localenv.LocalEnv.get_project" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.localenv.LocalEnv.get_runtime">
+<span class="sig-name descname"><span class="pre">get_runtime</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.localenv.LocalEnv.get_runtime" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.localenv.LocalEnv.get_vault_password">
+<span class="sig-name descname"><span class="pre">get_vault_password</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">vaultId</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'default'</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.localenv.LocalEnv.get_vault_password" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.localenv.LocalEnv.map_value">
+<span class="sig-name descname"><span class="pre">map_value</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">val</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.localenv.LocalEnv.map_value" title="Permalink to this definition"></a></dt>
+<dd><p>Evaluate using project home as a base dir.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="unfurl.localenv.LocalEnv.parent">
+<span class="sig-name descname"><span class="pre">parent</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></em><a class="headerlink" href="#unfurl.localenv.LocalEnv.parent" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="unfurl.localenv.LocalEnv.project">
+<span class="sig-name descname"><span class="pre">project</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></em><a class="headerlink" href="#unfurl.localenv.LocalEnv.project" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="unfurl.localenv.Project">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">unfurl.localenv.</span></span><span class="sig-name descname"><span class="pre">Project</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">homeProject</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.localenv.Project" title="Permalink to this definition"></a></dt>
+<dd><p>A Unfurl project is a folder that contains at least a local configuration file (unfurl.yaml),
+one or more ensemble.yaml files which maybe optionally organized into one or more git repositories.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.localenv.Project.create_working_dir">
+<span class="sig-name descname"><span class="pre">create_working_dir</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">gitUrl</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ref</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.localenv.Project.create_working_dir" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.localenv.Project.find_ensemble_by_name">
+<span class="sig-name descname"><span class="pre">find_ensemble_by_name</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.localenv.Project.find_ensemble_by_name" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.localenv.Project.find_ensemble_by_path">
+<span class="sig-name descname"><span class="pre">find_ensemble_by_path</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">path</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.localenv.Project.find_ensemble_by_path" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.localenv.Project.find_git_repo">
+<span class="sig-name descname"><span class="pre">find_git_repo</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">repoURL</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">revision</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.localenv.Project.find_git_repo" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.localenv.Project.find_git_repo_from_repository">
+<span class="sig-name descname"><span class="pre">find_git_repo_from_repository</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">repoSpec</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.localenv.Project.find_git_repo_from_repository" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.localenv.Project.find_or_clone">
+<span class="sig-name descname"><span class="pre">find_or_clone</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">repo</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.localenv.Project.find_or_clone" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.localenv.Project.find_path">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">find_path</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">testPath</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.localenv.Project.find_path" title="Permalink to this definition"></a></dt>
+<dd><p>Walk parents looking for unfurl.yaml</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.localenv.Project.find_path_in_repos">
+<span class="sig-name descname"><span class="pre">find_path_in_repos</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">importLoader</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.localenv.Project.find_path_in_repos" title="Permalink to this definition"></a></dt>
+<dd><p>If the given path is part of the working directory of a git repository
+return that repository and a path relative to it</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.localenv.Project.get_asdf_paths">
+<span class="sig-name descname"><span class="pre">get_asdf_paths</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">asdfDataDir</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">toolVersions</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">{}</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.localenv.Project.get_asdf_paths" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.localenv.Project.get_context">
+<span class="sig-name descname"><span class="pre">get_context</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">contextName</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">context</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.localenv.Project.get_context" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.localenv.Project.get_default_context">
+<span class="sig-name descname"><span class="pre">get_default_context</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.localenv.Project.get_default_context" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.localenv.Project.get_default_project_path">
+<span class="sig-name descname"><span class="pre">get_default_project_path</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">context_name</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.localenv.Project.get_default_project_path" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.localenv.Project.get_managed_project">
+<span class="sig-name descname"><span class="pre">get_managed_project</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">location</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">localEnv</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.localenv.Project.get_managed_project" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.localenv.Project.get_manifest_path">
+<span class="sig-name descname"><span class="pre">get_manifest_path</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">localEnv</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">manifestPath</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">can_be_empty</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.localenv.Project.get_manifest_path" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.localenv.Project.get_name_from_dir">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">get_name_from_dir</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">projectRoot</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.localenv.Project.get_name_from_dir" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.localenv.Project.get_relative_path">
+<span class="sig-name descname"><span class="pre">get_relative_path</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">path</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.localenv.Project.get_relative_path" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.localenv.Project.get_unique_path">
+<span class="sig-name descname"><span class="pre">get_unique_path</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.localenv.Project.get_unique_path" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.localenv.Project.get_vault_password">
+<span class="sig-name descname"><span class="pre">get_vault_password</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">contextName</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">vaultId</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'default'</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.localenv.Project.get_vault_password" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.localenv.Project.get_vault_passwords">
+<span class="sig-name descname"><span class="pre">get_vault_passwords</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">contextName</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.localenv.Project.get_vault_passwords" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.localenv.Project.is_path_in_project">
+<span class="sig-name descname"><span class="pre">is_path_in_project</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">path</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.localenv.Project.is_path_in_project" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.localenv.Project.make_vault_lib">
+<span class="sig-name descname"><span class="pre">make_vault_lib</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">contextName</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.localenv.Project.make_vault_lib" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="unfurl.localenv.Project.name">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">name</span></span><a class="headerlink" href="#unfurl.localenv.Project.name" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.localenv.Project.normalize_path">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">normalize_path</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">path</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.localenv.Project.normalize_path" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.localenv.Project.register_ensemble">
+<span class="sig-name descname"><span class="pre">register_ensemble</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">manifestPath</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">project</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">managedBy</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">context</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.localenv.Project.register_ensemble" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.localenv.Project.search_for_manifest">
+<span class="sig-name descname"><span class="pre">search_for_manifest</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">can_be_empty</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.localenv.Project.search_for_manifest" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="unfurl.localenv.Project.venv">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">venv</span></span><a class="headerlink" href="#unfurl.localenv.Project.venv" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+</section>
+<section id="module-unfurl.job">
+<span id="job-module"></span><h3>Job module<a class="headerlink" href="#module-unfurl.job" title="Permalink to this headline"></a></h3>
+<p>A Job is generated by comparing a list of specs with the last known state of the system.
+Job runs tasks, each of which has a configuration spec that is executed on the running system
+Each task tracks and records its modifications to the system’s state</p>
+<dl class="py class">
+<dt class="sig sig-object py" id="unfurl.job.ConfigChange">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">unfurl.job.</span></span><span class="sig-name descname"><span class="pre">ConfigChange</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">parentJob</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">startTime</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">status</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">previousId</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kw</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.job.ConfigChange" title="Permalink to this definition"></a></dt>
+<dd><p>Represents a configuration change made to the system.
+It has a operating status and a list of dependencies that contribute to its status.
+There are two kinds of dependencies:</p>
+<ol class="arabic simple">
+<li><p>Live resource attributes that the configuration’s inputs depend on.</p></li>
+<li><p>Other configurations and resources it relies on to function properly.</p></li>
+</ol>
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.job.ConfigChange.get_operational_dependencies">
+<span class="sig-name descname"><span class="pre">get_operational_dependencies</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.job.ConfigChange.get_operational_dependencies" title="Permalink to this definition"></a></dt>
+<dd><p>Return an iterator of <a class="reference internal" href="#unfurl.runtime.Operational" title="unfurl.runtime.Operational"><code class="xref any py py-class docutils literal notranslate"><span class="pre">Operational</span></code></a> object that this instance depends on to be operational.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="unfurl.job.Job">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">unfurl.job.</span></span><span class="sig-name descname"><span class="pre">Job</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">manifest</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rootResource</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">jobOptions</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">previousId</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.job.Job" title="Permalink to this definition"></a></dt>
+<dd><p>runs ConfigTasks and child Jobs</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.job.Job.can_run_task">
+<span class="sig-name descname"><span class="pre">can_run_task</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">task</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.job.Job.can_run_task" title="Permalink to this definition"></a></dt>
+<dd><p>Checked at runtime right before each task is run</p>
+<ul class="simple">
+<li><p>validate inputs</p></li>
+<li><p>check pre-conditions to see if it can be run</p></li>
+<li><p>check task if it can be run</p></li>
+</ul>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.job.Job.get_operational_dependencies">
+<span class="sig-name descname"><span class="pre">get_operational_dependencies</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.job.Job.get_operational_dependencies" title="Permalink to this definition"></a></dt>
+<dd><p>Return an iterator of <a class="reference internal" href="#unfurl.runtime.Operational" title="unfurl.runtime.Operational"><code class="xref any py py-class docutils literal notranslate"><span class="pre">Operational</span></code></a> object that this instance depends on to be operational.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.job.Job.run_task">
+<span class="sig-name descname"><span class="pre">run_task</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">task</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">depth</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.job.Job.run_task" title="Permalink to this definition"></a></dt>
+<dd><p>During each task run:
+* Notification of metadata changes that reflect changes made to resources
+* Notification of add or removing dependency on a resource or properties of a resource
+* Notification of creation or deletion of a resource
+* Requests a resource with requested metadata, if it doesn’t exist, a task is run to make it so
+(e.g. add a dns entry, install a package).</p>
+<p>Returns a task.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.job.Job.should_run_task">
+<span class="sig-name descname"><span class="pre">should_run_task</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">task</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.job.Job.should_run_task" title="Permalink to this definition"></a></dt>
+<dd><p>Checked at runtime right before each task is run</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="unfurl.job.JobOptions">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">unfurl.job.</span></span><span class="sig-name descname"><span class="pre">JobOptions</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kw</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.job.JobOptions" title="Permalink to this definition"></a></dt>
+<dd><p>Options available to select which tasks are run, e.g. read-only</p>
+<p>does the config apply to the operation?
+is it out of date?
+is it in a ok state?</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="unfurl.job.run_job">
+<span class="sig-prename descclassname"><span class="pre">unfurl.job.</span></span><span class="sig-name descname"><span class="pre">run_job</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">manifestPath</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">_opts</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.job.run_job" title="Permalink to this definition"></a></dt>
+<dd><p>Loads the given Ensemble and creates and runs a job.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>manifestPath</strong> (<code class="xref py py-obj docutils literal notranslate"><span class="pre">str</span></code>, optional) – If None, it will look for an ensemble in the current working directory.</p></li>
+<li><p><strong>_opts</strong> (<code class="xref py py-obj docutils literal notranslate"><span class="pre">dict</span></code>, optional) – the names of the command line options for creating jobs.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p>The job that just ran or None if it couldn’t be created.</p>
+</dd>
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p>(<a class="reference internal" href="#unfurl.job.Job" title="unfurl.job.Job"><code class="xref py py-obj docutils literal notranslate"><span class="pre">Job</span></code></a>)</p>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+<section id="module-unfurl.init">
+<span id="init-module"></span><h3>Init module<a class="headerlink" href="#module-unfurl.init" title="Permalink to this headline"></a></h3>
+<p>This module implements creating and cloning project and ensembles as well Unfurl runtimes.</p>
+<dl class="py function">
+<dt class="sig sig-object py" id="unfurl.init.clone">
+<span class="sig-prename descclassname"><span class="pre">unfurl.init.</span></span><span class="sig-name descname"><span class="pre">clone</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">source</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dest</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ensemble_name</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'ensemble'</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">options</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.init.clone" title="Permalink to this definition"></a></dt>
+<dd><p>Clone the <code class="docutils literal notranslate"><span class="pre">source</span></code> ensemble to <code class="docutils literal notranslate"><span class="pre">dest</span></code>. If <code class="docutils literal notranslate"><span class="pre">dest</span></code> isn’t in a project, create one.
+<code class="docutils literal notranslate"><span class="pre">source</span></code> can point to an ensemble_template, a service_template, an existing ensemble
+or a folder containing one of those. If it points to a project its default ensemble will be cloned.</p>
+<p>Referenced <a class="reference internal" href="toscaref/spec-repositories.html#repositories"><span class="std std-ref">Repositories</span></a> will be cloned if a git repository or copied if a regular file folder,
+If the folders already exist they will be copied to new folder unless the git repositories have the same HEAD.
+but the local repository names will remain the same.</p>
+<table class="docutils align-default">
+<colgroup>
+<col style="width: 34%" />
+<col style="width: 66%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>dest</p></th>
+<th class="head"><p>result</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Inside source project</p></td>
+<td><p>new ensemble</p></td>
+</tr>
+<tr class="row-odd"><td><p>missing or empty folder</p></td>
+<td><p>clone project, new or cloned ensemble</p></td>
+</tr>
+<tr class="row-even"><td><p>another project</p></td>
+<td><p>new or cloned ensemble with source as spec</p></td>
+</tr>
+<tr class="row-odd"><td><p>non-empty folder</p></td>
+<td><p>error</p></td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+</section>
+</section>
+<section id="module-unfurl.logs">
+<span id="utility-classes-and-functions"></span><h2><a class="toc-backref" href="#id4">Utility classes and functions</a><a class="headerlink" href="#module-unfurl.logs" title="Permalink to this headline"></a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="unfurl.logs.sensitive">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">unfurl.logs.</span></span><span class="sig-name descname"><span class="pre">sensitive</span></span><a class="headerlink" href="#unfurl.logs.sensitive" title="Permalink to this definition"></a></dt>
+<dd><p>Base class for marking a value as sensitive. Depending on the context,
+sensitive values will either be encrypted or redacted when outputed.</p>
+</dd></dl>
+
+<span class="target" id="module-unfurl.util"></span><dl class="py exception">
+<dt class="sig sig-object py" id="unfurl.util.UnfurlError">
+<em class="property"><span class="pre">exception</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">unfurl.util.</span></span><span class="sig-name descname"><span class="pre">UnfurlError</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">message</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">saveStack</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">log</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.util.UnfurlError" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py exception">
+<dt class="sig sig-object py" id="unfurl.util.UnfurlTaskError">
+<em class="property"><span class="pre">exception</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">unfurl.util.</span></span><span class="sig-name descname"><span class="pre">UnfurlTaskError</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">task</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">message</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">log</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">40</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.util.UnfurlTaskError" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="unfurl.util.filter_env">
+<span class="sig-prename descclassname"><span class="pre">unfurl.util.</span></span><span class="sig-name descname"><span class="pre">filter_env</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">rules</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">env</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">addOnly</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.util.filter_env" title="Permalink to this definition"></a></dt>
+<dd><p>Applies the given list of rules to a dictionary of environment variables and returns a new dictionary.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>rules</strong> (<em>dict</em>) – A dictionary of rules for adding, removing and filtering environment variables.</p></li>
+<li><p><strong>env</strong> (<em>dict</em><em>, </em><em>optional</em>) – The environment to apply the give rules to. If <code class="docutils literal notranslate"><span class="pre">env</span></code> is None it will be set to <code class="docutils literal notranslate"><span class="pre">os.environ</span></code>.
+Defaults to None.</p></li>
+<li><p><strong>addOnly</strong> (<em>bool</em><em>, </em><em>optional</em>) – If addOnly is False (the default) all variables in <code class="docutils literal notranslate"><span class="pre">env</span></code> will be included
+in the returned dict, otherwise only variables added by <code class="docutils literal notranslate"><span class="pre">rules</span></code> will be included</p></li>
+</ul>
+</dd>
+</dl>
+<p>Rules applied in the order they are declared in the <code class="docutils literal notranslate"><span class="pre">rules</span></code> dictionary. The following examples show the different patterns for the rules:</p>
+<blockquote>
+<div><dl class="field-list simple">
+<dt class="field-odd">foo : bar</dt>
+<dd class="field-odd"><p>Add <code class="docutils literal notranslate"><span class="pre">foo=bar</span></code></p>
+</dd>
+<dt class="field-even">+foo</dt>
+<dd class="field-even"><p>Copy <code class="docutils literal notranslate"><span class="pre">foo</span></code> from the current environment</p>
+</dd>
+<dt class="field-odd">+foo : bar</dt>
+<dd class="field-odd"><p>Copy <code class="docutils literal notranslate"><span class="pre">foo</span></code>, or add <code class="docutils literal notranslate"><span class="pre">foo=bar</span></code> if it is not present</p>
+</dd>
+<dt class="field-even">+!foo*</dt>
+<dd class="field-even"><p>Copy all name from the current environment except those matching <code class="docutils literal notranslate"><span class="pre">foo*</span></code></p>
+</dd>
+<dt class="field-odd">-!foo</dt>
+<dd class="field-odd"><p>Remove all names except for <code class="docutils literal notranslate"><span class="pre">foo</span></code></p>
+</dd>
+<dt class="field-even">^foo : /bar/bin</dt>
+<dd class="field-even"><p>Treat <code class="docutils literal notranslate"><span class="pre">foo</span></code> like <code class="docutils literal notranslate"><span class="pre">PATH</span></code> and prepend <code class="docutils literal notranslate"><span class="pre">/bar/bin:$foo</span></code></p>
+</dd>
+</dl>
+</div></blockquote>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="unfurl.util.sensitive_bytes">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">unfurl.util.</span></span><span class="sig-name descname"><span class="pre">sensitive_bytes</span></span><a class="headerlink" href="#unfurl.util.sensitive_bytes" title="Permalink to this definition"></a></dt>
+<dd><p>Transparent wrapper class to mark bytes as sensitive</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.util.sensitive_bytes.decode">
+<span class="sig-name descname"><span class="pre">decode</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.util.sensitive_bytes.decode" title="Permalink to this definition"></a></dt>
+<dd><p>Wrapper method to ensure type conversions maintain sensitive context</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="unfurl.util.sensitive_dict">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">unfurl.util.</span></span><span class="sig-name descname"><span class="pre">sensitive_dict</span></span><a class="headerlink" href="#unfurl.util.sensitive_dict" title="Permalink to this definition"></a></dt>
+<dd><p>Transparent wrapper class to mark a dict as sensitive</p>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="unfurl.util.sensitive_list">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">unfurl.util.</span></span><span class="sig-name descname"><span class="pre">sensitive_list</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">iterable</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">()</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">/</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.util.sensitive_list" title="Permalink to this definition"></a></dt>
+<dd><p>Transparent wrapper class to mark a list as sensitive</p>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="unfurl.util.sensitive_str">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">unfurl.util.</span></span><span class="sig-name descname"><span class="pre">sensitive_str</span></span><a class="headerlink" href="#unfurl.util.sensitive_str" title="Permalink to this definition"></a></dt>
+<dd><p>Transparent wrapper class to mark a str as sensitive</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.util.sensitive_str.encode">
+<span class="sig-name descname"><span class="pre">encode</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.util.sensitive_str.encode" title="Permalink to this definition"></a></dt>
+<dd><p>Wrapper method to ensure type conversions maintain sensitive context</p>
+</dd></dl>
+
+</dd></dl>
+
+<section id="module-unfurl.eval">
+<span id="eval-module"></span><h3>Eval module<a class="headerlink" href="#module-unfurl.eval" title="Permalink to this headline"></a></h3>
+<p>Public Api:</p>
+<p>map_value - returns a copy of the given value resolving any embedded queries or template strings</p>
+<p>Ref.resolve given an expression, returns a ResultList
+Ref.resolve_one given an expression, return value, none or a (regular) list
+Ref.is_ref return true if the given diction looks like a Ref</p>
+<p>Internal:</p>
+<p>eval_ref() given expression (string or dictionary) return list of Result
+Expr.resolve() given expression string, return list of Result
+Results._map_value same as map_value but with lazily evaluation</p>
+<dl class="py class">
+<dt class="sig sig-object py" id="unfurl.eval.Ref">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">unfurl.eval.</span></span><span class="sig-name descname"><span class="pre">Ref</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">exp</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">vars</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.eval.Ref" title="Permalink to this definition"></a></dt>
+<dd><p>A Ref objects describes a path to metadata associated with a resource.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.eval.Ref.resolve">
+<span class="sig-name descname"><span class="pre">resolve</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">ctx</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">wantList</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">strict</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.eval.Ref.resolve" title="Permalink to this definition"></a></dt>
+<dd><p>If wantList=True (default) returns a ResultList of matches
+Note that values in the list can be a list or None
+If wantList=False return <a class="reference internal" href="#unfurl.eval.Ref.resolve_one" title="unfurl.eval.Ref.resolve_one"><code class="xref any py py-meth docutils literal notranslate"><span class="pre">resolve_one</span></code></a> semantics
+If wantList=’result’ return a Result</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.eval.Ref.resolve_one">
+<span class="sig-name descname"><span class="pre">resolve_one</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">ctx</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">strict</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.eval.Ref.resolve_one" title="Permalink to this definition"></a></dt>
+<dd><p>If no match return None
+If more than one match return a list of matches
+Otherwise return the match</p>
+<p>Note: If you want to distinguish between None values and no match
+or between single match that is a list and a list of matches
+use resolve() which always returns a (possible empty) of matches</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="unfurl.eval.RefContext">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">unfurl.eval.</span></span><span class="sig-name descname"><span class="pre">RefContext</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">currentResource</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">vars</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">wantList</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">resolveExternal</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">trace</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">strict</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">task</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.eval.RefContext" title="Permalink to this definition"></a></dt>
+<dd><p>The context of the expression being evaluated.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="unfurl.eval.eval_ref">
+<span class="sig-prename descclassname"><span class="pre">unfurl.eval.</span></span><span class="sig-name descname"><span class="pre">eval_ref</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">val</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ctx</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">top</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.eval.eval_ref" title="Permalink to this definition"></a></dt>
+<dd><p>val is assumed to be an expression, evaluate and return a list of Result</p>
+</dd></dl>
+
+</section>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="glossary.html" class="btn btn-neutral float-left" title="Glossary" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2020, Adam Souzis.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

@@ -1,0 +1,133 @@
+table.align-default {
+    margin-left: inherit;
+    margin-right: inherit;
+}
+
+.logo {
+    height: 3rem !important ;
+}
+
+/*Side nav bar text color*/
+
+.wy-menu-vertical a {
+
+    color: #4A5053;
+}
+
+/*Side nav bar search block background color*/
+
+.wy-side-nav-search {
+
+    background-color: #fcfcfc;
+
+    color: #4A5053;
+}
+
+
+.wy-side-nav-search .wy-dropdown>a, .wy-side-nav-search>a {
+    color: #4A5053;
+
+}
+
+
+
+/*Side nav bar on hover selection*/
+
+.wy-menu-vertical a:hover {
+    background-color: #00D2D9;
+
+}
+
+/*Selected side nav bar on hover selection*/
+
+.wy-menu-vertical li.current a:hover {
+    background: #00d2d9;
+}
+
+/*Side nav bar - section selected - right border*/
+
+.wy-menu-vertical li.current a {
+
+    border-right: 1px solid #00d2d9;
+}
+
+/*Side nav bar - section selected - top & bottom borders*/
+
+.wy-menu-vertical li.toctree-l1.current>a {
+    border-bottom: 1px solid #00d2d9;
+    border-top: 1px solid #00D2D9;
+}
+
+.wy-menu-vertical li.current>a, .wy-menu-vertical li.on a {
+    color: #00d2d9;
+
+    background: #fcfcfc;
+
+}
+
+/*Selected sub section background color*/
+
+.wy-menu-vertical li.toctree-l2.current>a, .wy-menu-vertical li.toctree-l2.current li.toctree-l3>a {
+    background: #c4f1f3; /* #c9c9c9 */
+}
+
+.wy-menu-vertical li.toctree-l3.current>a, .wy-menu-vertical li.toctree-l3.current li.toctree-l4>a {
+    background: #9eecef;
+}
+
+/*Nav bar selected background*/
+
+.wy-menu-vertical li ul li a {
+
+    background-color: #e7fafb;
+}
+
+
+.wy-nav-side {
+
+    color: #9b9b9b;
+    background: #fcfcfc;
+
+}
+
+/*Side nav bar on hover selection*/
+a {
+    color: #00D2D9;
+}
+
+/*Main RST body content*/
+
+.wy-nav-content {
+    max-width: 850px;
+    margin-left: 7%;
+}
+
+
+/*Extra left background*/
+
+@media screen and (min-width: 1400px) {
+    .wy-nav-content, .wy-nav-content-wrap  {
+        background: #fcfcfc;
+    }
+}
+
+@media screen and (min-width: 1100px) {
+  .wy-nav-content, .wy-nav-content-wrap  {
+      background: #fcfcfc;
+  }
+}
+
+/*In line code color*/
+
+.rst-content code.literal, .rst-content tt.literal {
+    color: #bf8a11;
+}
+
+
+/* Mobile header color*/
+
+.wy-nav-top {
+
+    background: #00D2D9;
+
+}

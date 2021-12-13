@@ -1,0 +1,1696 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+  <meta charset="utf-8" /><meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Configuration Files &mdash; Unfurl Documentation</title>
+      <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+      <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+      <link rel="stylesheet" href="_static/custom.css" type="text/css" />
+    <link rel="shortcut icon" href="_static/favicon32.png"/>
+  <!--[if lt IE 9]>
+    <script src="_static/js/html5shiv.min.js"></script>
+  <![endif]-->
+  
+        <script data-url_root="./" id="documentation_options" src="_static/documentation_options.js"></script>
+        <script src="_static/jquery.js"></script>
+        <script src="_static/underscore.js"></script>
+        <script src="_static/doctools.js"></script>
+        <script src="_static/custom.js"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="TOSCA Language Reference" href="toscaref.html" />
+    <link rel="prev" title="Command Line" href="cli.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+            <a href="index.html">
+            <img src="_static/unfurl_logo.svg" class="logo" alt="Logo"/>
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="README.html">Introduction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="README.html#installation">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="get-started-step-by-step.html">Getting Started</a></li>
+<li class="toctree-l1"><a class="reference internal" href="ensembles.html">Ensembles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="projects.html">Unfurl Projects</a></li>
+<li class="toctree-l1"><a class="reference internal" href="secrets.html">Managing Secrets</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tosca.html">TOSCA</a></li>
+<li class="toctree-l1"><a class="reference internal" href="jobs.html">Jobs and Workflows</a></li>
+<li class="toctree-l1"><a class="reference internal" href="runtime.html">Runtime Environment</a></li>
+<li class="toctree-l1"><a class="reference internal" href="configurators.html">Configurators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="configurators.html#installers">Installers</a></li>
+<li class="toctree-l1"><a class="reference internal" href="processing.html">Template Processing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="expressions.html">Expression Functions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="cli.html">Command Line</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Configuration Files</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#files">Files</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#ensemble-yaml">ensemble.yaml</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#id2">ensemble.yaml</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#job-yaml">job.yaml</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#id3">job.yaml</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#unfurl-yaml">unfurl.yaml</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#id4">unfurl.yaml</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#sections">Sections</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#environment">environment</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#instance">Instance</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#external">External</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#repositories">repositories</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#status">Status</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#job-record">Job Record</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#task-record">Task Record</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#implementation-definition">implementation definition</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#changes">Changes</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#definitions">Definitions</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#enums-and-simple-types">Enums and Simple Types</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#readystate">readyState</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#state">state</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#changeid">changeId</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#timestamp">Timestamp</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#generic-version-identifier">Generic Version Identifier</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#reusable-helper-definitions">Reusable helper definitions</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#instances">instances</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#attributes">attributes</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#atomic">atomic</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#namedobject">namedObject</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#schema">schema</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="toscaref.html">TOSCA Language Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="glossary.html">Glossary</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api.html">Python API</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">Unfurl</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home"></a> &raquo;</li>
+      <li>Configuration Files</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/jsonschema.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="configuration-files">
+<h1>Configuration Files<a class="headerlink" href="#configuration-files" title="Permalink to this headline"></a></h1>
+<p>Unfurl’s configuration files are validated according to the JSON schemas described below.
+(Note: Required properties are in <strong>bold</strong>.)</p>
+<section id="files">
+<h2>Files<a class="headerlink" href="#files" title="Permalink to this headline"></a></h2>
+<section id="ensemble-yaml">
+<span id="id1"></span><h3>ensemble.yaml<a class="headerlink" href="#ensemble-yaml" title="Permalink to this headline"></a></h3>
+<div class="code YAML highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">apiVersion</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">/</span><span class="n">v1alpha1</span>
+<span class="n">kind</span><span class="p">:</span> <span class="n">Ensemble</span>
+<span class="c1"># the context will be merged with the corresponding context in the project config:</span>
+<span class="n">context</span><span class="p">:</span>
+  <span class="c1"># local and secret are special cases that must be defined in the local config</span>
+  <span class="n">local</span><span class="p">:</span>
+   <span class="n">schema</span><span class="p">:</span>
+     <span class="n">name1</span><span class="p">:</span>
+       <span class="nb">type</span><span class="p">:</span> <span class="n">string</span>
+  <span class="n">secret</span><span class="p">:</span>
+   <span class="n">schema</span><span class="p">:</span> <span class="c1"># expected JSON schema for attributes</span>
+     <span class="n">name1</span><span class="p">:</span>
+       <span class="nb">type</span><span class="p">:</span> <span class="n">string</span>
+  <span class="c1"># environment:</span>
+  <span class="c1"># runtime:</span>
+  <span class="n">external</span><span class="p">:</span>
+    <span class="n">name</span><span class="p">:</span> <span class="c1"># manifest to represent as a resource</span>
+      <span class="n">manifest</span><span class="p">:</span>
+        <span class="n">file</span><span class="p">:</span> <span class="o">.</span>
+      <span class="n">instance</span><span class="p">:</span> <span class="s2">&quot;*&quot;</span> <span class="c1"># name or &quot;*&quot;, default is &quot;root&quot;</span>
+
+<span class="n">spec</span><span class="p">:</span>
+  <span class="n">service_template</span><span class="p">:</span>
+    <span class="n">topology_template</span><span class="p">:</span>
+      <span class="n">node_templates</span><span class="p">:</span>
+        <span class="n">aNodeTemplate</span><span class="p">:</span>
+          <span class="nb">type</span><span class="p">:</span> <span class="n">tosca</span><span class="p">:</span><span class="n">Root</span>
+    <span class="c1"># tosca service template goes here</span>
+<span class="n">status</span><span class="p">:</span>
+  <span class="c1"># inputs:</span>
+  <span class="c1"># outputs:</span>
+  <span class="n">instances</span><span class="p">:</span>
+    <span class="n">name</span><span class="p">:</span> <span class="c1"># root resource is always named &quot;root&quot;</span>
+      <span class="n">template</span><span class="p">:</span> <span class="n">aNodeTemplate</span>
+      <span class="n">attributes</span><span class="p">:</span>
+        <span class="o">.</span><span class="n">interfaces</span><span class="p">:</span>
+          <span class="n">interfaceName</span><span class="p">:</span> <span class="n">foo</span><span class="o">.</span><span class="n">bar</span><span class="o">.</span><span class="n">ClassName</span>
+      <span class="n">priority</span><span class="p">:</span> <span class="n">required</span>
+      <span class="n">readyState</span><span class="p">:</span>
+        <span class="n">local</span><span class="p">:</span> <span class="n">ok</span>
+        <span class="n">state</span><span class="p">:</span> <span class="n">created</span>
+      <span class="n">lastConfigChange</span><span class="p">:</span> <span class="n">A1312XNB0001</span>
+      <span class="n">lastStateChange</span><span class="p">:</span> <span class="n">A1312XNB0001</span>
+      <span class="n">created</span><span class="p">:</span> <span class="n">true</span>
+      <span class="n">instances</span><span class="p">:</span>
+        <span class="n">child1</span><span class="p">:</span>
+          <span class="n">template</span><span class="p">:</span> <span class="n">aNodeTemplate</span>
+          <span class="c1"># ...</span>
+<span class="n">lastJob</span><span class="p">:</span>
+  <span class="n">changeId</span><span class="p">:</span> <span class="n">A0920aMf0000</span>
+  <span class="n">startTime</span><span class="p">:</span> <span class="mi">2020</span><span class="o">-</span><span class="mi">09</span><span class="o">-</span><span class="mi">02</span><span class="o">-</span><span class="mi">00</span><span class="o">-</span><span class="mi">36</span><span class="o">-</span><span class="mi">22</span><span class="o">-</span><span class="mi">664763</span>
+  <span class="n">changelog</span><span class="p">:</span> <span class="n">jobs</span><span class="o">/</span><span class="n">job2020</span><span class="o">-</span><span class="mi">09</span><span class="o">-</span><span class="mi">02</span><span class="o">-</span><span class="mi">00</span><span class="o">-</span><span class="mi">36</span><span class="o">-</span><span class="mi">22</span><span class="o">-</span><span class="mf">664763.</span><span class="n">yaml</span>
+  <span class="n">workflow</span><span class="p">:</span> <span class="n">deploy</span>
+  <span class="n">options</span><span class="p">:</span>
+    <span class="n">force</span><span class="p">:</span> <span class="n">true</span>
+  <span class="n">summary</span><span class="p">:</span> <span class="mi">1</span> <span class="n">tasks</span> <span class="p">(</span><span class="mi">1</span> <span class="n">changed</span><span class="p">,</span> <span class="mi">1</span> <span class="n">ok</span><span class="p">,</span> <span class="mi">0</span> <span class="n">failed</span><span class="p">,</span> <span class="mi">0</span> <span class="n">unknown</span><span class="p">,</span> <span class="mi">0</span> <span class="n">skipped</span><span class="p">)</span>
+  <span class="n">startCommit</span><span class="p">:</span> <span class="mi">628</span><span class="n">c2a4b633a26c1e8b1c116d3fdeef9bca89716</span>
+  <span class="n">specDigest</span><span class="p">:</span> <span class="mi">037815</span><span class="n">dc8b56254219a96f359fd996c65e7d0754</span>
+  <span class="n">priority</span><span class="p">:</span> <span class="n">required</span>
+  <span class="n">readyState</span><span class="p">:</span>
+    <span class="n">local</span><span class="p">:</span> <span class="n">ok</span>
+<span class="n">jobLog</span><span class="p">:</span> <span class="n">jobs</span><span class="o">.</span><span class="n">tsv</span>
+</pre></div>
+</div>
+<section id="id2">
+<h4>ensemble.yaml<a class="headerlink" href="#id2" title="Permalink to this headline"></a></h4>
+<table class="docutils align-default">
+<colgroup>
+<col style="width: 17%" />
+<col style="width: 17%" />
+<col style="width: 17%" />
+<col style="width: 17%" />
+<col style="width: 17%" />
+<col style="width: 17%" />
+</colgroup>
+<tbody>
+<tr class="row-odd"><td><p>type</p></td>
+<td colspan="5"><p><em>object</em></p></td>
+</tr>
+<tr class="row-even"><td colspan="6"><p>properties</p></td>
+</tr>
+<tr class="row-odd"><td rowspan="2"><ul class="simple">
+<li><p><strong>apiVersion</strong></p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td colspan="4"><p><em>string</em></p></td>
+</tr>
+<tr class="row-even"><td><p>const</p></td>
+<td colspan="4"><p>“unfurl/v1alpha1”</p></td>
+</tr>
+<tr class="row-odd"><td rowspan="2"><ul class="simple">
+<li><p><strong>kind</strong></p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td colspan="4"><p><em>string</em></p></td>
+</tr>
+<tr class="row-even"><td><p>enum</p></td>
+<td colspan="4"><p>Manifest, Ensemble</p></td>
+</tr>
+<tr class="row-odd"><td rowspan="8"><ul class="simple">
+<li><p>metadata</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td colspan="4"><p><em>object</em></p></td>
+</tr>
+<tr class="row-even"><td colspan="5"><p>properties</p></td>
+</tr>
+<tr class="row-odd"><td rowspan="2"><ul class="simple">
+<li><p><strong>uri</strong></p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td colspan="3"><p><em>string</em></p></td>
+</tr>
+<tr class="row-even"><td><p>format</p></td>
+<td colspan="3"><p>uri</p></td>
+</tr>
+<tr class="row-odd"><td rowspan="4"><ul class="simple">
+<li><p>aliases</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td colspan="3"><p><em>array</em></p></td>
+</tr>
+<tr class="row-even"><td colspan="4"><p>items</p></td>
+</tr>
+<tr class="row-odd"><td rowspan="2"><ul class="simple">
+<li></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td colspan="2"><p><em>string</em></p></td>
+</tr>
+<tr class="row-even"><td><p>format</p></td>
+<td colspan="2"><p>uri</p></td>
+</tr>
+<tr class="row-odd"><td><ul class="simple">
+<li><p>environment</p></li>
+</ul>
+</td>
+<td colspan="5"><p><a class="reference internal" href="##/definitions/environment"><span class="std std-ref">environment</span></a></p></td>
+</tr>
+<tr class="row-even"><td rowspan="6"><ul class="simple">
+<li><p><strong>spec</strong></p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td colspan="4"><p><em>object</em></p></td>
+</tr>
+<tr class="row-odd"><td rowspan="5"><p>anyOf</p></td>
+<td rowspan="3"><ul class="simple">
+<li></li>
+</ul>
+</td>
+<td colspan="3"><p>properties</p></td>
+</tr>
+<tr class="row-even"><td rowspan="2"><ul class="simple">
+<li><p>service_template</p></li>
+</ul>
+</td>
+<td colspan="2"><p>a TOSCA service template</p></td>
+</tr>
+<tr class="row-odd"><td><p>type</p></td>
+<td><p><em>object</em></p></td>
+</tr>
+<tr class="row-even"><td rowspan="2"><ul class="simple">
+<li></li>
+</ul>
+</td>
+<td colspan="3"><p>properties</p></td>
+</tr>
+<tr class="row-odd"><td><ul class="simple">
+<li><p>instances</p></li>
+</ul>
+</td>
+<td colspan="2"><p><a class="reference internal" href="##/definitions/namedobjects"><span class="std std-ref">namedObject</span></a></p></td>
+</tr>
+<tr class="row-even"><td rowspan="7"><ul class="simple">
+<li><p>status</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td colspan="4"><p><em>object</em></p></td>
+</tr>
+<tr class="row-odd"><td><p>default</p></td>
+<td colspan="4"><p>{}</p></td>
+</tr>
+<tr class="row-even"><td rowspan="5"><p>allOf</p></td>
+<td rowspan="4"><ul class="simple">
+<li></li>
+</ul>
+</td>
+<td colspan="3"><p>properties</p></td>
+</tr>
+<tr class="row-odd"><td><ul class="simple">
+<li><p>inputs</p></li>
+</ul>
+</td>
+<td colspan="2"><p><a class="reference internal" href="##/definitions/attributes"><span class="std std-ref">attributes</span></a></p></td>
+</tr>
+<tr class="row-even"><td><ul class="simple">
+<li><p>outputs</p></li>
+</ul>
+</td>
+<td colspan="2"><p><a class="reference internal" href="##/definitions/attributes"><span class="std std-ref">attributes</span></a></p></td>
+</tr>
+<tr class="row-odd"><td><ul class="simple">
+<li><p>instances</p></li>
+</ul>
+</td>
+<td colspan="2"><p><a class="reference internal" href="##/definitions/instances"><span class="std std-ref">instances</span></a></p></td>
+</tr>
+<tr class="row-even"><td><ul class="simple">
+<li></li>
+</ul>
+</td>
+<td colspan="3"><p><a class="reference internal" href="##/definitions/status"><span class="std std-ref">Status</span></a></p></td>
+</tr>
+<tr class="row-odd"><td><ul class="simple">
+<li><p>lastJob</p></li>
+</ul>
+</td>
+<td colspan="5"><p><a class="reference internal" href="##/definitions/job"><span class="std std-ref">Job Record</span></a></p></td>
+</tr>
+<tr class="row-even"><td><ul class="simple">
+<li><p>jobsLog</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td colspan="4"><p><em>string</em></p></td>
+</tr>
+<tr class="row-odd"><td><ul class="simple">
+<li><p>jobsFolder</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td colspan="4"><p><em>string</em></p></td>
+</tr>
+<tr class="row-even"><td><ul class="simple">
+<li><p>changes</p></li>
+</ul>
+</td>
+<td colspan="5"><p><a class="reference internal" href="##/definitions/changes"><span class="std std-ref">Changes</span></a></p></td>
+</tr>
+</tbody>
+</table>
+</section>
+</section>
+<section id="job-yaml">
+<h3>job.yaml<a class="headerlink" href="#job-yaml" title="Permalink to this headline"></a></h3>
+<div class="code YAML highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">manifest</span><span class="p">:</span> <span class="o">../</span><span class="n">ensemble</span><span class="o">.</span><span class="n">yaml</span>
+<span class="n">changes</span><span class="p">:</span>
+<span class="o">-</span> <span class="n">changeId</span><span class="p">:</span> <span class="n">A0AP4P9C0000</span>
+  <span class="n">startTime</span><span class="p">:</span> <span class="mi">2020</span><span class="o">-</span><span class="mi">10</span><span class="o">-</span><span class="mi">25</span><span class="o">-</span><span class="mi">04</span><span class="o">-</span><span class="mi">25</span><span class="o">-</span><span class="mi">09</span><span class="o">-</span><span class="mi">199310</span>
+  <span class="n">previousId</span><span class="p">:</span> <span class="n">A0AP4OM20000</span>
+  <span class="n">workflow</span><span class="p">:</span> <span class="n">deploy</span>
+  <span class="n">options</span><span class="p">:</span> <span class="p">{}</span>
+  <span class="n">summary</span><span class="p">:</span> <span class="mi">2</span> <span class="n">tasks</span> <span class="p">(</span><span class="mi">1</span> <span class="n">changed</span><span class="p">,</span> <span class="mi">2</span> <span class="n">ok</span><span class="p">,</span> <span class="mi">0</span> <span class="n">failed</span><span class="p">,</span> <span class="mi">0</span> <span class="n">unknown</span><span class="p">,</span> <span class="mi">0</span> <span class="n">skipped</span><span class="p">)</span>
+  <span class="n">specDigest</span><span class="p">:</span> <span class="mi">925</span><span class="n">f61f8c2b3153f2e2e60ffb800f48720095a9a</span>
+  <span class="n">priority</span><span class="p">:</span> <span class="n">required</span>
+  <span class="n">readyState</span><span class="p">:</span>
+    <span class="n">effective</span><span class="p">:</span> <span class="n">error</span>
+    <span class="n">local</span><span class="p">:</span> <span class="n">ok</span>
+<span class="o">-</span> <span class="n">changeId</span><span class="p">:</span> <span class="n">A0AP4P9C0001</span>
+  <span class="n">target</span><span class="p">:</span> <span class="p">::</span><span class="n">my_server</span>
+  <span class="n">priority</span><span class="p">:</span> <span class="n">required</span>
+  <span class="n">readyState</span><span class="p">:</span>
+    <span class="n">local</span><span class="p">:</span> <span class="n">ok</span>
+  <span class="n">implementation</span><span class="p">:</span>
+    <span class="n">operation</span><span class="p">:</span> <span class="n">check</span>
+    <span class="n">className</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">configurators</span><span class="o">.</span><span class="n">terraform</span><span class="o">.</span><span class="n">TerraformConfigurator</span>
+  <span class="n">inputs</span><span class="p">:</span> <span class="p">{}</span>
+  <span class="n">result</span><span class="p">:</span>
+    <span class="n">args</span><span class="p">:</span>
+    <span class="o">-</span> <span class="n">terraform</span>
+    <span class="o">-</span> <span class="n">refresh</span>
+    <span class="o">-</span> <span class="o">-</span><span class="n">state</span><span class="o">=/</span><span class="n">Users</span><span class="o">/</span><span class="n">adam</span><span class="o">/</span><span class="n">_dev</span><span class="o">/</span><span class="n">unfurl</span><span class="o">/</span><span class="n">tests</span><span class="o">/</span><span class="n">examples</span><span class="o">/</span><span class="n">my_server</span><span class="o">/</span><span class="n">local</span><span class="o">/</span><span class="n">terraform</span><span class="o">.</span><span class="n">tfstate</span><span class="o">.</span><span class="n">json</span>
+    <span class="o">-</span> <span class="o">-</span><span class="n">var</span><span class="o">-</span><span class="n">file</span><span class="o">=/</span><span class="n">Users</span><span class="o">/</span><span class="n">adam</span><span class="o">/</span><span class="n">_dev</span><span class="o">/</span><span class="n">unfurl</span><span class="o">/</span><span class="n">tests</span><span class="o">/</span><span class="n">examples</span><span class="o">/</span><span class="n">my_server</span><span class="o">/</span><span class="n">local</span><span class="o">/</span><span class="nb">vars</span><span class="o">.</span><span class="n">tfvars</span><span class="o">.</span><span class="n">json</span>
+    <span class="n">returncode</span><span class="p">:</span> <span class="mi">0</span>
+    <span class="n">stdout</span><span class="p">:</span> <span class="o">&gt;</span>
+      <span class="n">Empty</span> <span class="ow">or</span> <span class="n">non</span><span class="o">-</span><span class="n">existent</span> <span class="n">state</span> <span class="n">file</span><span class="o">.</span>
+    <span class="n">stderr</span><span class="p">:</span> <span class="s1">&#39;&#39;</span>
+    <span class="n">cmd</span><span class="p">:</span> <span class="n">terraform</span> <span class="n">refresh</span> <span class="o">-</span><span class="n">state</span><span class="o">=/</span><span class="n">Users</span><span class="o">/</span><span class="n">adam</span><span class="o">/</span><span class="n">_dev</span><span class="o">/</span><span class="n">unfurl</span><span class="o">/</span><span class="n">tests</span><span class="o">/</span><span class="n">examples</span><span class="o">/</span><span class="n">my_server</span><span class="o">/</span><span class="n">local</span><span class="o">/</span><span class="n">terraform</span><span class="o">.</span><span class="n">tfstate</span><span class="o">.</span><span class="n">json</span>
+      <span class="o">-</span><span class="n">var</span><span class="o">-</span><span class="n">file</span><span class="o">=/</span><span class="n">Users</span><span class="o">/</span><span class="n">adam</span><span class="o">/</span><span class="n">_dev</span><span class="o">/</span><span class="n">unfurl</span><span class="o">/</span><span class="n">tests</span><span class="o">/</span><span class="n">examples</span><span class="o">/</span><span class="n">my_server</span><span class="o">/</span><span class="n">local</span><span class="o">/</span><span class="nb">vars</span><span class="o">.</span><span class="n">tfvars</span><span class="o">.</span><span class="n">json</span>
+</pre></div>
+</div>
+<section id="id3">
+<h4>job.yaml<a class="headerlink" href="#id3" title="Permalink to this headline"></a></h4>
+<table class="docutils align-default">
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<tbody>
+<tr class="row-odd"><td colspan="3"><p>List of jobs ran with changes applied</p></td>
+</tr>
+<tr class="row-even"><td><p>type</p></td>
+<td colspan="2"><p><em>object</em></p></td>
+</tr>
+<tr class="row-odd"><td colspan="3"><p>properties</p></td>
+</tr>
+<tr class="row-even"><td><ul class="simple">
+<li><p>manifest</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td><p><em>string</em></p></td>
+</tr>
+<tr class="row-odd"><td><ul class="simple">
+<li><p>changes</p></li>
+</ul>
+</td>
+<td colspan="2"><p><a class="reference internal" href="##/definitions/changes"><span class="std std-ref">Changes</span></a></p></td>
+</tr>
+</tbody>
+</table>
+</section>
+</section>
+<section id="unfurl-yaml">
+<h3>unfurl.yaml<a class="headerlink" href="#unfurl-yaml" title="Permalink to this headline"></a></h3>
+<div class="code YAML highlight-default notranslate"><div class="highlight"><pre><span></span>  <span class="n">apiVersion</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">/</span><span class="n">v1alpha1</span>
+  <span class="n">kind</span><span class="p">:</span> <span class="n">Project</span>
+
+  <span class="n">environments</span><span class="p">:</span>
+    <span class="n">defaults</span><span class="p">:</span> <span class="c1"># &quot;defaults&quot; are merged with optional contexts defined below</span>
+      <span class="nb">locals</span><span class="p">:</span>
+       <span class="n">schema</span><span class="p">:</span>
+         <span class="n">name1</span><span class="p">:</span>
+           <span class="nb">type</span><span class="p">:</span> <span class="n">string</span>
+      <span class="n">secrets</span><span class="p">:</span>
+       <span class="n">schema</span><span class="p">:</span>
+         <span class="n">name1</span><span class="p">:</span>
+           <span class="nb">type</span><span class="p">:</span> <span class="n">string</span>
+      <span class="c1"># # values are merged with the manifest&#39;s context:</span>
+      <span class="c1"># inputs:</span>
+      <span class="c1"># locals:</span>
+      <span class="c1"># secrets:</span>
+      <span class="c1"># variables:</span>
+      <span class="c1"># external:</span>
+    <span class="c1"># user-defined contexts:</span>
+    <span class="n">production</span><span class="p">:</span> <span class="p">{}</span>
+    <span class="n">staging</span><span class="p">:</span> <span class="p">{}</span>
+
+  <span class="n">ensembles</span><span class="p">:</span>
+    <span class="o">-</span> <span class="n">file</span><span class="p">:</span> <span class="s2">&quot;ensemble/ensemble.yaml&quot;</span>
+      <span class="n">alias</span><span class="p">:</span> <span class="s2">&quot;named_ensemble&quot;</span>
+      <span class="n">project</span><span class="p">:</span> <span class="s2">&quot;in_another_project&quot;</span>
+      <span class="n">default</span><span class="p">:</span> <span class="n">true</span>
+      <span class="n">environment</span><span class="p">:</span> <span class="n">production</span> <span class="c1"># &quot;defaults&quot; context is used if not specified</span>
+</pre></div>
+</div>
+<section id="id4">
+<h4>unfurl.yaml<a class="headerlink" href="#id4" title="Permalink to this headline"></a></h4>
+<table class="docutils align-default">
+<colgroup>
+<col style="width: 13%" />
+<col style="width: 13%" />
+<col style="width: 13%" />
+<col style="width: 13%" />
+<col style="width: 13%" />
+<col style="width: 13%" />
+<col style="width: 13%" />
+<col style="width: 13%" />
+</colgroup>
+<tbody>
+<tr class="row-odd"><td colspan="8"><p>Unfurl configuration file</p></td>
+</tr>
+<tr class="row-even"><td><p>type</p></td>
+<td colspan="7"><p><em>object</em></p></td>
+</tr>
+<tr class="row-odd"><td colspan="8"><p>properties</p></td>
+</tr>
+<tr class="row-even"><td><ul class="simple">
+<li><p><strong>apiVersion</strong></p></li>
+</ul>
+</td>
+<td><p>const</p></td>
+<td colspan="6"><p>“unfurl/v1alpha1”</p></td>
+</tr>
+<tr class="row-odd"><td><ul class="simple">
+<li><p><strong>kind</strong></p></li>
+</ul>
+</td>
+<td><p>const</p></td>
+<td colspan="6"><p>“Project”</p></td>
+</tr>
+<tr class="row-even"><td rowspan="16"><ul class="simple">
+<li><p>ensembles</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td colspan="6"><p><em>array</em></p></td>
+</tr>
+<tr class="row-odd"><td colspan="7"><p>items</p></td>
+</tr>
+<tr class="row-even"><td rowspan="14"><ul class="simple">
+<li></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td colspan="5"><p><em>object</em></p></td>
+</tr>
+<tr class="row-odd"><td colspan="6"><p>properties</p></td>
+</tr>
+<tr class="row-even"><td rowspan="2"><ul class="simple">
+<li><p><strong>file</strong></p></li>
+</ul>
+</td>
+<td colspan="5"><p>Path to ensemble manifest, relative to the the project it is located in.</p></td>
+</tr>
+<tr class="row-odd"><td><p>type</p></td>
+<td colspan="4"><p><em>string</em></p></td>
+</tr>
+<tr class="row-even"><td rowspan="2"><ul class="simple">
+<li><p>project</p></li>
+</ul>
+</td>
+<td colspan="5"><p>The project the ensemble is located in if different from the current project.</p></td>
+</tr>
+<tr class="row-odd"><td><p>type</p></td>
+<td colspan="4"><p><em>string</em></p></td>
+</tr>
+<tr class="row-even"><td rowspan="2"><ul class="simple">
+<li><p>managedBy</p></li>
+</ul>
+</td>
+<td colspan="5"><p>The project that is managing the ensemble if different from the current project.</p></td>
+</tr>
+<tr class="row-odd"><td><p>type</p></td>
+<td colspan="4"><p><em>string</em></p></td>
+</tr>
+<tr class="row-even"><td rowspan="2"><ul class="simple">
+<li><p>default</p></li>
+</ul>
+</td>
+<td colspan="5"><p>Use this ensemble if not is specified.</p></td>
+</tr>
+<tr class="row-odd"><td><p>type</p></td>
+<td colspan="4"><p><em>boolean</em></p></td>
+</tr>
+<tr class="row-even"><td rowspan="2"><ul class="simple">
+<li><p>alias</p></li>
+</ul>
+</td>
+<td colspan="5"><p>Alternative name to specify this ensemble on the command line instead of its file path</p></td>
+</tr>
+<tr class="row-odd"><td><p>type</p></td>
+<td colspan="4"><p><em>string</em></p></td>
+</tr>
+<tr class="row-even"><td rowspan="2"><ul class="simple">
+<li><p>environment</p></li>
+</ul>
+</td>
+<td colspan="5"><p>The name of the environment to use for this ensemble.</p></td>
+</tr>
+<tr class="row-odd"><td><p>type</p></td>
+<td colspan="4"><p><em>string</em></p></td>
+</tr>
+<tr class="row-even"><td rowspan="5"><ul class="simple">
+<li><p>environments</p></li>
+</ul>
+</td>
+<td rowspan="5"><p>anyOf</p></td>
+<td><ul class="simple">
+<li></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td colspan="4"><p><em>null</em></p></td>
+</tr>
+<tr class="row-odd"><td rowspan="4"><ul class="simple">
+<li></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td colspan="4"><p><em>object</em></p></td>
+</tr>
+<tr class="row-even"><td><p>propertyNames</p></td>
+<td><p>pattern</p></td>
+<td colspan="3"><p>^[A-Za-z._][A-Za-z0-9._-]*$</p></td>
+</tr>
+<tr class="row-odd"><td rowspan="2"><p>additionalProperties</p></td>
+<td rowspan="2"><p>anyOf</p></td>
+<td><ul class="simple">
+<li></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td><p><em>null</em></p></td>
+</tr>
+<tr class="row-even"><td><ul class="simple">
+<li></li>
+</ul>
+</td>
+<td colspan="2"><p><a class="reference internal" href="##/definitions/environment"><span class="std std-ref">environment</span></a></p></td>
+</tr>
+<tr class="row-odd"><td><ul class="simple">
+<li><p>default_environment</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td colspan="6"><p><em>string</em></p></td>
+</tr>
+<tr class="row-even"><td rowspan="8"><ul class="simple">
+<li><p>projects</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td colspan="6"><p><em>object</em></p></td>
+</tr>
+<tr class="row-odd"><td rowspan="7"><p>allOf</p></td>
+<td><ul class="simple">
+<li></li>
+</ul>
+</td>
+<td colspan="5"><p><a class="reference internal" href="##/definitions/namedobjects"><span class="std std-ref">namedObject</span></a></p></td>
+</tr>
+<tr class="row-even"><td rowspan="6"><ul class="simple">
+<li></li>
+</ul>
+</td>
+<td rowspan="6"><p>additionalProperties</p></td>
+<td><p>type</p></td>
+<td colspan="3"><p><em>object</em></p></td>
+</tr>
+<tr class="row-odd"><td colspan="4"><p>properties</p></td>
+</tr>
+<tr class="row-even"><td rowspan="2"><ul class="simple">
+<li><p>url</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td colspan="2"><p><em>string</em></p></td>
+</tr>
+<tr class="row-odd"><td><p>format</p></td>
+<td colspan="2"><p>uri</p></td>
+</tr>
+<tr class="row-even"><td><ul class="simple">
+<li><p>initial</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td colspan="2"><p><em>string</em></p></td>
+</tr>
+<tr class="row-odd"><td><ul class="simple">
+<li><p>file</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td colspan="2"><p><em>string</em></p></td>
+</tr>
+<tr class="row-even"><td rowspan="3"><ul class="simple">
+<li><p>localRepositories</p></li>
+</ul>
+</td>
+<td colspan="7"><p>Map of file paths located outside of the project</p></td>
+</tr>
+<tr class="row-odd"><td><p>type</p></td>
+<td colspan="6"><p><em>object</em></p></td>
+</tr>
+<tr class="row-even"><td><p>additionalProperties</p></td>
+<td colspan="6"><p><a class="reference internal" href="##/definitions/repositories"><span class="std std-ref">repositories</span></a></p></td>
+</tr>
+<tr class="row-odd"><td><p>additionalProperties</p></td>
+<td colspan="7"><p>False</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+</section>
+</section>
+<section id="sections">
+<h2>Sections<a class="headerlink" href="#sections" title="Permalink to this headline"></a></h2>
+<section id="environment">
+<span id="#/definitions/environment"></span><span id="./manifest-schema.json#/definitions/environment"></span><h3>environment<a class="headerlink" href="#environment" title="Permalink to this headline"></a></h3>
+<table class="docutils align-default">
+<colgroup>
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+</colgroup>
+<tbody>
+<tr class="row-odd"><td><p>type</p></td>
+<td colspan="4"><p><em>object</em></p></td>
+</tr>
+<tr class="row-even"><td colspan="5"><p>properties</p></td>
+</tr>
+<tr class="row-odd"><td><ul class="simple">
+<li><p>inputs</p></li>
+</ul>
+</td>
+<td colspan="4"><p><a class="reference internal" href="##/definitions/attributes"><span class="std std-ref">attributes</span></a></p></td>
+</tr>
+<tr class="row-even"><td><ul class="simple">
+<li><p>defaultProject</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td colspan="3"><p><em>string</em></p></td>
+</tr>
+<tr class="row-odd"><td rowspan="2"><ul class="simple">
+<li><p>variables</p></li>
+</ul>
+</td>
+<td rowspan="2"><p>anyOf</p></td>
+<td><ul class="simple">
+<li></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td><p><em>object</em></p></td>
+</tr>
+<tr class="row-even"><td><ul class="simple">
+<li></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td><p><em>null</em></p></td>
+</tr>
+<tr class="row-odd"><td><ul class="simple">
+<li><p>locals</p></li>
+</ul>
+</td>
+<td colspan="4"><p><a class="reference internal" href="##/definitions/attributes"><span class="std std-ref">attributes</span></a></p></td>
+</tr>
+<tr class="row-even"><td><ul class="simple">
+<li><p>secrets</p></li>
+</ul>
+</td>
+<td colspan="4"><p><a class="reference internal" href="##/definitions/attributes"><span class="std std-ref">attributes</span></a></p></td>
+</tr>
+<tr class="row-odd"><td rowspan="2"><ul class="simple">
+<li><p>connections</p></li>
+</ul>
+</td>
+<td rowspan="2"><p>anyOf</p></td>
+<td><ul class="simple">
+<li></li>
+</ul>
+</td>
+<td colspan="2"><p><a class="reference internal" href="##/definitions/namedobjects"><span class="std std-ref">namedObject</span></a></p></td>
+</tr>
+<tr class="row-even"><td><ul class="simple">
+<li></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td><p><em>null</em></p></td>
+</tr>
+<tr class="row-odd"><td><ul class="simple">
+<li><p>repositories</p></li>
+</ul>
+</td>
+<td colspan="4"><p><a class="reference internal" href="##/definitions/namedobjects"><span class="std std-ref">namedObject</span></a></p></td>
+</tr>
+<tr class="row-even"><td><ul class="simple">
+<li><p>imports</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td colspan="3"><p><em>array</em></p></td>
+</tr>
+<tr class="row-odd"><td rowspan="3"><ul class="simple">
+<li><p>external</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td colspan="3"><p><em>object</em></p></td>
+</tr>
+<tr class="row-even"><td rowspan="2"><p>allOf</p></td>
+<td><ul class="simple">
+<li></li>
+</ul>
+</td>
+<td colspan="2"><p><a class="reference internal" href="##/definitions/namedobjects"><span class="std std-ref">namedObject</span></a></p></td>
+</tr>
+<tr class="row-odd"><td><ul class="simple">
+<li></li>
+</ul>
+</td>
+<td><p>additionalProperties</p></td>
+<td><p><a class="reference internal" href="##/definitions/external"><span class="std std-ref">External</span></a></p></td>
+</tr>
+<tr class="row-even"><td><p>additionalProperties</p></td>
+<td colspan="4"><p>False</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="instance">
+<span id="#/definitions/instance"></span><h3>Instance<a class="headerlink" href="#instance" title="Permalink to this headline"></a></h3>
+<table class="docutils align-default">
+<colgroup>
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+</colgroup>
+<tbody>
+<tr class="row-odd"><td><p>type</p></td>
+<td colspan="4"><p><em>object</em></p></td>
+</tr>
+<tr class="row-even"><td rowspan="9"><p>allOf</p></td>
+<td rowspan="8"><ul class="simple">
+<li></li>
+</ul>
+</td>
+<td colspan="3"><p>properties</p></td>
+</tr>
+<tr class="row-odd"><td><ul class="simple">
+<li><p>template</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td><p><em>string</em></p></td>
+</tr>
+<tr class="row-even"><td rowspan="2"><ul class="simple">
+<li><p>attributes</p></li>
+</ul>
+</td>
+<td><p>default</p></td>
+<td><p>{}</p></td>
+</tr>
+<tr class="row-odd"><td colspan="2"><p><a class="reference internal" href="##/definitions/attributes"><span class="std std-ref">attributes</span></a></p></td>
+</tr>
+<tr class="row-even"><td><ul class="simple">
+<li><p>instances</p></li>
+</ul>
+</td>
+<td colspan="2"><p><a class="reference internal" href="##/definitions/instances"><span class="std std-ref">instances</span></a></p></td>
+</tr>
+<tr class="row-odd"><td><ul class="simple">
+<li><p>capabilities</p></li>
+</ul>
+</td>
+<td colspan="2"><p><a class="reference internal" href="##/definitions/instances"><span class="std std-ref">instances</span></a></p></td>
+</tr>
+<tr class="row-even"><td><ul class="simple">
+<li><p>requirements</p></li>
+</ul>
+</td>
+<td colspan="2"><p><a class="reference internal" href="##/definitions/instances"><span class="std std-ref">instances</span></a></p></td>
+</tr>
+<tr class="row-odd"><td><ul class="simple">
+<li><p>imported</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td><p><em>string</em></p></td>
+</tr>
+<tr class="row-even"><td><ul class="simple">
+<li></li>
+</ul>
+</td>
+<td colspan="3"><p><a class="reference internal" href="##/definitions/status"><span class="std std-ref">Status</span></a></p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="external">
+<span id="#/definitions/external"></span><h3>External<a class="headerlink" href="#external" title="Permalink to this headline"></a></h3>
+<table class="docutils align-default">
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+</colgroup>
+<tbody>
+<tr class="row-odd"><td colspan="4"><p>Declare external instances imported from another manifest.</p></td>
+</tr>
+<tr class="row-even"><td><p>type</p></td>
+<td colspan="3"><p><em>object</em></p></td>
+</tr>
+<tr class="row-odd"><td colspan="4"><p>properties</p></td>
+</tr>
+<tr class="row-even"><td rowspan="5"><ul class="simple">
+<li><p>manifest</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td colspan="2"><p><em>object</em></p></td>
+</tr>
+<tr class="row-odd"><td colspan="3"><p>properties</p></td>
+</tr>
+<tr class="row-even"><td><ul class="simple">
+<li><p>file</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td><p><em>string</em></p></td>
+</tr>
+<tr class="row-odd"><td><ul class="simple">
+<li><p>repository</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td><p><em>string</em></p></td>
+</tr>
+<tr class="row-even"><td><ul class="simple">
+<li><p>project</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td><p><em>string</em></p></td>
+</tr>
+<tr class="row-odd"><td rowspan="2"><ul class="simple">
+<li><p>uri</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td colspan="2"><p><em>string</em></p></td>
+</tr>
+<tr class="row-even"><td><p>format</p></td>
+<td colspan="2"><p>uri</p></td>
+</tr>
+<tr class="row-odd"><td><ul class="simple">
+<li><p>instance</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td colspan="2"><p><em>string</em></p></td>
+</tr>
+<tr class="row-even"><td><ul class="simple">
+<li><p>schema</p></li>
+</ul>
+</td>
+<td colspan="3"><p><a class="reference internal" href="##/definitions/attributes"><span class="std std-ref">attributes</span></a></p></td>
+</tr>
+<tr class="row-odd"><td><p>additionalProperties</p></td>
+<td colspan="3"><p>False</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="repositories">
+<span id="#/definitions/repositories"></span><span id="./manifest-schema.json#/definitions/repositories"></span><h3>repositories<a class="headerlink" href="#repositories" title="Permalink to this headline"></a></h3>
+<table class="docutils align-default">
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<tbody>
+<tr class="row-odd"><td><p>type</p></td>
+<td colspan="2"><p><em>object</em></p></td>
+</tr>
+<tr class="row-even"><td colspan="3"><p>properties</p></td>
+</tr>
+<tr class="row-odd"><td><ul class="simple">
+<li><p>name</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td><p><em>string</em></p></td>
+</tr>
+<tr class="row-even"><td rowspan="2"><ul class="simple">
+<li><p>url</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td><p><em>string</em></p></td>
+</tr>
+<tr class="row-odd"><td><p>format</p></td>
+<td><p>uri</p></td>
+</tr>
+<tr class="row-even"><td><ul class="simple">
+<li><p>revision</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td><p><em>string</em></p></td>
+</tr>
+<tr class="row-odd"><td><ul class="simple">
+<li><p>initial</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td><p><em>string</em></p></td>
+</tr>
+<tr class="row-even"><td><ul class="simple">
+<li><p>origin</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td><p><em>string</em></p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="status">
+<span id="#/definitions/status"></span><h3>Status<a class="headerlink" href="#status" title="Permalink to this headline"></a></h3>
+<table class="docutils align-default">
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<tbody>
+<tr class="row-odd"><td><p>type</p></td>
+<td colspan="2"><p><em>object</em></p></td>
+</tr>
+<tr class="row-even"><td colspan="3"><p>properties</p></td>
+</tr>
+<tr class="row-odd"><td rowspan="5"><ul class="simple">
+<li><p>readyState</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td><p><em>object</em></p></td>
+</tr>
+<tr class="row-even"><td colspan="2"><p>properties</p></td>
+</tr>
+<tr class="row-odd"><td><ul class="simple">
+<li><p>effective</p></li>
+</ul>
+</td>
+<td><p><a class="reference internal" href="##/definitions/readystate"><span class="std std-ref">readyState</span></a></p></td>
+</tr>
+<tr class="row-even"><td><ul class="simple">
+<li><p>local</p></li>
+</ul>
+</td>
+<td><p><a class="reference internal" href="##/definitions/readystate"><span class="std std-ref">readyState</span></a></p></td>
+</tr>
+<tr class="row-odd"><td><ul class="simple">
+<li><p>state</p></li>
+</ul>
+</td>
+<td><p><a class="reference internal" href="##/definitions/state"><span class="std std-ref">state</span></a></p></td>
+</tr>
+<tr class="row-even"><td rowspan="2"><ul class="simple">
+<li><p>priority</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td><p><em>string</em></p></td>
+</tr>
+<tr class="row-odd"><td><p>enum</p></td>
+<td><p>ignore, optional, required</p></td>
+</tr>
+<tr class="row-even"><td><ul class="simple">
+<li><p>lastStateChange</p></li>
+</ul>
+</td>
+<td colspan="2"><p><a class="reference internal" href="##/definitions/changeid"><span class="std std-ref">changeId</span></a></p></td>
+</tr>
+<tr class="row-odd"><td><ul class="simple">
+<li><p>lastConfigChange</p></li>
+</ul>
+</td>
+<td colspan="2"><p><a class="reference internal" href="##/definitions/changeid"><span class="std std-ref">changeId</span></a></p></td>
+</tr>
+<tr class="row-even"><td><p>additionalProperties</p></td>
+<td colspan="2"><p>True</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="job-record">
+<span id="#/definitions/job"></span><h3>Job Record<a class="headerlink" href="#job-record" title="Permalink to this headline"></a></h3>
+<table class="docutils align-default">
+<colgroup>
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+</colgroup>
+<tbody>
+<tr class="row-odd"><td><p>type</p></td>
+<td colspan="4"><p><em>object</em></p></td>
+</tr>
+<tr class="row-even"><td rowspan="13"><p>allOf</p></td>
+<td><ul class="simple">
+<li></li>
+</ul>
+</td>
+<td colspan="3"><p><a class="reference internal" href="##/definitions/status"><span class="std std-ref">Status</span></a></p></td>
+</tr>
+<tr class="row-odd"><td rowspan="12"><ul class="simple">
+<li></li>
+</ul>
+</td>
+<td colspan="3"><p>properties</p></td>
+</tr>
+<tr class="row-even"><td><ul class="simple">
+<li><p>changeId</p></li>
+</ul>
+</td>
+<td colspan="2"><p><a class="reference internal" href="##/definitions/changeid"><span class="std std-ref">changeId</span></a></p></td>
+</tr>
+<tr class="row-odd"><td><ul class="simple">
+<li><p>previousId</p></li>
+</ul>
+</td>
+<td colspan="2"><p><a class="reference internal" href="##/definitions/changeid"><span class="std std-ref">changeId</span></a></p></td>
+</tr>
+<tr class="row-even"><td><ul class="simple">
+<li><p>startCommit</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td><p><em>string</em></p></td>
+</tr>
+<tr class="row-odd"><td><ul class="simple">
+<li><p>startTime</p></li>
+</ul>
+</td>
+<td colspan="2"><p><a class="reference internal" href="##/definitions/timestamp"><span class="std std-ref">Timestamp</span></a></p></td>
+</tr>
+<tr class="row-even"><td><ul class="simple">
+<li><p>workflow</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td><p><em>string</em></p></td>
+</tr>
+<tr class="row-odd"><td><ul class="simple">
+<li><p>options</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td><p><em>object</em></p></td>
+</tr>
+<tr class="row-even"><td><ul class="simple">
+<li><p>summary</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td><p><em>string</em></p></td>
+</tr>
+<tr class="row-odd"><td><ul class="simple">
+<li><p>specDigest</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td><p><em>string</em></p></td>
+</tr>
+<tr class="row-even"><td><ul class="simple">
+<li><p>endCommit</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td><p><em>string</em></p></td>
+</tr>
+<tr class="row-odd"><td rowspan="2"><ul class="simple">
+<li><p>changelog</p></li>
+</ul>
+</td>
+<td colspan="2"><p>path to the full job record</p></td>
+</tr>
+<tr class="row-even"><td><p>type</p></td>
+<td><p><em>string</em></p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="task-record">
+<span id="#/definitions/task"></span><h3>Task Record<a class="headerlink" href="#task-record" title="Permalink to this headline"></a></h3>
+<table class="docutils align-default">
+<colgroup>
+<col style="width: 14%" />
+<col style="width: 14%" />
+<col style="width: 14%" />
+<col style="width: 14%" />
+<col style="width: 14%" />
+<col style="width: 14%" />
+<col style="width: 14%" />
+</colgroup>
+<tbody>
+<tr class="row-odd"><td><p>type</p></td>
+<td colspan="6"><p><em>object</em></p></td>
+</tr>
+<tr class="row-even"><td rowspan="21"><p>allOf</p></td>
+<td rowspan="20"><ul class="simple">
+<li></li>
+</ul>
+</td>
+<td colspan="5"><p>properties</p></td>
+</tr>
+<tr class="row-odd"><td><ul class="simple">
+<li><p><strong>changeId</strong></p></li>
+</ul>
+</td>
+<td colspan="4"><p><a class="reference internal" href="##/definitions/changeid"><span class="std std-ref">changeId</span></a></p></td>
+</tr>
+<tr class="row-even"><td><ul class="simple">
+<li><p>target</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td colspan="3"><p><em>string</em></p></td>
+</tr>
+<tr class="row-odd"><td><ul class="simple">
+<li><p>implementation</p></li>
+</ul>
+</td>
+<td colspan="4"><p><a class="reference internal" href="##/definitions/configurationspec"><span class="std std-ref">implementation definition</span></a></p></td>
+</tr>
+<tr class="row-even"><td><ul class="simple">
+<li><p>inputs</p></li>
+</ul>
+</td>
+<td colspan="4"><p><a class="reference internal" href="##/definitions/attributes"><span class="std std-ref">attributes</span></a></p></td>
+</tr>
+<tr class="row-odd"><td rowspan="3"><ul class="simple">
+<li><p>changes</p></li>
+</ul>
+</td>
+<td><p>default</p></td>
+<td colspan="3"><p>{}</p></td>
+</tr>
+<tr class="row-even"><td rowspan="2"><p>allOf</p></td>
+<td><ul class="simple">
+<li></li>
+</ul>
+</td>
+<td colspan="2"><p><a class="reference internal" href="##/definitions/namedobjects"><span class="std std-ref">namedObject</span></a></p></td>
+</tr>
+<tr class="row-odd"><td><ul class="simple">
+<li></li>
+</ul>
+</td>
+<td><p>additionalProperties</p></td>
+<td><p><a class="reference internal" href="##/definitions/namedobjects"><span class="std std-ref">namedObject</span></a></p></td>
+</tr>
+<tr class="row-even"><td rowspan="9"><ul class="simple">
+<li><p>dependencies</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td colspan="3"><p><em>array</em></p></td>
+</tr>
+<tr class="row-odd"><td colspan="4"><p>items</p></td>
+</tr>
+<tr class="row-even"><td rowspan="7"><ul class="simple">
+<li></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td colspan="2"><p><em>object</em></p></td>
+</tr>
+<tr class="row-odd"><td colspan="3"><p>properties</p></td>
+</tr>
+<tr class="row-even"><td><ul class="simple">
+<li><p>name</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td><p><em>string</em></p></td>
+</tr>
+<tr class="row-odd"><td><ul class="simple">
+<li><p>ref</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td><p><em>string</em></p></td>
+</tr>
+<tr class="row-even"><td colspan="3"><ul class="simple">
+<li><p>expected</p></li>
+</ul>
+</td>
+</tr>
+<tr class="row-odd"><td><ul class="simple">
+<li><p>schema</p></li>
+</ul>
+</td>
+<td colspan="2"><p><a class="reference internal" href="##/definitions/schema"><span class="std std-ref">schema</span></a></p></td>
+</tr>
+<tr class="row-even"><td><ul class="simple">
+<li><p>required</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td><p><em>boolean</em></p></td>
+</tr>
+<tr class="row-odd"><td><ul class="simple">
+<li><p>messages</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td colspan="3"><p><em>array</em></p></td>
+</tr>
+<tr class="row-even"><td rowspan="2"><ul class="simple">
+<li><p>result</p></li>
+</ul>
+</td>
+<td rowspan="2"><p>oneOf</p></td>
+<td><ul class="simple">
+<li></li>
+</ul>
+</td>
+<td><p>enum</p></td>
+<td><p>skipped</p></td>
+</tr>
+<tr class="row-odd"><td><ul class="simple">
+<li></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td><p><em>object</em></p></td>
+</tr>
+<tr class="row-even"><td><ul class="simple">
+<li></li>
+</ul>
+</td>
+<td colspan="5"><p><a class="reference internal" href="##/definitions/status"><span class="std std-ref">Status</span></a></p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="implementation-definition">
+<span id="#/definitions/configurationspec"></span><h3>implementation definition<a class="headerlink" href="#implementation-definition" title="Permalink to this headline"></a></h3>
+<table class="docutils align-default">
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<tbody>
+<tr class="row-odd"><td><p>type</p></td>
+<td colspan="2"><p><em>object</em></p></td>
+</tr>
+<tr class="row-even"><td colspan="3"><p>properties</p></td>
+</tr>
+<tr class="row-odd"><td><ul class="simple">
+<li><p>operation</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td><p><em>string</em></p></td>
+</tr>
+<tr class="row-even"><td><ul class="simple">
+<li><p><strong>className</strong></p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td><p><em>string</em></p></td>
+</tr>
+<tr class="row-odd"><td><ul class="simple">
+<li><p>majorVersion</p></li>
+</ul>
+</td>
+<td colspan="2"><p><a class="reference internal" href="##/definitions/version"><span class="std std-ref">Generic Version Identifier</span></a></p></td>
+</tr>
+<tr class="row-even"><td><ul class="simple">
+<li><p>minorVersion</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td><p><em>string</em></p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="changes">
+<span id="#/definitions/changes"></span><span id="./manifest-schema.json#/definitions/changes"></span><h3>Changes<a class="headerlink" href="#changes" title="Permalink to this headline"></a></h3>
+<table class="docutils align-default">
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+</colgroup>
+<tbody>
+<tr class="row-odd"><td colspan="4"><p>change log entry</p></td>
+</tr>
+<tr class="row-even"><td><p>type</p></td>
+<td colspan="3"><p><em>array</em></p></td>
+</tr>
+<tr class="row-odd"><td colspan="4"><p>items</p></td>
+</tr>
+<tr class="row-even"><td rowspan="3"><ul class="simple">
+<li></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td colspan="2"><p><em>object</em></p></td>
+</tr>
+<tr class="row-odd"><td rowspan="2"><p>anyOf</p></td>
+<td><ul class="simple">
+<li></li>
+</ul>
+</td>
+<td><p><a class="reference internal" href="##/definitions/job"><span class="std std-ref">Job Record</span></a></p></td>
+</tr>
+<tr class="row-even"><td><ul class="simple">
+<li></li>
+</ul>
+</td>
+<td><p><a class="reference internal" href="##/definitions/task"><span class="std std-ref">Task Record</span></a></p></td>
+</tr>
+</tbody>
+</table>
+</section>
+</section>
+<section id="definitions">
+<h2>Definitions<a class="headerlink" href="#definitions" title="Permalink to this headline"></a></h2>
+<section id="enums-and-simple-types">
+<h3>Enums and Simple Types<a class="headerlink" href="#enums-and-simple-types" title="Permalink to this headline"></a></h3>
+<section id="readystate">
+<span id="#/definitions/readystate"></span><h4>readyState<a class="headerlink" href="#readystate" title="Permalink to this headline"></a></h4>
+<table class="docutils align-default">
+<colgroup>
+<col style="width: 50%" />
+<col style="width: 50%" />
+</colgroup>
+<tbody>
+<tr class="row-odd"><td colspan="2"><p>The operational status of the instance</p></td>
+</tr>
+<tr class="row-even"><td><p>type</p></td>
+<td><p><em>string</em></p></td>
+</tr>
+<tr class="row-odd"><td><p>enum</p></td>
+<td><p>unknown, ok, degraded, error, pending, absent</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="state">
+<span id="#/definitions/state"></span><h4>state<a class="headerlink" href="#state" title="Permalink to this headline"></a></h4>
+<table class="docutils align-default">
+<colgroup>
+<col style="width: 50%" />
+<col style="width: 50%" />
+</colgroup>
+<tbody>
+<tr class="row-odd"><td colspan="2"><p>the operational state of the instance</p></td>
+</tr>
+<tr class="row-even"><td><p>type</p></td>
+<td><p><em>string</em></p></td>
+</tr>
+<tr class="row-odd"><td><p>enum</p></td>
+<td><p>initial, creating, created, configuring, configured, starting, started, stopping, stopped, deleting, deleted, error</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="changeid">
+<span id="#/definitions/changeid"></span><h4>changeId<a class="headerlink" href="#changeid" title="Permalink to this headline"></a></h4>
+<table class="docutils align-default">
+<colgroup>
+<col style="width: 50%" />
+<col style="width: 50%" />
+</colgroup>
+<tbody>
+<tr class="row-odd"><td><p>type</p></td>
+<td><p><em>string</em></p></td>
+</tr>
+<tr class="row-even"><td><p>pattern</p></td>
+<td><p>^A[A-Za-z0-9]{11}$</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="timestamp">
+<span id="#/definitions/timestamp"></span><h4>Timestamp<a class="headerlink" href="#timestamp" title="Permalink to this headline"></a></h4>
+<table class="docutils align-default">
+<colgroup>
+<col style="width: 50%" />
+<col style="width: 50%" />
+</colgroup>
+<tbody>
+<tr class="row-odd"><td><p>type</p></td>
+<td><p><em>string</em></p></td>
+</tr>
+<tr class="row-even"><td><p>format</p></td>
+<td><p>date-time</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="generic-version-identifier">
+<span id="#/definitions/version"></span><span id="./manifest-schema.json#/definitions/version"></span><h4>Generic Version Identifier<a class="headerlink" href="#generic-version-identifier" title="Permalink to this headline"></a></h4>
+<table class="docutils align-default">
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+</colgroup>
+<tbody>
+<tr class="row-odd"><td rowspan="2"><p>anyOf</p></td>
+<td><ul class="simple">
+<li></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td><p><em>string</em></p></td>
+</tr>
+<tr class="row-even"><td><ul class="simple">
+<li></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td><p><em>number</em></p></td>
+</tr>
+</tbody>
+</table>
+</section>
+</section>
+<section id="reusable-helper-definitions">
+<h3>Reusable helper definitions<a class="headerlink" href="#reusable-helper-definitions" title="Permalink to this headline"></a></h3>
+<section id="instances">
+<span id="#/definitions/instances"></span><h4>instances<a class="headerlink" href="#instances" title="Permalink to this headline"></a></h4>
+<table class="docutils align-default">
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+</colgroup>
+<tbody>
+<tr class="row-odd"><td><p>type</p></td>
+<td colspan="3"><p><em>object</em></p></td>
+</tr>
+<tr class="row-even"><td rowspan="2"><p>allOf</p></td>
+<td><ul class="simple">
+<li></li>
+</ul>
+</td>
+<td colspan="2"><p><a class="reference internal" href="##/definitions/namedobjects"><span class="std std-ref">namedObject</span></a></p></td>
+</tr>
+<tr class="row-odd"><td><ul class="simple">
+<li></li>
+</ul>
+</td>
+<td><p>additionalProperties</p></td>
+<td><p><a class="reference internal" href="##/definitions/instance"><span class="std std-ref">Instance</span></a></p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="attributes">
+<span id="#/definitions/attributes"></span><h4>attributes<a class="headerlink" href="#attributes" title="Permalink to this headline"></a></h4>
+<table class="docutils align-default">
+<colgroup>
+<col style="width: 50%" />
+<col style="width: 50%" />
+</colgroup>
+<tbody>
+<tr class="row-odd"><td><p>type</p></td>
+<td><p><em>object</em></p></td>
+</tr>
+<tr class="row-even"><td><p>default</p></td>
+<td><p>{}</p></td>
+</tr>
+<tr class="row-odd"><td colspan="2"><p><a class="reference internal" href="##/definitions/namedobjects"><span class="std std-ref">namedObject</span></a></p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="atomic">
+<span id="#/definitions/atomic"></span><h4>atomic<a class="headerlink" href="#atomic" title="Permalink to this headline"></a></h4>
+<table class="docutils align-default">
+<colgroup>
+<col style="width: 50%" />
+<col style="width: 50%" />
+</colgroup>
+<tbody>
+<tr class="row-odd"><td colspan="2"><p>indicates these properties must be set all at once or replaced</p></td>
+</tr>
+<tr class="row-even"><td><p>type</p></td>
+<td><p><em>object</em></p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="namedobject">
+<span id="#/definitions/namedobjects"></span><span id="./manifest-schema.json#/definitions/namedobjects"></span><h4>namedObject<a class="headerlink" href="#namedobject" title="Permalink to this headline"></a></h4>
+<table class="docutils align-default">
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<tbody>
+<tr class="row-odd"><td colspan="3"><p>constrains how properties are named</p></td>
+</tr>
+<tr class="row-even"><td><p>type</p></td>
+<td colspan="2"><p><em>object</em></p></td>
+</tr>
+<tr class="row-odd"><td><p>default</p></td>
+<td colspan="2"><p>{}</p></td>
+</tr>
+<tr class="row-even"><td><p>propertyNames</p></td>
+<td><p>pattern</p></td>
+<td><p>^[A-Za-z._][A-Za-z0-9._:-]*$</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="schema">
+<span id="#/definitions/schema"></span><h4>schema<a class="headerlink" href="#schema" title="Permalink to this headline"></a></h4>
+<table class="docutils align-default">
+<colgroup>
+<col style="width: 50%" />
+<col style="width: 50%" />
+</colgroup>
+<tbody>
+<tr class="row-odd"><td colspan="2"><p>a JSON Schema definition</p></td>
+</tr>
+<tr class="row-even"><td><p>type</p></td>
+<td><p><em>object</em></p></td>
+</tr>
+</tbody>
+</table>
+</section>
+</section>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="cli.html" class="btn btn-neutral float-left" title="Command Line" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="toscaref.html" class="btn btn-neutral float-right" title="TOSCA Language Reference" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2020, Adam Souzis.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

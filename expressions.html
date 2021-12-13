@@ -1,0 +1,810 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+  <meta charset="utf-8" /><meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Expression Functions &mdash; Unfurl Documentation</title>
+      <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+      <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+      <link rel="stylesheet" href="_static/custom.css" type="text/css" />
+    <link rel="shortcut icon" href="_static/favicon32.png"/>
+  <!--[if lt IE 9]>
+    <script src="_static/js/html5shiv.min.js"></script>
+  <![endif]-->
+  
+        <script data-url_root="./" id="documentation_options" src="_static/documentation_options.js"></script>
+        <script src="_static/jquery.js"></script>
+        <script src="_static/underscore.js"></script>
+        <script src="_static/doctools.js"></script>
+        <script src="_static/custom.js"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Command Line" href="cli.html" />
+    <link rel="prev" title="Template Processing" href="processing.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+            <a href="index.html">
+            <img src="_static/unfurl_logo.svg" class="logo" alt="Logo"/>
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="README.html">Introduction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="README.html#installation">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="get-started-step-by-step.html">Getting Started</a></li>
+<li class="toctree-l1"><a class="reference internal" href="ensembles.html">Ensembles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="projects.html">Unfurl Projects</a></li>
+<li class="toctree-l1"><a class="reference internal" href="secrets.html">Managing Secrets</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tosca.html">TOSCA</a></li>
+<li class="toctree-l1"><a class="reference internal" href="jobs.html">Jobs and Workflows</a></li>
+<li class="toctree-l1"><a class="reference internal" href="runtime.html">Runtime Environment</a></li>
+<li class="toctree-l1"><a class="reference internal" href="configurators.html">Configurators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="configurators.html#installers">Installers</a></li>
+<li class="toctree-l1"><a class="reference internal" href="processing.html">Template Processing</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Expression Functions</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#tosca-functions-and-other-stand-alone-functions">TOSCA functions and other stand-alone functions</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#concat">concat</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#get-artifact">get_artifact</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#get-attribute">get_attribute</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#get-env">get_env</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#get-input">get_input</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#get-nodes-of-type">get_nodes_of_type</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#get-property">get_property</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#has-env">has_env</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#join">join</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#q">q</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#token">token</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#id2">Expression Functions</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#abspath">abspath</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#and">and</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#eq">eq</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#external">external</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#file">file</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#foreach">foreach</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#get-dir">get_dir</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#if">if</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#lookup">lookup</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#local">local</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#or">or</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#not">not</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#python">python</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#secret">secret</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#sensitive">sensitive</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#tempfile">tempfile</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#template">template</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#validate">validate</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#special-keys">Special keys</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="cli.html">Command Line</a></li>
+<li class="toctree-l1"><a class="reference internal" href="jsonschema.html">Configuration Files</a></li>
+<li class="toctree-l1"><a class="reference internal" href="toscaref.html">TOSCA Language Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="glossary.html">Glossary</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api.html">Python API</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">Unfurl</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home"></a> &raquo;</li>
+      <li>Expression Functions</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/expressions.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="expression-functions">
+<h1>Expression Functions<a class="headerlink" href="#expression-functions" title="Permalink to this headline"></a></h1>
+<section id="tosca-functions-and-other-stand-alone-functions">
+<h2>TOSCA functions and other stand-alone functions<a class="headerlink" href="#tosca-functions-and-other-stand-alone-functions" title="Permalink to this headline"></a></h2>
+<p>Stand-alone functions don’t need to be wrapped in an “eval”</p>
+<blockquote>
+<div><table class="docutils align-default">
+<colgroup>
+<col style="width: 22%" />
+<col style="width: 78%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Key</p></th>
+<th class="head"><p>Value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><a class="reference internal" href="#concat"><span class="std std-ref">concat</span></a></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">[</span> <span class="pre">string*</span> <span class="pre">]</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="#get-artifact"><span class="std std-ref">get_artifact</span></a></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">[</span> <span class="pre">instance_name,</span> <span class="pre">artifact_name]</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="#get-attribute"><span class="std std-ref">get_attribute</span></a></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">[</span> <span class="pre">instance_name,</span> <span class="pre">req_or_cap_name?,</span> <span class="pre">property_name,</span> <span class="pre">index_or_key*</span> <span class="pre">]</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="#get-env"><span class="std std-ref">get_env</span></a></p></td>
+<td><p><code class="regexp docutils literal notranslate"><span class="pre">[</span> <span class="pre">name,</span> <span class="pre">default?</span> <span class="pre">return</span> <span class="pre">]</span> <span class="pre">|</span> <span class="pre">name</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="#get-input"><span class="std std-ref">get_input</span></a></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">name</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="#get-nodes-of-type"><span class="std std-ref">get_nodes_of_type</span></a></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">type_name</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="#get-property"><span class="std std-ref">get_property</span></a></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">[</span> <span class="pre">instance_name,</span> <span class="pre">req_or_cap_name?,</span> <span class="pre">property_name,</span> <span class="pre">index_or_key*</span> <span class="pre">]</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="#has-env"><span class="std std-ref">has_env</span></a></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">name</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="#join"><span class="std std-ref">join</span></a></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">[</span> <span class="pre">string+,</span> <span class="pre">delimiter?</span> <span class="pre">]</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="#q"><span class="std std-ref">q</span></a></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">any</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="#token"><span class="std std-ref">token</span></a></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">[</span> <span class="pre">string,</span> <span class="pre">token,</span> <span class="pre">index]</span></code></p></td>
+</tr>
+</tbody>
+</table>
+</div></blockquote>
+<section id="concat">
+<h3>concat<a class="headerlink" href="#concat" title="Permalink to this headline"></a></h3>
+<blockquote>
+<div><p>The concat function is used to concatenate two or more string values. See <a class="reference external" href="_static/TOSCA-Simple-Profile-YAML-v1.3-os-toc.html#_Toc454458585">concat</a>.
+<code class="docutils literal notranslate"><span class="pre">concat</span></code> can optionally take a <code class="docutils literal notranslate"><span class="pre">sep</span></code> keyword argument the specifies as a string the separator to use when joining the list.</p>
+</div></blockquote>
+</section>
+<section id="get-artifact">
+<h3>get_artifact<a class="headerlink" href="#get-artifact" title="Permalink to this headline"></a></h3>
+<blockquote>
+<div><p>The get_artifact function is used to retrieve artifact location between modelable entities defined in the same service template.</p>
+<p>If the artifact is a Docker image, return the image name in the form of
+“registry/repository/name:tag” or “registry/repository/name&#64;sha256:digest”</p>
+<p>If entity_name or artifact_name is not found return <code class="docutils literal notranslate"><span class="pre">null</span></code>.</p>
+<p>See <a class="reference external" href="_static/TOSCA-Simple-Profile-YAML-v1.3-os-toc.html#_Toc50125538">get_artifact</a>.</p>
+</div></blockquote>
+</section>
+<section id="get-attribute">
+<h3>get_attribute<a class="headerlink" href="#get-attribute" title="Permalink to this headline"></a></h3>
+<blockquote>
+<div><p>The get_attribute function is used to retrieve the values of named attributes declared by the referenced node or relationship template name.
+See <a class="reference external" href="_static/TOSCA-Simple-Profile-YAML-v1.3-os-toc.html#_Toc50125522">TOSCA Attribute Functions</a>.</p>
+</div></blockquote>
+</section>
+<section id="get-env">
+<h3>get_env<a class="headerlink" href="#get-env" title="Permalink to this headline"></a></h3>
+<blockquote>
+<div><p>Returns the value of the given environment variable name.
+If NAME is not present in the environment, return the given default value if supplied or return None.</p>
+<p>e.g. {get_env: NAME} or {get_env: [NAME, default]}</p>
+<p>If the value of its argument is empty (e.g. [] or null), return the entire dictionary.</p>
+</div></blockquote>
+</section>
+<section id="get-input">
+<span id="id1"></span><h3>get_input<a class="headerlink" href="#get-input" title="Permalink to this headline"></a></h3>
+<blockquote>
+<div><p>The get_input function is used to retrieve the values of properties declared within the inputs section of a TOSCA Service Template.
+See <a class="reference external" href="_static/TOSCA-Simple-Profile-YAML-v1.3-os-toc.html#_Toc50125513">TOSCA Property Functions</a></p>
+</div></blockquote>
+</section>
+<section id="get-nodes-of-type">
+<h3>get_nodes_of_type<a class="headerlink" href="#get-nodes-of-type" title="Permalink to this headline"></a></h3>
+<blockquote>
+<div><p>The get_nodes_of_type function can be used to retrieve a list of all known instances of nodes of the declared Node Type.</p>
+</div></blockquote>
+</section>
+<section id="get-property">
+<h3>get_property<a class="headerlink" href="#get-property" title="Permalink to this headline"></a></h3>
+<blockquote>
+<div><p>The get_property function is used to retrieve property values between modelable entities defined in the same service template.
+See <a class="reference external" href="_static/TOSCA-Simple-Profile-YAML-v1.3-os-toc.html#_Toc26969456">TOSCA Property Functions</a></p>
+</div></blockquote>
+</section>
+<section id="has-env">
+<h3>has_env<a class="headerlink" href="#has-env" title="Permalink to this headline"></a></h3>
+<blockquote>
+<div><p>The <code class="docutils literal notranslate"><span class="pre">has_env</span></code> function returns a boolean indicating whether the given variable is found in the current environment.</p>
+</div></blockquote>
+</section>
+<section id="join">
+<h3>join<a class="headerlink" href="#join" title="Permalink to this headline"></a></h3>
+<blockquote>
+<div><p>The join function is used to join an array of strings into a single string with optional delimiter. See</p>
+</div></blockquote>
+</section>
+<section id="q">
+<h3>q<a class="headerlink" href="#q" title="Permalink to this headline"></a></h3>
+<blockquote>
+<div><p>Quote the given value without evaluating it.
+For example:</p>
+<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">q</span><span class="p">:</span>
+  <span class="nt">eval</span><span class="p">:</span>
+     <span class="l l-Scalar l-Scalar-Plain">this will not be evaluated</span>
+</pre></div>
+</div>
+<p>Will evaluate to:</p>
+<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">eval</span><span class="p">:</span>
+   <span class="l l-Scalar l-Scalar-Plain">this will not be evaluated</span>
+</pre></div>
+</div>
+<p>without any further evaluation.</p>
+</div></blockquote>
+</section>
+<section id="token">
+<h3>token<a class="headerlink" href="#token" title="Permalink to this headline"></a></h3>
+<blockquote>
+<div><p>The token function is used on a string to parse out (tokenize) substrings separated by one or more token characters within a larger string.</p>
+</div></blockquote>
+</section>
+</section>
+<section id="id2">
+<h2>Expression Functions<a class="headerlink" href="#id2" title="Permalink to this headline"></a></h2>
+<blockquote>
+<div><table class="docutils align-default">
+<colgroup>
+<col style="width: 34%" />
+<col style="width: 66%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Key</p></th>
+<th class="head"><p>Value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><a class="reference internal" href="#abspath"><span class="std std-ref">abspath</span></a></p></td>
+<td><p>path | [path, location, mkdir?]</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="#and"><span class="std std-ref">and</span></a></p></td>
+<td><p>[test+]</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="#eq"><span class="std std-ref">eq</span></a></p></td>
+<td><p>[a, b]</p></td>
+</tr>
+<tr class="row-odd"><td><p>external</p></td>
+<td><p>name</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="#file"><span class="std std-ref">file</span></a></p></td>
+<td><p>(see below)</p></td>
+</tr>
+<tr class="row-odd"><td><p>foreach</p></td>
+<td><p>{key?, value?}</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="#get-dir"><span class="std std-ref">get_dir</span></a></p></td>
+<td><p>location | [location, mkdir?]</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="#if"><span class="std std-ref">if</span></a></p></td>
+<td><p>(see below)</p></td>
+</tr>
+<tr class="row-even"><td><p>local</p></td>
+<td><p>name</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="#lookup"><span class="std std-ref">lookup</span></a></p></td>
+<td><p>(see below)</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="#or"><span class="std std-ref">or</span></a></p></td>
+<td><p>[test+]</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="#not"><span class="std std-ref">not</span></a></p></td>
+<td><p>expr</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="#python"><span class="std std-ref">python</span></a></p></td>
+<td><p>path#function_name | module.function_name</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="#secret"><span class="std std-ref">secret</span></a></p></td>
+<td><p>name</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="#sensitive"><span class="std std-ref">sensitive</span></a></p></td>
+<td><p>any</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="#tempfile"><span class="std std-ref">tempfile</span></a></p></td>
+<td><p>(see below)</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="#template"><span class="std std-ref">template</span></a></p></td>
+<td><p>contents</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="#validate"><span class="std std-ref">validate</span></a></p></td>
+<td><p>[contents, schema]</p></td>
+</tr>
+</tbody>
+</table>
+</div></blockquote>
+<section id="abspath">
+<h3>abspath<a class="headerlink" href="#abspath" title="Permalink to this headline"></a></h3>
+<blockquote>
+<div><dl class="field-list simple">
+<dt class="field-odd">path</dt>
+<dd class="field-odd"><p>A file path</p>
+</dd>
+<dt class="field-even">location</dt>
+<dd class="field-even"><p>(optional) A named folder (see <a class="reference internal" href="#get-dir"><span class="std std-ref">get_dir</span></a>)</p>
+</dd>
+<dt class="field-odd">mkdir</dt>
+<dd class="field-odd"><p>(default: false) If true, create the folder if missing.</p>
+</dd>
+</dl>
+<p>Get the absolute path to the given path. If <code class="docutils literal notranslate"><span class="pre">location</span></code> is supplied it will be
+relative to that location (see <a class="reference internal" href="#get-dir"><span class="std std-ref">get_dir</span></a>) otherwise it will be relative to the current directory.</p>
+<p>Also available as a jinja2 filter.</p>
+</div></blockquote>
+</section>
+<section id="and">
+<h3>and<a class="headerlink" href="#and" title="Permalink to this headline"></a></h3>
+<blockquote>
+<div><p>Evaluates each expression in the list until an expression evaluates as false and
+returns the result of the last expression evaluated.</p>
+</div></blockquote>
+</section>
+<section id="eq">
+<h3>eq<a class="headerlink" href="#eq" title="Permalink to this headline"></a></h3>
+</section>
+<section id="external">
+<h3>external<a class="headerlink" href="#external" title="Permalink to this headline"></a></h3>
+<blockquote>
+<div><p>Return an instance</p>
+</div></blockquote>
+</section>
+<section id="file">
+<h3>file<a class="headerlink" href="#file" title="Permalink to this headline"></a></h3>
+<blockquote>
+<div><p>Read or write a file. If the <code class="docutils literal notranslate"><span class="pre">contents</span></code> keyword argument is present, a file will be written
+upon evaluation of this function, otherwise it will be read.</p>
+<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="c1"># read</span>
+<span class="nt">eval</span><span class="p">:</span>
+  <span class="nt">file</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">foo/local.config</span>
+<span class="nt">select</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">contents</span>
+
+<span class="c1"># write</span>
+<span class="nt">eval</span><span class="p">:</span>
+  <span class="nt">file</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">path.txt.vault</span>
+  <span class="nt">contents</span><span class="p">:</span> <span class="s">&quot;this</span><span class="nv"> </span><span class="s">will</span><span class="nv"> </span><span class="s">be</span><span class="nv"> </span><span class="s">saved</span><span class="nv"> </span><span class="s">as</span><span class="nv"> </span><span class="s">a</span><span class="nv"> </span><span class="s">vault</span><span class="nv"> </span><span class="s">encrypted</span><span class="nv"> </span><span class="s">file&quot;</span>
+  <span class="nt">encoding</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">vault</span>
+<span class="nt">select</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">path</span>
+</pre></div>
+</div>
+<table class="docutils align-default">
+<colgroup>
+<col style="width: 13%" />
+<col style="width: 87%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Key</p></th>
+<th class="head"><p>Value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>file:</p></td>
+<td><p>path</p></td>
+</tr>
+<tr class="row-odd"><td><p>dir?:</p></td>
+<td><p>path</p></td>
+</tr>
+<tr class="row-even"><td><p>encoding?</p></td>
+<td><p>“binary” | “vault” | “json” | “yaml” | python_text_encoding</p></td>
+</tr>
+<tr class="row-odd"><td><p>contents?</p></td>
+<td><p>any</p></td>
+</tr>
+</tbody>
+</table>
+<p><code class="docutils literal notranslate"><span class="pre">encoding</span></code> can be “binary”, “vault”, “json”, “yaml” or an encoding registered with the Python codec registry</p>
+<p>The <code class="docutils literal notranslate"><span class="pre">select</span></code> clause can evaluate the following keys:</p>
+<table class="docutils align-default">
+<colgroup>
+<col style="width: 18%" />
+<col style="width: 82%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Key</p></th>
+<th class="head"><p>Returns</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>path:</p></td>
+<td><p>absolute path of the file</p></td>
+</tr>
+<tr class="row-odd"><td><p>encoding</p></td>
+<td><p>encoding of the file</p></td>
+</tr>
+<tr class="row-even"><td><p>contents?</p></td>
+<td><p>file contents (None if it doesn’t exist)</p></td>
+</tr>
+</tbody>
+</table>
+</div></blockquote>
+</section>
+<section id="foreach">
+<h3>foreach<a class="headerlink" href="#foreach" title="Permalink to this headline"></a></h3>
+</section>
+<section id="get-dir">
+<h3>get_dir<a class="headerlink" href="#get-dir" title="Permalink to this headline"></a></h3>
+<blockquote>
+<div><dl class="field-list simple">
+<dt class="field-odd">location</dt>
+<dd class="field-odd"><p>a named folder</p>
+</dd>
+<dt class="field-even">mkdir</dt>
+<dd class="field-even"><p>(default: false) If true, create the folder if missing.</p>
+</dd>
+</dl>
+<p>Return an absolute path to the given named folder where <code class="docutils literal notranslate"><span class="pre">name</span></code> is one of:</p>
+<dl class="field-list simple">
+<dt class="field-odd">.</dt>
+<dd class="field-odd"><p>Directory that contains the current instance’s ensemble</p>
+</dd>
+<dt class="field-even">src</dt>
+<dd class="field-even"><p>Directory of the source file this expression appears in</p>
+</dd>
+<dt class="field-odd">artifacts</dt>
+<dd class="field-odd"><p>Directory for the current instance (committed to repository).</p>
+</dd>
+<dt class="field-even">local</dt>
+<dd class="field-even"><p>The “local” directory for the current instance (excluded from repository)</p>
+</dd>
+<dt class="field-odd">secrets</dt>
+<dd class="field-odd"><p>The “secrets” directory for the current instance (files written there are vault encrypted when committed to the repository)</p>
+</dd>
+<dt class="field-even">tmp</dt>
+<dd class="field-even"><p>A temporary directory for the instance (removed after unfurl exits)</p>
+</dd>
+<dt class="field-odd">tasks</dt>
+<dd class="field-odd"><p>Job specific directory for the current instance (excluded from repository).</p>
+</dd>
+<dt class="field-even">operation</dt>
+<dd class="field-even"><p>Operation specific directory for the current instance (excluded from repository).</p>
+</dd>
+<dt class="field-odd">workflow</dt>
+<dd class="field-odd"><p>Workflow specific directory for the current instance (excluded from repository).</p>
+</dd>
+<dt class="field-even">spec.src</dt>
+<dd class="field-even"><p>The directory of the source file the current instance’s template appears in.</p>
+</dd>
+<dt class="field-odd">spec.home</dt>
+<dd class="field-odd"><p>Directory unique to current instance’s TOSCA template (committed to the spec repository).</p>
+</dd>
+<dt class="field-even">spec.local</dt>
+<dd class="field-even"><p>Local directory unique to current instance’s TOSCA template (excluded from repository).</p>
+</dd>
+<dt class="field-odd">project</dt>
+<dd class="field-odd"><p>The root directory of the current project.</p>
+</dd>
+<dt class="field-even">unfurl.home</dt>
+<dd class="field-even"><p>The location of home project (UNFURL_HOME).</p>
+</dd>
+</dl>
+<p>Otherwise look for a repository with the given name and return its path or None if not found.</p>
+<p>Also available as a jinja2 filter.</p>
+</div></blockquote>
+</section>
+<section id="if">
+<h3>if<a class="headerlink" href="#if" title="Permalink to this headline"></a></h3>
+<blockquote>
+<div><table class="docutils align-default">
+<colgroup>
+<col style="width: 21%" />
+<col style="width: 79%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Key</p></th>
+<th class="head"><p>Value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>if</p></td>
+<td><p>mapped_value</p></td>
+</tr>
+<tr class="row-odd"><td><p>then?</p></td>
+<td><p>expr</p></td>
+</tr>
+<tr class="row-even"><td><p>else?</p></td>
+<td><p>expr</p></td>
+</tr>
+</tbody>
+</table>
+<p>Example: this will always evaluate to “expected”:</p>
+<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">eval</span><span class="p">:</span>
+  <span class="nt">if</span><span class="p">:</span>
+    <span class="nt">or</span><span class="p">:</span>
+      <span class="p p-Indicator">-</span> <span class="nt">not</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">$a</span>
+      <span class="p p-Indicator">-</span> <span class="l l-Scalar l-Scalar-Plain">$a</span>
+  <span class="nt">then</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">expected</span>
+  <span class="nt">else</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">unexpected</span>
+<span class="nt">vars</span><span class="p">:</span>
+  <span class="nt">a</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">true</span>
+</pre></div>
+</div>
+</div></blockquote>
+</section>
+<section id="lookup">
+<h3>lookup<a class="headerlink" href="#lookup" title="Permalink to this headline"></a></h3>
+<blockquote>
+<div><table class="docutils align-default">
+<colgroup>
+<col style="width: 23%" />
+<col style="width: 78%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Key</p></th>
+<th class="head"><p>Value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>lookup</p></td>
+<td><p>{name: args,
+kwargs*: value}</p></td>
+</tr>
+</tbody>
+</table>
+<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">eval</span><span class="p">:</span>
+  <span class="nt">lookup</span><span class="p">:</span>
+    <span class="nt">env</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">TEST_ENV</span>
+
+<span class="nt">eval</span><span class="p">:</span>
+  <span class="nt">lookup</span><span class="p">:</span>
+    <span class="nt">env</span><span class="p">:</span> <span class="p p-Indicator">[</span><span class="nv">TEST_ENV</span><span class="p p-Indicator">,</span> <span class="nv">default</span><span class="p p-Indicator">]</span>
+
+<span class="nt">eval</span><span class="p">:</span>
+  <span class="nt">lookup</span><span class="p">:</span>
+    <span class="nt">url</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">https://example.com/foo.txt</span>
+    <span class="nt">validate_certs</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">true</span>
+</pre></div>
+</div>
+</div></blockquote>
+</section>
+<section id="local">
+<h3>local<a class="headerlink" href="#local" title="Permalink to this headline"></a></h3>
+</section>
+<section id="or">
+<h3>or<a class="headerlink" href="#or" title="Permalink to this headline"></a></h3>
+<blockquote>
+<div><p>Evaluates each item until an item evaluates as true, returns that value or false.</p>
+</div></blockquote>
+</section>
+<section id="not">
+<h3>not<a class="headerlink" href="#not" title="Permalink to this headline"></a></h3>
+<blockquote>
+<div><p>Evaluates the item and returns its negation.</p>
+</div></blockquote>
+</section>
+<section id="python">
+<h3>python<a class="headerlink" href="#python" title="Permalink to this headline"></a></h3>
+<blockquote>
+<div><table class="docutils align-default">
+<colgroup>
+<col style="width: 16%" />
+<col style="width: 84%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Key</p></th>
+<th class="head"><p>Value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>python</p></td>
+<td><p>path#function_name | module.function_name</p></td>
+</tr>
+<tr class="row-odd"><td><p>args?</p></td>
+<td><p>mapped_value</p></td>
+</tr>
+</tbody>
+</table>
+<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">eval</span><span class="p">:</span>
+  <span class="nt">python</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">path/to/src.py#func</span>
+
+<span class="c1"># or:</span>
+
+<span class="nt">eval</span><span class="p">:</span>
+  <span class="nt">python</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">python_module.func</span>
+
+<span class="c1"># with args:</span>
+
+<span class="nt">eval</span><span class="p">:</span>
+  <span class="nt">python</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">python_module.func</span>
+  <span class="nt">args</span><span class="p">:</span>   <span class="l l-Scalar l-Scalar-Plain">foo</span>
+</pre></div>
+</div>
+<p>Execute the given python function and evaluate to its return value.
+If the path to the python script is a relative path, it will be treated as relative to the current source file
+(ie. the template file that is invoking the expression).
+The function will being invoke the current <a class="reference internal" href="api.html#unfurl.eval.RefContext" title="unfurl.eval.RefContext"><code class="xref any py py-class docutils literal notranslate"><span class="pre">RefContext</span></code></a> as the first argument.
+If <code class="docutils literal notranslate"><span class="pre">args</span></code> is declared, its value will passed as a second argument to the function.</p>
+</div></blockquote>
+</section>
+<section id="secret">
+<h3>secret<a class="headerlink" href="#secret" title="Permalink to this headline"></a></h3>
+<blockquote>
+<div><p>Return the value of the given secret. It will be marked as sensitive.</p>
+</div></blockquote>
+</section>
+<section id="sensitive">
+<h3>sensitive<a class="headerlink" href="#sensitive" title="Permalink to this headline"></a></h3>
+<blockquote>
+<div><p>Mark the given value as sensitive.</p>
+</div></blockquote>
+</section>
+<section id="tempfile">
+<h3>tempfile<a class="headerlink" href="#tempfile" title="Permalink to this headline"></a></h3>
+<blockquote>
+<div><p>Create local, temporary file with the specified content.
+It will be deleted after <code class="docutils literal notranslate"><span class="pre">unfurl</span></code> process exits.</p>
+<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">eval</span><span class="p">:</span>
+  <span class="nt">tempfile</span><span class="p">:</span> <span class="s">&quot;contents&quot;</span>
+  <span class="nt">encoding</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">vault</span>
+  <span class="nt">suffix</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">.json</span>
+</pre></div>
+</div>
+<table class="docutils align-default">
+<colgroup>
+<col style="width: 13%" />
+<col style="width: 87%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Key</p></th>
+<th class="head"><p>Value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>tempfile</p></td>
+<td><p>contents</p></td>
+</tr>
+<tr class="row-odd"><td><p>encoding?</p></td>
+<td><p>“binary” | “vault” | “json” | “yaml” | python_text_encoding</p></td>
+</tr>
+<tr class="row-even"><td><p>suffix?</p></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<p>If <code class="docutils literal notranslate"><span class="pre">encoding</span></code> isn’t specified, the file extension specified by <code class="docutils literal notranslate"><span class="pre">suffix</span></code> is used;
+if neither is specified, the encoding will be determined by the content, either utf8 text, binary or json or a 0 byte file if the content is null.</p>
+</div></blockquote>
+</section>
+<section id="template">
+<h3>template<a class="headerlink" href="#template" title="Permalink to this headline"></a></h3>
+<p>Evaluate file or inline contents as an Ansible-flavored Jinja2 template.</p>
+<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">eval</span><span class="p">:</span>
+  <span class="nt">template</span><span class="p">:</span>
+    <span class="nt">path</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">path/to/template.j2</span>
+</pre></div>
+</div>
+<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">eval</span><span class="p">:</span>
+  <span class="nt">template</span><span class="p">:</span> <span class="p p-Indicator">&gt;</span>
+    <span class="no">{%if testVar %}success{%else%}failed{%endif%}</span>
+<span class="nt">vars</span><span class="p">:</span>
+  <span class="nt">testVar</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">true</span>
+</pre></div>
+</div>
+</section>
+<section id="validate">
+<h3>validate<a class="headerlink" href="#validate" title="Permalink to this headline"></a></h3>
+<blockquote>
+<div><p>Return true if the first argument conforms to the JSON schema supplied as the second argument.</p>
+</div></blockquote>
+</section>
+</section>
+<section id="special-keys">
+<h2>Special keys<a class="headerlink" href="#special-keys" title="Permalink to this headline"></a></h2>
+<p>Built-in keys start with a leading <strong>.</strong>:</p>
+<table class="docutils align-default">
+<colgroup>
+<col style="width: 20%" />
+<col style="width: 80%" />
+</colgroup>
+<tbody>
+<tr class="row-odd"><td><p><strong>.</strong></p></td>
+<td><p>self</p></td>
+</tr>
+<tr class="row-even"><td><p><strong>..</strong></p></td>
+<td><p>parent</p></td>
+</tr>
+<tr class="row-odd"><td><p>.name</p></td>
+<td><p>name of this instance</p></td>
+</tr>
+<tr class="row-even"><td><p>.type</p></td>
+<td><p>name of instance’s TOSCA type</p></td>
+</tr>
+<tr class="row-odd"><td><p>.tosca_id</p></td>
+<td><p>unique id of this instance</p></td>
+</tr>
+<tr class="row-even"><td><p>.tosca_name</p></td>
+<td><p>name of the instance’s TOSCA template</p></td>
+</tr>
+<tr class="row-odd"><td><p>.status</p></td>
+<td><p>the instance’s <a class="reference internal" href="api.html#unfurl.support.Status" title="unfurl.support.Status"><code class="xref py py-class docutils literal notranslate"><span class="pre">unfurl.support.Status</span></code></a></p></td>
+</tr>
+<tr class="row-even"><td><p>.state</p></td>
+<td><p>the instance’s <a class="reference internal" href="api.html#unfurl.support.NodeState" title="unfurl.support.NodeState"><code class="xref py py-class docutils literal notranslate"><span class="pre">unfurl.support.NodeState</span></code></a></p></td>
+</tr>
+<tr class="row-odd"><td><p>.parents</p></td>
+<td><p>list of parents</p></td>
+</tr>
+<tr class="row-even"><td><p>.ancestors</p></td>
+<td><p>self and parents</p></td>
+</tr>
+<tr class="row-odd"><td><p>.root</p></td>
+<td><p>root ancestor</p></td>
+</tr>
+<tr class="row-even"><td><p>.instances</p></td>
+<td><p>child instances (via the <code class="docutils literal notranslate"><span class="pre">hostedOn</span></code> relationship)</p></td>
+</tr>
+<tr class="row-odd"><td><p>.capabilities</p></td>
+<td><p>list of capabilities</p></td>
+</tr>
+<tr class="row-even"><td><p>.requirements</p></td>
+<td><p>list of requirements</p></td>
+</tr>
+<tr class="row-odd"><td><p>.relationships</p></td>
+<td><p>relationships that target this capability</p></td>
+</tr>
+<tr class="row-even"><td><p>.descendents</p></td>
+<td><p>(including self)</p></td>
+</tr>
+<tr class="row-odd"><td><p>.all</p></td>
+<td><p>dictionary of child resources with their names as keys</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="processing.html" class="btn btn-neutral float-left" title="Template Processing" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="cli.html" class="btn btn-neutral float-right" title="Command Line" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2020, Adam Souzis.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

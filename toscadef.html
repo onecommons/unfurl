@@ -1,0 +1,1520 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+  <meta charset="utf-8" /><meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Type Definitions &mdash; Unfurl Documentation</title>
+      <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+      <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+      <link rel="stylesheet" href="_static/custom.css" type="text/css" />
+    <link rel="shortcut icon" href="_static/favicon32.png"/>
+  <!--[if lt IE 9]>
+    <script src="_static/js/html5shiv.min.js"></script>
+  <![endif]-->
+  
+        <script data-url_root="./" id="documentation_options" src="_static/documentation_options.js"></script>
+        <script src="_static/jquery.js"></script>
+        <script src="_static/underscore.js"></script>
+        <script src="_static/doctools.js"></script>
+        <script src="_static/custom.js"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Glossary" href="glossary.html" />
+    <link rel="prev" title="Unfurl Specific" href="extensions.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+            <a href="index.html">
+            <img src="_static/unfurl_logo.svg" class="logo" alt="Logo"/>
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="README.html">Introduction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="README.html#installation">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="get-started-step-by-step.html">Getting Started</a></li>
+<li class="toctree-l1"><a class="reference internal" href="ensembles.html">Ensembles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="projects.html">Unfurl Projects</a></li>
+<li class="toctree-l1"><a class="reference internal" href="secrets.html">Managing Secrets</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tosca.html">TOSCA</a></li>
+<li class="toctree-l1"><a class="reference internal" href="jobs.html">Jobs and Workflows</a></li>
+<li class="toctree-l1"><a class="reference internal" href="runtime.html">Runtime Environment</a></li>
+<li class="toctree-l1"><a class="reference internal" href="configurators.html">Configurators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="configurators.html#installers">Installers</a></li>
+<li class="toctree-l1"><a class="reference internal" href="processing.html">Template Processing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="expressions.html">Expression Functions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="cli.html">Command Line</a></li>
+<li class="toctree-l1"><a class="reference internal" href="jsonschema.html">Configuration Files</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="toscaref.html">TOSCA Language Reference</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="toscaref/spec-tosca_def_version.html">Metadata</a></li>
+<li class="toctree-l2"><a class="reference internal" href="toscaref/spec-repositories.html">Repositories</a></li>
+<li class="toctree-l2"><a class="reference internal" href="toscaref/spec-imports.html">Imports</a></li>
+<li class="toctree-l2"><a class="reference internal" href="toscaref/spec-node-types.html">Node Types</a></li>
+<li class="toctree-l2"><a class="reference internal" href="toscaref/spec-data-types.html">Data Types</a></li>
+<li class="toctree-l2"><a class="reference internal" href="toscaref/spec-other-types.html">Other Types</a></li>
+<li class="toctree-l2"><a class="reference internal" href="toscaref/spec-topology-template.html">Topology Templates</a></li>
+<li class="toctree-l2"><a class="reference internal" href="extensions.html">Unfurl Specific</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">Type Definitions</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#tosca-1-3">TOSCA 1.3</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#unfurl-types">Unfurl types</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="glossary.html">Glossary</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api.html">Python API</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">Unfurl</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home"></a> &raquo;</li>
+          <li><a href="toscaref.html">TOSCA Language Reference</a> &raquo;</li>
+      <li>Type Definitions</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/toscadef.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="type-definitions">
+<h1><a class="toc-backref" href="#id2">Type Definitions</a><a class="headerlink" href="#type-definitions" title="Permalink to this headline"></a></h1>
+<p>The following TOSCA types are available to all service templates.</p>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><p><a class="reference internal" href="#type-definitions" id="id2">Type Definitions</a></p>
+<ul>
+<li><p><a class="reference internal" href="#tosca-1-3" id="id3">TOSCA 1.3</a></p></li>
+<li><p><a class="reference internal" href="#unfurl-types" id="id4">Unfurl types</a></p></li>
+</ul>
+</li>
+</ul>
+</div>
+<section id="tosca-1-3">
+<span id="tosca-types"></span><h2><a class="toc-backref" href="#id3">TOSCA 1.3</a><a class="headerlink" href="#tosca-1-3" title="Permalink to this headline"></a></h2>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>#    Licensed under the Apache License, Version 2.0 (the &quot;License&quot;); you may
+#    not use this file except in compliance with the License. You may obtain
+#    a copy of the License at
+#
+#         http://www.apache.org/licenses/LICENSE-2.0
+#
+#    Unless required by applicable law or agreed to in writing, software
+#    distributed under the License is distributed on an &quot;AS IS&quot; BASIS, WITHOUT
+#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+#    License for the specific language governing permissions and limitations
+#    under the License.
+
+tosca_definitions_version: tosca_simple_yaml_1_3
+
+description: &gt;
+    The content of this file reflects TOSCA Simple Profile in YAML version
+    1.3. It describes the definition for TOSCA types including Node Type,
+    Relationship Type, Capability Type and Interfaces.
+
+##########################################################################
+# Node Type.
+# A Node Type is a reusable entity that defines the type of one or more
+# Node Templates.
+##########################################################################
+node_types:
+  tosca.nodes.Root:
+    description: &gt;
+      The TOSCA root node all other TOSCA base node types derive from.
+    attributes:
+      tosca_id:
+        type: string
+      tosca_name:
+        type: string
+      state:
+        type: string
+    capabilities:
+      feature:
+        type: tosca.capabilities.Node
+    requirements:
+      - dependency:
+          capability: tosca.capabilities.Node
+          node: tosca.nodes.Root
+          relationship: tosca.relationships.DependsOn
+          occurrences: [ 0, UNBOUNDED ]
+    interfaces:
+      Standard:
+        type: tosca.interfaces.node.lifecycle.Standard
+
+  tosca.nodes.Abstract.Compute:
+    derived_from: tosca.nodes.Root
+    capabilities:
+        host:
+          type: tosca.capabilities.Compute
+          valid_source_types: []
+
+  tosca.nodes.Compute:
+    derived_from: tosca.nodes.Abstract.Compute
+    attributes:
+      private_address:
+        type: string
+      public_address:
+        type: string
+      networks:
+        type: map
+        entry_schema:
+          type: tosca.datatypes.network.NetworkInfo
+      ports:
+        type: map
+        entry_schema:
+          type: tosca.datatypes.network.PortInfo
+    capabilities:
+        host:
+           type: tosca.capabilities.Compute
+           valid_source_types: [tosca.nodes.SoftwareComponent]
+        binding:
+           type: tosca.capabilities.network.Bindable
+        os:
+           type: tosca.capabilities.OperatingSystem
+        scalable:
+           type: tosca.capabilities.Scalable
+        endpoint:
+           type: tosca.capabilities.Endpoint.Admin
+    requirements:
+      - local_storage:
+          capability: tosca.capabilities.Attachment
+          node: tosca.nodes.BlockStorage
+          relationship: tosca.relationships.AttachesTo
+          occurrences: [0, UNBOUNDED]
+
+  tosca.nodes.SoftwareComponent:
+    derived_from: tosca.nodes.Root
+    properties:
+      # domain-specific software component version
+      component_version:
+        type: version
+        required: false
+        description: &gt;
+          Software component version.
+      admin_credential:
+        type: tosca.datatypes.Credential
+        required: false
+    requirements:
+      - host:
+          capability: tosca.capabilities.Compute
+          node: tosca.nodes.Compute
+          relationship: tosca.relationships.HostedOn
+
+  tosca.nodes.DBMS:
+    derived_from: tosca.nodes.SoftwareComponent
+    properties:
+      port:
+        required: false
+        type: integer
+        description: &gt;
+          The port the DBMS service will listen to for data and requests.
+      root_password:
+        required: false
+        type: string
+        description: &gt;
+          The root password for the DBMS service.
+    capabilities:
+      host:
+        type: tosca.capabilities.Compute
+        valid_source_types: [tosca.nodes.Database]
+
+  tosca.nodes.Database:
+    derived_from: tosca.nodes.Root
+    properties:
+      user:
+        required: false
+        type: string
+        description: &gt;
+          User account name for DB administration
+      port:
+        required: false
+        type: integer
+        description:  &gt;
+          The port the database service will use to listen for incoming data and
+          requests.
+      name:
+        required: false
+        type: string
+        description: &gt;
+          The name of the database.
+      password:
+        required: false
+        type: string
+        description: &gt;
+          The password for the DB user account
+    requirements:
+      - host:
+          capability: tosca.capabilities.Compute
+          node: tosca.nodes.DBMS
+          relationship: tosca.relationships.HostedOn
+    capabilities:
+      database_endpoint:
+        type: tosca.capabilities.Endpoint.Database
+
+  tosca.nodes.WebServer:
+    derived_from: tosca.nodes.SoftwareComponent
+    capabilities:
+      data_endpoint:
+        type: tosca.capabilities.Endpoint
+      admin_endpoint:
+        type: tosca.capabilities.Endpoint.Admin
+      host:
+        type: tosca.capabilities.Compute
+        valid_source_types: [tosca.nodes.WebApplication]
+
+  tosca.nodes.WebApplication:
+    derived_from: tosca.nodes.Root
+    properties:
+      context_root:
+        type: string
+        required: false
+    requirements:
+      - host:
+          capability: tosca.capabilities.Compute
+          node: tosca.nodes.WebServer
+          relationship: tosca.relationships.HostedOn
+    capabilities:
+      app_endpoint:
+        type: tosca.capabilities.Endpoint
+
+  tosca.nodes.BlockStorage:
+    derived_from: tosca.nodes.Root
+    properties:
+      size:
+        type: scalar-unit.size
+        constraints:
+          - greater_or_equal: 1 MB
+      volume_id:
+        type: string
+        required: false
+      snapshot_id:
+        type: string
+        required: false
+    attributes:
+      volume_id:
+        type: string
+    capabilities:
+      attachment:
+        type: tosca.capabilities.Attachment
+
+  tosca.nodes.network.Network:
+    derived_from: tosca.nodes.Root
+    description: &gt;
+      The TOSCA Network node represents a simple, logical network service.
+    properties:
+      ip_version:
+        type: integer
+        required: false
+        default: 4
+        constraints:
+          - valid_values: [ 4, 6 ]
+        description: &gt;
+          The IP version of the requested network. Valid values are 4 for ipv4
+          or 6 for ipv6.
+      cidr:
+        type: string
+        required: false
+        description: &gt;
+          The cidr block of the requested network.
+      start_ip:
+        type: string
+        required: false
+        description: &gt;
+           The IP address to be used as the start of a pool of addresses within
+           the full IP range derived from the cidr block.
+      end_ip:
+        type: string
+        required: false
+        description: &gt;
+            The IP address to be used as the end of a pool of addresses within
+            the full IP range derived from the cidr block.
+      gateway_ip:
+        type: string
+        required: false
+        description: &gt;
+           The gateway IP address.
+      network_name:
+        type: string
+        required: false
+        description: &gt;
+           An identifier that represents an existing Network instance in the
+           underlying cloud infrastructure or can be used as the name of the
+           newly created network. If network_name is provided and no other
+           properties are provided (with exception of network_id), then an
+           existing network instance will be used. If network_name is provided
+           alongside with more properties then a new network with this name will
+           be created.
+      network_id:
+        type: string
+        required: false
+        description: &gt;
+           An identifier that represents an existing Network instance in the
+           underlying cloud infrastructure. This property is mutually exclusive
+           with all other properties except network_name. This can be used alone
+           or together with network_name to identify an existing network.
+      segmentation_id:
+        type: string
+        required: false
+        description: &gt;
+           A segmentation identifier in the underlying cloud infrastructure.
+           E.g. VLAN ID, GRE tunnel ID, etc..
+      network_type:
+        type: string
+        required: false
+        description: &gt;
+           It specifies the nature of the physical network in the underlying
+           cloud infrastructure. Examples are flat, vlan, gre or vxlan.
+           For flat and vlan types, physical_network should be provided too.
+      physical_network:
+        type: string
+        required: false
+        description: &gt;
+           It identifies the physical network on top of which the network is
+           implemented, e.g. physnet1. This property is required if network_type
+           is flat or vlan.
+      dhcp_enabled:
+        type: boolean
+        required: false
+        default: true
+        description: &gt;
+          Indicates should DHCP service be enabled on the network or not.
+    capabilities:
+      link:
+        type: tosca.capabilities.network.Linkable
+
+  tosca.nodes.network.Port:
+    derived_from: tosca.nodes.Root
+    description: &gt;
+      The TOSCA Port node represents a logical entity that associates between
+      Compute and Network normative types. The Port node type effectively
+      represents a single virtual NIC on the Compute node instance.
+    properties:
+      ip_address:
+        type: string
+        required: false
+        description: &gt;
+          Allow the user to set a static IP.
+      order:
+        type: integer
+        required: false
+        default: 0
+        constraints:
+          - greater_or_equal: 0
+        description: &gt;
+          The order of the NIC on the compute instance (e.g. eth2).
+      is_default:
+        type: boolean
+        required: false
+        default: false
+        description: &gt;
+          If is_default=true this port will be used for the default gateway
+          route. Only one port that is associated to single compute node can
+          set as is_default=true.
+      ip_range_start:
+        type: string
+        required: false
+        description: &gt;
+          Defines the starting IP of a range to be allocated for the compute
+          instances that are associated with this Port.
+      ip_range_end:
+        type: string
+        required: false
+        description: &gt;
+          Defines the ending IP of a range to be allocated for the compute
+          instances that are associated with this Port.
+    attributes:
+      ip_address:
+        type: string
+    requirements:
+      - binding:
+          description: &gt;
+            Binding requirement expresses the relationship between Port and
+            Compute nodes. Effectively it indicates that the Port will be
+            attached to specific Compute node instance
+          capability: tosca.capabilities.network.Bindable
+          relationship: tosca.relationships.network.BindsTo
+          node: tosca.nodes.Compute
+      - link:
+          description: &gt;
+            Link requirement expresses the relationship between Port and Network
+            nodes. It indicates which network this port will connect to.
+          capability: tosca.capabilities.network.Linkable
+          relationship: tosca.relationships.network.LinksTo
+          node: tosca.nodes.network.Network
+
+  tosca.nodes.network.FloatingIP:
+    derived_from: tosca.nodes.Root
+    description: &gt;
+      The TOSCA FloatingIP node represents a floating IP that can associate to a Port.
+    properties:
+      floating_network:
+        type: string
+        required: true
+      floating_ip_address:
+        type: string
+        required: false
+      port_id:
+        type: string
+        required: false
+    requirements:
+      - link:
+          capability: tosca.capabilities.network.Linkable
+          relationship: tosca.relationships.network.LinksTo
+          node: tosca.nodes.network.Port
+
+  tosca.nodes.ObjectStorage:
+    derived_from: tosca.nodes.Root
+    description: &gt;
+      The TOSCA ObjectStorage node represents storage that provides the ability
+      to store data as objects (or BLOBs of data) without consideration for the
+      underlying filesystem or devices
+    properties:
+      name:
+        type: string
+        required: true
+        description: &gt;
+          The logical name of the object store (or container).
+      size:
+        type: scalar-unit.size
+        required: false
+        constraints:
+          - greater_or_equal: 0 GB
+        description: &gt;
+          The requested initial storage size.
+      maxsize:
+        type: scalar-unit.size
+        required: false
+        constraints:
+          - greater_or_equal: 0 GB
+        description: &gt;
+          The requested maximum storage size.
+    capabilities:
+      storage_endpoint:
+        type: tosca.capabilities.Endpoint
+
+  tosca.nodes.LoadBalancer:
+    derived_from: tosca.nodes.Root
+    properties:
+      algorithm:
+        type: string
+        required: false
+        status: experimental
+    capabilities:
+      client:
+        type: tosca.capabilities.Endpoint.Public
+        occurrences: [0, UNBOUNDED]
+        description: the Floating (IP) client’s on the public network can connect to
+    requirements:
+      - application:
+          capability: tosca.capabilities.Endpoint
+          relationship: tosca.relationships.RoutesTo
+          occurrences: [0, UNBOUNDED]
+          description: Connection to one or more load balanced applications
+
+  tosca.nodes.Container.Application:
+    derived_from: tosca.nodes.Root
+    requirements:
+      - host:
+          capability: tosca.capabilities.Compute
+          node: tosca.nodes.Container.Runtime
+          relationship: tosca.relationships.HostedOn
+      - storage:
+          capability: tosca.capabilities.Storage
+      - network:
+          capability: tosca.capabilities.Endpoint
+
+  tosca.nodes.Container.Runtime:
+    derived_from: tosca.nodes.SoftwareComponent
+    capabilities:
+      host:
+        type: tosca.capabilities.Compute
+        valid_source_types: [tosca.nodes.Container.Application]
+      scalable:
+        type: tosca.capabilities.Scalable
+
+  # note: missing from 1.3 spec
+  tosca.nodes.Container.Runtime.Docker:
+    derived_from: tosca.nodes.Container.Runtime
+    capabilities:
+      host:
+        type: tosca.capabilities.Container.Docker
+        valid_source_types: [tosca.nodes.Container.Application.Docker]
+
+  tosca.nodes.Container.Application.Docker:
+    derived_from: tosca.nodes.Container.Application
+    requirements:
+      - host:
+          capability: tosca.capabilities.Container.Docker
+
+##########################################################################
+# Relationship Type.
+# A Relationship Type is a reusable entity that defines the type of one
+# or more relationships between Node Types or Node Templates.
+##########################################################################
+relationship_types:
+  tosca.relationships.Root:
+    description: &gt;
+      The TOSCA root Relationship Type all other TOSCA base Relationship Types
+      derive from.
+    attributes:
+      tosca_id:
+        type: string
+      tosca_name:
+        type: string
+    interfaces:
+      Configure:
+        type: tosca.interfaces.relationship.Configure
+
+  tosca.relationships.DependsOn:
+    derived_from: tosca.relationships.Root
+
+  tosca.relationships.HostedOn:
+    derived_from: tosca.relationships.Root
+    valid_target_types: [ tosca.capabilities.Container ]
+
+  tosca.relationships.ConnectsTo:
+    derived_from: tosca.relationships.Root
+    valid_target_types: [ tosca.capabilities.Endpoint ]
+    credential:
+      type: tosca.datatypes.Credential
+      required: false
+
+  tosca.relationships.AttachesTo:
+    derived_from: tosca.relationships.Root
+    valid_target_types: [ tosca.capabilities.Attachment ]
+    properties:
+      location:
+        required: true
+        type: string
+        constraints:
+          - min_length: 1
+      device:
+        required: false
+        type: string
+
+  tosca.relationships.RoutesTo:
+    derived_from: tosca.relationships.ConnectsTo
+    valid_target_types: [ tosca.capabilities.Endpoint ]
+
+  tosca.relationships.network.LinksTo:
+    derived_from: tosca.relationships.DependsOn
+    valid_target_types: [ tosca.capabilities.network.Linkable ]
+
+  tosca.relationships.network.BindsTo:
+    derived_from: tosca.relationships.DependsOn
+    valid_target_types: [ tosca.capabilities.network.Bindable ]
+
+##########################################################################
+# Capability Type.
+# A Capability Type is a reusable entity that describes a kind of
+# capability that a Node Type can declare to expose.
+##########################################################################
+capability_types:
+  tosca.capabilities.Root:
+    description: &gt;
+      The TOSCA root Capability Type all other TOSCA base Capability Types
+      derive from.
+
+  tosca.capabilities.Node:
+    derived_from: tosca.capabilities.Root
+
+  tosca.capabilities.Container:
+    derived_from: tosca.capabilities.Root
+
+  tosca.capabilities.Storage:
+    derived_from: tosca.capabilities.Root
+    properties:
+      name:
+        type: string
+        required: false
+
+  tosca.capabilities.Compute:
+    derived_from: tosca.capabilities.Container
+    properties:
+      name:
+        type: string
+        required: false
+      num_cpus:
+        required: false
+        type: integer
+        constraints:
+          - greater_or_equal: 1
+      cpu_frequency:
+        required: false
+        type: scalar-unit.frequency
+        constraints:
+          - greater_or_equal: 0.1 GHz
+      disk_size:
+        required: false
+        type: scalar-unit.size
+        constraints:
+          - greater_or_equal: 0 MB
+      mem_size:
+        required: false
+        type: scalar-unit.size
+        constraints:
+          - greater_or_equal: 0 MB
+
+  tosca.capabilities.Endpoint:
+    derived_from: tosca.capabilities.Root
+    properties:
+      protocol:
+        type: string
+        required: true
+        default: tcp
+      port:
+        type: tosca.datatypes.network.PortDef
+        required: false
+      secure:
+        type: boolean
+        required: false
+        default: false
+      url_path:
+        type: string
+        required: false
+      port_name:
+        type: string
+        required: false
+      network_name:
+        type: string
+        required: false
+        default: PRIVATE
+      initiator:
+        type: string
+        required: false
+        default: source
+        constraints:
+          - valid_values: [source, target, peer]
+      ports:
+        type: map
+        required: false
+        constraints:
+          - min_length: 1
+        entry_schema:
+          type: tosca.datatypes.network.PortSpec
+    attributes:
+      ip_address:
+        type: string
+
+  tosca.capabilities.Endpoint.Admin:
+    derived_from: tosca.capabilities.Endpoint
+    properties:
+      secure:
+        type: boolean
+        default: true
+        constraints:
+          - equal: true
+
+  tosca.capabilities.Endpoint.Public:
+    derived_from: tosca.capabilities.Endpoint
+    properties:
+      # Change the default network_name to use the first public network found
+      network_name:
+        type: string
+        default: PUBLIC
+        constraints:
+          - equal: PUBLIC
+      floating:
+        description: &gt;
+          Indicates that the public address should be allocated from a pool of
+          floating IPs that are associated with the network.
+        type: boolean
+        default: false
+        status: experimental
+      dns_name:
+        description: The optional name to register with DNS
+        type: string
+        required: false
+        status: experimental
+
+  tosca.capabilities.Scalable:
+    derived_from: tosca.capabilities.Root
+    properties:
+      min_instances:
+        type: integer
+        required: true
+        default: 1
+        description: &gt;
+          This property is used to indicate the minimum number of instances
+          that should be created for the associated TOSCA Node Template by
+          a TOSCA orchestrator.
+      max_instances:
+        type: integer
+        required: true
+        default: 1
+        description: &gt;
+          This property is used to indicate the maximum number of instances
+          that should be created for the associated TOSCA Node Template by
+          a TOSCA orchestrator.
+      default_instances:
+        type: integer
+        required: false
+        description: &gt;
+          An optional property that indicates the requested default number
+          of instances that should be the starting number of instances a
+          TOSCA orchestrator should attempt to allocate.
+          The value for this property MUST be in the range between the values
+          set for min_instances and max_instances properties.
+
+  tosca.capabilities.Endpoint.Database:
+    derived_from: tosca.capabilities.Endpoint
+
+  tosca.capabilities.Attachment:
+    derived_from: tosca.capabilities.Root
+
+  tosca.capabilities.network.Linkable:
+    derived_from: tosca.capabilities.Root
+    description: &gt;
+      A node type that includes the Linkable capability indicates that it can
+      be pointed by tosca.relationships.network.LinksTo relationship type, which
+      represents an association relationship between Port and Network node types.
+
+  tosca.capabilities.network.Bindable:
+    derived_from: tosca.capabilities.Root
+    description: &gt;
+      A node type that includes the Bindable capability indicates that it can
+      be pointed by tosca.relationships.network.BindsTo relationship type, which
+      represents a network association relationship between Port and Compute node
+      types.
+
+  tosca.capabilities.OperatingSystem:
+    derived_from: tosca.capabilities.Root
+    properties:
+      architecture:
+        required: false
+        type: string
+        description: &gt;
+          The host Operating System (OS) architecture.
+      type:
+        required: false
+        type: string
+        description: &gt;
+          The host Operating System (OS) type.
+      distribution:
+        required: false
+        type: string
+        description: &gt;
+          The host Operating System (OS) distribution. Examples of valid values
+          for an “type” of “Linux” would include:
+          debian, fedora, rhel and ubuntu.
+      version:
+        required: false
+        type: version
+        description: &gt;
+          The host Operating System version.
+
+  tosca.capabilities.Container.Docker:
+    derived_from: tosca.capabilities.Container
+    properties:
+      version:
+        type: list
+        required: false
+        entry_schema:
+          type: version
+        description: &gt;
+          The Docker version capability.
+      publish_all:
+        type: boolean
+        default: false
+        required: false
+        description: &gt;
+          Indicates that all ports (ranges) listed in the dockerfile
+          using the EXPOSE keyword be published.
+      publish_ports:
+        type: list
+        entry_schema:
+          type: tosca.datatypes.network.PortSpec
+        required: false
+        description: &gt;
+          List of ports mappings from source (Docker container)
+          to target (host) ports to publish.
+      expose_ports:
+        type: list
+        entry_schema:
+          type: tosca.datatypes.network.PortSpec
+        required: false
+        description: &gt;
+          List of ports mappings from source (Docker container) to expose
+          to other Docker containers (not accessible outside host).
+      volumes:
+        type: list
+        entry_schema:
+          type: string
+        required: false
+        description: &gt;
+          The dockerfile VOLUME command which is used to enable access
+          from the Docker container to a directory on the host machine.
+
+##########################################################################
+ # Interfaces Type.
+ # The Interfaces element describes a list of one or more interface
+ # definitions for a modelable entity (e.g., a Node or Relationship Type)
+ # as defined within the TOSCA Simple Profile specification.
+##########################################################################
+interface_types:
+  tosca.interfaces.node.lifecycle.Standard:
+    create:
+      description: Standard lifecycle create operation.
+    configure:
+      description: Standard lifecycle configure operation.
+    start:
+      description: Standard lifecycle start operation.
+    stop:
+      description: Standard lifecycle stop operation.
+    delete:
+      description: Standard lifecycle delete operation.
+
+  tosca.interfaces.relationship.Configure:
+    pre_configure_source:
+      description: Operation to pre-configure the source endpoint.
+    pre_configure_target:
+      description: Operation to pre-configure the target endpoint.
+    post_configure_source:
+      description: Operation to post-configure the source endpoint.
+    post_configure_target:
+      description: Operation to post-configure the target endpoint.
+    add_target:
+      description: Operation to add a target node.
+    remove_target:
+      description: Operation to remove a target node.
+    add_source:
+      description: &gt;
+        Operation to notify the target node of a source node which
+        is now available via a relationship.
+    remove_source:
+      description: &gt;
+        Operation to notify the target node of a source node which
+        is no longer available via a relationship.
+    target_changed:
+      description: &gt;
+        Operation to notify source some property or attribute of the
+        target changed
+
+##########################################################################
+ # Data Type.
+ # A Datatype is a complex data type declaration which contains other
+ # complex or simple data types.
+##########################################################################
+data_types:
+  tosca.datatypes.Root:
+    description: &gt;
+      The TOSCA root Data Type all other TOSCA base Data Types derive from
+
+  tosca.datatypes.network.NetworkInfo:
+    derived_from: tosca.datatypes.Root
+    properties:
+      network_name:
+        type: string
+      network_id:
+        type: string
+      addresses:
+        type: list
+        entry_schema:
+          type: string
+
+  tosca.datatypes.network.PortInfo:
+    derived_from: tosca.datatypes.Root
+    properties:
+      port_name:
+        type: string
+      port_id:
+        type: string
+      network_id:
+        type: string
+      mac_address:
+        type: string
+      addresses:
+        type: list
+        entry_schema:
+          type: string
+
+  tosca.datatypes.network.PortDef:
+    derived_from: tosca.datatypes.Root
+    type: integer
+    constraints:
+      - in_range: [ 1, 65535 ]
+
+  tosca.datatypes.network.PortSpec:
+    derived_from: tosca.datatypes.Root
+    properties:
+      protocol:
+        type: string
+        required: true
+        default: tcp
+        constraints:
+          - valid_values: [ udp, tcp, icmp ]
+      target:
+        type: tosca.datatypes.network.PortDef
+        required: false
+      target_range:
+        type: range
+        required: false
+        constraints:
+          - in_range: [ 1, 65535 ]
+      source:
+        type: tosca.datatypes.network.PortDef
+        required: false
+      source_range:
+        type: range
+        required: false
+        constraints:
+          - in_range: [ 1, 65535 ]
+
+  tosca.datatypes.Credential:
+    derived_from: tosca.datatypes.Root
+    properties:
+      protocol:
+        type: string
+        required: false
+      token_type:
+        type: string
+        default: password
+        required: true
+      token:
+        type: string
+        required: true
+      keys:
+        type: map
+        entry_schema:
+          type: string
+        required: false
+      user:
+        type: string
+        required: false
+
+  tosca.datatypes.json:
+    derived_from: tosca.datatypes.Root
+    type: string
+
+  tosca.datatypes.xml:
+    derived_from: tosca.datatypes.Root
+    type: string
+
+##########################################################################
+ # Artifact Type.
+ # An Artifact Type is a reusable entity that defines the type of one or more
+ # files which Node Types or Node Templates can have dependent relationships
+ # and used during operations such as during installation or deployment.
+##########################################################################
+artifact_types:
+  tosca.artifacts.Root:
+    description: &gt;
+      The TOSCA Artifact Type all other TOSCA Artifact Types derive from
+
+  tosca.artifacts.File:
+    derived_from: tosca.artifacts.Root
+
+  tosca.artifacts.Deployment:
+    derived_from: tosca.artifacts.Root
+    description: TOSCA base type for deployment artifacts
+
+  tosca.artifacts.Deployment.Image:
+    derived_from: tosca.artifacts.Deployment
+
+  tosca.artifacts.Deployment.Image.VM:
+    derived_from: tosca.artifacts.Deployment.Image
+    description: Virtual Machine (VM) Image
+
+  tosca.artifacts.Implementation:
+    derived_from: tosca.artifacts.Root
+    description: TOSCA base type for implementation artifacts
+
+  tosca.artifacts.Implementation.Bash:
+    derived_from: tosca.artifacts.Implementation
+    description: Script artifact for the Unix Bash shell
+    mime_type: application/x-sh
+    file_ext: [ sh ]
+
+  tosca.artifacts.Implementation.Python:
+    derived_from: tosca.artifacts.Implementation
+    description: Artifact for the interpreted Python language
+    mime_type: application/x-python
+    file_ext: [ py ]
+
+  tosca.artifacts.Deployment.Image.Container.Docker:
+    derived_from: tosca.artifacts.Deployment.Image
+    description: Docker container image
+
+  tosca.artifacts.Deployment.Image.VM.ISO:
+    derived_from: tosca.artifacts.Deployment.Image
+    description: Virtual Machine (VM) image in ISO disk format
+    mime_type: application/octet-stream
+    file_ext: [ iso ]
+
+  tosca.artifacts.Deployment.Image.VM.QCOW2:
+    derived_from: tosca.artifacts.Deployment.Image
+    description: Virtual Machine (VM) image in QCOW v2 standard disk format
+    mime_type: application/octet-stream
+    file_ext: [ qcow2 ]
+
+  tosca.artifacts.template:
+    derived_from: tosca.artifacts.Root
+    description: TOSCA base type for template type artifacts
+
+##########################################################################
+ # Policy Type.
+ # TOSCA Policy Types represent logical grouping of TOSCA nodes that have
+ # an implied relationship and need to be orchestrated or managed together
+ # to achieve some result.
+##########################################################################
+policy_types:
+  tosca.policies.Root:
+    description: The TOSCA Policy Type all other TOSCA Policy Types derive from.
+
+  tosca.policies.Placement:
+    derived_from: tosca.policies.Root
+    description: The TOSCA Policy Type definition that is used to govern
+      placement of TOSCA nodes or groups of nodes.
+
+  tosca.policies.Scaling:
+    derived_from: tosca.policies.Root
+    description: The TOSCA Policy Type definition that is used to govern
+      scaling of TOSCA nodes or groups of nodes.
+
+  tosca.policies.Monitoring:
+    derived_from: tosca.policies.Root
+    description: The TOSCA Policy Type definition that is used to govern
+      monitoring of TOSCA nodes or groups of nodes.
+
+  tosca.policies.Update:
+    derived_from: tosca.policies.Root
+    description: The TOSCA Policy Type definition that is used to govern
+      update of TOSCA nodes or groups of nodes.
+
+  tosca.policies.Performance:
+    derived_from: tosca.policies.Root
+    description: The TOSCA Policy Type definition that is used to declare
+      performance requirements for TOSCA nodes or groups of nodes.
+
+  tosca.policies.Reservation:
+    derived_from: tosca.policies.Root
+    description: The TOSCA Policy Type definition that is used to create
+      TOSCA nodes or group of nodes based on the reservation.
+
+##########################################################################
+ # Group Type.
+ # Group Type represents logical grouping of TOSCA nodes that have an
+ # implied membership relationship and may need to be orchestrated or
+ # managed together to achieve some result.
+##########################################################################
+group_types:
+  tosca.groups.Root:
+    description: The TOSCA Group Type all other TOSCA Group Types derive from
+    interfaces:
+      Standard:
+        type: tosca.interfaces.node.lifecycle.Standard
+</pre></div>
+</div>
+</section>
+<section id="unfurl-types">
+<span id="id1"></span><h2><a class="toc-backref" href="#id4">Unfurl types</a><a class="headerlink" href="#unfurl-types" title="Permalink to this headline"></a></h2>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="c1"># Copyright (c) 2020 Adam Souzis</span>
+<span class="c1"># SPDX-License-Identifier: MIT</span>
+<span class="n">tosca_definitions_version</span><span class="p">:</span> <span class="n">tosca_simple_unfurl_1_0_0</span> <span class="c1"># unfurl/v1alpha1.ServiceTemplate</span>
+<span class="n">metadata</span><span class="p">:</span>
+  <span class="n">template_name</span><span class="p">:</span> <span class="n">Unfurl</span> <span class="n">types</span>
+  <span class="n">template_author</span><span class="p">:</span> <span class="n">onecommons</span><span class="o">.</span><span class="n">org</span>
+  <span class="n">template_version</span><span class="p">:</span> <span class="mf">1.0.0</span>
+
+<span class="n">artifact_types</span><span class="p">:</span>
+  <span class="n">unfurl</span><span class="o">.</span><span class="n">artifacts</span><span class="o">.</span><span class="n">HasConfigurator</span><span class="p">:</span>
+    <span class="n">derived_from</span><span class="p">:</span> <span class="n">tosca</span><span class="o">.</span><span class="n">artifacts</span><span class="o">.</span><span class="n">Implementation</span>
+    <span class="n">properties</span><span class="p">:</span>
+      <span class="n">className</span><span class="p">:</span>
+        <span class="nb">type</span><span class="p">:</span> <span class="n">string</span>
+        <span class="n">description</span><span class="p">:</span> <span class="n">Name</span> <span class="n">of</span> <span class="n">the</span> <span class="n">python</span> <span class="k">class</span> <span class="nc">that</span> <span class="n">implements</span> <span class="n">the</span> <span class="n">configurator</span> <span class="n">interface</span>
+
+  <span class="n">unfurl</span><span class="o">.</span><span class="n">artifacts</span><span class="o">.</span><span class="n">TemplateOperation</span><span class="p">:</span>
+    <span class="n">derived_from</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">artifacts</span><span class="o">.</span><span class="n">HasConfigurator</span>
+    <span class="n">properties</span><span class="p">:</span>
+      <span class="n">className</span><span class="p">:</span>
+        <span class="nb">type</span><span class="p">:</span> <span class="n">string</span>
+        <span class="n">default</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">configurators</span><span class="o">.</span><span class="n">TemplateConfigurator</span>
+
+  <span class="n">unfurl</span><span class="o">.</span><span class="n">artifacts</span><span class="o">.</span><span class="n">ShellExecutable</span><span class="p">:</span>
+    <span class="n">derived_from</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">artifacts</span><span class="o">.</span><span class="n">HasConfigurator</span>
+    <span class="n">properties</span><span class="p">:</span>
+      <span class="n">className</span><span class="p">:</span>
+        <span class="nb">type</span><span class="p">:</span> <span class="n">string</span>
+        <span class="n">default</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">configurators</span><span class="o">.</span><span class="n">shell</span><span class="o">.</span><span class="n">ShellConfigurator</span>
+
+  <span class="n">unfurl</span><span class="o">.</span><span class="n">artifacts</span><span class="o">.</span><span class="n">AnsiblePlaybook</span><span class="p">:</span>
+    <span class="n">derived_from</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">artifacts</span><span class="o">.</span><span class="n">HasConfigurator</span>
+    <span class="n">properties</span><span class="p">:</span>
+      <span class="n">className</span><span class="p">:</span>
+        <span class="nb">type</span><span class="p">:</span> <span class="n">string</span>
+        <span class="n">default</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">configurators</span><span class="o">.</span><span class="n">ansible</span><span class="o">.</span><span class="n">AnsibleConfigurator</span>
+
+<span class="n">node_types</span><span class="p">:</span>
+  <span class="n">tosca</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">Root</span><span class="p">:</span>
+    <span class="n">interfaces</span><span class="p">:</span>
+      <span class="n">Install</span><span class="p">:</span> <span class="c1"># all nodes can implement this interface</span>
+        <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">interfaces</span><span class="o">.</span><span class="n">Install</span>
+
+  <span class="n">unfurl</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">Repository</span><span class="p">:</span>
+    <span class="n">derived_from</span><span class="p">:</span> <span class="n">tosca</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">Root</span>
+
+  <span class="n">unfurl</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">LocalRepository</span><span class="p">:</span>
+    <span class="n">derived_from</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">Repository</span>
+
+  <span class="n">unfurl</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">ArtifactInstaller</span><span class="p">:</span>
+    <span class="n">derived_from</span><span class="p">:</span> <span class="n">tosca</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">Root</span>
+    <span class="n">description</span><span class="p">:</span> <span class="n">Node</span> <span class="n">templates</span> <span class="n">of</span> <span class="n">this</span> <span class="nb">type</span> <span class="n">are</span> <span class="s2">&quot;discovered&quot;</span> <span class="n">when</span> <span class="n">artifacts</span> <span class="n">need</span> <span class="n">to</span> <span class="n">be</span> <span class="n">installed</span> <span class="n">on</span> <span class="n">an</span> <span class="n">operation_host</span>
+    <span class="n">artifacts</span><span class="p">:</span>
+      <span class="n">install</span><span class="p">:</span>
+        <span class="nb">type</span><span class="p">:</span> <span class="n">tosca</span><span class="o">.</span><span class="n">artifacts</span><span class="o">.</span><span class="n">Root</span>
+    <span class="n">interfaces</span><span class="p">:</span>
+      <span class="n">defaults</span><span class="p">:</span>
+        <span class="n">implementation</span><span class="p">:</span>
+          <span class="n">className</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">configurators</span><span class="o">.</span><span class="n">DelegateConfigurator</span>
+        <span class="n">inputs</span><span class="p">:</span>
+          <span class="n">target</span><span class="p">:</span>
+            <span class="nb">eval</span><span class="p">:</span>
+              <span class="o">.</span><span class="n">artifacts</span><span class="p">::</span><span class="n">install</span>
+          <span class="n">inputs</span><span class="p">:</span> <span class="p">{}</span>
+      <span class="n">Standard</span><span class="p">:</span>
+        <span class="n">operations</span><span class="p">:</span>
+          <span class="n">delete</span><span class="p">:</span>
+          <span class="n">create</span><span class="p">:</span>
+          <span class="n">configure</span><span class="p">:</span>
+          <span class="n">start</span><span class="p">:</span>
+          <span class="n">stop</span><span class="p">:</span>
+      <span class="n">Install</span><span class="p">:</span>
+        <span class="n">operations</span><span class="p">:</span>
+          <span class="n">check</span><span class="p">:</span>
+
+
+  <span class="n">unfurl</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">Installer</span><span class="p">:</span>
+    <span class="n">derived_from</span><span class="p">:</span> <span class="n">tosca</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">Root</span>
+    <span class="n">capabilities</span><span class="p">:</span>
+      <span class="n">installer</span><span class="p">:</span>
+        <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">capabilities</span><span class="o">.</span><span class="n">Installer</span>
+
+  <span class="n">unfurl</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">Installation</span><span class="p">:</span>
+    <span class="n">derived_from</span><span class="p">:</span> <span class="n">tosca</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">Root</span>
+    <span class="n">requirements</span><span class="p">:</span>
+      <span class="o">-</span> <span class="n">installer</span><span class="p">:</span>
+          <span class="n">capability</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">capabilities</span><span class="o">.</span><span class="n">Installer</span>
+          <span class="n">node</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">Installer</span>
+          <span class="n">relationship</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">InstalledBy</span>
+          <span class="n">occurrences</span><span class="p">:</span> <span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">]</span> <span class="c1"># it isn&#39;t necessarily required</span>
+
+  <span class="n">unfurl</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">Default</span><span class="p">:</span>
+    <span class="n">derived_from</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">Installation</span>
+    <span class="n">description</span><span class="p">:</span> <span class="s2">&quot;Used if pre-existing instances are declared with no TOSCA template&quot;</span>
+
+  <span class="n">unfurl</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">CloudAccount</span><span class="p">:</span>
+    <span class="n">derived_from</span><span class="p">:</span> <span class="n">tosca</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">Root</span>
+    <span class="n">attributes</span><span class="p">:</span>
+      <span class="n">account_id</span><span class="p">:</span>
+        <span class="n">description</span><span class="p">:</span> <span class="s2">&quot;Cloud provider specific account identifier&quot;</span>
+        <span class="nb">type</span><span class="p">:</span> <span class="n">string</span>
+
+<span class="n">data_types</span><span class="p">:</span>
+  <span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvVar</span><span class="p">:</span>
+    <span class="n">derived_from</span><span class="p">:</span> <span class="n">tosca</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">Root</span>
+    <span class="nb">type</span><span class="p">:</span> <span class="n">string</span>
+    <span class="n">description</span><span class="p">:</span> <span class="n">The</span> <span class="n">value</span> <span class="n">of</span> <span class="n">an</span> <span class="n">environment</span> <span class="n">variable</span> <span class="n">whose</span> <span class="n">name</span> <span class="n">matches</span> <span class="n">the</span> <span class="nb">property</span><span class="s1">&#39;s name</span>
+
+<span class="n">capability_types</span><span class="p">:</span>
+  <span class="n">unfurl</span><span class="o">.</span><span class="n">capabilities</span><span class="o">.</span><span class="n">Installer</span><span class="p">:</span>
+    <span class="n">derived_from</span><span class="p">:</span> <span class="n">tosca</span><span class="o">.</span><span class="n">capabilities</span><span class="o">.</span><span class="n">Root</span>
+
+  <span class="n">unfurl</span><span class="o">.</span><span class="n">capabilities</span><span class="o">.</span><span class="n">Endpoint</span><span class="o">.</span><span class="n">Ansible</span><span class="p">:</span>
+    <span class="n">derived_from</span><span class="p">:</span> <span class="n">tosca</span><span class="o">.</span><span class="n">capabilities</span><span class="o">.</span><span class="n">Endpoint</span><span class="o">.</span><span class="n">Admin</span>
+    <span class="n">description</span><span class="p">:</span> <span class="n">Capability</span> <span class="n">to</span> <span class="n">connect</span> <span class="n">to</span> <span class="n">Ansible</span>
+    <span class="n">properties</span><span class="p">:</span>
+      <span class="n">connection</span><span class="p">:</span>
+        <span class="n">description</span><span class="p">:</span> <span class="n">The</span> <span class="n">connection</span> <span class="nb">type</span> <span class="p">(</span><span class="n">sets</span> <span class="s2">&quot;ansible_connection&quot;</span><span class="p">)</span>
+        <span class="nb">type</span><span class="p">:</span> <span class="n">string</span>
+        <span class="n">default</span><span class="p">:</span> <span class="n">local</span>
+      <span class="n">port</span><span class="p">:</span>
+        <span class="nb">type</span><span class="p">:</span> <span class="n">tosca</span><span class="p">:</span><span class="n">PortDef</span>
+        <span class="n">description</span><span class="p">:</span> <span class="n">sets</span> <span class="s2">&quot;ansible_port&quot;</span>
+        <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
+      <span class="n">host</span><span class="p">:</span>
+        <span class="nb">type</span><span class="p">:</span> <span class="n">string</span>
+        <span class="n">description</span><span class="p">:</span> <span class="n">Sets</span> <span class="s2">&quot;ansible_host&quot;</span>
+        <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
+      <span class="n">user</span><span class="p">:</span>
+        <span class="n">description</span><span class="p">:</span> <span class="n">Sets</span> <span class="s2">&quot;ansible_user&quot;</span> <span class="k">if</span> <span class="ow">not</span> <span class="nb">set</span> <span class="ow">in</span> <span class="n">credentials</span>
+        <span class="nb">type</span><span class="p">:</span> <span class="n">string</span>
+        <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
+      <span class="n">authentication_type</span><span class="p">:</span>
+        <span class="n">description</span><span class="p">:</span> <span class="s2">&quot;Type of authentication required, should match the credential&#39;s token_type&quot;</span>
+        <span class="nb">type</span><span class="p">:</span> <span class="n">string</span>
+        <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
+      <span class="n">hostvars</span><span class="p">:</span>
+        <span class="nb">type</span><span class="p">:</span> <span class="nb">map</span>
+        <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
+        <span class="n">description</span><span class="p">:</span> <span class="o">&gt;</span>
+          <span class="n">Passed</span> <span class="n">to</span> <span class="n">ansible</span> <span class="k">as</span> <span class="n">host</span> <span class="nb">vars</span>
+          <span class="n">See</span> <span class="n">https</span><span class="p">:</span><span class="o">//</span><span class="n">docs</span><span class="o">.</span><span class="n">ansible</span><span class="o">.</span><span class="n">com</span><span class="o">/</span><span class="n">ansible</span><span class="o">/</span><span class="n">latest</span><span class="o">/</span><span class="n">user_guide</span><span class="o">/</span><span class="n">intro_inventory</span><span class="o">.</span><span class="n">html</span><span class="c1">#connecting-to-hosts-behavioral-inventory-parameters</span>
+
+  <span class="n">unfurl</span><span class="o">.</span><span class="n">capabilities</span><span class="o">.</span><span class="n">Endpoint</span><span class="o">.</span><span class="n">SSH</span><span class="p">:</span>
+    <span class="n">derived_from</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">capabilities</span><span class="o">.</span><span class="n">Endpoint</span><span class="o">.</span><span class="n">Ansible</span>
+    <span class="n">description</span><span class="p">:</span> <span class="n">Capability</span> <span class="n">to</span> <span class="n">connect</span> <span class="n">to</span> <span class="n">the</span> <span class="n">host</span> <span class="n">via</span> <span class="n">SSH</span>
+    <span class="n">properties</span><span class="p">:</span>
+      <span class="n">protocol</span><span class="p">:</span>
+        <span class="nb">type</span><span class="p">:</span> <span class="n">string</span>
+        <span class="n">value</span><span class="p">:</span> <span class="n">ssh</span>
+        <span class="n">default</span><span class="p">:</span> <span class="n">ssh</span>
+      <span class="n">connection</span><span class="p">:</span>
+        <span class="nb">type</span><span class="p">:</span> <span class="n">string</span>
+        <span class="n">default</span><span class="p">:</span> <span class="n">ssh</span>
+      <span class="n">port</span><span class="p">:</span>
+        <span class="nb">type</span><span class="p">:</span> <span class="n">tosca</span><span class="p">:</span><span class="n">PortDef</span>
+        <span class="n">default</span><span class="p">:</span> <span class="mi">22</span>
+
+<span class="n">relationship_types</span><span class="p">:</span>
+  <span class="n">unfurl</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">InstalledBy</span><span class="p">:</span>
+    <span class="n">derived_from</span><span class="p">:</span> <span class="n">tosca</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">Root</span>
+    <span class="n">valid_target_types</span><span class="p">:</span> <span class="p">[</span><span class="n">unfurl</span><span class="o">.</span><span class="n">capabilities</span><span class="o">.</span><span class="n">Installer</span><span class="p">]</span>
+
+  <span class="n">unfurl</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">ConnectsTo</span><span class="o">.</span><span class="n">Ansible</span><span class="p">:</span>
+    <span class="n">derived_from</span><span class="p">:</span> <span class="n">tosca</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">ConnectsTo</span>
+    <span class="n">valid_target_types</span><span class="p">:</span> <span class="p">[</span><span class="n">unfurl</span><span class="o">.</span><span class="n">capabilities</span><span class="o">.</span><span class="n">Endpoint</span><span class="o">.</span><span class="n">Ansible</span><span class="p">]</span>
+    <span class="n">properties</span><span class="p">:</span>
+      <span class="n">credential</span><span class="p">:</span>
+        <span class="n">description</span><span class="p">:</span> <span class="n">Its</span> <span class="s2">&quot;user&quot;</span> <span class="nb">property</span> <span class="n">sets</span> <span class="s2">&quot;ansible_user&quot;</span><span class="p">,</span> <span class="n">add</span> <span class="n">properties</span> <span class="n">like</span> <span class="s2">&quot;ssh_private_key_file&quot;</span> <span class="n">to</span> <span class="s2">&quot;keys&quot;</span>
+        <span class="nb">type</span><span class="p">:</span> <span class="n">tosca</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">Credential</span>
+        <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
+        <span class="n">metadata</span><span class="p">:</span>
+          <span class="n">sensitive</span><span class="p">:</span> <span class="n">true</span>
+      <span class="n">hostvars</span><span class="p">:</span>
+        <span class="nb">type</span><span class="p">:</span> <span class="nb">map</span>
+        <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
+        <span class="n">description</span><span class="p">:</span> <span class="o">&gt;</span>
+          <span class="n">Passed</span> <span class="n">to</span> <span class="n">ansible</span> <span class="k">as</span> <span class="n">host</span> <span class="nb">vars</span>
+          <span class="n">See</span> <span class="n">https</span><span class="p">:</span><span class="o">//</span><span class="n">docs</span><span class="o">.</span><span class="n">ansible</span><span class="o">.</span><span class="n">com</span><span class="o">/</span><span class="n">ansible</span><span class="o">/</span><span class="n">latest</span><span class="o">/</span><span class="n">user_guide</span><span class="o">/</span><span class="n">intro_inventory</span><span class="o">.</span><span class="n">html</span><span class="c1">#connecting-to-hosts-behavioral-inventory-parameters</span>
+
+  <span class="n">unfurl</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">ConnectsTo</span><span class="o">.</span><span class="n">CloudAccount</span><span class="p">:</span>
+    <span class="n">derived_from</span><span class="p">:</span> <span class="n">tosca</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">ConnectsTo</span>
+    <span class="c1"># valid_target_types: [unfurl.capabilities.Endpoint.CloudAccount]</span>
+
+  <span class="n">unfurl</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">ConnectsTo</span><span class="o">.</span><span class="n">GoogleCloudProject</span><span class="p">:</span>
+    <span class="n">derived_from</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">ConnectsTo</span><span class="o">.</span><span class="n">CloudAccount</span>
+    <span class="n">properties</span><span class="p">:</span>
+      <span class="n">CLOUDSDK_CORE_PROJECT</span><span class="p">:</span>
+         <span class="n">description</span><span class="p">:</span> <span class="nb">id</span> <span class="n">of</span> <span class="n">the</span> <span class="n">project</span>
+         <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvVar</span>
+         <span class="n">default</span><span class="p">:</span> <span class="p">{</span><span class="n">get_env</span><span class="p">:</span> <span class="n">CLOUDSDK_CORE_PROJECT</span><span class="p">}</span>
+      <span class="n">CLOUDSDK_COMPUTE_REGION</span><span class="p">:</span>
+         <span class="n">description</span><span class="p">:</span> <span class="n">default</span> <span class="n">region</span> <span class="n">to</span> <span class="n">use</span>
+         <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvVar</span>
+         <span class="n">default</span><span class="p">:</span> <span class="p">{</span><span class="n">get_env</span><span class="p">:</span> <span class="n">CLOUDSDK_COMPUTE_REGION</span><span class="p">}</span>
+      <span class="n">CLOUDSDK_COMPUTE_ZONE</span><span class="p">:</span>
+         <span class="n">description</span><span class="p">:</span> <span class="n">default</span> <span class="n">zone</span> <span class="n">to</span> <span class="n">use</span>
+         <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvVar</span>
+         <span class="n">default</span><span class="p">:</span> <span class="p">{</span><span class="n">get_env</span><span class="p">:</span> <span class="n">CLOUDSDK_COMPUTE_ZONE</span><span class="p">}</span>
+      <span class="n">GOOGLE_APPLICATION_CREDENTIALS</span><span class="p">:</span>
+        <span class="n">description</span><span class="p">:</span> <span class="s2">&quot;Path to file containing service account private keys in JSON format&quot;</span>
+        <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvVar</span>
+        <span class="n">default</span><span class="p">:</span> <span class="p">{</span><span class="n">get_env</span><span class="p">:</span> <span class="n">GOOGLE_APPLICATION_CREDENTIALS</span><span class="p">}</span>
+
+      <span class="c1"># other authentication options:</span>
+      <span class="n">GOOGLE_OAUTH_ACCESS_TOKEN</span><span class="p">:</span>
+        <span class="n">description</span><span class="p">:</span> <span class="n">A</span> <span class="n">temporary</span> <span class="n">OAuth</span> <span class="mf">2.0</span> <span class="n">access</span> <span class="n">token</span> <span class="n">obtained</span> <span class="kn">from</span> <span class="nn">the</span> <span class="n">Google</span> <span class="n">Authorization</span> <span class="n">server</span>
+        <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvVar</span>
+        <span class="n">default</span><span class="p">:</span> <span class="p">{</span><span class="n">get_env</span><span class="p">:</span> <span class="n">GOOGLE_OAUTH_ACCESS_TOKEN</span><span class="p">}</span>
+      <span class="n">GCP_SERVICE_ACCOUNT_CONTENTS</span><span class="p">:</span>
+        <span class="n">description</span><span class="p">:</span> <span class="s2">&quot;Content of file containing service account private keys&quot;</span>
+        <span class="nb">type</span><span class="p">:</span> <span class="n">tosca</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">json</span>
+        <span class="n">default</span><span class="p">:</span> <span class="p">{</span><span class="n">get_env</span><span class="p">:</span> <span class="n">GCP_SERVICE_ACCOUNT_CONTENTS</span><span class="p">}</span>
+        <span class="n">metadata</span><span class="p">:</span>
+          <span class="n">sensitive</span><span class="p">:</span> <span class="n">true</span>
+        <span class="c1"># some of the keys in the credential json:</span>
+        <span class="c1">#   project_id</span>
+        <span class="c1">#   type: auth_kind: type of authentication being used (choices: machineaccount, serviceaccount, application)</span>
+        <span class="c1">#   client_email: email associated with the project</span>
+        <span class="c1">#   scopes: The specific scopes that you want the actions to use.</span>
+      <span class="n">GCP_AUTH_KIND</span><span class="p">:</span>
+        <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvVar</span>
+        <span class="n">constraints</span><span class="p">:</span>
+          <span class="o">-</span> <span class="n">valid_values</span><span class="p">:</span> <span class="p">[</span><span class="n">application</span><span class="p">,</span> <span class="n">machineaccount</span><span class="p">,</span> <span class="n">serviceaccount</span><span class="p">]</span>
+        <span class="n">default</span><span class="p">:</span> <span class="p">{</span><span class="n">get_env</span><span class="p">:</span> <span class="p">[</span><span class="n">GCP_AUTH_KIND</span><span class="p">,</span> <span class="s1">&#39;serviceaccount&#39;</span><span class="p">]}</span>
+      <span class="n">scopes</span><span class="p">:</span>
+        <span class="nb">type</span><span class="p">:</span> <span class="nb">list</span>
+        <span class="n">entry_schema</span><span class="p">:</span>
+          <span class="nb">type</span><span class="p">:</span> <span class="n">string</span>
+        <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
+
+  <span class="n">unfurl</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">ConnectsTo</span><span class="o">.</span><span class="n">AWSAccount</span><span class="p">:</span>
+    <span class="n">derived_from</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">ConnectsTo</span><span class="o">.</span><span class="n">CloudAccount</span>
+    <span class="n">properties</span><span class="p">:</span>
+      <span class="n">endpoints</span><span class="p">:</span>
+         <span class="n">description</span><span class="p">:</span> <span class="n">custom</span> <span class="n">service</span> <span class="n">endpoints</span>
+         <span class="nb">type</span><span class="p">:</span> <span class="nb">map</span>
+         <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
+      <span class="n">AWS_DEFAULT_REGION</span><span class="p">:</span>
+        <span class="n">description</span><span class="p">:</span> <span class="s2">&quot;The default region to use, e.g. us-west-1, us-west-2, etc.&quot;</span>
+        <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvVar</span>
+        <span class="n">default</span><span class="p">:</span> <span class="p">{</span><span class="n">get_env</span><span class="p">:</span> <span class="n">AWS_DEFAULT_REGION</span><span class="p">}</span>
+      <span class="n">AWS_ACCESS_KEY_ID</span><span class="p">:</span>
+        <span class="n">description</span><span class="p">:</span> <span class="s2">&quot;The access key for your AWS account&quot;</span>
+        <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvVar</span>
+        <span class="n">default</span><span class="p">:</span> <span class="p">{</span><span class="n">get_env</span><span class="p">:</span> <span class="n">AWS_ACCESS_KEY_ID</span><span class="p">}</span>
+      <span class="n">AWS_SECRET_ACCESS_KEY</span><span class="p">:</span>
+        <span class="n">description</span><span class="p">:</span> <span class="s2">&quot;The secret key for your AWS account.&quot;</span>
+        <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvVar</span>
+        <span class="n">default</span><span class="p">:</span> <span class="p">{</span><span class="n">get_env</span><span class="p">:</span> <span class="n">AWS_SECRET_ACCESS_KEY</span><span class="p">}</span>
+        <span class="n">metadata</span><span class="p">:</span>
+          <span class="n">sensitive</span><span class="p">:</span> <span class="n">true</span>
+      <span class="c1"># other authentication options:</span>
+      <span class="n">AWS_SESSION_TOKEN</span><span class="p">:</span>
+        <span class="n">description</span><span class="p">:</span> <span class="s2">&quot;The session key for your AWS account.&quot;</span>
+        <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvVar</span>
+        <span class="n">default</span><span class="p">:</span> <span class="p">{</span><span class="n">get_env</span><span class="p">:</span> <span class="n">AWS_SESSION_TOKEN</span><span class="p">}</span>
+        <span class="n">metadata</span><span class="p">:</span>
+          <span class="n">sensitive</span><span class="p">:</span> <span class="n">true</span>
+      <span class="n">AWS_PROFILE</span><span class="p">:</span>
+        <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvVar</span>
+        <span class="n">default</span><span class="p">:</span> <span class="p">{</span><span class="n">get_env</span><span class="p">:</span> <span class="n">AWS_PROFILE</span><span class="p">}</span>
+      <span class="n">AWS_SHARED_CREDENTIALS_FILE</span><span class="p">:</span>
+        <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvVar</span>
+        <span class="n">default</span><span class="p">:</span> <span class="p">{</span><span class="n">get_env</span><span class="p">:</span> <span class="n">AWS_SHARED_CREDENTIALS_FILE</span><span class="p">}</span>
+      <span class="n">AWS_CONFIG_FILE</span><span class="p">:</span>
+        <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvVar</span>
+        <span class="n">default</span><span class="p">:</span> <span class="p">{</span><span class="n">get_env</span><span class="p">:</span> <span class="n">AWS_CONFIG_FILE</span><span class="p">}</span>
+    <span class="c1"># see https://boto3.amazonaws.com/v1/documentation/api/latest/guide/configuration.html#using-environment-variables</span>
+    <span class="c1"># for more environment variables</span>
+
+  <span class="n">unfurl</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">ConnectsTo</span><span class="o">.</span><span class="n">Azure</span><span class="p">:</span>
+    <span class="n">derived_from</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">ConnectsTo</span><span class="o">.</span><span class="n">CloudAccount</span>
+    <span class="n">properties</span><span class="p">:</span>
+      <span class="n">AZURE_CLIENT_ID</span><span class="p">:</span>
+        <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvVar</span>
+        <span class="n">default</span><span class="p">:</span> <span class="p">{</span><span class="n">get_env</span><span class="p">:</span> <span class="n">AZURE_CLIENT_ID</span><span class="p">}</span>
+      <span class="n">AZURE_TENANT</span><span class="p">:</span>
+        <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvVar</span>
+        <span class="n">default</span><span class="p">:</span> <span class="p">{</span><span class="n">get_env</span><span class="p">:</span> <span class="n">AZURE_TENANT</span><span class="p">}</span>
+      <span class="n">AZURE_SUBSCRIPTION_ID</span><span class="p">:</span>
+        <span class="n">description</span><span class="p">:</span> <span class="k">for</span> <span class="n">authentication</span> <span class="k">with</span> <span class="n">service</span> <span class="n">principal</span>
+        <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvVar</span>
+        <span class="n">default</span><span class="p">:</span> <span class="p">{</span><span class="n">get_env</span><span class="p">:</span> <span class="n">AZURE_SUBSCRIPTION_ID</span><span class="p">}</span>
+      <span class="n">AZURE_SECRET</span><span class="p">:</span>
+        <span class="n">description</span><span class="p">:</span> <span class="k">for</span> <span class="n">authentication</span> <span class="k">with</span> <span class="n">service</span> <span class="n">principal</span>
+        <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvVar</span>
+        <span class="n">default</span><span class="p">:</span> <span class="p">{</span><span class="n">get_env</span><span class="p">:</span> <span class="n">AZURE_SECRET</span><span class="p">}</span>
+        <span class="n">metadata</span><span class="p">:</span>
+          <span class="n">sensitive</span><span class="p">:</span> <span class="n">true</span>
+      <span class="n">AZURE_AD_USER</span><span class="p">:</span>
+        <span class="n">description</span><span class="p">:</span> <span class="k">for</span> <span class="n">authentication</span> <span class="k">with</span> <span class="n">Active</span> <span class="n">Directory</span>
+        <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvVar</span>
+        <span class="n">default</span><span class="p">:</span> <span class="p">{</span><span class="n">get_env</span><span class="p">:</span> <span class="n">AZURE_AD_USER</span><span class="p">}</span>
+      <span class="n">AZURE_PASSWORD</span><span class="p">:</span>
+        <span class="n">description</span><span class="p">:</span> <span class="k">for</span> <span class="n">authentication</span> <span class="k">with</span> <span class="n">Active</span> <span class="n">Directory</span>
+        <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvVar</span>
+        <span class="n">default</span><span class="p">:</span> <span class="p">{</span><span class="n">get_env</span><span class="p">:</span> <span class="n">AZURE_PASSWORD</span><span class="p">}</span>
+        <span class="n">metadata</span><span class="p">:</span>
+          <span class="n">sensitive</span><span class="p">:</span> <span class="n">true</span>
+      <span class="n">AZURE_ADFS_AUTHORITY_URL</span><span class="p">:</span>
+        <span class="n">description</span><span class="p">:</span> <span class="nb">set</span> <span class="k">if</span> <span class="n">you</span> <span class="n">have</span> <span class="n">your</span> <span class="n">own</span> <span class="n">ADFS</span> <span class="n">authority</span>
+        <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvVar</span>
+        <span class="n">default</span><span class="p">:</span> <span class="p">{</span><span class="n">get_env</span><span class="p">:</span> <span class="n">AZURE_ADFS_AUTHORITY_URL</span><span class="p">}</span>
+
+  <span class="n">unfurl</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">ConnectsTo</span><span class="o">.</span><span class="n">Packet</span><span class="p">:</span>
+    <span class="n">derived_from</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">ConnectsTo</span><span class="o">.</span><span class="n">CloudAccount</span>
+    <span class="n">properties</span><span class="p">:</span>
+      <span class="n">project</span><span class="p">:</span>
+        <span class="n">description</span><span class="p">:</span> <span class="n">UUID</span> <span class="n">to</span> <span class="n">packet</span> <span class="n">project</span>
+        <span class="nb">type</span><span class="p">:</span> <span class="n">string</span>
+      <span class="n">PACKET_API_TOKEN</span><span class="p">:</span>
+        <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvVar</span>
+        <span class="n">default</span><span class="p">:</span> <span class="p">{</span><span class="n">get_env</span><span class="p">:</span> <span class="n">PACKET_API_TOKEN</span><span class="p">}</span>
+        <span class="n">metadata</span><span class="p">:</span>
+          <span class="n">sensitive</span><span class="p">:</span> <span class="n">true</span>
+
+  <span class="n">unfurl</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">ConnectsTo</span><span class="o">.</span><span class="n">OpenStack</span><span class="p">:</span>
+    <span class="n">derived_from</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">ConnectsTo</span><span class="o">.</span><span class="n">CloudAccount</span>
+    <span class="c1"># from pyrax (rackspace, openstack)</span>
+    <span class="c1"># RAX_CREDS_FILE</span>
+    <span class="c1"># CLOUD_ID_TYPE &quot;rackspace&quot; or &quot;keystone&quot;</span>
+    <span class="c1"># CLOUD_REGION default: &quot;DFW&quot;</span>
+    <span class="c1"># also CLOUD_* in https://github.com/pycontribs/pyrax/blob/master/docs/getting_started.md#available-configuration-settings</span>
+
+  <span class="n">unfurl</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">ConnectsTo</span><span class="o">.</span><span class="n">Rackspace</span><span class="p">:</span>
+    <span class="n">derived_from</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">ConnectsTo</span><span class="o">.</span><span class="n">OpenStack</span>
+
+<span class="n">interface_types</span><span class="p">:</span>
+  <span class="n">unfurl</span><span class="o">.</span><span class="n">interfaces</span><span class="o">.</span><span class="n">Install</span><span class="p">:</span>
+    <span class="n">derived_from</span><span class="p">:</span> <span class="n">tosca</span><span class="o">.</span><span class="n">interfaces</span><span class="o">.</span><span class="n">Root</span>
+    <span class="n">check</span><span class="p">:</span>
+      <span class="n">description</span><span class="p">:</span> <span class="n">Checks</span> <span class="ow">and</span> <span class="n">sets</span> <span class="n">the</span> <span class="n">status</span> <span class="ow">and</span> <span class="n">attributes</span> <span class="n">of</span> <span class="n">the</span> <span class="n">instance</span>
+    <span class="n">discover</span><span class="p">:</span>
+      <span class="n">description</span><span class="p">:</span> <span class="n">Discovers</span> <span class="n">current</span> <span class="n">state</span> <span class="n">of</span> <span class="n">the</span> <span class="n">current</span> <span class="n">instance</span> <span class="ow">and</span> <span class="p">(</span><span class="n">possibly</span><span class="p">)</span> <span class="n">related</span> <span class="n">instances</span><span class="p">,</span> <span class="n">updates</span> <span class="n">the</span> <span class="n">spec</span> <span class="k">as</span> <span class="n">needed</span><span class="o">.</span>
+    <span class="n">revert</span><span class="p">:</span>
+      <span class="n">description</span><span class="p">:</span> <span class="n">Restore</span> <span class="n">the</span> <span class="n">instance</span> <span class="n">to</span> <span class="n">the</span> <span class="n">state</span> <span class="n">it</span> <span class="n">was</span> <span class="n">original</span> <span class="n">found</span> <span class="ow">in</span>
+
+<span class="n">group_types</span><span class="p">:</span>
+  <span class="n">unfurl</span><span class="o">.</span><span class="n">groups</span><span class="o">.</span><span class="n">AnsibleInventoryGroup</span><span class="p">:</span>
+    <span class="n">derived_from</span><span class="p">:</span> <span class="n">tosca</span><span class="o">.</span><span class="n">groups</span><span class="o">.</span><span class="n">Root</span>
+    <span class="n">description</span><span class="p">:</span> <span class="n">Use</span> <span class="n">this</span> <span class="n">to</span> <span class="n">place</span> <span class="n">hosts</span> <span class="ow">in</span> <span class="n">Ansible</span> <span class="n">inventory</span> <span class="n">groups</span>
+    <span class="n">properties</span><span class="p">:</span>
+      <span class="n">hostvars</span><span class="p">:</span>
+        <span class="n">description</span><span class="p">:</span> <span class="n">Ansible</span> <span class="n">hostvars</span> <span class="k">for</span> <span class="n">members</span> <span class="n">of</span> <span class="n">this</span> <span class="n">group</span>
+        <span class="nb">type</span><span class="p">:</span> <span class="nb">map</span>
+        <span class="n">default</span><span class="p">:</span> <span class="p">{}</span>
+    <span class="n">members</span><span class="p">:</span> <span class="p">[</span><span class="n">tosca</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">Compute</span><span class="p">,</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">groups</span><span class="o">.</span><span class="n">ansibleInventoryGroup</span><span class="p">]</span>
+</pre></div>
+</div>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="extensions.html" class="btn btn-neutral float-left" title="Unfurl Specific" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="glossary.html" class="btn btn-neutral float-right" title="Glossary" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2020, Adam Souzis.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

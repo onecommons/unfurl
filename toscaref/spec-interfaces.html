@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+  <meta charset="utf-8" /><meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Interfaces &mdash; Unfurl Documentation</title>
+      <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+      <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
+      <link rel="stylesheet" href="../_static/custom.css" type="text/css" />
+    <link rel="shortcut icon" href="../_static/favicon32.png"/>
+  <!--[if lt IE 9]>
+    <script src="../_static/js/html5shiv.min.js"></script>
+  <![endif]-->
+  
+        <script data-url_root="../" id="documentation_options" src="../_static/documentation_options.js"></script>
+        <script src="../_static/jquery.js"></script>
+        <script src="../_static/underscore.js"></script>
+        <script src="../_static/doctools.js"></script>
+        <script src="../_static/custom.js"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+            <a href="../index.html">
+            <img src="../_static/unfurl_logo.svg" class="logo" alt="Logo"/>
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+<li class="toctree-l1"><a class="reference internal" href="../README.html">Introduction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../README.html#installation">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../get-started-step-by-step.html">Getting Started</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../ensembles.html">Ensembles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../projects.html">Unfurl Projects</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../secrets.html">Managing Secrets</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../tosca.html">TOSCA</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../jobs.html">Jobs and Workflows</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../runtime.html">Runtime Environment</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../configurators.html">Configurators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../configurators.html#installers">Installers</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../processing.html">Template Processing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../expressions.html">Expression Functions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html">Command Line</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../jsonschema.html">Configuration Files</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../toscaref.html">TOSCA Language Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../glossary.html">Glossary</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api.html">Python API</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">Unfurl</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home"></a> &raquo;</li>
+      <li>Interfaces</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/toscaref/spec-interfaces.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="interfaces">
+<span id="interfaces2"></span><h1>Interfaces<a class="headerlink" href="#interfaces" title="Permalink to this headline"></a></h1>
+<p>Interfaces provide a way to map logical tasks to executable operations.</p>
+<section id="declaration">
+<h2>Declaration<a class="headerlink" href="#declaration" title="Permalink to this headline"></a></h2>
+<section id="node-types-and-interfaces">
+<h3>Node Types and Interfaces<a class="headerlink" href="#node-types-and-interfaces" title="Permalink to this headline"></a></h3>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">node_types</span><span class="p">:</span>
+  <span class="nt">some_type</span><span class="p">:</span>
+    <span class="nt">interfaces</span><span class="p">:</span>
+      <span class="nt">interface1</span><span class="p">:</span>
+        <span class="nt">op1</span><span class="p">:</span>
+          <span class="l l-Scalar l-Scalar-Plain">...</span>
+        <span class="nt">op2</span><span class="p">:</span>
+          <span class="l l-Scalar l-Scalar-Plain">...</span>
+      <span class="nt">interface2</span><span class="p">:</span>
+        <span class="l l-Scalar l-Scalar-Plain">...</span>
+<span class="nt">requirements</span><span class="p">:</span>
+  <span class="nt">some_requirement</span><span class="p">:</span>
+    <span class="nt">source_interfaces</span><span class="p">:</span>
+      <span class="nt">interface1</span><span class="p">:</span>
+        <span class="l l-Scalar l-Scalar-Plain">...</span>
+    <span class="nt">target_interfaces</span><span class="p">:</span>
+      <span class="nt">interface2</span><span class="p">:</span>
+        <span class="l l-Scalar l-Scalar-Plain">...</span>
+</pre></div>
+</div>
+<p>Each interface declaration under the <code class="docutils literal notranslate"><span class="pre">interfaces</span></code> section is a dictionary of operations.</p>
+</section>
+<section id="operation-declaration-in-node-types-interfaces">
+<h3>Operation Declaration in Node Types Interfaces<a class="headerlink" href="#operation-declaration-in-node-types-interfaces" title="Permalink to this headline"></a></h3>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">node_types</span><span class="p">:</span>
+  <span class="nt">some_type</span><span class="p">:</span>
+    <span class="nt">interfaces</span><span class="p">:</span>
+      <span class="nt">interface1</span><span class="p">:</span>
+        <span class="nt">op1</span><span class="p">:</span>
+          <span class="nt">implementation</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">...</span>
+          <span class="nt">inputs</span><span class="p">:</span>
+            <span class="l l-Scalar l-Scalar-Plain">...</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="definition">
+<h2>Definition<a class="headerlink" href="#definition" title="Permalink to this headline"></a></h2>
+<table class="colwidths-given docutils align-default">
+<colgroup>
+<col style="width: 13%" />
+<col style="width: 13%" />
+<col style="width: 13%" />
+<col style="width: 63%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Keyname</p></th>
+<th class="head"><p>Required</p></th>
+<th class="head"><p>Type</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>implementation</p></td>
+<td><p>yes</p></td>
+<td><p>string</p></td>
+<td><p>The script or plugin task name to execute.</p></td>
+</tr>
+<tr class="row-odd"><td><p>inputs</p></td>
+<td><p>no</p></td>
+<td><p>dict</p></td>
+<td><p>Schema of inputs that will be passed to the implementation.</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="simple-mapping">
+<h2>Simple Mapping<a class="headerlink" href="#simple-mapping" title="Permalink to this headline"></a></h2>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">node_types</span><span class="p">:</span>
+
+  <span class="nt">some_type</span><span class="p">:</span>
+    <span class="nt">interfaces</span><span class="p">:</span>
+      <span class="nt">interface1</span><span class="p">:</span>
+        <span class="nt">op1</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">plugin_name.path.to.module.task</span>
+</pre></div>
+</div>
+<p>When mapping an operation to an implementation, if there is no need to
+pass inputs or override the executor, the full mapping structure can be
+avoided and the implementation can be written directly.</p>
+</section>
+<section id="operation-input-schema-definition">
+<h2>Operation Input Schema Definition<a class="headerlink" href="#operation-input-schema-definition" title="Permalink to this headline"></a></h2>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">node_types</span><span class="p">:</span>
+  <span class="nt">some_type</span><span class="p">:</span>
+    <span class="nt">interfaces</span><span class="p">:</span>
+      <span class="nt">interface1</span><span class="p">:</span>
+        <span class="nt">op1</span><span class="p">:</span>
+          <span class="nt">implementation</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">...</span>
+          <span class="nt">inputs</span><span class="p">:</span>
+            <span class="nt">input1</span><span class="p">:</span>
+              <span class="nt">description</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">...</span>
+              <span class="nt">type</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">...</span>
+              <span class="nt">default</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">...</span>
+          <span class="nt">executor</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">...</span>
+</pre></div>
+</div>
+<table class="colwidths-given docutils align-default">
+<colgroup>
+<col style="width: 13%" />
+<col style="width: 13%" />
+<col style="width: 13%" />
+<col style="width: 63%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Keyname</p></th>
+<th class="head"><p>Required</p></th>
+<th class="head"><p>Type</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>description</p></td>
+<td><p>no</p></td>
+<td><p>string</p></td>
+<td><p>Description for the input.</p></td>
+</tr>
+<tr class="row-odd"><td><p>type</p></td>
+<td><p>no</p></td>
+<td><p>string</p></td>
+<td><p>stringInput type. Not specifying a data type means the type can be anything (also types not listed in the valid types). Valid types: string, integer, boolean</p></td>
+</tr>
+<tr class="row-even"><td><p>default</p></td>
+<td><p>no</p></td>
+<td><p>&lt;any&gt;</p></td>
+<td><p>An optional default value for the input.</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="node-templates-interface-definition">
+<h2>Node Templates Interface Definition<a class="headerlink" href="#node-templates-interface-definition" title="Permalink to this headline"></a></h2>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">some_node</span><span class="p">:</span>
+  <span class="nt">interfaces</span><span class="p">:</span>
+    <span class="l l-Scalar l-Scalar-Plain">...</span>
+  <span class="nt">requirements</span><span class="p">:</span>
+    <span class="p p-Indicator">-</span> <span class="nt">type</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">...</span>
+      <span class="nt">target</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">...</span>
+      <span class="nt">source_interfaces</span><span class="p">:</span>
+        <span class="l l-Scalar l-Scalar-Plain">...</span>
+      <span class="nt">target_interfaces</span><span class="p">:</span>
+        <span class="l l-Scalar l-Scalar-Plain">...</span>
+</pre></div>
+</div>
+<section id="operation-inputs-in-node-templates-interfaces">
+<h3>Operation Inputs in Node Templates Interfaces<a class="headerlink" href="#operation-inputs-in-node-templates-interfaces" title="Permalink to this headline"></a></h3>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">node_types</span><span class="p">:</span>
+  <span class="nt">some_type</span><span class="p">:</span>
+    <span class="nt">interfaces</span><span class="p">:</span>
+      <span class="nt">interface1</span><span class="p">:</span>
+        <span class="nt">op1</span><span class="p">:</span>
+          <span class="nt">implementation</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">plugin_name.path.to.module.task</span>
+          <span class="nt">inputs</span><span class="p">:</span>
+            <span class="nt">input1</span><span class="p">:</span>
+              <span class="nt">description</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">some mandatory input</span>
+            <span class="nt">input2</span><span class="p">:</span>
+              <span class="nt">description</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">some optional input with default</span>
+              <span class="nt">default</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">1000</span>
+          <span class="nt">executor</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">...</span>
+
+<span class="nt">node_templates</span><span class="p">:</span>
+  <span class="nt">some_node</span><span class="p">:</span>
+    <span class="nt">interfaces</span><span class="p">:</span>
+      <span class="nt">interface1</span><span class="p">:</span>
+        <span class="nt">op1</span><span class="p">:</span>
+          <span class="nt">inputs</span><span class="p">:</span>
+            <span class="nt">input1</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">mandatory_input_value</span>
+            <span class="nt">input3</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">some_additional_input</span>
+</pre></div>
+</div>
+<p>When an operation in a node template interface is inherited from a node type or a requirement interface:</p>
+<ul class="simple">
+<li><p>All inputs that were declared in the operation inputs schema must be provided.</p></li>
+<li><p>Additional inputs, which were not specified in the operation inputs schema, may be passed as well.</p></li>
+</ul>
+</section>
+</section>
+<section id="examples">
+<h2>Examples<a class="headerlink" href="#examples" title="Permalink to this headline"></a></h2>
+<p>In the following examples, we will declare an interface which will allow us to:</p>
+<ul class="simple">
+<li><p>Configure a master deployment server using a plugin.</p></li>
+<li><p>Deploy code on the hosts using a plugin.</p></li>
+<li><p>Verify that the deployment succeeded using a shell script.</p></li>
+<li><p>Start the application after the deployment ended.</p></li>
+</ul>
+<p>For the sake of simplicity, we will not refer to <a class="reference internal" href="spec-requirements.html#requirements"><span class="std std-ref">requirements</span></a> in these examples.</p>
+<section id="configuring-interfaces-in-node-types">
+<h3>Configuring Interfaces in Node Types<a class="headerlink" href="#configuring-interfaces-in-node-types" title="Permalink to this headline"></a></h3>
+<p>Configuring the master server:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">plugins</span><span class="p">:</span>
+  <span class="nt">deployer</span><span class="p">:</span>
+    <span class="nt">executor</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">central_deployment_agent</span>
+
+<span class="nt">node_types</span><span class="p">:</span>
+  <span class="nt">nodejs_app</span><span class="p">:</span>
+    <span class="nt">derived_from</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">tosca.nodes.ApplicationModule</span>
+    <span class="nt">properties</span><span class="p">:</span>
+      <span class="l l-Scalar l-Scalar-Plain">...</span>
+    <span class="nt">interfaces</span><span class="p">:</span>
+      <span class="nt">my_deployment_interface</span><span class="p">:</span>
+        <span class="nt">configure</span><span class="p">:</span>
+          <span class="nt">implementation</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">deployer.config_in_master.configure</span>
+
+<span class="nt">node_templates</span><span class="p">:</span>
+  <span class="nt">nodejs</span><span class="p">:</span>
+    <span class="nt">type</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">nodejs_app</span>
+</pre></div>
+</div>
+<p>In this example, we’ve:</p>
+<ul class="simple">
+<li><p>Declared a <code class="docutils literal notranslate"><span class="pre">deployer</span></code> plugin which, <a class="reference external" href="#overriding-the-executor">by default</a>, should execute its operations on the TOSCA manager.</p></li>
+<li><p>Declared a <a class="reference internal" href="spec-node-types.html#node-types"><span class="std std-ref">node type</span></a> with a <code class="docutils literal notranslate"><span class="pre">my_deployment_interface</span></code> interface that has a single <code class="docutils literal notranslate"><span class="pre">configure</span></code> operation which is mapped to the <code class="docutils literal notranslate"><span class="pre">deployer.config_in_master.configure</span></code> task.</p></li>
+<li><p>Declared a <code class="docutils literal notranslate"><span class="pre">nodejs</span></code> node template of type <code class="docutils literal notranslate"><span class="pre">nodejs_app</span></code>.</p></li>
+</ul>
+</section>
+<section id="overriding-the-executor">
+<h3>Overriding the executor<a class="headerlink" href="#overriding-the-executor" title="Permalink to this headline"></a></h3>
+<p>In the above example we’ve declared an <code class="docutils literal notranslate"><span class="pre">executor</span></code> for our <code class="docutils literal notranslate"><span class="pre">deployer</span></code> plugin. TOSCA enables declaring an <code class="docutils literal notranslate"><span class="pre">executor</span></code> for a single operation thus overriding the previous declaration.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">plugins</span><span class="p">:</span>
+  <span class="nt">deployer</span><span class="p">:</span>
+    <span class="nt">executor</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">central_deployment_agent</span>
+
+<span class="nt">node_types</span><span class="p">:</span>
+  <span class="nt">nodejs_app</span><span class="p">:</span>
+    <span class="nt">derived_from</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">tosca.nodes.ApplicationModule</span>
+    <span class="nt">properties</span><span class="p">:</span>
+      <span class="l l-Scalar l-Scalar-Plain">...</span>
+    <span class="nt">interfaces</span><span class="p">:</span>
+      <span class="nt">my_deployment_interface</span><span class="p">:</span>
+        <span class="nt">configure</span><span class="p">:</span>
+          <span class="nt">implementation</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">deployer.config_in_master.configure</span>
+        <span class="nt">deploy</span><span class="p">:</span>
+          <span class="nt">implementation</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">deployer.deploy_framework.deploy</span>
+          <span class="nt">executor</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">host_agent</span>
+
+<span class="nt">node_templates</span><span class="p">:</span>
+  <span class="nt">vm</span><span class="p">:</span>
+    <span class="nt">type</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">tosca.openstack.nodes.Server</span>
+  <span class="nt">nodejs</span><span class="p">:</span>
+    <span class="nt">type</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">nodejs_app</span>
+</pre></div>
+</div>
+<p>Here we added a <code class="docutils literal notranslate"><span class="pre">deploy</span></code> operation to our <code class="docutils literal notranslate"><span class="pre">my_deployment_interface</span></code>
+interface.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Note that its <code class="docutils literal notranslate"><span class="pre">executor</span></code> attribute is configured to <code class="docutils literal notranslate"><span class="pre">host_agent</span></code> which means that even though the <code class="docutils literal notranslate"><span class="pre">deployer</span></code> plugin is configured to execute operations on the <code class="docutils literal notranslate"><span class="pre">central_deployment_agent</span></code>, the <code class="docutils literal notranslate"><span class="pre">deploy</span></code> operation will be executed on hosts of the <code class="docutils literal notranslate"><span class="pre">nodejs_app</span></code> rather than the TOSCA manager.</p>
+</div>
+</section>
+<section id="declaring-an-operation-implementation-within-the-node">
+<h3>Declaring an operation implementation within the node<a class="headerlink" href="#declaring-an-operation-implementation-within-the-node" title="Permalink to this headline"></a></h3>
+<p>You can specify a full operation definition within the node’s interface under the node template itself.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">plugins</span><span class="p">:</span>
+  <span class="nt">deployer</span><span class="p">:</span>
+    <span class="nt">executor</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">central_deployment_agent</span>
+
+<span class="nt">node_types</span><span class="p">:</span>
+  <span class="nt">nodejs_app</span><span class="p">:</span>
+    <span class="nt">derived_from</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">tosca.nodes.ApplicationModule</span>
+    <span class="nt">properties</span><span class="p">:</span>
+      <span class="l l-Scalar l-Scalar-Plain">...</span>
+    <span class="nt">interfaces</span><span class="p">:</span>
+      <span class="nt">my_deployment_interface</span><span class="p">:</span>
+        <span class="l l-Scalar l-Scalar-Plain">...</span>
+
+<span class="nt">node_templates</span><span class="p">:</span>
+  <span class="nt">vm</span><span class="p">:</span>
+    <span class="nt">type</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">tosca.openstack.nodes.Server</span>
+  <span class="nt">nodejs</span><span class="p">:</span>
+    <span class="nt">type</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">nodejs_app</span>
+    <span class="nt">interfaces</span><span class="p">:</span>
+      <span class="nt">my_deployment_interface</span><span class="p">:</span>
+        <span class="l l-Scalar l-Scalar-Plain">...</span>
+        <span class="l l-Scalar l-Scalar-Plain">start</span><span class="p p-Indicator">:</span> <span class="l l-Scalar l-Scalar-Plain">scripts/start_app.sh</span>
+</pre></div>
+</div>
+<p>Let’s say that we use our <code class="docutils literal notranslate"><span class="pre">my_deployment_interface</span></code> on more than the <code class="docutils literal notranslate"><span class="pre">nodejs</span></code> node. While on all other nodes, a <code class="docutils literal notranslate"><span class="pre">start</span></code> operation is not mapped to anything, we’d like to have a <code class="docutils literal notranslate"><span class="pre">start</span></code> operation for the <code class="docutils literal notranslate"><span class="pre">nodejs</span></code> node specifically, which will run our application after it is deployed.</p>
+<p>Here, we’ve declared a <code class="docutils literal notranslate"><span class="pre">start</span></code> operation and mapped it to execute a script specifically on the <code class="docutils literal notranslate"><span class="pre">nodejs</span></code> node.</p>
+<p>This comes to show that you can define your interfaces either in <code class="docutils literal notranslate"><span class="pre">node_types</span></code> or in <code class="docutils literal notranslate"><span class="pre">node_templates</span></code> depending on whether you want to reuse the declared interfaces in diffrent nodes or declare them in specific nodes.</p>
+</section>
+<section id="operation-inputs">
+<h3>Operation Inputs<a class="headerlink" href="#operation-inputs" title="Permalink to this headline"></a></h3>
+<p>Operations can specify inputs that will be passed to the implementation.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">plugins</span><span class="p">:</span>
+  <span class="nt">deployer</span><span class="p">:</span>
+    <span class="nt">executor</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">central_deployment_agent</span>
+
+<span class="nt">node_types</span><span class="p">:</span>
+  <span class="nt">nodejs_app</span><span class="p">:</span>
+    <span class="nt">derived_from</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">tosca.nodes.ApplicationModule</span>
+    <span class="nt">properties</span><span class="p">:</span>
+      <span class="l l-Scalar l-Scalar-Plain">...</span>
+    <span class="nt">interfaces</span><span class="p">:</span>
+      <span class="nt">my_deployment_interface</span><span class="p">:</span>
+        <span class="nt">configure</span><span class="p">:</span>
+          <span class="l l-Scalar l-Scalar-Plain">...</span>
+        <span class="nt">deploy</span><span class="p">:</span>
+          <span class="nt">implementation</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">deployer.deploy_framework.deploy</span>
+          <span class="nt">executor</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">host_agent</span>
+          <span class="nt">inputs</span><span class="p">:</span>
+            <span class="nt">source</span><span class="p">:</span>
+              <span class="nt">description</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">deployment source</span>
+              <span class="nt">type</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">string</span>
+              <span class="nt">default</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">git</span>
+        <span class="nt">verify</span><span class="p">:</span>
+          <span class="nt">implementation</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">scripts/deployment_verifier.py</span>
+
+<span class="nt">node_templates</span><span class="p">:</span>
+  <span class="nt">vm</span><span class="p">:</span>
+    <span class="nt">type</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">tosca.openstack.nodes.Server</span>
+  <span class="nt">nodejs_app</span><span class="p">:</span>
+    <span class="nt">type</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">tosca.nodes.WebServer</span>
+    <span class="nt">interfaces</span><span class="p">:</span>
+      <span class="nt">my_deployment_interface</span><span class="p">:</span>
+        <span class="l l-Scalar l-Scalar-Plain">...</span>
+        <span class="l l-Scalar l-Scalar-Plain">start</span><span class="p p-Indicator">:</span>
+          <span class="nt">implementation</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">scripts/start_app.sh</span>
+          <span class="nt">inputs</span><span class="p">:</span>
+            <span class="nt">app</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">my_web_app</span>
+            <span class="nt">validate</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">true</span>
+</pre></div>
+</div>
+<p>Here, we added an input to the <code class="docutils literal notranslate"><span class="pre">deploy</span></code> operation under the <code class="docutils literal notranslate"><span class="pre">my_deployment_interface</span></code> interface in our <code class="docutils literal notranslate"><span class="pre">nodejs_app</span></code> node type and two inputs to the <code class="docutils literal notranslate"><span class="pre">start</span></code> operation in the <code class="docutils literal notranslate"><span class="pre">nodejs</span></code> node’s interface.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Note that interface inputs are NOT the same type of objects as the inputs defined in the <code class="docutils literal notranslate"><span class="pre">inputs</span></code> section of the service template. Interface inputs are passed directly to a plugin’s operation (as **kwargs to our <code class="docutils literal notranslate"><span class="pre">deploy</span></code> operation in the <code class="docutils literal notranslate"><span class="pre">deployer</span></code> plugin) or, in the case of our <code class="docutils literal notranslate"><span class="pre">start</span></code> operations, to the Script Plugin.</p>
+</div>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<p>For more information, refer to <a class="reference external" href="../_static/TOSCA-Simple-Profile-YAML-v1.3-os-toc.html#_Toc50125307">TOSCA Interface Section</a></p>
+</div>
+</section>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2020, Adam Souzis.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

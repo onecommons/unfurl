@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+  <meta charset="utf-8" /><meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Unfurl Projects &mdash; Unfurl Documentation</title>
+      <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+      <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+      <link rel="stylesheet" href="_static/custom.css" type="text/css" />
+    <link rel="shortcut icon" href="_static/favicon32.png"/>
+  <!--[if lt IE 9]>
+    <script src="_static/js/html5shiv.min.js"></script>
+  <![endif]-->
+  
+        <script data-url_root="./" id="documentation_options" src="_static/documentation_options.js"></script>
+        <script src="_static/jquery.js"></script>
+        <script src="_static/underscore.js"></script>
+        <script src="_static/doctools.js"></script>
+        <script src="_static/custom.js"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Managing Secrets" href="secrets.html" />
+    <link rel="prev" title="Ensembles" href="ensembles.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+            <a href="index.html">
+            <img src="_static/unfurl_logo.svg" class="logo" alt="Logo"/>
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="README.html">Introduction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="README.html#installation">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="get-started-step-by-step.html">Getting Started</a></li>
+<li class="toctree-l1"><a class="reference internal" href="ensembles.html">Ensembles</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Unfurl Projects</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#environments">Environments</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#variables">Variables</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#locals">Locals</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#secrets">Secrets</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#repositories">Repositories</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#imports">Imports</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#connections">Connections</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#external">External</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#inheritance-and-precedence">Inheritance and precedence</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#external-ensembles">External ensembles</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#project-defaults">Project defaults</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#runtimes">Runtimes</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#venv">venv</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#docker">docker</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="secrets.html">Managing Secrets</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tosca.html">TOSCA</a></li>
+<li class="toctree-l1"><a class="reference internal" href="jobs.html">Jobs and Workflows</a></li>
+<li class="toctree-l1"><a class="reference internal" href="runtime.html">Runtime Environment</a></li>
+<li class="toctree-l1"><a class="reference internal" href="configurators.html">Configurators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="configurators.html#installers">Installers</a></li>
+<li class="toctree-l1"><a class="reference internal" href="processing.html">Template Processing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="expressions.html">Expression Functions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="cli.html">Command Line</a></li>
+<li class="toctree-l1"><a class="reference internal" href="jsonschema.html">Configuration Files</a></li>
+<li class="toctree-l1"><a class="reference internal" href="toscaref.html">TOSCA Language Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="glossary.html">Glossary</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api.html">Python API</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">Unfurl</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home"></a> &raquo;</li>
+      <li>Unfurl Projects</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/projects.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="unfurl-projects">
+<h1>Unfurl Projects<a class="headerlink" href="#unfurl-projects" title="Permalink to this headline"></a></h1>
+<p>Ensembles are meant to be self-contained and independent of their environment with any
+environment-dependent values and settings placed in the Ensemble’s environment.</p>
+<p>Unfurl projects define these environments and assign them to the project’s ensembles.</p>
+<section id="environments">
+<h2>Environments<a class="headerlink" href="#environments" title="Permalink to this headline"></a></h2>
+<p>Environments can contain:</p>
+<section id="variables">
+<h3>Variables<a class="headerlink" href="#variables" title="Permalink to this headline"></a></h3>
+<p>Specifies the runtimes environment variables to set or copy from the current environment (see <a class="reference internal" href="jsonschema.html#environment"><span class="std std-ref">environment</span></a>)</p>
+</section>
+<section id="locals">
+<h3>Locals<a class="headerlink" href="#locals" title="Permalink to this headline"></a></h3>
+<p>Locals are properties specific to the local environment (e.g. proxy settings) and are accessed through the <a class="reference internal" href="expressions.html#local"><span class="std std-ref">local</span></a> expression function.</p>
+</section>
+<section id="secrets">
+<h3>Secrets<a class="headerlink" href="#secrets" title="Permalink to this headline"></a></h3>
+<p>Secrets are like locals except they are marked <a class="reference internal" href="expressions.html#sensitive"><span class="std std-ref">sensitive</span></a> and redacted or encrypted when necessary. They are accessed through the <a class="reference internal" href="expressions.html#secret"><span class="std std-ref">secret</span></a> expression function. See <a class="reference internal" href="#secrets"><span class="std std-ref">Secrets</span></a> for more info.</p>
+</section>
+<section id="repositories">
+<h3>Repositories<a class="headerlink" href="#repositories" title="Permalink to this headline"></a></h3>
+<p>You can specify repositories using TOSCA’s <code class="docutils literal notranslate"><span class="pre">repositories</span></code> syntax in the environment so ensemble can reference a repository by name to specify its location.</p>
+</section>
+<section id="imports">
+<h3>Imports<a class="headerlink" href="#imports" title="Permalink to this headline"></a></h3>
+<p>You can include TOSCA’s <code class="docutils literal notranslate"><span class="pre">import</span></code> statements in the environment and those TOSCA templates will be imported into the ensemble’s service template.</p>
+</section>
+<section id="connections">
+<h3>Connections<a class="headerlink" href="#connections" title="Permalink to this headline"></a></h3>
+<p>A map of connection templates. Connection templates are TOSCA relationship templates that represent connections to cloud providers and other online services.
+The properties for each connection type match the environments variables commonly associated with each cloud provider.
+You can directly set the properties here or set the corresponding environments variables. If directly set here they will set the corresponding environments variable when executing a job.</p>
+<p>Inherited connection templates can be renamed locally by including an item with the new name as its key and old name as its the value.
+You can also delete the connection by setting its key to null.</p>
+</section>
+<section id="external">
+<h3>External<a class="headerlink" href="#external" title="Permalink to this headline"></a></h3>
+<p>This specifies instances and connections that will be imported from external ensembles. See <a class="reference internal" href="#external-ensembles"><span class="std std-ref">External ensembles</span></a>.</p>
+</section>
+<section id="inheritance-and-precedence">
+<h3>Inheritance and precedence<a class="headerlink" href="#inheritance-and-precedence" title="Permalink to this headline"></a></h3>
+<p>A Unfurl project can set environment defaults. It can also declare named environments and associate ensembles with a named environment.</p>
+<p>An ensemble can also declare what properties and values it is expecting in its environment along with defaults values.</p>
+<p>The following search order is applied when search for settings and objects in the ensemble’s environment:</p>
+<ol class="arabic simple">
+<li><p>named environment in current project</p></li>
+<li><p>named environment in the environment’s default project</p></li>
+<li><p>named environment in the home project</p></li>
+<li><p>defaults in current project</p></li>
+<li><p>defaults in the environment’s default project</p></li>
+<li><p>defaults in home projects</p></li>
+<li><p>environment section in the ensemble’s manifest</p></li>
+</ol>
+</section>
+</section>
+<section id="external-ensembles">
+<h2>External ensembles<a class="headerlink" href="#external-ensembles" title="Permalink to this headline"></a></h2>
+<p>The <a class="reference internal" href="#external"><span class="std std-ref">External</span></a> section of the manifest lets you declare instances that are imported from external manifests. Instances listed here can be accessed in two ways: One, they will be implicitly used if they match a node template that is declared abstract using the “select” directive (see “3.4.3 Directives”). Two, they can be explicitly referenced using the <a class="reference internal" href="#external"><span class="std std-ref">External</span></a> expression function.</p>
+<p>There are 3 instances that are always implicitly imported even if they are not declared:</p>
+<ul class="simple">
+<li><p>The <code class="docutils literal notranslate"><span class="pre">localhost</span></code> instance that represents the machine Unfurl is currently executing on. This instance is accessed through the <code class="docutils literal notranslate"><span class="pre">ORCHESTRATOR</span></code> keyword in TOSCA and is defined in the home manifest that resides in your Unfurl home folder.</p></li>
+</ul>
+<dl class="field-list simple">
+<dt class="field-odd">manifest</dt>
+<dd class="field-odd"><p>A map specifying the location of the manifest. It must contain a <code class="docutils literal notranslate"><span class="pre">file</span></code> key with the path to the ensemble and optionally either a <code class="docutils literal notranslate"><span class="pre">repository</span></code> key indicating the name of the repository where the file is located or a <code class="docutils literal notranslate"><span class="pre">project</span></code> key to indicate the project the ensemble is in.</p>
+</dd>
+<dt class="field-even">instance</dt>
+<dd class="field-even"><p>(default: “*”) The name of the instance within the ensemble to make available.
+If <code class="docutils literal notranslate"><span class="pre">*</span></code> all instances in the ensemble will be available.</p>
+</dd>
+<dt class="field-odd">uri</dt>
+<dd class="field-odd"><p>The <code class="docutils literal notranslate"><span class="pre">uri</span></code> of the ensemble. If it is set and it doesn’t match the retrieved ensemble’s URI a validation error will occur.</p>
+</dd>
+</dl>
+<p>Locals and secrets:</p>
+<p>A map of names and values of locals or secrets with one reserved name:</p>
+<dl class="field-list simple">
+<dt class="field-odd"><code class="docutils literal notranslate"><span class="pre">schema</span></code></dt>
+<dd class="field-odd"><p>a JSON schema <code class="docutils literal notranslate"><span class="pre">properties</span></code> object describing the schema for the map. If missing, validation of the attributes will be skipped.</p>
+</dd>
+</dl>
+</section>
+<section id="project-defaults">
+<h2>Project defaults<a class="headerlink" href="#project-defaults" title="Permalink to this headline"></a></h2>
+<p>After running “init” your Unfurl project will look like:</p>
+<p>ensemble/ensemble.yaml
+ensemble-template.yaml
+unfurl.yaml
+local/unfurl.yaml
+secrets/secrets.yaml</p>
+<p>If the –existing option is used, the project will be added to the nearest repository found in a parent folder.
+If the –mono option is used, the ensemble add the project repo instead of it’s own.</p>
+<p>Each repository created will also have .gitignore and .gitattributes added.</p>
+<p>When a repository is added as child of another repo, that folder will be added to .git/info/exclude
+(instead of .gitignore because they shouldn’t be committed into the repository).</p>
+<p>Include directives, imports, and external file reference are guaranteed to be local to the project.
+Paths outside the project need to be referenced with a named repository.
+Paths are always relative but you can optionally specify which repository a path is relative to.</p>
+<p>There are three predefined repositories:</p>
+<p>“self”, which represents the location the ensemble lives in – it will be
+a “git-local:” URL or a “file:” URL if the ensemble is not part of a git repository.</p>
+<p>“unfurl” which points to the Python package of the unfurl process – this can be used to load configurators and templates
+that ship with Unfurl.</p>
+<p>“spec” which, unless explicitly declared, defaults to the project root or the ensemble itself if it is not part of a project.</p>
+</section>
+<section id="runtimes">
+<h2>Runtimes<a class="headerlink" href="#runtimes" title="Permalink to this headline"></a></h2>
+<p>A runtime is an isolated execution environment where a job is run. This can be directory to a Python virtual environment or a Docker container.
+The runtime is specified by the <a class="reference internal" href="cli.html#cmdoption-unfurl-runtime"><code class="xref std std-option docutils literal notranslate"><span class="pre">unfurl</span> <span class="pre">--runtime</span></code></a> CLI argument.
+If this is missing, it will look a Python virtual environment directory (<code class="docutils literal notranslate"><span class="pre">.venv</span></code>) in the project’s directory. By default, Unfurl will create a Python virtual environment in <a class="reference internal" href="get-started-step-by-step.html#configure"><span class="std std-ref">~/unfurl_home</span></a> when the home project is created.
+You can disable use of a runtime entirely using the <a class="reference internal" href="cli.html#cmdoption-unfurl-no-runtime"><code class="xref std std-option docutils literal notranslate"><span class="pre">unfurl</span> <span class="pre">--no-runtime</span></code></a> CLI argument.</p>
+<section id="venv">
+<h3>venv<a class="headerlink" href="#venv" title="Permalink to this headline"></a></h3>
+<p>The format for the <code class="docutils literal notranslate"><span class="pre">venv:</span></code> runtime specifier is one of:</p>
+<p><code class="docutils literal notranslate"><span class="pre">venv:[folder</span> <span class="pre">with</span> <span class="pre">a</span> <span class="pre">Pipfile]:[unfurl</span> <span class="pre">version]</span></code></p>
+<p>or</p>
+<p><code class="docutils literal notranslate"><span class="pre">venv:</span></code> (use the default folder and default unfurl version)</p>
+<p>If the Pipfile folder isn’t specified the default one that ships with the Unfurl package will be used. In either case it will be copied to the root of the project the runtime is being installed in.
+When the Python virtual environment is created it install the packages specified in the Pipfile (and Pipfile.lock if present).</p>
+<p>Now you can use <code class="docutils literal notranslate"><span class="pre">pipenv</span></code> to install additional packages and commit the changes to <code class="docutils literal notranslate"><span class="pre">Pipfile</span></code> and <code class="docutils literal notranslate"><span class="pre">Pipfile.lock</span></code> to the project repository.</p>
+<p>You can also specify the version of unfurl to use when the runtime is invoked.</p>
+<p>The format for the unfurl version specifier is: <code class="docutils literal notranslate"><span class="pre">[URL</span> <span class="pre">or</span> <span class="pre">path</span> <span class="pre">to</span> <span class="pre">an</span> <span class="pre">Unfurl</span> <span class="pre">git</span> <span class="pre">repository]</span> <span class="pre">['&#64;'</span> <span class="pre">[tag]]</span></code></p>
+<p>If <code class="docutils literal notranslate"><span class="pre">&#64;tag</span></code> is omitted the tag for the current release will be used.
+If <code class="docutils literal notranslate"><span class="pre">&#64;</span></code> included without a tag the latest revision will be used
+If no path or url is specified <code class="docutils literal notranslate"><span class="pre">git+https://github.com/onecommons/unfurl.git</span></code> will be used.</p>
+<p>Some examples:</p>
+<p><code class="docutils literal notranslate"><span class="pre">&#64;tag</span></code></p>
+<p><code class="docutils literal notranslate"><span class="pre">./path/to/local/repo</span></code></p>
+<p><code class="docutils literal notranslate"><span class="pre">./path/to/local/repo&#64;tag</span></code></p>
+<p><code class="docutils literal notranslate"><span class="pre">./path/to/local/repo&#64;</span></code></p>
+<p><code class="docutils literal notranslate"><span class="pre">git+https://example.com/forked/unfurl.git</span></code></p>
+<p><code class="docutils literal notranslate"><span class="pre">&#64;</span></code></p>
+<p>If omitted, the same version of Unfurl that is currently running will be used.
+If specified, the package will be installed in “developer mode” (<code class="docutils literal notranslate"><span class="pre">-e</span></code>) by Pip.</p>
+<div class="admonition tip">
+<p class="admonition-title">Tip</p>
+<p>You can now upgrade Unfurl using pip normally from with in the virtual environment:</p>
+<p><code class="docutils literal notranslate"><span class="pre">source</span> <span class="pre">.venv/bin/activate;</span> <span class="pre">pip3</span> <span class="pre">install</span> <span class="pre">-e</span> <span class="pre">--upgrade</span> <span class="pre">unfurl</span></code></p>
+</div>
+</section>
+<section id="docker">
+<h3>docker<a class="headerlink" href="#docker" title="Permalink to this headline"></a></h3>
+<p>The format for the <code class="docutils literal notranslate"><span class="pre">docker:</span></code> runtime specifier is:</p>
+<p><code class="docutils literal notranslate"><span class="pre">docker:[image]?:[tag]?</span> <span class="pre">[docker_args]?</span></code></p>
+<p>If <code class="docutils literal notranslate"><span class="pre">image</span></code> is omitted, “onecommons/unfurl” is used.
+If <code class="docutils literal notranslate"><span class="pre">tag</span></code> is omitted, the image tag is set to the version of the Unfurl instance that is executing this command.</p>
+<p>For example, if both omitted (e.g. <code class="docutils literal notranslate"><span class="pre">docker:</span></code>) and you are running version 0.3.1 of Unfurl, the container image “onecommons/unfurl:0.3.1” will be used.</p>
+<p>Anything thing after the tag will be treated as arguments to be passed to the docker run command that is called when executing this runtime.</p>
+<div class="admonition tip">
+<p class="admonition-title">Tip</p>
+<p>Since specifying <code class="docutils literal notranslate"><span class="pre">docker_args</span></code> will require a space separator, the whole runtime argument will have to be quoted.</p>
+</div>
+</section>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="ensembles.html" class="btn btn-neutral float-left" title="Ensembles" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="secrets.html" class="btn btn-neutral float-right" title="Managing Secrets" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2020, Adam Souzis.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

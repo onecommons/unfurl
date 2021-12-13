@@ -1,0 +1,1473 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+  <meta charset="utf-8" /><meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Command Line &mdash; Unfurl Documentation</title>
+      <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+      <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+      <link rel="stylesheet" href="_static/custom.css" type="text/css" />
+    <link rel="shortcut icon" href="_static/favicon32.png"/>
+  <!--[if lt IE 9]>
+    <script src="_static/js/html5shiv.min.js"></script>
+  <![endif]-->
+  
+        <script data-url_root="./" id="documentation_options" src="_static/documentation_options.js"></script>
+        <script src="_static/jquery.js"></script>
+        <script src="_static/underscore.js"></script>
+        <script src="_static/doctools.js"></script>
+        <script src="_static/custom.js"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Configuration Files" href="jsonschema.html" />
+    <link rel="prev" title="Expression Functions" href="expressions.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+            <a href="index.html">
+            <img src="_static/unfurl_logo.svg" class="logo" alt="Logo"/>
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="README.html">Introduction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="README.html#installation">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="get-started-step-by-step.html">Getting Started</a></li>
+<li class="toctree-l1"><a class="reference internal" href="ensembles.html">Ensembles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="projects.html">Unfurl Projects</a></li>
+<li class="toctree-l1"><a class="reference internal" href="secrets.html">Managing Secrets</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tosca.html">TOSCA</a></li>
+<li class="toctree-l1"><a class="reference internal" href="jobs.html">Jobs and Workflows</a></li>
+<li class="toctree-l1"><a class="reference internal" href="runtime.html">Runtime Environment</a></li>
+<li class="toctree-l1"><a class="reference internal" href="configurators.html">Configurators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="configurators.html#installers">Installers</a></li>
+<li class="toctree-l1"><a class="reference internal" href="processing.html">Template Processing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="expressions.html">Expression Functions</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Command Line</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#unfurl">unfurl</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#unfurl-check">check</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#unfurl-clone">clone</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#unfurl-commit">commit</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#unfurl-deploy">deploy</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#unfurl-discover">discover</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#unfurl-git">git</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#unfurl-git-status">git-status</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#unfurl-help">help</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#unfurl-home">home</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#unfurl-init">init</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#unfurl-plan">plan</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#unfurl-run">run</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#unfurl-runtime">runtime</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#unfurl-status">status</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#unfurl-stop">stop</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#unfurl-undeploy">undeploy</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#unfurl-version">version</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="jsonschema.html">Configuration Files</a></li>
+<li class="toctree-l1"><a class="reference internal" href="toscaref.html">TOSCA Language Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="glossary.html">Glossary</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api.html">Python API</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">Unfurl</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home"></a> &raquo;</li>
+      <li>Command Line</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/cli.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="command-line">
+<h1>Command Line<a class="headerlink" href="#command-line" title="Permalink to this headline"></a></h1>
+<div class="contents local topic" id="contents">
+<ul class="simple">
+<li><p><a class="reference internal" href="#unfurl" id="id1">unfurl</a></p>
+<ul>
+<li><p><a class="reference internal" href="#unfurl-check" id="id2">check</a></p></li>
+<li><p><a class="reference internal" href="#unfurl-clone" id="id3">clone</a></p></li>
+<li><p><a class="reference internal" href="#unfurl-commit" id="id4">commit</a></p></li>
+<li><p><a class="reference internal" href="#unfurl-deploy" id="id5">deploy</a></p></li>
+<li><p><a class="reference internal" href="#unfurl-discover" id="id6">discover</a></p></li>
+<li><p><a class="reference internal" href="#unfurl-git" id="id7">git</a></p></li>
+<li><p><a class="reference internal" href="#unfurl-git-status" id="id8">git-status</a></p></li>
+<li><p><a class="reference internal" href="#unfurl-help" id="id9">help</a></p></li>
+<li><p><a class="reference internal" href="#unfurl-home" id="id10">home</a></p></li>
+<li><p><a class="reference internal" href="#unfurl-init" id="id11">init</a></p></li>
+<li><p><a class="reference internal" href="#unfurl-plan" id="id12">plan</a></p></li>
+<li><p><a class="reference internal" href="#unfurl-run" id="id13">run</a></p></li>
+<li><p><a class="reference internal" href="#unfurl-runtime" id="id14">runtime</a></p></li>
+<li><p><a class="reference internal" href="#unfurl-status" id="id15">status</a></p></li>
+<li><p><a class="reference internal" href="#unfurl-stop" id="id16">stop</a></p></li>
+<li><p><a class="reference internal" href="#unfurl-undeploy" id="id17">undeploy</a></p></li>
+<li><p><a class="reference internal" href="#unfurl-version" id="id18">version</a></p></li>
+</ul>
+</li>
+</ul>
+</div>
+<section id="unfurl">
+<h2><a class="toc-backref" href="#id1">unfurl</a><a class="headerlink" href="#unfurl" title="Permalink to this headline"></a></h2>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>unfurl <span class="o">[</span>OPTIONS<span class="o">]</span> COMMAND <span class="o">[</span>ARGS<span class="o">]</span>...
+</pre></div>
+</div>
+<p class="rubric">Options</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-home">
+<span class="sig-name descname"><span class="pre">--home</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;home&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-home" title="Permalink to this definition"></a></dt>
+<dd><p>Path to .unfurl_home</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-runtime">
+<span class="sig-name descname"><span class="pre">--runtime</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;runtime&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-runtime" title="Permalink to this definition"></a></dt>
+<dd><p>use this runtime</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-no-runtime">
+<span class="sig-name descname"><span class="pre">--no-runtime</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-no-runtime" title="Permalink to this definition"></a></dt>
+<dd><p>ignore runtime settings</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-v">
+<span id="cmdoption-unfurl-verbose"></span><span class="sig-name descname"><span class="pre">-v</span></span><span class="sig-prename descclassname"></span><span class="sig-prename descclassname"><span class="pre">,</span> </span><span class="sig-name descname"><span class="pre">--verbose</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-v" title="Permalink to this definition"></a></dt>
+<dd><p>verbose mode (-vvv for more)</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-q">
+<span id="cmdoption-unfurl-quiet"></span><span class="sig-name descname"><span class="pre">-q</span></span><span class="sig-prename descclassname"></span><span class="sig-prename descclassname"><span class="pre">,</span> </span><span class="sig-name descname"><span class="pre">--quiet</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-q" title="Permalink to this definition"></a></dt>
+<dd><p>Only output errors to the stdout</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-logfile">
+<span class="sig-name descname"><span class="pre">--logfile</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;logfile&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-logfile" title="Permalink to this definition"></a></dt>
+<dd><p>Log messages to file (at DEBUG level)</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-tmp">
+<span class="sig-name descname"><span class="pre">--tmp</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;tmp&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-tmp" title="Permalink to this definition"></a></dt>
+<dd><p>Directory for saving temporary files</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-loglevel">
+<span class="sig-name descname"><span class="pre">--loglevel</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;loglevel&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-loglevel" title="Permalink to this definition"></a></dt>
+<dd><p>log level (overrides -v)</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-version-check">
+<span class="sig-name descname"><span class="pre">--version-check</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;version_check&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-version-check" title="Permalink to this definition"></a></dt>
+<dd><p>warn if older than the given version</p>
+</dd></dl>
+
+<p class="rubric">Environment variables</p>
+<span class="target" id="unfurl-home-unfurl-home"></span><dl class="std envvar">
+<dt class="sig sig-object std">
+<span class="sig-name descname"><span class="pre">UNFURL_HOME</span></span></dt>
+<dd><blockquote>
+<div><p>Provide a default for <a class="reference internal" href="#cmdoption-unfurl-home"><code class="xref std std-option docutils literal notranslate"><span class="pre">--home</span></code></a></p>
+</div></blockquote>
+</dd></dl>
+
+<span class="target" id="unfurl-runtime-unfurl-runtime"></span><dl class="std envvar">
+<dt class="sig sig-object std">
+<span class="sig-name descname"><span class="pre">UNFURL_RUNTIME</span></span></dt>
+<dd><blockquote>
+<div><p>Provide a default for <a class="reference internal" href="#cmdoption-unfurl-runtime"><code class="xref std std-option docutils literal notranslate"><span class="pre">--runtime</span></code></a></p>
+</div></blockquote>
+</dd></dl>
+
+<span class="target" id="unfurl-no-runtime-unfurl-noruntime"></span><dl class="std envvar">
+<dt class="sig sig-object std">
+<span class="sig-name descname"><span class="pre">UNFURL_NORUNTIME</span></span></dt>
+<dd><blockquote>
+<div><p>Provide a default for <a class="reference internal" href="#cmdoption-unfurl-no-runtime"><code class="xref std std-option docutils literal notranslate"><span class="pre">--no-runtime</span></code></a></p>
+</div></blockquote>
+</dd></dl>
+
+<span class="target" id="unfurl-tmp-unfurl-tmpdir"></span><dl class="std envvar">
+<dt class="sig sig-object std">
+<span class="sig-name descname"><span class="pre">UNFURL_TMPDIR</span></span></dt>
+<dd><blockquote>
+<div><p>Provide a default for <a class="reference internal" href="#cmdoption-unfurl-tmp"><code class="xref std std-option docutils literal notranslate"><span class="pre">--tmp</span></code></a></p>
+</div></blockquote>
+</dd></dl>
+
+<span class="target" id="unfurl-loglevel-unfurl-logging"></span><dl class="std envvar">
+<dt class="sig sig-object std">
+<span class="sig-name descname"><span class="pre">UNFURL_LOGGING</span></span></dt>
+<dd><blockquote>
+<div><p>Provide a default for <a class="reference internal" href="#cmdoption-unfurl-loglevel"><code class="xref std std-option docutils literal notranslate"><span class="pre">--loglevel</span></code></a></p>
+</div></blockquote>
+</dd></dl>
+
+<span class="target" id="unfurl-version-check-unfurl-version-check"></span><dl class="std envvar">
+<dt class="sig sig-object std">
+<span class="sig-name descname"><span class="pre">UNFURL_VERSION_CHECK</span></span></dt>
+<dd><blockquote>
+<div><p>Provide a default for <a class="reference internal" href="#cmdoption-unfurl-version-check"><code class="xref std std-option docutils literal notranslate"><span class="pre">--version-check</span></code></a></p>
+</div></blockquote>
+</dd></dl>
+
+<section id="unfurl-check">
+<h3><a class="toc-backref" href="#id2">check</a><a class="headerlink" href="#unfurl-check" title="Permalink to this headline"></a></h3>
+<p>Check and update the status of the ensemble’s instances</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>unfurl check <span class="o">[</span>OPTIONS<span class="o">]</span> <span class="o">[</span>ENSEMBLE<span class="o">]</span>
+</pre></div>
+</div>
+<p class="rubric">Options</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-check-force">
+<span class="sig-name descname"><span class="pre">--force</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-check-force" title="Permalink to this definition"></a></dt>
+<dd><p>(Re)run operation regardless of instance’s status or state</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-check-starttime">
+<span class="sig-name descname"><span class="pre">--starttime</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;starttime&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-check-starttime" title="Permalink to this definition"></a></dt>
+<dd><p>Set the start time of the job.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-check-output">
+<span class="sig-name descname"><span class="pre">--output</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;output&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-check-output" title="Permalink to this definition"></a></dt>
+<dd><p>How to print summary of job run</p>
+<dl class="field-list simple">
+<dt class="field-odd">Options</dt>
+<dd class="field-odd"><p>text | json | none</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-check-trace">
+<span class="sig-name descname"><span class="pre">--trace</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;trace&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-check-trace" title="Permalink to this definition"></a></dt>
+<dd><p>Set the query’s trace level</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-check-query">
+<span class="sig-name descname"><span class="pre">--query</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;query&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-check-query" title="Permalink to this definition"></a></dt>
+<dd><p>Run the given expression upon job completion</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-check-instance">
+<span class="sig-name descname"><span class="pre">--instance</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;instance&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-check-instance" title="Permalink to this definition"></a></dt>
+<dd><p>instance name to target</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-check-template">
+<span class="sig-name descname"><span class="pre">--template</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;template&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-check-template" title="Permalink to this definition"></a></dt>
+<dd><p>TOSCA template to target</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-check-change-detection">
+<span class="sig-name descname"><span class="pre">--change-detection</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;change_detection&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-check-change-detection" title="Permalink to this definition"></a></dt>
+<dd><p>How to detect configuration changes to existing instances. (Default: evaluate)</p>
+<dl class="field-list simple">
+<dt class="field-odd">Options</dt>
+<dd class="field-odd"><p>skip | spec | evaluate</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-check-skip-new">
+<span class="sig-name descname"><span class="pre">--skip-new</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-check-skip-new" title="Permalink to this definition"></a></dt>
+<dd><p>Don’t create instance for new templates.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-check-jobexitcode">
+<span class="sig-name descname"><span class="pre">--jobexitcode</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;jobexitcode&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-check-jobexitcode" title="Permalink to this definition"></a></dt>
+<dd><p>Set exit code to 1 if job status is not ok.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Options</dt>
+<dd class="field-odd"><p>error | degraded | never</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-check-m">
+<span id="cmdoption-unfurl-check-message"></span><span class="sig-name descname"><span class="pre">-m</span></span><span class="sig-prename descclassname"></span><span class="sig-prename descclassname"><span class="pre">,</span> </span><span class="sig-name descname"><span class="pre">--message</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;message&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-check-m" title="Permalink to this definition"></a></dt>
+<dd><p>commit message to use</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-check-dirty">
+<span class="sig-name descname"><span class="pre">--dirty</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;dirty&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-check-dirty" title="Permalink to this definition"></a></dt>
+<dd><p>Action if there are uncommitted changes before run. (Default: auto)</p>
+<dl class="field-list simple">
+<dt class="field-odd">Options</dt>
+<dd class="field-odd"><p>abort | ok | auto</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-check-commit">
+<span class="sig-name descname"><span class="pre">--commit</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-check-commit" title="Permalink to this definition"></a></dt>
+<dd><p>Commit modified files to the instance repository. (Default: false)</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-check-dryrun">
+<span class="sig-name descname"><span class="pre">--dryrun</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-check-dryrun" title="Permalink to this definition"></a></dt>
+<dd><p>Do not modify anything, just do a dry run.</p>
+</dd></dl>
+
+<p class="rubric">Arguments</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-check-arg-ENSEMBLE">
+<span id="cmdoption-unfurl-check-arg-ensemble"></span><span class="sig-name descname"><span class="pre">ENSEMBLE</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-check-arg-ENSEMBLE" title="Permalink to this definition"></a></dt>
+<dd><p>Optional argument</p>
+</dd></dl>
+
+</section>
+<section id="unfurl-clone">
+<h3><a class="toc-backref" href="#id3">clone</a><a class="headerlink" href="#unfurl-clone" title="Permalink to this headline"></a></h3>
+<p>Create a new ensemble or project from a service template or an existing ensemble or project.</p>
+<p>SOURCE Path or git url to a project, ensemble, or service template</p>
+<p>DEST   Path to the new project or ensemble</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>unfurl clone <span class="o">[</span>OPTIONS<span class="o">]</span> SOURCE <span class="o">[</span>DEST<span class="o">]</span>
+</pre></div>
+</div>
+<p class="rubric">Options</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-clone-mono">
+<span class="sig-name descname"><span class="pre">--mono</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-clone-mono" title="Permalink to this definition"></a></dt>
+<dd><p>Create one repository for the project.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-clone-existing">
+<span class="sig-name descname"><span class="pre">--existing</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-clone-existing" title="Permalink to this definition"></a></dt>
+<dd><p>Add project to nearest existing repository.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-clone-empty">
+<span class="sig-name descname"><span class="pre">--empty</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-clone-empty" title="Permalink to this definition"></a></dt>
+<dd><p>Don’t create a default ensemble.</p>
+</dd></dl>
+
+<p class="rubric">Arguments</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-clone-arg-SOURCE">
+<span id="cmdoption-unfurl-clone-arg-source"></span><span class="sig-name descname"><span class="pre">SOURCE</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-clone-arg-SOURCE" title="Permalink to this definition"></a></dt>
+<dd><p>Required argument</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-clone-arg-DEST">
+<span id="cmdoption-unfurl-clone-arg-dest"></span><span class="sig-name descname"><span class="pre">DEST</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-clone-arg-DEST" title="Permalink to this definition"></a></dt>
+<dd><p>Optional argument</p>
+</dd></dl>
+
+</section>
+<section id="unfurl-commit">
+<h3><a class="toc-backref" href="#id4">commit</a><a class="headerlink" href="#unfurl-commit" title="Permalink to this headline"></a></h3>
+<p>Commit any outstanding changes to the given project or ensemble.</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>unfurl commit <span class="o">[</span>OPTIONS<span class="o">]</span> <span class="o">[</span>PROJECT_OR_ENSEMBLE_PATH<span class="o">]</span>
+</pre></div>
+</div>
+<p class="rubric">Options</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-commit-m">
+<span id="cmdoption-unfurl-commit-message"></span><span class="sig-name descname"><span class="pre">-m</span></span><span class="sig-prename descclassname"></span><span class="sig-prename descclassname"><span class="pre">,</span> </span><span class="sig-name descname"><span class="pre">--message</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;message&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-commit-m" title="Permalink to this definition"></a></dt>
+<dd><p>commit message to use</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-commit-no-edit">
+<span class="sig-name descname"><span class="pre">--no-edit</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-commit-no-edit" title="Permalink to this definition"></a></dt>
+<dd><p>Use default message instead of invoking the editor</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-commit-skip-add">
+<span class="sig-name descname"><span class="pre">--skip-add</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-commit-skip-add" title="Permalink to this definition"></a></dt>
+<dd><p>Don’t add files for committing (user must add using git)</p>
+</dd></dl>
+
+<p class="rubric">Arguments</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-commit-arg-PROJECT_OR_ENSEMBLE_PATH">
+<span id="cmdoption-unfurl-commit-arg-project-or-ensemble-path"></span><span class="sig-name descname"><span class="pre">PROJECT_OR_ENSEMBLE_PATH</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-commit-arg-PROJECT_OR_ENSEMBLE_PATH" title="Permalink to this definition"></a></dt>
+<dd><p>Optional argument</p>
+</dd></dl>
+
+</section>
+<section id="unfurl-deploy">
+<h3><a class="toc-backref" href="#id5">deploy</a><a class="headerlink" href="#unfurl-deploy" title="Permalink to this headline"></a></h3>
+<p>Deploy the given ensemble</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>unfurl deploy <span class="o">[</span>OPTIONS<span class="o">]</span> <span class="o">[</span>ENSEMBLE<span class="o">]</span>
+</pre></div>
+</div>
+<p class="rubric">Options</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-deploy-force">
+<span class="sig-name descname"><span class="pre">--force</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-deploy-force" title="Permalink to this definition"></a></dt>
+<dd><p>(Re)run operation regardless of instance’s status or state</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-deploy-starttime">
+<span class="sig-name descname"><span class="pre">--starttime</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;starttime&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-deploy-starttime" title="Permalink to this definition"></a></dt>
+<dd><p>Set the start time of the job.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-deploy-output">
+<span class="sig-name descname"><span class="pre">--output</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;output&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-deploy-output" title="Permalink to this definition"></a></dt>
+<dd><p>How to print summary of job run</p>
+<dl class="field-list simple">
+<dt class="field-odd">Options</dt>
+<dd class="field-odd"><p>text | json | none</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-deploy-trace">
+<span class="sig-name descname"><span class="pre">--trace</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;trace&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-deploy-trace" title="Permalink to this definition"></a></dt>
+<dd><p>Set the query’s trace level</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-deploy-query">
+<span class="sig-name descname"><span class="pre">--query</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;query&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-deploy-query" title="Permalink to this definition"></a></dt>
+<dd><p>Run the given expression upon job completion</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-deploy-instance">
+<span class="sig-name descname"><span class="pre">--instance</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;instance&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-deploy-instance" title="Permalink to this definition"></a></dt>
+<dd><p>instance name to target</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-deploy-template">
+<span class="sig-name descname"><span class="pre">--template</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;template&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-deploy-template" title="Permalink to this definition"></a></dt>
+<dd><p>TOSCA template to target</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-deploy-check">
+<span class="sig-name descname"><span class="pre">--check</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-deploy-check" title="Permalink to this definition"></a></dt>
+<dd><p>check if new instances exist before deploying</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-deploy-destroyunmanaged">
+<span class="sig-name descname"><span class="pre">--destroyunmanaged</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-deploy-destroyunmanaged" title="Permalink to this definition"></a></dt>
+<dd><p>include unmanaged instances for consideration when destroying</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-deploy-prune">
+<span class="sig-name descname"><span class="pre">--prune</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-deploy-prune" title="Permalink to this definition"></a></dt>
+<dd><p>destroy instances that are no longer used</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-deploy-upgrade">
+<span class="sig-name descname"><span class="pre">--upgrade</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-deploy-upgrade" title="Permalink to this definition"></a></dt>
+<dd><p>Apply major versions changes.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-deploy-repair">
+<span class="sig-name descname"><span class="pre">--repair</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;repair&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-deploy-repair" title="Permalink to this definition"></a></dt>
+<dd><p>Re-run operations on instances that are in an error or degraded state. (Default: error)</p>
+<dl class="field-list simple">
+<dt class="field-odd">Options</dt>
+<dd class="field-odd"><p>error | degraded | none</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-deploy-change-detection">
+<span class="sig-name descname"><span class="pre">--change-detection</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;change_detection&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-deploy-change-detection" title="Permalink to this definition"></a></dt>
+<dd><p>How to detect configuration changes to existing instances. (Default: evaluate)</p>
+<dl class="field-list simple">
+<dt class="field-odd">Options</dt>
+<dd class="field-odd"><p>skip | spec | evaluate</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-deploy-skip-new">
+<span class="sig-name descname"><span class="pre">--skip-new</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-deploy-skip-new" title="Permalink to this definition"></a></dt>
+<dd><p>Don’t create instance for new templates.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-deploy-approve">
+<span class="sig-name descname"><span class="pre">--approve</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-deploy-approve" title="Permalink to this definition"></a></dt>
+<dd><p>Don’t prompt for approval to apply changes.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-deploy-jobexitcode">
+<span class="sig-name descname"><span class="pre">--jobexitcode</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;jobexitcode&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-deploy-jobexitcode" title="Permalink to this definition"></a></dt>
+<dd><p>Set exit code to 1 if job status is not ok.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Options</dt>
+<dd class="field-odd"><p>error | degraded | never</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-deploy-m">
+<span id="cmdoption-unfurl-deploy-message"></span><span class="sig-name descname"><span class="pre">-m</span></span><span class="sig-prename descclassname"></span><span class="sig-prename descclassname"><span class="pre">,</span> </span><span class="sig-name descname"><span class="pre">--message</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;message&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-deploy-m" title="Permalink to this definition"></a></dt>
+<dd><p>commit message to use</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-deploy-dirty">
+<span class="sig-name descname"><span class="pre">--dirty</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;dirty&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-deploy-dirty" title="Permalink to this definition"></a></dt>
+<dd><p>Action if there are uncommitted changes before run. (Default: auto)</p>
+<dl class="field-list simple">
+<dt class="field-odd">Options</dt>
+<dd class="field-odd"><p>abort | ok | auto</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-deploy-commit">
+<span class="sig-name descname"><span class="pre">--commit</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-deploy-commit" title="Permalink to this definition"></a></dt>
+<dd><p>Commit modified files to the instance repository. (Default: false)</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-deploy-dryrun">
+<span class="sig-name descname"><span class="pre">--dryrun</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-deploy-dryrun" title="Permalink to this definition"></a></dt>
+<dd><p>Do not modify anything, just do a dry run.</p>
+</dd></dl>
+
+<p class="rubric">Arguments</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-deploy-arg-ENSEMBLE">
+<span id="cmdoption-unfurl-deploy-arg-ensemble"></span><span class="sig-name descname"><span class="pre">ENSEMBLE</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-deploy-arg-ENSEMBLE" title="Permalink to this definition"></a></dt>
+<dd><p>Optional argument</p>
+</dd></dl>
+
+<p class="rubric">Environment variables</p>
+<span class="target" id="unfurl-deploy-approve-unfurl-approve"></span><dl class="std envvar">
+<dt class="sig sig-object std">
+<span class="sig-name descname"><span class="pre">UNFURL_APPROVE</span></span></dt>
+<dd><blockquote>
+<div><p>Provide a default for <a class="reference internal" href="#cmdoption-unfurl-deploy-approve"><code class="xref std std-option docutils literal notranslate"><span class="pre">--approve</span></code></a></p>
+</div></blockquote>
+</dd></dl>
+
+</section>
+<section id="unfurl-discover">
+<h3><a class="toc-backref" href="#id6">discover</a><a class="headerlink" href="#unfurl-discover" title="Permalink to this headline"></a></h3>
+<p>Run the “discover” workflow which updates the ensemble’s spec by probing its live instances.</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>unfurl discover <span class="o">[</span>OPTIONS<span class="o">]</span> <span class="o">[</span>ENSEMBLE<span class="o">]</span>
+</pre></div>
+</div>
+<p class="rubric">Options</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-discover-force">
+<span class="sig-name descname"><span class="pre">--force</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-discover-force" title="Permalink to this definition"></a></dt>
+<dd><p>(Re)run operation regardless of instance’s status or state</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-discover-starttime">
+<span class="sig-name descname"><span class="pre">--starttime</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;starttime&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-discover-starttime" title="Permalink to this definition"></a></dt>
+<dd><p>Set the start time of the job.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-discover-output">
+<span class="sig-name descname"><span class="pre">--output</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;output&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-discover-output" title="Permalink to this definition"></a></dt>
+<dd><p>How to print summary of job run</p>
+<dl class="field-list simple">
+<dt class="field-odd">Options</dt>
+<dd class="field-odd"><p>text | json | none</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-discover-trace">
+<span class="sig-name descname"><span class="pre">--trace</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;trace&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-discover-trace" title="Permalink to this definition"></a></dt>
+<dd><p>Set the query’s trace level</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-discover-query">
+<span class="sig-name descname"><span class="pre">--query</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;query&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-discover-query" title="Permalink to this definition"></a></dt>
+<dd><p>Run the given expression upon job completion</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-discover-instance">
+<span class="sig-name descname"><span class="pre">--instance</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;instance&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-discover-instance" title="Permalink to this definition"></a></dt>
+<dd><p>instance name to target</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-discover-template">
+<span class="sig-name descname"><span class="pre">--template</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;template&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-discover-template" title="Permalink to this definition"></a></dt>
+<dd><p>TOSCA template to target</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-discover-approve">
+<span class="sig-name descname"><span class="pre">--approve</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-discover-approve" title="Permalink to this definition"></a></dt>
+<dd><p>Don’t prompt for approval to apply changes.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-discover-jobexitcode">
+<span class="sig-name descname"><span class="pre">--jobexitcode</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;jobexitcode&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-discover-jobexitcode" title="Permalink to this definition"></a></dt>
+<dd><p>Set exit code to 1 if job status is not ok.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Options</dt>
+<dd class="field-odd"><p>error | degraded | never</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-discover-m">
+<span id="cmdoption-unfurl-discover-message"></span><span class="sig-name descname"><span class="pre">-m</span></span><span class="sig-prename descclassname"></span><span class="sig-prename descclassname"><span class="pre">,</span> </span><span class="sig-name descname"><span class="pre">--message</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;message&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-discover-m" title="Permalink to this definition"></a></dt>
+<dd><p>commit message to use</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-discover-dirty">
+<span class="sig-name descname"><span class="pre">--dirty</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;dirty&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-discover-dirty" title="Permalink to this definition"></a></dt>
+<dd><p>Action if there are uncommitted changes before run. (Default: auto)</p>
+<dl class="field-list simple">
+<dt class="field-odd">Options</dt>
+<dd class="field-odd"><p>abort | ok | auto</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-discover-commit">
+<span class="sig-name descname"><span class="pre">--commit</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-discover-commit" title="Permalink to this definition"></a></dt>
+<dd><p>Commit modified files to the instance repository. (Default: false)</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-discover-dryrun">
+<span class="sig-name descname"><span class="pre">--dryrun</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-discover-dryrun" title="Permalink to this definition"></a></dt>
+<dd><p>Do not modify anything, just do a dry run.</p>
+</dd></dl>
+
+<p class="rubric">Arguments</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-discover-arg-ENSEMBLE">
+<span id="cmdoption-unfurl-discover-arg-ensemble"></span><span class="sig-name descname"><span class="pre">ENSEMBLE</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-discover-arg-ENSEMBLE" title="Permalink to this definition"></a></dt>
+<dd><p>Optional argument</p>
+</dd></dl>
+
+<p class="rubric">Environment variables</p>
+<span class="target" id="unfurl-discover-approve-unfurl-approve"></span><dl class="std envvar">
+<dt class="sig sig-object std">
+<span class="sig-name descname"><span class="pre">UNFURL_APPROVE</span></span></dt>
+<dd><blockquote>
+<div><p>Provide a default for <a class="reference internal" href="#cmdoption-unfurl-discover-approve"><code class="xref std std-option docutils literal notranslate"><span class="pre">--approve</span></code></a></p>
+</div></blockquote>
+</dd></dl>
+
+</section>
+<section id="unfurl-git">
+<h3><a class="toc-backref" href="#id7">git</a><a class="headerlink" href="#unfurl-git" title="Permalink to this headline"></a></h3>
+<p>unfurl git [git command] [git command arguments]: Run the given git command on each project repository.</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>unfurl git <span class="o">[</span>OPTIONS<span class="o">]</span> <span class="o">[</span>GITARGS<span class="o">]</span>...
+</pre></div>
+</div>
+<p class="rubric">Options</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-git-dir">
+<span class="sig-name descname"><span class="pre">--dir</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;dir&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-git-dir" title="Permalink to this definition"></a></dt>
+<dd><p>Path to project or ensemble (default: “.”)</p>
+</dd></dl>
+
+<p class="rubric">Arguments</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-git-arg-GITARGS">
+<span id="cmdoption-unfurl-git-arg-gitargs"></span><span class="sig-name descname"><span class="pre">GITARGS</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-git-arg-GITARGS" title="Permalink to this definition"></a></dt>
+<dd><p>Optional argument(s)</p>
+</dd></dl>
+
+</section>
+<section id="unfurl-git-status">
+<h3><a class="toc-backref" href="#id8">git-status</a><a class="headerlink" href="#unfurl-git-status" title="Permalink to this headline"></a></h3>
+<p>Show the git status for paths relevant to the given project or ensemble.</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>unfurl git-status <span class="o">[</span>OPTIONS<span class="o">]</span> <span class="o">[</span>PROJECT_OR_ENSEMBLE_PATH<span class="o">]</span>
+</pre></div>
+</div>
+<p class="rubric">Options</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-git-status-dirty">
+<span class="sig-name descname"><span class="pre">--dirty</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-git-status-dirty" title="Permalink to this definition"></a></dt>
+<dd><p>Only show repositories with uncommitted changes</p>
+</dd></dl>
+
+<p class="rubric">Arguments</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-git-status-arg-PROJECT_OR_ENSEMBLE_PATH">
+<span id="cmdoption-unfurl-git-status-arg-project-or-ensemble-path"></span><span class="sig-name descname"><span class="pre">PROJECT_OR_ENSEMBLE_PATH</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-git-status-arg-PROJECT_OR_ENSEMBLE_PATH" title="Permalink to this definition"></a></dt>
+<dd><p>Optional argument</p>
+</dd></dl>
+
+</section>
+<section id="unfurl-help">
+<h3><a class="toc-backref" href="#id9">help</a><a class="headerlink" href="#unfurl-help" title="Permalink to this headline"></a></h3>
+<p>Get help on a command</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>unfurl <span class="nb">help</span> <span class="o">[</span>OPTIONS<span class="o">]</span> <span class="o">[</span>CMD<span class="o">]</span>
+</pre></div>
+</div>
+<p class="rubric">Arguments</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-help-arg-CMD">
+<span id="cmdoption-unfurl-help-arg-cmd"></span><span class="sig-name descname"><span class="pre">CMD</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-help-arg-CMD" title="Permalink to this definition"></a></dt>
+<dd><p>Optional argument</p>
+</dd></dl>
+
+</section>
+<section id="unfurl-home">
+<h3><a class="toc-backref" href="#id10">home</a><a class="headerlink" href="#unfurl-home" title="Permalink to this headline"></a></h3>
+<p>If no options are set, display the location of current unfurl home.
+To create a new home project use –init and the global –home option.</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>unfurl home <span class="o">[</span>OPTIONS<span class="o">]</span>
+</pre></div>
+</div>
+<p class="rubric">Options</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-home-render">
+<span class="sig-name descname"><span class="pre">--render</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-home-render" title="Permalink to this definition"></a></dt>
+<dd><p>Generate files only (don’t create repository)</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-home-init">
+<span class="sig-name descname"><span class="pre">--init</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-home-init" title="Permalink to this definition"></a></dt>
+<dd><p>Create a new home project</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-home-replace">
+<span class="sig-name descname"><span class="pre">--replace</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-home-replace" title="Permalink to this definition"></a></dt>
+<dd><p>Replace (and backup) current home project</p>
+</dd></dl>
+
+</section>
+<section id="unfurl-init">
+<h3><a class="toc-backref" href="#id11">init</a><a class="headerlink" href="#unfurl-init" title="Permalink to this headline"></a></h3>
+<p>Create a new project or, if [project_dir] exists or is inside a project, create a new ensemble.
+If [ensemble_name] is omitted, use a default name.</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>unfurl init <span class="o">[</span>OPTIONS<span class="o">]</span> <span class="o">[</span>PROJECTDIR<span class="o">]</span> <span class="o">[</span>ENSEMBLE_NAME<span class="o">]</span>
+</pre></div>
+</div>
+<p class="rubric">Options</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-init-mono">
+<span class="sig-name descname"><span class="pre">--mono</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-init-mono" title="Permalink to this definition"></a></dt>
+<dd><p>Don’t create a separate ensemble repository.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-init-existing">
+<span class="sig-name descname"><span class="pre">--existing</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-init-existing" title="Permalink to this definition"></a></dt>
+<dd><p>Add project to nearest existing repository.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-init-submodule">
+<span class="sig-name descname"><span class="pre">--submodule</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-init-submodule" title="Permalink to this definition"></a></dt>
+<dd><p>Set the ensemble repository as a git submodule.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-init-empty">
+<span class="sig-name descname"><span class="pre">--empty</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-init-empty" title="Permalink to this definition"></a></dt>
+<dd><p>Don’t create a default ensemble.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-init-template">
+<span class="sig-name descname"><span class="pre">--template</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;template&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-init-template" title="Permalink to this definition"></a></dt>
+<dd><p>Absolute path to a directory of project templates.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-init-create-environment">
+<span class="sig-name descname"><span class="pre">--create-environment</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-init-create-environment" title="Permalink to this definition"></a></dt>
+<dd><p>Create (if missing) a environment with the same name and set this as the default repository for ensembles that use this environment.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-init-use-environment">
+<span class="sig-name descname"><span class="pre">--use-environment</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;use_environment&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-init-use-environment" title="Permalink to this definition"></a></dt>
+<dd><p>Associate the given environment with this ensemble.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-init-shared-repository">
+<span class="sig-name descname"><span class="pre">--shared-repository</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;shared_repository&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-init-shared-repository" title="Permalink to this definition"></a></dt>
+<dd><p>Create the ensemble in an repository outside the project.</p>
+</dd></dl>
+
+<p class="rubric">Arguments</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-init-arg-PROJECTDIR">
+<span id="cmdoption-unfurl-init-arg-projectdir"></span><span class="sig-name descname"><span class="pre">PROJECTDIR</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-init-arg-PROJECTDIR" title="Permalink to this definition"></a></dt>
+<dd><p>Optional argument</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-init-arg-ENSEMBLE_NAME">
+<span id="cmdoption-unfurl-init-arg-ensemble-name"></span><span class="sig-name descname"><span class="pre">ENSEMBLE_NAME</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-init-arg-ENSEMBLE_NAME" title="Permalink to this definition"></a></dt>
+<dd><p>Optional argument</p>
+</dd></dl>
+
+</section>
+<section id="unfurl-plan">
+<h3><a class="toc-backref" href="#id12">plan</a><a class="headerlink" href="#unfurl-plan" title="Permalink to this headline"></a></h3>
+<p>Print the given deployment plan</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>unfurl plan <span class="o">[</span>OPTIONS<span class="o">]</span> <span class="o">[</span>ENSEMBLE<span class="o">]</span>
+</pre></div>
+</div>
+<p class="rubric">Options</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-plan-force">
+<span class="sig-name descname"><span class="pre">--force</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-plan-force" title="Permalink to this definition"></a></dt>
+<dd><p>(Re)run operation regardless of instance’s status or state</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-plan-starttime">
+<span class="sig-name descname"><span class="pre">--starttime</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;starttime&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-plan-starttime" title="Permalink to this definition"></a></dt>
+<dd><p>Set the start time of the job.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-plan-output">
+<span class="sig-name descname"><span class="pre">--output</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;output&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-plan-output" title="Permalink to this definition"></a></dt>
+<dd><p>How to print summary of job run</p>
+<dl class="field-list simple">
+<dt class="field-odd">Options</dt>
+<dd class="field-odd"><p>text | json | none</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-plan-trace">
+<span class="sig-name descname"><span class="pre">--trace</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;trace&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-plan-trace" title="Permalink to this definition"></a></dt>
+<dd><p>Set the query’s trace level</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-plan-query">
+<span class="sig-name descname"><span class="pre">--query</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;query&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-plan-query" title="Permalink to this definition"></a></dt>
+<dd><p>Run the given expression upon job completion</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-plan-instance">
+<span class="sig-name descname"><span class="pre">--instance</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;instance&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-plan-instance" title="Permalink to this definition"></a></dt>
+<dd><p>instance name to target</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-plan-template">
+<span class="sig-name descname"><span class="pre">--template</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;template&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-plan-template" title="Permalink to this definition"></a></dt>
+<dd><p>TOSCA template to target</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-plan-check">
+<span class="sig-name descname"><span class="pre">--check</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-plan-check" title="Permalink to this definition"></a></dt>
+<dd><p>check if new instances exist before deploying</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-plan-destroyunmanaged">
+<span class="sig-name descname"><span class="pre">--destroyunmanaged</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-plan-destroyunmanaged" title="Permalink to this definition"></a></dt>
+<dd><p>include unmanaged instances for consideration when destroying</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-plan-prune">
+<span class="sig-name descname"><span class="pre">--prune</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-plan-prune" title="Permalink to this definition"></a></dt>
+<dd><p>destroy instances that are no longer used</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-plan-upgrade">
+<span class="sig-name descname"><span class="pre">--upgrade</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-plan-upgrade" title="Permalink to this definition"></a></dt>
+<dd><p>Apply major versions changes.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-plan-repair">
+<span class="sig-name descname"><span class="pre">--repair</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;repair&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-plan-repair" title="Permalink to this definition"></a></dt>
+<dd><p>Re-run operations on instances that are in an error or degraded state. (Default: error)</p>
+<dl class="field-list simple">
+<dt class="field-odd">Options</dt>
+<dd class="field-odd"><p>error | degraded | none</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-plan-change-detection">
+<span class="sig-name descname"><span class="pre">--change-detection</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;change_detection&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-plan-change-detection" title="Permalink to this definition"></a></dt>
+<dd><p>How to detect configuration changes to existing instances. (Default: evaluate)</p>
+<dl class="field-list simple">
+<dt class="field-odd">Options</dt>
+<dd class="field-odd"><p>skip | spec | evaluate</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-plan-skip-new">
+<span class="sig-name descname"><span class="pre">--skip-new</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-plan-skip-new" title="Permalink to this definition"></a></dt>
+<dd><p>Don’t create instance for new templates.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-plan-workflow">
+<span class="sig-name descname"><span class="pre">--workflow</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;workflow&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-plan-workflow" title="Permalink to this definition"></a></dt>
+<dd><p>plan workflow (default: deploy)</p>
+</dd></dl>
+
+<p class="rubric">Arguments</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-plan-arg-ENSEMBLE">
+<span id="cmdoption-unfurl-plan-arg-ensemble"></span><span class="sig-name descname"><span class="pre">ENSEMBLE</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-plan-arg-ENSEMBLE" title="Permalink to this definition"></a></dt>
+<dd><p>Optional argument</p>
+</dd></dl>
+
+</section>
+<section id="unfurl-run">
+<h3><a class="toc-backref" href="#id13">run</a><a class="headerlink" href="#unfurl-run" title="Permalink to this headline"></a></h3>
+<p>Run an ad-hoc command in the context of the given ensemble.
+Use “–” to separate the given command line, for example:</p>
+<p>&gt; unfurl run – echo ‘hello!’</p>
+<p>If –host or –module is set, the ansible configurator will be used. e.g.:</p>
+<p>&gt; unfurl run –host=example.com – echo ‘hello!’</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>unfurl run <span class="o">[</span>OPTIONS<span class="o">]</span> <span class="o">[</span>CMDLINE<span class="o">]</span>...
+</pre></div>
+</div>
+<p class="rubric">Options</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-run-ensemble">
+<span class="sig-name descname"><span class="pre">--ensemble</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;ensemble&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-run-ensemble" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-run-approve">
+<span class="sig-name descname"><span class="pre">--approve</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-run-approve" title="Permalink to this definition"></a></dt>
+<dd><p>Don’t prompt for approval to apply changes.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-run-jobexitcode">
+<span class="sig-name descname"><span class="pre">--jobexitcode</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;jobexitcode&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-run-jobexitcode" title="Permalink to this definition"></a></dt>
+<dd><p>Set exit code to 1 if job status is not ok.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Options</dt>
+<dd class="field-odd"><p>error | degraded | never</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-run-m">
+<span id="cmdoption-unfurl-run-message"></span><span class="sig-name descname"><span class="pre">-m</span></span><span class="sig-prename descclassname"></span><span class="sig-prename descclassname"><span class="pre">,</span> </span><span class="sig-name descname"><span class="pre">--message</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;message&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-run-m" title="Permalink to this definition"></a></dt>
+<dd><p>commit message to use</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-run-dirty">
+<span class="sig-name descname"><span class="pre">--dirty</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;dirty&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-run-dirty" title="Permalink to this definition"></a></dt>
+<dd><p>Action if there are uncommitted changes before run. (Default: auto)</p>
+<dl class="field-list simple">
+<dt class="field-odd">Options</dt>
+<dd class="field-odd"><p>abort | ok | auto</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-run-commit">
+<span class="sig-name descname"><span class="pre">--commit</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-run-commit" title="Permalink to this definition"></a></dt>
+<dd><p>Commit modified files to the instance repository. (Default: false)</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-run-dryrun">
+<span class="sig-name descname"><span class="pre">--dryrun</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-run-dryrun" title="Permalink to this definition"></a></dt>
+<dd><p>Do not modify anything, just do a dry run.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-run-force">
+<span class="sig-name descname"><span class="pre">--force</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-run-force" title="Permalink to this definition"></a></dt>
+<dd><p>(Re)run operation regardless of instance’s status or state</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-run-starttime">
+<span class="sig-name descname"><span class="pre">--starttime</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;starttime&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-run-starttime" title="Permalink to this definition"></a></dt>
+<dd><p>Set the start time of the job.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-run-output">
+<span class="sig-name descname"><span class="pre">--output</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;output&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-run-output" title="Permalink to this definition"></a></dt>
+<dd><p>How to print summary of job run</p>
+<dl class="field-list simple">
+<dt class="field-odd">Options</dt>
+<dd class="field-odd"><p>text | json | none</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-run-trace">
+<span class="sig-name descname"><span class="pre">--trace</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;trace&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-run-trace" title="Permalink to this definition"></a></dt>
+<dd><p>Set the query’s trace level</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-run-query">
+<span class="sig-name descname"><span class="pre">--query</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;query&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-run-query" title="Permalink to this definition"></a></dt>
+<dd><p>Run the given expression upon job completion</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-run-instance">
+<span class="sig-name descname"><span class="pre">--instance</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;instance&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-run-instance" title="Permalink to this definition"></a></dt>
+<dd><p>instance name to target</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-run-template">
+<span class="sig-name descname"><span class="pre">--template</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;template&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-run-template" title="Permalink to this definition"></a></dt>
+<dd><p>TOSCA template to target</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-run-host">
+<span class="sig-name descname"><span class="pre">--host</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;host&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-run-host" title="Permalink to this definition"></a></dt>
+<dd><p>host to run the command on</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-run-operation">
+<span class="sig-name descname"><span class="pre">--operation</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;operation&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-run-operation" title="Permalink to this definition"></a></dt>
+<dd><p>TOSCA operation to run</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-run-module">
+<span class="sig-name descname"><span class="pre">--module</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;module&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-run-module" title="Permalink to this definition"></a></dt>
+<dd><p>ansible module to run (default: command)</p>
+</dd></dl>
+
+<p class="rubric">Arguments</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-run-arg-CMDLINE">
+<span id="cmdoption-unfurl-run-arg-cmdline"></span><span class="sig-name descname"><span class="pre">CMDLINE</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-run-arg-CMDLINE" title="Permalink to this definition"></a></dt>
+<dd><p>Optional argument(s)</p>
+</dd></dl>
+
+<p class="rubric">Environment variables</p>
+<span class="target" id="unfurl-run-approve-unfurl-approve"></span><dl class="std envvar">
+<dt class="sig sig-object std">
+<span class="sig-name descname"><span class="pre">UNFURL_APPROVE</span></span></dt>
+<dd><blockquote>
+<div><p>Provide a default for <a class="reference internal" href="#cmdoption-unfurl-run-approve"><code class="xref std std-option docutils literal notranslate"><span class="pre">--approve</span></code></a></p>
+</div></blockquote>
+</dd></dl>
+
+</section>
+<section id="unfurl-runtime">
+<h3><a class="toc-backref" href="#id14">runtime</a><a class="headerlink" href="#unfurl-runtime" title="Permalink to this headline"></a></h3>
+<p>If no options are set, display the runtime currently used by the project. To create
+a new runtime in the project root use –init and the global –runtime option.</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>unfurl runtime <span class="o">[</span>OPTIONS<span class="o">]</span> <span class="o">[</span>PROJECT_FOLDER<span class="o">]</span>
+</pre></div>
+</div>
+<p class="rubric">Options</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-runtime-init">
+<span class="sig-name descname"><span class="pre">--init</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-runtime-init" title="Permalink to this definition"></a></dt>
+<dd><p>Create a new runtime</p>
+</dd></dl>
+
+<p class="rubric">Arguments</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-runtime-arg-PROJECT_FOLDER">
+<span id="cmdoption-unfurl-runtime-arg-project-folder"></span><span class="sig-name descname"><span class="pre">PROJECT_FOLDER</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-runtime-arg-PROJECT_FOLDER" title="Permalink to this definition"></a></dt>
+<dd><p>Optional argument</p>
+</dd></dl>
+
+</section>
+<section id="unfurl-status">
+<h3><a class="toc-backref" href="#id15">status</a><a class="headerlink" href="#unfurl-status" title="Permalink to this headline"></a></h3>
+<p>Show the status of deployed resources in the given ensemble.</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>unfurl status <span class="o">[</span>OPTIONS<span class="o">]</span> <span class="o">[</span>ENSEMBLE<span class="o">]</span>
+</pre></div>
+</div>
+<p class="rubric">Arguments</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-status-arg-ENSEMBLE">
+<span id="cmdoption-unfurl-status-arg-ensemble"></span><span class="sig-name descname"><span class="pre">ENSEMBLE</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-status-arg-ENSEMBLE" title="Permalink to this definition"></a></dt>
+<dd><p>Optional argument</p>
+</dd></dl>
+
+</section>
+<section id="unfurl-stop">
+<h3><a class="toc-backref" href="#id16">stop</a><a class="headerlink" href="#unfurl-stop" title="Permalink to this headline"></a></h3>
+<p>Stop running instances.</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>unfurl stop <span class="o">[</span>OPTIONS<span class="o">]</span> <span class="o">[</span>ENSEMBLE<span class="o">]</span>
+</pre></div>
+</div>
+<p class="rubric">Options</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-stop-force">
+<span class="sig-name descname"><span class="pre">--force</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-stop-force" title="Permalink to this definition"></a></dt>
+<dd><p>(Re)run operation regardless of instance’s status or state</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-stop-starttime">
+<span class="sig-name descname"><span class="pre">--starttime</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;starttime&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-stop-starttime" title="Permalink to this definition"></a></dt>
+<dd><p>Set the start time of the job.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-stop-output">
+<span class="sig-name descname"><span class="pre">--output</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;output&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-stop-output" title="Permalink to this definition"></a></dt>
+<dd><p>How to print summary of job run</p>
+<dl class="field-list simple">
+<dt class="field-odd">Options</dt>
+<dd class="field-odd"><p>text | json | none</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-stop-trace">
+<span class="sig-name descname"><span class="pre">--trace</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;trace&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-stop-trace" title="Permalink to this definition"></a></dt>
+<dd><p>Set the query’s trace level</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-stop-query">
+<span class="sig-name descname"><span class="pre">--query</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;query&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-stop-query" title="Permalink to this definition"></a></dt>
+<dd><p>Run the given expression upon job completion</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-stop-instance">
+<span class="sig-name descname"><span class="pre">--instance</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;instance&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-stop-instance" title="Permalink to this definition"></a></dt>
+<dd><p>instance name to target</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-stop-template">
+<span class="sig-name descname"><span class="pre">--template</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;template&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-stop-template" title="Permalink to this definition"></a></dt>
+<dd><p>TOSCA template to target</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-stop-approve">
+<span class="sig-name descname"><span class="pre">--approve</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-stop-approve" title="Permalink to this definition"></a></dt>
+<dd><p>Don’t prompt for approval to apply changes.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-stop-jobexitcode">
+<span class="sig-name descname"><span class="pre">--jobexitcode</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;jobexitcode&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-stop-jobexitcode" title="Permalink to this definition"></a></dt>
+<dd><p>Set exit code to 1 if job status is not ok.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Options</dt>
+<dd class="field-odd"><p>error | degraded | never</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-stop-m">
+<span id="cmdoption-unfurl-stop-message"></span><span class="sig-name descname"><span class="pre">-m</span></span><span class="sig-prename descclassname"></span><span class="sig-prename descclassname"><span class="pre">,</span> </span><span class="sig-name descname"><span class="pre">--message</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;message&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-stop-m" title="Permalink to this definition"></a></dt>
+<dd><p>commit message to use</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-stop-dirty">
+<span class="sig-name descname"><span class="pre">--dirty</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;dirty&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-stop-dirty" title="Permalink to this definition"></a></dt>
+<dd><p>Action if there are uncommitted changes before run. (Default: auto)</p>
+<dl class="field-list simple">
+<dt class="field-odd">Options</dt>
+<dd class="field-odd"><p>abort | ok | auto</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-stop-commit">
+<span class="sig-name descname"><span class="pre">--commit</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-stop-commit" title="Permalink to this definition"></a></dt>
+<dd><p>Commit modified files to the instance repository. (Default: false)</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-stop-dryrun">
+<span class="sig-name descname"><span class="pre">--dryrun</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-stop-dryrun" title="Permalink to this definition"></a></dt>
+<dd><p>Do not modify anything, just do a dry run.</p>
+</dd></dl>
+
+<p class="rubric">Arguments</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-stop-arg-ENSEMBLE">
+<span id="cmdoption-unfurl-stop-arg-ensemble"></span><span class="sig-name descname"><span class="pre">ENSEMBLE</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-stop-arg-ENSEMBLE" title="Permalink to this definition"></a></dt>
+<dd><p>Optional argument</p>
+</dd></dl>
+
+<p class="rubric">Environment variables</p>
+<span class="target" id="unfurl-stop-approve-unfurl-approve"></span><dl class="std envvar">
+<dt class="sig sig-object std">
+<span class="sig-name descname"><span class="pre">UNFURL_APPROVE</span></span></dt>
+<dd><blockquote>
+<div><p>Provide a default for <a class="reference internal" href="#cmdoption-unfurl-stop-approve"><code class="xref std std-option docutils literal notranslate"><span class="pre">--approve</span></code></a></p>
+</div></blockquote>
+</dd></dl>
+
+</section>
+<section id="unfurl-undeploy">
+<h3><a class="toc-backref" href="#id17">undeploy</a><a class="headerlink" href="#unfurl-undeploy" title="Permalink to this headline"></a></h3>
+<p>Destroy what was deployed.</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>unfurl undeploy <span class="o">[</span>OPTIONS<span class="o">]</span> <span class="o">[</span>ENSEMBLE<span class="o">]</span>
+</pre></div>
+</div>
+<p class="rubric">Options</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-undeploy-force">
+<span class="sig-name descname"><span class="pre">--force</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-undeploy-force" title="Permalink to this definition"></a></dt>
+<dd><p>(Re)run operation regardless of instance’s status or state</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-undeploy-starttime">
+<span class="sig-name descname"><span class="pre">--starttime</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;starttime&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-undeploy-starttime" title="Permalink to this definition"></a></dt>
+<dd><p>Set the start time of the job.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-undeploy-output">
+<span class="sig-name descname"><span class="pre">--output</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;output&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-undeploy-output" title="Permalink to this definition"></a></dt>
+<dd><p>How to print summary of job run</p>
+<dl class="field-list simple">
+<dt class="field-odd">Options</dt>
+<dd class="field-odd"><p>text | json | none</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-undeploy-trace">
+<span class="sig-name descname"><span class="pre">--trace</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;trace&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-undeploy-trace" title="Permalink to this definition"></a></dt>
+<dd><p>Set the query’s trace level</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-undeploy-query">
+<span class="sig-name descname"><span class="pre">--query</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;query&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-undeploy-query" title="Permalink to this definition"></a></dt>
+<dd><p>Run the given expression upon job completion</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-undeploy-instance">
+<span class="sig-name descname"><span class="pre">--instance</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;instance&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-undeploy-instance" title="Permalink to this definition"></a></dt>
+<dd><p>instance name to target</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-undeploy-template">
+<span class="sig-name descname"><span class="pre">--template</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;template&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-undeploy-template" title="Permalink to this definition"></a></dt>
+<dd><p>TOSCA template to target</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-undeploy-approve">
+<span class="sig-name descname"><span class="pre">--approve</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-undeploy-approve" title="Permalink to this definition"></a></dt>
+<dd><p>Don’t prompt for approval to apply changes.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-undeploy-jobexitcode">
+<span class="sig-name descname"><span class="pre">--jobexitcode</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;jobexitcode&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-undeploy-jobexitcode" title="Permalink to this definition"></a></dt>
+<dd><p>Set exit code to 1 if job status is not ok.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Options</dt>
+<dd class="field-odd"><p>error | degraded | never</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-undeploy-m">
+<span id="cmdoption-unfurl-undeploy-message"></span><span class="sig-name descname"><span class="pre">-m</span></span><span class="sig-prename descclassname"></span><span class="sig-prename descclassname"><span class="pre">,</span> </span><span class="sig-name descname"><span class="pre">--message</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;message&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-undeploy-m" title="Permalink to this definition"></a></dt>
+<dd><p>commit message to use</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-undeploy-dirty">
+<span class="sig-name descname"><span class="pre">--dirty</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;dirty&gt;</span></span><a class="headerlink" href="#cmdoption-unfurl-undeploy-dirty" title="Permalink to this definition"></a></dt>
+<dd><p>Action if there are uncommitted changes before run. (Default: auto)</p>
+<dl class="field-list simple">
+<dt class="field-odd">Options</dt>
+<dd class="field-odd"><p>abort | ok | auto</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-undeploy-commit">
+<span class="sig-name descname"><span class="pre">--commit</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-undeploy-commit" title="Permalink to this definition"></a></dt>
+<dd><p>Commit modified files to the instance repository. (Default: false)</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-undeploy-dryrun">
+<span class="sig-name descname"><span class="pre">--dryrun</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-undeploy-dryrun" title="Permalink to this definition"></a></dt>
+<dd><p>Do not modify anything, just do a dry run.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-undeploy-destroyunmanaged">
+<span class="sig-name descname"><span class="pre">--destroyunmanaged</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-undeploy-destroyunmanaged" title="Permalink to this definition"></a></dt>
+<dd><p>include unmanaged instances for consideration when destroying</p>
+</dd></dl>
+
+<p class="rubric">Arguments</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-undeploy-arg-ENSEMBLE">
+<span id="cmdoption-unfurl-undeploy-arg-ensemble"></span><span class="sig-name descname"><span class="pre">ENSEMBLE</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-undeploy-arg-ENSEMBLE" title="Permalink to this definition"></a></dt>
+<dd><p>Optional argument</p>
+</dd></dl>
+
+<p class="rubric">Environment variables</p>
+<span class="target" id="unfurl-undeploy-approve-unfurl-approve"></span><dl class="std envvar">
+<dt class="sig sig-object std">
+<span class="sig-name descname"><span class="pre">UNFURL_APPROVE</span></span></dt>
+<dd><blockquote>
+<div><p>Provide a default for <a class="reference internal" href="#cmdoption-unfurl-undeploy-approve"><code class="xref std std-option docutils literal notranslate"><span class="pre">--approve</span></code></a></p>
+</div></blockquote>
+</dd></dl>
+
+</section>
+<section id="unfurl-version">
+<h3><a class="toc-backref" href="#id18">version</a><a class="headerlink" href="#unfurl-version" title="Permalink to this headline"></a></h3>
+<p>Print the current version</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>unfurl version <span class="o">[</span>OPTIONS<span class="o">]</span>
+</pre></div>
+</div>
+<p class="rubric">Options</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-version-semver">
+<span class="sig-name descname"><span class="pre">--semver</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-version-semver" title="Permalink to this definition"></a></dt>
+<dd><p>Print only the semantic version</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-unfurl-version-remote">
+<span class="sig-name descname"><span class="pre">--remote</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-unfurl-version-remote" title="Permalink to this definition"></a></dt>
+<dd><p>Also print the version installed in the current runtime.</p>
+</dd></dl>
+
+</section>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="expressions.html" class="btn btn-neutral float-left" title="Expression Functions" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="jsonschema.html" class="btn btn-neutral float-right" title="Configuration Files" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2020, Adam Souzis.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

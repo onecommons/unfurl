@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+  <meta charset="utf-8" /><meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Introduction &mdash; Unfurl Documentation</title>
+      <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+      <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+      <link rel="stylesheet" href="_static/custom.css" type="text/css" />
+    <link rel="shortcut icon" href="_static/favicon32.png"/>
+  <!--[if lt IE 9]>
+    <script src="_static/js/html5shiv.min.js"></script>
+  <![endif]-->
+  
+        <script data-url_root="./" id="documentation_options" src="_static/documentation_options.js"></script>
+        <script src="_static/jquery.js"></script>
+        <script src="_static/underscore.js"></script>
+        <script src="_static/doctools.js"></script>
+        <script src="_static/custom.js"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Getting Started" href="get-started-step-by-step.html" />
+    <link rel="prev" title="Unfurl documentation" href="index.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+            <a href="index.html">
+            <img src="_static/unfurl_logo.svg" class="logo" alt="Logo"/>
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul class="current">
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Introduction</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#our-vision">Our Vision</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#how-it-works">How it works</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#features">Features</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#no-server-agentless">No server, agentless</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#deploy-infrastructure-from-simple-application-centric-descriptions">Deploy infrastructure from simple, application-centric descriptions</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#integrates-with-the-devops-tools-you-are-already-using">Integrates with the DevOps tools you are already using</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#developer-friendly-state-management">Developer-friendly state management</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#zero-installation">Zero installation</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#flexible-secrets-management">Flexible Secrets Management</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#day-two-operations">“Day Two” Operations</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="#installation">Installation</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#requirements">Requirements</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#shell-autocomplete">Shell autocomplete</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#developing">Developing</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#running-unit-tests">Running unit tests</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#status-and-caveats">Status and Caveats</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#get-started">Get Started</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="get-started-step-by-step.html">Getting Started</a></li>
+<li class="toctree-l1"><a class="reference internal" href="ensembles.html">Ensembles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="projects.html">Unfurl Projects</a></li>
+<li class="toctree-l1"><a class="reference internal" href="secrets.html">Managing Secrets</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tosca.html">TOSCA</a></li>
+<li class="toctree-l1"><a class="reference internal" href="jobs.html">Jobs and Workflows</a></li>
+<li class="toctree-l1"><a class="reference internal" href="runtime.html">Runtime Environment</a></li>
+<li class="toctree-l1"><a class="reference internal" href="configurators.html">Configurators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="configurators.html#installers">Installers</a></li>
+<li class="toctree-l1"><a class="reference internal" href="processing.html">Template Processing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="expressions.html">Expression Functions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="cli.html">Command Line</a></li>
+<li class="toctree-l1"><a class="reference internal" href="jsonschema.html">Configuration Files</a></li>
+<li class="toctree-l1"><a class="reference internal" href="toscaref.html">TOSCA Language Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="glossary.html">Glossary</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api.html">Python API</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">Unfurl</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home"></a> &raquo;</li>
+      <li>Introduction</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/README.md.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <p align="center">
+  <img src="https://unfurl.run/docs/_images/unfurl_logo.svg" width="400px">
+</p>
+<p align="center">
+  <a href="https://badge.fury.io/py/unfurl"><img src="https://badge.fury.io/py/unfurl.svg" alt="PyPI version" height="20"></a>
+</p>
+<section class="tex2jax_ignore mathjax_ignore" id="introduction">
+<h1>Introduction<a class="headerlink" href="#introduction" title="Permalink to this headline"></a></h1>
+<p>Unfurl is a command line tool for managing your DevOps infrastructure. Unfurl lets you easily track configuration, secrets, software and code dependencies, and deployment history all in git.</p>
+<p>Unfurl can integrate with the DevOps tools you are already using – like Terraform, Ansible, and Helm – allowing you to encapsulate your DevOps processes into reusable building blocks and describe your cloud infrastructure in simple, application-centric terms.</p>
+<section id="our-vision">
+<h2>Our Vision<a class="headerlink" href="#our-vision" title="Permalink to this headline"></a></h2>
+<p>The ultimate goal of Unfurl is enable anyone to clone, fork, and deploy live cloud services as easily as cloning and building code from git. So that we can have:</p>
+<ul class="simple">
+<li><p>Fully-functional and reproducible archives of web applications.</p></li>
+<li><p>Location independence to decentralized cloud infrastructure.</p></li>
+<li><p>Cooperatively build and run cloud services the same way we build open source software.</p></li>
+</ul>
+</section>
+<section id="how-it-works">
+<h2>How it works<a class="headerlink" href="#how-it-works" title="Permalink to this headline"></a></h2>
+<p>1. Use <code class="docutils literal notranslate"><span class="pre">unfurl</span> <span class="pre">init</span></code> to create an Unfurl-managed git repository. Or use <code class="docutils literal notranslate"><span class="pre">unfurl</span> <span class="pre">clone</span></code> to clone an existing one.</p>
+<p>2. The repository will contain a few YAML files that you can edit. They describe everything you’ll need to deploy your application, such as:</p>
+<ul class="simple">
+<li><p>Cloud provider and SaaS services account credentials and other secrets organized into environments.</p></li>
+<li><p>Code repositories and container image registries.</p></li>
+<li><p>A high-level model of your cloud infrastructure and their dependencies such as compute, instances, database using the <a class="reference external" href="https://www.oasis-open.org/committees/tc_home.php?wg_abbrev=tosca">TOSCA</a> standard.</p></li>
+<li><p>Operations that invoke Terraform, Ansible, or other command-line tools (which Unfurl can automatically install).</p></li>
+</ul>
+<p>3. Use <code class="docutils literal notranslate"><span class="pre">unfurl</span> <span class="pre">deploy</span></code> to deploy the infrastructure. Unfurl will generate a plan based on your target environment and high-level model and choose the correct operations to call. It will commit to git the latest configuration and a history of changes to your cloud accounts.</p>
+<p>4. Now you have a reproducible description of your cloud infrastructure stored in git! So you can:</p>
+<ul class="simple">
+<li><p>Push to repository to git service such as Github or Gitlab to share it. For access control, each environment can be stored as separate git submodules or branches.</p></li>
+<li><p>Pull incoming changes and review and approve pull requests before deploying.</p></li>
+<li><p>Integrate with the CI/CD of your choice using the Unfurl container image.</p></li>
+<li><p>Merge in services from other Unfurl repositories.</p></li>
+<li><p>Clone the repository and deploy to new environments even if they use different services – because is your model is adaptable, manual changes are minimized.</p></li>
+</ul>
+</section>
+<section id="features">
+<h2>Features<a class="headerlink" href="#features" title="Permalink to this headline"></a></h2>
+<section id="no-server-agentless">
+<h3>No server, agentless<a class="headerlink" href="#no-server-agentless" title="Permalink to this headline"></a></h3>
+<p>Simple, stand-alone CLI that can be used both in your local development environment or in an automated CI/CD pipeline.</p>
+</section>
+<section id="deploy-infrastructure-from-simple-application-centric-descriptions">
+<h3>Deploy infrastructure from simple, application-centric descriptions<a class="headerlink" href="#deploy-infrastructure-from-simple-application-centric-descriptions" title="Permalink to this headline"></a></h3>
+<ul class="simple">
+<li><p>Model your cloud infrasture with <a class="reference external" href="https://www.oasis-open.org/committees/tc_home.php?wg_abbrev=tosca">OASIS TOSCA</a> (Topology and Orchestration Specification for Cloud Applications) standard YAML vocabulary.</p></li>
+<li><p>Import reusable and adaptable components or build (and publish) your own.</p></li>
+<li><p>Easily declare dependencies to enable incremental deployment.</p></li>
+<li><p>Path-based query DSL to express dynamic relationships between resources and configurations</p></li>
+<li><p>Ansible-compatible Jinja2 templates provide an extensive, mature templating library.</p></li>
+<li><p>Dynamic matching and substitution so models can adapt to different environments, services and cloud providers.</p></li>
+</ul>
+</section>
+<section id="integrates-with-the-devops-tools-you-are-already-using">
+<h3>Integrates with the DevOps tools you are already using<a class="headerlink" href="#integrates-with-the-devops-tools-you-are-already-using" title="Permalink to this headline"></a></h3>
+<ul class="simple">
+<li><p>Includes out-of-the box support for:</p>
+<ul>
+<li><p><a class="reference external" href="https://unfurl.run/docs/configurators.html#terraform">Terraform</a></p></li>
+<li><p><a class="reference external" href="https://unfurl.run/docs/configurators.html#ansible">Ansible</a></p></li>
+<li><p><a class="reference external" href="https://unfurl.run/docs/configurators.html#shell">shell</a></p></li>
+<li><p><a class="reference external" href="https://unfurl.run/docs/configurators.html#helm">Helm</a></p></li>
+<li><p><a class="reference external" href="https://unfurl.run/docs/configurators.html#dns">Octodns</a></p></li>
+<li><p><a class="reference external" href="https://unfurl.run/docs/configurators.html#kubernetes">Kubernetes</a></p></li>
+<li><p><a class="reference external" href="https://unfurl.run/docs/configurators.html#docker">Docker</a></p></li>
+<li><p><a class="reference external" href="https://unfurl.run/docs/configurators.html#supervisor">Supervisor</a></p></li>
+</ul>
+</li>
+<li><p>Plugin interface for adding your own.</p></li>
+<li><p>API for dynamic configuration enables full control over plan generation.</p></li>
+</ul>
+</section>
+<section id="developer-friendly-state-management">
+<h3>Developer-friendly state management<a class="headerlink" href="#developer-friendly-state-management" title="Permalink to this headline"></a></h3>
+<ul class="simple">
+<li><p>All resource state is stored in git as human-readable and editable, application-centric resource state</p></li>
+<li><p>You so can easily override or repair resource representations enabling interactive development.</p></li>
+<li><p>Editor friendly config files:</p>
+<ul>
+<li><p>Comments, order, and whitespace are preserved.</p></li>
+<li><p>Syntactic macros for YAML provide generic facility for re-use and avoiding verbose, boiler-plate</p></li>
+</ul>
+</li>
+</ul>
+</section>
+<section id="zero-installation">
+<h3>Zero installation<a class="headerlink" href="#zero-installation" title="Permalink to this headline"></a></h3>
+<ul class="simple">
+<li><p>Manage your local machine and bootstrap setup by deploying locally.</p></li>
+<li><p>Downloads and installs specified software versions and code as deployment process.</p></li>
+<li><p>Creates and manages isolated deployment environments</p></li>
+<li><p>Isolated environments can be either a Docker container or a Python virtualenv with <a class="reference external" href="https://asdf-vm.com/">asdf</a>.</p></li>
+<li><p>Clear separation of local and shared configuration to avoid unnecessary local configuration steps.</p></li>
+</ul>
+</section>
+<section id="flexible-secrets-management">
+<h3>Flexible Secrets Management<a class="headerlink" href="#flexible-secrets-management" title="Permalink to this headline"></a></h3>
+<ul class="simple">
+<li><p>Declare secrets and protect your repository.</p></li>
+<li><p>Inline encryption or use external secret managers like HashiCorp Vault.</p></li>
+<li><p>Automatic encryption of files in <code class="docutils literal notranslate"><span class="pre">secrets</span></code> folders.</p></li>
+<li><p>Sensitive content redacted in output and logs</p></li>
+</ul>
+</section>
+<section id="day-two-operations">
+<h3>“Day Two” Operations<a class="headerlink" href="#day-two-operations" title="Permalink to this headline"></a></h3>
+<ul class="simple">
+<li><p>Check, discover and repair commands</p></li>
+<li><p>Define your own workflows for maintenance tasks like backup and restore.</p></li>
+</ul>
+</section>
+</section>
+</section>
+<section class="tex2jax_ignore mathjax_ignore" id="installation">
+<h1>Installation<a class="headerlink" href="#installation" title="Permalink to this headline"></a></h1>
+<p><code class="docutils literal notranslate"><span class="pre">unfurl</span></code> is available on <a class="reference external" href="https://pypi.org/project/unfurl/">PyPI</a>. You can install using <code class="docutils literal notranslate"><span class="pre">pip</span></code> (or <code class="docutils literal notranslate"><span class="pre">pip3</span></code>):</p>
+<p><code class="docutils literal notranslate"><span class="pre">pip</span> <span class="pre">install</span> <span class="pre">unfurl</span></code></p>
+<p>By default <code class="docutils literal notranslate"><span class="pre">unfurl</span></code> creates a virtual Python environment to run in so it only installs the minimal requirements needed to run the command line. If you want to run it using your system Python install it with the “full” option:</p>
+<p><code class="docutils literal notranslate"><span class="pre">pip</span> <span class="pre">install</span> <span class="pre">unfurl[full]</span></code></p>
+<p>You can also install <code class="docutils literal notranslate"><span class="pre">unfurl</span></code> directly from this repository to get the latest code:</p>
+<p><code class="docutils literal notranslate"><span class="pre">pip3</span> <span class="pre">install</span> <span class="pre">-e</span> <span class="pre">git+https://github.com/onecommons/unfurl.git#egg=unfurl</span></code></p>
+<p>Alternatively, you can use the Unfurl container on docker.io at <code class="docutils literal notranslate"><span class="pre">onecommons/unfurl:latest</span></code></p>
+<section id="requirements">
+<h2>Requirements<a class="headerlink" href="#requirements" title="Permalink to this headline"></a></h2>
+<p>Linux or MacOs</p>
+<p>Python (3.7, 3.8, 3.9 or 3.10); git</p>
+<p>Python 3.6 is not tested automatically but should work. However you should make sure you have the latest version of pip installed (<code class="docutils literal notranslate"><span class="pre">pip</span> <span class="pre">install</span> <span class="pre">-U</span> <span class="pre">pip</span></code>) and may need to have Rust installed for the <a class="reference external" href="https://github.com/pyca/cryptography/blob/main/docs/installation.rst">crytography library</a>.</p>
+<p>Optional: docker</p>
+</section>
+<section id="shell-autocomplete">
+<h2>Shell autocomplete<a class="headerlink" href="#shell-autocomplete" title="Permalink to this headline"></a></h2>
+<p>Use the table below to activate shell autocompletion for the <code class="docutils literal notranslate"><span class="pre">unfurl</span></code>:</p>
+<table class="colwidths-auto docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>Shell</p></th>
+<th class="head"><p>Instructions</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Bash</p></td>
+<td><p>Add this to <code class="docutils literal notranslate"><span class="pre">~/.bashrc</span></code>:</p></td>
+</tr>
+<tr class="row-odd"><td><p></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">eval</span> <span class="pre">&quot;$(_UNFURL_COMPLETE=bash_source</span> <span class="pre">unfurl)&quot;</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>Zsh</p></td>
+<td><p>Add this to <code class="docutils literal notranslate"><span class="pre">~/.zshrc</span></code>:</p></td>
+</tr>
+<tr class="row-odd"><td><p></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">eval</span> <span class="pre">&quot;$(_UNFURL_COMPLETE=zsh_source</span> <span class="pre">unfurl)&quot;</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>Fish</p></td>
+<td><p>Add this to  <code class="docutils literal notranslate"><span class="pre">~/.config/fish/completions/unfurl.fish</span></code>:</p></td>
+</tr>
+<tr class="row-odd"><td><p></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">eval</span> <span class="pre">(env</span> <span class="pre">_UNFURL_COMPLETE=fish_source</span> <span class="pre">unfurl)</span></code></p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="developing">
+<h2>Developing<a class="headerlink" href="#developing" title="Permalink to this headline"></a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">clone</span> <span class="pre">--recurse-submodules</span> <span class="pre">https://github.com/onecommons/unfurl</span></code></p>
+<p>To build documentation: Run <code class="docutils literal notranslate"><span class="pre">tox</span> <span class="pre">-e</span> <span class="pre">docs</span></code>.</p>
+<p>To build a distribution package run:</p>
+<p><code class="docutils literal notranslate"><span class="pre">python</span> <span class="pre">setup.py</span> <span class="pre">sdist</span> <span class="pre">bdist_wheel</span></code></p>
+<p>You can now install this package with pip, for example:</p>
+<p><code class="docutils literal notranslate"><span class="pre">pip</span> <span class="pre">install</span> <span class="pre">./dist/unfurl-0.2.2.dev3-py2.py3-none-any.whl</span></code></p>
+</section>
+<section id="running-unit-tests">
+<h2>Running unit tests<a class="headerlink" href="#running-unit-tests" title="Permalink to this headline"></a></h2>
+<p>You can use <code class="docutils literal notranslate"><span class="pre">tox</span></code> to run the unit tests inside the supported python environments with the latest source installed.
+Install tox <code class="docutils literal notranslate"><span class="pre">pip</span> <span class="pre">install</span> <span class="pre">tox</span></code> and then run <code class="docutils literal notranslate"><span class="pre">tox</span></code> in source root. To install the dependencies you may need header files installed by the following OS packages: <code class="docutils literal notranslate"><span class="pre">python-dev</span></code>, <code class="docutils literal notranslate"><span class="pre">libcrypt-dev</span></code>, <code class="docutils literal notranslate"><span class="pre">openssl-dev</span></code>. (Note: if installation of a dependency fails, reinvoke <code class="docutils literal notranslate"><span class="pre">tox</span></code> with <code class="docutils literal notranslate"><span class="pre">-r</span></code> to recreate the test environment.)
+If you use <code class="docutils literal notranslate"><span class="pre">asdf</span></code> to manage multiple versions of Python, also install <code class="docutils literal notranslate"><span class="pre">tox-asdf</span></code>: <code class="docutils literal notranslate"><span class="pre">pip</span> <span class="pre">install</span> <span class="pre">tox-asdf</span></code>.</p>
+<p>Arguments after <code class="docutils literal notranslate"><span class="pre">--</span></code> are passed to the test runner, e.g. to run an individual test: <code class="docutils literal notranslate"><span class="pre">tox</span> <span class="pre">--</span> <span class="pre">tests/test_runtime.py</span></code>.</p>
+</section>
+<section id="status-and-caveats">
+<h2>Status and Caveats<a class="headerlink" href="#status-and-caveats" title="Permalink to this headline"></a></h2>
+<p>Unfurl is in early stages of development and should not be used in production. In particular be mindful of these limitations:</p>
+<ul class="simple">
+<li><p>Only clone and deploy trusted repositories and projects. The docker runtime is not configured to provide isolation so you should assume any project may contain executable code that can gain full access to your system.</p></li>
+<li><p>Locking to prevent multiple instances of Unfurl from modifying the same resources at the same time currently only works with instances accessing the same local copy of an ensemble.</p></li>
+<li><p>Incremental updates are only partially implemented. You can incrementally update an ensemble by explicitly limiting jobs with the <code class="docutils literal notranslate"><span class="pre">--force</span></code> and <code class="docutils literal notranslate"><span class="pre">--instance</span></code> <a class="reference external" href="https://unfurl.run/docs/cli.html#unfurl-deploy">command line options</a>.</p></li>
+<li><p>Google Cloud SDK <a class="reference external" href="https://issuetracker.google.com/issues/202172882?pli=1">doesn’t yet work</a> with Python 3.10.</p></li>
+</ul>
+</section>
+<section id="get-started">
+<h2>Get Started<a class="headerlink" href="#get-started" title="Permalink to this headline"></a></h2>
+<p>Check out the rest of Unfurl’s documentation <a class="reference external" href="https://unfurl.run/docs/get-started-step-by-step.html">here</a></p>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="index.html" class="btn btn-neutral float-left" title="Unfurl documentation" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="get-started-step-by-step.html" class="btn btn-neutral float-right" title="Getting Started" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2020, Adam Souzis.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

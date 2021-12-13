@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+  <meta charset="utf-8" /><meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Template Processing &mdash; Unfurl Documentation</title>
+      <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+      <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+      <link rel="stylesheet" href="_static/custom.css" type="text/css" />
+    <link rel="shortcut icon" href="_static/favicon32.png"/>
+  <!--[if lt IE 9]>
+    <script src="_static/js/html5shiv.min.js"></script>
+  <![endif]-->
+  
+        <script data-url_root="./" id="documentation_options" src="_static/documentation_options.js"></script>
+        <script src="_static/jquery.js"></script>
+        <script src="_static/underscore.js"></script>
+        <script src="_static/doctools.js"></script>
+        <script src="_static/custom.js"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Expression Functions" href="expressions.html" />
+    <link rel="prev" title="Configurators" href="configurators.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+            <a href="index.html">
+            <img src="_static/unfurl_logo.svg" class="logo" alt="Logo"/>
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="README.html">Introduction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="README.html#installation">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="get-started-step-by-step.html">Getting Started</a></li>
+<li class="toctree-l1"><a class="reference internal" href="ensembles.html">Ensembles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="projects.html">Unfurl Projects</a></li>
+<li class="toctree-l1"><a class="reference internal" href="secrets.html">Managing Secrets</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tosca.html">TOSCA</a></li>
+<li class="toctree-l1"><a class="reference internal" href="jobs.html">Jobs and Workflows</a></li>
+<li class="toctree-l1"><a class="reference internal" href="runtime.html">Runtime Environment</a></li>
+<li class="toctree-l1"><a class="reference internal" href="configurators.html">Configurators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="configurators.html#installers">Installers</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Template Processing</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#yaml-merge-directives">YAML Merge directives</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#restoring-merge-directives">Restoring merge directives</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#ansible-jinja2-templates">Ansible Jinja2 Templates</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#filters">Filters</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#lookup-plugins">Lookup plugins</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#eval-expressions">Eval Expressions</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#expression-query-syntax">Expression Query Syntax</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#expression-function-syntax">Expression Function Syntax</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#evaluation-semantics">Evaluation Semantics</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#results-flattened">Results flattened</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="expressions.html">Expression Functions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="cli.html">Command Line</a></li>
+<li class="toctree-l1"><a class="reference internal" href="jsonschema.html">Configuration Files</a></li>
+<li class="toctree-l1"><a class="reference internal" href="toscaref.html">TOSCA Language Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="glossary.html">Glossary</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api.html">Python API</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">Unfurl</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home"></a> &raquo;</li>
+      <li>Template Processing</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/processing.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="template-processing">
+<h1><a class="toc-backref" href="#id2">Template Processing</a><a class="headerlink" href="#template-processing" title="Permalink to this headline"></a></h1>
+<section id="yaml-merge-directives">
+<span id="id1"></span><h2><a class="toc-backref" href="#id3">YAML Merge directives</a><a class="headerlink" href="#yaml-merge-directives" title="Permalink to this headline"></a></h2>
+<p>When a YAML configuration is loaded, will look for dictionary keys that match the following pattern:</p>
+<p><code class="docutils literal notranslate"><span class="pre">'+'['?']['include'][*anchor][relative</span> <span class="pre">path][absolute</span> <span class="pre">path]</span></code></p>
+<p>and treat them as merge directives that update the dictionary by processing the directive and merging in its resolved value.</p>
+<p>Merge directives can have the following components:</p>
+<pre>
+<strong id="grammar-token-merge-key">merge key    </strong> ::=  &quot;+&quot;[&quot;?&quot;][&quot;include&quot;][anchor][relative_path][absolute_path]
+<strong id="grammar-token-anchor">anchor       </strong> ::=  &quot;*&quot;[PCHAR]*[PCHAR except &quot;.&quot;]
+<strong id="grammar-token-relative_path"><span id="grammar-token-relative-path"></span>relative_path</strong> ::=  &quot;.&quot;+
+<strong id="grammar-token-absolute_path"><span id="grammar-token-absolute-path"></span>absolute_path</strong> ::=  [&quot;/&quot; PCHAR*]+
+<strong id="grammar-token-PCHAR"><span id="grammar-token-pchar"></span>PCHAR        </strong> ::=  any printable character except &quot;/&quot;
+</pre>
+<p>Each of these components are optional but at least one needs to be present, otherwise the key is ignored and included in the final document.</p>
+<p>A leading ‘?’ indicates that reference maybe missing, otherwise the processing will abort with an error.</p>
+<p><code class="docutils literal notranslate"><span class="pre">include</span></code> indicates that value of the merge key includes a yaml or json file to load.</p>
+<p><code class="docutils literal notranslate"><span class="pre">*anchor</span></code>: a reference to YAML anchor that appears in either the current document or, a file was specified, from that file.</p>
+<p><code class="docutils literal notranslate"><span class="pre">relative</span> <span class="pre">path</span></code>: ‘.’+ The path starting at current location this key appears in.</p>
+<p><code class="docutils literal notranslate"><span class="pre">absolute</span> <span class="pre">path</span></code>: [/path]+ A path that is resolved following &lt;jsonpointer&gt; RFC</p>
+<p>If the value of the merge directive is empty, merge the result using algorithm described below.
+If the directive contains “include” and the value is a string, treat the value as a file path or a URL to a YAML or JSON file.
+If the value is “raw”, include the result without any further processing.</p>
+<p>The resolved value is merged into the directive’s dictionary using the following rules:</p>
+<blockquote>
+<div><p>If the result of the lookup is not a JSON object or YAML map:</p>
+<blockquote>
+<div><dl class="simple">
+<dt>If the map containing the merge key has no other keys:</dt><dd><p>it will replaced by the result, otherwise abort processing with a merge error</p>
+</dd>
+<dt>If the map being replaced appears as an item in a list and the result of the merge is also a list:</dt><dd><p>the list is spliced in place.</p>
+</dd>
+</dl>
+<p>(If you don’t want that behavior just wrap the include in another list, e.g <code class="docutils literal notranslate"><span class="pre">[{+/list1:</span> <span class="pre">null}]</span></code></p>
+<dl>
+<dt>Otherwise, recursively merge the maps:</dt><dd><dl>
+<dt>for each key in the result object</dt><dd><dl class="simple">
+<dt>if the key doesn’t exist in the target:</dt><dd><p>add the key and value</p>
+</dd>
+<dt>if value of the target key is null treat it like an empty object</dt><dd><dl class="simple">
+<dt>otherwise, if value of the target key is not an object:</dt><dd><p>ignore this key</p>
+</dd>
+</dl>
+</dd>
+<dt>if value of the target key is an object with a merge directive with the value “whiteout” (<code class="docutils literal notranslate"><span class="pre">{+%:</span> <span class="pre">whiteout}</span></code>):</dt><dd><p>omit the target key from the result object</p>
+</dd>
+<dt>if value of the target key is an object with a merge directive with the value “nullout” (<code class="docutils literal notranslate"><span class="pre">{+%:</span> <span class="pre">nullout}</span></code>):</dt><dd><p>set the target key to null in the result object</p>
+</dd>
+</dl>
+<p>otherwise, merge two values following these rules.</p>
+</dd>
+</dl>
+</dd>
+</dl>
+</div></blockquote>
+</div></blockquote>
+<section id="restoring-merge-directives">
+<h3><a class="toc-backref" href="#id4">Restoring merge directives</a><a class="headerlink" href="#restoring-merge-directives" title="Permalink to this headline"></a></h3>
+<p>When saving YAML config file that contained merge directive will attempt restore them even if the configuration has changed – if the target object has changed, a new diff will be generated to reflect those changes.</p>
+</section>
+</section>
+<section id="ansible-jinja2-templates">
+<h2><a class="toc-backref" href="#id5">Ansible Jinja2 Templates</a><a class="headerlink" href="#ansible-jinja2-templates" title="Permalink to this headline"></a></h2>
+<p>Unfurl will process any <a class="reference external" href="https://docs.ansible.com/ansible/latest/user_guide/playbooks_filters.html">Ansible-flavored Jinja2 templates</a> it encounters in strings while processing an Ensemble template.
+It support the full suite of filters and lookup plugins provided by Ansible as well as the following filters and lookup plugins:</p>
+<section id="filters">
+<h3><a class="toc-backref" href="#id6">Filters</a><a class="headerlink" href="#filters" title="Permalink to this headline"></a></h3>
+<blockquote>
+<div><dl class="field-list simple">
+<dt class="field-odd">eval</dt>
+<dd class="field-odd"><p>Evaluates the given <a class="reference internal" href="#eval-expressions"><span class="std std-ref">expression</span></a> or function</p>
+</dd>
+<dt class="field-even">mapValue</dt>
+<dd class="field-even"><p>Resolves any <a class="reference internal" href="#eval-expressions"><span class="std std-ref">Eval Expressions</span></a> or template strings in the give map or list.</p>
+</dd>
+<dt class="field-odd">abspath</dt>
+<dd class="field-odd"><p>see <a class="reference internal" href="expressions.html#abspath"><span class="std std-ref">abspath</span></a>,</p>
+</dd>
+<dt class="field-even">get_dir</dt>
+<dd class="field-even"><p>see <a class="reference internal" href="expressions.html#get-dir"><span class="std std-ref">get_dir</span></a></p>
+</dd>
+<dt class="field-odd">which</dt>
+<dd class="field-odd"><p>Returns the full path to the given executable, like the <code class="docutils literal notranslate"><span class="pre">which</span></code> shell command.</p>
+</dd>
+</dl>
+</div></blockquote>
+</section>
+<section id="lookup-plugins">
+<h3><a class="toc-backref" href="#id7">Lookup plugins</a><a class="headerlink" href="#lookup-plugins" title="Permalink to this headline"></a></h3>
+<blockquote>
+<div><dl class="field-list simple">
+<dt class="field-odd">unfurl</dt>
+<dd class="field-odd"><p>Evaluates the given <a class="reference internal" href="#eval-expressions"><span class="std std-ref">expression</span></a>
+For example: <code class="docutils literal notranslate"><span class="pre">{{</span> <span class="pre">lookup(&quot;unfurl&quot;,</span> <span class="pre">&quot;::instance1::anAttribute&quot;)</span> <span class="pre">}}</span></code></p>
+</dd>
+</dl>
+</div></blockquote>
+</section>
+</section>
+<section id="eval-expressions">
+<h2><a class="toc-backref" href="#id8">Eval Expressions</a><a class="headerlink" href="#eval-expressions" title="Permalink to this headline"></a></h2>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><p><a class="reference internal" href="#template-processing" id="id2">Template Processing</a></p>
+<ul>
+<li><p><a class="reference internal" href="#yaml-merge-directives" id="id3">YAML Merge directives</a></p>
+<ul>
+<li><p><a class="reference internal" href="#restoring-merge-directives" id="id4">Restoring merge directives</a></p></li>
+</ul>
+</li>
+<li><p><a class="reference internal" href="#ansible-jinja2-templates" id="id5">Ansible Jinja2 Templates</a></p>
+<ul>
+<li><p><a class="reference internal" href="#filters" id="id6">Filters</a></p></li>
+<li><p><a class="reference internal" href="#lookup-plugins" id="id7">Lookup plugins</a></p></li>
+</ul>
+</li>
+<li><p><a class="reference internal" href="#eval-expressions" id="id8">Eval Expressions</a></p>
+<ul>
+<li><p><a class="reference internal" href="#expression-query-syntax" id="id9">Expression Query Syntax</a></p></li>
+<li><p><a class="reference internal" href="#expression-function-syntax" id="id10">Expression Function Syntax</a></p></li>
+<li><p><a class="reference internal" href="#evaluation-semantics" id="id11">Evaluation Semantics</a></p>
+<ul>
+<li><p><a class="reference internal" href="#results-flattened" id="id12">Results flattened</a></p></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</div>
+<p>When jobs are run Unfurl expressions that appear in the YAML configuration files are processed.</p>
+<section id="expression-query-syntax">
+<h3><a class="toc-backref" href="#id9">Expression Query Syntax</a><a class="headerlink" href="#expression-query-syntax" title="Permalink to this headline"></a></h3>
+<pre>
+<strong id="grammar-token-expr">expr   </strong> ::=  segment? (&quot;::&quot; segment)*
+<strong id="grammar-token-segment">segment</strong> ::=  [key] (&quot;[&quot; filter &quot;]&quot;)* [&quot;?&quot;]
+<strong id="grammar-token-key">key    </strong> ::=  name | integer | var | &quot;*&quot;
+<strong id="grammar-token-filter">filter </strong> ::=  ['!'] [expr] [(&quot;!=&quot; | &quot;=&quot;) test]
+<strong id="grammar-token-test">test   </strong> ::=  var | ([^$[]:?])+
+<strong id="grammar-token-var">var    </strong> ::=  &quot;$&quot; name
+</pre>
+</section>
+<section id="expression-function-syntax">
+<h3><a class="toc-backref" href="#id10">Expression Function Syntax</a><a class="headerlink" href="#expression-function-syntax" title="Permalink to this headline"></a></h3>
+<blockquote>
+<div><table class="docutils align-default">
+<colgroup>
+<col style="width: 24%" />
+<col style="width: 41%" />
+<col style="width: 35%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Key</p></th>
+<th class="head"><p>Value</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>eval</p></td>
+<td><p>expr or func</p></td>
+<td></td>
+</tr>
+<tr class="row-odd"><td><p>vars?</p></td>
+<td><p>map</p></td>
+<td></td>
+</tr>
+<tr class="row-even"><td><p>select?</p></td>
+<td><p>expr</p></td>
+<td></td>
+</tr>
+<tr class="row-odd"><td><p>foreach?</p></td>
+<td><p>{key?, value?}</p></td>
+<td></td>
+</tr>
+<tr class="row-even"><td><p>trace?</p></td>
+<td><p>integer</p></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+</div></blockquote>
+</section>
+<section id="evaluation-semantics">
+<h3><a class="toc-backref" href="#id11">Evaluation Semantics</a><a class="headerlink" href="#evaluation-semantics" title="Permalink to this headline"></a></h3>
+<p>Each segment specifies a key in a resource or JSON/YAML object.
+<code class="docutils literal notranslate"><span class="pre">::</span></code> is used as the segment delimitated to allow for keys that contain “.” and “/”</p>
+<p>Path expressions evaluations always start with a list of one or more instances.
+and each segment selects the value associated with that key.
+If segment has one or more filters
+each filter is applied to that value – each is treated as a predicate
+that decides whether value is included or not in the results.
+If the filter doesn’t include a test the filter tests the existence or non-existence of the expression,
+depending on whether the expression is prefixed with a <code class="docutils literal notranslate"><span class="pre">!</span></code>.
+If the filter includes a test the left side of the test needs to match the right side.
+If the right side is not a variable, that string will be coerced to left side’s type before comparing it.
+If the left-side expression is omitted, the value of the segment’s key is used and if that is missing, the current value is used.</p>
+<p>If the current value is a list and the key looks like an integer
+it will be treated like a zero-based index into the list.
+Otherwise the segment is evaluated again all values in the list and resulting value is a list.
+If the current value is a dictionary and the key is <code class="docutils literal notranslate"><span class="pre">*</span></code>, all values will be selected.</p>
+<p>If a segment ends in <code class="docutils literal notranslate"><span class="pre">?</span></code>, it will only include the first match.
+In other words, <code class="docutils literal notranslate"><span class="pre">a?::b::c</span></code> is a shorthand for <code class="docutils literal notranslate"><span class="pre">a[b::c]::0::b::c</span></code>.
+This is useful to guarantee the result of evaluating expression is always a single result.</p>
+<p>The first segment:
+If the first segment is a variable reference the current value is set to that variable’s value.
+If the key in the first segment is empty (e.g. the expression starts with <code class="docutils literal notranslate"><span class="pre">::</span></code>) the current value will be set to the evaluation of <code class="docutils literal notranslate"><span class="pre">.all</span></code>.
+If the key in the first segment starts with <code class="docutils literal notranslate"><span class="pre">.</span></code> it is evaluated against the initial “current resource”.
+Otherwise, the current value is set to the evaluation of <code class="docutils literal notranslate"><span class="pre">.ancestors?</span></code>. In other words,
+the expression will be the result of evaluating it against the first ancestor of the current resource that it matches.</p>
+<p>If key or test needs to be a non-string type or contain reserved characters use a var reference instead.</p>
+<section id="results-flattened">
+<h4><a class="toc-backref" href="#id12">Results flattened</a><a class="headerlink" href="#results-flattened" title="Permalink to this headline"></a></h4>
+<p>When multiple steps resolve to lists the resultant lists are flattened.
+However if the final set of matches contain values that are lists those values are not flattened.</p>
+<p>For example, given:</p>
+<div class="highlight-javascript notranslate"><div class="highlight"><pre><span></span><span class="p">{</span><span class="nx">x</span><span class="o">:</span> <span class="p">[</span> <span class="p">{</span>
+        <span class="nx">a</span><span class="o">:</span> <span class="p">[{</span><span class="nx">c</span><span class="o">:</span><span class="mf">1</span><span class="p">},</span> <span class="p">{</span><span class="nx">c</span><span class="o">:</span><span class="mf">2</span><span class="p">}]</span>
+      <span class="p">},</span>
+      <span class="p">{</span>
+        <span class="nx">a</span><span class="o">:</span> <span class="p">[{</span><span class="nx">c</span><span class="o">:</span><span class="mf">3</span><span class="p">},</span> <span class="p">{</span><span class="nx">c</span><span class="o">:</span><span class="mf">4</span><span class="p">}]</span>
+      <span class="p">}</span>
+    <span class="p">]</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">x::a::c</span></code> resolves to:
+<code class="docutils literal notranslate"><span class="pre">[1,2,3,4]</span></code>
+not
+<code class="docutils literal notranslate"><span class="pre">[[1,2],</span> <span class="pre">[3,4]])</span></code></p>
+<p>(Justification: It is inconvenient and fragile to tie data structures to the particular form of a query.
+If you want preserve structure (e.g. to know which values are part
+of which parent value or resource) use a less deep path and iterate over results.)</p>
+</section>
+</section>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="configurators.html" class="btn btn-neutral float-left" title="Configurators" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="expressions.html" class="btn btn-neutral float-right" title="Expression Functions" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2020, Adam Souzis.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

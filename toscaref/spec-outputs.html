@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+  <meta charset="utf-8" /><meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Outputs &mdash; Unfurl Documentation</title>
+      <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+      <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
+      <link rel="stylesheet" href="../_static/custom.css" type="text/css" />
+    <link rel="shortcut icon" href="../_static/favicon32.png"/>
+  <!--[if lt IE 9]>
+    <script src="../_static/js/html5shiv.min.js"></script>
+  <![endif]-->
+  
+        <script data-url_root="../" id="documentation_options" src="../_static/documentation_options.js"></script>
+        <script src="../_static/jquery.js"></script>
+        <script src="../_static/underscore.js"></script>
+        <script src="../_static/doctools.js"></script>
+        <script src="../_static/custom.js"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Node Templates" href="spec-node-templates.html" />
+    <link rel="prev" title="Inputs" href="spec-inputs.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+            <a href="../index.html">
+            <img src="../_static/unfurl_logo.svg" class="logo" alt="Logo"/>
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../README.html">Introduction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../README.html#installation">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../get-started-step-by-step.html">Getting Started</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../ensembles.html">Ensembles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../projects.html">Unfurl Projects</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../secrets.html">Managing Secrets</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../tosca.html">TOSCA</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../jobs.html">Jobs and Workflows</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../runtime.html">Runtime Environment</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../configurators.html">Configurators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../configurators.html#installers">Installers</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../processing.html">Template Processing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../expressions.html">Expression Functions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html">Command Line</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../jsonschema.html">Configuration Files</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="../toscaref.html">TOSCA Language Reference</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="spec-tosca_def_version.html">Metadata</a></li>
+<li class="toctree-l2"><a class="reference internal" href="spec-repositories.html">Repositories</a></li>
+<li class="toctree-l2"><a class="reference internal" href="spec-imports.html">Imports</a></li>
+<li class="toctree-l2"><a class="reference internal" href="spec-node-types.html">Node Types</a></li>
+<li class="toctree-l2"><a class="reference internal" href="spec-data-types.html">Data Types</a></li>
+<li class="toctree-l2"><a class="reference internal" href="spec-other-types.html">Other Types</a></li>
+<li class="toctree-l2 current"><a class="reference internal" href="spec-topology-template.html">Topology Templates</a><ul class="current">
+<li class="toctree-l3"><a class="reference internal" href="spec-inputs.html">Inputs</a></li>
+<li class="toctree-l3 current"><a class="current reference internal" href="#">Outputs</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#declaration">Declaration</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#definition">Definition</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#example">Example</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#id2">Outputs</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="spec-node-templates.html">Node Templates</a></li>
+<li class="toctree-l3"><a class="reference internal" href="spec-relationship-templates.html">Relationship Templates</a></li>
+<li class="toctree-l3"><a class="reference internal" href="spec-substitution-mapping.html">Substitution Mappings</a></li>
+<li class="toctree-l3"><a class="reference internal" href="spec-groups.html">Groups</a></li>
+<li class="toctree-l3"><a class="reference internal" href="spec-policy.html">Policies</a></li>
+<li class="toctree-l3"><a class="reference internal" href="spec-imperative-workflow.html">Workflows</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../extensions.html">Unfurl Specific</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../toscadef.html">Type Definitions</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../glossary.html">Glossary</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api.html">Python API</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">Unfurl</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home"></a> &raquo;</li>
+          <li><a href="../toscaref.html">TOSCA Language Reference</a> &raquo;</li>
+          <li><a href="spec-topology-template.html">Topology Template</a> &raquo;</li>
+      <li>Outputs</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/toscaref/spec-outputs.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="outputs">
+<span id="id1"></span><h1>Outputs<a class="headerlink" href="#outputs" title="Permalink to this headline"></a></h1>
+<p><code class="docutils literal notranslate"><span class="pre">outputs</span></code> provide a way of exposing global aspects of a deployment.
+When deployed, a service template can expose specific outputs of that
+deployment - for instance, an endpoint of a server or any other runtime
+or static information of a specific resource.</p>
+<section id="declaration">
+<h2>Declaration<a class="headerlink" href="#declaration" title="Permalink to this headline"></a></h2>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">outputs</span><span class="p">:</span>
+  <span class="nt">output1</span><span class="p">:</span>
+    <span class="l l-Scalar l-Scalar-Plain">...</span>
+  <span class="nt">output2</span><span class="p">:</span>
+    <span class="l l-Scalar l-Scalar-Plain">...</span>
+</pre></div>
+</div>
+</section>
+<section id="definition">
+<h2>Definition<a class="headerlink" href="#definition" title="Permalink to this headline"></a></h2>
+<table class="colwidths-given docutils align-default">
+<colgroup>
+<col style="width: 13%" />
+<col style="width: 13%" />
+<col style="width: 13%" />
+<col style="width: 63%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Keyname</p></th>
+<th class="head"><p>Required</p></th>
+<th class="head"><p>Type</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>description</p></td>
+<td><p>no</p></td>
+<td><p>string</p></td>
+<td><p>An optional description for the output.</p></td>
+</tr>
+<tr class="row-odd"><td><p>values</p></td>
+<td><p>yes</p></td>
+<td><p>&lt;any&gt;</p></td>
+<td><p>The output value. May be anything from a simple value (e.g. port) to a complex value (e.g. hash with values). Output values can contain hard-coded values, inputs, properties and attributes.</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="example">
+<h2>Example<a class="headerlink" href="#example" title="Permalink to this headline"></a></h2>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">tosca_definitions_version</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">tosca_dsl_1_3</span>
+
+<span class="nt">imports</span><span class="p">:</span>
+  <span class="p p-Indicator">-</span> <span class="l l-Scalar l-Scalar-Plain">http://&lt;example URL&gt;/types.yaml</span>
+
+<span class="nt">node_templates</span><span class="p">:</span>
+  <span class="nt">webserver_vm</span><span class="p">:</span>
+    <span class="nt">type</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">tosca.nodes.Compute</span>
+  <span class="nt">webserver</span><span class="p">:</span>
+    <span class="nt">type</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">tosca.nodes.WebServer</span>
+    <span class="nt">properties</span><span class="p">:</span>
+        <span class="nt">port</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">8080</span>
+
+<span class="nt">outputs</span><span class="p">:</span>
+    <span class="nt">webapp_endpoint</span><span class="p">:</span>
+        <span class="nt">description</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">ip and port of the web application</span>
+        <span class="nt">value</span><span class="p">:</span>
+            <span class="nt">ip</span><span class="p">:</span> <span class="p p-Indicator">{</span><span class="nt"> get_attribute</span><span class="p">:</span> <span class="p p-Indicator">[</span><span class="nv">webserver_vm</span><span class="p p-Indicator">,</span> <span class="nv">ip</span><span class="p p-Indicator">]</span> <span class="p p-Indicator">}</span>
+            <span class="nt">port</span><span class="p">:</span> <span class="p p-Indicator">{</span><span class="nt"> get_property</span><span class="p">:</span> <span class="p p-Indicator">[</span><span class="nv">webserver</span><span class="p p-Indicator">,</span> <span class="nv">port</span><span class="p p-Indicator">]</span> <span class="p p-Indicator">}</span>
+</pre></div>
+</div>
+</section>
+<section id="id2">
+<h2>Outputs<a class="headerlink" href="#id2" title="Permalink to this headline"></a></h2>
+<p>Outputs are recorded in the <a class="reference internal" href="../jsonschema.html#ensemble-yaml"><span class="std std-ref">ensemble.yaml</span></a> and is printed in the console after a job has completed as part of the job summary.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">status</span><span class="p">:</span>
+  <span class="nt">outputs</span><span class="p">:</span>
+    <span class="nt">url</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">https://demo.example.com</span>
+  <span class="nt">webapp_endpoint</span><span class="p">:</span>
+       <span class="nt">description</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">ip and port of the web application</span>
+       <span class="nt">value</span><span class="p">:</span>
+           <span class="nt">ip</span><span class="p">:</span> <span class="p p-Indicator">{</span><span class="nt"> get_attribute</span><span class="p">:</span> <span class="p p-Indicator">[</span><span class="nv">webserver_vm</span><span class="p p-Indicator">,</span> <span class="nv">ip</span><span class="p p-Indicator">]</span> <span class="p p-Indicator">}</span>
+           <span class="l l-Scalar l-Scalar-Plain">port</span>
+</pre></div>
+</div>
+<section id="id3">
+<h3>Example<a class="headerlink" href="#id3" title="Permalink to this headline"></a></h3>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">status</span><span class="p">:</span>
+  <span class="nt">outputs</span><span class="p">:</span>
+    <span class="nt">webapp_endpoint</span><span class="p">:</span>
+      <span class="nt">ip</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">127.0.0.1</span>
+      <span class="nt">port</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">8080</span>
+</pre></div>
+</div>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<p>For more information, refer to <a class="reference external" href="../_static/TOSCA-Simple-Profile-YAML-v1.3-os-toc.html#_Toc50125464">TOSCA Output Section</a></p>
+</div>
+</section>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="spec-inputs.html" class="btn btn-neutral float-left" title="Inputs" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="spec-node-templates.html" class="btn btn-neutral float-right" title="Node Templates" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2020, Adam Souzis.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

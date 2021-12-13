@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+  <meta charset="utf-8" /><meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Solution Overview &mdash; Unfurl Documentation</title>
+      <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+      <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+      <link rel="stylesheet" href="_static/custom.css" type="text/css" />
+    <link rel="shortcut icon" href="_static/favicon32.png"/>
+  <!--[if lt IE 9]>
+    <script src="_static/js/html5shiv.min.js"></script>
+  <![endif]-->
+  
+        <script data-url_root="./" id="documentation_options" src="_static/documentation_options.js"></script>
+        <script src="_static/jquery.js"></script>
+        <script src="_static/underscore.js"></script>
+        <script src="_static/doctools.js"></script>
+        <script src="_static/custom.js"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+            <a href="index.html">
+            <img src="_static/unfurl_logo.svg" class="logo" alt="Logo"/>
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+<li class="toctree-l1"><a class="reference internal" href="README.html">Introduction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="README.html#installation">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="get-started-step-by-step.html">Getting Started</a></li>
+<li class="toctree-l1"><a class="reference internal" href="ensembles.html">Ensembles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="projects.html">Unfurl Projects</a></li>
+<li class="toctree-l1"><a class="reference internal" href="secrets.html">Managing Secrets</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tosca.html">TOSCA</a></li>
+<li class="toctree-l1"><a class="reference internal" href="jobs.html">Jobs and Workflows</a></li>
+<li class="toctree-l1"><a class="reference internal" href="runtime.html">Runtime Environment</a></li>
+<li class="toctree-l1"><a class="reference internal" href="configurators.html">Configurators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="configurators.html#installers">Installers</a></li>
+<li class="toctree-l1"><a class="reference internal" href="processing.html">Template Processing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="expressions.html">Expression Functions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="cli.html">Command Line</a></li>
+<li class="toctree-l1"><a class="reference internal" href="jsonschema.html">Configuration Files</a></li>
+<li class="toctree-l1"><a class="reference internal" href="toscaref.html">TOSCA Language Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="glossary.html">Glossary</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api.html">Python API</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">Unfurl</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home"></a> &raquo;</li>
+      <li>Solution Overview</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/solution-overview.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="solution-overview">
+<h1>Solution Overview<a class="headerlink" href="#solution-overview" title="Permalink to this headline"></a></h1>
+<p>Before getting started, it is important to get yourself familiar with the overall Unfurl solution.</p>
+<p>Unfurl is a tool that allows you to keep track of the changes to your DevOps infrastructure and deploy it. This information can come in handy if you ever want to go back and see exactly how did you make those configuration changes along with what results did you get with that configuration. All this information can help with recreating that environment again.</p>
+<p>Unfurl integrates with the deployment tools you are already using, like Ansible, Terraform and Helm, organizing their usage into Ensembles, shareable abstractions that ease migrations to new environments as well as share and reuse your work.</p>
+<p>Let’s dive a bit deeper into the solution.</p>
+<section id="how-it-works">
+<span id="id1"></span><h2>How It Works<a class="headerlink" href="#how-it-works" title="Permalink to this headline"></a></h2>
+<p>In this section, we will go through each step involved in whole process from deploying the changes to production to pushing everything on git. The figure below gives a high level overview of each step.</p>
+<img alt="_images/unfurl_overview.png" class="align-center" src="_images/unfurl_overview.png" />
+<div class="line-block">
+<div class="line"><br /></div>
+</div>
+<p>We will go through each step in this section.</p>
+<ul class="simple">
+<li><p><a class="reference internal" href="#step1"><span class="std std-ref">Step 1: Organize your deployment environment</span></a></p></li>
+<li><p><a class="reference internal" href="#step2"><span class="std std-ref">Step 2: Model your cloud infrastructure</span></a></p></li>
+<li><p><a class="reference internal" href="#step3"><span class="std std-ref">Step 3: Implement your model</span></a></p></li>
+<li><p><a class="reference internal" href="#step4"><span class="std std-ref">Step 4: Activate and manage</span></a></p></li>
+<li><p><a class="reference internal" href="#step5"><span class="std std-ref">Step 5: Publish, share and clone</span></a></p></li>
+</ul>
+<section id="step-1-organize-your-deployment-environment">
+<span id="step1"></span><h3>Step 1: Organize your deployment environment<a class="headerlink" href="#step-1-organize-your-deployment-environment" title="Permalink to this headline"></a></h3>
+<p>Unfurl allows you to collect your configuration information and organize them into contexts.
+Contexts are used to create isolated environments that the Unfurl deployment process runs in. For example, you might create different context for different projects or different deployment environments such as <strong>production</strong> or <strong>staging</strong>.</p>
+<p>Unfurl stores the local contexts such as environment variables in an <code class="docutils literal notranslate"><span class="pre">.unfurl_home</span></code> ensemble that represents its local environment. So you can use all its functionality to manage the local machine it is running on, for example, it can:</p>
+<ul class="simple">
+<li><p>Automatically install project dependencies such as packages and executables.</p></li>
+<li><p>Store configuration history in the ensemble’s local git repository</p></li>
+<li><p>Manage external git repositories needed for development and deployment (e.g. automatically clone remote repositories)</p></li>
+</ul>
+<a class="reference internal image-reference" href="_images/step1.png"><img alt="_images/step1.png" class="align-center" src="_images/step1.png" style="width: 400px;" /></a>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<p>To setup your environment, refer to the <a class="reference internal" href="get-started-step-by-step.html#configure"><span class="std std-ref">Configure your home environment</span></a> section.</p>
+</div>
+</section>
+<section id="step-2-model-your-cloud-infrastructure">
+<span id="step2"></span><h3>Step 2: Model your cloud infrastructure<a class="headerlink" href="#step-2-model-your-cloud-infrastructure" title="Permalink to this headline"></a></h3>
+<p>Specify your servers, applications, network, etc. with a declarative model that describes resources and their properties, dependencies, and relationships using the OASIS’s Topology and Orchestration Specification for Cloud Applications (TOSCA) standard. Leverage the TOSCA ecosystem of existing model libraries and tools.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<ul class="simple">
+<li><p>TOSCA supports abstract type hierarchies and reusable templates for resources and relationships so your models can be truly cloud-agnostic.</p></li>
+<li><p>For more information, refer to <a class="reference internal" href="tosca.html#tosca"><span class="std std-ref">TOSCA</span></a> section.</p></li>
+</ul>
+</div>
+<p>The following key points are important to note:</p>
+<ul class="simple">
+<li><p>Topology also can describe its surrounding cloud environment such as required external resources so the deployment process can validate and adapt to its environment.</p></li>
+<li><p>Models can be vague with ad-hoc properties or they can be detailed and precise with strongly typed nodes and relationships, depending on need, and they can be incrementally refined over time.</p></li>
+<li><p>Models can be dynamically generated and updated as part of the deployment process, for example from Helm charts or Terraform modules.</p></li>
+</ul>
+<a class="reference internal image-reference" href="_images/step2.png"><img alt="_images/step2.png" class="align-center" src="_images/step2.png" style="width: 400px;" /></a>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<p>To model your cloud infrastructure using TOSCA, refer to the <a class="reference internal" href="get-started-step-by-step.html#create-servicetemplate"><span class="std std-ref">Create a service template</span></a> section.</p>
+</div>
+</section>
+<section id="step-3-implement-your-model">
+<span id="step3"></span><h3>Step 3: Implement your model<a class="headerlink" href="#step-3-implement-your-model" title="Permalink to this headline"></a></h3>
+<p>Once you’ve specified the model, you can now associate it with operations and workflows in YAML using plugins called <strong>configurators</strong>, which integrate configuration tools, such as <a class="reference internal" href="configurators.html#shell"><span class="std std-ref">Shell scripts</span></a>, <a class="reference internal" href="configurators.html#terraform"><span class="std std-ref">Terraform</span></a>, <a class="reference internal" href="configurators.html#ansible"><span class="std std-ref">Ansible</span></a> and <a class="reference internal" href="expressions.html#python"><span class="std std-ref">Python</span></a>.</p>
+<p>Among the domain-specific configurators, <a class="reference internal" href="projects.html#docker"><span class="std std-ref">Docker</span></a>, <a class="reference internal" href="configurators.html#kubernetes"><span class="std std-ref">Kubernetes</span></a>, <a class="reference internal" href="configurators.html#helm"><span class="std std-ref">Helm</span></a> and <a class="reference internal" href="configurators.html#sup"><span class="std std-ref">Supervisor</span></a> are included.</p>
+<p>The YAML configuration language covers for multiple facilities for processing an operation’s inputs and outputs, including:</p>
+<ul class="simple">
+<li><p>A path based expression language for querying resources and configuration</p></li>
+<li><p>Apply Jinja2 templates with Ansible filters.</p></li>
+<li><p>Mark values and files as sensitive so they can be treated as secrets.</p></li>
+<li><p>Files touched by the configurators are automatically committed to the repository and their changes are included in dependency analysis.</p></li>
+</ul>
+<a class="reference internal image-reference" href="_images/step3.png"><img alt="_images/step3.png" class="align-center" src="_images/step3.png" style="width: 210px;" /></a>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<p>To know more about implementing your model using TOSCA, refer to the <a class="reference internal" href="get-started-step-by-step.html#implement-operation"><span class="std std-ref">Implementing an operation</span></a> section.</p>
+</div>
+</section>
+<section id="step-4-activate-and-manage">
+<span id="step4"></span><h3>Step 4: Activate and manage<a class="headerlink" href="#step-4-activate-and-manage" title="Permalink to this headline"></a></h3>
+<p>At this stage, you are ready to deploy your model. Run <code class="docutils literal notranslate"><span class="pre">unfurl</span> <span class="pre">deploy</span></code> from the command line and it will execute a plan. As it is running it tracks changes resource attributes and status and when it is complete it commits that to a Git repository. mirror not just the configuration but the state and status of live running services.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<ul class="simple">
+<li><p>If you are already have live resources Unfurl supports <strong>discover</strong> and <strong>check</strong> workflows for detecting and syncing resources and operational state.</p></li>
+<li><p>Unfurl supports incremental deployment and has a repair mode which can greatly accelerate development and testing development.</p></li>
+</ul>
+</div>
+<p>Unfurl excels at <strong>day two</strong> operations such as backups, repairs and upgrades:</p>
+<ul class="simple">
+<li><p>It is easy to define your own workflows, interfaces and operations.</p></li>
+<li><p>You can also execute ad-hoc operations that will be recorded in git.</p></li>
+<li><p>Intelligent and fast incremental updates: Because Unfurl maintains a history of configuration changes and live operational state it can more employ more effective incremental update strategies.</p></li>
+<li><p>Maintaining an operational history makes it easier to diagnose and rollback problems.</p></li>
+</ul>
+<a class="reference internal image-reference" href="_images/step4.png"><img alt="_images/step4.png" class="align-center" src="_images/step4.png" style="width: 500px;" /></a>
+</section>
+<section id="step-5-publish-share-and-clone">
+<span id="step5"></span><h3>Step 5: Publish, share and clone<a class="headerlink" href="#step-5-publish-share-and-clone" title="Permalink to this headline"></a></h3>
+<p>You can share and clone Unfurl projects and ensembles just like you share and clone git repositories. Because Unfurl cleanly separates secrets and local settings Unfurl repositories are self-contained and location independent.</p>
+<p>Like a git repository your Unfurl repository can be private or public, but either way, when you publish your ensemble the real power of Unfurl kicks in. Now other Unfurl projects can import and reference it, much like you import a module or package in a software program.</p>
+<p>Once imported, other ensembles can reference the ensemble’s exported api endpoints, network resources or artifacts in their models, selecting them based on their type and other declared constraints.</p>
+<a class="reference internal image-reference" href="_images/step5.png"><img alt="_images/step5.png" class="align-center" src="_images/step5.png" style="width: 500px;" /></a>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<p>To know more about publishing your project, refer to the <a class="reference internal" href="get-started-step-by-step.html#publish-project"><span class="std std-ref">Publish your project</span></a> section.</p>
+</div>
+</section>
+</section>
+<section id="what-does-that-mean">
+<h2>What Does That Mean<a class="headerlink" href="#what-does-that-mean" title="Permalink to this headline"></a></h2>
+<p>Whereas the possibilities are endless with such an open source cloud infrastructure, here are a few use cases associated with Unfurl.</p>
+<section id="cloud-agnostic-and-location-independent">
+<h3>Cloud agnostic and location independent<a class="headerlink" href="#cloud-agnostic-and-location-independent" title="Permalink to this headline"></a></h3>
+<p>And because Ensembles maintain a persistent identity you can maintain these relationships as their internal implementations change – even if their locations change, even if they migrate to different cloud providers using a very different implementations. Or not: these references can also detect changes that violate the declared contracts between ensembles.</p>
+</section>
+<section id="cloud-as-code">
+<h3>Cloud as code<a class="headerlink" href="#cloud-as-code" title="Permalink to this headline"></a></h3>
+<p>Because Ensembles not just contain configuration but also reflects the state of live instances you can use the same development processes you for coding to also manage your IT infrastructure, for example:</p>
+<ul class="simple">
+<li><p>Use pull requests and sign-offs to manage updates and changes.</p></li>
+<li><p>Use feature branches and forks to manage deployment strategies</p></li>
+<li><p>Use CI/CD tests to validate changes</p></li>
+<li><p>Use git web hooks to trigger automated deployment to enable secure resource isolation</p></li>
+</ul>
+</section>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2020, Adam Souzis.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

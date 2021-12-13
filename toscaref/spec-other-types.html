@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+  <meta charset="utf-8" /><meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Other Types &mdash; Unfurl Documentation</title>
+      <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+      <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
+      <link rel="stylesheet" href="../_static/custom.css" type="text/css" />
+    <link rel="shortcut icon" href="../_static/favicon32.png"/>
+  <!--[if lt IE 9]>
+    <script src="../_static/js/html5shiv.min.js"></script>
+  <![endif]-->
+  
+        <script data-url_root="../" id="documentation_options" src="../_static/documentation_options.js"></script>
+        <script src="../_static/jquery.js"></script>
+        <script src="../_static/underscore.js"></script>
+        <script src="../_static/doctools.js"></script>
+        <script src="../_static/custom.js"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Topology Template" href="spec-topology-template.html" />
+    <link rel="prev" title="Data Types" href="spec-data-types.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+            <a href="../index.html">
+            <img src="../_static/unfurl_logo.svg" class="logo" alt="Logo"/>
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../README.html">Introduction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../README.html#installation">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../get-started-step-by-step.html">Getting Started</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../ensembles.html">Ensembles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../projects.html">Unfurl Projects</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../secrets.html">Managing Secrets</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../tosca.html">TOSCA</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../jobs.html">Jobs and Workflows</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../runtime.html">Runtime Environment</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../configurators.html">Configurators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../configurators.html#installers">Installers</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../processing.html">Template Processing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../expressions.html">Expression Functions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html">Command Line</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../jsonschema.html">Configuration Files</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="../toscaref.html">TOSCA Language Reference</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="spec-tosca_def_version.html">Metadata</a></li>
+<li class="toctree-l2"><a class="reference internal" href="spec-repositories.html">Repositories</a></li>
+<li class="toctree-l2"><a class="reference internal" href="spec-imports.html">Imports</a></li>
+<li class="toctree-l2"><a class="reference internal" href="spec-node-types.html">Node Types</a></li>
+<li class="toctree-l2"><a class="reference internal" href="spec-data-types.html">Data Types</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">Other Types</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#artifact-types">Artifact Types</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#example">Example</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#capability-types">Capability Types</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#id3">Example</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#relationship-types">Relationship Types</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#id5">Example</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#interface-types">Interface Types</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#id7">Example</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#group-types">Group Types</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#id9">Example</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#policy-types">Policy Types</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#id11">Example</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="spec-topology-template.html">Topology Templates</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../extensions.html">Unfurl Specific</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../toscadef.html">Type Definitions</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../glossary.html">Glossary</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api.html">Python API</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">Unfurl</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home"></a> &raquo;</li>
+          <li><a href="../toscaref.html">TOSCA Language Reference</a> &raquo;</li>
+      <li>Other Types</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/toscaref/spec-other-types.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="other-types">
+<h1>Other Types<a class="headerlink" href="#other-types" title="Permalink to this headline"></a></h1>
+<p>This section includes the brief description for the following:</p>
+<ul class="simple">
+<li><p><a class="reference internal" href="#artifact-types"><span class="std std-ref">Artifact Types</span></a></p></li>
+<li><p><a class="reference internal" href="#capability-types"><span class="std std-ref">Capability Types</span></a></p></li>
+<li><p><a class="reference internal" href="#relationship-types"><span class="std std-ref">Relationship Types</span></a></p></li>
+<li><p><a class="reference internal" href="#interface-types"><span class="std std-ref">Interface Types</span></a></p></li>
+<li><p><a class="reference internal" href="#group-types"><span class="std std-ref">Group Types</span></a></p></li>
+<li><p><a class="reference internal" href="#policy-types"><span class="std std-ref">Policy Types</span></a></p></li>
+</ul>
+<section id="artifact-types">
+<span id="id1"></span><h2>Artifact Types<a class="headerlink" href="#artifact-types" title="Permalink to this headline"></a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">artifact_types</span></code> is a reusable entity in a servcie template that defines the type of one or more files that are used to define implementation or deployment artifacts. These are referenced by nodes or relationships on their operation.</p>
+<section id="example">
+<h3>Example<a class="headerlink" href="#example" title="Permalink to this headline"></a></h3>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">artifact_types</span><span class="p">:</span>
+  <span class="nt">QCOW</span><span class="p">:</span>
+    <span class="nt">derived_from</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">tosca:Deployment.Image.VM</span>
+    <span class="nt">properties</span><span class="p">:</span>
+      <span class="nt">os</span><span class="p">:</span>
+        <span class="nt">type</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">string</span>
+      <span class="nt">version</span><span class="p">:</span>
+        <span class="nt">type</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">version</span>
+    <span class="nt">mime_type</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">application/x-qcow</span>
+    <span class="nt">file_ext</span><span class="p">:</span> <span class="p p-Indicator">[</span> <span class="nv">qcow</span><span class="p p-Indicator">,</span> <span class="nv">qcow2</span> <span class="p p-Indicator">]</span>
+</pre></div>
+</div>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<p>For more information, refer to the <a class="reference external" href="../_static/TOSCA-Simple-Profile-YAML-v1.3-os-toc.html#_Toc50125358">TOSCA Artifact Type section</a></p>
+</div>
+</section>
+</section>
+<section id="capability-types">
+<span id="id2"></span><h2>Capability Types<a class="headerlink" href="#capability-types" title="Permalink to this headline"></a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">capability_types</span></code> is a reusable entity that describes a kind of capability that a node type can declare to expose.  Implicit or explicit requirements that are declared as part of one node can be matched or fulfilled by  the capabilities declared by another node.</p>
+<section id="id3">
+<h3>Example<a class="headerlink" href="#id3" title="Permalink to this headline"></a></h3>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">capability_types</span><span class="p">:</span>
+  <span class="nt">Socket</span><span class="p">:</span>
+    <span class="nt">properties</span><span class="p">:</span>
+      <span class="nt">standard</span><span class="p">:</span>
+        <span class="nt">type</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">string</span>
+</pre></div>
+</div>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<p>For more information, refer to the <a class="reference external" href="../_static/TOSCA-Simple-Profile-YAML-v1.3-os-toc.html#_Toc50125375">TOSCA Capability Type section</a></p>
+</div>
+</section>
+</section>
+<section id="relationship-types">
+<span id="id4"></span><h2>Relationship Types<a class="headerlink" href="#relationship-types" title="Permalink to this headline"></a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">relationship_types</span></code> is a reusable entity that defines the type of one or more relationships between Node Types or Node Templates.</p>
+<section id="id5">
+<h3>Example<a class="headerlink" href="#id5" title="Permalink to this headline"></a></h3>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">relationship_types</span><span class="p">:</span>
+  <span class="nt">Plug</span><span class="p">:</span>
+    <span class="nt">properties</span><span class="p">:</span>
+      <span class="nt">vendor</span><span class="p">:</span>
+        <span class="nt">type</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">string</span>
+        <span class="nt">required</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">false</span>
+    <span class="nt">attributes</span><span class="p">:</span>
+      <span class="nt">ip_address</span><span class="p">:</span>
+        <span class="nt">type</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">string</span>
+</pre></div>
+</div>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<p>For more information, refer to the <a class="reference external" href="../_static/TOSCA-Simple-Profile-YAML-v1.3-os-toc.html#_Toc50125386">TOSCA Relationship Types section</a></p>
+</div>
+</section>
+</section>
+<section id="interface-types">
+<span id="id6"></span><h2>Interface Types<a class="headerlink" href="#interface-types" title="Permalink to this headline"></a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">interface_types</span></code> is a reusable entity that describes a set of operations that can be used to interact with or manage a node or relationship in a TOSCA topology.</p>
+<section id="id7">
+<h3>Example<a class="headerlink" href="#id7" title="Permalink to this headline"></a></h3>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">interface_types</span><span class="p">:</span>
+    <span class="nt">Backup</span><span class="p">:</span>
+      <span class="nt">operations</span><span class="p">:</span>
+        <span class="nt">start_backup</span><span class="p">:</span> <span class="p p-Indicator">{}</span>
+</pre></div>
+</div>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<p>For more information, refer to the <a class="reference external" href="../_static/TOSCA-Simple-Profile-YAML-v1.3-os-toc.html#_Toc50125364">TOSCA Interface Types section</a></p>
+</div>
+</section>
+</section>
+<section id="group-types">
+<span id="id8"></span><h2>Group Types<a class="headerlink" href="#group-types" title="Permalink to this headline"></a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">group_types</span></code> defines logical grouping types for nodes.</p>
+<section id="id9">
+<h3>Example<a class="headerlink" href="#id9" title="Permalink to this headline"></a></h3>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">group_types</span><span class="p">:</span>
+ <span class="nt">ResourceGroup</span><span class="p">:</span>
+    <span class="c1"># Groups can have properties</span>
+    <span class="nt">properties</span><span class="p">:</span>
+      <span class="nt">priority</span><span class="p">:</span>
+        <span class="nt">type</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">float</span>
+    <span class="nt">members</span><span class="p">:</span> <span class="c1"># node or group types</span>
+    <span class="p p-Indicator">-</span> <span class="l l-Scalar l-Scalar-Plain">tosca:Compute</span>
+    <span class="p p-Indicator">-</span> <span class="l l-Scalar l-Scalar-Plain">tosca:Abstract.Storage</span>
+</pre></div>
+</div>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<p>For more information, refer to the <a class="reference external" href="../_static/TOSCA-Simple-Profile-YAML-v1.3-os-toc.html#_Toc50125391">TOSCA Group Types section</a></p>
+</div>
+</section>
+</section>
+<section id="policy-types">
+<span id="id10"></span><h2>Policy Types<a class="headerlink" href="#policy-types" title="Permalink to this headline"></a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">policy_types</span></code> defines a type of requirement that affects or governs an application or service’s topology at some stage of its lifecycle, but is not explicitly part of the topology itself.</p>
+<section id="id11">
+<h3>Example<a class="headerlink" href="#id11" title="Permalink to this headline"></a></h3>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">policy_types</span><span class="p">:</span>
+  <span class="nt">Backup</span><span class="p">:</span>
+    <span class="nt">targets</span><span class="p">:</span>
+    <span class="c1"># Can include both node types and group types</span>
+    <span class="p p-Indicator">-</span> <span class="l l-Scalar l-Scalar-Plain">tosca:Compute</span>
+    <span class="p p-Indicator">-</span> <span class="l l-Scalar l-Scalar-Plain">RedundantResources</span> <span class="c1"># This group type is declared below</span>
+    <span class="c1"># If “targets” is not specified then any node template or group can be a target</span>
+</pre></div>
+</div>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<p>For more information, refer to the <a class="reference external" href="../_static/TOSCA-Simple-Profile-YAML-v1.3-os-toc.html#_Toc50125397">TOSCA Policy Types section</a></p>
+</div>
+</section>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="spec-data-types.html" class="btn btn-neutral float-left" title="Data Types" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="spec-topology-template.html" class="btn btn-neutral float-right" title="Topology Template" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2020, Adam Souzis.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>
