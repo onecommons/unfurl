@@ -58,8 +58,10 @@ jobs:
           tox -c tosca-parser/tox.ini -e $PY_V
           tox -e $PY_V -- -n auto --dist loadfile
       - name: build docs
+        if: matrix.python == 3.9
         run: tox -e docs
       - name: upload docs
+        if: matrix.python == 3.9
         uses: actions/upload-artifact@v1
         with:
           name: DocumentationHTML
