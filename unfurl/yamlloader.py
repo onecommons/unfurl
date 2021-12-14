@@ -550,7 +550,6 @@ class YamlConfig:
             raise UnfurlError(
                 f"unable to load document include: {templatePath} (base: {baseDir})",
                 True,
-                True,
             )
         self.baseDirs.append(newBaseDir)
 

@@ -1,14 +1,13 @@
-if: tag =~ /^\d+\.\d+\.\d+$/
+if: false # disable, was if: tag =~ /^\d+\.\d+\.\d+$/
 language: python
+dist: focal
 python:
   - "3.9"
-  - "3.8"
-  - "3.7"
 env:
   global:
     - TOX_SKIP_ENV=.+(docker|lock)
-    - tf_version=1.0.0
-    - helm_version=3.3.4
+    - tf_version=1.0.11 # see tosca_plugins/artifacts.yaml
+    - helm_version=3.7.1 # see configurators/helm-template.yaml
     - kubectl_version=v1.21.2
     - k3d_version=v4.4.6
     - UNFURL_LOGGING=info

@@ -2,7 +2,7 @@ import getpass
 import os
 from pathlib import Path
 
-from unfurl import __version__
+from unfurl import __version__, version_tuple
 from unfurl.__main__ import DockerCmd
 
 
@@ -41,12 +41,12 @@ class TestDockerCmd:
         monkeypatch.setattr(Path, "cwd", lambda: "/home/joe/project")
 
         cmd = DockerCmd("docker --privileged", {"ANSWER": 42}).build()
-
+        tag = "latest" if len(version_tuple()) > 3 else __version__()
         assert (
             " ".join(cmd)
             == "docker run --rm -w /data -u 1000:1000 -e HOME=/home/joe -e USER=joe -e ANSWER=42 "
             "-v /home/joe/project:/data -v /home/joe:/home/joe "
             "-v /var/run/docker.sock:/var/run/docker.sock "
-            f"--privileged onecommons/unfurl:latest unfurl --no-runtime "
+            f"--privileged onecommons/unfurl:{tag} unfurl --no-runtime "
             f"--version-check {__version__(True)}"
         )

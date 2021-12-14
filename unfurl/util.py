@@ -23,6 +23,8 @@ from ansible.utils.unsafe_proxy import AnsibleUnsafeText, AnsibleUnsafeBytes, wr
 import warnings
 import codecs
 import io
+from contextlib import contextmanager
+from logging import Logger
 
 try:
     from shutil import which
@@ -370,6 +372,22 @@ def get_base_dir(path):
         return os.path.normpath(os.path.dirname(path))
 
 
+@contextmanager
+def change_cwd(new_path: str, log: Logger = None):
+    """Temporarily change current working directory"""
+    old_path = os.getcwd()
+    if new_path:
+        if log:
+            log.trace("Changing CWD to: %s", new_path)
+        os.chdir(new_path)
+    try:
+        yield
+    finally:
+        if log:
+            log.trace("Restoring CWD back to: %s", old_path)
+        os.chdir(old_path)
+
+
 # https://python-jsonschema.readthedocs.io/en/latest/faq/#why-doesn-t-my-schema-s-default-property-set-the-default-on-my-instance
 # XXX unused because this breaks check_schema
 def extend_with_default(validator_class):
@@ -514,7 +532,10 @@ def filter_env(rules, env=None, addOnly=False):
     if env is None:
         env = os.environ
 
-    start = {} if addOnly else env.copy()
+    if addOnly:
+        start = {}
+    else:
+        start = env.copy()
     for name, val in rules.items():
         if name[:1] in "+-^":
             # add or remove from env
@@ -570,6 +591,7 @@ required_envvars = [
     "UNFURL_HOME",
     "UNFURL_RUNTIME",
     "UNFURL_NORUNTIME",
+    "UNFURL_APPROVE",
 ]
 # hack for sphinx ext documentedlist
 _sphinx_envvars = [(i,) for i in required_envvars]

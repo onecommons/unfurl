@@ -770,9 +770,6 @@ def _get_config_spec_args_from_implementation(iDef, inputs, target, operation_ho
     # if not operation_instance:
     #     operation_instance = operation_instance or target.root
     base_dir = getattr(iDef.value, "base_dir", iDef._source)
-    # hmm.. the artifact might be defined in the target template not operation_host
-    # plus external operation_host probably won't have local repository
-    # localstore is lame anyways
     if artifactTpl:
         artifact = target.template.find_or_create_artifact(artifactTpl, base_dir)
     else:
