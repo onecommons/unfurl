@@ -39,5 +39,4 @@ conform with the TOSCA 1.3 specification:
 * substitution mapping
 * triggers
 * notifications
-* node_filters
 * xml schema constraints
