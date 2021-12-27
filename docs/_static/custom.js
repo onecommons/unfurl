@@ -1,5 +1,5 @@
 if (location.protocol != 'file:') {
   jQuery(function() {
-      jQuery(".wy-side-nav-search a").attr('href', '/');
+      jQuery(".wy-side-nav-search a").attr('href', 'https://unfurl.run/');
   })
 }

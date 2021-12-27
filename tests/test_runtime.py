@@ -290,7 +290,7 @@ root:
 """
         with self.assertRaises(UnfurlError) as err:
             YamlManifest(manifest)
-        self.assertIn("missing includes: [+/templates/production]", str(err.exception))
+        self.assertIn("missing includes: ['+/templates/production:']", str(err.exception))
 
     def test_sensitive_logging(self):
         handler = logging.getLogger().handlers[0]

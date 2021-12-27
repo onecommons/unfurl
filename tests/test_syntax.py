@@ -53,7 +53,7 @@ spec:
 """
         with self.assertRaises(UnfurlError) as err:
             YamlManifest(manifest)
-        self.assertIn("missing includes: [+/templates/production]", str(err.exception))
+        self.assertIn("missing includes: ['+/templates/production:']", str(err.exception))
 
         manifest = """
 apiVersion: unfurl/v1alpha1

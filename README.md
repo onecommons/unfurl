@@ -102,7 +102,7 @@ By default `unfurl` creates a virtual Python environment to run in so it only in
 
 You can also install `unfurl` directly from this repository to get the latest code:
 
-`pip3 install -e git+https://github.com/onecommons/unfurl.git#egg=unfurl`
+`pip3 install -e "git+https://github.com/onecommons/unfurl.git#egg=unfurl"`
 
 Alternatively, you can use the Unfurl container on docker.io at `onecommons/unfurl:latest`
 
