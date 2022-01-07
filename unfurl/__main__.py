@@ -962,14 +962,32 @@ def git_status(ctx, project_or_ensemble_path, dirty, **options):
         click.echo(statuses)
 
 
+def _dump_manifest(manifest):
+    from .to_json import to_graphql
+
+    jsonSummary = to_graphql(manifest)
+    return json.dumps(jsonSummary, indent=2)
+
+
 @cli.command(short_help="Show the git status for paths relevant to this ensemble.")
 @click.pass_context
 @click.argument("ensemble", default=".", type=click.Path(exists=True))
-def status(ctx, ensemble, **options):
+@click.option(
+    "--json",
+    default=False,
+    is_flag=True,
+    help="Print ensemble in a simplified json format",
+)
+def status(ctx, ensemble, json, **options):
     """Show the status of deployed resources in the given ensemble."""
     options.update(ctx.obj)
     localEnv = LocalEnv(ensemble, options.get("home"))
-    click.echo(localEnv.get_manifest().status_summary())
+    # set skip_validation because we want to be able to dump incomplete service templates
+    manifest = localEnv.get_manifest(skip_validation=json)
+    if json:
+        click.echo(_dump_manifest(manifest))
+    else:
+        click.echo(manifest.status_summary())
 
 
 @cli.command()
