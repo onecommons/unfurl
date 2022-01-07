@@ -174,7 +174,6 @@ class ToscaSpec:
             import_resolver=resolver,
             verify=False,  # we display the error messages ourselves so we don't need to verify here
         )
-
         self.nodeTemplates = {}
         self.installers = {}
         self.relationshipTemplates = {}
@@ -205,6 +204,7 @@ class ToscaSpec:
         spec=None,
         path=None,
         resolver=None,
+        skip_validation=False
     ):
         self.discovered = None
         if spec:
@@ -238,7 +238,7 @@ class ToscaSpec:
                 # copy errors before we clear them in _overlay
                 errorsSoFar = ExceptionCollector.exceptions[:]
                 self._overlay(decorators)
-                if ExceptionCollector.exceptionsCaught():
+                if not skip_validation and ExceptionCollector.exceptionsCaught():
                     # abort if overlay caused errors
                     # report previously collected errors too
                     ExceptionCollector.exceptions[:0] = errorsSoFar
@@ -256,7 +256,7 @@ class ToscaSpec:
                 # overlay and evaluate_imports modifies tosaDef in-place, try reparsing it
                 self._parse_template(path, inputs, toscaDef, resolver)
 
-            if ExceptionCollector.exceptionsCaught():
+            if not skip_validation and ExceptionCollector.exceptionsCaught():
                 message = "\n".join(
                     ExceptionCollector.getExceptionsReport(
                         full=(get_console_log_level() < logging.INFO)
@@ -585,7 +585,7 @@ class EntitySpec(ResourceRef):
             # i.e. missing properties without a default and not required
             props_def = toscaNodeTemplate.type_definition.get_properties_def()
             for pDef in props_def.values():
-                if pDef.name not in self.propertyDefs:
+                if pDef.schema and pDef.name not in self.propertyDefs:
                     self.propertyDefs[pDef.name] = Property(
                         pDef.name,
                         pDef.default,

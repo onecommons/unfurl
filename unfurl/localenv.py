@@ -757,7 +757,7 @@ class LocalEnv:
             return project.get_vault_password(self.manifest_context_name, vaultId)
         return None
 
-    def get_manifest(self, path=None):
+    def get_manifest(self, path=None, skip_validation=False):
         from .yamlmanifest import YamlManifest
 
         if path and path != self.manifestPath:
@@ -784,7 +784,7 @@ class LocalEnv:
                     if self.manifest_context_name:
                         msg += f" for environment {self.manifest_context_name}"
                     self.logger.debug(msg)
-                manifest = YamlManifest(localEnv=self, vault=vault)
+                manifest = YamlManifest(localEnv=self, vault=vault, skip_validation=skip_validation)
                 self._manifests[self.manifestPath] = manifest
             return manifest
 

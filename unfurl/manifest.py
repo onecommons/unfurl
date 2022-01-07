@@ -51,7 +51,7 @@ class Manifest(AttributeManager):
         self.specDigest = None
         self.repositories = {}
 
-    def _set_spec(self, config, more_spec=None):
+    def _set_spec(self, config, more_spec=None, skip_validation=False):
         """
         Set the TOSCA service template.
         """
@@ -59,7 +59,7 @@ class Manifest(AttributeManager):
             name: repo.repository.tpl for name, repo in self.repositories.items()
         }
         spec = config.get("spec", {})
-        self.tosca = self._load_spec(spec, self.path, repositories, more_spec)
+        self.tosca = self._load_spec(spec, self.path, repositories, more_spec, skip_validation)
         self.specDigest = self.get_spec_digest(spec)
 
     def _find_repo(self):
@@ -71,7 +71,7 @@ class Manifest(AttributeManager):
                 return repo
         return None
 
-    def _load_spec(self, spec, path, repositories, more_spec):
+    def _load_spec(self, spec, path, repositories, more_spec, skip_validation=False):
         if "service_template" in spec:
             toscaDef = spec["service_template"] or {}
         elif "tosca" in spec:  # backward compat
@@ -97,7 +97,7 @@ class Manifest(AttributeManager):
         ):
             # note: we only recorded the baseDir not the name of the included file
             path = toscaDef.base_dir
-        return ToscaSpec(toscaDef, spec, path, self.get_import_resolver(expand=True))
+        return ToscaSpec(toscaDef, spec, path, self.get_import_resolver(expand=True), skip_validation)
 
     def get_spec_digest(self, spec):
         m = hashlib.sha1()  # use same digest function as git

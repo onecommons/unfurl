@@ -294,7 +294,7 @@ class YamlManifest(ReadOnlyManifest):
     lockfile = None
 
     def __init__(
-        self, manifest=None, path=None, validate=True, localEnv=None, vault=None
+        self, manifest=None, path=None, validate=True, localEnv=None, vault=None, skip_validation=False
     ):
         super().__init__(manifest, path, validate, localEnv, vault)
         # instantiate the tosca template
@@ -303,7 +303,7 @@ class YamlManifest(ReadOnlyManifest):
             self.lockfilepath = self.manifest.path + ".lock"
 
         more_spec = self._load_context(self.context, localEnv)
-        self._set_spec(manifest, more_spec)
+        self._set_spec(manifest, more_spec, skip_validation)
         assert self.tosca
         spec = manifest.get("spec", {})
         status = manifest.get("status", {})
