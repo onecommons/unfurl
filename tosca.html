@@ -187,42 +187,42 @@ The Node Template and a Relationship Template are the building blocks of any TOS
 </ul>
 <section id="example">
 <h3><a class="toc-backref" href="#id10">Example</a><a class="headerlink" href="#example" title="Permalink to this headline"></a></h3>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">tosca_definitions_version</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">tosca_simple_unfurl_1_0_0</span> <span class="c1"># or use the standard tosca_simple_yaml_1_3</span>
-<span class="nt">description</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">An illustrative TOSCA service template</span>
-<span class="nt">metadata</span><span class="p">:</span> <span class="c1"># the following metadata keys are defined in the TOSCA specification:</span>
-  <span class="nt">template_name</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">hello world</span>
-  <span class="nt">template_author</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">onecommons</span>
-  <span class="nt">template_version</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">1.0.0</span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">tosca_definitions_version</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca_simple_unfurl_1_0_0</span><span class="w"> </span><span class="c1"># or use the standard tosca_simple_yaml_1_3</span><span class="w"></span>
+<span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">An illustrative TOSCA service template</span><span class="w"></span>
+<span class="nt">metadata</span><span class="p">:</span><span class="w"> </span><span class="c1"># the following metadata keys are defined in the TOSCA specification:</span><span class="w"></span>
+<span class="w">  </span><span class="nt">template_name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">hello world</span><span class="w"></span>
+<span class="w">  </span><span class="nt">template_author</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">onecommons</span><span class="w"></span>
+<span class="w">  </span><span class="nt">template_version</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.0.0</span><span class="w"></span>
 
-<span class="nt">repositories</span><span class="p">:</span>
-   <span class="nt">tosca-community-contributions</span><span class="p">:</span>
-     <span class="nt">url</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">https://github.com/oasis-open/tosca-community-contributions.git</span>
+<span class="nt">repositories</span><span class="p">:</span><span class="w"></span>
+<span class="w">   </span><span class="nt">tosca-community-contributions</span><span class="p">:</span><span class="w"></span>
+<span class="w">     </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://github.com/oasis-open/tosca-community-contributions.git</span><span class="w"></span>
 
-   <span class="nt">docker_hub</span><span class="p">:</span>
-     <span class="nt">url</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">https://registry.hub.docker.com/</span>
-     <span class="nt">credential</span><span class="p">:</span>
-         <span class="nt">user</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">user1</span>
-         <span class="nt">token</span><span class="p">:</span>
-           <span class="nt">eval</span><span class="p">:</span> <span class="c1"># eval is an Unfurl extension</span>
-             <span class="nt">secret</span><span class="p">:</span>
-               <span class="l l-Scalar l-Scalar-Plain">dockerhub_user1_pw</span>
+<span class="w">   </span><span class="nt">docker_hub</span><span class="p">:</span><span class="w"></span>
+<span class="w">     </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://registry.hub.docker.com/</span><span class="w"></span>
+<span class="w">     </span><span class="nt">credential</span><span class="p">:</span><span class="w"></span>
+<span class="w">         </span><span class="nt">user</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">user1</span><span class="w"></span>
+<span class="w">         </span><span class="nt">token</span><span class="p">:</span><span class="w"></span>
+<span class="w">           </span><span class="nt">eval</span><span class="p">:</span><span class="w"> </span><span class="c1"># eval is an Unfurl extension</span><span class="w"></span>
+<span class="w">             </span><span class="nt">secret</span><span class="p">:</span><span class="w"></span>
+<span class="w">               </span><span class="l l-Scalar l-Scalar-Plain">dockerhub_user1_pw</span><span class="w"></span>
 
-<span class=" -Error"> </span><span class="nt">imports</span><span class="p">:</span>
+<span class="w w-Error"> </span><span class="nt">imports</span><span class="p">:</span><span class="w"></span>
 
- <span class="p p-Indicator">-</span> <span class="nt">file</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">my-shared-types.yaml</span>
-   <span class="nt">namespace_prefix</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">base</span> <span class="c1"># optional</span>
- <span class="p p-Indicator">-</span> <span class="nt">file</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">profiles/orchestration/1.0/profile.yaml</span>
-   <span class="nt">repository</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">tosca-community-contributions</span>
+<span class="w"> </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my-shared-types.yaml</span><span class="w"></span>
+<span class="w">   </span><span class="nt">namespace_prefix</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">base</span><span class="w"> </span><span class="c1"># optional</span><span class="w"></span>
+<span class="w"> </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">profiles/orchestration/1.0/profile.yaml</span><span class="w"></span>
+<span class="w">   </span><span class="nt">repository</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca-community-contributions</span><span class="w"></span>
 
-<span class="nt">node_types</span><span class="p">:</span>
-   <span class="c1"># ... see the &quot;entity types” section below</span>
+<span class="nt">node_types</span><span class="p">:</span><span class="w"></span>
+<span class="w">   </span><span class="c1"># ... see the &quot;entity types” section below</span><span class="w"></span>
 
-<span class="nt">topology_template</span><span class="p">:</span>
-   <span class="c1"># ... see the “topology_templates” section below</span>
-   <span class="nt">node_templates</span><span class="p">:</span>
-   <span class="c1"># ... see the node_templates section below</span>
-   <span class="nt">relationship_templates</span><span class="p">:</span>
-   <span class="c1"># ... see the relationship_templates section below</span>
+<span class="nt">topology_template</span><span class="p">:</span><span class="w"></span>
+<span class="w">   </span><span class="c1"># ... see the “topology_templates” section below</span><span class="w"></span>
+<span class="w">   </span><span class="nt">node_templates</span><span class="p">:</span><span class="w"></span>
+<span class="w">   </span><span class="c1"># ... see the node_templates section below</span><span class="w"></span>
+<span class="w">   </span><span class="nt">relationship_templates</span><span class="p">:</span><span class="w"></span>
+<span class="w">   </span><span class="c1"># ... see the relationship_templates section below</span><span class="w"></span>
 </pre></div>
 </div>
 </section>
@@ -233,31 +233,31 @@ The Node Template and a Relationship Template are the building blocks of any TOS
 Types declare the required properties, default definitions, and interface operations for an entity. Each type of entity has can have its own section in the service template, for example, <code class="docutils literal notranslate"><span class="pre">node_types</span></code>, <code class="docutils literal notranslate"><span class="pre">relationship_types</span></code>, <code class="docutils literal notranslate"><span class="pre">data_types</span></code>,``artifact_types``, <code class="docutils literal notranslate"><span class="pre">interface_types</span></code>, etc.</p>
 <section id="id2">
 <h3><a class="toc-backref" href="#id12">Example</a><a class="headerlink" href="#id2" title="Permalink to this headline"></a></h3>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">node_types</span><span class="p">:</span>
-     <span class="nt">myApplication</span><span class="p">:</span>
-       <span class="nt">derived_from</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">tosca.nodes.SoftwareComponent</span>
-       <span class="nt">attributes</span><span class="p">:</span>
-         <span class="nt">private_address</span><span class="p">:</span>
-           <span class="nt">type</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">string</span>
-       <span class="nt">properties</span><span class="p">:</span>
-        <span class="nt">domain</span><span class="p">:</span>
-         <span class="nt">type</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">string</span>
-         <span class="nt">default</span><span class="p">:</span> <span class="p p-Indicator">{</span><span class="nt"> get_input</span><span class="p">:</span> <span class="nv">domain</span> <span class="p p-Indicator">}</span>
-         <span class="nt">ports</span><span class="p">:</span>
-           <span class="nt">type</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">tosca.datatypes.network.PortSpec</span>
-       <span class="nt">requirements</span><span class="p">:</span>
-         <span class="p p-Indicator">-</span> <span class="nt">host</span><span class="p">:</span>
-             <span class="nt">capabilities</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">tosca.capabilities.Compute</span>
-             <span class="nt">relationship</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">tosca.relationships.HostedOn</span>
-         <span class="p p-Indicator">-</span> <span class="nt">db</span><span class="p">:</span>
-             <span class="nt">capabilities</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">base:capabilities.postgresdb</span>
-             <span class="nt">relationship</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">tosca.relationships.ConnectsTo</span>
-       <span class="nt">interfaces</span><span class="p">:</span>
-         <span class="c1"># TOSCA defines Standard interface for lifecycle management but you can define your own too</span>
-         <span class="nt">Standard</span><span class="p">:</span>
-           <span class="nt">create</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">create.sh</span>
-           <span class="nt">configure</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">configure.sh</span>
-           <span class="nt">delete</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">delete.sh</span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">node_types</span><span class="p">:</span><span class="w"></span>
+<span class="w">     </span><span class="nt">myApplication</span><span class="p">:</span><span class="w"></span>
+<span class="w">       </span><span class="nt">derived_from</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.nodes.SoftwareComponent</span><span class="w"></span>
+<span class="w">       </span><span class="nt">attributes</span><span class="p">:</span><span class="w"></span>
+<span class="w">         </span><span class="nt">private_address</span><span class="p">:</span><span class="w"></span>
+<span class="w">           </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">string</span><span class="w"></span>
+<span class="w">       </span><span class="nt">properties</span><span class="p">:</span><span class="w"></span>
+<span class="w">        </span><span class="nt">domain</span><span class="p">:</span><span class="w"></span>
+<span class="w">         </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">string</span><span class="w"></span>
+<span class="w">         </span><span class="nt">default</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> get_input</span><span class="p">:</span><span class="w"> </span><span class="nv">domain</span><span class="w"> </span><span class="p p-Indicator">}</span><span class="w"></span>
+<span class="w">         </span><span class="nt">ports</span><span class="p">:</span><span class="w"></span>
+<span class="w">           </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.datatypes.network.PortSpec</span><span class="w"></span>
+<span class="w">       </span><span class="nt">requirements</span><span class="p">:</span><span class="w"></span>
+<span class="w">         </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">host</span><span class="p">:</span><span class="w"></span>
+<span class="w">             </span><span class="nt">capabilities</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.capabilities.Compute</span><span class="w"></span>
+<span class="w">             </span><span class="nt">relationship</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.relationships.HostedOn</span><span class="w"></span>
+<span class="w">         </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">db</span><span class="p">:</span><span class="w"></span>
+<span class="w">             </span><span class="nt">capabilities</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">base:capabilities.postgresdb</span><span class="w"></span>
+<span class="w">             </span><span class="nt">relationship</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.relationships.ConnectsTo</span><span class="w"></span>
+<span class="w">       </span><span class="nt">interfaces</span><span class="p">:</span><span class="w"></span>
+<span class="w">         </span><span class="c1"># TOSCA defines Standard interface for lifecycle management but you can define your own too</span><span class="w"></span>
+<span class="w">         </span><span class="nt">Standard</span><span class="p">:</span><span class="w"></span>
+<span class="w">           </span><span class="nt">create</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">create.sh</span><span class="w"></span>
+<span class="w">           </span><span class="nt">configure</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">configure.sh</span><span class="w"></span>
+<span class="w">           </span><span class="nt">delete</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">delete.sh</span><span class="w"></span>
 </pre></div>
 </div>
 </section>
@@ -267,18 +267,18 @@ Types declare the required properties, default definitions, and interface operat
 <p>Topology Template refers to the topology model of a service. This model consists of node template and relationship template that are linked together to translate and structure the application.</p>
 <section id="id3">
 <h3><a class="toc-backref" href="#id14">Example</a><a class="headerlink" href="#id3" title="Permalink to this headline"></a></h3>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">topology_template</span><span class="p">:</span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">topology_template</span><span class="p">:</span><span class="w"></span>
 
-  <span class="nt">inputs</span><span class="p">:</span>
-    <span class="nt">domain</span><span class="p">:</span>
-      <span class="nt">type</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">string</span>
+<span class="w">  </span><span class="nt">inputs</span><span class="p">:</span><span class="w"></span>
+<span class="w">    </span><span class="nt">domain</span><span class="p">:</span><span class="w"></span>
+<span class="w">      </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">string</span><span class="w"></span>
 
-  <span class="nt">outputs</span><span class="p">:</span>
-    <span class="nt">url</span><span class="p">:</span>
-      <span class="nt">type</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">string</span>
-      <span class="nt">value</span><span class="p">:</span> <span class="p p-Indicator">{</span><span class="nt"> concat</span><span class="p">:</span> <span class="p p-Indicator">[</span> <span class="nv">https</span><span class="p p-Indicator">:</span><span class="nv">//</span><span class="p p-Indicator">,</span> <span class="p p-Indicator">{</span><span class="nt"> get_input</span><span class="p">:</span> <span class="nv">domain</span> <span class="p p-Indicator">},</span> <span class="s">&#39;:&#39;</span><span class="p p-Indicator">,</span>  <span class="p p-Indicator">{</span><span class="nt"> get_attribute</span><span class="p">:</span> <span class="p p-Indicator">[</span> <span class="nv">myapp</span><span class="p p-Indicator">,</span> <span class="nv">portspec</span><span class="p p-Indicator">,</span> <span class="nv">source</span> <span class="p p-Indicator">]</span> <span class="p p-Indicator">},</span> <span class="s">&#39;/api/events&#39;</span><span class="p p-Indicator">]</span> <span class="p p-Indicator">}</span>
-      <span class="c1"># Unfurl also support ansible-enhanced jinja2 template so you could write this instead:</span>
-      <span class="nt">value</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">https://{{ TOPOLOGY.inputs.domain }}:{{ NODES.myApp.portspec.source }}/api/events</span>
+<span class="w">  </span><span class="nt">outputs</span><span class="p">:</span><span class="w"></span>
+<span class="w">    </span><span class="nt">url</span><span class="p">:</span><span class="w"></span>
+<span class="w">      </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">string</span><span class="w"></span>
+<span class="w">      </span><span class="nt">value</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> concat</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="w"> </span><span class="nv">https</span><span class="p p-Indicator">:</span><span class="nv">//</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> get_input</span><span class="p">:</span><span class="w"> </span><span class="nv">domain</span><span class="w"> </span><span class="p p-Indicator">},</span><span class="w"> </span><span class="s">&#39;:&#39;</span><span class="p p-Indicator">,</span><span class="w">  </span><span class="p p-Indicator">{</span><span class="nt"> get_attribute</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="w"> </span><span class="nv">myapp</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">portspec</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">source</span><span class="w"> </span><span class="p p-Indicator">]</span><span class="w"> </span><span class="p p-Indicator">},</span><span class="w"> </span><span class="s">&#39;/api/events&#39;</span><span class="p p-Indicator">]</span><span class="w"> </span><span class="p p-Indicator">}</span><span class="w"></span>
+<span class="w">      </span><span class="c1"># Unfurl also support ansible-enhanced jinja2 template so you could write this instead:</span><span class="w"></span>
+<span class="w">      </span><span class="nt">value</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://{{ TOPOLOGY.inputs.domain }}:{{ NODES.myApp.portspec.source }}/api/events</span><span class="w"></span>
 </pre></div>
 </div>
 </section>
@@ -292,34 +292,34 @@ Types declare the required properties, default definitions, and interface operat
 </div>
 <section id="id4">
 <h3><a class="toc-backref" href="#id16">Example</a><a class="headerlink" href="#id4" title="Permalink to this headline"></a></h3>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">node_templates</span><span class="p">:</span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">node_templates</span><span class="p">:</span><span class="w"></span>
 
-  <span class="nt">myApp</span><span class="p">:</span>
-    <span class="nt">type</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">myApplication</span>
-    <span class="nt">artifacts</span><span class="p">:</span>
-      <span class="nt">image</span><span class="p">:</span>
-        <span class="nt">type</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">tosca.artifacts.Deployment.Image.Container.Docker</span>
-        <span class="nt">file</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">myapp:latest</span>
-        <span class="nt">repository</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">docker_hub</span>
-    <span class="nt">requirements</span><span class="p">:</span>
-      <span class="p p-Indicator">-</span> <span class="nt">host</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">compute</span>
-      <span class="p p-Indicator">-</span> <span class="nt">db</span><span class="p">:</span>
-          <span class="nt">node</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">mydb</span>
-          <span class="nt">relationship</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">mydb_connection</span>
+<span class="w">  </span><span class="nt">myApp</span><span class="p">:</span><span class="w"></span>
+<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">myApplication</span><span class="w"></span>
+<span class="w">    </span><span class="nt">artifacts</span><span class="p">:</span><span class="w"></span>
+<span class="w">      </span><span class="nt">image</span><span class="p">:</span><span class="w"></span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.artifacts.Deployment.Image.Container.Docker</span><span class="w"></span>
+<span class="w">        </span><span class="nt">file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">myapp:latest</span><span class="w"></span>
+<span class="w">        </span><span class="nt">repository</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">docker_hub</span><span class="w"></span>
+<span class="w">    </span><span class="nt">requirements</span><span class="p">:</span><span class="w"></span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">compute</span><span class="w"></span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">db</span><span class="p">:</span><span class="w"></span>
+<span class="w">          </span><span class="nt">node</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mydb</span><span class="w"></span>
+<span class="w">          </span><span class="nt">relationship</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mydb_connection</span><span class="w"></span>
 
-  <span class="nt">mydb</span><span class="p">:</span>
-    <span class="nt">type</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">base:postgresdb</span>
-    <span class="nt">properties</span><span class="p">:</span>
-       <span class="nt">name</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">mydb</span>
+<span class="w">  </span><span class="nt">mydb</span><span class="p">:</span><span class="w"></span>
+<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">base:postgresdb</span><span class="w"></span>
+<span class="w">    </span><span class="nt">properties</span><span class="p">:</span><span class="w"></span>
+<span class="w">       </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mydb</span><span class="w"></span>
 
-  <span class="nt">compute</span><span class="p">:</span>
-    <span class="nt">type</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">unfurl.nodes.Compute</span>
-    <span class="nt">capabilities</span><span class="p">:</span>
-      <span class="nt">host</span><span class="p">:</span>
-        <span class="nt">properties</span><span class="p">:</span>
-          <span class="nt">num_cpus</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">1</span>
-          <span class="nt">disk_size</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">200GB</span>
-          <span class="nt">mem_size</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">512MB</span>
+<span class="w">  </span><span class="nt">compute</span><span class="p">:</span><span class="w"></span>
+<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unfurl.nodes.Compute</span><span class="w"></span>
+<span class="w">    </span><span class="nt">capabilities</span><span class="p">:</span><span class="w"></span>
+<span class="w">      </span><span class="nt">host</span><span class="p">:</span><span class="w"></span>
+<span class="w">        </span><span class="nt">properties</span><span class="p">:</span><span class="w"></span>
+<span class="w">          </span><span class="nt">num_cpus</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span><span class="w"></span>
+<span class="w">          </span><span class="nt">disk_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">200GB</span><span class="w"></span>
+<span class="w">          </span><span class="nt">mem_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">512MB</span><span class="w"></span>
 </pre></div>
 </div>
 </section>
@@ -330,15 +330,15 @@ Types declare the required properties, default definitions, and interface operat
 <p>An important thing to notice here is, in a relationship, it is important for the node requirements of a component to match the capabilities of the node it is being linked to.</p>
 <section id="id5">
 <h3><a class="toc-backref" href="#id18">Example</a><a class="headerlink" href="#id5" title="Permalink to this headline"></a></h3>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">relationship_templates</span><span class="p">:</span>
-  <span class="nt">mydb_connection</span><span class="p">:</span>
-    <span class="nt">type</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">base:relationships.dbconnection</span>
-    <span class="nt">properties</span><span class="p">:</span>
-      <span class="nt">username</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">myapp</span>
-      <span class="nt">password</span><span class="p">:</span>
-        <span class="nt">eval</span><span class="p">:</span>
-          <span class="nt">secret</span><span class="p">:</span>
-            <span class="l l-Scalar l-Scalar-Plain">myapp_db_pw</span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">relationship_templates</span><span class="p">:</span><span class="w"></span>
+<span class="w">  </span><span class="nt">mydb_connection</span><span class="p">:</span><span class="w"></span>
+<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">base:relationships.dbconnection</span><span class="w"></span>
+<span class="w">    </span><span class="nt">properties</span><span class="p">:</span><span class="w"></span>
+<span class="w">      </span><span class="nt">username</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">myapp</span><span class="w"></span>
+<span class="w">      </span><span class="nt">password</span><span class="p">:</span><span class="w"></span>
+<span class="w">        </span><span class="nt">eval</span><span class="p">:</span><span class="w"></span>
+<span class="w">          </span><span class="nt">secret</span><span class="p">:</span><span class="w"></span>
+<span class="w">            </span><span class="l l-Scalar l-Scalar-Plain">myapp_db_pw</span><span class="w"></span>
 </pre></div>
 </div>
 </section>

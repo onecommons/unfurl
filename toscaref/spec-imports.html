@@ -108,24 +108,24 @@
 parts of them and use predefined types (e.g. from the types.yaml file).</p>
 <section id="declaration">
 <h2>Declaration<a class="headerlink" href="#declaration" title="Permalink to this headline"></a></h2>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">imports</span><span class="p">:</span>
-  <span class="p p-Indicator">-</span> <span class="nt">file</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">&lt;file_path&gt;</span>
-    <span class="nt">repository</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">&lt;repository_name&gt;</span>
-    <span class="nt">namespace_prefix</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">&lt;definition_namespace_prefix&gt;</span>
-  <span class="p p-Indicator">-</span> <span class="l l-Scalar l-Scalar-Plain">&lt;url&gt;</span>  <span class="c1"># short form of import</span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">imports</span><span class="p">:</span><span class="w"></span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;file_path&gt;</span><span class="w"></span>
+<span class="w">    </span><span class="nt">repository</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;repository_name&gt;</span><span class="w"></span>
+<span class="w">    </span><span class="nt">namespace_prefix</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;definition_namespace_prefix&gt;</span><span class="w"></span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;url&gt;</span><span class="w">  </span><span class="c1"># short form of import</span><span class="w"></span>
 </pre></div>
 </div>
 </section>
 <section id="example">
 <h2>Example<a class="headerlink" href="#example" title="Permalink to this headline"></a></h2>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">imports</span><span class="p">:</span>
-  <span class="p p-Indicator">-</span> <span class="l l-Scalar l-Scalar-Plain">my_yaml_files/example_types.yaml</span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">imports</span><span class="p">:</span><span class="w"></span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my_yaml_files/example_types.yaml</span><span class="w"></span>
 
-<span class="nt">node_templates</span><span class="p">:</span>
-  <span class="nt">vm</span><span class="p">:</span>
-    <span class="nt">type</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">example.nodes.Server</span>
-  <span class="nt">webserver</span><span class="p">:</span>
-    <span class="nt">type</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">tosca.nodes.WebServer</span>
+<span class="nt">node_templates</span><span class="p">:</span><span class="w"></span>
+<span class="w">  </span><span class="nt">vm</span><span class="p">:</span><span class="w"></span>
+<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">example.nodes.Server</span><span class="w"></span>
+<span class="w">  </span><span class="nt">webserver</span><span class="p">:</span><span class="w"></span>
+<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.nodes.WebServer</span><span class="w"></span>
 </pre></div>
 </div>
 <p>In the above example, we import the default types.yaml file provided by

@@ -121,10 +121,10 @@
 <p>Use <code class="docutils literal notranslate"><span class="pre">tosca_simple_unfurl_1_0_0</span></code> to enable Unfurl extensions or the standard <code class="docutils literal notranslate"><span class="pre">tosca_simple_yaml_1_3</span></code>.</p>
 <section id="example">
 <h3>Example<a class="headerlink" href="#example" title="Permalink to this headline"></a></h3>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">tosca_definitions_version</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">tosca_simple_unfurl_1_0_0</span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">tosca_definitions_version</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca_simple_unfurl_1_0_0</span><span class="w"></span>
 
-<span class="nt">node_templates</span><span class="p">:</span>
-    <span class="l l-Scalar l-Scalar-Plain">...</span>
+<span class="nt">node_templates</span><span class="p">:</span><span class="w"></span>
+<span class="w">    </span><span class="l l-Scalar l-Scalar-Plain">...</span><span class="w"></span>
 </pre></div>
 </div>
 <p>The version declaration must be included in the main service template file.</p>
@@ -135,11 +135,11 @@
 <p>This optional element provides a means to include single or multiline description of the template.</p>
 <section id="id1">
 <h3>Example<a class="headerlink" href="#id1" title="Permalink to this headline"></a></h3>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">description</span><span class="p">:</span> <span class="p p-Indicator">&gt;</span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">&gt;</span><span class="w"></span>
 
-<span class="l l-Scalar l-Scalar-Plain">This is an example of a multi-line description using YAML. It permits line</span>
+<span class="l l-Scalar l-Scalar-Plain">This is an example of a multi-line description using YAML. It permits line</span><span class="w"></span>
 
-  <span class="l l-Scalar l-Scalar-Plain">breaks for easier readability...</span>
+<span class="w">  </span><span class="l l-Scalar l-Scalar-Plain">breaks for easier readability...</span><span class="w"></span>
 </pre></div>
 </div>
 </section>
@@ -149,19 +149,19 @@
 <p><code class="docutils literal notranslate"><span class="pre">metadata</span></code> allows a declaration of a map of keynames with string values. It is used to associate domain-specific metadata with the Service Template.</p>
 <section id="id2">
 <h3>Example<a class="headerlink" href="#id2" title="Permalink to this headline"></a></h3>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">metadata</span><span class="p">:</span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">metadata</span><span class="p">:</span><span class="w"></span>
 
-  <span class="nt">creation_date</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">2015-04-14</span>
-  <span class="nt">date_updated</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">2015-05-01</span>
-  <span class="nt">status</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">developmental</span>
+<span class="w">  </span><span class="nt">creation_date</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2015-04-14</span><span class="w"></span>
+<span class="w">  </span><span class="nt">date_updated</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2015-05-01</span><span class="w"></span>
+<span class="w">  </span><span class="nt">status</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">developmental</span><span class="w"></span>
 </pre></div>
 </div>
 <p>While this is just an example, it is recommended that you set the following <code class="docutils literal notranslate"><span class="pre">metadata</span></code>:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">metadata</span><span class="p">:</span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">metadata</span><span class="p">:</span><span class="w"></span>
 
- <span class="nt">template_name</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">example</span>
- <span class="nt">template_author</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">&lt;author&gt;</span>
- <span class="nt">template_version</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">1.0.0</span>
+<span class="w"> </span><span class="nt">template_name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">example</span><span class="w"></span>
+<span class="w"> </span><span class="nt">template_author</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;author&gt;</span><span class="w"></span>
+<span class="w"> </span><span class="nt">template_version</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.0.0</span><span class="w"></span>
 </pre></div>
 </div>
 </section>

@@ -457,9 +457,9 @@ See the Terraform providers’ schema documentation for details but top-level ke
 </pre></div>
 </div>
 <p>Becomes:</p>
-<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">variable</span><span class="p">:</span>
-  <span class="nt">example</span><span class="p">:</span>
-    <span class="nt">default</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">hello</span>
+<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">variable</span><span class="p">:</span><span class="w"></span>
+<span class="w">  </span><span class="nt">example</span><span class="p">:</span><span class="w"></span>
+<span class="w">    </span><span class="nt">default</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">hello</span><span class="w"></span>
 </pre></div>
 </div>
 <p>Example 2: Resource declaration</p>
@@ -470,11 +470,11 @@ See the Terraform providers’ schema documentation for details but top-level ke
 </pre></div>
 </div>
 <p>becomes:</p>
-<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">resource</span><span class="p">:</span>
-  <span class="nt">aws_instance</span><span class="p">:</span>
-   <span class="nt">example</span><span class="p">:</span>
-    <span class="nt">instance_type</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">t2.micro</span>
-    <span class="nt">ami</span><span class="p">:</span>           <span class="l l-Scalar l-Scalar-Plain">ami-abc123</span>
+<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">resource</span><span class="p">:</span><span class="w"></span>
+<span class="w">  </span><span class="nt">aws_instance</span><span class="p">:</span><span class="w"></span>
+<span class="w">   </span><span class="nt">example</span><span class="p">:</span><span class="w"></span>
+<span class="w">    </span><span class="nt">instance_type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">t2.micro</span><span class="w"></span>
+<span class="w">    </span><span class="nt">ami</span><span class="p">:</span><span class="w">           </span><span class="l l-Scalar l-Scalar-Plain">ami-abc123</span><span class="w"></span>
 </pre></div>
 </div>
 <p>Example 3: Resource with multiple provisioners</p>
@@ -495,17 +495,17 @@ See the Terraform providers’ schema documentation for details but top-level ke
 </pre></div>
 </div>
 <p>Multiple provisioners become a list:</p>
-<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">resource</span><span class="p">:</span>
-  <span class="nt">aws_instance</span><span class="p">:</span>
-    <span class="nt">example</span><span class="p">:</span>
-      <span class="nt">provisioner</span><span class="p">:</span>
-        <span class="p p-Indicator">-</span> <span class="l l-Scalar l-Scalar-Plain">local-exec</span>
-            <span class="l l-Scalar l-Scalar-Plain">command</span><span class="p p-Indicator">:</span> <span class="s">&quot;echo</span><span class="nv"> </span><span class="s">&#39;Hello</span><span class="nv"> </span><span class="s">World&#39;</span><span class="nv"> </span><span class="s">&gt;example.txt&quot;</span>
-        <span class="p p-Indicator">-</span> <span class="nt">file</span><span class="p">:</span>
-            <span class="nt">source</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">example.txt</span>
-            <span class="nt">destination</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">/tmp/example.txt</span>
-        <span class="p p-Indicator">-</span> <span class="nt">remote-exec</span><span class="p">:</span>
-            <span class="nt">inline</span><span class="p">:</span> <span class="p p-Indicator">[</span><span class="s">&quot;sudo</span><span class="nv"> </span><span class="s">install-something</span><span class="nv"> </span><span class="s">-f</span><span class="nv"> </span><span class="s">/tmp/example.txt&quot;</span><span class="p p-Indicator">]</span>
+<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">resource</span><span class="p">:</span><span class="w"></span>
+<span class="w">  </span><span class="nt">aws_instance</span><span class="p">:</span><span class="w"></span>
+<span class="w">    </span><span class="nt">example</span><span class="p">:</span><span class="w"></span>
+<span class="w">      </span><span class="nt">provisioner</span><span class="p">:</span><span class="w"></span>
+<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">local-exec</span><span class="w"></span>
+<span class="w">            </span><span class="l l-Scalar l-Scalar-Plain">command</span><span class="p p-Indicator">:</span><span class="w"> </span><span class="s">&quot;echo</span><span class="nv"> </span><span class="s">&#39;Hello</span><span class="nv"> </span><span class="s">World&#39;</span><span class="nv"> </span><span class="s">&gt;example.txt&quot;</span><span class="w"></span>
+<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">file</span><span class="p">:</span><span class="w"></span>
+<span class="w">            </span><span class="nt">source</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">example.txt</span><span class="w"></span>
+<span class="w">            </span><span class="nt">destination</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/tmp/example.txt</span><span class="w"></span>
+<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">remote-exec</span><span class="p">:</span><span class="w"></span>
+<span class="w">            </span><span class="nt">inline</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;sudo</span><span class="nv"> </span><span class="s">install-something</span><span class="nv"> </span><span class="s">-f</span><span class="nv"> </span><span class="s">/tmp/example.txt&quot;</span><span class="p p-Indicator">]</span><span class="w"></span>
 </pre></div>
 </div>
 </section>
@@ -557,22 +557,22 @@ They are enumerated <a class="reference external" href="https://docs.ansible.com
 </section>
 <section id="example">
 <h3>Example<a class="headerlink" href="#example" title="Permalink to this headline"></a></h3>
-<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">node_templates</span><span class="p">:</span>
-  <span class="nt">hello-world-container</span><span class="p">:</span>
-    <span class="nt">type</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">unfurl.nodes.Container.Application.Docker</span>
-    <span class="nt">requirements</span><span class="p">:</span>
-      <span class="p p-Indicator">-</span> <span class="nt">host</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">compute</span>
-    <span class="nt">artifacts</span><span class="p">:</span>
-      <span class="nt">image</span><span class="p">:</span>
-        <span class="nt">type</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">tosca.artifacts.Deployment.Image.Container.Docker</span>
-        <span class="nt">file</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">busybox</span>
-    <span class="nt">interfaces</span><span class="p">:</span>
-      <span class="nt">Standard</span><span class="p">:</span>
-        <span class="nt">inputs</span><span class="p">:</span>
-          <span class="nt">configuration</span><span class="p">:</span>
-            <span class="nt">command</span><span class="p">:</span> <span class="p p-Indicator">[</span><span class="s">&quot;echo&quot;</span><span class="p p-Indicator">,</span> <span class="s">&quot;hello</span><span class="nv"> </span><span class="s">world&quot;</span><span class="p p-Indicator">]</span>
-            <span class="nt">detach</span><span class="p">:</span>  <span class="l l-Scalar l-Scalar-Plain">no</span>
-            <span class="nt">output_logs</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">yes</span>
+<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">node_templates</span><span class="p">:</span><span class="w"></span>
+<span class="w">  </span><span class="nt">hello-world-container</span><span class="p">:</span><span class="w"></span>
+<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unfurl.nodes.Container.Application.Docker</span><span class="w"></span>
+<span class="w">    </span><span class="nt">requirements</span><span class="p">:</span><span class="w"></span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">compute</span><span class="w"></span>
+<span class="w">    </span><span class="nt">artifacts</span><span class="p">:</span><span class="w"></span>
+<span class="w">      </span><span class="nt">image</span><span class="p">:</span><span class="w"></span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.artifacts.Deployment.Image.Container.Docker</span><span class="w"></span>
+<span class="w">        </span><span class="nt">file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">busybox</span><span class="w"></span>
+<span class="w">    </span><span class="nt">interfaces</span><span class="p">:</span><span class="w"></span>
+<span class="w">      </span><span class="nt">Standard</span><span class="p">:</span><span class="w"></span>
+<span class="w">        </span><span class="nt">inputs</span><span class="p">:</span><span class="w"></span>
+<span class="w">          </span><span class="nt">configuration</span><span class="p">:</span><span class="w"></span>
+<span class="w">            </span><span class="nt">command</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;echo&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;hello</span><span class="nv"> </span><span class="s">world&quot;</span><span class="p p-Indicator">]</span><span class="w"></span>
+<span class="w">            </span><span class="nt">detach</span><span class="p">:</span><span class="w">  </span><span class="l l-Scalar l-Scalar-Plain">no</span><span class="w"></span>
+<span class="w">            </span><span class="nt">output_logs</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">yes</span><span class="w"></span>
 </pre></div>
 </div>
 </section>
@@ -634,30 +634,30 @@ The DNS records specified here will be added, updated or removed from the zone w
 </section>
 <section id="id14">
 <h3>Example<a class="headerlink" href="#id14" title="Permalink to this headline"></a></h3>
-<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">node_templates</span><span class="p">:</span>
-  <span class="nt">example_com_zone</span><span class="p">:</span>
-    <span class="nt">type</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">unfurl.nodes.DNSZone</span>
-    <span class="nt">properties</span><span class="p">:</span>
-      <span class="nt">name</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">example.com.</span>
-      <span class="nt">provider</span><span class="p">:</span>
-        <span class="c1"># Amazon Route53 (Note: this provider requires that the zone already exists.)</span>
-        <span class="nt">class</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">octodns.provider.route53.Route53Provider</span>
+<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">node_templates</span><span class="p">:</span><span class="w"></span>
+<span class="w">  </span><span class="nt">example_com_zone</span><span class="p">:</span><span class="w"></span>
+<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unfurl.nodes.DNSZone</span><span class="w"></span>
+<span class="w">    </span><span class="nt">properties</span><span class="p">:</span><span class="w"></span>
+<span class="w">      </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">example.com.</span><span class="w"></span>
+<span class="w">      </span><span class="nt">provider</span><span class="p">:</span><span class="w"></span>
+<span class="w">        </span><span class="c1"># Amazon Route53 (Note: this provider requires that the zone already exists.)</span><span class="w"></span>
+<span class="w">        </span><span class="nt">class</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">octodns.provider.route53.Route53Provider</span><span class="w"></span>
 
-  <span class="nt">test_app</span><span class="p">:</span>
-    <span class="nt">type</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">tosca.nodes.WebServer</span>
-    <span class="nt">requirements</span><span class="p">:</span>
-      <span class="p p-Indicator">-</span> <span class="nt">host</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">compute</span>
-      <span class="p p-Indicator">-</span> <span class="nt">dns</span><span class="p">:</span>
-          <span class="nt">node</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">example_com_zone</span>
-          <span class="nt">relationship</span><span class="p">:</span>
-             <span class="nt">type</span><span class="p">:</span>   <span class="l l-Scalar l-Scalar-Plain">unfurl.relationships.DNSRecords</span>
-             <span class="nt">properties</span><span class="p">:</span>
-               <span class="nt">records</span><span class="p">:</span>
-                <span class="nt">www</span><span class="p">:</span>
-                  <span class="nt">type</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">A</span>
-                  <span class="nt">value</span><span class="p">:</span>
-                    <span class="c1"># get the ip address of the Compute instance that this is hosted on</span>
-                    <span class="nt">eval</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">.source::.requirements::[.name=host]::.target::public_address</span>
+<span class="w">  </span><span class="nt">test_app</span><span class="p">:</span><span class="w"></span>
+<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.nodes.WebServer</span><span class="w"></span>
+<span class="w">    </span><span class="nt">requirements</span><span class="p">:</span><span class="w"></span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">compute</span><span class="w"></span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">dns</span><span class="p">:</span><span class="w"></span>
+<span class="w">          </span><span class="nt">node</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">example_com_zone</span><span class="w"></span>
+<span class="w">          </span><span class="nt">relationship</span><span class="p">:</span><span class="w"></span>
+<span class="w">             </span><span class="nt">type</span><span class="p">:</span><span class="w">   </span><span class="l l-Scalar l-Scalar-Plain">unfurl.relationships.DNSRecords</span><span class="w"></span>
+<span class="w">             </span><span class="nt">properties</span><span class="p">:</span><span class="w"></span>
+<span class="w">               </span><span class="nt">records</span><span class="p">:</span><span class="w"></span>
+<span class="w">                </span><span class="nt">www</span><span class="p">:</span><span class="w"></span>
+<span class="w">                  </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">A</span><span class="w"></span>
+<span class="w">                  </span><span class="nt">value</span><span class="p">:</span><span class="w"></span>
+<span class="w">                    </span><span class="c1"># get the ip address of the Compute instance that this is hosted on</span><span class="w"></span>
+<span class="w">                    </span><span class="nt">eval</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">.source::.requirements::[.name=host]::.target::public_address</span><span class="w"></span>
 </pre></div>
 </div>
 </section>

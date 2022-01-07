@@ -113,18 +113,18 @@
 <code class="docutils literal notranslate"><span class="pre">node-templates</span></code> can then be created based on these types, inheriting their definitions.</p>
 <section id="declaration">
 <h2>Declaration<a class="headerlink" href="#declaration" title="Permalink to this headline"></a></h2>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">node_types</span><span class="p">:</span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">node_types</span><span class="p">:</span><span class="w"></span>
 
- <span class="nt">type1</span><span class="p">:</span>
-   <span class="nt">derived_from</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">unfurl.types.Root</span>
-   <span class="nt">interfaces</span><span class="p">:</span>
-     <span class="l l-Scalar l-Scalar-Plain">...</span>
-   <span class="nt">properties</span><span class="p">:</span>
-     <span class="l l-Scalar l-Scalar-Plain">...</span>
+<span class="w"> </span><span class="nt">type1</span><span class="p">:</span><span class="w"></span>
+<span class="w">   </span><span class="nt">derived_from</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unfurl.types.Root</span><span class="w"></span>
+<span class="w">   </span><span class="nt">interfaces</span><span class="p">:</span><span class="w"></span>
+<span class="w">     </span><span class="l l-Scalar l-Scalar-Plain">...</span><span class="w"></span>
+<span class="w">   </span><span class="nt">properties</span><span class="p">:</span><span class="w"></span>
+<span class="w">     </span><span class="l l-Scalar l-Scalar-Plain">...</span><span class="w"></span>
 
- <span class="nt">type2</span><span class="p">:</span>
-   <span class="l l-Scalar l-Scalar-Plain">...</span>
- <span class="l l-Scalar l-Scalar-Plain">...</span>
+<span class="w"> </span><span class="nt">type2</span><span class="p">:</span><span class="w"></span>
+<span class="w">   </span><span class="l l-Scalar l-Scalar-Plain">...</span><span class="w"></span>
+<span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">...</span><span class="w"></span>
 </pre></div>
 </div>
 </section>
@@ -254,52 +254,52 @@ keys:</p>
 </table>
 <section id="examples">
 <h4>Examples<a class="headerlink" href="#examples" title="Permalink to this headline"></a></h4>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">node_types</span><span class="p">:</span>
-  <span class="nt">nodecellar.nodes.MongoDatabase</span><span class="p">:</span>
-    <span class="nt">derived_from</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">tosca.nodes.DBMS</span>
-    <span class="nt">properties</span><span class="p">:</span>
-      <span class="nt">port</span><span class="p">:</span>
-        <span class="nt">description</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">MongoDB port</span>
-        <span class="nt">type</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">integer</span>
-    <span class="nt">interfaces</span><span class="p">:</span>
-      <span class="nt">Standard</span><span class="p">:</span>
-        <span class="nt">create</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">scripts/mongo/install-mongo.sh</span>
-        <span class="nt">start</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">scripts/mongo/start-mongo.sh</span>
-        <span class="nt">stop</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">scripts/mongo/stop-mongo.sh</span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">node_types</span><span class="p">:</span><span class="w"></span>
+<span class="w">  </span><span class="nt">nodecellar.nodes.MongoDatabase</span><span class="p">:</span><span class="w"></span>
+<span class="w">    </span><span class="nt">derived_from</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.nodes.DBMS</span><span class="w"></span>
+<span class="w">    </span><span class="nt">properties</span><span class="p">:</span><span class="w"></span>
+<span class="w">      </span><span class="nt">port</span><span class="p">:</span><span class="w"></span>
+<span class="w">        </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">MongoDB port</span><span class="w"></span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">integer</span><span class="w"></span>
+<span class="w">    </span><span class="nt">interfaces</span><span class="p">:</span><span class="w"></span>
+<span class="w">      </span><span class="nt">Standard</span><span class="p">:</span><span class="w"></span>
+<span class="w">        </span><span class="nt">create</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">scripts/mongo/install-mongo.sh</span><span class="w"></span>
+<span class="w">        </span><span class="nt">start</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">scripts/mongo/start-mongo.sh</span><span class="w"></span>
+<span class="w">        </span><span class="nt">stop</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">scripts/mongo/stop-mongo.sh</span><span class="w"></span>
 </pre></div>
 </div>
 <p>An example of how to use this type follows:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">node_templates</span><span class="p">:</span>
-  <span class="nt">MongoDB1</span><span class="p">:</span>
-    <span class="nt">type</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">nodecellar.nodes.MongoDatabase</span>
-  <span class="nt">MongoDB2</span><span class="p">:</span>
-    <span class="nt">type</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">nodecellar.nodes.MongoDatabase</span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">node_templates</span><span class="p">:</span><span class="w"></span>
+<span class="w">  </span><span class="nt">MongoDB1</span><span class="p">:</span><span class="w"></span>
+<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">nodecellar.nodes.MongoDatabase</span><span class="w"></span>
+<span class="w">  </span><span class="nt">MongoDB2</span><span class="p">:</span><span class="w"></span>
+<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">nodecellar.nodes.MongoDatabase</span><span class="w"></span>
 </pre></div>
 </div>
 <p>Each of these two nodes will now have both the <code class="docutils literal notranslate"><span class="pre">port</span></code> property and the three operations defined for the <code class="docutils literal notranslate"><span class="pre">nodecellar.nodes.MongoDatabase</span></code> type.</p>
 <p>Finally, an example on how to extend an existing type by deriving from it:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">node_types</span><span class="p">:</span>
-  <span class="nt">nodecellar.nodes.MongoDatabaseExtended</span><span class="p">:</span>
-    <span class="nt">derived_from</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">nodecellar.nodes.MongoDatabase</span>
-    <span class="nt">properties</span><span class="p">:</span>
-      <span class="nt">enable_replication</span><span class="p">:</span>
-        <span class="nt">description</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">MongoDB replication enabling flag</span>
-        <span class="nt">type</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">boolean</span>
-        <span class="nt">default</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">false</span>
-    <span class="nt">interfaces</span><span class="p">:</span>
-      <span class="nt">Standard</span><span class="p">:</span>
-        <span class="nt">create</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">scripts/mongo/install-mongo-extended.sh</span>
-        <span class="nt">configure</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">scripts/mongo/configure-mongo-extended.sh</span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">node_types</span><span class="p">:</span><span class="w"></span>
+<span class="w">  </span><span class="nt">nodecellar.nodes.MongoDatabaseExtended</span><span class="p">:</span><span class="w"></span>
+<span class="w">    </span><span class="nt">derived_from</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">nodecellar.nodes.MongoDatabase</span><span class="w"></span>
+<span class="w">    </span><span class="nt">properties</span><span class="p">:</span><span class="w"></span>
+<span class="w">      </span><span class="nt">enable_replication</span><span class="p">:</span><span class="w"></span>
+<span class="w">        </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">MongoDB replication enabling flag</span><span class="w"></span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">boolean</span><span class="w"></span>
+<span class="w">        </span><span class="nt">default</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w"></span>
+<span class="w">    </span><span class="nt">interfaces</span><span class="p">:</span><span class="w"></span>
+<span class="w">      </span><span class="nt">Standard</span><span class="p">:</span><span class="w"></span>
+<span class="w">        </span><span class="nt">create</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">scripts/mongo/install-mongo-extended.sh</span><span class="w"></span>
+<span class="w">        </span><span class="nt">configure</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">scripts/mongo/configure-mongo-extended.sh</span><span class="w"></span>
 </pre></div>
 </div>
 <p>The <code class="docutils literal notranslate"><span class="pre">nodecellar.nodes.MongoDatabaseExtended</span></code> type derives from the <code class="docutils literal notranslate"><span class="pre">nodecellar.nodes.MongoDatabase</span></code> type which was defined in the previous example; As such, it derives its properties and interfaces definitions, which get either merged or overridden by the ones it defines itself.</p>
 <p>A node template whose type is <code class="docutils literal notranslate"><span class="pre">nodecellar.nodes.MongoDatabaseExtended</span></code> will therefore have both the <code class="docutils literal notranslate"><span class="pre">port</span></code> and <code class="docutils literal notranslate"><span class="pre">enable_replication</span></code> properties, as well as the following interfaces mapping:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">interfaces</span><span class="p">:</span>
-  <span class="nt">Standard</span><span class="p">:</span>
-    <span class="nt">create</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">scripts/mongo/install-mongo-extended.sh</span>
-    <span class="nt">configure</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">scripts/mongo/configure-mongo-extended.sh</span>
-    <span class="nt">start</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">scripts/mongo/start-mongo.sh</span>
-    <span class="nt">stop</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">scripts/mongo/stop-mongo.sh</span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">interfaces</span><span class="p">:</span><span class="w"></span>
+<span class="w">  </span><span class="nt">Standard</span><span class="p">:</span><span class="w"></span>
+<span class="w">    </span><span class="nt">create</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">scripts/mongo/install-mongo-extended.sh</span><span class="w"></span>
+<span class="w">    </span><span class="nt">configure</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">scripts/mongo/configure-mongo-extended.sh</span><span class="w"></span>
+<span class="w">    </span><span class="nt">start</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">scripts/mongo/start-mongo.sh</span><span class="w"></span>
+<span class="w">    </span><span class="nt">stop</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">scripts/mongo/stop-mongo.sh</span><span class="w"></span>
 </pre></div>
 </div>
 <p>As it is evident, the <code class="docutils literal notranslate"><span class="pre">configure</span></code> operation, which is mapped only in the extending type, got merged with the <code class="docutils literal notranslate"><span class="pre">start</span></code> and <code class="docutils literal notranslate"><span class="pre">stop</span></code> operations which are only mapped in the parent type, while the <code class="docutils literal notranslate"><span class="pre">create</span></code> operation, which is defined on both types, will be mapped to the value set in the extending type.</p>

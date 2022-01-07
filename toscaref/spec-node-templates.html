@@ -122,19 +122,19 @@ represent a running application/service as described in the service template.</p
 <h2>Declaration<a class="headerlink" href="#declaration" title="Permalink to this headline"></a></h2>
 <p>The <code class="docutils literal notranslate"><span class="pre">node_templates</span></code> section in the DSL is a dictionary where each key
 is a node template.</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">node_templates</span><span class="p">:</span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">node_templates</span><span class="p">:</span><span class="w"></span>
 
-  <span class="nt">node_template_1</span><span class="p">:</span>
-    <span class="nt">type</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">...</span>
-    <span class="nt">properties</span><span class="p">:</span>
-      <span class="l l-Scalar l-Scalar-Plain">...</span>
-    <span class="nt">interfaces</span><span class="p">:</span>
-      <span class="l l-Scalar l-Scalar-Plain">...</span>
-    <span class="nt">requirements</span><span class="p">:</span>
-      <span class="l l-Scalar l-Scalar-Plain">...</span>
+<span class="w">  </span><span class="nt">node_template_1</span><span class="p">:</span><span class="w"></span>
+<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">...</span><span class="w"></span>
+<span class="w">    </span><span class="nt">properties</span><span class="p">:</span><span class="w"></span>
+<span class="w">      </span><span class="l l-Scalar l-Scalar-Plain">...</span><span class="w"></span>
+<span class="w">    </span><span class="nt">interfaces</span><span class="p">:</span><span class="w"></span>
+<span class="w">      </span><span class="l l-Scalar l-Scalar-Plain">...</span><span class="w"></span>
+<span class="w">    </span><span class="nt">requirements</span><span class="p">:</span><span class="w"></span>
+<span class="w">      </span><span class="l l-Scalar l-Scalar-Plain">...</span><span class="w"></span>
 
-  <span class="nt">node_template_2</span><span class="p">:</span>
-    <span class="l l-Scalar l-Scalar-Plain">...</span>
+<span class="w">  </span><span class="nt">node_template_2</span><span class="p">:</span><span class="w"></span>
+<span class="w">    </span><span class="l l-Scalar l-Scalar-Plain">...</span><span class="w"></span>
 </pre></div>
 </div>
 </section>
@@ -180,48 +180,48 @@ is a node template.</p>
 </section>
 <section id="example">
 <h2>Example<a class="headerlink" href="#example" title="Permalink to this headline"></a></h2>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">node_types</span><span class="p">:</span>
-  <span class="c1"># The following node type is used in the node templates section</span>
-  <span class="nt">nodes.Nginx</span><span class="p">:</span>
-    <span class="nt">derived_from</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">tosca.nodes.WebServer</span>
-    <span class="nt">properties</span><span class="p">:</span>
-      <span class="nt">port</span><span class="p">:</span>
-        <span class="nt">description</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">The default listening port for the Nginx server.</span>
-        <span class="nt">type</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">integer</span>
-    <span class="nt">interfaces</span><span class="p">:</span>
-      <span class="nt">Standard</span><span class="p">:</span>
-        <span class="nt">create</span><span class="p">:</span>
-          <span class="nt">implementation</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">scripts/install-nginx.sh</span>
-          <span class="nt">inputs</span><span class="p">:</span>
-            <span class="nt">process</span><span class="p">:</span>
-              <span class="nt">default</span><span class="p">:</span>
-                <span class="nt">env</span><span class="p">:</span>
-                  <span class="nt">port</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">80</span>
-        <span class="nt">start</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">scripts/start-nginx.sh</span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">node_types</span><span class="p">:</span><span class="w"></span>
+<span class="w">  </span><span class="c1"># The following node type is used in the node templates section</span><span class="w"></span>
+<span class="w">  </span><span class="nt">nodes.Nginx</span><span class="p">:</span><span class="w"></span>
+<span class="w">    </span><span class="nt">derived_from</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.nodes.WebServer</span><span class="w"></span>
+<span class="w">    </span><span class="nt">properties</span><span class="p">:</span><span class="w"></span>
+<span class="w">      </span><span class="nt">port</span><span class="p">:</span><span class="w"></span>
+<span class="w">        </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">The default listening port for the Nginx server.</span><span class="w"></span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">integer</span><span class="w"></span>
+<span class="w">    </span><span class="nt">interfaces</span><span class="p">:</span><span class="w"></span>
+<span class="w">      </span><span class="nt">Standard</span><span class="p">:</span><span class="w"></span>
+<span class="w">        </span><span class="nt">create</span><span class="p">:</span><span class="w"></span>
+<span class="w">          </span><span class="nt">implementation</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">scripts/install-nginx.sh</span><span class="w"></span>
+<span class="w">          </span><span class="nt">inputs</span><span class="p">:</span><span class="w"></span>
+<span class="w">            </span><span class="nt">process</span><span class="p">:</span><span class="w"></span>
+<span class="w">              </span><span class="nt">default</span><span class="p">:</span><span class="w"></span>
+<span class="w">                </span><span class="nt">env</span><span class="p">:</span><span class="w"></span>
+<span class="w">                  </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">80</span><span class="w"></span>
+<span class="w">        </span><span class="nt">start</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">scripts/start-nginx.sh</span><span class="w"></span>
 
-<span class="nt">node_templates</span><span class="p">:</span>
-  <span class="nt">vm</span><span class="p">:</span>
-    <span class="nt">type</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">tosca.nodes.Compute</span>
-    <span class="nt">properties</span><span class="p">:</span>
-      <span class="nt">ip</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">192.168.0.11</span>
+<span class="nt">node_templates</span><span class="p">:</span><span class="w"></span>
+<span class="w">  </span><span class="nt">vm</span><span class="p">:</span><span class="w"></span>
+<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.nodes.Compute</span><span class="w"></span>
+<span class="w">    </span><span class="nt">properties</span><span class="p">:</span><span class="w"></span>
+<span class="w">      </span><span class="nt">ip</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">192.168.0.11</span><span class="w"></span>
 
-  <span class="nt">nginx</span><span class="p">:</span>
-    <span class="c1"># We specify that this node template is of the node type we defined in the node types section</span>
-    <span class="nt">type</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">nodes.Nginx</span>
-    <span class="c1"># properties should match nodes.Nginx type properties schema</span>
-    <span class="nt">properties</span><span class="p">:</span>
-      <span class="nt">port</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">80</span>
-    <span class="nt">interfaces</span><span class="p">:</span>
-      <span class="nt">Standard</span><span class="p">:</span>
-        <span class="nt">create</span><span class="p">:</span>
-          <span class="c1"># inputs should match the inputs schema defined in nodes.Nginx for the create operation</span>
-          <span class="nt">inputs</span><span class="p">:</span>
-            <span class="nt">process</span><span class="p">:</span>
-              <span class="nt">env</span><span class="p">:</span>
-                <span class="nt">port</span><span class="p">:</span> <span class="p p-Indicator">{</span><span class="nt"> get_property</span><span class="p">:</span> <span class="p p-Indicator">[</span><span class="nv">SELF</span><span class="p p-Indicator">,</span> <span class="nv">port</span><span class="p p-Indicator">]</span> <span class="p p-Indicator">}</span>
-    <span class="nt">requirements</span><span class="p">:</span>
-      <span class="p p-Indicator">-</span> <span class="nt">type</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">tosca.requirements.contained_in</span>
-        <span class="nt">target</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">vm</span>
+<span class="w">  </span><span class="nt">nginx</span><span class="p">:</span><span class="w"></span>
+<span class="w">    </span><span class="c1"># We specify that this node template is of the node type we defined in the node types section</span><span class="w"></span>
+<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">nodes.Nginx</span><span class="w"></span>
+<span class="w">    </span><span class="c1"># properties should match nodes.Nginx type properties schema</span><span class="w"></span>
+<span class="w">    </span><span class="nt">properties</span><span class="p">:</span><span class="w"></span>
+<span class="w">      </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">80</span><span class="w"></span>
+<span class="w">    </span><span class="nt">interfaces</span><span class="p">:</span><span class="w"></span>
+<span class="w">      </span><span class="nt">Standard</span><span class="p">:</span><span class="w"></span>
+<span class="w">        </span><span class="nt">create</span><span class="p">:</span><span class="w"></span>
+<span class="w">          </span><span class="c1"># inputs should match the inputs schema defined in nodes.Nginx for the create operation</span><span class="w"></span>
+<span class="w">          </span><span class="nt">inputs</span><span class="p">:</span><span class="w"></span>
+<span class="w">            </span><span class="nt">process</span><span class="p">:</span><span class="w"></span>
+<span class="w">              </span><span class="nt">env</span><span class="p">:</span><span class="w"></span>
+<span class="w">                </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> get_property</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">SELF</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">port</span><span class="p p-Indicator">]</span><span class="w"> </span><span class="p p-Indicator">}</span><span class="w"></span>
+<span class="w">    </span><span class="nt">requirements</span><span class="p">:</span><span class="w"></span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.requirements.contained_in</span><span class="w"></span>
+<span class="w">        </span><span class="nt">target</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vm</span><span class="w"></span>
 </pre></div>
 </div>
 <div class="admonition seealso">

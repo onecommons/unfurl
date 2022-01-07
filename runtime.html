@@ -208,20 +208,20 @@ in the order they are declared, adding the given key and value as
 environment variables except keys starting with “+” and “-”
 will copy or remove the variable from the current into environment
 into the new one. In that case “*” and “?” are treated like filename wildcards and “!” negates the match:</p>
-<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">name</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">value</span>    <span class="c1"># add name=value</span>
-<span class="nt">+name</span><span class="p">:</span>         <span class="c1"># copy name into the enviroment</span>
-<span class="nt">+name</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">default</span> <span class="c1"># copy value, set it to &quot;default&quot; if not present</span>
-<span class="nt">+!prefix*</span><span class="p">:</span>     <span class="c1"># copy all except variables matching &quot;prefix*&quot;</span>
-<span class="nt">-!name</span><span class="p">:</span>        <span class="c1"># remove all except name</span>
-<span class="nt">-!prefix*</span><span class="p">:</span>     <span class="c1"># remove all except variables matching &quot;prefix*&quot;</span>
-<span class="nt">^name</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">/bin</span>    <span class="c1"># treat name like a PATH and prepend value: e.g. /bin:$name</span>
+<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">value</span><span class="w">    </span><span class="c1"># add name=value</span><span class="w"></span>
+<span class="nt">+name</span><span class="p">:</span><span class="w">         </span><span class="c1"># copy name into the enviroment</span><span class="w"></span>
+<span class="nt">+name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">default</span><span class="w"> </span><span class="c1"># copy value, set it to &quot;default&quot; if not present</span><span class="w"></span>
+<span class="nt">+!prefix*</span><span class="p">:</span><span class="w">     </span><span class="c1"># copy all except variables matching &quot;prefix*&quot;</span><span class="w"></span>
+<span class="nt">-!name</span><span class="p">:</span><span class="w">        </span><span class="c1"># remove all except name</span><span class="w"></span>
+<span class="nt">-!prefix*</span><span class="p">:</span><span class="w">     </span><span class="c1"># remove all except variables matching &quot;prefix*&quot;</span><span class="w"></span>
+<span class="nt">^name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/bin</span><span class="w">    </span><span class="c1"># treat name like a PATH and prepend value: e.g. /bin:$name</span><span class="w"></span>
 </pre></div>
 </div>
 <p>For example:</p>
-<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">environment</span><span class="p">:</span>
-   <span class="nt">-*</span><span class="p">:</span>       <span class="c1"># this will remove all environment variables</span>
-   <span class="nt">+HOME</span><span class="p">:</span>    <span class="c1"># add HOME back</span>
-   <span class="nt">FOO</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">bar</span>  <span class="c1"># set FOO = bar</span>
+<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">environment</span><span class="p">:</span><span class="w"></span>
+<span class="w">   </span><span class="nt">-*</span><span class="p">:</span><span class="w">       </span><span class="c1"># this will remove all environment variables</span><span class="w"></span>
+<span class="w">   </span><span class="nt">+HOME</span><span class="p">:</span><span class="w">    </span><span class="c1"># add HOME back</span><span class="w"></span>
+<span class="w">   </span><span class="nt">FOO</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">bar</span><span class="w">  </span><span class="c1"># set FOO = bar</span><span class="w"></span>
 </pre></div>
 </div>
 <p>The following environment variables will always be copied from the parent environment unless explicitly removed or set:</p>

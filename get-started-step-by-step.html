@@ -202,25 +202,25 @@ their components, relationships, and the processes that manage them.
 The TOSCA standard includes specifications to describe processes that create or modify web services. You can read more about it on the OASIS website.</p>
 <p>You can find examples</p>
 <p><a class="reference external" href="https://github.com/oasis-open/tosca-community-contributions/tree/master/examples/1.3/tutorial">https://github.com/oasis-open/tosca-community-contributions/tree/master/examples/1.3/tutorial</a></p>
-<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">topology_template</span><span class="p">:</span>
-  <span class="nt">node_templates</span><span class="p">:</span>
-    <span class="nt">my_server</span><span class="p">:</span>
-      <span class="nt">type</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">tosca.nodes.Compute</span>
-      <span class="nt">capabilities</span><span class="p">:</span>
-        <span class="c1"># Host container properties</span>
-        <span class="nt">host</span><span class="p">:</span>
-          <span class="nt">properties</span><span class="p">:</span>
-            <span class="nt">num_cpus</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">1</span>
-            <span class="nt">disk_size</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">200GB</span>
-            <span class="nt">mem_size</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">512MB</span>
-        <span class="c1"># Guest Operating System properties</span>
-        <span class="nt">os</span><span class="p">:</span>
-          <span class="nt">properties</span><span class="p">:</span>
-            <span class="c1"># host Operating System image properties</span>
-            <span class="nt">architecture</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">x86_64</span>
-            <span class="nt">type</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">linux</span>
-            <span class="nt">distribution</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">ubuntu</span>
-            <span class="nt">version</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">focal</span>
+<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">topology_template</span><span class="p">:</span><span class="w"></span>
+<span class="w">  </span><span class="nt">node_templates</span><span class="p">:</span><span class="w"></span>
+<span class="w">    </span><span class="nt">my_server</span><span class="p">:</span><span class="w"></span>
+<span class="w">      </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.nodes.Compute</span><span class="w"></span>
+<span class="w">      </span><span class="nt">capabilities</span><span class="p">:</span><span class="w"></span>
+<span class="w">        </span><span class="c1"># Host container properties</span><span class="w"></span>
+<span class="w">        </span><span class="nt">host</span><span class="p">:</span><span class="w"></span>
+<span class="w">          </span><span class="nt">properties</span><span class="p">:</span><span class="w"></span>
+<span class="w">            </span><span class="nt">num_cpus</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span><span class="w"></span>
+<span class="w">            </span><span class="nt">disk_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">200GB</span><span class="w"></span>
+<span class="w">            </span><span class="nt">mem_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">512MB</span><span class="w"></span>
+<span class="w">        </span><span class="c1"># Guest Operating System properties</span><span class="w"></span>
+<span class="w">        </span><span class="nt">os</span><span class="p">:</span><span class="w"></span>
+<span class="w">          </span><span class="nt">properties</span><span class="p">:</span><span class="w"></span>
+<span class="w">            </span><span class="c1"># host Operating System image properties</span><span class="w"></span>
+<span class="w">            </span><span class="nt">architecture</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">x86_64</span><span class="w"></span>
+<span class="w">            </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">linux</span><span class="w"></span>
+<span class="w">            </span><span class="nt">distribution</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ubuntu</span><span class="w"></span>
+<span class="w">            </span><span class="nt">version</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">focal</span><span class="w"></span>
 </pre></div>
 </div>
 <p>A couple of things to note:
@@ -245,48 +245,48 @@ which is Unfurl’s plugin system for implementing operations.
 Unfurl ships with several configurators, including ones for Ansible, Terraform and Kubernetes.</p>
 <p>We can implement <code class="docutils literal notranslate"><span class="pre">my_server</span></code> in just few lines of YAML by Google Cloud Platform by calling the <code class="docutils literal notranslate"><span class="pre">gcloud</span></code> tool.
 We’ll start with “delete” to make the</p>
-<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">topology_template</span><span class="p">:</span>
-  <span class="nt">node_templates</span><span class="p">:</span>
-    <span class="nt">my_server</span><span class="p">:</span>
-      <span class="nt">type</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">tosca.nodes.Compute</span>
-      <span class="c1"># details omitted, see example above</span>
-    <span class="nt">interfaces</span><span class="p">:</span>
-      <span class="nt">Standard</span><span class="p">:</span>
-        <span class="nt">delete</span><span class="p">:</span>
-          <span class="nt">implementation</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">gcloud compute instances delete {{ &#39;.name&#39; | eval }}</span>
-      <span class="c1"># ... see example below for more operations</span>
+<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">topology_template</span><span class="p">:</span><span class="w"></span>
+<span class="w">  </span><span class="nt">node_templates</span><span class="p">:</span><span class="w"></span>
+<span class="w">    </span><span class="nt">my_server</span><span class="p">:</span><span class="w"></span>
+<span class="w">      </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.nodes.Compute</span><span class="w"></span>
+<span class="w">      </span><span class="c1"># details omitted, see example above</span><span class="w"></span>
+<span class="w">    </span><span class="nt">interfaces</span><span class="p">:</span><span class="w"></span>
+<span class="w">      </span><span class="nt">Standard</span><span class="p">:</span><span class="w"></span>
+<span class="w">        </span><span class="nt">delete</span><span class="p">:</span><span class="w"></span>
+<span class="w">          </span><span class="nt">implementation</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">gcloud compute instances delete {{ &#39;.name&#39; | eval }}</span><span class="w"></span>
+<span class="w">      </span><span class="c1"># ... see example below for more operations</span><span class="w"></span>
 </pre></div>
 </div>
 <p>Creates a little more verbose and illustrates how to pass input parameters and set attributes on the instance created from a template:</p>
-<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">topology_template</span><span class="p">:</span>
-  <span class="nt">node_templates</span><span class="p">:</span>
-    <span class="nt">my_server</span><span class="p">:</span>
-      <span class="nt">type</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">tosca.nodes.Compute</span>
-      <span class="c1"># details omitted, see example above</span>
-    <span class="nt">interfaces</span><span class="p">:</span>
-      <span class="nt">Standard</span><span class="p">:</span>
-        <span class="nt">delete</span><span class="p">:</span>
-          <span class="nt">implementation</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">gcloud compute instances delete {{ &#39;.name&#39; | eval }}</span>
-        <span class="nt">create</span><span class="p">:</span>
-          <span class="nt">implementation</span><span class="p">:</span> <span class="p p-Indicator">|</span>
-            <span class="no">gcloud compute instances create {{ &#39;.name&#39; | eval }}</span>
-              <span class="no">--boot-disk-size={{ {&quot;get_property&quot;: [&quot;SELF&quot;, &quot;host&quot;, &quot;disk_size&quot;]} | eval | regex_replace(&quot; &quot;) }}</span>
-              <span class="no">--image=$(gcloud compute images list --filter=name:{{ {&#39;get_property&#39;: [&#39;SELF&#39;, &#39;os&#39;, &#39;distribution&#39;]} | eval }}</span>
-                    <span class="no">--filter=name:focal --limit=1 --uri)</span>
-              <span class="no">--machine-type=e2-medium   &gt; /dev/null</span>
-            <span class="no">&amp;&amp; gcloud compute instances describe {{ &#39;.name&#39; | eval }} --format=json</span>
-          <span class="nt">inputs</span><span class="p">:</span>
-            <span class="nt">resultTemplate</span><span class="p">:</span>
-              <span class="c1"># recursively merge the map with the yaml anchor &quot;gcloudStatusMap&quot;</span>
-              <span class="nt">+*gcloudStatusMap</span><span class="p">:</span>
-              <span class="nt">eval</span><span class="p">:</span>
-                <span class="nt">then</span><span class="p">:</span>
-                  <span class="nt">attributes</span><span class="p">:</span>
-                    <span class="nt">public_ip</span><span class="p">:</span> <span class="s">&quot;{{</span><span class="nv"> </span><span class="s">result.networkInterfaces[0].accessConfigs[0].natIP</span><span class="nv"> </span><span class="s">}}&quot;</span>
-                    <span class="nt">private_ip</span><span class="p">:</span> <span class="s">&quot;{{</span><span class="nv"> </span><span class="s">result.networkInterfaces[0].networkIP</span><span class="nv"> </span><span class="s">}}&quot;</span>
-                    <span class="nt">zone</span><span class="p">:</span> <span class="s">&quot;{{</span><span class="nv"> </span><span class="s">result.zone</span><span class="nv"> </span><span class="s">|</span><span class="nv"> </span><span class="s">basename</span><span class="nv"> </span><span class="s">}}&quot;</span>
-                    <span class="nt">id</span><span class="p">:</span>  <span class="s">&quot;{{</span><span class="nv"> </span><span class="s">result.selfLink</span><span class="nv"> </span><span class="s">}}&quot;</span>
-          <span class="c1"># ...  see below</span>
+<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">topology_template</span><span class="p">:</span><span class="w"></span>
+<span class="w">  </span><span class="nt">node_templates</span><span class="p">:</span><span class="w"></span>
+<span class="w">    </span><span class="nt">my_server</span><span class="p">:</span><span class="w"></span>
+<span class="w">      </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.nodes.Compute</span><span class="w"></span>
+<span class="w">      </span><span class="c1"># details omitted, see example above</span><span class="w"></span>
+<span class="w">    </span><span class="nt">interfaces</span><span class="p">:</span><span class="w"></span>
+<span class="w">      </span><span class="nt">Standard</span><span class="p">:</span><span class="w"></span>
+<span class="w">        </span><span class="nt">delete</span><span class="p">:</span><span class="w"></span>
+<span class="w">          </span><span class="nt">implementation</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">gcloud compute instances delete {{ &#39;.name&#39; | eval }}</span><span class="w"></span>
+<span class="w">        </span><span class="nt">create</span><span class="p">:</span><span class="w"></span>
+<span class="w">          </span><span class="nt">implementation</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">|</span><span class="w"></span>
+<span class="w">            </span><span class="no">gcloud compute instances create {{ &#39;.name&#39; | eval }}</span><span class="w"></span>
+<span class="w">              </span><span class="no">--boot-disk-size={{ {&quot;get_property&quot;: [&quot;SELF&quot;, &quot;host&quot;, &quot;disk_size&quot;]} | eval | regex_replace(&quot; &quot;) }}</span><span class="w"></span>
+<span class="w">              </span><span class="no">--image=$(gcloud compute images list --filter=name:{{ {&#39;get_property&#39;: [&#39;SELF&#39;, &#39;os&#39;, &#39;distribution&#39;]} | eval }}</span><span class="w"></span>
+<span class="w">                    </span><span class="no">--filter=name:focal --limit=1 --uri)</span><span class="w"></span>
+<span class="w">              </span><span class="no">--machine-type=e2-medium   &gt; /dev/null</span><span class="w"></span>
+<span class="w">            </span><span class="no">&amp;&amp; gcloud compute instances describe {{ &#39;.name&#39; | eval }} --format=json</span><span class="w"></span>
+<span class="w">          </span><span class="nt">inputs</span><span class="p">:</span><span class="w"></span>
+<span class="w">            </span><span class="nt">resultTemplate</span><span class="p">:</span><span class="w"></span>
+<span class="w">              </span><span class="c1"># recursively merge the map with the yaml anchor &quot;gcloudStatusMap&quot;</span><span class="w"></span>
+<span class="w">              </span><span class="nt">+*gcloudStatusMap</span><span class="p">:</span><span class="w"></span>
+<span class="w">              </span><span class="nt">eval</span><span class="p">:</span><span class="w"></span>
+<span class="w">                </span><span class="nt">then</span><span class="p">:</span><span class="w"></span>
+<span class="w">                  </span><span class="nt">attributes</span><span class="p">:</span><span class="w"></span>
+<span class="w">                    </span><span class="nt">public_ip</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">result.networkInterfaces[0].accessConfigs[0].natIP</span><span class="nv"> </span><span class="s">}}&quot;</span><span class="w"></span>
+<span class="w">                    </span><span class="nt">private_ip</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">result.networkInterfaces[0].networkIP</span><span class="nv"> </span><span class="s">}}&quot;</span><span class="w"></span>
+<span class="w">                    </span><span class="nt">zone</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">result.zone</span><span class="nv"> </span><span class="s">|</span><span class="nv"> </span><span class="s">basename</span><span class="nv"> </span><span class="s">}}&quot;</span><span class="w"></span>
+<span class="w">                    </span><span class="nt">id</span><span class="p">:</span><span class="w">  </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">result.selfLink</span><span class="nv"> </span><span class="s">}}&quot;</span><span class="w"></span>
+<span class="w">          </span><span class="c1"># ...  see below</span><span class="w"></span>
 </pre></div>
 </div>
 <p>This implementation calls <code class="docutils literal notranslate"><span class="pre">gcloud</span> <span class="pre">compute</span> <span class="pre">instances</span> <span class="pre">create</span></code> to create the instance
@@ -294,32 +294,32 @@ and then <code class="docutils literal notranslate"><span class="pre">gcloud</sp
 <p>One mysterious looking line is <code class="docutils literal notranslate"><span class="pre">+*gcloudStatusMap:</span></code> which is a merge directive
 That’s because its an anchor to a yaml map we haven’t defined yet.
 We’ll see it when we finish off the implementation by defining the “check” operation:</p>
-<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">topology_template</span><span class="p">:</span>
-  <span class="nt">node_templates</span><span class="p">:</span>
-    <span class="nt">my_server</span><span class="p">:</span>
-      <span class="nt">type</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">tosca.nodes.Compute</span>
-      <span class="c1"># details omitted...</span>
-    <span class="nt">interfaces</span><span class="p">:</span>
-      <span class="c1"># other operations omitted, see example above</span>
-      <span class="nt">Install</span><span class="p">:</span>
-        <span class="nt">check</span><span class="p">:</span>
-          <span class="nt">implementation</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">gcloud compute instances describe {{ &#39;.name&#39; | eval }}  --format=json</span>
-          <span class="nt">inputs</span><span class="p">:</span>
-            <span class="nt">resultTemplate</span><span class="p">:</span> <span class="nl">&amp;gcloudStatusMap</span>
-              <span class="nt">eval</span><span class="p">:</span>
-                <span class="nt">if</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">$result</span>
-                <span class="nt">then</span><span class="p">:</span>
-                  <span class="nt">readyState</span><span class="p">:</span>
-                    <span class="nt">state</span><span class="p">:</span> <span class="s">&quot;{{</span><span class="nv"> </span><span class="s">{&#39;PROVISIONING&#39;:</span><span class="nv"> </span><span class="s">&#39;creating&#39;,</span><span class="nv"> </span><span class="s">&#39;STAGING&#39;:</span><span class="nv"> </span><span class="s">&#39;starting&#39;,</span>
-                              <span class="s">&#39;RUNNING&#39;:</span><span class="nv"> </span><span class="s">&#39;started&#39;,</span><span class="nv"> </span><span class="s">&#39;REPAIRING&#39;</span><span class="nv"> </span><span class="s">&#39;error,&#39;</span>
-                              <span class="s">&#39;SUSPENDING&#39;:</span><span class="nv"> </span><span class="s">&#39;stopping&#39;,</span><span class="nv">  </span><span class="s">&#39;SUSPENDED&#39;:</span><span class="nv"> </span><span class="s">&#39;stopped&#39;,</span>
-                              <span class="s">&#39;STOPPING&#39;:</span><span class="nv"> </span><span class="s">&#39;deleting&#39;,</span><span class="nv"> </span><span class="s">&#39;TERMINATED&#39;:</span><span class="nv"> </span><span class="s">&#39;deleted&#39;}[result.status]</span><span class="nv"> </span><span class="s">}}&quot;</span>
-                    <span class="nt">local</span><span class="p">:</span> <span class="s">&quot;{{</span><span class="nv"> </span><span class="s">{&#39;PROVISIONING&#39;:</span><span class="nv"> </span><span class="s">&#39;pending&#39;,</span><span class="nv"> </span><span class="s">&#39;STAGING&#39;:</span><span class="nv"> </span><span class="s">&#39;pending&#39;,</span>
-                              <span class="s">&#39;RUNNING&#39;:</span><span class="nv"> </span><span class="s">&#39;ok&#39;,</span><span class="nv"> </span><span class="s">&#39;REPAIRING&#39;</span><span class="nv"> </span><span class="s">&#39;error,&#39;</span>
-                              <span class="s">&#39;SUSPENDING&#39;:</span><span class="nv"> </span><span class="s">&#39;error&#39;,</span><span class="nv">  </span><span class="s">&#39;SUSPENDED&#39;:</span><span class="nv"> </span><span class="s">&#39;error&#39;,</span>
-                              <span class="s">&#39;STOPPING&#39;:</span><span class="nv"> </span><span class="s">&#39;absent&#39;,</span><span class="nv"> </span><span class="s">&#39;TERMINATED&#39;:</span><span class="nv"> </span><span class="s">&#39;absent&#39;}[result.status]</span><span class="nv"> </span><span class="s">}}&quot;</span>
-              <span class="nt">vars</span><span class="p">:</span>
-                <span class="nt">result</span><span class="p">:</span> <span class="s">&quot;{%if</span><span class="nv"> </span><span class="s">success</span><span class="nv"> </span><span class="s">%}{{</span><span class="nv"> </span><span class="s">stdout</span><span class="nv"> </span><span class="s">|</span><span class="nv"> </span><span class="s">from_json</span><span class="nv"> </span><span class="s">}}{%</span><span class="nv"> </span><span class="s">endif</span><span class="nv"> </span><span class="s">%}&quot;</span>
+<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">topology_template</span><span class="p">:</span><span class="w"></span>
+<span class="w">  </span><span class="nt">node_templates</span><span class="p">:</span><span class="w"></span>
+<span class="w">    </span><span class="nt">my_server</span><span class="p">:</span><span class="w"></span>
+<span class="w">      </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.nodes.Compute</span><span class="w"></span>
+<span class="w">      </span><span class="c1"># details omitted...</span><span class="w"></span>
+<span class="w">    </span><span class="nt">interfaces</span><span class="p">:</span><span class="w"></span>
+<span class="w">      </span><span class="c1"># other operations omitted, see example above</span><span class="w"></span>
+<span class="w">      </span><span class="nt">Install</span><span class="p">:</span><span class="w"></span>
+<span class="w">        </span><span class="nt">check</span><span class="p">:</span><span class="w"></span>
+<span class="w">          </span><span class="nt">implementation</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">gcloud compute instances describe {{ &#39;.name&#39; | eval }}  --format=json</span><span class="w"></span>
+<span class="w">          </span><span class="nt">inputs</span><span class="p">:</span><span class="w"></span>
+<span class="w">            </span><span class="nt">resultTemplate</span><span class="p">:</span><span class="w"> </span><span class="nl">&amp;gcloudStatusMap</span><span class="w"></span>
+<span class="w">              </span><span class="nt">eval</span><span class="p">:</span><span class="w"></span>
+<span class="w">                </span><span class="nt">if</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">$result</span><span class="w"></span>
+<span class="w">                </span><span class="nt">then</span><span class="p">:</span><span class="w"></span>
+<span class="w">                  </span><span class="nt">readyState</span><span class="p">:</span><span class="w"></span>
+<span class="w">                    </span><span class="nt">state</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">{&#39;PROVISIONING&#39;:</span><span class="nv"> </span><span class="s">&#39;creating&#39;,</span><span class="nv"> </span><span class="s">&#39;STAGING&#39;:</span><span class="nv"> </span><span class="s">&#39;starting&#39;,</span><span class="w"></span>
+<span class="w">                              </span><span class="s">&#39;RUNNING&#39;:</span><span class="nv"> </span><span class="s">&#39;started&#39;,</span><span class="nv"> </span><span class="s">&#39;REPAIRING&#39;</span><span class="nv"> </span><span class="s">&#39;error,&#39;</span><span class="w"></span>
+<span class="w">                              </span><span class="s">&#39;SUSPENDING&#39;:</span><span class="nv"> </span><span class="s">&#39;stopping&#39;,</span><span class="nv">  </span><span class="s">&#39;SUSPENDED&#39;:</span><span class="nv"> </span><span class="s">&#39;stopped&#39;,</span><span class="w"></span>
+<span class="w">                              </span><span class="s">&#39;STOPPING&#39;:</span><span class="nv"> </span><span class="s">&#39;deleting&#39;,</span><span class="nv"> </span><span class="s">&#39;TERMINATED&#39;:</span><span class="nv"> </span><span class="s">&#39;deleted&#39;}[result.status]</span><span class="nv"> </span><span class="s">}}&quot;</span><span class="w"></span>
+<span class="w">                    </span><span class="nt">local</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">{&#39;PROVISIONING&#39;:</span><span class="nv"> </span><span class="s">&#39;pending&#39;,</span><span class="nv"> </span><span class="s">&#39;STAGING&#39;:</span><span class="nv"> </span><span class="s">&#39;pending&#39;,</span><span class="w"></span>
+<span class="w">                              </span><span class="s">&#39;RUNNING&#39;:</span><span class="nv"> </span><span class="s">&#39;ok&#39;,</span><span class="nv"> </span><span class="s">&#39;REPAIRING&#39;</span><span class="nv"> </span><span class="s">&#39;error,&#39;</span><span class="w"></span>
+<span class="w">                              </span><span class="s">&#39;SUSPENDING&#39;:</span><span class="nv"> </span><span class="s">&#39;error&#39;,</span><span class="nv">  </span><span class="s">&#39;SUSPENDED&#39;:</span><span class="nv"> </span><span class="s">&#39;error&#39;,</span><span class="w"></span>
+<span class="w">                              </span><span class="s">&#39;STOPPING&#39;:</span><span class="nv"> </span><span class="s">&#39;absent&#39;,</span><span class="nv"> </span><span class="s">&#39;TERMINATED&#39;:</span><span class="nv"> </span><span class="s">&#39;absent&#39;}[result.status]</span><span class="nv"> </span><span class="s">}}&quot;</span><span class="w"></span>
+<span class="w">              </span><span class="nt">vars</span><span class="p">:</span><span class="w"></span>
+<span class="w">                </span><span class="nt">result</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{%if</span><span class="nv"> </span><span class="s">success</span><span class="nv"> </span><span class="s">%}{{</span><span class="nv"> </span><span class="s">stdout</span><span class="nv"> </span><span class="s">|</span><span class="nv"> </span><span class="s">from_json</span><span class="nv"> </span><span class="s">}}{%</span><span class="nv"> </span><span class="s">endif</span><span class="nv"> </span><span class="s">%}&quot;</span><span class="w"></span>
 </pre></div>
 </div>
 <p>The “check” operation is part of the <code class="docutils literal notranslate"><span class="pre">Install</span></code> interface, an Unfurl specific TOSCA extention.
