@@ -707,11 +707,12 @@ class LocalEnv:
             self._projects = parent._projects
             self._manifests = parent._manifests
             self.homeConfigPath = parent.homeConfigPath
+            self.homeProject = parent.homeProject
         else:
             self._projects = {}
             self._manifests = {}
             self.homeConfigPath = get_home_config_path(homePath)
-        self.homeProject = self._get_home_project()
+            self.homeProject = self._get_home_project()
 
         self._resolve_path_and_project(manifestPath, can_be_empty)
         if project:
@@ -720,7 +721,7 @@ class LocalEnv:
             self._projects[project.localConfig.config.path] = project
             self.project = project
 
-        if self.project:
+        if self.project and not parent:  # only log once
             logger.info("Loaded project at %s", self.project.localConfig.config.path)
         self.toolVersions = {}
         self.instanceRepo = self._get_instance_repo()
@@ -784,7 +785,9 @@ class LocalEnv:
                     if self.manifest_context_name:
                         msg += f" for environment {self.manifest_context_name}"
                     self.logger.debug(msg)
-                manifest = YamlManifest(localEnv=self, vault=vault, skip_validation=skip_validation)
+                manifest = YamlManifest(
+                    localEnv=self, vault=vault, skip_validation=skip_validation
+                )
                 self._manifests[self.manifestPath] = manifest
             return manifest
 
