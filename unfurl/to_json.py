@@ -283,7 +283,7 @@ def node_type_to_graphql(spec, type_definition, types: dict):
 
     jsontype["requirements"] = [
         requirement_to_graphql(spec, req)
-        for req in type_definition.get_all_requirements()
+        for req in (type_definition.get_all_requirements() or ())
         if next(iter(req)) != "dependency"
     ]
 
@@ -335,7 +335,7 @@ def get_properties(typedefs, props):
         jsonprops.append(jsonprop)
 
     # look at leftover props
-    for prop in props:
+    for prop in props.values():
         if not is_computed(prop):
             # additional property not defined in the node type
             jsonprop = deduce_valuetype(prop.value)

@@ -570,7 +570,7 @@ class TaskView:
                    If not specified, the runtime will updated the instance status as needed, based
                    the operation preformed and observed changes to the instance (attributes changed).
           result (dict):  (optional) A dictionary that will be serialized as YAML into the changelog, can contain any useful data about these operation.
-          outputs (dict): (optional) Operation outputs, as specified in the toplogy template.
+          outputs (dict): (optional) Operation outputs, as specified in the topology template.
 
         Returns:
               :class:`ConfiguratorResult`
