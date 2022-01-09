@@ -663,9 +663,11 @@ def create_task_request(
             name = f"{interface}.{action}"
         configSpec = ConfigurationSpec(name, action, **kw)
         logger.debug(
-            "creating configuration %s with %s to run for %s: %s",
+            "creating configuration %s with %s for %s: %s",
             configSpec.name,
-            configSpec.inputs,
+            tuple(f"{n}: {str(v)[:50]}" for n, v in configSpec.inputs.items())
+            if configSpec.inputs
+            else (),
             resource.name,
             reason or action,
         )

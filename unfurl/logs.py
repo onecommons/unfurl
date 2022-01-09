@@ -8,6 +8,14 @@ import tempfile
 import click
 
 
+def truncate(s, max=1200):
+    if not s:
+        return ""
+    if len(s) > max:
+        return f"{s[:max//2]} [{len(s)} omitted...]  {s[-max//2:]}"
+    return s
+
+
 class Levels(IntEnum):
     CRITICAL = logging.CRITICAL
     ERROR = logging.ERROR
@@ -73,7 +81,7 @@ class ColorHandler(logging.StreamHandler):
     }
 
     def emit(self, record: logging.LogRecord) -> None:
-        message = self.format(record)
+        message = truncate(self.format(record))
         level = Levels[record.levelname]
         try:
             click.secho(
