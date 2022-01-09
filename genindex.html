@@ -116,15 +116,15 @@
     --approve
 
       <ul>
-        <li><a href="cli.html#cmdoption-unfurl-deploy-approve">unfurl-deploy command line option</a>
+        <li><a href="cli.html#cmdoption-unfurl-deploy-a">unfurl-deploy command line option</a>
 </li>
-        <li><a href="cli.html#cmdoption-unfurl-discover-approve">unfurl-discover command line option</a>
+        <li><a href="cli.html#cmdoption-unfurl-discover-a">unfurl-discover command line option</a>
 </li>
-        <li><a href="cli.html#cmdoption-unfurl-run-approve">unfurl-run command line option</a>
+        <li><a href="cli.html#cmdoption-unfurl-run-a">unfurl-run command line option</a>
 </li>
-        <li><a href="cli.html#cmdoption-unfurl-stop-approve">unfurl-stop command line option</a>
+        <li><a href="cli.html#cmdoption-unfurl-stop-a">unfurl-stop command line option</a>
 </li>
-        <li><a href="cli.html#cmdoption-unfurl-undeploy-approve">unfurl-undeploy command line option</a>
+        <li><a href="cli.html#cmdoption-unfurl-undeploy-a">unfurl-undeploy command line option</a>
 </li>
       </ul></li>
       <li>
@@ -389,8 +389,6 @@
         <li><a href="cli.html#cmdoption-unfurl-init-mono">unfurl-init command line option</a>
 </li>
       </ul></li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li>
     --no-edit
 
@@ -398,6 +396,8 @@
         <li><a href="cli.html#cmdoption-unfurl-commit-no-edit">unfurl-commit command line option</a>
 </li>
       </ul></li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li>
     --no-runtime
 
@@ -643,6 +643,21 @@
 
       <ul>
         <li><a href="cli.html#cmdoption-unfurl-plan-workflow">unfurl-plan command line option</a>
+</li>
+      </ul></li>
+      <li>
+    -a
+
+      <ul>
+        <li><a href="cli.html#cmdoption-unfurl-deploy-a">unfurl-deploy command line option</a>
+</li>
+        <li><a href="cli.html#cmdoption-unfurl-discover-a">unfurl-discover command line option</a>
+</li>
+        <li><a href="cli.html#cmdoption-unfurl-run-a">unfurl-run command line option</a>
+</li>
+        <li><a href="cli.html#cmdoption-unfurl-stop-a">unfurl-stop command line option</a>
+</li>
+        <li><a href="cli.html#cmdoption-unfurl-undeploy-a">unfurl-undeploy command line option</a>
 </li>
       </ul></li>
       <li>
@@ -1158,10 +1173,10 @@
 </li>
       <li><a href="api.html#unfurl.configurator.TaskView.remove_dependency">remove_dependency() (unfurl.configurator.TaskView method)</a>
 </li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api.html#unfurl.configurator.Configurator.render">render() (unfurl.configurator.Configurator method)</a>
 </li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api.html#unfurl.support.Priority.required">required (unfurl.support.Priority attribute)</a>
 </li>
       <li><a href="api.html#unfurl.eval.Ref.resolve">resolve() (unfurl.eval.Ref method)</a>
@@ -1169,6 +1184,8 @@
       <li><a href="api.html#unfurl.eval.Ref.resolve_one">resolve_one() (unfurl.eval.Ref method)</a>
 </li>
       <li><a href="api.html#unfurl.configurator.JobRequest.root">root (unfurl.configurator.JobRequest property)</a>
+</li>
+      <li><a href="api.html#unfurl.support.Reason.run">run (unfurl.support.Reason attribute)</a>
 </li>
       <li><a href="api.html#unfurl.configurator.Configurator.run">run() (unfurl.configurator.Configurator method)</a>
 </li>
@@ -1351,7 +1368,7 @@
     unfurl-deploy command line option
 
       <ul>
-        <li><a href="cli.html#cmdoption-unfurl-deploy-approve">--approve</a>
+        <li><a href="cli.html#cmdoption-unfurl-deploy-a">--approve</a>
 </li>
         <li><a href="cli.html#cmdoption-unfurl-deploy-change-detection">--change-detection &lt;change_detection&gt;</a>
 </li>
@@ -1391,6 +1408,8 @@
 </li>
         <li><a href="cli.html#cmdoption-unfurl-deploy-upgrade">--upgrade</a>
 </li>
+        <li><a href="cli.html#cmdoption-unfurl-deploy-a">-a</a>
+</li>
         <li><a href="cli.html#cmdoption-unfurl-deploy-m">-m</a>
 </li>
         <li><a href="cli.html#cmdoption-unfurl-deploy-arg-ENSEMBLE">ENSEMBLE</a>
@@ -1400,7 +1419,7 @@
     unfurl-discover command line option
 
       <ul>
-        <li><a href="cli.html#cmdoption-unfurl-discover-approve">--approve</a>
+        <li><a href="cli.html#cmdoption-unfurl-discover-a">--approve</a>
 </li>
         <li><a href="cli.html#cmdoption-unfurl-discover-commit">--commit</a>
 </li>
@@ -1425,6 +1444,8 @@
         <li><a href="cli.html#cmdoption-unfurl-discover-template">--template &lt;template&gt;</a>
 </li>
         <li><a href="cli.html#cmdoption-unfurl-discover-trace">--trace &lt;trace&gt;</a>
+</li>
+        <li><a href="cli.html#cmdoption-unfurl-discover-a">-a</a>
 </li>
         <li><a href="cli.html#cmdoption-unfurl-discover-m">-m</a>
 </li>
@@ -1535,7 +1556,7 @@
     unfurl-run command line option
 
       <ul>
-        <li><a href="cli.html#cmdoption-unfurl-run-approve">--approve</a>
+        <li><a href="cli.html#cmdoption-unfurl-run-a">--approve</a>
 </li>
         <li><a href="cli.html#cmdoption-unfurl-run-commit">--commit</a>
 </li>
@@ -1569,6 +1590,8 @@
 </li>
         <li><a href="cli.html#cmdoption-unfurl-run-trace">--trace &lt;trace&gt;</a>
 </li>
+        <li><a href="cli.html#cmdoption-unfurl-run-a">-a</a>
+</li>
         <li><a href="cli.html#cmdoption-unfurl-run-m">-m</a>
 </li>
         <li><a href="cli.html#cmdoption-unfurl-run-arg-CMDLINE">CMDLINE</a>
@@ -1596,7 +1619,7 @@
     unfurl-stop command line option
 
       <ul>
-        <li><a href="cli.html#cmdoption-unfurl-stop-approve">--approve</a>
+        <li><a href="cli.html#cmdoption-unfurl-stop-a">--approve</a>
 </li>
         <li><a href="cli.html#cmdoption-unfurl-stop-commit">--commit</a>
 </li>
@@ -1622,6 +1645,8 @@
 </li>
         <li><a href="cli.html#cmdoption-unfurl-stop-trace">--trace &lt;trace&gt;</a>
 </li>
+        <li><a href="cli.html#cmdoption-unfurl-stop-a">-a</a>
+</li>
         <li><a href="cli.html#cmdoption-unfurl-stop-m">-m</a>
 </li>
         <li><a href="cli.html#cmdoption-unfurl-stop-arg-ENSEMBLE">ENSEMBLE</a>
@@ -1631,7 +1656,7 @@
     unfurl-undeploy command line option
 
       <ul>
-        <li><a href="cli.html#cmdoption-unfurl-undeploy-approve">--approve</a>
+        <li><a href="cli.html#cmdoption-unfurl-undeploy-a">--approve</a>
 </li>
         <li><a href="cli.html#cmdoption-unfurl-undeploy-commit">--commit</a>
 </li>
@@ -1658,6 +1683,8 @@
         <li><a href="cli.html#cmdoption-unfurl-undeploy-template">--template &lt;template&gt;</a>
 </li>
         <li><a href="cli.html#cmdoption-unfurl-undeploy-trace">--trace &lt;trace&gt;</a>
+</li>
+        <li><a href="cli.html#cmdoption-unfurl-undeploy-a">-a</a>
 </li>
         <li><a href="cli.html#cmdoption-unfurl-undeploy-m">-m</a>
 </li>
