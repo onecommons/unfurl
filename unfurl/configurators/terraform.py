@@ -18,7 +18,7 @@ def _get_env(env, verbose, dataDir):
     # terraform currently only supports TF_LOG=TRACE
     # env["TF_LOG"] = "ERROR WARN INFO DEBUG TRACE".split()[verbose + 1]
     if verbose > 0:
-        env["TF_LOG"] = "TRACE"
+        env["TF_LOG"] = "DEBUG"
 
     # note: modules with relative paths get confused .terraform isn't child of the config dir
     # contains modules/modules.json and plugins/plugins.json:
@@ -127,6 +127,13 @@ class TerraformConfigurator(ShellConfigurator):
         return True
 
     def _init_terraform(self, task, terraform, folder, env):
+        # only retrieve the schema when we need to worry about sensitive data
+        # in the terraform state file.
+        # (though we still try to mark data as sensitive even without it)
+        get_provider_schema = self._get_workfolder_name(task) not in [
+            "remote",
+            "secrets",
+        ]
         cwd = folder.cwd
         lock_file = get_path(
             task.inputs.context, ".terraform.lock.hcl", Folders.artifacts
@@ -143,6 +150,10 @@ class TerraformConfigurator(ShellConfigurator):
 
         if os.path.exists(folder.get_path(".terraform.lock.hcl")):
             folder.copy_to(lock_file)
+
+        if not get_provider_schema:
+            return {}
+
         cmd = terraform + "providers schema -json".split(" ")
         result = self.run_process(cmd, timeout=timeout, env=env, cwd=cwd, echo=False)
         if not self._handle_result(task, result, cwd):
@@ -227,11 +238,14 @@ class TerraformConfigurator(ShellConfigurator):
             return cwd.write_file(tfvars, path)
         return None
 
+    def _get_workfolder_name(self, task):
+        return task.inputs.get("stateLocation") or Folders.secrets
+
     def _prepare_state(self, task, cwd):
         # the terraform state file is associate with the current instance
         # read the (possible encrypted) version from the repository
         # and write out it as plaintext json into the local directory
-        folderName = task.inputs.get("stateLocation") or Folders.secrets
+        folderName = self._get_workfolder_name(task)
         if folderName == "remote":  # don't use local state file
             return ""
         yamlPath = get_path(task.inputs.context, "terraform.tfstate.yaml", folderName)
@@ -252,8 +266,8 @@ class TerraformConfigurator(ShellConfigurator):
     def render(self, task):
         workdir = task.inputs.get("workdir") or Folders.tasks
         cwd = task.set_work_folder(workdir, preserve=True)
-        # generate
-        _, terraform = self._cmd(
+
+        _, terraformcmd = self._cmd(
             task.inputs.get("command", self._default_cmd), task.inputs.get("keeplines")
         )
 
@@ -292,11 +306,11 @@ class TerraformConfigurator(ShellConfigurator):
             raise UnfurlTaskError(
                 task, "unexpected operation: " + task.configSpec.operation
             )
-        cmd = terraform + action
+        cmd = terraformcmd + action
         if varfilePath:
             cmd.append("-var-file=" + varfilePath)
 
-        return [cmd, terraform, statePath]
+        return [cmd, terraformcmd, statePath]
 
     def run(self, task):
         cwd = task.get_work_folder(Folders.tasks)
@@ -311,12 +325,14 @@ class TerraformConfigurator(ShellConfigurator):
         if os.path.exists(providerSchemaPath):
             with open(providerSchemaPath) as psf:
                 providerSchema = json.load(psf)
-        else:  # first time
+        elif not os.path.exists(os.path.join(dataDir, "providers")):  # first time
             providerSchema = self._init_terraform(task, terraform, cwd, env)
             if providerSchema is not None:
                 save_to_file(providerSchemaPath, providerSchema)
             else:
                 raise UnfurlTaskError(task, f"terraform init failed in {cwd.cwd}")
+        else:
+            providerSchema = {}
 
         result = self.run_process(
             cmd, timeout=task.configSpec.timeout, env=env, cwd=cwd.cwd, echo=echo
@@ -365,7 +381,7 @@ class TerraformConfigurator(ShellConfigurator):
                     providerSchema, state, task, self.sensitive_names
                 )
                 # save state file in home as yaml, encrypting sensitive values
-                folderName = task.inputs.get("stateLocation") or Folders.secrets
+                folderName = self._get_workfolder_name(task)
                 task.set_work_folder(folderName).write_file(
                     state, "terraform.tfstate.yaml"
                 )
