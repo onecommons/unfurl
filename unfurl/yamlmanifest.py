@@ -294,7 +294,13 @@ class YamlManifest(ReadOnlyManifest):
     lockfile = None
 
     def __init__(
-        self, manifest=None, path=None, validate=True, localEnv=None, vault=None, skip_validation=False
+        self,
+        manifest=None,
+        path=None,
+        validate=True,
+        localEnv=None,
+        vault=None,
+        skip_validation=False,
     ):
         super().__init__(manifest, path, validate, localEnv, vault)
         # instantiate the tosca template

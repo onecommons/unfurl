@@ -340,7 +340,7 @@ class TerraformConfigurator(ShellConfigurator):
         if result.returncode and re.search(r"terraform\s+init", result.stderr):
             # modules or plugins out of date, re-run terraform init
             providerSchema = self._init_terraform(task, terraform, cwd, env)
-            if providerSchema:
+            if providerSchema is not None:
                 save_to_file(providerSchemaPath, providerSchema)
                 # try again
                 result = self.run_process(
