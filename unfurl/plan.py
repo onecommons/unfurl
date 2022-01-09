@@ -718,7 +718,7 @@ class RunNowPlan(Plan):
                     self.jobOptions,
                     operation,
                     resource,
-                    "run",
+                    Reason.run,
                     operation_host=operation_host,
                 )
                 if req:  # if operation was found:

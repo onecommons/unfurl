@@ -3,6 +3,7 @@ import json
 from unfurl.yamlmanifest import YamlManifest
 from unfurl.job import Runner, JobOptions, Status
 from unfurl.configurators import TemplateConfigurator
+from .utils import lifecycle, Step
 
 manifestContent = """\
   apiVersion: unfurl/v1alpha1
@@ -85,6 +86,9 @@ manifest2Content = """\
 
       topology_template:
         node_templates:
+          no_op:
+            type: tosca.nodes.Root
+
           simple:
             type: test.nodes.simple
   """
@@ -374,3 +378,29 @@ class UndeployTest(unittest.TestCase):
 
     # XXX fix and test Install.revert:
     # def test_revert(self): pass
+
+
+manifestNoOpContent = """\
+  apiVersion: unfurl/v1alpha1
+  kind: Ensemble
+  spec:
+    service_template:
+      topology_template:
+        node_templates:
+          no_op:
+            type: tosca.nodes.Root
+  """
+
+STEPS = (
+    Step("check", Status.absent),
+    Step("deploy", Status.ok, changed=0),
+    Step("check", Status.ok, changed=0),
+    Step("deploy", Status.ok, changed=0),
+    Step("undeploy", Status.absent, changed=0),
+    Step("check", Status.absent, changed=0),
+)
+
+
+def test_noop():
+    manifest = YamlManifest(manifestNoOpContent)
+    list(lifecycle(manifest, STEPS))

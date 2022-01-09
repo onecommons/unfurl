@@ -71,7 +71,9 @@ class Reason:
     pass
 
 
-for r in "add reconfigure force upgrade update missing error degraded prune".split():
+for (
+    r
+) in "add reconfigure force upgrade update missing error degraded prune run".split():
     setattr(Reason, r, r)
 
 

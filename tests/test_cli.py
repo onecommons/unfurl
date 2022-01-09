@@ -22,38 +22,47 @@ environment:
       prop2:
        type: number
 spec:
-  node_templates:
-    test:
-      type: tosca.nodes.Root
-      properties:
-        local1:
-          eval:
-            local: prop1
-        local2:
-          eval:
-            external: local
-          select: prop2
-        testApikey:
-          eval:
-           secret: testApikey
-        # uses jinja2 native types to evaluate to a list
-        aListOfItems:
-            eval:
-              template: >
-                [{% for key, value in aLocalDict.items() %}
-                  {
-                    'key': '{{ key }}',
-                    'value': '{{ value | b64encode }}'
-                  },
-                {% endfor %}]
-            vars:
-              aLocalDict:
+  instances:
+    no_op:
+      template:
+        type: tosca.nodes.Root
+      readyState:
+        local: pending
+
+  service_template:
+    topology_template:
+      node_templates:
+        test:
+          type: tosca.nodes.Root
+          properties:
+            local1:
+              eval:
+                local: prop1
+            local2:
+              eval:
+                external: local
+              select: prop2
+            testApikey:
+              eval:
+               secret: testApikey
+            # uses jinja2 native types to evaluate to a list
+            aListOfItems:
                 eval:
-                  secret: aDict
-            # trace: 1
-      interfaces:
-        Standard:
-          create: test_cli.CliTestConfigurator
+                  template: >
+                    [{% for key, value in aLocalDict.items() %}
+                      {
+                        'key': '{{ key }}',
+                        'value': '{{ value | b64encode }}'
+                      },
+                    {% endfor %}]
+                vars:
+                  aLocalDict:
+                    eval:
+                      secret: aDict
+                # trace: 1
+          interfaces:
+            Standard:
+              create: tests.test_cli.CliTestConfigurator
 """
 
 localConfig = """
@@ -111,7 +120,7 @@ class CliTestConfigurator(Configurator):
         assert isinstance(
             attrs._attributes["aListOfItems"].as_ref(), sensitive_list
         ), type(attrs._attributes["aListOfItems"].as_ref())
-
+        CliTestConfigurator.test_finished = 1
         yield task.done(True, False)
 
 
@@ -356,6 +365,7 @@ spec:
                 traceback.format_exception(*result.exc_info)
             )
             self.assertEqual(result.exit_code, 0, result.output)
+            assert CliTestConfigurator.test_finished == 1
 
     @unittest.skipIf(
         "slow" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set"
