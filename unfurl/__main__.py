@@ -165,6 +165,7 @@ readonlyJobControlOptions = option_group(
 jobControlOptions = option_group(
     readonlyJobControlOptions,
     click.option(
+        "-a",
         "--approve",
         envvar="UNFURL_APPROVE",
         default=False,
