@@ -14,6 +14,7 @@ import re
 from toscaparser.properties import Property
 from toscaparser.elements.constraints import Schema
 from toscaparser.elements.property_definition import PropertyDef
+from toscaparser.elements.nodetype import NodeType
 from toscaparser.common.exception import ExceptionCollector
 
 from toscaparser.elements.datatype import DataType
@@ -92,12 +93,12 @@ VALUE_TYPES.update(
 )
 
 
-def tosca_type_to_jsonschema(dt, spec):
+def tosca_type_to_jsonschema(dt, spec, propdefs):
     jsonschema = dict(
         type="object",
         properties={
             p.name: tosca_schema_to_jsonschema(p, spec)
-            for p in dt.get_properties_def_objects()
+            for p in propdefs
         },
     )
     # add typeid:
@@ -148,7 +149,7 @@ def tosca_schema_to_jsonschema(p, spec, omitComputed=True):
             if valuetype_schema.constraints:  # merge constraints
                 constraints = valuetype_schema.constraints + constraints
         else:  # it's complex type with properties:
-            type_schema = tosca_type_to_jsonschema(dt, spec)
+            type_schema = tosca_type_to_jsonschema(dt, spec, dt.get_properties_def_objects())
     if tosca_type not in ONE_TO_ONE_TYPES and "properties" not in schema:
         schema["$toscatype"] = tosca_type
     schema.update(type_schema)
@@ -231,8 +232,10 @@ def _get_interfaces(spec, typedef, implements: list, types):
     if typedef.type not in implements:
         implements.append(name)
     if types is not None and name not in types:
+        types[name] = {}
         types[name] = node_type_to_graphql(spec, typedef, types)
-    return _get_interfaces(spec, typedef.parent_type, implements, types)
+    for p in typedef.parent_types():
+        _get_interfaces(spec, p, implements, types)
 
 
 # XXX outputs: only include "public" attributes?
@@ -263,7 +266,7 @@ def node_type_to_graphql(spec, type_definition, types: dict):
 
     implements = []
     # add ancestors classes to implements
-    _get_interfaces(spec, type_definition.parent_type, implements, types)
+    _get_interfaces(spec, type_definition, implements, types)
     # add capabilities types to implements
     for cap in type_definition.get_capability_typedefs():
         _get_interfaces(spec, cap, implements, None)
@@ -281,6 +284,9 @@ def node_type_to_graphql(spec, type_definition, types: dict):
         spec, type_definition.get_attributes_def_objects()
     )
 
+    # XXX capabilities can hava attributes too
+    add_capabilities_as_attributes(jsontype["outputs"], type_definition, spec)
+
     jsontype["requirements"] = [
         requirement_to_graphql(spec, req)
         for req in (type_definition.get_all_requirements() or ())
@@ -293,10 +299,22 @@ def node_type_to_graphql(spec, type_definition, types: dict):
 def to_graphql_nodetypes(spec):
     # node types are readonly, so mapping doesn't need to be bijective
     types = {}
+    custom_defs = spec.template.topology_template.custom_defs
+    for typename, defs in custom_defs.items():
+        for key in defs:
+            # hacky way to avoid validation exception if type isn't a node type
+            if key not in NodeType.SECTIONS:
+                break
+        else:
+            typedef = NodeType(typename, custom_defs)
+            if typedef.is_derived_from('tosca.nodes.Root'):
+                types[typename] = node_type_to_graphql(spec, typedef, types)
+
     for toscaNodeTemplate in spec.template.topology_template.nodetemplates:
         type_definition = toscaNodeTemplate.type_definition
         typename = type_definition.type
         if typename not in types:
+            types[typename] = {} # set now to avoid circular references
             types[typename] = node_type_to_graphql(spec, type_definition, types)
     return types
 
@@ -350,7 +368,16 @@ def add_capabilities_as_properties(props, nodetype, spec):
     for cap in nodetype.get_capability_typedefs():
         if not cap.get_definition("properties"):
             continue
-        schema = tosca_type_to_jsonschema(cap, spec)
+        schema = tosca_type_to_jsonschema(cap, spec, cap.get_properties_def_objects())
+        schema["title"] = cap.name
+        props.append(schema)
+
+def add_capabilities_as_attributes(props, nodetype, spec):
+    """treat each capability as a property and add them to props"""
+    for cap in nodetype.get_capability_typedefs():
+        if not cap.get_definition("attributes"):
+            continue
+        schema = tosca_type_to_jsonschema(cap, spec, cap.get_attributes_def_objects())
         schema["title"] = cap.name
         props.append(schema)
 
