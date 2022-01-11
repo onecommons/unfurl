@@ -526,8 +526,11 @@ def to_graphql_deployment_template(manifest, db):
         description=spec.template.description,
     )
     # XXX cloud = spec.topology.primary_provider
-    # XXX substitution_template
-    root = list(spec.template.topology_template.nodetemplates)[0]
+    topology = spec.template.topology_template
+    if topology.substitution_mappings and topology.substitution_mappings.node:
+        root = topology.node_templates[topology.substitution_mappings.node]
+    else:
+        root = list(topology.nodetemplates)[0]
     blueprint = to_graphql_blueprint(root.type, spec, [title])
     template["blueprint"] = blueprint["name"]
     template["primary"] = root.name
@@ -551,13 +554,13 @@ def to_graphql(manifest):
     db["DeploymentTemplate"] = {dtemplate["title"]: dtemplate}
     db["ApplicationBlueprint"] = {blueprint["name"]: blueprint}
     db["Overview"] = spec.template.tpl.get("metadata") or {}
-    add_graphql_deployment(manifest, db)
+    add_graphql_deployment(manifest, db, dtemplate)
     # don't include base node type:
     db["ResourceType"].pop("tosca.nodes.Root")
     return db
 
 
-def add_graphql_deployment(manifest, db):
+def add_graphql_deployment(manifest, db, dtemplate):
     """
     type Deployment {
       title: String!
@@ -578,6 +581,7 @@ def add_graphql_deployment(manifest, db):
         if instance is not manifest.rootResource
     ]
     db["Resource"] = {r["name"]: r for r in deployment["resources"]}
+    deployment["primary"] = dtemplate['primary']
     db["Deployment"] = {title: deployment}
     return db
 
