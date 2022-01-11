@@ -12,7 +12,11 @@ imports:
 
 node_types:
   unfurl.nodes.GoogleCloudObject:
-    derived_from: tosca.nodes.Root
+    derived_from: unfurl.nodes.CloudObject
+    requirements:
+      - cloud:
+          node: unfurl.nodes.GoogleCloudProject
+          relationship: unfurl.relationships.ConnectsTo.GoogleCloudProject
 
   unfurl.nodes.GoogleCloudProject:
     derived_from: unfurl.nodes.CloudAccount

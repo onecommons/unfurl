@@ -43,18 +43,47 @@ node_types:
 
   unfurl.nodes.Repository:
     derived_from: tosca.nodes.Root
+    description: >
+      Reification of a TOSCA repository. Artifacts listed in the "artifacts" section
+      of this node template will able available in the repository.
+    properties:
+      repository:
+        description: The name of the repository this node instance represent.
+        type: string
+        required: false
+      url:
+        description: The url of this repository
+        type: string
+        required: false
+      credential:
+        description: >
+            The credential, if present, of the repository this node instance represents.
+        type: tosca.datatypes.Credential
+        required: false
+        metadata:
+          sensitive: true
 
   unfurl.nodes.LocalRepository:
     derived_from: unfurl.nodes.Repository
+    description: >
+      Represents the collection of artifacts available to the local operation host.
+
+  unfurl.nodes.ArtifactBuilder:
+    derived_from: tosca.nodes.Root
+    description: >
+      Creates or builds the given artifact and "uploads" it to the artifact's repository.
 
   unfurl.nodes.ArtifactInstaller:
     derived_from: tosca.nodes.Root
-    description: Node templates of this type are "discovered" when artifacts need to be installed on an operation_host
+    description: >
+      Reification of an artifact that needs to be installed.
+      Node templates of this type are "discovered" when artifacts need to be installed on an operation_host.
     artifacts:
       install:
         type: tosca.artifacts.Root
     interfaces:
       defaults:
+        # delegate operations to the associated artifact
         implementation:
           className: unfurl.configurators.DelegateConfigurator
         inputs:
@@ -72,7 +101,6 @@ node_types:
       Install:
         operations:
           check:
-
 
   unfurl.nodes.Installer:
     derived_from: tosca.nodes.Root
@@ -99,6 +127,45 @@ node_types:
       account_id:
         description: "Cloud provider specific account identifier"
         type: string
+
+  unfurl.nodes.CloudObject:
+    derived_from: tosca.nodes.Root
+    attributes:
+      uri:
+        description: "Unique identifier"
+        type: string
+      name:
+        description: "Human-friendly name of the resource"
+        type: string
+      console_url:
+        description: "URL for viewing this resource in its cloud provider's console"
+        type: string
+        required: False
+    requirements:
+      - cloud:
+          node: unfurl.nodes.CloudAccount
+          relationship: unfurl.relationships.ConnectsTo.CloudAccount
+          occurrences: [0, 1] # make optional so we aren't forced to always explicitly declare this
+
+  unfurl.nodes.AWSAccount:
+    derived_from: unfurl.nodes.CloudAccount
+
+  unfurl.nodes.AWSResource:
+    derived_from: unfurl.nodes.CloudObject
+    requirements:
+      - cloud:
+          node: unfurl.nodes.AWSAccount
+          relationship: unfurl.relationships.ConnectsTo.AWSAccount
+
+  unfurl.nodes.AzureAccount:
+    derived_from: unfurl.nodes.CloudAccount
+
+  unfurl.nodes.AWSResource:
+    derived_from: unfurl.nodes.CloudObject
+    requirements:
+      - cloud:
+          node: unfurl.nodes.AzureAccount
+          relationship: unfurl.relationships.ConnectsTo.Azure
 
 data_types:
   unfurl.datatypes.EnvVar:
