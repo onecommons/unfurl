@@ -1178,18 +1178,47 @@ group_types:
 
   <span class="n">unfurl</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">Repository</span><span class="p">:</span>
     <span class="n">derived_from</span><span class="p">:</span> <span class="n">tosca</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">Root</span>
+    <span class="n">description</span><span class="p">:</span> <span class="o">&gt;</span>
+      <span class="n">Reification</span> <span class="n">of</span> <span class="n">a</span> <span class="n">TOSCA</span> <span class="n">repository</span><span class="o">.</span> <span class="n">Artifacts</span> <span class="n">listed</span> <span class="ow">in</span> <span class="n">the</span> <span class="s2">&quot;artifacts&quot;</span> <span class="n">section</span>
+      <span class="n">of</span> <span class="n">this</span> <span class="n">node</span> <span class="n">template</span> <span class="n">will</span> <span class="n">able</span> <span class="n">available</span> <span class="ow">in</span> <span class="n">the</span> <span class="n">repository</span><span class="o">.</span>
+    <span class="n">properties</span><span class="p">:</span>
+      <span class="n">repository</span><span class="p">:</span>
+        <span class="n">description</span><span class="p">:</span> <span class="n">The</span> <span class="n">name</span> <span class="n">of</span> <span class="n">the</span> <span class="n">repository</span> <span class="n">this</span> <span class="n">node</span> <span class="n">instance</span> <span class="n">represent</span><span class="o">.</span>
+        <span class="nb">type</span><span class="p">:</span> <span class="n">string</span>
+        <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
+      <span class="n">url</span><span class="p">:</span>
+        <span class="n">description</span><span class="p">:</span> <span class="n">The</span> <span class="n">url</span> <span class="n">of</span> <span class="n">this</span> <span class="n">repository</span>
+        <span class="nb">type</span><span class="p">:</span> <span class="n">string</span>
+        <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
+      <span class="n">credential</span><span class="p">:</span>
+        <span class="n">description</span><span class="p">:</span> <span class="o">&gt;</span>
+            <span class="n">The</span> <span class="n">credential</span><span class="p">,</span> <span class="k">if</span> <span class="n">present</span><span class="p">,</span> <span class="n">of</span> <span class="n">the</span> <span class="n">repository</span> <span class="n">this</span> <span class="n">node</span> <span class="n">instance</span> <span class="n">represents</span><span class="o">.</span>
+        <span class="nb">type</span><span class="p">:</span> <span class="n">tosca</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">Credential</span>
+        <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
+        <span class="n">metadata</span><span class="p">:</span>
+          <span class="n">sensitive</span><span class="p">:</span> <span class="n">true</span>
 
   <span class="n">unfurl</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">LocalRepository</span><span class="p">:</span>
     <span class="n">derived_from</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">Repository</span>
+    <span class="n">description</span><span class="p">:</span> <span class="o">&gt;</span>
+      <span class="n">Represents</span> <span class="n">the</span> <span class="n">collection</span> <span class="n">of</span> <span class="n">artifacts</span> <span class="n">available</span> <span class="n">to</span> <span class="n">the</span> <span class="n">local</span> <span class="n">operation</span> <span class="n">host</span><span class="o">.</span>
+
+  <span class="n">unfurl</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">ArtifactBuilder</span><span class="p">:</span>
+    <span class="n">derived_from</span><span class="p">:</span> <span class="n">tosca</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">Root</span>
+    <span class="n">description</span><span class="p">:</span> <span class="o">&gt;</span>
+      <span class="n">Creates</span> <span class="ow">or</span> <span class="n">builds</span> <span class="n">the</span> <span class="n">given</span> <span class="n">artifact</span> <span class="ow">and</span> <span class="s2">&quot;uploads&quot;</span> <span class="n">it</span> <span class="n">to</span> <span class="n">the</span> <span class="n">artifact</span><span class="s1">&#39;s repository.</span>
 
   <span class="n">unfurl</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">ArtifactInstaller</span><span class="p">:</span>
     <span class="n">derived_from</span><span class="p">:</span> <span class="n">tosca</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">Root</span>
-    <span class="n">description</span><span class="p">:</span> <span class="n">Node</span> <span class="n">templates</span> <span class="n">of</span> <span class="n">this</span> <span class="nb">type</span> <span class="n">are</span> <span class="s2">&quot;discovered&quot;</span> <span class="n">when</span> <span class="n">artifacts</span> <span class="n">need</span> <span class="n">to</span> <span class="n">be</span> <span class="n">installed</span> <span class="n">on</span> <span class="n">an</span> <span class="n">operation_host</span>
+    <span class="n">description</span><span class="p">:</span> <span class="o">&gt;</span>
+      <span class="n">Reification</span> <span class="n">of</span> <span class="n">an</span> <span class="n">artifact</span> <span class="n">that</span> <span class="n">needs</span> <span class="n">to</span> <span class="n">be</span> <span class="n">installed</span><span class="o">.</span>
+      <span class="n">Node</span> <span class="n">templates</span> <span class="n">of</span> <span class="n">this</span> <span class="nb">type</span> <span class="n">are</span> <span class="s2">&quot;discovered&quot;</span> <span class="n">when</span> <span class="n">artifacts</span> <span class="n">need</span> <span class="n">to</span> <span class="n">be</span> <span class="n">installed</span> <span class="n">on</span> <span class="n">an</span> <span class="n">operation_host</span><span class="o">.</span>
     <span class="n">artifacts</span><span class="p">:</span>
       <span class="n">install</span><span class="p">:</span>
         <span class="nb">type</span><span class="p">:</span> <span class="n">tosca</span><span class="o">.</span><span class="n">artifacts</span><span class="o">.</span><span class="n">Root</span>
     <span class="n">interfaces</span><span class="p">:</span>
       <span class="n">defaults</span><span class="p">:</span>
+        <span class="c1"># delegate operations to the associated artifact</span>
         <span class="n">implementation</span><span class="p">:</span>
           <span class="n">className</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">configurators</span><span class="o">.</span><span class="n">DelegateConfigurator</span>
         <span class="n">inputs</span><span class="p">:</span>
@@ -1207,7 +1236,6 @@ group_types:
       <span class="n">Install</span><span class="p">:</span>
         <span class="n">operations</span><span class="p">:</span>
           <span class="n">check</span><span class="p">:</span>
-
 
   <span class="n">unfurl</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">Installer</span><span class="p">:</span>
     <span class="n">derived_from</span><span class="p">:</span> <span class="n">tosca</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">Root</span>
@@ -1234,6 +1262,45 @@ group_types:
       <span class="n">account_id</span><span class="p">:</span>
         <span class="n">description</span><span class="p">:</span> <span class="s2">&quot;Cloud provider specific account identifier&quot;</span>
         <span class="nb">type</span><span class="p">:</span> <span class="n">string</span>
+
+  <span class="n">unfurl</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">CloudObject</span><span class="p">:</span>
+    <span class="n">derived_from</span><span class="p">:</span> <span class="n">tosca</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">Root</span>
+    <span class="n">attributes</span><span class="p">:</span>
+      <span class="n">uri</span><span class="p">:</span>
+        <span class="n">description</span><span class="p">:</span> <span class="s2">&quot;Unique identifier&quot;</span>
+        <span class="nb">type</span><span class="p">:</span> <span class="n">string</span>
+      <span class="n">name</span><span class="p">:</span>
+        <span class="n">description</span><span class="p">:</span> <span class="s2">&quot;Human-friendly name of the resource&quot;</span>
+        <span class="nb">type</span><span class="p">:</span> <span class="n">string</span>
+      <span class="n">console_url</span><span class="p">:</span>
+        <span class="n">description</span><span class="p">:</span> <span class="s2">&quot;URL for viewing this resource in its cloud provider&#39;s console&quot;</span>
+        <span class="nb">type</span><span class="p">:</span> <span class="n">string</span>
+        <span class="n">required</span><span class="p">:</span> <span class="kc">False</span>
+    <span class="n">requirements</span><span class="p">:</span>
+      <span class="o">-</span> <span class="n">cloud</span><span class="p">:</span>
+          <span class="n">node</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">CloudAccount</span>
+          <span class="n">relationship</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">ConnectsTo</span><span class="o">.</span><span class="n">CloudAccount</span>
+          <span class="n">occurrences</span><span class="p">:</span> <span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">]</span> <span class="c1"># make optional so we aren&#39;t forced to always explicitly declare this</span>
+
+  <span class="n">unfurl</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">AWSAccount</span><span class="p">:</span>
+    <span class="n">derived_from</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">CloudAccount</span>
+
+  <span class="n">unfurl</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">AWSResource</span><span class="p">:</span>
+    <span class="n">derived_from</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">CloudObject</span>
+    <span class="n">requirements</span><span class="p">:</span>
+      <span class="o">-</span> <span class="n">cloud</span><span class="p">:</span>
+          <span class="n">node</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">AWSAccount</span>
+          <span class="n">relationship</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">ConnectsTo</span><span class="o">.</span><span class="n">AWSAccount</span>
+
+  <span class="n">unfurl</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">AzureAccount</span><span class="p">:</span>
+    <span class="n">derived_from</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">CloudAccount</span>
+
+  <span class="n">unfurl</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">AWSResource</span><span class="p">:</span>
+    <span class="n">derived_from</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">CloudObject</span>
+    <span class="n">requirements</span><span class="p">:</span>
+      <span class="o">-</span> <span class="n">cloud</span><span class="p">:</span>
+          <span class="n">node</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">AzureAccount</span>
+          <span class="n">relationship</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">ConnectsTo</span><span class="o">.</span><span class="n">Azure</span>
 
 <span class="n">data_types</span><span class="p">:</span>
   <span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvVar</span><span class="p">:</span>
