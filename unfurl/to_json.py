@@ -96,10 +96,7 @@ VALUE_TYPES.update(
 def tosca_type_to_jsonschema(dt, spec, propdefs):
     jsonschema = dict(
         type="object",
-        properties={
-            p.name: tosca_schema_to_jsonschema(p, spec)
-            for p in propdefs
-        },
+        properties={p.name: tosca_schema_to_jsonschema(p, spec) for p in propdefs},
     )
     # add typeid:
     jsonschema["properties"].update({"$toscatype": dict(const=dt.type)})
@@ -149,7 +146,9 @@ def tosca_schema_to_jsonschema(p, spec, omitComputed=True):
             if valuetype_schema.constraints:  # merge constraints
                 constraints = valuetype_schema.constraints + constraints
         else:  # it's complex type with properties:
-            type_schema = tosca_type_to_jsonschema(dt, spec, dt.get_properties_def_objects())
+            type_schema = tosca_type_to_jsonschema(
+                dt, spec, dt.get_properties_def_objects()
+            )
     if tosca_type not in ONE_TO_ONE_TYPES and "properties" not in schema:
         schema["$toscatype"] = tosca_type
     schema.update(type_schema)
@@ -307,22 +306,26 @@ def to_graphql_nodetypes(spec):
                 break
         else:
             typedef = NodeType(typename, custom_defs)
-            if typedef.is_derived_from('tosca.nodes.Root'):
+            if typedef.is_derived_from("tosca.nodes.Root"):
                 types[typename] = node_type_to_graphql(spec, typedef, types)
 
     for toscaNodeTemplate in spec.template.topology_template.nodetemplates:
         type_definition = toscaNodeTemplate.type_definition
         typename = type_definition.type
         if typename not in types:
-            types[typename] = {} # set now to avoid circular references
+            types[typename] = {}  # set now to avoid circular references
             types[typename] = node_type_to_graphql(spec, type_definition, types)
     return types
 
 
 def deduce_valuetype(value):
-    typemap = dict(
-        int="number", float="number", NoneType="null", dict="object", list="array"
-    )
+    typemap = {
+        int: "number",
+        float: "number",
+        type(None): "null",
+        dict: "object",
+        list: "array",
+    }
     for pythontype in typemap:
         if isinstance(value, pythontype):
             return dict(type=typemap[pythontype])
@@ -335,6 +338,14 @@ def is_computed(p):
         or is_function(p.value)
         or is_function(p.default)
     )
+
+
+def deduce_prop(name, value):
+    # additional property not defined in the node type
+    jsonprop = deduce_valuetype(value)
+    jsonprop["title"] = name
+    jsonprop["value"] = value
+    return jsonprop
 
 
 def get_properties(typedefs, props):
@@ -355,11 +366,7 @@ def get_properties(typedefs, props):
     # look at leftover props
     for prop in props.values():
         if not is_computed(prop):
-            # additional property not defined in the node type
-            jsonprop = deduce_valuetype(prop.value)
-            jsonprop["title"] = prop.name
-            jsonprop["value"] = prop.value
-            jsonprops.append(jsonprop)
+            jsonprops.append(deduce_prop(prop.name, prop.value))
     return jsonprops
 
 
@@ -371,6 +378,7 @@ def add_capabilities_as_properties(props, nodetype, spec):
         schema = tosca_type_to_jsonschema(cap, spec, cap.get_properties_def_objects())
         schema["title"] = cap.name
         props.append(schema)
+
 
 def add_capabilities_as_attributes(props, nodetype, spec):
     """treat each capability as a property and add them to props"""
@@ -543,6 +551,81 @@ def to_graphql(manifest):
     db["DeploymentTemplate"] = {dtemplate["title"]: dtemplate}
     db["ApplicationBlueprint"] = {blueprint["name"]: blueprint}
     db["Overview"] = spec.template.tpl.get("metadata") or {}
+    add_graphql_deployment(manifest, db)
     # don't include base node type:
     db["ResourceType"].pop("tosca.nodes.Root")
     return db
+
+
+def add_graphql_deployment(manifest, db):
+    """
+    type Deployment {
+      title: String!
+      primary: Resource
+      resources: [Resource!]
+      job: Job?
+      ready: Boolean
+      deploymentTemplate: DeploymentTemplate!
+      sourceDeploymentTemplateName: String
+    }
+    """
+    title = "unnamed"  # XXX
+    deployment = dict(title=title)
+    # XXX primary
+    deployment["resources"] = [
+        to_graphql_resource(instance, manifest, db)
+        for instance in manifest.rootResource.get_self_and_descendents()
+        if instance is not manifest.rootResource
+    ]
+    db["Resource"] = {r["name"]: r for r in deployment["resources"]}
+    db["Deployment"] = {title: deployment}
+    return db
+
+
+def to_graphql_resource(instance, manifest, db):
+    """
+    type Resource {
+      name: String!
+      title: String!
+      url: String
+      template: ResourceTemplate!
+      status: Status
+      state: State
+      attributes: [Input!]
+      connections: [Requirement!]
+    }
+    """
+    # XXX url
+    resource = dict(
+        name=instance.key,
+        title=instance.name,
+        template=instance.template.name,
+        state=instance.state,
+        status=instance.status,
+    )
+    # only save the attributes that were set by the instance, not spec properties or attribute defaults
+    # _attributes should already be serialized
+    template = db["ResourceTemplate"][instance.template.name]
+    if instance._attributes:
+        inputs = []
+        if template["outputs"]:
+            inputs = [p.copy() for p in template["outputs"]]
+        attributes = instance._attributes.copy()
+        for prop in inputs:
+            name = prop["title"]
+            if name in attributes:
+                prop["value"] = attributes.pop(name)
+        for name, value in attributes.items():  # left over
+            inputs.append(deduce_prop(name, value))
+        resource["attributes"] = inputs
+    else:
+        resource["attributes"] = []
+
+    if template["requirements"]:
+        requirements = {r["name"]: r.copy() for r in template["requirements"]}
+        for rel in instance.requirements:
+            requirements[rel.name]["target"] = rel.target.key
+        resource["connections"] = list(requirements.values())
+    else:
+        resource["connections"] = []
+    return resource

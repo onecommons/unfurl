@@ -474,9 +474,10 @@ class CapabilityInstance(EntityInstance):
                     )
                     assert rel in self._relationships
                     # find the node instance that uses this requirement
-                    sourceNode = self.root.find_resource(template.source.name)
-                    if sourceNode:
-                        rel.source = sourceNode
+                    if template.source:
+                        sourceNode = self.root.find_resource(template.source.name)
+                        if sourceNode:
+                            rel.source = sourceNode
 
         return self._relationships
 
