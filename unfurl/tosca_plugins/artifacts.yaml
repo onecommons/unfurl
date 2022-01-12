@@ -48,12 +48,13 @@ artifact_types:
         create: pipenv --bare install {{SELF.file}}
         delete: pipenv --bare remove {{SELF.file}}
 
-  unfurl.artifacts.TerraformModule:
-    derived_from: unfurl.artifacts.HasConfigurator
-    interfaces:
-      className:
-        type: string
-        default: unfurl.configurators.terraform.TerraformConfigurator
+  # XXX update TerraformConfigurator to read from artifact
+  # unfurl.artifacts.TerraformModule:
+  #   derived_from: unfurl.artifacts.HasConfigurator
+  #   interfaces:
+  #     className:
+  #       type: string
+  #       default: unfurl.configurators.terraform.TerraformConfigurator
 
 node_types:
   unfurl.nodes.Installer.Terraform:
@@ -103,4 +104,4 @@ topology_template:
           type: artifact.AsdfTool
           file: gcloud
           properties:
-            version: 365.0.1
+            version: 368.0.0
