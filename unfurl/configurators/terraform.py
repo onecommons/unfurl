@@ -1,6 +1,6 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
-from ..util import save_to_file, UnfurlTaskError, wrap_var
+from ..util import save_to_file, UnfurlTaskError, wrap_var, which
 from .shell import ShellConfigurator
 from ..support import Status
 from ..result import Result
@@ -122,6 +122,16 @@ class TerraformConfigurator(ShellConfigurator):
         "private_key",
         "server_ca_cert",
     ]
+
+    @classmethod
+    def set_config_spec_args(klass, kw: dict, target):
+        if not which("terraform"):
+            artifact = target.template.find_or_create_artifact(
+                "terraform", predefined=True
+            )
+            if artifact:
+                kw["dependencies"].append(artifact)
+        return kw
 
     def can_dry_run(self, task):
         return True

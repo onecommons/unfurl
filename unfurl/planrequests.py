@@ -688,7 +688,10 @@ def create_task_request(
         return filter_task_request(jobOptions, req)
 
 
-def _set_default_command(kw, implementation, inputs):
+def set_default_command(kw, implementation):
+    inputs = kw["inputs"]
+    if not implementation:
+        implementation = inputs.get("cmd")
     # is it a shell script or a command line?
     shell = inputs.get("shell")
     if shell is None:
@@ -718,31 +721,42 @@ def _set_default_command(kw, implementation, inputs):
     if inputs:
         shellArgs.update(inputs)
     kw["inputs"] = shellArgs
+    return kw
 
 
-def _set_classname(kw, artifact, inputs):
-    if not artifact:  # malformed implementation
+def _set_config_spec_args(kw, target):
+    # if no artifact or className, an error
+    artifact = kw["primary"]
+    className = kw.get("className")
+    if not className and not artifact:  # malformed implementation
         return None
-    implementation = artifact.file
-    className = artifact.properties.get("className")
-    if className:
-        kw["className"] = className
-        return kw
+    guessing = False
+    if not className:
+        className = artifact.properties.get("className")
+        if not className:
+            className = artifact.file
+            guessing = className
 
-    # see if implementation looks like a python class
-    if "#" in implementation and len(shlex.split(implementation)) == 1:
+    # load the configurator class
+    if "#" in className and len(shlex.split(className)) == 1:
         path, fragment = artifact.get_path_and_fragment()
         mod = load_module(path)
-        kw["className"] = mod.__name__ + "." + fragment
-        return kw
-    elif lookup_class(implementation):
-        kw["className"] = implementation
-        return kw
+        klass = getattr(mod, fragment)  # raise if missing
+    else:
+        klass = lookup_class(className)
 
-    # otherwise assume it's a shell command line
-    logger.debug("interpreting 'implementation' as a shell command: %s", implementation)
-    _set_default_command(kw, implementation, inputs)
-    return kw
+    # invoke configurator classmethod to give configurator a chance to customize configspec (e.g. add dependencies)
+    if klass:
+        kw["className"] = f"{klass.__module__}.{klass.__name__}"
+        return klass.set_config_spec_args(kw, target)
+    elif guessing:
+        # otherwise assume it's a shell command line
+        logger.debug("interpreting 'implementation' as a shell command: %s", guessing)
+        return set_default_command(kw, guessing)
+    else:
+        # error couldn't resolve className
+        logger.warning("could not find configurator class: %s", className)
+        return None
 
 
 def _get_config_spec_args_from_implementation(iDef, inputs, target, operation_host):
@@ -751,6 +765,7 @@ def _get_config_spec_args_from_implementation(iDef, inputs, target, operation_ho
     configSpecArgs = ConfigurationSpec.getDefaults()
     artifactTpl = None
     dependencies = None
+    predefined = False
     if isinstance(implementation, dict):
         # operation_instance = find_operation_host(
         #     target, implementation.get("operation_host") or operation_host
@@ -758,6 +773,7 @@ def _get_config_spec_args_from_implementation(iDef, inputs, target, operation_ho
         for name, value in implementation.items():
             if name == "primary":
                 artifactTpl = value
+                predefined = True
             elif name == "dependencies":
                 dependencies = value
             elif name in configSpecArgs:
@@ -773,17 +789,19 @@ def _get_config_spec_args_from_implementation(iDef, inputs, target, operation_ho
     #     operation_instance = operation_instance or target.root
     base_dir = getattr(iDef.value, "base_dir", iDef._source)
     if artifactTpl:
-        artifact = target.template.find_or_create_artifact(artifactTpl, base_dir)
+        artifact = target.template.find_or_create_artifact(
+            artifactTpl, base_dir, predefined
+        )
     else:
         artifact = None
     kw["primary"] = artifact
 
     if dependencies:
         kw["dependencies"] = [
-            target.template.find_or_create_artifact(artifactTpl, base_dir)
+            target.template.find_or_create_artifact(artifactTpl, base_dir, True)
             for artifactTpl in dependencies
         ]
+    else:
+        kw["dependencies"] = []
 
-    if "className" not in kw:
-        return _set_classname(kw, artifact, inputs)
-    return kw
+    return _set_config_spec_args(kw, target)

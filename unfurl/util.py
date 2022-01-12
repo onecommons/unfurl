@@ -241,6 +241,8 @@ def load_class(klass, defaultModule="__main__"):
 
 _shortNameRegistry = {}
 
+def check_class_registry(kind):
+    return kind in _ClassRegistry or  kind in _shortNameRegistry
 
 def lookup_class(kind, apiVersion=None, default=None):
     if kind in _ClassRegistry:

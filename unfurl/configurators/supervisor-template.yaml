@@ -39,6 +39,11 @@ node_types:
     capabilities:
       host:
         type: tosca.capabilities.Compute
+    # XXX
+    # artifacts:
+    #     supervisorPackage:
+    #       type: artifact.PythonPackage
+    #       file: supervisor
     interfaces:
       Install:
         check: test -f '{{ SELF.homeDir }}/supervisord.pid' && ps -p `cat '{{ SELF.homeDir }}/supervisord.pid'`
@@ -51,11 +56,8 @@ node_types:
       Standard:
         create:
           implementation:
-            primary: unfurl.configurators.TemplateConfigurator
-            # XXX
-            # dependencies:
-            #   -   file: supervisor
-            #       type: unfurl.artifacts.PythonPackage
+            primary: Template
+            # XXX dependencies: supervisorPackage
           inputs:
             run:
               eval:

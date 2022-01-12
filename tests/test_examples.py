@@ -26,7 +26,8 @@ class HelmConfigurator(Configurator):
         assert subtaskRequest
         assert (
             subtaskRequest.configSpec
-            and subtaskRequest.configSpec.className == "DummyShell"
+            and subtaskRequest.configSpec.className
+            == "tests.test_examples.DummyShellConfigurator"
         ), subtaskRequest.configSpec.className
         subtask = yield subtaskRequest
         assert subtask.inputs["helmcmd"] == "install"

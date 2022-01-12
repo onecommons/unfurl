@@ -6,7 +6,7 @@ TOSCA implementation
 import functools
 import copy
 from .tosca_plugins import TOSCA_VERSION
-from .util import UnfurlError, UnfurlValidationError, get_base_dir
+from .util import UnfurlError, UnfurlValidationError, get_base_dir, check_class_registry
 from .eval import Ref, RefContext, map_value
 from .result import ResourceRef, ResultsList
 from .merge import patch_dict, merge_dicts
@@ -199,12 +199,7 @@ class ToscaSpec:
         }
 
     def __init__(
-        self,
-        toscaDef,
-        spec=None,
-        path=None,
-        resolver=None,
-        skip_validation=False
+        self, toscaDef, spec=None, path=None, resolver=None, skip_validation=False
     ):
         self.discovered = None
         if spec:
@@ -653,7 +648,7 @@ class EntitySpec(ResourceRef):
         else:
             return name
 
-    def find_or_create_artifact(self, nameOrTpl, path=None):
+    def find_or_create_artifact(self, nameOrTpl, path=None, predefined=False):
         if not nameOrTpl:
             return None
         if isinstance(nameOrTpl, six.string_types):
@@ -684,7 +679,11 @@ class EntitySpec(ResourceRef):
                     tpl["repository"] = localStore.name
                     break
             else:
-                # name not found, assume it's a file path or URL
+                if predefined and not check_class_registry(name):
+                    logger.warning(f"no artifact named {name} found")
+                    return None
+
+                # otherwise name not found, assume it's a file path or URL
                 tpl = dict(file=name)
         else:
             # see if this is declared in a repository node template with the same name

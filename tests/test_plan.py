@@ -73,9 +73,10 @@ def test_plan():
         finally:
             if old_env_level:
                 os.environ["UNFURL_LOGGING"] = old_env_level
-        print(result.output)
         # print(job.manifest.status_summary())
-        plan = json.loads(result.output.strip())
+        planoutput = result.output.strip()
+        assert planoutput
+        plan = json.loads(planoutput)
         # print(plan)
         assert plan[0]["instance"] == "dev_gcp_project"
         folder = plan[0]["plan"][0]["sequence"][0]["rendered"]["tasks"]

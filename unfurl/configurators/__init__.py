@@ -4,6 +4,7 @@ from ..configurator import Configurator
 from ..result import ResultsMap
 from ..util import register_short_names
 from ..support import Status
+from ..planrequests import set_default_command
 import importlib
 
 # need to define these now because these configurators are lazily imported
@@ -14,6 +15,12 @@ register_short_names(
         for name in "Ansible Shell Supervisor Terraform DNS".split()
     }
 )
+
+
+class CmdConfigurator(Configurator):
+    @classmethod
+    def set_config_spec_args(klass, kw: dict, target):
+        return set_default_command(kw, "")
 
 
 class PythonPackageCheckConfigurator(Configurator):

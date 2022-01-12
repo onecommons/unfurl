@@ -112,6 +112,10 @@ class Configurator:
 
     exclude_from_digest = ()
 
+    @classmethod
+    def set_config_spec_args(klass, kw: dict, target):
+        return kw
+
     def __init__(self, configurationSpec):
         self.configSpec = configurationSpec
 

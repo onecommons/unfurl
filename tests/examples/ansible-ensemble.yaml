@@ -24,8 +24,10 @@ spec:
             Standard:
               configure:
                 implementation:
-                  primary: echo bar
+                  primary: Cmd
                   operation_host: staging.example.com
+                inputs:
+                  cmd: echo bar
 
         www.example.com: *example-with-endpoint
         # place this after test_remote to verify operation_host is ordered first:
