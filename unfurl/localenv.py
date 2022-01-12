@@ -964,7 +964,8 @@ class LocalEnv:
         # git-local repos must already exist
         if not repo and not repoURL.startswith("git-local://"):
             project = self.project or self.homeProject
-            assert project
+            if not project:
+                return None, None, None
             while project:
                 if basepath is None or self.project.is_path_in_project(basepath):
                     repo = project.create_working_dir(repoURL, revision)

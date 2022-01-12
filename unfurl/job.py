@@ -1162,7 +1162,7 @@ class Job(ConfigChange):
         """
         summary = []
         for (m, requests) in self.external_requests:
-            summary.extend(self._job_request_summary(requests, m, include_rendered))
+            summary.extend(self._job_request_summary(requests, m))
         self._list_plan_summary(self.plan_requests, None, summary, include_rendered)
         if not pretty:
             return summary
