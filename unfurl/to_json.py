@@ -463,7 +463,7 @@ def nodetemplate_to_json(nodetemplate, spec, db):
             reqconstraint = _find_requirement_constraint(
                 jsonnodetype["requirements"], name
             )
-            reqjson = dict(constaint=reqconstraint, name=name, __typename="Requirement")
+            reqjson = dict(constraint=reqconstraint, name=name, __typename="Requirement")
             if rel_template and rel_template.target:
                 reqjson["match"] = rel_template.target.name
             else:

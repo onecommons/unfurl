@@ -74,6 +74,14 @@ node_types:
         operations:
           delete:
           configure:
+            inputs:
+              resultTemplate: |
+                {%if outputs | default("") %}
+                # merge all outputs into attributes
+                attributes:
+                  <<: {{ outputs | mapValue | to_json }}
+                {% endif %}
+
       Install:
         operations:
           check:

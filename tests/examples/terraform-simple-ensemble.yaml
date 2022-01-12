@@ -51,12 +51,3 @@ spec:
                   output "tag" {
                     value = "Hello, ${var.tag}!"
                   }
-
-            Standard:
-              operations:
-                configure:
-                  inputs:
-                    resultTemplate: |
-                      # merge all outputs into attributes
-                      attributes:
-                        <<: {{ outputs | mapValue | to_json }}

@@ -160,7 +160,7 @@ node_types:
   unfurl.nodes.AzureAccount:
     derived_from: unfurl.nodes.CloudAccount
 
-  unfurl.nodes.AWSResource:
+  unfurl.nodes.AzureResource:
     derived_from: unfurl.nodes.CloudObject
     requirements:
       - cloud:
