@@ -160,4 +160,4 @@ Unfurl is in early stages of development and should not be used in production. I
 
 ## Get Started
 
-Check out the rest of Unfurl's documentation [here](https://docs.unfurl.run/get-started-step-by-step.html)
+Check out the rest of Unfurl's documentation [here](https://docs.unfurl.run/quickstart.html)
