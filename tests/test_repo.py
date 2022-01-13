@@ -272,7 +272,7 @@ ensemble.yaml
                     "./unfurl_home",
                     "init",
                     "--mono",
-                    "--template=aws",
+                    "--skeleton=aws",
                 ],
             )
             # uncomment this to see output:

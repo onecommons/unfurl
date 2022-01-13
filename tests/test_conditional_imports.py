@@ -35,7 +35,7 @@ def test_conditional_imports():
     with cli_runner.isolated_filesystem():
         init_project(
             cli_runner,
-            args=["init", "--mono", "--template=aws"],
+            args=["init", "--mono", "--skeleton=aws"],
             env=dict(UNFURL_HOME=""),
         )
         with open("ensemble-template.yaml", "w") as f:

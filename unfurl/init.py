@@ -397,7 +397,7 @@ def create_project(
     mono=False,
     existing=False,
     empty=False,
-    template=None,
+    skeleton=None,
     creating_home=False,
     **kw,
 ):
@@ -449,7 +449,7 @@ def create_project(
         repo,
         not empty and ensembleRepo,
         homePath,
-        template,
+        skeleton,
         names,
         create_context or use_context,
         mono,

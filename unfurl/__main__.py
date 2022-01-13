@@ -652,9 +652,9 @@ def plan(ctx, ensemble=None, **options):
     "--empty", default=False, is_flag=True, help="Don't create a default ensemble."
 )
 @click.option(
-    "--template",
+    "--skeleton",
     type=click.Path(exists=False),
-    help="Absolute path to a directory of project templates.",
+    help="Absolute path to a directory of project skeleton templates.",
 )
 @click.option(
     "--create-environment",
