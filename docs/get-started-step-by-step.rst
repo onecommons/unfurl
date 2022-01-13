@@ -5,9 +5,7 @@ Getting Started
 Once you've installed `Unfurl`, you are ready to configure it and create your first Unfurl project.
 
 .. tip::
-  Before diving in, it is recommended that you read this high-level overview of :ref:`How It Works<how_it_works>` section.
-
-.. `How it works`_.
+  Before diving in, it is recommended that you read this high-level overview of `How it works`_ section.
 
 
 .. _configure:
