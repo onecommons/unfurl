@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://unfurl.run/docs/_images/unfurl_logo.svg" width="400px">
+  <img src="https://docs.unfurl.run/_images/unfurl_logo.svg" width="400px">
 </p>
 
 <p align="center">
@@ -17,26 +17,24 @@ Unfurl can integrate with the DevOps tools you are already using -- like Terrafo
 The ultimate goal of Unfurl is enable anyone to clone, fork, and deploy live cloud services as easily as cloning and building code from git. So that we can have:
 
 * Fully-functional and reproducible archives of web applications.
-* Location independence to decentralized cloud infrastructure.
+* Location independence to decentralize cloud infrastructure.
 * Cooperatively build and run cloud services the same way we build open source software.
 
 ## How it works
 
 1\. Use `unfurl init` to create an Unfurl-managed git repository. Or use `unfurl clone` to clone an existing one.
 
-2\. The repository will contain a few YAML files that you can edit. They describe everything you'll need to deploy your application, such as: 
+2\. The repository will contain a few YAML files that you can edit. They will describe everything you'll need to deploy your application, such as: 
 * Cloud provider and SaaS services account credentials and other secrets organized into environments.
 * Code repositories and container image registries.
-* A high-level model of your cloud infrastructure and their dependencies such as compute, instances, database using the [TOSCA](https://www.oasis-open.org/committees/tc_home.php?wg_abbrev=tosca) standard.
+* A high-level model of your cloud infrastructure and their dependencies such as compute instances and databases, described using the [TOSCA](https://www.oasis-open.org/committees/tc_home.php?wg_abbrev=tosca) standard.
 * Operations that invoke Terraform, Ansible, or other command-line tools (which Unfurl can automatically install).
 
 3\. Use `unfurl deploy` to deploy the infrastructure. Unfurl will generate a plan based on your target environment and high-level model and choose the correct operations to call. It will commit to git the latest configuration and a history of changes to your cloud accounts. 
 
 4\. Now you have a reproducible description of your cloud infrastructure stored in git! So you can:
-* Push to repository to git service such as Github or Gitlab to share it. For access control, each environment can be stored as separate git submodules or branches.
+* Push your repository to a git service such as Github or Gitlab to share it. For access control, each environment can be stored as separate git submodules or branches.
 * Pull incoming changes and review and approve pull requests before deploying.
-* Integrate with the CI/CD of your choice using the Unfurl container image.
-* Merge in services from other Unfurl repositories.
 * Clone the repository and deploy to new environments even if they use different services -- because is your model is adaptable, manual changes are minimized.
 
 ## Features
@@ -55,14 +53,14 @@ Simple, stand-alone CLI that can be used both in your local development environm
 
 ### Integrates with the DevOps tools you are already using
 - Includes out-of-the box support for:
-    - [Terraform](https://unfurl.run/docs/configurators.html#terraform)
-    - [Ansible](https://unfurl.run/docs/configurators.html#ansible)
-    - [shell](https://unfurl.run/docs/configurators.html#shell)
-    - [Helm](https://unfurl.run/docs/configurators.html#helm)
-    - [Octodns](https://unfurl.run/docs/configurators.html#dns)
-    - [Kubernetes](https://unfurl.run/docs/configurators.html#kubernetes)
-    - [Docker](https://unfurl.run/docs/configurators.html#docker)
-    - [Supervisor](https://unfurl.run/docs/configurators.html#supervisor)
+    - [Terraform](https://docs.unfurl.run/configurators.html#terraform)
+    - [Ansible](https://docs.unfurl.run/configurators.html#ansible)
+    - [shell](https://docs.unfurl.run/configurators.html#shell)
+    - [Helm](https://docs.unfurl.run/configurators.html#helm)
+    - [Octodns](https://docs.unfurl.run/configurators.html#dns)
+    - [Kubernetes](https://docs.unfurl.run/configurators.html#kubernetes)
+    - [Docker](https://docs.unfurl.run/configurators.html#docker)
+    - [Supervisor](https://docs.unfurl.run/configurators.html#supervisor)
 - Plugin interface for adding your own.
 - API for dynamic configuration enables full control over plan generation.
 
@@ -157,9 +155,9 @@ Unfurl is in early stages of development and should not be used in production. I
 
 * Only clone and deploy trusted repositories and projects. The docker runtime is not configured to provide isolation so you should assume any project may contain executable code that can gain full access to your system.
 * Locking to prevent multiple instances of Unfurl from modifying the same resources at the same time currently only works with instances accessing the same local copy of an ensemble.
-* Incremental updates are only partially implemented. You can incrementally update an ensemble by explicitly limiting jobs with the `--force` and `--instance` [command line options](https://unfurl.run/docs/cli.html#unfurl-deploy).
+* Incremental updates are only partially implemented. You can incrementally update an ensemble by explicitly limiting jobs with the `--force` and `--instance` [command line options](https://docs.unfurl.run/cli.html#unfurl-deploy).
 * Google Cloud SDK [doesn't yet work](https://issuetracker.google.com/issues/202172882?pli=1) with Python 3.10.
 
 ## Get Started
 
-Check out the rest of Unfurl's documentation [here](https://unfurl.run/docs/get-started-step-by-step.html)
+Check out the rest of Unfurl's documentation [here](https://docs.unfurl.run/quickstart.html)

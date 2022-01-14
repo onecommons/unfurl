@@ -10,7 +10,23 @@ if a configurator name isn't found it is treated as an external command.
 
 If you set an external command line directly as the ``implementation``, Unfurl will choose the appropriate one to use.
 If ``operation_host`` is local it will use the `Shell` configurator, if it is remote,
-it will use the ``Ansible`` configurator and generate a playbook that invokes it on the remote machine.
+it will use the ``Ansible`` configurator and generate a playbook that invokes it on the remote machine:
+
+.. code-block:: YAML
+
+  apiVersion: unfurl/v1alpha1
+  kind: Ensemble
+  spec:
+    service_template:
+      topology_template:
+        node_templates:
+          test_remote:
+            type: tosca:Root
+            interfaces:
+              Standard:
+                configure: echo "abbreviated configuration"
+
+Available configurators include:
 
 .. contents::
    :local:
@@ -23,10 +39,38 @@ Ansible
 
 The Ansible configurator executes the given playbook.
 
-Unfurl uses `Ansible 2.9 <https://docs.ansible.com/ansible/2.9/index.html>`_  as a library.
-These `Ansible modules <https://docs.ansible.com/ansible/2.9/modules/modules_by_category.html>`_ are available by default.
+Unfurl installs `Ansible 4.7 <https://docs.ansible.com/ansible/latest/index.html>`_  as a library.
+These `Ansible modules <https://docs.ansible.com/ansible/latest/collections/index.html>`_ are available by default.
 
 You can access the same Unfurl filters and queries available in the Ensemble manifest from inside a playbook.
+
+Example
+-------
+
+.. code-block:: YAML
+
+  apiVersion: unfurl/v1alpha1
+  kind: Ensemble
+  spec:
+    service_template:
+      topology_template:
+        node_templates:
+          test_remote:
+            type: tosca:Root
+            interfaces:
+              Standard:
+                configure:
+                  implementation: Ansible
+                  inputs:
+                    playbook:
+                      # quote this yaml so its templates are not evaluated before we pass it to Ansible
+                      q:
+                        - set_fact:
+                            fact1: "{{ '.name' | eval }}"
+                        - name: Hello
+                          command: echo "{{ fact1 }}"
+                  outputs:
+                    fact1:
 
 Inputs
 ------
@@ -76,6 +120,37 @@ as the host. The inventory will include groups and variables derived from the fo
 * If ``ansible_host`` wasn't previously set, the host name will be set to the operation_host's :ref:`public_ip<tosca_types>` or ``private_ip`` in that order, otherwise set it to ``localhost``.
 * If the host is a Google compute instance the host name will be set to ``INSTANCE_NAME.ZONE.PROJECT`` e.g. ``instance-1.us-central1-a.purple-sanctum-25912``. This is for compatibility with the ``gcloud compute config-ssh`` command to enable Unfurl to use those credentials.
 
+Cmd
+====
+
+The ``Cmd`` configurator executes a shell command either using the `shell` configurator described below
+or the `ansible` configurator is used to execute the command remotely if the ``operation_host`` is remote.
+As described above, this is the default if no configurator is specified.
+
+Example
+-------
+
+In this example, ``operation_host`` is set to a remote instance so the command is executed remotely using Ansible.
+
+.. code-block:: YAML
+
+  apiVersion: unfurl/v1alpha1
+  kind: Ensemble
+  spec:
+    service_template:
+      topology_template:
+        node_templates:
+          test_remote:
+            type: tosca:Root
+            interfaces:
+              Standard:
+                configure:
+                  implementation:
+                    primary: Cmd
+                    operation_host: staging.example.com
+                  inputs:
+                    cmd: echo "test"
+
 Delegate
 ========
 
@@ -95,6 +170,68 @@ Shell
 =====
 
 The ``Shell`` configurator executes a shell command.
+
+Inline shell script example
+---------------------------
+
+This example executes an inline shell script and uses the ``cwd`` and ``shell`` input options.
+
+.. code-block:: YAML
+
+    apiVersion: unfurl/v1alpha1
+    kind: Ensemble
+    spec:
+      service_template:
+        topology_template:
+          node_templates:
+            shellscript-example:
+              type: tosca:Root
+              interfaces:
+                Standard:
+                  configure:
+                    implementation: |
+                      if ! [ -x "$(command -v testvars)" ]; then
+                        source testvars.sh
+                      fi
+                    inputs:
+                        cwd: '{{ "project" | get_dir }}'
+                        keeplines: true
+                        # our script requires bash
+                        shell: '{{ "bash" | which }}'
+
+Example with artifact
+---------------------
+
+Declaring an artifact of a type that is associated with the shell configurator
+ensures Unfurl will install the artifact if necessary, before it runs the command.
+
+.. code-block:: YAML
+
+    apiVersion: unfurl/v1alpha1
+    kind: Ensemble
+    spec:
+      service_template:
+        imports:
+        - repository: unfurl
+          file: tosca_plugins/artifacts.yaml
+        topology_template:
+          node_templates:
+            terraform-example:
+              type: tosca:Root
+              artifacts:
+                ripgrep:
+                  type: artifact.AsdfTool
+                  file: ripgrep
+                  properties:
+                    version: 13.0.0
+              interfaces:
+                Standard:
+                  configure:
+                    implementation: ripgrep
+                    inputs:
+                      cmd: rg search
+
+
 
 Inputs
 ------
@@ -155,6 +292,38 @@ and commits it to the ensemble's repository so you don't use Terraform's remote 
 Any sensitive state will be encrypted using Ansible Vault.
 
 You can use the ``unfurl.nodes.Installer.Terraform`` node type with your node template to the avoid boilerplate and set the needed inputs.
+
+Example
+-------
+
+.. code-block:: YAML
+
+    apiVersion: unfurl/v1alpha1
+    kind: Ensemble
+    spec:
+      service_template:
+        imports:
+        - repository: unfurl
+          file: tosca_plugins/artifacts.yaml
+        topology_template:
+          node_templates:
+
+            terraform-example:
+              type: unfurl.nodes.Installer.Terraform
+              interfaces:
+                defaults:
+                  inputs:
+                    tfvars:
+                      tag: test
+                    main: |
+
+                      variable "tag" {
+                        type        = string
+                      }
+
+                      output "name" {
+                        value = var.tag
+                      }
 
 Inputs
 ------

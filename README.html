@@ -21,7 +21,7 @@
     <script src="_static/js/theme.js"></script>
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
-    <link rel="next" title="Getting Started" href="get-started-step-by-step.html" />
+    <link rel="next" title="Quick start" href="quickstart.html" />
     <link rel="prev" title="Unfurl documentation" href="index.html" /> 
 </head>
 
@@ -66,6 +66,7 @@
 <li class="toctree-l2"><a class="reference internal" href="#get-started">Get Started</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="quickstart.html">Quick start</a></li>
 <li class="toctree-l1"><a class="reference internal" href="get-started-step-by-step.html">Getting Started</a></li>
 <li class="toctree-l1"><a class="reference internal" href="ensembles.html">Ensembles</a></li>
 <li class="toctree-l1"><a class="reference internal" href="projects.html">Unfurl Projects</a></li>
@@ -109,7 +110,7 @@
            <div itemprop="articleBody">
              
   <p align="center">
-  <img src="https://unfurl.run/docs/_images/unfurl_logo.svg" width="400px">
+  <img src="https://docs.unfurl.run/_images/unfurl_logo.svg" width="400px">
 </p>
 <p align="center">
   <a href="https://badge.fury.io/py/unfurl"><img src="https://badge.fury.io/py/unfurl.svg" alt="PyPI version" height="20"></a>
@@ -123,27 +124,25 @@
 <p>The ultimate goal of Unfurl is enable anyone to clone, fork, and deploy live cloud services as easily as cloning and building code from git. So that we can have:</p>
 <ul class="simple">
 <li><p>Fully-functional and reproducible archives of web applications.</p></li>
-<li><p>Location independence to decentralized cloud infrastructure.</p></li>
+<li><p>Location independence to decentralize cloud infrastructure.</p></li>
 <li><p>Cooperatively build and run cloud services the same way we build open source software.</p></li>
 </ul>
 </section>
 <section id="how-it-works">
 <h2>How it works<a class="headerlink" href="#how-it-works" title="Permalink to this headline"></a></h2>
 <p>1. Use <code class="docutils literal notranslate"><span class="pre">unfurl</span> <span class="pre">init</span></code> to create an Unfurl-managed git repository. Or use <code class="docutils literal notranslate"><span class="pre">unfurl</span> <span class="pre">clone</span></code> to clone an existing one.</p>
-<p>2. The repository will contain a few YAML files that you can edit. They describe everything you’ll need to deploy your application, such as:</p>
+<p>2. The repository will contain a few YAML files that you can edit. They will describe everything you’ll need to deploy your application, such as:</p>
 <ul class="simple">
 <li><p>Cloud provider and SaaS services account credentials and other secrets organized into environments.</p></li>
 <li><p>Code repositories and container image registries.</p></li>
-<li><p>A high-level model of your cloud infrastructure and their dependencies such as compute, instances, database using the <a class="reference external" href="https://www.oasis-open.org/committees/tc_home.php?wg_abbrev=tosca">TOSCA</a> standard.</p></li>
+<li><p>A high-level model of your cloud infrastructure and their dependencies such as compute instances and databases, described using the <a class="reference external" href="https://www.oasis-open.org/committees/tc_home.php?wg_abbrev=tosca">TOSCA</a> standard.</p></li>
 <li><p>Operations that invoke Terraform, Ansible, or other command-line tools (which Unfurl can automatically install).</p></li>
 </ul>
 <p>3. Use <code class="docutils literal notranslate"><span class="pre">unfurl</span> <span class="pre">deploy</span></code> to deploy the infrastructure. Unfurl will generate a plan based on your target environment and high-level model and choose the correct operations to call. It will commit to git the latest configuration and a history of changes to your cloud accounts.</p>
 <p>4. Now you have a reproducible description of your cloud infrastructure stored in git! So you can:</p>
 <ul class="simple">
-<li><p>Push to repository to git service such as Github or Gitlab to share it. For access control, each environment can be stored as separate git submodules or branches.</p></li>
+<li><p>Push your repository to a git service such as Github or Gitlab to share it. For access control, each environment can be stored as separate git submodules or branches.</p></li>
 <li><p>Pull incoming changes and review and approve pull requests before deploying.</p></li>
-<li><p>Integrate with the CI/CD of your choice using the Unfurl container image.</p></li>
-<li><p>Merge in services from other Unfurl repositories.</p></li>
 <li><p>Clone the repository and deploy to new environments even if they use different services – because is your model is adaptable, manual changes are minimized.</p></li>
 </ul>
 </section>
@@ -169,14 +168,14 @@
 <ul class="simple">
 <li><p>Includes out-of-the box support for:</p>
 <ul>
-<li><p><a class="reference external" href="https://unfurl.run/docs/configurators.html#terraform">Terraform</a></p></li>
-<li><p><a class="reference external" href="https://unfurl.run/docs/configurators.html#ansible">Ansible</a></p></li>
-<li><p><a class="reference external" href="https://unfurl.run/docs/configurators.html#shell">shell</a></p></li>
-<li><p><a class="reference external" href="https://unfurl.run/docs/configurators.html#helm">Helm</a></p></li>
-<li><p><a class="reference external" href="https://unfurl.run/docs/configurators.html#dns">Octodns</a></p></li>
-<li><p><a class="reference external" href="https://unfurl.run/docs/configurators.html#kubernetes">Kubernetes</a></p></li>
-<li><p><a class="reference external" href="https://unfurl.run/docs/configurators.html#docker">Docker</a></p></li>
-<li><p><a class="reference external" href="https://unfurl.run/docs/configurators.html#supervisor">Supervisor</a></p></li>
+<li><p><a class="reference external" href="https://docs.unfurl.run/configurators.html#terraform">Terraform</a></p></li>
+<li><p><a class="reference external" href="https://docs.unfurl.run/configurators.html#ansible">Ansible</a></p></li>
+<li><p><a class="reference external" href="https://docs.unfurl.run/configurators.html#shell">shell</a></p></li>
+<li><p><a class="reference external" href="https://docs.unfurl.run/configurators.html#helm">Helm</a></p></li>
+<li><p><a class="reference external" href="https://docs.unfurl.run/configurators.html#dns">Octodns</a></p></li>
+<li><p><a class="reference external" href="https://docs.unfurl.run/configurators.html#kubernetes">Kubernetes</a></p></li>
+<li><p><a class="reference external" href="https://docs.unfurl.run/configurators.html#docker">Docker</a></p></li>
+<li><p><a class="reference external" href="https://docs.unfurl.run/configurators.html#supervisor">Supervisor</a></p></li>
 </ul>
 </li>
 <li><p>Plugin interface for adding your own.</p></li>
@@ -293,13 +292,13 @@ If you use <code class="docutils literal notranslate"><span class="pre">asdf</sp
 <ul class="simple">
 <li><p>Only clone and deploy trusted repositories and projects. The docker runtime is not configured to provide isolation so you should assume any project may contain executable code that can gain full access to your system.</p></li>
 <li><p>Locking to prevent multiple instances of Unfurl from modifying the same resources at the same time currently only works with instances accessing the same local copy of an ensemble.</p></li>
-<li><p>Incremental updates are only partially implemented. You can incrementally update an ensemble by explicitly limiting jobs with the <code class="docutils literal notranslate"><span class="pre">--force</span></code> and <code class="docutils literal notranslate"><span class="pre">--instance</span></code> <a class="reference external" href="https://unfurl.run/docs/cli.html#unfurl-deploy">command line options</a>.</p></li>
+<li><p>Incremental updates are only partially implemented. You can incrementally update an ensemble by explicitly limiting jobs with the <code class="docutils literal notranslate"><span class="pre">--force</span></code> and <code class="docutils literal notranslate"><span class="pre">--instance</span></code> <a class="reference external" href="https://docs.unfurl.run/cli.html#unfurl-deploy">command line options</a>.</p></li>
 <li><p>Google Cloud SDK <a class="reference external" href="https://issuetracker.google.com/issues/202172882?pli=1">doesn’t yet work</a> with Python 3.10.</p></li>
 </ul>
 </section>
 <section id="get-started">
 <h2>Get Started<a class="headerlink" href="#get-started" title="Permalink to this headline"></a></h2>
-<p>Check out the rest of Unfurl’s documentation <a class="reference external" href="https://unfurl.run/docs/get-started-step-by-step.html">here</a></p>
+<p>Check out the rest of Unfurl’s documentation <a class="reference external" href="https://docs.unfurl.run/quickstart.html">here</a></p>
 </section>
 </section>
 
@@ -308,7 +307,7 @@ If you use <code class="docutils literal notranslate"><span class="pre">asdf</sp
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
         <a href="index.html" class="btn btn-neutral float-left" title="Unfurl documentation" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
-        <a href="get-started-step-by-step.html" class="btn btn-neutral float-right" title="Getting Started" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+        <a href="quickstart.html" class="btn btn-neutral float-right" title="Quick start" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
     </div>
 
   <hr/>

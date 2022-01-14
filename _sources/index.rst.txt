@@ -19,6 +19,8 @@ Table of Contents
 
    README.md
 
+   quickstart.rst
+
    get-started-step-by-step.rst
 
    ensembles.rst
@@ -44,7 +46,7 @@ Table of Contents
    jsonschema.rst
 
    toscaref.rst
- 
+
    glossary.rst
 
    api.rst
