@@ -1024,7 +1024,7 @@ def init_engine(projectDir, runtime):
     return "unrecognized runtime uri"
 
 
-def _run_pip_env(do_install, kw):
+def _run_pip_env(do_install, pipenv_project, kw):
     # create the virtualenv and install the dependencies specified in the Pipefiles
     sys_exit = sys.exit
     try:
@@ -1035,7 +1035,7 @@ def _run_pip_env(do_install, kw):
 
         sys.exit = noexit
 
-        do_install(**kw)
+        do_install(pipenv_project, **kw)
     finally:
         sys.exit = sys_exit
 
@@ -1082,6 +1082,7 @@ def create_venv(projectDir, pipfileLocation, unfurlLocation):
         from pipenv import environments
         from pipenv.core import do_install
         from pipenv.utils import python_version
+        from pipenv.project import Project as PipEnvProject
 
         pythonPath = os.environ["PIPENV_PYTHON"]
         assert pythonPath, pythonPath
@@ -1107,8 +1108,9 @@ def create_venv(projectDir, pipfileLocation, unfurlLocation):
                     shutil.copy(path, projectDir)
 
         kw = dict(python=pythonPath)
+        pipenv_project = PipEnvProject()
         # need to run without args first so lock isn't overwritten
-        retcode = _run_pip_env(do_install, kw)
+        retcode = _run_pip_env(do_install, pipenv_project, kw)
         if retcode:
             return f"Pipenv (step 1) failed: {retcode}"
 
@@ -1129,7 +1131,7 @@ def create_venv(projectDir, pipfileLocation, unfurlLocation):
                 kw["packages"] = [
                     "unfurl==" + __version__()
                 ]  # use the same version as current
-        retcode = _run_pip_env(do_install, kw)
+        retcode = _run_pip_env(do_install, pipenv_project, kw)
         if retcode:
             return f"Pipenv (step 2) failed: {retcode}"
 
