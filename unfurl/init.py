@@ -122,7 +122,7 @@ def create_home(
 
     newHome, configPath, repo = create_project(
         homedir,
-        template="home",
+        skeleton="home",
         runtime=runtime or "venv:",
         no_runtime=no_runtime,
         msg="Create the unfurl home repository",
