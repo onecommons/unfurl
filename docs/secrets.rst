@@ -13,6 +13,10 @@ You can apply any of these techniques to different secrets and projects can inhe
 .. code-block:: YAML
 
   secrets:
+
+      # Include secrets from a file that will be automatically encrypted when committed to the repository:
+      +?include: secrets/secrets.yaml
+
       # include secrets from a file that will not be committed to the repository:
       +?include: local/secrets.yaml
 
@@ -32,19 +36,21 @@ You can apply any of these techniques to different secrets and projects can inhe
       default: "{{ lookup('hashi_vault', 'secret='+key) }}" # "key" will be set to the secret name
 
 
-The "unfurl-vault-client" script outputs the vault password for the current project so you can encrypt secrets using the ``ansible-vault`` utility like this:
-
-.. code-block::
-
-  ansible-vault encrypt_string --vault-id default@unfurl-vault-client "secret1" "secret2"
-
 Sensitive Values
 ----------------
-You can mark configuration data as sensitive. If you have Ansible Vault ids associated with your ensemble that will be saved encrypted, if not, they will be saved as "<<<Redacted>>>". When loading a YAML configuration file, any Vault data will be decrypted and any attribute with a value of "<<<Redacted>>>" will be omitted. By default, "unfurl init" will generate a random Ansible Vault key to your local secrets (found in "local/unfurl.yaml") and so any data marked sensitive will be encrypted.
+You can mark configuration data as sensitive. If you have Ansible Vault ids associated with your ensemble that will be saved encrypted, if not, they will be saved as "<<<Redacted>>>". When loading a YAML configuration file, any Vault data will be decrypted and any attribute with a value of "<<<Redacted>>>" will be omitted. By default, ``unfurl init`` will generate a random Ansible Vault key to your local secrets (found in ``local/unfurl.yaml``) and so any data marked sensitive will be encrypted.
+
+.. important::
+
+  Store this master Vault password found in ``local/unfurl.yaml`` in a safe place!
 
 Creating secrets
 ----------------
 
+When ``unfurl commit`` commits changes to a project, any files in directories named ``secrets`` will automatically be encrypted with the project's vault password and committed into a parallel directory named ``.secrets``. When Unfurl starts it will automatically decrypt those files and restore them to their ``secrets`` directory.
+
+To create secrets manually (for example, to use inline as shown in the example above), you can use the ``unfurl-vault-client`` script with the ``ansible-vault`` command. The ``unfurl-vault-client`` script outputs the vault password for the current project so you can encrypt secrets using the ``ansible-vault`` utility like this:
+
 .. code-block::
 
-  ansible-vault encrypt_string --vault-id unfurl-vault-client
+  ansible-vault encrypt_string --vault-id default@unfurl-vault-client "secret1" "secret2"

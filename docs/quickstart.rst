@@ -17,6 +17,10 @@ This will create an Unfurl project that, by default, is located at ``~/.unfurl_h
 
 The ``--skeleton`` option lets you specify an alternative to the default project skeleton. Unfurl currently includes two: ``gcp`` and ``aws``.
 
+.. important::
+
+  Store the master password found in ``local/unfurl.yaml`` in a safe place! By default this password is used to encrypt any sensitive data committed to repository. See :doc:`secrets` for more information.
+
 3. (Optional) Create a separate project to manage your application's configuration and infrastructure-as-code files.
 
 You can add your infrastructure-as-code configuration directly into the environments project you just created but it can be more flexible to create separate projects for each application you are developing. For example, if you already have a git repository containing your application's code, this command:
