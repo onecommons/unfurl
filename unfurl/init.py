@@ -1107,7 +1107,7 @@ def create_venv(projectDir, pipfileLocation, unfurlLocation):
                 if os.path.isfile(path):
                     shutil.copy(path, projectDir)
 
-        kw = dict(python=pythonPath, extra_index_urls=[])
+        kw = dict(python=pythonPath, extra_index_url=[])
         pipenv_project = PipEnvProject()
         # need to run without args first so lock isn't overwritten
         retcode = _run_pip_env(do_install, pipenv_project, kw)
