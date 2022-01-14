@@ -51,9 +51,9 @@ Now you can customize your home project, for example:
 
 4. Bootstrap dev tools
 
-5. Deploy local instances, like supervisord
+5. Deploy local instances, like `Supervisor`.
 
-6. Declare shared and default resources. For example, if several project will use a pre-existing Kubernetes cluster, you could add a template that models it here. You can use the `default directive` to indicate that template should only be used if it wasn't already declared in the main project.
+6. Declare shared and default resources. For example, if several project will use a pre-existing Kubernetes cluster, you could add a template that models it here. You can use the :tosca_spec:`default directive<_Toc50125217>` to indicate that template should only be used if it wasn't already declared in the main project.
 
 ``~/.unfurl_home/ensemble.yaml`` contains a template (``asdfBootstrap``) that will install
 local versions of the tools Unfurl's :ref:`configurators<configurators>` need (eg. asdf, Terraform, gcloud, and Helm)
@@ -90,27 +90,28 @@ Once created, the project directory will look like:
 | ├── .gitignore
 | ├── .gitattributes
 | ├── unfurl.yaml
-| ├── ensemble-template.yaml
-| ├── local
-| │   └── unfurl.yaml
 | ├── secrets
 | │   └── secrets.yaml
+| ├── local
+| │   └── unfurl.yaml
+| ├── unfurl-local-template.yaml
+| ├── ensemble-template.yaml
 | ├── ensemble
-| │   └── public
 | │   └── ensemble.yaml
 
 In the folder structure above:
 
 - ``unfurl.yaml`` is the Unfurl project configuration file.
+- Any files in ``secrets`` is automatically encrypted before committed.
+- ``secrets/secrets.yaml`` is included by ``unfurl.yaml``.
+- ``ensemble-template.yaml`` is a template that is shared across ensembles in this project.
 - Any files in``local`` is excluded from the git repository
 - ``local/unfurl.yaml`` is included by the parent ``unfurl.yaml``
   and is where you'll put local or private settings you don't want to commit.
-- ``ensemble-template.yaml`` is a template that is shared across ensembles in this project.
-  You'll probably want to put your ensemble's ``service template`` here.
+- ``unfurl-local-template.yaml`` is the template used generate a new ``local/unfurl.yaml`` when the project is cloned.
 - ``ensemble`` is the folder that contains the default ensemble
   (use the ``--empty`` flag to skip creating this).
-- ``ensemble/ensemble.yaml`` is the manifest file for this ensemble.
-    It includes ``ensemble-template.yaml``.
+- ``ensemble/ensemble.yaml`` is the manifest file for this ensemble. It includes ``ensemble-template.yaml``.
 - Private repository folders (like ``ensemble``) are listed in ``.git/info/exclude``
 
 .. _create_servicetemplate:

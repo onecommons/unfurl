@@ -133,8 +133,8 @@ using the <code class="docutils literal notranslate"><span class="pre">runtime</
 <li><p>Edit or add the connections in <a class="reference internal" href="jsonschema.html#id4"><span class="std std-ref">unfurl.yaml</span></a>
 to use environment variables or using secrets or just hard code the connection’s properties.</p></li>
 <li><p>Bootstrap dev tools</p></li>
-<li><p>Deploy local instances, like supervisord</p></li>
-<li><p>Declare shared and default resources. For example, if several project will use a pre-existing Kubernetes cluster, you could add a template that models it here. You can use the <code class="xref any docutils literal notranslate"><span class="pre">default</span> <span class="pre">directive</span></code> to indicate that template should only be used if it wasn’t already declared in the main project.</p></li>
+<li><p>Deploy local instances, like <a class="reference internal" href="configurators.html#supervisor"><span class="std std-ref">Supervisor</span></a>.</p></li>
+<li><p>Declare shared and default resources. For example, if several project will use a pre-existing Kubernetes cluster, you could add a template that models it here. You can use the <a class="reference external" href="_static/TOSCA-Simple-Profile-YAML-v1.3-os-toc.html#_Toc50125217">default directive</a> to indicate that template should only be used if it wasn’t already declared in the main project.</p></li>
 </ol>
 <p><code class="docutils literal notranslate"><span class="pre">~/.unfurl_home/ensemble.yaml</span></code> contains a template (<code class="docutils literal notranslate"><span class="pre">asdfBootstrap</span></code>) that will install
 local versions of the tools Unfurl’s <a class="reference internal" href="glossary.html#configurators"><span class="std std-ref">configurators</span></a> need (eg. asdf, Terraform, gcloud, and Helm)
@@ -166,30 +166,28 @@ but still maintain separate access control and git history for each ensemble.</p
 <div class="line">├── .gitignore</div>
 <div class="line">├── .gitattributes</div>
 <div class="line">├── unfurl.yaml</div>
-<div class="line">├── ensemble-template.yaml</div>
-<div class="line">├── local</div>
-<div class="line">│   └── unfurl.yaml</div>
 <div class="line">├── secrets</div>
 <div class="line">│   └── secrets.yaml</div>
+<div class="line">├── local</div>
+<div class="line">│   └── unfurl.yaml</div>
+<div class="line">├── unfurl-local-template.yaml</div>
+<div class="line">├── ensemble-template.yaml</div>
 <div class="line">├── ensemble</div>
-<div class="line">│   └── public</div>
 <div class="line">│   └── ensemble.yaml</div>
 </div>
 <p>In the folder structure above:</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">unfurl.yaml</span></code> is the Unfurl project configuration file.</p></li>
+<li><p>Any files in <code class="docutils literal notranslate"><span class="pre">secrets</span></code> is automatically encrypted before committed.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">secrets/secrets.yaml</span></code> is included by <code class="docutils literal notranslate"><span class="pre">unfurl.yaml</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">ensemble-template.yaml</span></code> is a template that is shared across ensembles in this project.</p></li>
 <li><p>Any files in``local`` is excluded from the git repository</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">local/unfurl.yaml</span></code> is included by the parent <code class="docutils literal notranslate"><span class="pre">unfurl.yaml</span></code>
 and is where you’ll put local or private settings you don’t want to commit.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">ensemble-template.yaml</span></code> is a template that is shared across ensembles in this project.
-You’ll probably want to put your ensemble’s <code class="docutils literal notranslate"><span class="pre">service</span> <span class="pre">template</span></code> here.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">unfurl-local-template.yaml</span></code> is the template used generate a new <code class="docutils literal notranslate"><span class="pre">local/unfurl.yaml</span></code> when the project is cloned.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">ensemble</span></code> is the folder that contains the default ensemble
 (use the <code class="docutils literal notranslate"><span class="pre">--empty</span></code> flag to skip creating this).</p></li>
-<li><dl class="simple">
-<dt><code class="docutils literal notranslate"><span class="pre">ensemble/ensemble.yaml</span></code> is the manifest file for this ensemble.</dt><dd><p>It includes <code class="docutils literal notranslate"><span class="pre">ensemble-template.yaml</span></code>.</p>
-</dd>
-</dl>
-</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">ensemble/ensemble.yaml</span></code> is the manifest file for this ensemble. It includes <code class="docutils literal notranslate"><span class="pre">ensemble-template.yaml</span></code>.</p></li>
 <li><p>Private repository folders (like <code class="docutils literal notranslate"><span class="pre">ensemble</span></code>) are listed in <code class="docutils literal notranslate"><span class="pre">.git/info/exclude</span></code></p></li>
 </ul>
 </section>
