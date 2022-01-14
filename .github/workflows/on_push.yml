@@ -72,6 +72,9 @@ jobs:
     runs-on: ubuntu-latest
     env:
       DOCKERHUB_USER: "ocbuilds"
+    # Map a step output to a job output
+    outputs:
+      release: ${{ steps.get_tag_name.outputs.release }}
     steps:
       - name: Login to DockerHub
         uses: docker/login-action@v1
@@ -107,7 +110,7 @@ jobs:
              onecommons/unfurl:${{ steps.get_tag_name.outputs.tag }}
   publish:
     needs: deploy_dockerhub
-    if: needs.deploy_dockerhub.steps.get_tag_name.outputs.release
+    if: needs.deploy_dockerhub.outputs.release
     runs-on: ubuntu-latest
     steps:
       - name: build python package
