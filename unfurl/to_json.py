@@ -224,7 +224,7 @@ def requirement_to_graphql(spec, req_dict):
     return reqobj
 
 
-def _get_interfaces(spec, typedef, implements: list, types):
+def _get_implements(spec, typedef, implements: list, types):
     if not typedef:
         return
     name = typedef.type
@@ -234,7 +234,7 @@ def _get_interfaces(spec, typedef, implements: list, types):
         types[name] = {}
         types[name] = node_type_to_graphql(spec, typedef, types)
     for p in typedef.parent_types():
-        _get_interfaces(spec, p, implements, types)
+        _get_implements(spec, p, implements, types)
 
 
 # XXX outputs: only include "public" attributes?
@@ -265,10 +265,10 @@ def node_type_to_graphql(spec, type_definition, types: dict):
 
     implements = []
     # add ancestors classes to implements
-    _get_interfaces(spec, type_definition, implements, types)
+    _get_implements(spec, type_definition, implements, types)
     # add capabilities types to implements
     for cap in type_definition.get_capability_typedefs():
-        _get_interfaces(spec, cap, implements, None)
+        _get_implements(spec, cap, implements, None)
     jsontype["implements"] = implements
 
     jsontype["properties"] = propertydefs_to_jsonschema(
@@ -381,7 +381,7 @@ def add_capabilities_as_properties(props, nodetype, spec):
 
 
 def add_capabilities_as_attributes(props, nodetype, spec):
-    """treat each capability as a property and add them to props"""
+    """treat each capability as an attribute and add them to props"""
     for cap in nodetype.get_capability_typedefs():
         if not cap.get_definition("attributes"):
             continue
@@ -404,7 +404,6 @@ def _find_requirement_constraint(reqs, name):
         __typename="RequirementConstraint",
     )
 
-
 def nodetemplate_to_json(nodetemplate, spec, db):
     """
     Returns json object as a ResourceTemplate:
@@ -419,11 +418,11 @@ def nodetemplate_to_json(nodetemplate, spec, db):
       # input has schema and value
       properties: [Input!]
 
-      requirements: [Requirement!]
+      dependencies: [Requirement!]
     }
 
     type Requirement {
-      name: String
+      name: String!
       constraint: RequirementConstraint!
       match: ResourceTemplate
       target: Resource
@@ -454,21 +453,23 @@ def nodetemplate_to_json(nodetemplate, spec, db):
     # this is the same as on the type because of the bug where attribute set on a node_template are ignored
     json["outputs"] = jsonnodetype["outputs"]
 
-    json["requirements"] = []
+    json["dependencies"] = []
     ExceptionCollector.start()
     if nodetemplate.requirements:
         for req in nodetemplate.requirements:
             reqDef, rel_template = nodetemplate._get_explicit_relationship(req)
-            name, tpl = next(iter(req.items()))
+            name = next(iter(req)) # first key
             reqconstraint = _find_requirement_constraint(
                 jsonnodetype["requirements"], name
             )
-            reqjson = dict(constraint=reqconstraint, name=name, __typename="Requirement")
+            reqjson = dict(
+                constraint=reqconstraint, name=name, __typename="Requirement"
+            )
             if rel_template and rel_template.target:
                 reqjson["match"] = rel_template.target.name
             else:
                 reqjson["match"] = None
-            json["requirements"].append(reqjson)
+            json["dependencies"].append(reqjson)
 
     return json
 
@@ -504,6 +505,7 @@ def to_graphql_deployment_template(manifest, db):
     Returns json object as DeploymentTemplate:
 
     type DeploymentTemplate {
+      name: String!
       title: String!
       slug: String!
       description: String
@@ -522,6 +524,7 @@ def to_graphql_deployment_template(manifest, db):
     template = dict(
         __typename="DeploymentTemplate",
         title=title,
+        name=slug,
         slug=slug,
         description=spec.template.description,
     )
@@ -551,7 +554,7 @@ def to_graphql(manifest):
         ]
     }
     blueprint, dtemplate = to_graphql_deployment_template(manifest, db)
-    db["DeploymentTemplate"] = {dtemplate["title"]: dtemplate}
+    db["DeploymentTemplate"] = {dtemplate["name"]: dtemplate}
     db["ApplicationBlueprint"] = {blueprint["name"]: blueprint}
     db["Overview"] = spec.template.tpl.get("metadata") or {}
     add_graphql_deployment(manifest, db, dtemplate)
@@ -581,7 +584,7 @@ def add_graphql_deployment(manifest, db, dtemplate):
         if instance is not manifest.rootResource
     ]
     db["Resource"] = {r["name"]: r for r in deployment["resources"]}
-    deployment["primary"] = dtemplate['primary']
+    deployment["primary"] = dtemplate["primary"]
     db["Deployment"] = {title: deployment}
     return db
 
@@ -625,8 +628,8 @@ def to_graphql_resource(instance, manifest, db):
     else:
         resource["attributes"] = []
 
-    if template["requirements"]:
-        requirements = {r["name"]: r.copy() for r in template["requirements"]}
+    if template["dependencies"]:
+        requirements = {r["name"]: r.copy() for r in template["dependencies"]}
         for rel in instance.requirements:
             requirements[rel.name]["target"] = rel.target.key
         resource["connections"] = list(requirements.values())

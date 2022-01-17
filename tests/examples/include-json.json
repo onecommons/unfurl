@@ -1,0 +1,1247 @@
+{
+  "ResourceType": {
+    "unfurl.nodes.GoogleCloudObject": {
+      "name": "unfurl.nodes.GoogleCloudObject",
+      "title": "GoogleCloudObject",
+      "description": "",
+      "implements": [
+        "unfurl.nodes.GoogleCloudObject",
+        "unfurl.nodes.CloudObject",
+        "tosca.nodes.Root",
+        "tosca.capabilities.Node",
+        "tosca.capabilities.Root"
+      ],
+      "properties": [],
+      "outputs": [
+        {
+          "title": "uri",
+          "required": true,
+          "description": "Unique identifier",
+          "type": "string"
+        },
+        {
+          "title": "name",
+          "required": true,
+          "description": "Human-friendly name of the resource",
+          "type": "string"
+        },
+        {
+          "title": "console_url",
+          "description": "URL for viewing this resource in its cloud provider's console",
+          "type": "string"
+        }
+      ],
+      "requirements": [
+        {
+          "name": "cloud",
+          "title": "cloud",
+          "description": "",
+          "min": 1,
+          "max": 1,
+          "resourceType": "unfurl.nodes.GoogleCloudProject"
+        },
+        {
+          "name": "cloud",
+          "title": "cloud",
+          "description": "",
+          "min": 0,
+          "max": 1,
+          "resourceType": "unfurl.nodes.CloudAccount"
+        }
+      ]
+    },
+    "unfurl.nodes.CloudObject": {
+      "name": "unfurl.nodes.CloudObject",
+      "title": "CloudObject",
+      "description": "",
+      "implements": [
+        "unfurl.nodes.CloudObject",
+        "tosca.nodes.Root",
+        "tosca.capabilities.Node",
+        "tosca.capabilities.Root"
+      ],
+      "properties": [],
+      "outputs": [
+        {
+          "title": "uri",
+          "required": true,
+          "description": "Unique identifier",
+          "type": "string"
+        },
+        {
+          "title": "name",
+          "required": true,
+          "description": "Human-friendly name of the resource",
+          "type": "string"
+        },
+        {
+          "title": "console_url",
+          "description": "URL for viewing this resource in its cloud provider's console",
+          "type": "string"
+        }
+      ],
+      "requirements": [
+        {
+          "name": "cloud",
+          "title": "cloud",
+          "description": "",
+          "min": 0,
+          "max": 1,
+          "resourceType": "unfurl.nodes.CloudAccount"
+        }
+      ]
+    },
+    "unfurl.nodes.GoogleCloudProject": {
+      "name": "unfurl.nodes.GoogleCloudProject",
+      "title": "GoogleCloudProject",
+      "description": "",
+      "implements": [
+        "unfurl.nodes.GoogleCloudProject",
+        "unfurl.nodes.CloudAccount",
+        "tosca.nodes.Root",
+        "tosca.capabilities.Node",
+        "tosca.capabilities.Root"
+      ],
+      "properties": [
+        {
+          "title": "name",
+          "required": true,
+          "description": "User defined name of the project",
+          "type": "string"
+        },
+        {
+          "title": "activate_apis",
+          "default": [],
+          "required": true,
+          "type": "array"
+        }
+      ],
+      "outputs": [
+        {
+          "title": "project_number",
+          "$toscatype": "integer",
+          "type": "number"
+        },
+        {
+          "title": "service_account_id",
+          "type": "string"
+        },
+        {
+          "title": "service_account_email",
+          "type": "string"
+        }
+      ],
+      "requirements": [
+        {
+          "name": "host",
+          "title": "host",
+          "description": "",
+          "min": 0,
+          "max": 1,
+          "resourceType": "unfurl.nodes.GoogleCloudResource"
+        }
+      ]
+    },
+    "unfurl.nodes.CloudAccount": {
+      "name": "unfurl.nodes.CloudAccount",
+      "title": "CloudAccount",
+      "description": "",
+      "implements": [
+        "unfurl.nodes.CloudAccount",
+        "tosca.nodes.Root",
+        "tosca.capabilities.Node",
+        "tosca.capabilities.Root"
+      ],
+      "properties": [],
+      "outputs": [
+        {
+          "title": "account_id",
+          "required": true,
+          "description": "Cloud provider specific account identifier",
+          "type": "string"
+        }
+      ],
+      "requirements": []
+    },
+    "unfurl.nodes.GoogleCloudServiceKey": {
+      "name": "unfurl.nodes.GoogleCloudServiceKey",
+      "title": "GoogleCloudServiceKey",
+      "description": "",
+      "implements": [
+        "unfurl.nodes.GoogleCloudServiceKey",
+        "unfurl.nodes.GoogleCloudObject",
+        "unfurl.nodes.CloudObject",
+        "tosca.nodes.Root",
+        "tosca.capabilities.Node",
+        "tosca.capabilities.Root"
+      ],
+      "properties": [
+        {
+          "title": "account_id",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "title": "download_location",
+          "default": "secrets",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "outputs": [
+        {
+          "title": "uri",
+          "required": true,
+          "description": "Unique identifier",
+          "type": "string"
+        },
+        {
+          "title": "name",
+          "required": true,
+          "description": "Human-friendly name of the resource",
+          "type": "string"
+        },
+        {
+          "title": "console_url",
+          "description": "URL for viewing this resource in its cloud provider's console",
+          "type": "string"
+        }
+      ],
+      "requirements": [
+        {
+          "name": "cloud",
+          "title": "cloud",
+          "description": "",
+          "min": 1,
+          "max": 1,
+          "resourceType": "unfurl.nodes.GoogleCloudProject"
+        },
+        {
+          "name": "cloud",
+          "title": "cloud",
+          "description": "",
+          "min": 0,
+          "max": 1,
+          "resourceType": "unfurl.nodes.CloudAccount"
+        }
+      ]
+    },
+    "unfurl.nodes.GoogleCloudResource": {
+      "name": "unfurl.nodes.GoogleCloudResource",
+      "title": "GoogleCloudResource",
+      "description": "",
+      "implements": [
+        "unfurl.nodes.GoogleCloudResource",
+        "unfurl.nodes.GoogleCloudObject",
+        "unfurl.nodes.CloudObject",
+        "tosca.nodes.Root",
+        "tosca.capabilities.Container",
+        "tosca.capabilities.Root",
+        "tosca.capabilities.Node"
+      ],
+      "properties": [
+        {
+          "title": "display_name",
+          "required": true,
+          "description": "User defined name of the resource",
+          "type": "string"
+        },
+        {
+          "title": "id",
+          "required": true,
+          "$toscatype": "integer",
+          "type": "number"
+        },
+        {
+          "title": "type",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "outputs": [
+        {
+          "title": "uri",
+          "required": true,
+          "description": "Unique identifier",
+          "type": "string"
+        },
+        {
+          "title": "name",
+          "required": true,
+          "description": "Human-friendly name of the resource",
+          "type": "string"
+        },
+        {
+          "title": "console_url",
+          "description": "URL for viewing this resource in its cloud provider's console",
+          "type": "string"
+        }
+      ],
+      "requirements": [
+        {
+          "name": "cloud",
+          "title": "cloud",
+          "description": "",
+          "min": 1,
+          "max": 1,
+          "resourceType": "unfurl.nodes.GoogleCloudProject"
+        },
+        {
+          "name": "cloud",
+          "title": "cloud",
+          "description": "",
+          "min": 0,
+          "max": 1,
+          "resourceType": "unfurl.nodes.CloudAccount"
+        }
+      ]
+    },
+    "unfurl.nodes.GoogleCloudOrganization": {
+      "name": "unfurl.nodes.GoogleCloudOrganization",
+      "title": "GoogleCloudOrganization",
+      "description": "",
+      "implements": [
+        "unfurl.nodes.GoogleCloudOrganization",
+        "unfurl.nodes.GoogleCloudResource",
+        "unfurl.nodes.GoogleCloudObject",
+        "unfurl.nodes.CloudObject",
+        "tosca.nodes.Root",
+        "tosca.capabilities.Container",
+        "tosca.capabilities.Root",
+        "tosca.capabilities.Node"
+      ],
+      "properties": [
+        {
+          "title": "type",
+          "default": "organization",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "title": "display_name",
+          "required": true,
+          "description": "User defined name of the resource",
+          "type": "string"
+        },
+        {
+          "title": "id",
+          "required": true,
+          "$toscatype": "integer",
+          "type": "number"
+        }
+      ],
+      "outputs": [
+        {
+          "title": "uri",
+          "required": true,
+          "description": "Unique identifier",
+          "type": "string"
+        },
+        {
+          "title": "name",
+          "required": true,
+          "description": "Human-friendly name of the resource",
+          "type": "string"
+        },
+        {
+          "title": "console_url",
+          "description": "URL for viewing this resource in its cloud provider's console",
+          "type": "string"
+        }
+      ],
+      "requirements": [
+        {
+          "name": "cloud",
+          "title": "cloud",
+          "description": "",
+          "min": 1,
+          "max": 1,
+          "resourceType": "unfurl.nodes.GoogleCloudProject"
+        },
+        {
+          "name": "cloud",
+          "title": "cloud",
+          "description": "",
+          "min": 0,
+          "max": 1,
+          "resourceType": "unfurl.nodes.CloudAccount"
+        }
+      ]
+    },
+    "unfurl.nodes.GoogleCloudFolder": {
+      "name": "unfurl.nodes.GoogleCloudFolder",
+      "title": "GoogleCloudFolder",
+      "description": "",
+      "implements": [
+        "unfurl.nodes.GoogleCloudFolder",
+        "unfurl.nodes.GoogleCloudResource",
+        "unfurl.nodes.GoogleCloudObject",
+        "unfurl.nodes.CloudObject",
+        "tosca.nodes.Root",
+        "tosca.capabilities.Container",
+        "tosca.capabilities.Root",
+        "tosca.capabilities.Node"
+      ],
+      "properties": [
+        {
+          "title": "type",
+          "default": "folder",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "title": "display_name",
+          "required": true,
+          "description": "User defined name of the resource",
+          "type": "string"
+        },
+        {
+          "title": "id",
+          "required": true,
+          "$toscatype": "integer",
+          "type": "number"
+        }
+      ],
+      "outputs": [
+        {
+          "title": "uri",
+          "required": true,
+          "description": "Unique identifier",
+          "type": "string"
+        },
+        {
+          "title": "name",
+          "required": true,
+          "description": "Human-friendly name of the resource",
+          "type": "string"
+        },
+        {
+          "title": "console_url",
+          "description": "URL for viewing this resource in its cloud provider's console",
+          "type": "string"
+        }
+      ],
+      "requirements": [
+        {
+          "name": "host",
+          "title": "host",
+          "description": "",
+          "min": 1,
+          "max": 1,
+          "resourceType": "unfurl.nodes.GoogleCloudResource"
+        },
+        {
+          "name": "cloud",
+          "title": "cloud",
+          "description": "",
+          "min": 1,
+          "max": 1,
+          "resourceType": "unfurl.nodes.GoogleCloudProject"
+        },
+        {
+          "name": "cloud",
+          "title": "cloud",
+          "description": "",
+          "min": 0,
+          "max": 1,
+          "resourceType": "unfurl.nodes.CloudAccount"
+        }
+      ]
+    },
+    "Base": {
+      "name": "Base",
+      "title": "Base",
+      "description": "",
+      "implements": [
+        "Base",
+        "tosca.nodes.Root",
+        "tosca.capabilities.Node",
+        "tosca.capabilities.Root"
+      ],
+      "properties": [],
+      "outputs": [],
+      "requirements": []
+    },
+    "Compute": {
+      "name": "Compute",
+      "title": "Compute",
+      "description": "",
+      "badge": "COMPUTE",
+      "implements": [
+        "Compute",
+        "Base",
+        "tosca.nodes.Root",
+        "tosca.capabilities.Node",
+        "tosca.capabilities.Root"
+      ],
+      "properties": [
+        {
+          "title": "CPUs",
+          "required": true,
+          "$toscatype": "integer",
+          "type": "number"
+        },
+        {
+          "title": "Memory",
+          "required": true,
+          "type": "number"
+        },
+        {
+          "title": "storage",
+          "required": true,
+          "type": "number"
+        }
+      ],
+      "outputs": [],
+      "requirements": []
+    },
+    "AWSInstance": {
+      "name": "AWSInstance",
+      "title": "AWSInstance",
+      "description": "",
+      "implements": [
+        "AWSInstance",
+        "Compute",
+        "Base",
+        "tosca.nodes.Root",
+        "unfurl.nodes.AWSResource",
+        "unfurl.nodes.CloudObject",
+        "tosca.capabilities.Node",
+        "tosca.capabilities.Root"
+      ],
+      "properties": [
+        {
+          "title": "CPUs",
+          "required": true,
+          "$toscatype": "integer",
+          "type": "number"
+        },
+        {
+          "title": "Memory",
+          "required": true,
+          "type": "number"
+        },
+        {
+          "title": "storage",
+          "required": true,
+          "type": "number"
+        }
+      ],
+      "outputs": [
+        {
+          "title": "uri",
+          "required": true,
+          "description": "Unique identifier",
+          "type": "string"
+        },
+        {
+          "title": "name",
+          "required": true,
+          "description": "Human-friendly name of the resource",
+          "type": "string"
+        },
+        {
+          "title": "console_url",
+          "description": "URL for viewing this resource in its cloud provider's console",
+          "type": "string"
+        }
+      ],
+      "requirements": [
+        {
+          "name": "cloud",
+          "title": "cloud",
+          "description": "",
+          "min": 1,
+          "max": 1,
+          "resourceType": "unfurl.nodes.AWSAccount"
+        },
+        {
+          "name": "cloud",
+          "title": "cloud",
+          "description": "",
+          "min": 0,
+          "max": 1,
+          "resourceType": "unfurl.nodes.CloudAccount"
+        }
+      ]
+    },
+    "unfurl.nodes.AWSResource": {
+      "name": "unfurl.nodes.AWSResource",
+      "title": "AWSResource",
+      "description": "",
+      "implements": [
+        "unfurl.nodes.AWSResource",
+        "unfurl.nodes.CloudObject",
+        "tosca.nodes.Root",
+        "tosca.capabilities.Node",
+        "tosca.capabilities.Root"
+      ],
+      "properties": [],
+      "outputs": [
+        {
+          "title": "uri",
+          "required": true,
+          "description": "Unique identifier",
+          "type": "string"
+        },
+        {
+          "title": "name",
+          "required": true,
+          "description": "Human-friendly name of the resource",
+          "type": "string"
+        },
+        {
+          "title": "console_url",
+          "description": "URL for viewing this resource in its cloud provider's console",
+          "type": "string"
+        }
+      ],
+      "requirements": [
+        {
+          "name": "cloud",
+          "title": "cloud",
+          "description": "",
+          "min": 1,
+          "max": 1,
+          "resourceType": "unfurl.nodes.AWSAccount"
+        },
+        {
+          "name": "cloud",
+          "title": "cloud",
+          "description": "",
+          "min": 0,
+          "max": 1,
+          "resourceType": "unfurl.nodes.CloudAccount"
+        }
+      ]
+    },
+    "GCPInstance": {
+      "name": "GCPInstance",
+      "title": "GCPInstance",
+      "description": "",
+      "implements": [
+        "GCPInstance",
+        "Compute",
+        "Base",
+        "tosca.nodes.Root",
+        "unfurl.nodes.GoogleCloudObject",
+        "unfurl.nodes.CloudObject",
+        "tosca.capabilities.Node",
+        "tosca.capabilities.Root"
+      ],
+      "properties": [
+        {
+          "title": "CPUs",
+          "required": true,
+          "$toscatype": "integer",
+          "type": "number"
+        },
+        {
+          "title": "Memory",
+          "required": true,
+          "type": "number"
+        },
+        {
+          "title": "storage",
+          "required": true,
+          "type": "number"
+        }
+      ],
+      "outputs": [
+        {
+          "title": "uri",
+          "required": true,
+          "description": "Unique identifier",
+          "type": "string"
+        },
+        {
+          "title": "name",
+          "required": true,
+          "description": "Human-friendly name of the resource",
+          "type": "string"
+        },
+        {
+          "title": "console_url",
+          "description": "URL for viewing this resource in its cloud provider's console",
+          "type": "string"
+        }
+      ],
+      "requirements": [
+        {
+          "name": "cloud",
+          "title": "cloud",
+          "description": "",
+          "min": 1,
+          "max": 1,
+          "resourceType": "unfurl.nodes.GoogleCloudProject"
+        },
+        {
+          "name": "cloud",
+          "title": "cloud",
+          "description": "",
+          "min": 0,
+          "max": 1,
+          "resourceType": "unfurl.nodes.CloudAccount"
+        }
+      ]
+    },
+    "MongoDb": {
+      "name": "MongoDb",
+      "title": "MongoDb",
+      "description": "",
+      "badge": "Database",
+      "implements": [
+        "MongoDb",
+        "Base",
+        "tosca.nodes.Root",
+        "tosca.capabilities.Node",
+        "tosca.capabilities.Root"
+      ],
+      "properties": [],
+      "outputs": [],
+      "requirements": []
+    },
+    "Atlas": {
+      "name": "Atlas",
+      "title": "Atlas",
+      "description": "",
+      "implements": [
+        "Atlas",
+        "MongoDb",
+        "Base",
+        "tosca.nodes.Root",
+        "tosca.capabilities.Node",
+        "tosca.capabilities.Root"
+      ],
+      "properties": [
+        {
+          "title": "login",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "title": "password",
+          "required": true,
+          "sensitive": true,
+          "type": "string"
+        }
+      ],
+      "outputs": [],
+      "requirements": []
+    },
+    "SelfHostedMongoDb": {
+      "name": "SelfHostedMongoDb",
+      "title": "SelfHostedMongoDb",
+      "description": "",
+      "implements": [
+        "SelfHostedMongoDb",
+        "MongoDb",
+        "Base",
+        "tosca.nodes.Root",
+        "tosca.capabilities.Node",
+        "tosca.capabilities.Root"
+      ],
+      "properties": [],
+      "outputs": [],
+      "requirements": [
+        {
+          "name": "host",
+          "title": "host",
+          "description": "",
+          "min": 1,
+          "max": 1,
+          "resourceType": "Compute"
+        }
+      ]
+    },
+    "DNS": {
+      "name": "DNS",
+      "title": "DNS",
+      "description": "DNS provider for domain name configuration",
+      "badge": "DNS",
+      "implements": [
+        "DNS",
+        "Base",
+        "tosca.nodes.Root",
+        "tosca.capabilities.Node",
+        "tosca.capabilities.Root"
+      ],
+      "properties": [],
+      "outputs": [],
+      "requirements": []
+    },
+    "Mail": {
+      "name": "Mail",
+      "title": "Mail Server",
+      "description": "Mail server to use for sending mail (optional)",
+      "badge": "MAIL",
+      "implements": [
+        "Mail",
+        "Base",
+        "tosca.nodes.Root",
+        "tosca.capabilities.Node",
+        "tosca.capabilities.Root"
+      ],
+      "properties": [],
+      "outputs": [],
+      "requirements": []
+    },
+    "DockerHost": {
+      "name": "DockerHost",
+      "title": "DockerHost",
+      "description": "",
+      "implements": [
+        "DockerHost",
+        "Compute",
+        "Base",
+        "tosca.nodes.Root",
+        "tosca.capabilities.Node",
+        "tosca.capabilities.Root"
+      ],
+      "properties": [
+        {
+          "title": "CPUs",
+          "required": true,
+          "$toscatype": "integer",
+          "type": "number"
+        },
+        {
+          "title": "Memory",
+          "required": true,
+          "type": "number"
+        },
+        {
+          "title": "storage",
+          "required": true,
+          "type": "number"
+        }
+      ],
+      "outputs": [],
+      "requirements": []
+    },
+    "unfurl.nodes.Installer.Terraform": {
+      "name": "unfurl.nodes.Installer.Terraform",
+      "title": "Terraform",
+      "description": "",
+      "implements": [
+        "unfurl.nodes.Installer.Terraform",
+        "unfurl.nodes.Installer",
+        "tosca.nodes.Root",
+        "unfurl.capabilities.Installer",
+        "tosca.capabilities.Root",
+        "tosca.capabilities.Node"
+      ],
+      "properties": [],
+      "outputs": [],
+      "requirements": []
+    },
+    "unfurl.nodes.Installer": {
+      "name": "unfurl.nodes.Installer",
+      "title": "Installer",
+      "description": "",
+      "implements": [
+        "unfurl.nodes.Installer",
+        "tosca.nodes.Root",
+        "unfurl.capabilities.Installer",
+        "tosca.capabilities.Root",
+        "tosca.capabilities.Node"
+      ],
+      "properties": [],
+      "outputs": [],
+      "requirements": []
+    },
+    "MEANStack": {
+      "name": "MEANStack",
+      "title": "MEANStack",
+      "description": "",
+      "implements": [
+        "MEANStack"
+      ],
+      "properties": [
+        {
+          "title": "image",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "title": "domain",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "outputs": [],
+      "requirements": [
+        {
+          "name": "host",
+          "title": "host",
+          "description": "A compute instance with at least 512MB RAM",
+          "min": 1,
+          "max": 1,
+          "resourceType": "Compute"
+        },
+        {
+          "name": "resolver",
+          "title": "resolver",
+          "description": "",
+          "min": 1,
+          "max": 1,
+          "resourceType": "DNS"
+        },
+        {
+          "name": "db",
+          "title": "db",
+          "description": "MongoDB database service",
+          "min": 1,
+          "max": 1,
+          "resourceType": "MongoDb"
+        },
+        {
+          "name": "mail",
+          "title": "mail",
+          "description": "",
+          "min": 1,
+          "max": 1,
+          "resourceType": "Mail"
+        }
+      ]
+    }
+  },
+  "ResourceTemplate": {
+    "foo.com-zone": {
+      "type": "DNS",
+      "name": "foo.com-zone",
+      "title": "foo.com-zone",
+      "description": "",
+      "__typename": "ResourceTemplate",
+      "properties": [
+        {
+          "title": "domain",
+          "value": "foo.com"
+        }
+      ],
+      "outputs": [],
+      "dependencies": []
+    },
+    "the_app": {
+      "type": "MEANStack",
+      "name": "the_app",
+      "title": "the_app",
+      "description": "",
+      "__typename": "ResourceTemplate",
+      "properties": [
+        {
+          "title": "image",
+          "required": true,
+          "type": "string",
+          "value": "the_app_image"
+        },
+        {
+          "title": "domain",
+          "required": true,
+          "type": "string",
+          "value": {
+            "get_input": "domain"
+          }
+        }
+      ],
+      "outputs": [],
+      "dependencies": [
+        {
+          "constraint": {
+            "name": "host",
+            "title": "host",
+            "description": "A compute instance with at least 512MB RAM",
+            "min": 1,
+            "max": 1,
+            "resourceType": "Compute"
+          },
+          "name": "host",
+          "__typename": "Requirement",
+          "match": "app_container"
+        },
+        {
+          "constraint": {
+            "name": "resolver",
+            "title": "resolver",
+            "description": "",
+            "min": 1,
+            "max": 1,
+            "resourceType": "DNS"
+          },
+          "name": "resolver",
+          "__typename": "Requirement",
+          "match": "foo.com-zone"
+        },
+        {
+          "constraint": {
+            "name": "db",
+            "title": "db",
+            "description": "MongoDB database service",
+            "min": 1,
+            "max": 1,
+            "resourceType": "MongoDb"
+          },
+          "name": "db",
+          "__typename": "Requirement",
+          "match": "atlas_service"
+        }
+      ]
+    },
+    "app_container": {
+      "type": "DockerHost",
+      "name": "app_container",
+      "title": "app_container",
+      "description": "",
+      "__typename": "ResourceTemplate",
+      "properties": [
+        {
+          "title": "CPUs",
+          "required": true,
+          "$toscatype": "integer",
+          "type": "number",
+          "value": 2
+        },
+        {
+          "title": "Memory",
+          "required": true,
+          "type": "number",
+          "value": 512
+        },
+        {
+          "title": "storage",
+          "required": true,
+          "type": "number",
+          "value": 200
+        }
+      ],
+      "outputs": [],
+      "dependencies": []
+    },
+    "atlas_service": {
+      "type": "Atlas",
+      "name": "atlas_service",
+      "title": "atlas_service",
+      "description": "",
+      "__typename": "ResourceTemplate",
+      "properties": [
+        {
+          "title": "login",
+          "required": true,
+          "type": "string",
+          "value": "admin"
+        },
+        {
+          "title": "password",
+          "required": true,
+          "sensitive": true,
+          "type": "string",
+          "value": "*******"
+        }
+      ],
+      "outputs": [],
+      "dependencies": []
+    }
+  },
+  "DeploymentTemplate": {
+    "apostrophe-demo": {
+      "__typename": "DeploymentTemplate",
+      "title": "Apostrophe Demo",
+      "name": "apostrophe-demo",
+      "slug": "apostrophe-demo",
+      "description": null,
+      "blueprint": "Apostrophe Demo",
+      "primary": "the_app",
+      "resourceTemplates": [
+        "foo.com-zone",
+        "the_app",
+        "app_container",
+        "atlas_service"
+      ]
+    }
+  },
+  "ApplicationBlueprint": {
+    "Apostrophe Demo": {
+      "__typename": "ApplicationBlueprint",
+      "name": "Apostrophe Demo",
+      "primary": "MEANStack",
+      "deploymentTemplates": [
+        "Apostrophe Demo"
+      ]
+    }
+  },
+  "Overview": {
+    "livePreview": "https://demo-apostrophe-demo.dev3.unfurl.cloud/",
+    "image": "https://app.dev2.unfurl.cloud/demo/apostrophe-demo/-/raw/dc4b22d93e34ef232573f5a4223d0e76b8a92433/.unfurl/Screen_Shot_2021-09-15_at_1.02.07_PM.png",
+    "sourceCodeUrl": "https://github.com/aszs/apostrophe-sandbox.git",
+    "deployments": 164,
+    "webUrl": "https://github.com/aszs/apostrophe-sandbox"
+  },
+  "Resource": {
+    "::app_container": {
+      "name": "::app_container",
+      "title": "app_container",
+      "template": "app_container",
+      "state": 5,
+      "status": 1,
+      "attributes": [],
+      "connections": []
+    },
+    "::the_app": {
+      "name": "::the_app",
+      "title": "the_app",
+      "template": "the_app",
+      "state": null,
+      "status": 4,
+      "attributes": [],
+      "connections": [
+        {
+          "constraint": {
+            "name": "host",
+            "title": "host",
+            "description": "A compute instance with at least 512MB RAM",
+            "min": 1,
+            "max": 1,
+            "resourceType": "Compute"
+          },
+          "name": "host",
+          "__typename": "Requirement",
+          "match": "app_container",
+          "target": "::app_container"
+        },
+        {
+          "constraint": {
+            "name": "resolver",
+            "title": "resolver",
+            "description": "",
+            "min": 1,
+            "max": 1,
+            "resourceType": "DNS"
+          },
+          "name": "resolver",
+          "__typename": "Requirement",
+          "match": "foo.com-zone",
+          "target": "::foo.com-zone"
+        },
+        {
+          "constraint": {
+            "name": "db",
+            "title": "db",
+            "description": "MongoDB database service",
+            "min": 1,
+            "max": 1,
+            "resourceType": "MongoDb"
+          },
+          "name": "db",
+          "__typename": "Requirement",
+          "match": "atlas_service",
+          "target": "::atlas_service"
+        }
+      ]
+    },
+    "::foo.com-zone": {
+      "name": "::foo.com-zone",
+      "title": "foo.com-zone",
+      "template": "foo.com-zone",
+      "state": 5,
+      "status": 1,
+      "attributes": [],
+      "connections": []
+    },
+    "::atlas_service": {
+      "name": "::atlas_service",
+      "title": "atlas_service",
+      "template": "atlas_service",
+      "state": 5,
+      "status": 1,
+      "attributes": [],
+      "connections": []
+    }
+  },
+  "Deployment": {
+    "unnamed": {
+      "title": "unnamed",
+      "resources": [
+        {
+          "name": "::app_container",
+          "title": "app_container",
+          "template": "app_container",
+          "state": 5,
+          "status": 1,
+          "attributes": [],
+          "connections": []
+        },
+        {
+          "name": "::the_app",
+          "title": "the_app",
+          "template": "the_app",
+          "state": null,
+          "status": 4,
+          "attributes": [],
+          "connections": [
+            {
+              "constraint": {
+                "name": "host",
+                "title": "host",
+                "description": "A compute instance with at least 512MB RAM",
+                "min": 1,
+                "max": 1,
+                "resourceType": "Compute"
+              },
+              "name": "host",
+              "__typename": "Requirement",
+              "match": "app_container",
+              "target": "::app_container"
+            },
+            {
+              "constraint": {
+                "name": "resolver",
+                "title": "resolver",
+                "description": "",
+                "min": 1,
+                "max": 1,
+                "resourceType": "DNS"
+              },
+              "name": "resolver",
+              "__typename": "Requirement",
+              "match": "foo.com-zone",
+              "target": "::foo.com-zone"
+            },
+            {
+              "constraint": {
+                "name": "db",
+                "title": "db",
+                "description": "MongoDB database service",
+                "min": 1,
+                "max": 1,
+                "resourceType": "MongoDb"
+              },
+              "name": "db",
+              "__typename": "Requirement",
+              "match": "atlas_service",
+              "target": "::atlas_service"
+            }
+          ]
+        },
+        {
+          "name": "::foo.com-zone",
+          "title": "foo.com-zone",
+          "template": "foo.com-zone",
+          "state": 5,
+          "status": 1,
+          "attributes": [],
+          "connections": []
+        },
+        {
+          "name": "::atlas_service",
+          "title": "atlas_service",
+          "template": "atlas_service",
+          "state": 5,
+          "status": 1,
+          "attributes": [],
+          "connections": []
+        }
+      ],
+      "primary": "the_app"
+    }
+  }
+}
