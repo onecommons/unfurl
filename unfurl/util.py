@@ -99,6 +99,7 @@ class UnfurlValidationError(UnfurlError):
 
 class UnfurlTaskError(UnfurlError):
     def __init__(self, task, message, log=logging.ERROR):
+        message = f"{task.changeId} on {task.target.name} {task.name}: {message}"
         super().__init__(message, True, False)
         self.task = task
         task._errors.append(self)
@@ -241,8 +242,10 @@ def load_class(klass, defaultModule="__main__"):
 
 _shortNameRegistry = {}
 
+
 def check_class_registry(kind):
-    return kind in _ClassRegistry or  kind in _shortNameRegistry
+    return kind in _ClassRegistry or kind in _shortNameRegistry
+
 
 def lookup_class(kind, apiVersion=None, default=None):
     if kind in _ClassRegistry:
