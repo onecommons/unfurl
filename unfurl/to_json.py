@@ -93,13 +93,14 @@ VALUE_TYPES.update(
 )
 
 
-def tosca_type_to_jsonschema(dt, spec, propdefs):
+def tosca_type_to_jsonschema(spec, propdefs, toscatype):
     jsonschema = dict(
         type="object",
         properties={p.name: tosca_schema_to_jsonschema(p, spec) for p in propdefs},
     )
     # add typeid:
-    jsonschema["properties"].update({"$toscatype": dict(const=dt.type)})
+    if toscatype:
+        jsonschema["properties"].update({"$toscatype": dict(const=toscatype)})
     return jsonschema
 
 
@@ -147,7 +148,7 @@ def tosca_schema_to_jsonschema(p, spec, omitComputed=True):
                 constraints = valuetype_schema.constraints + constraints
         else:  # it's complex type with properties:
             type_schema = tosca_type_to_jsonschema(
-                dt, spec, dt.get_properties_def_objects()
+                spec, dt.get_properties_def_objects(), dt.type
             )
     if tosca_type not in ONE_TO_ONE_TYPES and "properties" not in schema:
         schema["$toscatype"] = tosca_type
@@ -165,19 +166,6 @@ def tosca_schema_to_jsonschema(p, spec, omitComputed=True):
     if constraints:
         schema.update(map_constraints(schema["type"], toscaSchema.constraints))
     return schema
-
-
-def propertydefs_to_jsonschema(spec, pdefs):
-    return list(
-        filter(
-            None,
-            [
-                tosca_schema_to_jsonschema(p, spec)
-                for p in pdefs
-                if p.name not in ["tosca_id", "state", "tosca_name"]
-            ],
-        )
-    )
 
 
 def requirement_to_graphql(spec, req_dict):
@@ -237,6 +225,15 @@ def _get_implements(spec, typedef, implements: list, types):
         _get_implements(spec, p, implements, types)
 
 
+def is_computed(p):
+    # XXX be smarter about is_computed() if the user should be able to override the default
+    return (
+        p.name in ["tosca_id", "state", "tosca_name"]
+        or is_function(p.value)
+        or is_function(p.default)
+    )
+
+
 # XXX outputs: only include "public" attributes?
 def node_type_to_graphql(spec, type_definition, types: dict):
     """
@@ -246,8 +243,8 @@ def node_type_to_graphql(spec, type_definition, types: dict):
       implements: [ResourceType!]
       description: string
       badge: string
-      properties: [Input!]
-      outputs: [Output!]
+      inputsSchema: JSON
+      # XXX outputs: [Output!]
       requirements: [RequirementConstraint!]
     }
     """
@@ -271,20 +268,22 @@ def node_type_to_graphql(spec, type_definition, types: dict):
         _get_implements(spec, cap, implements, None)
     jsontype["implements"] = implements
 
-    jsontype["properties"] = propertydefs_to_jsonschema(
-        spec, type_definition.get_properties_def_objects()
+    propertydefs = (
+        p for p in type_definition.get_properties_def_objects() if not is_computed(p)
     )
+    jsontype["inputsSchema"] = tosca_type_to_jsonschema(spec, propertydefs, None)
 
     # treat each capability as a complex property
-    add_capabilities_as_properties(jsontype["properties"], type_definition, spec)
-
-    # XXX only include "public" attributes?
-    jsontype["outputs"] = propertydefs_to_jsonschema(
-        spec, type_definition.get_attributes_def_objects()
+    add_capabilities_as_properties(
+        jsontype["inputsSchema"]["properties"], type_definition, spec
     )
 
+    # XXX only include "public" attributes?
+    # jsontype["outputs"] = tosca_type_to_jsonschema(
+    #     spec, type_definition.get_attributes_def_objects(), None
+    # )
     # XXX capabilities can hava attributes too
-    add_capabilities_as_attributes(jsontype["outputs"], type_definition, spec)
+    # add_capabilities_as_attributes(jsontype["outputs"], type_definition, spec)
 
     jsontype["requirements"] = [
         requirement_to_graphql(spec, req)
@@ -332,62 +331,24 @@ def deduce_valuetype(value):
     return {}
 
 
-def is_computed(p):
-    return (
-        p.name in ["tosca_id", "state", "tosca_name"]
-        or is_function(p.value)
-        or is_function(p.default)
-    )
-
-
-def deduce_prop(name, value):
-    # additional property not defined in the node type
-    jsonprop = deduce_valuetype(value)
-    jsonprop["title"] = name
-    jsonprop["value"] = value
-    return jsonprop
-
-
-def get_properties(typedefs, props):
-    """
-    Return a JSON-Schema object that can also be used as a Input GraphQL type.
-    Extra properties include: value, title, description, default, required, $toscatype
-    """
-    jsonprops = []
-    for propdef in typedefs:
-        # find the property with the given name
-        # note: the property won't be defined it if propdef is a capability
-        prop = props.pop(propdef["title"], None)
-        jsonprop = propdef.copy()
-        if prop:
-            jsonprop["value"] = prop.value
-        jsonprops.append(jsonprop)
-
-    # look at leftover props
-    for prop in props.values():
-        if not is_computed(prop):
-            jsonprops.append(deduce_prop(prop.name, prop.value))
-    return jsonprops
-
-
-def add_capabilities_as_properties(props, nodetype, spec):
+def add_capabilities_as_properties(schema, nodetype, spec):
     """treat each capability as a property and add them to props"""
     for cap in nodetype.get_capability_typedefs():
         if not cap.get_definition("properties"):
             continue
-        schema = tosca_type_to_jsonschema(cap, spec, cap.get_properties_def_objects())
-        schema["title"] = cap.name
-        props.append(schema)
+        schema[cap.name] = tosca_type_to_jsonschema(
+            spec, cap.get_properties_def_objects(), cap.type
+        )
 
 
-def add_capabilities_as_attributes(props, nodetype, spec):
+def add_capabilities_as_attributes(schema, nodetype, spec):
     """treat each capability as an attribute and add them to props"""
     for cap in nodetype.get_capability_typedefs():
         if not cap.get_definition("attributes"):
             continue
-        schema = tosca_type_to_jsonschema(cap, spec, cap.get_attributes_def_objects())
-        schema["title"] = cap.name
-        props.append(schema)
+        schema[cap.name] = tosca_type_to_jsonschema(
+            spec, cap.get_attributes_def_objects(), cap.type
+        )
 
 
 def _find_requirement_constraint(reqs, name):
@@ -404,6 +365,7 @@ def _find_requirement_constraint(reqs, name):
         __typename="RequirementConstraint",
     )
 
+
 def nodetemplate_to_json(nodetemplate, spec, db):
     """
     Returns json object as a ResourceTemplate:
@@ -415,7 +377,7 @@ def nodetemplate_to_json(nodetemplate, spec, db):
 
       description: string
 
-      # input has schema and value
+      # Maps to an object that conforms to type.inputsSchema
       properties: [Input!]
 
       dependencies: [Requirement!]
@@ -438,27 +400,30 @@ def nodetemplate_to_json(nodetemplate, spec, db):
     )
 
     jsonnodetype = types[nodetemplate.type]
-    json["properties"] = get_properties(
-        jsonnodetype["properties"], nodetemplate.get_properties()
-    )
+    json["properties"] = [
+        dict(name=p.name, value=p.value)
+        for p in nodetemplate.get_properties_objects()
+        if not is_computed(p)
+    ]
 
     # treat each capability as a complex property
     capabilities = nodetemplate.get_capabilities()
     for prop in json["properties"]:
         # properties are already added via the type definition
-        cap = capabilities.get(prop["title"])
+        cap = capabilities.get(prop["name"])
         if cap:
             prop["value"] = cap._properties
 
+    # XXX
     # this is the same as on the type because of the bug where attribute set on a node_template are ignored
-    json["outputs"] = jsonnodetype["outputs"]
+    # json["outputs"] = jsonnodetype["outputs"]
 
     json["dependencies"] = []
     ExceptionCollector.start()
     if nodetemplate.requirements:
         for req in nodetemplate.requirements:
             reqDef, rel_template = nodetemplate._get_explicit_relationship(req)
-            name = next(iter(req)) # first key
+            name = next(iter(req))  # first key
             reqconstraint = _find_requirement_constraint(
                 jsonnodetype["requirements"], name
             )
@@ -499,7 +464,6 @@ def slugify(text):
 
 
 # XXX cloud = spec.topology.primary_provider
-# XXX substitution_template
 def to_graphql_deployment_template(manifest, db):
     """
     Returns json object as DeploymentTemplate:
@@ -576,7 +540,7 @@ def add_graphql_deployment(manifest, db, dtemplate):
     }
     """
     title = "unnamed"  # XXX
-    deployment = dict(title=title)
+    deployment = dict(name=title, title=title)
     # XXX primary
     deployment["resources"] = [
         to_graphql_resource(instance, manifest, db)
@@ -610,20 +574,22 @@ def to_graphql_resource(instance, manifest, db):
         state=instance.state,
         status=instance.status,
     )
-    # only save the attributes that were set by the instance, not spec properties or attribute defaults
-    # _attributes should already be serialized
+    # instance._attributes only values that were set by the instance, not spec properties or attribute defaults
+    # instance._attributes should already be serialized
     template = db["ResourceTemplate"][instance.template.name]
     if instance._attributes:
         inputs = []
-        if template["outputs"]:
+        # include the default values by starting with the template's outputs
+        if template.get("outputs"):
             inputs = [p.copy() for p in template["outputs"]]
         attributes = instance._attributes.copy()
         for prop in inputs:
-            name = prop["title"]
+            name = prop["name"]
             if name in attributes:
                 prop["value"] = attributes.pop(name)
-        for name, value in attributes.items():  # left over
-            inputs.append(deduce_prop(name, value))
+        # left over
+        for name, value in attributes.items():
+            inputs.append(dict(name=name, value=value))
         resource["attributes"] = inputs
     else:
         resource["attributes"] = []

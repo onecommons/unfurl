@@ -11,26 +11,10 @@
         "tosca.capabilities.Node",
         "tosca.capabilities.Root"
       ],
-      "properties": [],
-      "outputs": [
-        {
-          "title": "uri",
-          "required": true,
-          "description": "Unique identifier",
-          "type": "string"
-        },
-        {
-          "title": "name",
-          "required": true,
-          "description": "Human-friendly name of the resource",
-          "type": "string"
-        },
-        {
-          "title": "console_url",
-          "description": "URL for viewing this resource in its cloud provider's console",
-          "type": "string"
-        }
-      ],
+      "inputsSchema": {
+        "type": "object",
+        "properties": {}
+      },
       "requirements": [
         {
           "name": "cloud",
@@ -60,26 +44,10 @@
         "tosca.capabilities.Node",
         "tosca.capabilities.Root"
       ],
-      "properties": [],
-      "outputs": [
-        {
-          "title": "uri",
-          "required": true,
-          "description": "Unique identifier",
-          "type": "string"
-        },
-        {
-          "title": "name",
-          "required": true,
-          "description": "Human-friendly name of the resource",
-          "type": "string"
-        },
-        {
-          "title": "console_url",
-          "description": "URL for viewing this resource in its cloud provider's console",
-          "type": "string"
-        }
-      ],
+      "inputsSchema": {
+        "type": "object",
+        "properties": {}
+      },
       "requirements": [
         {
           "name": "cloud",
@@ -102,35 +70,23 @@
         "tosca.capabilities.Node",
         "tosca.capabilities.Root"
       ],
-      "properties": [
-        {
-          "title": "name",
-          "required": true,
-          "description": "User defined name of the project",
-          "type": "string"
-        },
-        {
-          "title": "activate_apis",
-          "default": [],
-          "required": true,
-          "type": "array"
+      "inputsSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "title": "name",
+            "required": true,
+            "description": "User defined name of the project",
+            "type": "string"
+          },
+          "activate_apis": {
+            "title": "activate_apis",
+            "default": [],
+            "required": true,
+            "type": "array"
+          }
         }
-      ],
-      "outputs": [
-        {
-          "title": "project_number",
-          "$toscatype": "integer",
-          "type": "number"
-        },
-        {
-          "title": "service_account_id",
-          "type": "string"
-        },
-        {
-          "title": "service_account_email",
-          "type": "string"
-        }
-      ],
+      },
       "requirements": [
         {
           "name": "host",
@@ -152,15 +108,10 @@
         "tosca.capabilities.Node",
         "tosca.capabilities.Root"
       ],
-      "properties": [],
-      "outputs": [
-        {
-          "title": "account_id",
-          "required": true,
-          "description": "Cloud provider specific account identifier",
-          "type": "string"
-        }
-      ],
+      "inputsSchema": {
+        "type": "object",
+        "properties": {}
+      },
       "requirements": []
     },
     "unfurl.nodes.GoogleCloudServiceKey": {
@@ -175,38 +126,22 @@
         "tosca.capabilities.Node",
         "tosca.capabilities.Root"
       ],
-      "properties": [
-        {
-          "title": "account_id",
-          "required": true,
-          "type": "string"
-        },
-        {
-          "title": "download_location",
-          "default": "secrets",
-          "required": true,
-          "type": "string"
+      "inputsSchema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "title": "account_id",
+            "required": true,
+            "type": "string"
+          },
+          "download_location": {
+            "title": "download_location",
+            "default": "secrets",
+            "required": true,
+            "type": "string"
+          }
         }
-      ],
-      "outputs": [
-        {
-          "title": "uri",
-          "required": true,
-          "description": "Unique identifier",
-          "type": "string"
-        },
-        {
-          "title": "name",
-          "required": true,
-          "description": "Human-friendly name of the resource",
-          "type": "string"
-        },
-        {
-          "title": "console_url",
-          "description": "URL for viewing this resource in its cloud provider's console",
-          "type": "string"
-        }
-      ],
+      },
       "requirements": [
         {
           "name": "cloud",
@@ -239,44 +174,28 @@
         "tosca.capabilities.Root",
         "tosca.capabilities.Node"
       ],
-      "properties": [
-        {
-          "title": "display_name",
-          "required": true,
-          "description": "User defined name of the resource",
-          "type": "string"
-        },
-        {
-          "title": "id",
-          "required": true,
-          "$toscatype": "integer",
-          "type": "number"
-        },
-        {
-          "title": "type",
-          "required": true,
-          "type": "string"
+      "inputsSchema": {
+        "type": "object",
+        "properties": {
+          "display_name": {
+            "title": "display_name",
+            "required": true,
+            "description": "User defined name of the resource",
+            "type": "string"
+          },
+          "id": {
+            "title": "id",
+            "required": true,
+            "$toscatype": "integer",
+            "type": "number"
+          },
+          "type": {
+            "title": "type",
+            "required": true,
+            "type": "string"
+          }
         }
-      ],
-      "outputs": [
-        {
-          "title": "uri",
-          "required": true,
-          "description": "Unique identifier",
-          "type": "string"
-        },
-        {
-          "title": "name",
-          "required": true,
-          "description": "Human-friendly name of the resource",
-          "type": "string"
-        },
-        {
-          "title": "console_url",
-          "description": "URL for viewing this resource in its cloud provider's console",
-          "type": "string"
-        }
-      ],
+      },
       "requirements": [
         {
           "name": "cloud",
@@ -310,45 +229,29 @@
         "tosca.capabilities.Root",
         "tosca.capabilities.Node"
       ],
-      "properties": [
-        {
-          "title": "type",
-          "default": "organization",
-          "required": true,
-          "type": "string"
-        },
-        {
-          "title": "display_name",
-          "required": true,
-          "description": "User defined name of the resource",
-          "type": "string"
-        },
-        {
-          "title": "id",
-          "required": true,
-          "$toscatype": "integer",
-          "type": "number"
+      "inputsSchema": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "title": "type",
+            "default": "organization",
+            "required": true,
+            "type": "string"
+          },
+          "display_name": {
+            "title": "display_name",
+            "required": true,
+            "description": "User defined name of the resource",
+            "type": "string"
+          },
+          "id": {
+            "title": "id",
+            "required": true,
+            "$toscatype": "integer",
+            "type": "number"
+          }
         }
-      ],
-      "outputs": [
-        {
-          "title": "uri",
-          "required": true,
-          "description": "Unique identifier",
-          "type": "string"
-        },
-        {
-          "title": "name",
-          "required": true,
-          "description": "Human-friendly name of the resource",
-          "type": "string"
-        },
-        {
-          "title": "console_url",
-          "description": "URL for viewing this resource in its cloud provider's console",
-          "type": "string"
-        }
-      ],
+      },
       "requirements": [
         {
           "name": "cloud",
@@ -382,45 +285,29 @@
         "tosca.capabilities.Root",
         "tosca.capabilities.Node"
       ],
-      "properties": [
-        {
-          "title": "type",
-          "default": "folder",
-          "required": true,
-          "type": "string"
-        },
-        {
-          "title": "display_name",
-          "required": true,
-          "description": "User defined name of the resource",
-          "type": "string"
-        },
-        {
-          "title": "id",
-          "required": true,
-          "$toscatype": "integer",
-          "type": "number"
+      "inputsSchema": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "title": "type",
+            "default": "folder",
+            "required": true,
+            "type": "string"
+          },
+          "display_name": {
+            "title": "display_name",
+            "required": true,
+            "description": "User defined name of the resource",
+            "type": "string"
+          },
+          "id": {
+            "title": "id",
+            "required": true,
+            "$toscatype": "integer",
+            "type": "number"
+          }
         }
-      ],
-      "outputs": [
-        {
-          "title": "uri",
-          "required": true,
-          "description": "Unique identifier",
-          "type": "string"
-        },
-        {
-          "title": "name",
-          "required": true,
-          "description": "Human-friendly name of the resource",
-          "type": "string"
-        },
-        {
-          "title": "console_url",
-          "description": "URL for viewing this resource in its cloud provider's console",
-          "type": "string"
-        }
-      ],
+      },
       "requirements": [
         {
           "name": "host",
@@ -458,8 +345,10 @@
         "tosca.capabilities.Node",
         "tosca.capabilities.Root"
       ],
-      "properties": [],
-      "outputs": [],
+      "inputsSchema": {
+        "type": "object",
+        "properties": {}
+      },
       "requirements": []
     },
     "Compute": {
@@ -474,25 +363,27 @@
         "tosca.capabilities.Node",
         "tosca.capabilities.Root"
       ],
-      "properties": [
-        {
-          "title": "CPUs",
-          "required": true,
-          "$toscatype": "integer",
-          "type": "number"
-        },
-        {
-          "title": "Memory",
-          "required": true,
-          "type": "number"
-        },
-        {
-          "title": "storage",
-          "required": true,
-          "type": "number"
+      "inputsSchema": {
+        "type": "object",
+        "properties": {
+          "CPUs": {
+            "title": "CPUs",
+            "required": true,
+            "$toscatype": "integer",
+            "type": "number"
+          },
+          "Memory": {
+            "title": "Memory",
+            "required": true,
+            "type": "number"
+          },
+          "storage": {
+            "title": "storage",
+            "required": true,
+            "type": "number"
+          }
         }
-      ],
-      "outputs": [],
+      },
       "requirements": []
     },
     "AWSInstance": {
@@ -509,43 +400,27 @@
         "tosca.capabilities.Node",
         "tosca.capabilities.Root"
       ],
-      "properties": [
-        {
-          "title": "CPUs",
-          "required": true,
-          "$toscatype": "integer",
-          "type": "number"
-        },
-        {
-          "title": "Memory",
-          "required": true,
-          "type": "number"
-        },
-        {
-          "title": "storage",
-          "required": true,
-          "type": "number"
+      "inputsSchema": {
+        "type": "object",
+        "properties": {
+          "CPUs": {
+            "title": "CPUs",
+            "required": true,
+            "$toscatype": "integer",
+            "type": "number"
+          },
+          "Memory": {
+            "title": "Memory",
+            "required": true,
+            "type": "number"
+          },
+          "storage": {
+            "title": "storage",
+            "required": true,
+            "type": "number"
+          }
         }
-      ],
-      "outputs": [
-        {
-          "title": "uri",
-          "required": true,
-          "description": "Unique identifier",
-          "type": "string"
-        },
-        {
-          "title": "name",
-          "required": true,
-          "description": "Human-friendly name of the resource",
-          "type": "string"
-        },
-        {
-          "title": "console_url",
-          "description": "URL for viewing this resource in its cloud provider's console",
-          "type": "string"
-        }
-      ],
+      },
       "requirements": [
         {
           "name": "cloud",
@@ -576,26 +451,10 @@
         "tosca.capabilities.Node",
         "tosca.capabilities.Root"
       ],
-      "properties": [],
-      "outputs": [
-        {
-          "title": "uri",
-          "required": true,
-          "description": "Unique identifier",
-          "type": "string"
-        },
-        {
-          "title": "name",
-          "required": true,
-          "description": "Human-friendly name of the resource",
-          "type": "string"
-        },
-        {
-          "title": "console_url",
-          "description": "URL for viewing this resource in its cloud provider's console",
-          "type": "string"
-        }
-      ],
+      "inputsSchema": {
+        "type": "object",
+        "properties": {}
+      },
       "requirements": [
         {
           "name": "cloud",
@@ -629,43 +488,27 @@
         "tosca.capabilities.Node",
         "tosca.capabilities.Root"
       ],
-      "properties": [
-        {
-          "title": "CPUs",
-          "required": true,
-          "$toscatype": "integer",
-          "type": "number"
-        },
-        {
-          "title": "Memory",
-          "required": true,
-          "type": "number"
-        },
-        {
-          "title": "storage",
-          "required": true,
-          "type": "number"
+      "inputsSchema": {
+        "type": "object",
+        "properties": {
+          "CPUs": {
+            "title": "CPUs",
+            "required": true,
+            "$toscatype": "integer",
+            "type": "number"
+          },
+          "Memory": {
+            "title": "Memory",
+            "required": true,
+            "type": "number"
+          },
+          "storage": {
+            "title": "storage",
+            "required": true,
+            "type": "number"
+          }
         }
-      ],
-      "outputs": [
-        {
-          "title": "uri",
-          "required": true,
-          "description": "Unique identifier",
-          "type": "string"
-        },
-        {
-          "title": "name",
-          "required": true,
-          "description": "Human-friendly name of the resource",
-          "type": "string"
-        },
-        {
-          "title": "console_url",
-          "description": "URL for viewing this resource in its cloud provider's console",
-          "type": "string"
-        }
-      ],
+      },
       "requirements": [
         {
           "name": "cloud",
@@ -697,8 +540,10 @@
         "tosca.capabilities.Node",
         "tosca.capabilities.Root"
       ],
-      "properties": [],
-      "outputs": [],
+      "inputsSchema": {
+        "type": "object",
+        "properties": {}
+      },
       "requirements": []
     },
     "Atlas": {
@@ -713,20 +558,22 @@
         "tosca.capabilities.Node",
         "tosca.capabilities.Root"
       ],
-      "properties": [
-        {
-          "title": "login",
-          "required": true,
-          "type": "string"
-        },
-        {
-          "title": "password",
-          "required": true,
-          "sensitive": true,
-          "type": "string"
+      "inputsSchema": {
+        "type": "object",
+        "properties": {
+          "login": {
+            "title": "login",
+            "required": true,
+            "type": "string"
+          },
+          "password": {
+            "title": "password",
+            "required": true,
+            "sensitive": true,
+            "type": "string"
+          }
         }
-      ],
-      "outputs": [],
+      },
       "requirements": []
     },
     "SelfHostedMongoDb": {
@@ -741,8 +588,10 @@
         "tosca.capabilities.Node",
         "tosca.capabilities.Root"
       ],
-      "properties": [],
-      "outputs": [],
+      "inputsSchema": {
+        "type": "object",
+        "properties": {}
+      },
       "requirements": [
         {
           "name": "host",
@@ -766,8 +615,10 @@
         "tosca.capabilities.Node",
         "tosca.capabilities.Root"
       ],
-      "properties": [],
-      "outputs": [],
+      "inputsSchema": {
+        "type": "object",
+        "properties": {}
+      },
       "requirements": []
     },
     "Mail": {
@@ -782,8 +633,10 @@
         "tosca.capabilities.Node",
         "tosca.capabilities.Root"
       ],
-      "properties": [],
-      "outputs": [],
+      "inputsSchema": {
+        "type": "object",
+        "properties": {}
+      },
       "requirements": []
     },
     "DockerHost": {
@@ -798,25 +651,27 @@
         "tosca.capabilities.Node",
         "tosca.capabilities.Root"
       ],
-      "properties": [
-        {
-          "title": "CPUs",
-          "required": true,
-          "$toscatype": "integer",
-          "type": "number"
-        },
-        {
-          "title": "Memory",
-          "required": true,
-          "type": "number"
-        },
-        {
-          "title": "storage",
-          "required": true,
-          "type": "number"
+      "inputsSchema": {
+        "type": "object",
+        "properties": {
+          "CPUs": {
+            "title": "CPUs",
+            "required": true,
+            "$toscatype": "integer",
+            "type": "number"
+          },
+          "Memory": {
+            "title": "Memory",
+            "required": true,
+            "type": "number"
+          },
+          "storage": {
+            "title": "storage",
+            "required": true,
+            "type": "number"
+          }
         }
-      ],
-      "outputs": [],
+      },
       "requirements": []
     },
     "unfurl.nodes.Installer.Terraform": {
@@ -831,8 +686,10 @@
         "tosca.capabilities.Root",
         "tosca.capabilities.Node"
       ],
-      "properties": [],
-      "outputs": [],
+      "inputsSchema": {
+        "type": "object",
+        "properties": {}
+      },
       "requirements": []
     },
     "unfurl.nodes.Installer": {
@@ -846,8 +703,10 @@
         "tosca.capabilities.Root",
         "tosca.capabilities.Node"
       ],
-      "properties": [],
-      "outputs": [],
+      "inputsSchema": {
+        "type": "object",
+        "properties": {}
+      },
       "requirements": []
     },
     "MEANStack": {
@@ -857,19 +716,21 @@
       "implements": [
         "MEANStack"
       ],
-      "properties": [
-        {
-          "title": "image",
-          "required": true,
-          "type": "string"
-        },
-        {
-          "title": "domain",
-          "required": true,
-          "type": "string"
+      "inputsSchema": {
+        "type": "object",
+        "properties": {
+          "image": {
+            "title": "image",
+            "required": true,
+            "type": "string"
+          },
+          "domain": {
+            "title": "domain",
+            "required": true,
+            "type": "string"
+          }
         }
-      ],
-      "outputs": [],
+      },
       "requirements": [
         {
           "name": "host",
@@ -915,11 +776,10 @@
       "__typename": "ResourceTemplate",
       "properties": [
         {
-          "title": "domain",
+          "name": "domain",
           "value": "foo.com"
         }
       ],
-      "outputs": [],
       "dependencies": []
     },
     "the_app": {
@@ -930,21 +790,10 @@
       "__typename": "ResourceTemplate",
       "properties": [
         {
-          "title": "image",
-          "required": true,
-          "type": "string",
+          "name": "image",
           "value": "the_app_image"
-        },
-        {
-          "title": "domain",
-          "required": true,
-          "type": "string",
-          "value": {
-            "get_input": "domain"
-          }
         }
       ],
-      "outputs": [],
       "dependencies": [
         {
           "constraint": {
@@ -995,26 +844,18 @@
       "__typename": "ResourceTemplate",
       "properties": [
         {
-          "title": "CPUs",
-          "required": true,
-          "$toscatype": "integer",
-          "type": "number",
+          "name": "CPUs",
           "value": 2
         },
         {
-          "title": "Memory",
-          "required": true,
-          "type": "number",
+          "name": "Memory",
           "value": 512
         },
         {
-          "title": "storage",
-          "required": true,
-          "type": "number",
+          "name": "storage",
           "value": 200
         }
       ],
-      "outputs": [],
       "dependencies": []
     },
     "atlas_service": {
@@ -1025,20 +866,14 @@
       "__typename": "ResourceTemplate",
       "properties": [
         {
-          "title": "login",
-          "required": true,
-          "type": "string",
+          "name": "login",
           "value": "admin"
         },
         {
-          "title": "password",
-          "required": true,
-          "sensitive": true,
-          "type": "string",
+          "name": "password",
           "value": "*******"
         }
       ],
-      "outputs": [],
       "dependencies": []
     }
   },

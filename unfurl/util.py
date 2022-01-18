@@ -276,13 +276,26 @@ def to_enum(enum, value, default=None):
         return value
 
 
+def to_dotenv(env: dict):
+    # https://hexdocs.pm/dotenvy/dotenv-file-format.html
+    keys = []
+    for k, v in env.items():
+        # k should be [a-zA-Z_]+[a-zA-Z0-9_]*
+        value = str(v)
+        if value.isalnum():
+            # always single quote to prevent interpolation
+            keys.append(f"{k}='{value}'")
+        else:
+            keys.append(f"{k}={repr(value)}")
+    return '\n'.join(keys)
+
 def dump(obj, tp, suffix="", yaml=None, encoding=None):
     from .yamlloader import yaml as _yaml
 
     try:
         if six.PY3:
             textEncoding = (
-                "utf-8" if encoding in [None, "yaml", "vault", "json"] else encoding
+                "utf-8" if encoding in [None, "yaml", "vault", "json", "env"] else encoding
             )
             f = io.TextIOWrapper(tp, textEncoding)
         else:
@@ -306,6 +319,10 @@ def dump(obj, tp, suffix="", yaml=None, encoding=None):
             if isinstance(obj, str):
                 tp.write(obj)
                 return
+
+        if suffix.endswith(".env") or encoding == "env" and isinstance(obj, dict):
+            tp.write(codecs.encode(to_dotenv(obj), "utf-8"))
+            return
 
         # try to dump any other object as json
         if obj is not None:  # treat None as 0 byte file
