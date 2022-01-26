@@ -146,7 +146,7 @@ class GitRepoTest(unittest.TestCase):
             self.assertEqual(result.exit_code, 0, result)
             expectedCommittedFiles = {
                 "unfurl.yaml",
-                "unfurl-local-template.yaml",
+                ".unfurl-local-template.yaml",
                 "ensemble-template.yaml",
                 ".gitignore",
                 ".gitattributes",
@@ -233,8 +233,8 @@ class GitRepoTest(unittest.TestCase):
 .gitattributes
 .gitignore
 .secrets/secrets.yaml
+.unfurl-local-template.yaml
 ensemble-template.yaml
-unfurl-local-template.yaml
 unfurl.yaml
 
 *** Running 'git ls-files' in './ensemble'
