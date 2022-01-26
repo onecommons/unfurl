@@ -94,7 +94,7 @@ Once created, the project directory will look like:
 | │   └── secrets.yaml
 | ├── local
 | │   └── unfurl.yaml
-| ├── unfurl-local-template.yaml
+| ├── .unfurl-local-template.yaml
 | ├── ensemble-template.yaml
 | ├── ensemble
 | │   └── ensemble.yaml
@@ -108,7 +108,7 @@ In the folder structure above:
 - Any files in``local`` is excluded from the git repository
 - ``local/unfurl.yaml`` is included by the parent ``unfurl.yaml``
   and is where you'll put local or private settings you don't want to commit.
-- ``unfurl-local-template.yaml`` is the template used generate a new ``local/unfurl.yaml`` when the project is cloned.
+- ``.unfurl-local-template.yaml`` is the template used generate a new ``local/unfurl.yaml`` when the project is cloned.
 - ``ensemble`` is the folder that contains the default ensemble
   (use the ``--empty`` flag to skip creating this).
 - ``ensemble/ensemble.yaml`` is the manifest file for this ensemble. It includes ``ensemble-template.yaml``.
