@@ -4,15 +4,41 @@ import os.path
 from unfurl.yamlmanifest import YamlManifest
 from unfurl.util import UnfurlError
 from unfurl.to_json import to_graphql
+from unfurl.localenv import LocalEnv
+
 
 def test_jsonexport():
+    # XXX cli(unfurl export)
     basepath = os.path.join(os.path.dirname(__file__), "examples/")
 
     # loads yaml with with a json include
-    manifest = YamlManifest(path=basepath + "include-json-ensemble.yaml", skip_validation=True)
-    jsonSummary = to_graphql(manifest)
+    local = LocalEnv(basepath + "include-json-ensemble.yaml")
+    jsonExport = to_graphql(local)[0]
     with open(basepath + "include-json.json") as f:
-        assert jsonSummary["ResourceTemplate"] == json.load(f)["ResourceTemplate"]
+        expected = json.load(f)["ResourceTemplate"]
+        print(json.dumps(jsonExport["ResourceTemplate"], indent=2))
+        assert jsonExport["ResourceTemplate"] == expected
+
+
+# def test_deployment_blueprints():
+# unfurl.yaml:
+#     environments:
+#       # include service connections
+#      +include: environment.json#DeploymentEnvironments
+#
+# ensemble.yaml
+#   service_template:
+#     +include: blueprint_ensemble_template.yaml#spec/service_template
+#     node_templates:
+#       +include: resource-templates.json#ResourceTemplate
+#
+# blueprint_ensemble_template.yaml:
+#   spec:
+#     deployment_blueprints:
+#       +include: unfurl-blueprint.json#DeploymentTemplate
+#     resource_templates:
+#         +include: unfurl-blueprint.json#ResourceTemplate
+
 
 class ManifestSyntaxTest(unittest.TestCase):
     def test_hasVersion(self):
@@ -55,7 +81,10 @@ spec:
 """
         with self.assertRaises(UnfurlError) as err:
             YamlManifest(manifest)
-        self.assertIn("missing includes: ['+/templates/production:']", str(err.exception))
+        self.assertIn(
+            "missing includes: ['+/templates/production:']", str(err.exception)
+        )
+
 
 #   def test_badparams(self):
 #     # don't match spec definition

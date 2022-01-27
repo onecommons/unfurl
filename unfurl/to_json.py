@@ -6,7 +6,7 @@ Output a normalized json representation of a TOSCA service template for machine 
 * TOSCA datatypes are mapped to JSON Schema type definitions
 * Node types are flattened to include their parent type's properties, capabilities, and requirements.
 * Capabilities are directly represented, instead:
-- Node types have a "implements" property that lists all the inherited types and capabilities associated with that type.
+- Node types have a "extends" property that lists all the inherited types and capabilities associated with that type.
 - Capability properties are represented as complex properties on the node type (and node template).
 - Requirements has a "resourceType" which can be either a node type or a capability type.
 """
@@ -15,10 +15,12 @@ from toscaparser.properties import Property
 from toscaparser.elements.constraints import Schema
 from toscaparser.elements.property_definition import PropertyDef
 from toscaparser.elements.nodetype import NodeType
+from toscaparser.elements.statefulentitytype import StatefulEntityType
 from toscaparser.common.exception import ExceptionCollector
 
 from toscaparser.elements.datatype import DataType
 from .tosca import is_function
+from .localenv import LocalEnv
 
 numeric_constraints = {
     "greater_than": "exclusiveMinimum",
@@ -216,7 +218,7 @@ def _get_implements(spec, typedef, implements: list, types):
     if not typedef:
         return
     name = typedef.type
-    if typedef.type not in implements:
+    if name not in implements:
         implements.append(name)
     if types is not None and name not in types:
         types[name] = {}
@@ -240,7 +242,7 @@ def node_type_to_graphql(spec, type_definition, types: dict):
     type ResourceType {
       name: string!
       title: string
-      implements: [ResourceType!]
+      extends: [ResourceType!]
       description: string
       badge: string
       inputsSchema: JSON
@@ -260,18 +262,22 @@ def node_type_to_graphql(spec, type_definition, types: dict):
         if "title" in metadata:
             jsontype["title"] = metadata["title"]
 
-    implements = []
-    # add ancestors classes to implements
-    _get_implements(spec, type_definition, implements, types)
-    # add capabilities types to implements
-    for cap in type_definition.get_capability_typedefs():
-        _get_implements(spec, cap, implements, None)
-    jsontype["implements"] = implements
-
     propertydefs = (
         p for p in type_definition.get_properties_def_objects() if not is_computed(p)
     )
     jsontype["inputsSchema"] = tosca_type_to_jsonschema(spec, propertydefs, None)
+
+    implements = []
+    # add ancestors classes to implements
+    _get_implements(spec, type_definition, implements, types)
+    # XXX rename to "extends"!
+    jsontype["extends"] = implements
+    if not type_definition.is_derived_from("tosca.nodes.Root"):
+        return jsontype
+
+    # add capabilities types to implements
+    for cap in type_definition.get_capability_typedefs():
+        _get_implements(spec, cap, implements, None)
 
     # treat each capability as a complex property
     add_capabilities_as_properties(
@@ -302,11 +308,15 @@ def to_graphql_nodetypes(spec):
         for key in defs:
             # hacky way to avoid validation exception if type isn't a node type
             if key not in NodeType.SECTIONS:
+                typedef = StatefulEntityType(typename, "", custom_defs)
                 break
         else:
             typedef = NodeType(typename, custom_defs)
-            if typedef.is_derived_from("tosca.nodes.Root"):
-                types[typename] = node_type_to_graphql(spec, typedef, types)
+
+        if typedef.is_derived_from("tosca.nodes.Root") or typedef.is_derived_from(
+            "tosca.relationships.Root"
+        ):
+            types[typename] = node_type_to_graphql(spec, typedef, types)
 
     for toscaNodeTemplate in spec.template.topology_template.nodetemplates:
         type_definition = toscaNodeTemplate.type_definition
@@ -314,6 +324,7 @@ def to_graphql_nodetypes(spec):
         if typename not in types:
             types[typename] = {}  # set now to avoid circular references
             types[typename] = node_type_to_graphql(spec, type_definition, types)
+
     return types
 
 
@@ -366,7 +377,7 @@ def _find_requirement_constraint(reqs, name):
     )
 
 
-def nodetemplate_to_json(nodetemplate, spec, db):
+def nodetemplate_to_json(nodetemplate, spec, types):
     """
     Returns json object as a ResourceTemplate:
 
@@ -390,13 +401,11 @@ def nodetemplate_to_json(nodetemplate, spec, db):
       target: Resource
     }
     """
-    types = db["ResourceType"]
     json = dict(
         type=nodetemplate.type,
         name=nodetemplate.name,
         title=nodetemplate.name,
         description=nodetemplate.entity_tpl.get("description") or "",
-        __typename="ResourceTemplate",
     )
 
     jsonnodetype = types[nodetemplate.type]
@@ -405,7 +414,10 @@ def nodetemplate_to_json(nodetemplate, spec, db):
         for p in nodetemplate.get_properties_objects()
         if not is_computed(p)
     ]
+    json["dependencies"] = []
 
+    if not nodetemplate.type_definition.is_derived_from("tosca.nodes.Root"):
+        return json
     # treat each capability as a complex property
     capabilities = nodetemplate.get_capabilities()
     for prop in json["properties"]:
@@ -418,7 +430,6 @@ def nodetemplate_to_json(nodetemplate, spec, db):
     # this is the same as on the type because of the bug where attribute set on a node_template are ignored
     # json["outputs"] = jsonnodetype["outputs"]
 
-    json["dependencies"] = []
     ExceptionCollector.start()
     if nodetemplate.requirements:
         for req in nodetemplate.requirements:
@@ -439,21 +450,28 @@ def nodetemplate_to_json(nodetemplate, spec, db):
     return json
 
 
-def to_graphql_blueprint(type, spec, deploymentTemplates=None):
+def to_graphql_blueprint(spec, deploymentTemplates=None):
     """
     Returns json object as ApplicationBlueprint
 
     ApplicationBlueprint: {
       name: String!
+      title: String
       primary: ResourceType!
       deploymentTemplates: [DeploymentTemplate!]
     }
     """
-    name = spec.template.tpl.get("template_name") or ""
-    blueprint = dict(__typename="ApplicationBlueprint", name=name)
-    blueprint["primary"] = type
+    topology = spec.template.topology_template
+    if topology.substitution_mappings and topology.substitution_mappings.node:
+        root = topology.node_templates[topology.substitution_mappings.node]
+    else:
+        root = list(topology.nodetemplates)[0]
+    title = spec.template.tpl.get("template_name") or root.name
+    name = slugify(title)
+    blueprint = dict(__typename="ApplicationBlueprint", name=name, title=title)
+    blueprint["primary"] = root.type
     blueprint["deploymentTemplates"] = deploymentTemplates or []
-    return blueprint
+    return blueprint, root
 
 
 def slugify(text):
@@ -464,7 +482,7 @@ def slugify(text):
 
 
 # XXX cloud = spec.topology.primary_provider
-def to_graphql_deployment_template(manifest, db):
+def to_graphql_deployment_template(spec, db):
     """
     Returns json object as DeploymentTemplate:
 
@@ -482,7 +500,6 @@ def to_graphql_deployment_template(manifest, db):
       cloud: ResourceType
     }
     """
-    spec = manifest.tosca
     title = spec.template.tpl.get("template_name") or "unnamed"
     slug = slugify(title)
     template = dict(
@@ -493,38 +510,51 @@ def to_graphql_deployment_template(manifest, db):
         description=spec.template.description,
     )
     # XXX cloud = spec.topology.primary_provider
-    topology = spec.template.topology_template
-    if topology.substitution_mappings and topology.substitution_mappings.node:
-        root = topology.node_templates[topology.substitution_mappings.node]
-    else:
-        root = list(topology.nodetemplates)[0]
-    blueprint = to_graphql_blueprint(root.type, spec, [title])
+    blueprint, root_resource_template = to_graphql_blueprint(spec, [title])
     template["blueprint"] = blueprint["name"]
-    template["primary"] = root.name
+    template["primary"] = root_resource_template.name
     # names of ResourceTemplates
     template["resourceTemplates"] = list(db["ResourceTemplate"])
     return blueprint, template
 
 
-def to_graphql(manifest):
+def to_graphql(localEnv):
+    # set skip_validation because we want to be able to dump incomplete service templates
+    manifest = localEnv.get_manifest(skip_validation=True)
     db = {}
     spec = manifest.tosca
-    db["ResourceType"] = to_graphql_nodetypes(spec)
+    types = to_graphql_nodetypes(spec)
+    db["ResourceType"] = types
     db["ResourceTemplate"] = {
         t["name"]: t
         for t in [
-            nodetemplate_to_json(toscaNodeTemplate, spec, db)
+            nodetemplate_to_json(toscaNodeTemplate, spec, types)
             for toscaNodeTemplate in spec.template.topology_template.nodetemplates
         ]
     }
-    blueprint, dtemplate = to_graphql_deployment_template(manifest, db)
-    db["DeploymentTemplate"] = {dtemplate["name"]: dtemplate}
-    db["ApplicationBlueprint"] = {blueprint["name"]: blueprint}
-    db["Overview"] = spec.template.tpl.get("metadata") or {}
-    add_graphql_deployment(manifest, db, dtemplate)
-    # don't include base node type:
-    db["ResourceType"].pop("tosca.nodes.Root")
-    return db
+
+    connections = {}
+    connection_types = {}
+    for template in spec.template.relationship_templates:
+        if template.default_for:
+            type_definition = template.type_definition
+            typename = type_definition.type
+            # XXX connection types
+            if typename in types:
+                connection_types[typename] = types[typename]
+            elif typename not in connection_types:
+                connection_types[typename] = {}  # set now to avoid circular references
+                connection_types[typename] = node_type_to_graphql(
+                    spec, type_definition, connection_types
+                )
+            connection_template = nodetemplate_to_json(template, spec, connection_types)
+            name = connection_template["name"]
+            assert name not in db["ResourceTemplate"], f"template name conflict: {name}"
+            # db["ResourceTemplate"][name] = connection_template
+            connections[name] = connection_template
+
+    db["Overview"] = manifest.tosca.template.tpl.get("metadata") or {}
+    return db, connections, connection_types
 
 
 def add_graphql_deployment(manifest, db, dtemplate):
@@ -553,6 +583,114 @@ def add_graphql_deployment(manifest, db, dtemplate):
     return db
 
 
+def to_blueprint(localEnv):
+    """
+    spec:
+      deployment_blueprints:
+        <DB>
+      resource_templates:
+        <merge>
+    """
+    db, connections, connection_types = to_graphql(localEnv)
+    manifest = localEnv.get_manifest()
+    blueprint, root_resource_template = to_graphql_blueprint(manifest.tosca)
+    deployment_blueprints = (
+        manifest.manifest.expanded.get("spec", {}).get("deployment_blueprints") or {}
+    )
+    db["DeploymentTemplate"] = {}
+    for name, tpl in deployment_blueprints.items():
+        title = deployment_blueprints.get("title") or name
+        slug = slugify(title)
+        template = dict(
+            __typename="DeploymentTemplate",
+            title=title,
+            name=name,
+            slug=slug,
+            blueprint=blueprint["name"],
+            primary=root_resource_template.name,
+        )
+        template.update(tpl)
+        db["DeploymentTemplate"][name] = template
+
+    blueprint["deploymentTemplates"] = list(deployment_blueprints)
+    db["ApplicationBlueprint"] = {blueprint["name"]: blueprint}
+    return db
+
+
+def to_deployment(localEnv):
+    db, connections, connection_types = to_graphql(localEnv)
+    manifest = localEnv.get_manifest()
+    blueprint, dtemplate = to_graphql_deployment_template(manifest.tosca, db)
+    db["DeploymentTemplate"] = {dtemplate["name"]: dtemplate}
+    db["ApplicationBlueprint"] = {blueprint["name"]: blueprint}
+    add_graphql_deployment(manifest, db, dtemplate)
+    # don't include base node type:
+    db["ResourceType"].pop("tosca.nodes.Root")
+    return db
+
+
+def to_environments(localEnv):
+    '''
+      Map environments in unfurl.yaml to DeploymentEnvironments
+      Map registered ensembles to deployments just with path reference to the ensemble's json
+      (create on the fly?)
+
+      type DeploymentEnvironment {
+        name: String!
+        connections: [ResourceTemplate!]
+
+        """
+        TODO: should just use primary_provider
+        """
+        cloud: String
+        primary_provider: ResourceTemplate
+        deployments: [String!]
+      }
+
+    # save service templates in this format so we can include this json in unfurl.yaml
+    {
+      "DeploymentEnvironment": {
+        name: {
+          "connections": { name: <ResourceTemplate>}
+        }
+      },
+
+      "ResourceType": {
+        name: <ResourceType>
+      },
+    }
+    '''
+
+    # XXX one manifest and blueprint per environment
+    environments = {}
+    all_connection_types = {}
+    for name in localEnv.project.contexts:
+        if name == "defaults":
+            continue
+        # we create new LocalEnv for each context because we need to instantiate a different ToscaSpec object
+        blueprint, connections, connection_types = to_graphql(
+            LocalEnv(
+                localEnv.manifestPath,
+                project=localEnv.project,
+                override_context=name,
+            )
+        )
+        service_templates = connections
+        # XXX cloud
+        environments[name] = dict(
+            name=name,
+            connections=service_templates,
+        )
+        all_connection_types.update(connection_types)
+
+    db = {}
+    db["DeploymentEnvironment"] = environments
+    # don't include base node type:
+    all_connection_types.pop("tosca.relationships.Root", None)
+    db["ResourceType"] = all_connection_types
+    return db
+
+
 def to_graphql_resource(instance, manifest, db):
     """
     type Resource {
@@ -563,7 +701,7 @@ def to_graphql_resource(instance, manifest, db):
       status: Status
       state: State
       attributes: [Input!]
-      connections: [Requirement!]
+      dependencies: [Requirement!]
     }
     """
     # XXX url

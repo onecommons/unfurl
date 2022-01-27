@@ -937,7 +937,7 @@ def commit(ctx, project_or_ensemble_path, message, skip_add, no_edit, **options)
     click.echo(f"committed to {committed} repositories")
 
 
-@cli.command()
+@cli.command(short_help="Show the git status for paths relevant to this ensemble.")
 @click.pass_context
 @click.argument("project_or_ensemble_path", default=".", type=click.Path(exists=True))
 @click.option(
@@ -963,32 +963,34 @@ def git_status(ctx, project_or_ensemble_path, dirty, **options):
         click.echo(statuses)
 
 
-def _dump_manifest(manifest):
-    from .to_json import to_graphql
+@cli.command()
+@click.pass_context
+@click.argument("project_or_ensemble_path", default=".", type=click.Path(exists=True))
+@click.option(
+    "--format",
+    default="deployment",
+    type=click.Choice(["blueprint", "environments", "deployment"]),
+)
+def export(ctx, project_or_ensemble_path, format, **options):
+    """Export ensemble in a simplified json format."""
+    from . import to_json
 
-    jsonSummary = to_graphql(manifest)
-    return json.dumps(jsonSummary, indent=2)
+    options.update(ctx.obj)
+    localEnv = LocalEnv(project_or_ensemble_path, options.get("home"))
+    exporter = getattr(to_json, "to_" + format)
+    jsonSummary = exporter(localEnv)
+    click.echo(json.dumps(jsonSummary, indent=2))
 
 
-@cli.command(short_help="Show the git status for paths relevant to this ensemble.")
+@cli.command()
 @click.pass_context
 @click.argument("ensemble", default=".", type=click.Path(exists=True))
-@click.option(
-    "--json",
-    default=False,
-    is_flag=True,
-    help="Print ensemble in a simplified json format",
-)
-def status(ctx, ensemble, json, **options):
-    """Show the status of deployed resources in the given ensemble."""
+def status(ctx, ensemble, **options):
+    """"Show the status of deployed resources in the given ensemble."""
     options.update(ctx.obj)
     localEnv = LocalEnv(ensemble, options.get("home"))
-    # set skip_validation because we want to be able to dump incomplete service templates
-    manifest = localEnv.get_manifest(skip_validation=json)
-    if json:
-        click.echo(_dump_manifest(manifest))
-    else:
-        click.echo(manifest.status_summary())
+    manifest = localEnv.get_manifest()
+    click.echo(manifest.status_summary())
 
 
 @cli.command()

@@ -27,13 +27,6 @@ spec:
     domain: foo.com
 
   service_template:
-    template_name: Apostrophe Demo
-    metadata:
-      livePreview: https://demo-apostrophe-demo.dev3.unfurl.cloud/
-      image: https://app.dev2.unfurl.cloud/demo/apostrophe-demo/-/raw/dc4b22d93e34ef232573f5a4223d0e76b8a92433/.unfurl/Screen_Shot_2021-09-15_at_1.02.07_PM.png
-      sourceCodeUrl: https://github.com/aszs/apostrophe-sandbox.git
-      deployments: 164
-      webUrl: https://github.com/aszs/apostrophe-sandbox
     imports:
     - repository: unfurl
       file: tosca_plugins/googlecloud.yaml
@@ -100,6 +93,7 @@ spec:
         derived_from: Compute
 
       MEANStack:
+        derived_from: Base
         properties:
           image:
             type: string
@@ -133,111 +127,3 @@ spec:
           type: DNS
           properties:
             domain: foo.com
-
-        # the_app:
-        #   type: MEANStack
-        #     # artifact:
-        #     #   source: the_app
-        #     # Standard:
-        #     #   configure: docker build
-        #   properties:
-        #     image: the_app_image
-        #     domain: {get_input: domain}
-        #   requirements:
-        #   - host: app_container
-        #   - resolver: foo.com-zone
-        #   - db: atlas_service
-
-        # app_container:
-        #   type: DockerHost
-        #   artifacts:
-        #     image: the_app_image
-        #   properties:
-        #     CPUs: 2
-        #     Memory: 512
-        #     storage: 200
-
-        # atlas_service:
-        #   type: Atlas
-        #   properties:
-        #     login: admin
-        #     password: '*******'
-
-        # XXX
-        # an_ec2:
-        #   type: AWSInstance
-
-
-lock:
-  runtime:
-    unfurl:
-      version: 0.3.1.dev16
-      digest: 0.3.0-22-gde2ee3e-dirty
-  repositories:
-  - url: file:/Users/adam/_dev/unfurl/unfurl
-    revision: ''
-    initial: ''
-    name: unfurl
-  - url: ssh://git@github.com/onecommons/unfurl-gui.git#:apollo-server/utils
-    revision: a9799e5dfa6133bf03b5b1c513b26145b34170ed-dirty
-    initial: b6b5f8c340fa45352394e00a4817815150313d71
-    name: self
-  - url: ssh://git@github.com/onecommons/unfurl-gui.git#:apollo-server/utils
-    revision: a9799e5dfa6133bf03b5b1c513b26145b34170ed-dirty
-    initial: b6b5f8c340fa45352394e00a4817815150313d71
-    name: self
-  ensembles:
-    localhost:
-      uri: git-local://cebcf459c9fd607d0d63193649fd92eb09c831c7:/ensemble.yaml
-      changeId: A219335J0000
-      digest: f92a509e5a4aaa03ee59b7c025fa34ed2fd0f7e8
-      manifest:
-        file: ensemble/ensemble.yaml
-status:
-  inputs:
-    domain: foo.com
-  outputs: {}
-  instances:
-    app_container:
-      template: app_container
-      priority: required
-      readyState:
-        local: ok
-        state: configured
-      lastConfigChange: A21BDLlK0001
-      created: A21BDLlK0001
-      instances:
-        the_app:
-          template: the_app
-          priority: required
-          readyState:
-            local: pending
-    foo.com-zone:
-      template: foo.com-zone
-      priority: required
-      readyState:
-        local: ok
-        state: configured
-      lastConfigChange: A21BDLlK0002
-      created: A21BDLlK0002
-    atlas_service:
-      template: atlas_service
-      priority: required
-      readyState:
-        local: ok
-        state: configured
-      lastConfigChange: A21BDLlK0003
-      created: A21BDLlK0003
-lastJob:
-  changeId: A21BDLlK0000
-  startTime: 2022-01-11-13-21-47-336267
-  workflow: deploy
-  options: {}
-  summary: 3 tasks (3 changed, 3 ok, 0 failed, 0 unknown, 0 skipped)
-  startCommit: a9799e5dfa6133bf03b5b1c513b26145b34170ed
-  specDigest: 97316bfb5dc8d30a23de5bc57b32a07608650d47
-  priority: required
-  readyState:
-    local: ok
-  changelog: jobs/job2022-01-11-13-21-47-336267.yaml
-jobsLog: jobs.tsv

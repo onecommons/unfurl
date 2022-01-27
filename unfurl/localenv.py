@@ -687,6 +687,7 @@ class LocalEnv:
         parent=None,
         project=None,
         can_be_empty=False,
+        override_context=None,
     ):
         """
         If manifestPath is None find the first unfurl.yaml or ensemble.yaml
@@ -715,6 +716,9 @@ class LocalEnv:
             self.homeProject = self._get_home_project()
 
         self._resolve_path_and_project(manifestPath, can_be_empty)
+        if override_context:
+            # set after _resolve_path_and_project() is called
+            self.manifest_context_name = override_context
         if project:
             # this arg is used in init.py when creating a project
             # overrides what was set by _resolve_path_and_project()

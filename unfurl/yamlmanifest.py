@@ -308,12 +308,15 @@ class YamlManifest(ReadOnlyManifest):
         if self.manifest.path:
             self.lockfilepath = self.manifest.path + ".lock"
 
+        spec = manifest.get("spec", {})
         more_spec = self._load_context(self.context, localEnv)
+        # if we are exporting (thus skip_validation is True)
+        if skip_validation and spec.get("resource_templates"):
+            self._load_resource_templates(spec, more_spec)
         self._set_spec(manifest, more_spec, skip_validation)
         assert self.tosca
-        spec = manifest.get("spec", {})
-        status = manifest.get("status", {})
 
+        status = manifest.get("status", {})
         self.changeLogPath = manifest.get("jobsLog")
         self.jobsFolder = manifest.get("jobsFolder", "jobs")
         if not self.changeLogPath and localEnv and manifest.get("changes") is None:
@@ -424,6 +427,13 @@ class YamlManifest(ReadOnlyManifest):
         for key, val in status.get("instances", {}).items():
             self.create_node_instance(key, val, root)
         return root
+
+    def _load_resource_templates(self, spec, more_spec):
+        # "resource_templates" are node templates that aren't included in topology_template
+        # include node templates for the deployment blueprints
+        # XXX these might not be node_templates, need to check type
+        for name, tpl in spec["resource_templates"].items():
+            more_spec["topology_template"]["node_templates"][name] = tpl
 
     def _load_context(self, context, localEnv):
         imports = context.get("imports")
