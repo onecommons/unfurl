@@ -207,10 +207,16 @@ class TerraformConfigurator(ShellConfigurator):
                 relpath = cwd.relpath(main)
                 if relpath != ".":
                     write_vars = False
+                    outputs = []
+                    if task.configSpec.outputs:
+                        if isinstance(task.configSpec.outputs, (str, int)):
+                            raise UnfurlTaskError(
+                                task,
+                                f'Invalid Terraform outputs specified "{task.configSpec.outputs}"',
+                            )
+                        outputs = list(task.configSpec.outputs)
                     path, contents = generate_main(
-                        relpath,
-                        task.inputs.get_copy("tfvars"),
-                        list(task.configSpec.outputs),
+                        relpath, task.inputs.get_copy("tfvars"), outputs
                     )
 
                 # set this as FilePath so we can monitor changes to it
@@ -376,9 +382,6 @@ class TerraformConfigurator(ShellConfigurator):
                 status = Status.absent
             else:
                 status = Status.ok
-
-        # UNFURL  WARNING  shell task run failure: "terraform apply -auto-approve -state=terraform.tfstate" in /Users/adam/_dev/uprojects/live/oc-dev2/gcp/pending/tasks/gitlab-cluster/
-        # UNFURL  INFO  shell task return code: 1, stderr: 2021-11-04T06:23:51.271-0700 [DEBUG] Adding temp file log sink: /var/folders/5r/401zm__s0nsgksswhft5x7lh0000gr/T/terraform-log210889511
 
         if not task.dry_run and task.configSpec.operation != "check":
             outputs = {}
