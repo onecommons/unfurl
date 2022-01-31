@@ -4,6 +4,7 @@ import collections
 import re
 import six
 import shlex
+import os.path
 from .util import (
     lookup_class,
     load_module,
@@ -724,7 +725,7 @@ def set_default_command(kw, implementation):
     return kw
 
 
-def _set_config_spec_args(kw, target):
+def _set_config_spec_args(kw, target, base_dir):
     # if no artifact or className, an error
     artifact = kw["primary"]
     className = kw.get("className")
@@ -738,12 +739,17 @@ def _set_config_spec_args(kw, target):
             guessing = className
 
     # load the configurator class
-    if "#" in className and len(shlex.split(className)) == 1:
-        path, fragment = artifact.get_path_and_fragment()
-        mod = load_module(path)
-        klass = getattr(mod, fragment)  # raise if missing
-    else:
-        klass = lookup_class(className)
+    try:
+        if "#" in className and len(shlex.split(className)) == 1:
+            path, sep, fragment = className.partition("#")
+            fullpath = os.path.join(base_dir, path)
+            mod = load_module(fullpath)
+            klass = getattr(mod, fragment)  # raise if missing
+        else:
+            klass = lookup_class(className)
+    except:
+        klass = None
+        logger.debug("exception while instantiating %s", className, exc_info=True)
 
     # invoke configurator classmethod to give configurator a chance to customize configspec (e.g. add dependencies)
     if klass:
@@ -804,4 +810,4 @@ def _get_config_spec_args_from_implementation(iDef, inputs, target, operation_ho
     else:
         kw["dependencies"] = []
 
-    return _set_config_spec_args(kw, target)
+    return _set_config_spec_args(kw, target, base_dir)
