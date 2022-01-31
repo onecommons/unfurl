@@ -34,14 +34,14 @@ class TerraformTest(unittest.TestCase):
         # if .tox/.terraform already has the providers
         os.makedirs("tasks/terraform-node")
         lock_file = terraform_dir + "/.terraform.lock.hcl"
-        if False:  # os.path.exists(lock_file):
+        if not os.getenv("CI") and os.path.exists(lock_file):
             shutil.copy(lock_file, "tasks/terraform-node/")
             os.makedirs("tasks/terraform-node-json")
             shutil.copy(lock_file, "tasks/terraform-node-json/")
 
     def test_terraform(self):
         cli_runner = CliRunner()
-        with cli_runner.isolated_filesystem(temp_dir="/tmp/tests"):
+        with cli_runner.isolated_filesystem():
             self.setup_filesystem()
             manifest = LocalEnv().get_manifest()
             runner = Runner(manifest)
@@ -351,7 +351,7 @@ class TerraformMotoTest(MotoTest):
         # copy the terraform lock file so the configurator avoids calling terraform init
         # if .tox/.terraform already has the providers
         lock_file = terraform_dir + "/aws-terraform.lock.hcl"
-        if False:  # os.path.exists(lock_file):
+        if not os.getenv("CI") and os.path.exists(lock_file):
             os.makedirs("tasks/example")
             shutil.copy(
                 terraform_dir + "/aws-terraform.lock.hcl",

@@ -13,11 +13,13 @@ def test_jsonexport():
 
     # loads yaml with with a json include
     local = LocalEnv(basepath + "include-json-ensemble.yaml")
+    # verify to_graphql is working as expected
     jsonExport = to_graphql(local)[0]
     with open(basepath + "include-json.json") as f:
         expected = json.load(f)["ResourceTemplate"]
-        print(json.dumps(jsonExport["ResourceTemplate"], indent=2))
+        # print(json.dumps(jsonExport["ResourceTemplate"], indent=2))
         assert jsonExport["ResourceTemplate"] == expected
+    # XXX verify that saving the manifest preserves the json include
 
 
 # def test_deployment_blueprints():
