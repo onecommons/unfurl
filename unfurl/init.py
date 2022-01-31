@@ -685,6 +685,15 @@ class EnsembleBuilder:
             manifestName = DefaultNames.Ensemble
         return destDir, manifestName
 
+    def _get_inputs_template(self):
+        local_template = os.path.join(
+            self.source_project.projectRoot, DefaultNames.InputsTemplate
+        )
+        if os.path.isfile(local_template):
+            with open(local_template) as s:
+                return s.read()
+        return None
+
     def create_new_ensemble(self):
         """
         If "localEnv" is in templateVars, clone that ensemble;
@@ -719,6 +728,7 @@ class EnsembleBuilder:
         templateVars = self.templateVars
         if "localEnv" not in templateVars or self.options.get("want_init"):
             # we found a template file to clone
+            templateVars["inputs"] = self._get_inputs_template()
             localEnv, manifest = _create_ensemble_from_template(
                 self.templateVars, destProject, destDir, manifestName, self.dest_project
             )

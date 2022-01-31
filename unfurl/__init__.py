@@ -47,6 +47,7 @@ class DefaultNames:
     JobsLog = "jobs.tsv"
     ProjectDirectory = ".unfurl"
     LocalConfigTemplate = ".unfurl-local-template.yaml"
+    InputsTemplate = "inputs-template.yaml"
 
     def __init__(self, **names):
         self.__dict__.update({name: value for name, value in names.items() if value})

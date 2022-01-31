@@ -28,7 +28,7 @@ environments:
     # and allow Unfurl to reason about them compared to just setting the variables directly.
 
     #  The examples below only show some of the available properties for each connection type.
-    #  For more, see https://unfurl.run/docs/tosca.html
+    #  For more properties see https://docs.unfurl.run/toscadef.html#unfurl-types
 
     # Sensitive values can be set as environment variables in secrets/secrets.yaml or in local/unfurl.yaml
     # depending on whether you want them committed to repository as encrypted values or not.
@@ -64,7 +64,7 @@ environments:
       #     # place application-credentials.json in the "secrets" so that it is automatically encrypted
       #     GOOGLE_APPLICATION_CREDENTIALS: "{{ 'secrets/application-credentials.json' | abspath('src') }}"
 
-      #      # for more properties, see https://unfurl.run/docs/tosca.html
+      #      #  For more properties see https://docs.unfurl.run/toscadef.html#unfurl-types
       #
       # azure:
       #   type: unfurl.relationships.ConnectsTo.Azure

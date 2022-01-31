@@ -10,6 +10,10 @@ metadata:
   uri: {{ ensembleUri }}
 {%- endif %}
 spec:
+{%- if inputs | default("") %}
+  inputs:
+    {{ inputs | indent }}
+{%- endif %}
   service_template:
     {%- if serviceTemplate is defined %}
     +include:

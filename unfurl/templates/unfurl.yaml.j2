@@ -7,8 +7,6 @@ kind: Project
 # These "?include" directives merge these files so secret and local-only settings can be managed separately.
 [%include | default("") %]
 
-environments: {}
-
 # The primary thing configured here is the environment that ensembles are deployed in.
 # An ensemble's environment is assembled by merging settings that appear in the project
 # where it is located, the project that manages it (if different), and the project specified in UNFURL_HOME.
@@ -17,20 +15,27 @@ environments: {}
 # environment variables, connections, secrets, locals, repositories, imports and inputs
 # It can also can include a "defaultProject" key, which specifies the location
 # of an ensemble created with a matching "--use-environment" argument
-# See https://unfurl.run/docs/environments.html
+# See https://docs.unfurl.run/environments.html
 
-#  defaults:
-    # There can multiple environment with different names but they will merge the defaults specified here.
-    # variables:
-    # connections:
-    # (etc.)
+# environments:
+#   defaults:
+      # There can multiple environment with different names but they will merge with the defaults specified here.
+      # variables:
+      # connections:
+      # (etc.)
+{%- if default_context | default("") %}
+#   [%default_context%]:
+      # variables:
+      # connections:
+      # (etc.)
+{% endif %}
 
 {%- if default_context | default("") %}
 # This sets the default environment to use for new ensembles created in this project.
 default_environment: [%default_context%]
 {% endif %}
 
-{%if manifestPath %}
+{%- if manifestPath %}
 # these are the ensembles managed by this project
 # (note that they can be located in a different project)
 ensembles:

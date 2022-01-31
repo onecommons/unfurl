@@ -7,7 +7,7 @@ default_environment: [%default_context%]
 {% endif %}
 
 environments:
-  defaults:
+  [% default_context  | default("defaults") %]:
     connections:
       # declare the primary_provider as a connection to an Amazon Web Services account:
       primary_provider:
