@@ -247,7 +247,8 @@ class ToscaSpec:
                         ExceptionCollector.getExceptions(),
                     )
 
-            if decorators or self.evaluate_imports(toscaDef):
+            modified_imports = self.evaluate_imports(toscaDef)
+            if decorators or modified_imports:
                 # overlay and evaluate_imports modifies tosaDef in-place, try reparsing it
                 self._parse_template(path, inputs, toscaDef, resolver)
 
