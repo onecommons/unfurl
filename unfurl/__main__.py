@@ -984,13 +984,23 @@ def export(ctx, project_or_ensemble_path, format, **options):
 
 @cli.command()
 @click.pass_context
-@click.argument("ensemble", default=".", type=click.Path(exists=True))
+@click.argument("ensemble", default=".", type=click.Path(exists=False))
+@click.option("--query", help="Run the given expression")
+@click.option("--trace", default=0, help="Set the query's trace level")
 def status(ctx, ensemble, **options):
     """"Show the status of deployed resources in the given ensemble."""
     options.update(ctx.obj)
     localEnv = LocalEnv(ensemble, options.get("home"))
     manifest = localEnv.get_manifest()
     click.echo(manifest.status_summary())
+    query = options.get("query")
+    if query:
+        from .eval import eval_for_func, RefContext
+
+        trace = options.get("trace")
+        result = eval_for_func(query, RefContext(manifest.rootResource, trace=trace))
+        click.echo("query: " + query)
+        click.echo(result)
 
 
 @cli.command()
