@@ -566,14 +566,16 @@ def _get_ensemble_paths(sourcePath, sourceProject):
     return {}
 
 
-def _create_ensemble_from_template(templateVars, project, destDir, manifestName):
+def _create_ensemble_from_template(
+    templateVars, project, destDir, manifestName, specProject
+):
     from unfurl import yamlmanifest
 
     assert project
     sourceDir = os.path.normpath(
-        os.path.join(project.projectRoot, templateVars["sourceDir"])
+        os.path.join(specProject.projectRoot, templateVars["sourceDir"])
     )
-    specRepo, relPath, revision, bare = project.find_path_in_repos(sourceDir)
+    specRepo, relPath, revision, bare = specProject.find_path_in_repos(sourceDir)
     if not specRepo:
         raise UnfurlError(
             '"%s" is not in a git repository. Cloning from plain file directories not yet supported'
@@ -610,6 +612,8 @@ def _get_context_and_shared_repo(project, options):
         context = project.get_default_context()
     if not shared and context:
         shared = project.get_default_project_path(context)
+        if not shared and context not in project.contexts:
+            raise UnfurlError(f'environment "{context}" not found')
     if shared:
         shared_repo = Repo.find_containing_repo(shared)
         if not shared_repo:
@@ -713,13 +717,12 @@ class EnsembleBuilder:
         )
 
         templateVars = self.templateVars
-        if "localEnv" not in templateVars:
+        if "localEnv" not in templateVars or self.options.get("want_init"):
             # we found a template file to clone
             localEnv, manifest = _create_ensemble_from_template(
-                self.templateVars, destProject, destDir, manifestName
+                self.templateVars, destProject, destDir, manifestName, self.dest_project
             )
         else:
-            # didn't find a template file
             # look for an ensemble at the given path or use the source project's default
             localEnv = templateVars["localEnv"]
             manifest = yamlmanifest.clone(localEnv, targetPath)
@@ -804,7 +807,11 @@ class EnsembleBuilder:
             if new_project:
                 # finishing creating the new project
                 # create local/unfurl.yaml in the new project
-                _create_local_config(self.source_project)
+                if _create_local_config(self.source_project):
+                    # reload project with the new local project config
+                    self.dest_project = find_project(
+                        self.source_project.projectRoot, self.home_path
+                    )
                 # set "" as dest because we already "consumed" dest by cloning the project to that location
                 dest = ""
 
@@ -966,6 +973,8 @@ def _create_local_config(clonedProject):
             f'Generated new a local project configuration file at "{dest}"\n'
             "Please review it for any instructions on configuring this project."
         )
+        return True
+    return False
 
 
 def _get_unfurl_requirement_url(spec):

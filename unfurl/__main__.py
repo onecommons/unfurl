@@ -694,6 +694,7 @@ def init(ctx, projectdir, ensemble_name=None, **options):
         if len(os.path.abspath(projectPath)) > len(os.path.abspath(projectdir)):
             projectdir = projectPath
         # this will clone the default ensemble if it exists or use ensemble-template
+        options["want_init"] = True
         message = initmod.clone(projectPath, projectdir, ensemble_name, **options)
         click.echo(message)
         return
@@ -814,12 +815,11 @@ def runtime(ctx, project_folder, init=False, **options):
 @click.option(
     "--empty", default=False, is_flag=True, help="Don't create a default ensemble."
 )
-# XXX
-# @click.option(
-#     "--use-environment",
-#     default=None,
-#     help="Associate the given environment with the ensemble.",
-# )
+@click.option(
+    "--use-environment",
+    default=None,
+    help="Associate the given environment with the ensemble.",
+)
 def clone(ctx, source, dest, **options):
     """Create a new ensemble or project from a service template or an existing ensemble or project.
 
@@ -965,7 +965,7 @@ def git_status(ctx, project_or_ensemble_path, dirty, **options):
 
 @cli.command()
 @click.pass_context
-@click.argument("project_or_ensemble_path", default=".", type=click.Path(exists=True))
+@click.argument("project_or_ensemble_path", default=".", type=click.Path(exists=False))
 @click.option(
     "--format",
     default="deployment",
