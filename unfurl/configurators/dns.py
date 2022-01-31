@@ -10,6 +10,7 @@ from ..projectpaths import WorkFolder
 from ..support import Status
 
 from ..util import change_cwd
+from ..support import is_template, apply_template
 
 # octodns installs natsort_keygen
 from natsort import natsort_keygen
@@ -35,6 +36,13 @@ class DnsProperties:
     records: dict
     """DNS records to add to the zone"""
     default_ttl: int
+
+
+def _get_records(attrs):
+    records = attrs.get_copy("records") or {}
+    ctx = attrs.context
+    name = lambda name: apply_template(name, ctx) if is_template(name, ctx) else name
+    return {name(key): value for key, value in records.items()}
 
 
 class DNSConfigurator(Configurator):
@@ -69,7 +77,7 @@ class DNSConfigurator(Configurator):
         managed = properties.records
         for cap in task.target.get_capabilities("resolve"):
             for rel in cap.relationships:
-                managed.update(rel.attributes.get_copy("records", {}))
+                managed.update(_get_records(rel.attributes))
 
         # set up for the syncing that happens in run()
         folder = task.set_work_folder()
@@ -99,7 +107,7 @@ class DNSConfigurator(Configurator):
         name = attrs.get_copy("name")
         exclusive = attrs.get_copy("exclusive")
         provider = attrs.get_copy("provider")
-        records = attrs.get_copy("records") or {}
+        records = _get_records(attrs)
         default_ttl = attrs.get_copy("default_ttl", 300)
         return DnsProperties(name, exclusive, provider, records, default_ttl)
 
@@ -132,7 +140,7 @@ class DNSConfigurator(Configurator):
         with change_cwd(path, task.logger):
             manager = Manager(config_file="main-config.yaml")
             zone = Zone(zone_name, manager.configured_sub_zones(zone_name))
-            exists = manager.providers["target_config"].populate(zone, lenient=False)
+            exists = manager.providers["target_config"].populate(zone, lenient=True)
             if not exists:
                 return {}
             # now the zone.records has the latest records as a set
