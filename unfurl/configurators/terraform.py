@@ -1,7 +1,7 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
 from ..util import save_to_file, UnfurlTaskError, wrap_var, which
-from .shell import ShellConfigurator
+from .shell import ShellConfigurator, clean_output
 from ..support import Status
 from ..result import Result
 from ..projectpaths import get_path, FilePath, Folders
@@ -77,7 +77,8 @@ def mark_sensitive(schemas, state, task, sensitive_names=()):
                     "resource type '%s' not found in terraform schema", type
                 )
         else:
-            task.logger.warning("provider '%s' not found in terraform schema", provider)
+            # XXX providers schema is probably out of date, retrieve schema again?
+            task.logger.info("provider '%s' not found in terraform schema", provider)
     return state
 
 
@@ -109,6 +110,10 @@ def generate_main(relpath, tfvars, outputs):
             for name in outputs:
                 output[name] = dict(value=f"${{module.main.{name}}}", sensitive=True)
         return "main.tmp.tf.json", root
+
+
+def _needs_init(msg):
+    return re.search(r"terraform\W+init", msg)
 
 
 class TerraformConfigurator(ShellConfigurator):
@@ -204,6 +209,7 @@ class TerraformConfigurator(ShellConfigurator):
         if isinstance(main, six.string_types):
             if os.path.exists(main):
                 # it's a directory -- if difference from cwd, treat it as a module to call
+
                 relpath = cwd.relpath(main)
                 if relpath != ".":
                     write_vars = False
@@ -227,6 +233,10 @@ class TerraformConfigurator(ShellConfigurator):
                 # assume its HCL and not a path
                 contents = main
                 path = "main.unfurl.tmp.tf"
+            else:
+                raise UnfurlTaskError(
+                    task, f'Terraform module directory "{main}" does not exist'
+                )
         else:  # assume it json
             contents = main
             path = "main.unfurl.tmp.tf.json"
@@ -353,7 +363,7 @@ class TerraformConfigurator(ShellConfigurator):
         result = self.run_process(
             cmd, timeout=task.configSpec.timeout, env=env, cwd=cwd.cwd, echo=echo
         )
-        if result.returncode and re.search(r"terraform\s+init", result.stderr):
+        if result.returncode and _needs_init(clean_output(result.stderr)):
             # modules or plugins out of date, re-run terraform init
             providerSchema = self._init_terraform(task, terraform, cwd, env)
             if providerSchema is not None:
