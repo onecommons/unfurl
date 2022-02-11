@@ -149,6 +149,7 @@ class TerraformConfigurator(ShellConfigurator):
             "remote",
             "secrets",
         ]
+        # folder is "tasks" WorkFolder
         cwd = folder.cwd
         lock_file = get_path(
             task.inputs.context, ".terraform.lock.hcl", Folders.artifacts
@@ -163,7 +164,7 @@ class TerraformConfigurator(ShellConfigurator):
         if not self._handle_result(task, result, cwd):
             return None
 
-        if os.path.exists(folder.get_path(".terraform.lock.hcl")):
+        if os.path.exists(folder.get_current_path(".terraform.lock.hcl", False)):
             folder.copy_to(lock_file)
 
         if not get_provider_schema:
@@ -207,36 +208,38 @@ class TerraformConfigurator(ShellConfigurator):
                     f'Input parameter "main" not specifed and default terraform module directory does not exist at "{main}"',
                 )
         if isinstance(main, six.string_types):
-            if os.path.exists(main):
-                # it's a directory -- if difference from cwd, treat it as a module to call
-
-                relpath = cwd.relpath(main)
-                if relpath != ".":
-                    write_vars = False
-                    outputs = []
-                    if task.configSpec.outputs:
-                        if isinstance(task.configSpec.outputs, (str, int)):
-                            raise UnfurlTaskError(
-                                task,
-                                f'Invalid Terraform outputs specified "{task.configSpec.outputs}"',
-                            )
-                        outputs = list(task.configSpec.outputs)
-                    path, contents = generate_main(
-                        relpath, task.inputs.get_copy("tfvars"), outputs
-                    )
-
-                # set this as FilePath so we can monitor changes to it
-                result = task.inputs._attributes["main"]
-                if not isinstance(result, Result) or not result.external:
-                    task.inputs["main"] = FilePath(main)
-            elif "\n" in main:
+            if "\n" in main:
                 # assume its HCL and not a path
                 contents = main
                 path = "main.unfurl.tmp.tf"
             else:
-                raise UnfurlTaskError(
-                    task, f'Terraform module directory "{main}" does not exist'
-                )
+                if not os.path.isabs(main):
+                    main = get_path(task.inputs.context, main, "src")
+                if os.path.exists(main):
+                    # it's a directory -- if difference from cwd, treat it as a module to call
+                    relpath = cwd.relpath_to_current(main)
+                    if relpath != ".":
+                        write_vars = False
+                        outputs = []
+                        if task.configSpec.outputs:
+                            if isinstance(task.configSpec.outputs, (str, int)):
+                                raise UnfurlTaskError(
+                                    task,
+                                    f'Invalid Terraform outputs specified "{task.configSpec.outputs}"',
+                                )
+                            outputs = list(task.configSpec.outputs)
+                        path, contents = generate_main(
+                            relpath, task.inputs.get_copy("tfvars"), outputs
+                        )
+
+                    # set this as FilePath so we can monitor changes to it
+                    result = task.inputs._attributes["main"]
+                    if not isinstance(result, Result) or not result.external:
+                        task.inputs["main"] = FilePath(main)
+                else:
+                    raise UnfurlTaskError(
+                        task, f'Terraform module directory "{main}" does not exist'
+                    )
         else:  # assume it json
             contents = main
             path = "main.unfurl.tmp.tf.json"
@@ -287,7 +290,7 @@ class TerraformConfigurator(ShellConfigurator):
         # read the (possible encrypted) version from the repository
         # and write out it as plaintext json into the local directory
         jobId = task.get_job_id(task.changeId)
-        return cwd.get_path(jobId + ".plan")
+        return cwd.get_current_path(jobId + ".plan")
 
     def render(self, task):
         workdir = task.inputs.get("workdir") or Folders.tasks
@@ -342,8 +345,8 @@ class TerraformConfigurator(ShellConfigurator):
         cwd = task.get_work_folder(Folders.tasks)
         cmd, terraform, statePath = task.rendered
         echo = task.verbose > -1
-
-        dataDir = os.getenv("TF_DATA_DIR", os.path.join(cwd.cwd, ".terraform"))
+        current_path = cwd.cwd
+        dataDir = os.getenv("TF_DATA_DIR", os.path.join(current_path, ".terraform"))
         env = _get_env(task.get_environment(False), task.verbose, dataDir)
 
         ### Load the providers schemas and run terraform init if necessary
@@ -356,12 +359,16 @@ class TerraformConfigurator(ShellConfigurator):
             if providerSchema is not None:
                 save_to_file(providerSchemaPath, providerSchema)
             else:
-                raise UnfurlTaskError(task, f"terraform init failed in {cwd.cwd}")
+                raise UnfurlTaskError(task, f"terraform init failed in {current_path}")
         else:
             providerSchema = {}
 
         result = self.run_process(
-            cmd, timeout=task.configSpec.timeout, env=env, cwd=cwd.cwd, echo=echo
+            cmd,
+            timeout=task.configSpec.timeout,
+            env=env,
+            cwd=cwd.cwd,
+            echo=echo,
         )
         if result.returncode and _needs_init(clean_output(result.stderr)):
             # modules or plugins out of date, re-run terraform init
@@ -395,9 +402,10 @@ class TerraformConfigurator(ShellConfigurator):
 
         if not task.dry_run and task.configSpec.operation != "check":
             outputs = {}
-            if statePath and os.path.isfile(os.path.join(cwd.cwd, statePath)):
+            current_path = cwd.cwd
+            if statePath and os.path.isfile(os.path.join(current_path, statePath)):
                 # read state file
-                statePath = os.path.join(cwd.cwd, statePath)
+                statePath = os.path.join(current_path, statePath)
                 with open(statePath) as sf:
                     state = json.load(sf)
                 state = mark_sensitive(

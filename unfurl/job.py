@@ -21,7 +21,7 @@ from .configurator import (
     TaskView,
     ConfiguratorResult,
 )
-from .projectpaths import Folders
+from .projectpaths import Folders, rmtree
 from .planrequests import (
     PlanRequest,
     TaskRequest,
@@ -620,12 +620,8 @@ class Job(ConfigChange):
 
     def _apply_workfolders(self):
         for task in self.workDone.values():
-            task.apply_work_folders()
-
-    def _apply_persistent_workfolders(self, reqs):
-        for parent, child in get_render_requests(reqs):
-            # these folders are persistent so we need to move them into their permanent location before we run the task
-            child.task.apply_work_folders(*Folders.Persistent)
+            if task.status == Status.ok:
+                task.apply_work_folders()
 
     def _update_joboption_instances(self):
         if not self.jobOptions.instances:
@@ -648,6 +644,8 @@ class Job(ConfigChange):
         WorkflowPlan = Plan.get_plan_class_for_workflow(joboptions.workflow)
         if not WorkflowPlan:
             raise UnfurlError(f"unknown workflow: {joboptions.workflow}")
+
+        rmtree(os.path.join(self.rootResource.base_dir, Folders.Planned))
         plan = WorkflowPlan(self.rootResource, self.manifest.tosca, joboptions)
         plan_requests = list(plan.execute_plan())
 
@@ -712,7 +710,6 @@ class Job(ConfigChange):
             workflow = parent.workflow
         else:
             workflow = None
-            self._apply_persistent_workfolders(taskRequests)
 
         for taskRequest in taskRequests:
             # if parent is set, stop processing requests once one fails
