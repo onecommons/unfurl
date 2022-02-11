@@ -214,17 +214,17 @@ def requirement_to_graphql(spec, req_dict):
     return reqobj
 
 
-def _get_implements(spec, typedef, implements: list, types):
+def _get_extends(spec, typedef, extends: list, types):
     if not typedef:
         return
     name = typedef.type
-    if name not in implements:
-        implements.append(name)
+    if name not in extends:
+        extends.append(name)
     if types is not None and name not in types:
         types[name] = {}
         types[name] = node_type_to_graphql(spec, typedef, types)
     for p in typedef.parent_types():
-        _get_implements(spec, p, implements, types)
+        _get_extends(spec, p, extends, types)
 
 
 def is_computed(p):
@@ -246,8 +246,9 @@ def node_type_to_graphql(spec, type_definition, types: dict):
       description: string
       badge: string
       inputsSchema: JSON
-      # XXX outputs: [Output!]
+      outputsSchema: JSON
       requirements: [RequirementConstraint!]
+      implementations: []
     }
     """
     jsontype = dict(
@@ -267,17 +268,16 @@ def node_type_to_graphql(spec, type_definition, types: dict):
     )
     jsontype["inputsSchema"] = tosca_type_to_jsonschema(spec, propertydefs, None)
 
-    implements = []
-    # add ancestors classes to implements
-    _get_implements(spec, type_definition, implements, types)
-    # XXX rename to "extends"!
-    jsontype["extends"] = implements
+    extends = []
+    # add ancestors classes to extends
+    _get_extends(spec, type_definition, extends, types)
+    jsontype["extends"] = extends
     if not type_definition.is_derived_from("tosca.nodes.Root"):
         return jsontype
 
-    # add capabilities types to implements
+    # add capabilities types to extends
     for cap in type_definition.get_capability_typedefs():
-        _get_implements(spec, cap, implements, None)
+        _get_extends(spec, cap, extends, None)
 
     # treat each capability as a complex property
     add_capabilities_as_properties(
@@ -285,9 +285,10 @@ def node_type_to_graphql(spec, type_definition, types: dict):
     )
 
     # XXX only include "public" attributes?
-    # jsontype["outputs"] = tosca_type_to_jsonschema(
-    #     spec, type_definition.get_attributes_def_objects(), None
-    # )
+    attributedefs = (
+        p for p in type_definition.get_attributes_def_objects() if not is_computed(p)
+    )
+    jsontype["outputsSchema"] = tosca_type_to_jsonschema(spec, attributedefs, None)
     # XXX capabilities can hava attributes too
     # add_capabilities_as_attributes(jsontype["outputs"], type_definition, spec)
 
@@ -297,6 +298,7 @@ def node_type_to_graphql(spec, type_definition, types: dict):
         if next(iter(req)) != "dependency"
     ]
 
+    jsontype["implementations"] = list(type_definition.interfaces or [])
     return jsontype
 
 
@@ -457,8 +459,13 @@ def to_graphql_blueprint(spec, deploymentTemplates=None):
     ApplicationBlueprint: {
       name: String!
       title: String
+      description: String
       primary: ResourceType!
       deploymentTemplates: [DeploymentTemplate!]
+
+      livePreview: String
+      sourceCodeUrl: String
+      image: String
     }
     """
     topology = spec.template.topology_template
@@ -471,6 +478,11 @@ def to_graphql_blueprint(spec, deploymentTemplates=None):
     blueprint = dict(__typename="ApplicationBlueprint", name=name, title=title)
     blueprint["primary"] = root.type
     blueprint["deploymentTemplates"] = deploymentTemplates or []
+    blueprint["description"] = spec.template.description
+    metadata = spec.template.tpl.get("metadata") or {}
+    blueprint["livePreview"] = metadata.get("livePreview")
+    blueprint["sourceCodeUrl"] = metadata.get("sourceCodeUrl")
+    blueprint["image"] = metadata.get("image")
     return blueprint, root
 
 
@@ -539,7 +551,6 @@ def to_graphql(localEnv):
         if template.default_for:
             type_definition = template.type_definition
             typename = type_definition.type
-            # XXX connection types
             if typename in types:
                 connection_types[typename] = types[typename]
             elif typename not in connection_types:
@@ -569,9 +580,10 @@ def add_graphql_deployment(manifest, db, dtemplate):
       sourceDeploymentTemplateName: String
     }
     """
+    # XXX add env deployment graphql needs pipeline metadata (pipeline id, commit, branch)
+    # XXX job
     title = "unnamed"  # XXX
     deployment = dict(name=title, title=title)
-    # XXX primary
     deployment["resources"] = [
         to_graphql_resource(instance, manifest, db)
         for instance in manifest.rootResource.get_self_and_descendents()
@@ -599,8 +611,8 @@ def to_blueprint(localEnv):
     )
     db["DeploymentTemplate"] = {}
     for name, tpl in deployment_blueprints.items():
-        title = deployment_blueprints.get("title") or name
-        slug = slugify(title)
+        title = tpl.get("title") or name
+        slug = slugify(name)
         template = dict(
             __typename="DeploymentTemplate",
             title=title,
@@ -608,8 +620,8 @@ def to_blueprint(localEnv):
             slug=slug,
             blueprint=blueprint["name"],
             primary=root_resource_template.name,
+            cloud=tpl.get("cloud"),
         )
-        template.update(tpl)
         db["DeploymentTemplate"][name] = template
 
     blueprint["deploymentTemplates"] = list(deployment_blueprints)
@@ -630,7 +642,7 @@ def to_deployment(localEnv):
 
 
 def to_environments(localEnv):
-    '''
+    """
       Map environments in unfurl.yaml to DeploymentEnvironments
       Map registered ensembles to deployments just with path reference to the ensemble's json
       (create on the fly?)
@@ -639,10 +651,6 @@ def to_environments(localEnv):
         name: String!
         connections: [ResourceTemplate!]
 
-        """
-        TODO: should just use primary_provider
-        """
-        cloud: String
         primary_provider: ResourceTemplate
         deployments: [String!]
       }
@@ -659,7 +667,7 @@ def to_environments(localEnv):
         name: <ResourceType>
       },
     }
-    '''
+    """
 
     # XXX one manifest and blueprint per environment
     environments = {}
@@ -676,10 +684,10 @@ def to_environments(localEnv):
             )
         )
         service_templates = connections
-        # XXX cloud
         environments[name] = dict(
             name=name,
             connections=service_templates,
+            primary_provider=service_templates.get("primary_provider"),
         )
         all_connection_types.update(connection_types)
 
