@@ -87,6 +87,8 @@ def rename_dir(src, dst, logger=logger):
 
 def rmtree(path, logger=logger):
     errors = []
+    if not os.path.exists(path):
+        return False
 
     def rm_error(func, path, excinfo):
         errors.append(path)
