@@ -1,7 +1,7 @@
 # NB: this need to stay in in sync with extras in setup.cfg
 docker[tls] # Apache 2.0
 openshift # Apache 2.0
-octodns>=0.9.12,<1.0 # MIT
+octodns == 0.9.14 # MIT
 boto # Apache 2.0
 boto3 # Apache 2.0
 supervisor # BSD, see https://web.archive.org/web/20190406171444/http://repoze.org/LICENSE.txt
