@@ -298,7 +298,13 @@ def node_type_to_graphql(spec, type_definition, types: dict):
         if next(iter(req)) != "dependency"
     ]
 
-    jsontype["implementations"] = list(type_definition.interfaces or [])
+    operations = set()
+    if type_definition.interfaces:
+        for idef in type_definition.interfaces.values():
+            operations.update(idef)  # add operation names
+    jsontype["implementations"] = [
+        op for op in operations if op in ("create", "configure")
+    ]
     return jsontype
 
 
@@ -466,6 +472,7 @@ def to_graphql_blueprint(spec, deploymentTemplates=None):
       livePreview: String
       sourceCodeUrl: String
       image: String
+      projectIcon: String
     }
     """
     topology = spec.template.topology_template
@@ -483,6 +490,7 @@ def to_graphql_blueprint(spec, deploymentTemplates=None):
     blueprint["livePreview"] = metadata.get("livePreview")
     blueprint["sourceCodeUrl"] = metadata.get("sourceCodeUrl")
     blueprint["image"] = metadata.get("image")
+    blueprint["projectIcon"] = metadata.get("projectIcon")
     return blueprint, root
 
 
@@ -709,7 +717,7 @@ def to_graphql_resource(instance, manifest, db):
       status: Status
       state: State
       attributes: [Input!]
-      dependencies: [Requirement!]
+      connections: [Requirement!]
     }
     """
     # XXX url
