@@ -928,14 +928,20 @@ def clone(source, dest, ensemble_name=DefaultNames.EnsembleDirectory, **options)
         builder.clone_remote_project(dest)
     else:
         sourceProject = find_project(source, builder.home_path)
-        if not sourceProject:
-            # source wasn't in a project
+        if not sourceProject or not sourceProject.project_repoview.repo:
+            # source wasn't in a project in a repo
             # XXX currently just raises error
             return builder.create_project_from_ensemble(dest)
 
         relDestDir = sourceProject.get_relative_path(dest)
-        if relDestDir.startswith(".."):
-            # dest is outside the source project, so clone the source project
+        if relDestDir.startswith("..") and (
+            not currentProject
+            or not currentProject.project_repoview.repo
+            or currentProject.project_repoview.repo.working_dir
+            != sourceProject.project_repoview.repo.working_dir
+        ):
+            # dest is outside the source project and is in a different repo than the current project
+            # so clone the source project
             builder.clone_local_project(sourceProject, dest)
         else:
             # dest is in the source project's repo
