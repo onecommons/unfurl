@@ -820,6 +820,11 @@ def runtime(ctx, project_folder, init=False, **options):
     default=None,
     help="Associate the given environment with the ensemble.",
 )
+@click.option(
+    "--skeleton",
+    type=click.Path(exists=False),
+    help="Absolute path to a directory of project skeleton templates.",
+)
 def clone(ctx, source, dest, **options):
     """Create a new ensemble or project from a service template or an existing ensemble or project.
 

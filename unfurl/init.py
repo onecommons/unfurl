@@ -566,33 +566,6 @@ def _get_ensemble_paths(sourcePath, sourceProject):
     return {}
 
 
-def _create_ensemble_from_template(
-    templateVars, project, destDir, manifestName, specProject
-):
-    from unfurl import yamlmanifest
-
-    assert project
-    sourceDir = os.path.normpath(
-        os.path.join(specProject.projectRoot, templateVars["sourceDir"])
-    )
-    specRepo, relPath, revision, bare = specProject.find_path_in_repos(sourceDir)
-    if not specRepo:
-        raise UnfurlError(
-            '"%s" is not in a git repository. Cloning from plain file directories not yet supported'
-            % os.path.abspath(sourceDir)
-        )
-    manifestPath = write_ensemble_manifest(
-        os.path.join(project.projectRoot, destDir),
-        manifestName,
-        specRepo,
-        sourceDir,
-        templateVars,
-    )
-    localEnv = LocalEnv(manifestPath, project=project)
-    manifest = yamlmanifest.ReadOnlyManifest(localEnv=localEnv)
-    return localEnv, manifest
-
-
 def find_project(source, home_path):
     sourceRoot = Project.find_path(source)
     if sourceRoot:
@@ -604,7 +577,6 @@ def find_project(source, home_path):
 
 def _get_context_and_shared_repo(project, options):
     # when creating ensemble, get the default project for the given context if set
-    # XXX if not --new-repository
     shared_repo = None
     shared = options.get("shared_repository")
     context = options.get("use_environment")
@@ -613,7 +585,9 @@ def _get_context_and_shared_repo(project, options):
     if not shared and context:
         shared = project.get_default_project_path(context)
         if not shared and context not in project.contexts:
-            raise UnfurlError(f'environment "{context}" not found')
+            raise UnfurlError(
+                f'environment "{context}" not found in project at "{project.projectRoot}"'
+            )
     if shared:
         shared_repo = Repo.find_containing_repo(shared)
         if not shared_repo:
@@ -694,6 +668,34 @@ class EnsembleBuilder:
                 return s.read()
         return None
 
+    def _create_ensemble_from_template(self, project, destDir, manifestName):
+        from unfurl import yamlmanifest
+
+        specProject = self.dest_project
+        assert project
+        sourceDir = os.path.normpath(
+            os.path.join(
+                self.source_project.projectRoot, self.templateVars["sourceDir"]
+            )
+        )
+        specRepo, relPath, revision, bare = specProject.find_path_in_repos(sourceDir)
+        if not specRepo:
+            raise UnfurlError(
+                '"%s" is not in a git repository. Cloning from plain file directories not yet supported'
+                % os.path.abspath(sourceDir)
+            )
+        manifestPath = write_ensemble_manifest(
+            os.path.join(project.projectRoot, destDir),
+            manifestName,
+            specRepo,
+            sourceDir,
+            self.templateVars,
+            self.options.get("skeleton"),
+        )
+        localEnv = LocalEnv(manifestPath, project=project)
+        manifest = yamlmanifest.ReadOnlyManifest(localEnv=localEnv)
+        return localEnv, manifest
+
     def create_new_ensemble(self):
         """
         If "localEnv" is in templateVars, clone that ensemble;
@@ -729,8 +731,8 @@ class EnsembleBuilder:
         if "localEnv" not in templateVars or self.options.get("want_init"):
             # we found a template file to clone
             templateVars["inputs"] = self._get_inputs_template()
-            localEnv, manifest = _create_ensemble_from_template(
-                self.templateVars, destProject, destDir, manifestName, self.dest_project
+            localEnv, manifest = self._create_ensemble_from_template(
+                destProject, destDir, manifestName
             )
         else:
             # look for an ensemble at the given path or use the source project's default
