@@ -616,6 +616,7 @@ class EnsembleBuilder:
         self.dest_path = None  # step 3 relative path in dest_project
 
         self.manifest = None  # final step
+        self.logger = logging.getLogger("unfurl")
 
     def create_project_from_ensemble(self, dest):
         # XXX create a new project from scratch for the ensemble
@@ -641,7 +642,7 @@ class EnsembleBuilder:
             self.source_project,
         )
         (self.environment, self.shared_repo) = _get_context_and_shared_repo(
-            self.source_project, self.options
+            self.dest_project, self.options
         )
 
     @staticmethod
@@ -787,6 +788,7 @@ class EnsembleBuilder:
 
         targetDir = os.path.join(destDir, filePath)
         sourceRoot = Project.find_path(targetDir)
+        self.logger.debug(f'cloned {self.input_source}" to "{destDir}"')
         if not sourceRoot:
             raise UnfurlError(
                 f'Error: cloned "{self.input_source}" to "{destDir}" but couldn\'t find an Unfurl project'
@@ -819,7 +821,7 @@ class EnsembleBuilder:
             if new_project:
                 # finishing creating the new project
                 # create local/unfurl.yaml in the new project
-                if _create_local_config(self.source_project):
+                if _create_local_config(self.source_project, self.logger):
                     # reload project with the new local project config
                     self.dest_project = find_project(
                         self.source_project.projectRoot, self.home_path
@@ -936,17 +938,17 @@ def clone(source, dest, ensemble_name=DefaultNames.EnsembleDirectory, **options)
             # dest is outside the source project, so clone the source project
             builder.clone_local_project(sourceProject, dest)
         else:
-            # dest is in the source project
+            # dest is in the source project's repo
             # so don't need to clone, just need to create an ensemble
             builder.set_source(sourceProject)
 
     assert builder.source_project
 
-    ##### step 2: examine source for template details and determine destination project
-    builder.configure()
-
-    ##### step 3: create destination project if neccessary
+    ##### step 2: create destination project if neccessary
     builder.set_dest_project_and_path(sourceProject, currentProject, dest)
+
+    ##### step 3: examine source for template details and determine shared project
+    builder.configure()
 
     ##### step 4 create ensemble in destination project if needed
     if options.get("empty"):
@@ -956,7 +958,7 @@ def clone(source, dest, ensemble_name=DefaultNames.EnsembleDirectory, **options)
     return builder.set_ensemble(isRemote, sourceProject, currentProject)
 
 
-def _create_local_config(clonedProject):
+def _create_local_config(clonedProject, logger):
     local_template = os.path.join(
         clonedProject.projectRoot, DefaultNames.LocalConfigTemplate
     )
@@ -981,7 +983,7 @@ def _create_local_config(clonedProject):
             contents,
         )
 
-        logging.info(
+        logger.info(
             f'Generated new a local project configuration file at "{dest}"\n'
             "Please review it for any instructions on configuring this project."
         )
