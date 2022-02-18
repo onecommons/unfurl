@@ -718,7 +718,11 @@ class EnsembleBuilder:
         destDir, manifestName = self._get_ensemble_dir(self.dest_path)
         # choose a destDir that doesn't conflict with an existing folder
         # (i.e. if default ensemble already exists)
-        destDir = destProject.get_unique_path(destDir)
+        if self.options.get("overwrite"):
+            destDir = os.path.join(destProject.projectRoot, destDir)
+        else:
+            destDir = destProject.get_unique_path(destDir)
+
         # destDir is now absolute
         targetPath = os.path.normpath(os.path.join(destDir, manifestName))
         assert (not self.shared_repo) or targetPath.startswith(

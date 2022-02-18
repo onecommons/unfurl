@@ -673,6 +673,11 @@ def plan(ctx, ensemble=None, **options):
     type=click.Path(exists=True),
     help="Create the ensemble in an repository outside the project.",
 )
+@click.option(
+    "--overwrite",
+    type=click.Path(exists=False),
+    help="Create ensemble in the given directory even if it exists.",
+)
 def init(ctx, projectdir, ensemble_name=None, **options):
     """
     Create a new project or, if [project_dir] exists or is inside a project, create a new ensemble.
@@ -823,7 +828,12 @@ def runtime(ctx, project_folder, init=False, **options):
 @click.option(
     "--skeleton",
     type=click.Path(exists=False),
-    help="Absolute path to a directory of project skeleton templates.",
+    help="Path to a directory of project skeleton templates.",
+)
+@click.option(
+    "--overwrite",
+    type=click.Path(exists=False),
+    help="Create ensemble in the given directory even if it exists.",
 )
 def clone(ctx, source, dest, **options):
     """Create a new ensemble or project from a service template or an existing ensemble or project.
