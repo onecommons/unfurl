@@ -10,4 +10,5 @@ GitPython <= 3.1.14 # BSD (3.1.18 is incompatible with 3.7)
 # the following are all Apache 2.0 (note: don't put comments on -r lines)
 -r tosca-parser/requirements.txt
 importlib-metadata; python_version<'3.8' # Apache
+MarkupSafe==2.0.1 # newer version broken with jinja2
 jinja2==2.11.3
