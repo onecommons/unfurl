@@ -271,6 +271,12 @@ class Project:
         self.workingDirs[localRepoPath] = RepoView(dict(name="", url=gitUrl), newRepo)
         return newRepo
 
+    def find_or_create_working_dir(self, repoURL, revision=None):
+        repo = self.find_git_repo(repoURL, revision)
+        if not repo:
+            repo = self.create_working_dir(repoURL, revision)
+        return repo
+
     def get_manifest_path(self, localEnv, manifestPath, can_be_empty):
         if manifestPath:
             # at this point a named manifest

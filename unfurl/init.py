@@ -762,43 +762,54 @@ class EnsembleBuilder:
         self.manifest = manifest
         return destDir
 
-    def clone_local_project(self, sourceProject, dest_dir):
-        # clone the source project's git repo
+    def clone_local_project(self, currentProject, sourceProject, dest_dir):
         self.source_path = sourceProject.get_relative_path(self.input_source)
         assert not self.source_path.startswith(
             ".."
         ), f"{self.source_path} should be inside the project"
-        newrepo = sourceProject.project_repoview.repo.clone(dest_dir)
-        search = os.path.join(
-            dest_dir, sourceProject.project_repoview.path, self.source_path
-        )
+        if currentProject:
+            newrepo = currentProject.find_or_create_working_dir(
+                sourceProject.project_repoview.repo.url,
+                sourceProject.project_repoview.repo.revision,
+            )
+            search = os.path.join(newrepo.working_dir, self.source_path)
+        else:
+            # clone the source project's git repo
+            newrepo = sourceProject.project_repoview.repo.clone(dest_dir)
+            search = os.path.join(
+                dest_dir, sourceProject.project_repoview.path, self.source_path
+            )
+
         self.source_project = find_project(search, self.home_path)
         assert (
             self.source_project
         ), f"project not found in {search}, cloned to {newrepo.working_dir}"
         return self.source_project
 
-    def clone_remote_project(self, destDir):
+    def clone_remote_project(self, currentProject, destDir):
         # check if source is a git url
         repoURL, filePath, revision = split_git_url(self.input_source)
 
-        if os.path.exists(destDir) and os.listdir(destDir):
-            raise UnfurlError(
-                f'Can not clone project into "{destDir}": folder is not empty'
-            )
-
-        # #lone the remote repo to destDir
-        Repo.create_working_dir(repoURL, destDir, revision)
+        if currentProject:
+            repo = currentProject.find_or_create_working_dir(repoURL, revision)
+            destDir = repo.working_dir
+        else:
+            if os.path.exists(destDir) and os.listdir(destDir):
+                raise UnfurlError(
+                    f'Can not clone project into "{destDir}": folder is not empty'
+                )
+            # clone the remote repo to destDir
+            Repo.create_working_dir(repoURL, destDir, revision)
 
         targetDir = os.path.join(destDir, filePath)
-        sourceRoot = Project.find_path(targetDir)
+        sourceProjectRoot = Project.find_path(targetDir)
         self.logger.debug(f'cloned {self.input_source}" to "{destDir}"')
-        if not sourceRoot:
+        if not sourceProjectRoot:
             raise UnfurlError(
                 f'Error: cloned "{self.input_source}" to "{destDir}" but couldn\'t find an Unfurl project'
             )
 
-        self.source_project = find_project(sourceRoot, self.home_path)
+        self.source_project = find_project(sourceProjectRoot, self.home_path)
         # set source to point to the cloned project
         self.source_path = self.source_project.get_relative_path(targetDir)
         return self.source_project
@@ -811,14 +822,6 @@ class EnsembleBuilder:
         if existingDestProject:
             #     set that as the dest_project
             self.dest_project = existingDestProject
-            if existingSourceProject is not existingDestProject and new_project:
-                # we cloned a new source project inside of an existing project
-                # add the cloned project's repo to the currentProject so we can find it later
-                # to set it as the ensemble's spec repository
-                existingDestProject.workingDirs[
-                    self.source_project.projectRoot
-                ] = self.source_project.project_repoview
-            # path from dest to source
         else:
             # otherwise set source_project as the dest_project
             self.dest_project = self.source_project
@@ -928,8 +931,9 @@ def clone(source, dest, ensemble_name=DefaultNames.EnsembleDirectory, **options)
     ### step 1: clone the source repository and set the the source path
     sourceProject = None
     isRemote = is_url_or_git_path(source)
+
     if isRemote:
-        builder.clone_remote_project(dest)
+        builder.clone_remote_project(currentProject, dest)
     else:
         sourceProject = find_project(source, builder.home_path)
         if not sourceProject or not sourceProject.project_repoview.repo:
@@ -946,7 +950,7 @@ def clone(source, dest, ensemble_name=DefaultNames.EnsembleDirectory, **options)
         ):
             # dest is outside the source project and is in a different repo than the current project
             # so clone the source project
-            builder.clone_local_project(sourceProject, dest)
+            builder.clone_local_project(currentProject, sourceProject, dest)
         else:
             # dest is in the source project's repo
             # so don't need to clone, just need to create an ensemble
