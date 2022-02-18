@@ -443,7 +443,9 @@ class GitRepo(Repo):
         )
 
     def add_to_local_git_ignore(self, rule):
-        with open(os.path.join(self.repo.git_dir, "info", "exclude"), "a") as f:
+        path = os.path.join(self.repo.git_dir, "info", "exclude")
+        mode = "a" if os.path.exists(path) else "w"
+        with open(path, mode) as f:
             f.write("\n" + rule + "\n")
 
     def show(self, path, commitId):
