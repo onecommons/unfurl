@@ -69,6 +69,7 @@
       "properties": {
         "inputs": { "$ref": "#/definitions/attributes" },
         "defaultProject": { "type": "string" },
+        "name": { "type": "string" },
         "variables": { "anyOf": [{ "type": "object" }, { "type": "null" }] },
         "locals": { "$ref": "#/definitions/attributes" },
         "secrets": { "$ref": "#/definitions/attributes" },
