@@ -406,8 +406,6 @@
         <li><a href="cli.html#cmdoption-unfurl-run-operation">unfurl-run command line option</a>
 </li>
       </ul></li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li>
     --output
 
@@ -425,6 +423,17 @@
         <li><a href="cli.html#cmdoption-unfurl-stop-output">unfurl-stop command line option</a>
 </li>
         <li><a href="cli.html#cmdoption-unfurl-undeploy-output">unfurl-undeploy command line option</a>
+</li>
+      </ul></li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li>
+    --overwrite
+
+      <ul>
+        <li><a href="cli.html#cmdoption-unfurl-clone-overwrite">unfurl-clone command line option</a>
+</li>
+        <li><a href="cli.html#cmdoption-unfurl-init-overwrite">unfurl-init command line option</a>
 </li>
       </ul></li>
       <li>
@@ -881,14 +890,18 @@
       </ul></li>
       <li><a href="api.html#unfurl.localenv.Project.find_git_repo_from_repository">find_git_repo_from_repository() (unfurl.localenv.Project method)</a>
 </li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api.html#unfurl.configurator.TaskView.find_instance">find_instance() (unfurl.configurator.TaskView method)</a>
 </li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api.html#unfurl.localenv.Project.find_or_clone">find_or_clone() (unfurl.localenv.Project method)</a>
 </li>
       <li><a href="api.html#unfurl.localenv.LocalEnv.find_or_create_working_dir">find_or_create_working_dir() (unfurl.localenv.LocalEnv method)</a>
+
+      <ul>
+        <li><a href="api.html#unfurl.localenv.Project.find_or_create_working_dir">(unfurl.localenv.Project method)</a>
 </li>
+      </ul></li>
       <li><a href="api.html#unfurl.localenv.Project.find_path">find_path() (unfurl.localenv.Project static method)</a>
 </li>
       <li><a href="api.html#unfurl.localenv.LocalEnv.find_path_in_repos">find_path_in_repos() (unfurl.localenv.LocalEnv method)</a>
@@ -1357,6 +1370,8 @@
 </li>
         <li><a href="cli.html#cmdoption-unfurl-clone-mono">--mono</a>
 </li>
+        <li><a href="cli.html#cmdoption-unfurl-clone-overwrite">--overwrite</a>
+</li>
         <li><a href="cli.html#cmdoption-unfurl-clone-skeleton">--skeleton</a>
 </li>
         <li><a href="cli.html#cmdoption-unfurl-clone-use-environment">--use-environment</a>
@@ -1525,6 +1540,8 @@
         <li><a href="cli.html#cmdoption-unfurl-init-existing">--existing</a>
 </li>
         <li><a href="cli.html#cmdoption-unfurl-init-mono">--mono</a>
+</li>
+        <li><a href="cli.html#cmdoption-unfurl-init-overwrite">--overwrite</a>
 </li>
         <li><a href="cli.html#cmdoption-unfurl-init-shared-repository">--shared-repository</a>
 </li>
