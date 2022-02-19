@@ -226,6 +226,8 @@ class ImportResolver(toscaparser.imports.ImportResolver):
             path, isFile, fragment = url_info
 
         if not isFile or is_url_or_git_path(path):
+            if not self.manifest:
+                raise UnfurlError("Could not resolve git URL: " + path)
             # only support urls to git repos for now
             repo_view = self.manifest.repositories.get(repository_name)
             if repo_view and repo_view.repo:
@@ -398,12 +400,15 @@ class YamlConfig:
             raise UnfurlError(msg, True)
 
     def load_yaml(self, path, baseDir=None, warnWhenNotFound=False):
+        path, sep, fragment = path.partition("#")
         path = os.path.abspath(os.path.join(baseDir or self.get_base_dir(), path))
         if warnWhenNotFound and not os.path.isfile(path):
             return path, None
         logger.debug("attempting to load YAML file: %s", path)
         with open(path, "r") as f:
             config = self.yaml.load(f)
+        if fragment:
+            return path, _refResolver.resolve_fragment(config, fragment)
         return path, config
 
     def get_base_dir(self):
