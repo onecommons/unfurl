@@ -93,7 +93,7 @@
           ]
         }
       },
-      "additionalProperties": false
+      "additionalProperties": true
     },
     "external": {
       "title": "External",
