@@ -678,6 +678,12 @@ def plan(ctx, ensemble=None, **options):
     type=click.Path(exists=False),
     help="Create ensemble in the given directory even if it exists.",
 )
+@click.option(
+    "--render",
+    is_flag=True,
+    default=False,
+    help="Generate files only (don't commit them).",
+)
 def init(ctx, projectdir, ensemble_name=None, **options):
     """
     Create a new project or, if [project_dir] exists or is inside a project, create a new ensemble.
@@ -832,7 +838,8 @@ def runtime(ctx, project_folder, init=False, **options):
 )
 @click.option(
     "--overwrite",
-    type=click.Path(exists=False),
+    default=False,
+    is_flag=True,
     help="Create ensemble in the given directory even if it exists.",
 )
 def clone(ctx, source, dest, **options):

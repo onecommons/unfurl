@@ -205,6 +205,7 @@ def render_project(
     names=DefaultNames,
     use_context=None,
     mono=False,
+    no_secrets=False,
 ):
     """
     Creates a folder named `projectdir` with a git repository with the following files:
@@ -262,18 +263,21 @@ def render_project(
 
     _warn_about_new_password(localProjectConfig)
 
-    write_project_config(
-        os.path.join(projectdir, "secrets"),
-        names.SecretsConfig,
-        "secrets.yaml.j2",
-        vars,
-        templateDir,
-    )
-
     localInclude = "+?include-local: " + os.path.join("local", localConfigFilename)
-    secretsInclude = "+?include-secrets: " + os.path.join(
-        "secrets", names.SecretsConfig
-    )
+
+    if no_secrets:
+        secretsInclude = ""
+    else:
+        write_project_config(
+            os.path.join(projectdir, "secrets"),
+            names.SecretsConfig,
+            "secrets.yaml.j2",
+            vars,
+            templateDir,
+        )
+        secretsInclude = "+?include-secrets: " + os.path.join(
+            "secrets", names.SecretsConfig
+        )
 
     # note: local overrides secrets
     vars = dict(include=secretsInclude + "\n" + localInclude, vaultid=vaultid)
@@ -462,19 +466,20 @@ def create_project(
         assert homeProject
         homeProject.localConfig.register_project(newProject, create_context)
 
-    if password_vault:
-        yaml = make_yaml(password_vault)
-        commit_secrets(os.path.dirname(projectConfigPath), yaml)
+    if not kw.get("render"):
+        if password_vault:
+            yaml = make_yaml(password_vault)
+            commit_secrets(os.path.dirname(projectConfigPath), yaml)
 
-    _commit_repos(
-        projectdir,
-        repo,
-        not mono and ensembleRepo,
-        shared,
-        kw,
-        ensembleDir,
-        newHome,
-    )
+        _commit_repos(
+            projectdir,
+            repo,
+            not mono and ensembleRepo,
+            shared,
+            kw,
+            ensembleDir,
+            newHome,
+        )
 
     return newHome, projectConfigPath, repo
 
@@ -491,7 +496,7 @@ def clone_local_repos(manifest, sourceProject, targetProject):
             targetProject.find_or_clone(repo)
 
 
-def _create_ensemble_repo(manifest, repo):
+def _create_ensemble_repo(manifest, repo, commit=True):
     destDir = os.path.dirname(manifest.manifest.path)
     if not repo:
         repo = _create_repo(destDir)
@@ -502,8 +507,9 @@ def _create_ensemble_repo(manifest, repo):
     with open(manifest.manifest.path, "w") as f:
         manifest.dump(f)
 
-    repo.repo.index.add([manifest.manifest.path])
-    repo.repo.index.commit("Default ensemble repository boilerplate")
+    if commit:
+        repo.repo.index.add([manifest.manifest.path])
+        repo.repo.index.commit("Default ensemble repository boilerplate")
     return repo
 
 
@@ -748,6 +754,7 @@ class EnsembleBuilder:
         _create_ensemble_repo(
             manifest,
             self.shared_repo or self.mono and self.dest_project.project_repoview.repo,
+            not self.options.get("render"),
         )
 
         if destProject.projectRoot != self.dest_project.projectRoot:
