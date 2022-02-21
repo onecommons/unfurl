@@ -259,6 +259,7 @@ def render_project(
         vars,
         templateDir,
     )
+
     _warn_about_new_password(localProjectConfig)
 
     write_project_config(
@@ -770,7 +771,6 @@ class EnsembleBuilder:
         if currentProject:
             newrepo = currentProject.find_or_create_working_dir(
                 sourceProject.project_repoview.repo.url,
-                sourceProject.project_repoview.repo.revision,
             )
             search = os.path.join(newrepo.working_dir, self.source_path)
         else:
