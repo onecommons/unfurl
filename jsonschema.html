@@ -211,69 +211,49 @@
 <h4>ensemble.yaml<a class="headerlink" href="#id2" title="Permalink to this headline"></a></h4>
 <table class="docutils align-default">
 <colgroup>
-<col style="width: 17%" />
-<col style="width: 17%" />
-<col style="width: 17%" />
-<col style="width: 17%" />
-<col style="width: 17%" />
-<col style="width: 17%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
 </colgroup>
 <tbody>
 <tr class="row-odd"><td><p>type</p></td>
-<td colspan="5"><p><em>object</em></p></td>
+<td colspan="4"><p><em>object</em></p></td>
 </tr>
-<tr class="row-even"><td colspan="6"><p>properties</p></td>
+<tr class="row-even"><td colspan="5"><p>properties</p></td>
 </tr>
 <tr class="row-odd"><td rowspan="2"><ul class="simple">
 <li><p><strong>apiVersion</strong></p></li>
 </ul>
 </td>
 <td><p>type</p></td>
-<td colspan="4"><p><em>string</em></p></td>
+<td colspan="3"><p><em>string</em></p></td>
 </tr>
 <tr class="row-even"><td><p>const</p></td>
-<td colspan="4"><p>“unfurl/v1alpha1”</p></td>
+<td colspan="3"><p>“unfurl/v1alpha1”</p></td>
 </tr>
 <tr class="row-odd"><td rowspan="2"><ul class="simple">
 <li><p><strong>kind</strong></p></li>
 </ul>
 </td>
 <td><p>type</p></td>
-<td colspan="4"><p><em>string</em></p></td>
+<td colspan="3"><p><em>string</em></p></td>
 </tr>
 <tr class="row-even"><td><p>enum</p></td>
-<td colspan="4"><p>Manifest, Ensemble</p></td>
+<td colspan="3"><p>Manifest, Ensemble</p></td>
 </tr>
 <tr class="row-odd"><td rowspan="8"><ul class="simple">
 <li><p>metadata</p></li>
 </ul>
 </td>
 <td><p>type</p></td>
-<td colspan="4"><p><em>object</em></p></td>
+<td colspan="3"><p><em>object</em></p></td>
 </tr>
-<tr class="row-even"><td colspan="5"><p>properties</p></td>
+<tr class="row-even"><td colspan="4"><p>properties</p></td>
 </tr>
 <tr class="row-odd"><td rowspan="2"><ul class="simple">
 <li><p><strong>uri</strong></p></li>
-</ul>
-</td>
-<td><p>type</p></td>
-<td colspan="3"><p><em>string</em></p></td>
-</tr>
-<tr class="row-even"><td><p>format</p></td>
-<td colspan="3"><p>uri</p></td>
-</tr>
-<tr class="row-odd"><td rowspan="4"><ul class="simple">
-<li><p>aliases</p></li>
-</ul>
-</td>
-<td><p>type</p></td>
-<td colspan="3"><p><em>array</em></p></td>
-</tr>
-<tr class="row-even"><td colspan="4"><p>items</p></td>
-</tr>
-<tr class="row-odd"><td rowspan="2"><ul class="simple">
-<li></li>
 </ul>
 </td>
 <td><p>type</p></td>
@@ -282,113 +262,139 @@
 <tr class="row-even"><td><p>format</p></td>
 <td colspan="2"><p>uri</p></td>
 </tr>
+<tr class="row-odd"><td rowspan="4"><ul class="simple">
+<li><p>aliases</p></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td colspan="2"><p><em>array</em></p></td>
+</tr>
+<tr class="row-even"><td colspan="3"><p>items</p></td>
+</tr>
+<tr class="row-odd"><td rowspan="2"><ul class="simple">
+<li></li>
+</ul>
+</td>
+<td><p>type</p></td>
+<td><p><em>string</em></p></td>
+</tr>
+<tr class="row-even"><td><p>format</p></td>
+<td><p>uri</p></td>
+</tr>
 <tr class="row-odd"><td><ul class="simple">
 <li><p>environment</p></li>
 </ul>
 </td>
-<td colspan="5"><p><a class="reference internal" href="##/definitions/environment"><span class="std std-ref">environment</span></a></p></td>
+<td colspan="4"><p><a class="reference internal" href="##/definitions/environment"><span class="std std-ref">environment</span></a></p></td>
 </tr>
-<tr class="row-even"><td rowspan="6"><ul class="simple">
+<tr class="row-even"><td rowspan="8"><ul class="simple">
 <li><p><strong>spec</strong></p></li>
 </ul>
 </td>
 <td><p>type</p></td>
-<td colspan="4"><p><em>object</em></p></td>
+<td colspan="3"><p><em>object</em></p></td>
 </tr>
-<tr class="row-odd"><td rowspan="5"><p>anyOf</p></td>
-<td rowspan="3"><ul class="simple">
-<li></li>
-</ul>
-</td>
-<td colspan="3"><p>properties</p></td>
+<tr class="row-odd"><td colspan="4"><p>properties</p></td>
 </tr>
 <tr class="row-even"><td rowspan="2"><ul class="simple">
 <li><p>service_template</p></li>
 </ul>
 </td>
-<td colspan="2"><p>a TOSCA service template</p></td>
+<td colspan="3"><p>a TOSCA service template</p></td>
 </tr>
 <tr class="row-odd"><td><p>type</p></td>
-<td><p><em>object</em></p></td>
+<td colspan="2"><p><em>object</em></p></td>
 </tr>
-<tr class="row-even"><td rowspan="2"><ul class="simple">
-<li></li>
+<tr class="row-even"><td><ul class="simple">
+<li><p>inputs</p></li>
 </ul>
 </td>
-<td colspan="3"><p>properties</p></td>
+<td colspan="3"><p><a class="reference internal" href="##/definitions/attributes"><span class="std std-ref">attributes</span></a></p></td>
 </tr>
 <tr class="row-odd"><td><ul class="simple">
 <li><p>instances</p></li>
 </ul>
 </td>
-<td colspan="2"><p><a class="reference internal" href="##/definitions/namedobjects"><span class="std std-ref">namedObject</span></a></p></td>
+<td colspan="3"><p><a class="reference internal" href="##/definitions/namedobjects"><span class="std std-ref">namedObject</span></a></p></td>
+</tr>
+<tr class="row-even"><td><ul class="simple">
+<li><p>deployment_blueprints</p></li>
+</ul>
+</td>
+<td colspan="3"><p><a class="reference internal" href="##/definitions/namedobjects"><span class="std std-ref">namedObject</span></a></p></td>
+</tr>
+<tr class="row-odd"><td><ul class="simple">
+<li><p>resource_templates</p></li>
+</ul>
+</td>
+<td colspan="3"><p><a class="reference internal" href="##/definitions/namedobjects"><span class="std std-ref">namedObject</span></a></p></td>
 </tr>
 <tr class="row-even"><td rowspan="7"><ul class="simple">
 <li><p>status</p></li>
 </ul>
 </td>
 <td><p>type</p></td>
-<td colspan="4"><p><em>object</em></p></td>
+<td colspan="3"><p><em>object</em></p></td>
 </tr>
 <tr class="row-odd"><td><p>default</p></td>
-<td colspan="4"><p>{}</p></td>
+<td colspan="3"><p>{}</p></td>
 </tr>
 <tr class="row-even"><td rowspan="5"><p>allOf</p></td>
 <td rowspan="4"><ul class="simple">
 <li></li>
 </ul>
 </td>
-<td colspan="3"><p>properties</p></td>
+<td colspan="2"><p>properties</p></td>
 </tr>
 <tr class="row-odd"><td><ul class="simple">
 <li><p>inputs</p></li>
 </ul>
 </td>
-<td colspan="2"><p><a class="reference internal" href="##/definitions/attributes"><span class="std std-ref">attributes</span></a></p></td>
+<td><p><a class="reference internal" href="##/definitions/attributes"><span class="std std-ref">attributes</span></a></p></td>
 </tr>
 <tr class="row-even"><td><ul class="simple">
 <li><p>outputs</p></li>
 </ul>
 </td>
-<td colspan="2"><p><a class="reference internal" href="##/definitions/attributes"><span class="std std-ref">attributes</span></a></p></td>
+<td><p><a class="reference internal" href="##/definitions/attributes"><span class="std std-ref">attributes</span></a></p></td>
 </tr>
 <tr class="row-odd"><td><ul class="simple">
 <li><p>instances</p></li>
 </ul>
 </td>
-<td colspan="2"><p><a class="reference internal" href="##/definitions/instances"><span class="std std-ref">instances</span></a></p></td>
+<td><p><a class="reference internal" href="##/definitions/instances"><span class="std std-ref">instances</span></a></p></td>
 </tr>
 <tr class="row-even"><td><ul class="simple">
 <li></li>
 </ul>
 </td>
-<td colspan="3"><p><a class="reference internal" href="##/definitions/status"><span class="std std-ref">Status</span></a></p></td>
+<td colspan="2"><p><a class="reference internal" href="##/definitions/status"><span class="std std-ref">Status</span></a></p></td>
 </tr>
 <tr class="row-odd"><td><ul class="simple">
 <li><p>lastJob</p></li>
 </ul>
 </td>
-<td colspan="5"><p><a class="reference internal" href="##/definitions/job"><span class="std std-ref">Job Record</span></a></p></td>
+<td colspan="4"><p><a class="reference internal" href="##/definitions/job"><span class="std std-ref">Job Record</span></a></p></td>
 </tr>
 <tr class="row-even"><td><ul class="simple">
 <li><p>jobsLog</p></li>
 </ul>
 </td>
 <td><p>type</p></td>
-<td colspan="4"><p><em>string</em></p></td>
+<td colspan="3"><p><em>string</em></p></td>
 </tr>
 <tr class="row-odd"><td><ul class="simple">
 <li><p>jobsFolder</p></li>
 </ul>
 </td>
 <td><p>type</p></td>
-<td colspan="4"><p><em>string</em></p></td>
+<td colspan="3"><p><em>string</em></p></td>
 </tr>
 <tr class="row-even"><td><ul class="simple">
 <li><p>changes</p></li>
 </ul>
 </td>
-<td colspan="5"><p><a class="reference internal" href="##/definitions/changes"><span class="std std-ref">Changes</span></a></p></td>
+<td colspan="4"><p><a class="reference internal" href="##/definitions/changes"><span class="std std-ref">Changes</span></a></p></td>
 </tr>
 </tbody>
 </table>
