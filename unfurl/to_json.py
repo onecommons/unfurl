@@ -515,8 +515,6 @@ def to_graphql_deployment_template(spec, db):
       blueprint: ApplicationBlueprint!
       primary: ResourceTemplate!
       resourceTemplates: [ResourceTemplate!]
-
-      # XXX:
       cloud: ResourceType
     }
     """
@@ -605,11 +603,17 @@ def add_graphql_deployment(manifest, db, dtemplate):
 
 def to_blueprint(localEnv):
     """
-    spec:
-      deployment_blueprints:
-        <DB>
-      resource_templates:
-        <merge>
+    The blueprint will include deployement blueprints that follows this syntax in the manifest:
+
+    .. code-block:: YAML
+
+      spec:
+        deployment_blueprints:
+         title: Google Cloud Platform
+         cloud: unfurl.relationships.ConnectsTo.GoogleCloudProject
+         resourceTemplates: [resource_template_name*]
+        resource_templates:
+          <map of ResourceTemplates>
     """
     db, connections, connection_types = to_graphql(localEnv)
     manifest = localEnv.get_manifest()
@@ -619,16 +623,17 @@ def to_blueprint(localEnv):
     )
     db["DeploymentTemplate"] = {}
     for name, tpl in deployment_blueprints.items():
-        title = tpl.get("title") or name
         slug = slugify(name)
-        template = dict(
-            __typename="DeploymentTemplate",
-            title=title,
-            name=name,
-            slug=slug,
-            blueprint=blueprint["name"],
-            primary=root_resource_template.name,
-            cloud=tpl.get("cloud"),
+        template = tpl.copy()
+        template.update(
+            dict(
+                __typename="DeploymentTemplate",
+                title=tpl.get("title") or name,
+                name=name,
+                slug=slug,
+                blueprint=blueprint["name"],
+                primary=tpl.get("primary") or root_resource_template.name,
+            )
         )
         db["DeploymentTemplate"][name] = template
 

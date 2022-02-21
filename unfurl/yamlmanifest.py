@@ -224,7 +224,11 @@ class ReadOnlyManifest(Manifest):
         self.context = manifest.get("environment", CommentedMap())
         if localEnv:
             self.context = localEnv.get_context(self.context)
-        spec["inputs"] = self.context.get("inputs", spec.get("inputs", {}))
+        inputs = spec.get("inputs") or {}
+        context_inputs = self.context.get("inputs")
+        if context_inputs:
+            inputs.update(context_inputs)
+        spec["inputs"] = inputs
         self.update_repositories(
             manifest, relabel_dict(self.context, localEnv, "repositories")
         )
@@ -429,10 +433,12 @@ class YamlManifest(ReadOnlyManifest):
         return root
 
     def _load_resource_templates(self, spec, more_spec):
-        # "resource_templates" are node templates that aren't included in topology_template
+        # "resource_templates" are node templates that aren't included in the topology_template
         # include node templates for the deployment blueprints
         # XXX these might not be node_templates, need to check type
         for name, tpl in spec["resource_templates"].items():
+            # hacky way to keep them from being deployed:
+            tpl.setdefault("directives", []).append("virtual")  # XXX fix this
             more_spec["topology_template"]["node_templates"][name] = tpl
 
     def _load_context(self, context, localEnv):

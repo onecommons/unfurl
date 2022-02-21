@@ -329,21 +329,16 @@
     "environment": { "$ref": "#/definitions/environment" },
     "spec": {
       "type": "object",
-      "anyOf": [
-        {
-          "properties": {
-            "service_template": {
-              "description": "a TOSCA service template",
-              "type": "object"
-            }
-          }
+      "properties": {
+        "service_template": {
+          "description": "a TOSCA service template",
+          "type": "object"
         },
-        {
-          "properties": {
-            "instances": { "$ref": "#/definitions/namedObjects" }
-          }
-        }
-      ]
+        "inputs": { "$ref": "#/definitions/attributes" },
+        "instances": { "$ref": "#/definitions/namedObjects" },
+        "deployment_blueprints": { "$ref": "#/definitions/namedObjects" },
+        "resource_templates": { "$ref": "#/definitions/namedObjects" }
+      }
     },
     "status": {
       "type": "object",
