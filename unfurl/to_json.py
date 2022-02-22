@@ -543,16 +543,20 @@ def to_graphql(localEnv):
     spec = manifest.tosca
     types = to_graphql_nodetypes(spec)
     db["ResourceType"] = types
-    db["ResourceTemplate"] = {
-        t["name"]: t
-        for t in [
-            nodetemplate_to_json(toscaNodeTemplate, spec, types)
-            for toscaNodeTemplate in spec.template.topology_template.nodetemplates
-        ]
-    }
+    db["ResourceTemplate"] = {}
+    environment_instances = {}
+    connection_types = {}
+    for toscaNodeTemplate in spec.template.topology_template.nodetemplates:
+        t = nodetemplate_to_json(toscaNodeTemplate, spec, types)
+        name = t["name"]
+        if "virtual" in toscaNodeTemplate.directives:
+            environment_instances[name] = t
+            typename = toscaNodeTemplate.type_definition.type
+            connection_types[typename] = types[typename]
+        else:
+            db["ResourceTemplate"][name] = t
 
     connections = {}
-    connection_types = {}
     for template in spec.template.relationship_templates:
         if template.default_for:
             type_definition = template.type_definition
@@ -571,7 +575,7 @@ def to_graphql(localEnv):
             connections[name] = connection_template
 
     db["Overview"] = manifest.tosca.template.tpl.get("metadata") or {}
-    return db, connections, connection_types
+    return db, connections, connection_types, environment_instances
 
 
 def add_graphql_deployment(manifest, db, dtemplate):
@@ -615,7 +619,7 @@ def to_blueprint(localEnv):
         resource_templates:
           <map of ResourceTemplates>
     """
-    db, connections, connection_types = to_graphql(localEnv)
+    db, connections, connection_types, env_instances = to_graphql(localEnv)
     manifest = localEnv.get_manifest()
     blueprint, root_resource_template = to_graphql_blueprint(manifest.tosca)
     deployment_blueprints = (
@@ -643,7 +647,7 @@ def to_blueprint(localEnv):
 
 
 def to_deployment(localEnv):
-    db, connections, connection_types = to_graphql(localEnv)
+    db, connections, connection_types, env_instances = to_graphql(localEnv)
     manifest = localEnv.get_manifest()
     blueprint, dtemplate = to_graphql_deployment_template(manifest.tosca, db)
     db["DeploymentTemplate"] = {dtemplate["name"]: dtemplate}
@@ -658,11 +662,11 @@ def to_environments(localEnv):
     """
       Map environments in unfurl.yaml to DeploymentEnvironments
       Map registered ensembles to deployments just with path reference to the ensemble's json
-      (create on the fly?)
 
       type DeploymentEnvironment {
         name: String!
         connections: [ResourceTemplate!]
+        instances: [ResourceTemplate!]
 
         primary_provider: ResourceTemplate
         deployments: [String!]
@@ -672,7 +676,8 @@ def to_environments(localEnv):
     {
       "DeploymentEnvironment": {
         name: {
-          "connections": { name: <ResourceTemplate>}
+          "connections": { name: <ResourceTemplate>},
+          "instances": { name: <ResourceTemplate>}
         }
       },
 
@@ -689,18 +694,18 @@ def to_environments(localEnv):
         if name == "defaults":
             continue
         # we create new LocalEnv for each context because we need to instantiate a different ToscaSpec object
-        blueprint, connections, connection_types = to_graphql(
+        blueprint, connections, connection_types, env_instances = to_graphql(
             LocalEnv(
                 localEnv.manifestPath,
                 project=localEnv.project,
                 override_context=name,
             )
         )
-        service_templates = connections
         environments[name] = dict(
             name=name,
-            connections=service_templates,
-            primary_provider=service_templates.get("primary_provider"),
+            connections=connections,
+            primary_provider=connections.get("primary_provider"),
+            instances=env_instances,
         )
         all_connection_types.update(connection_types)
 
