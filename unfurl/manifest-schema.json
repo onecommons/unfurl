@@ -79,6 +79,7 @@
             { "type": "null" }
           ]
         },
+        "instances": { "$ref": "#/definitions/namedObjects" },
         "repositories": { "$ref": "#/definitions/namedObjects" },
         "imports": { "type": "array" },
         "external": {

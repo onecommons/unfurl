@@ -316,8 +316,13 @@ class YamlManifest(ReadOnlyManifest):
         more_spec = self._load_context(self.context, localEnv)
         # if we are exporting (thus skip_validation is True)
         if skip_validation and spec.get("resource_templates"):
-            self._load_resource_templates(spec, more_spec)
-        self._set_spec(manifest, more_spec, skip_validation)
+            node_templates = more_spec["topology_template"]["node_templates"]
+            self._load_resource_templates(spec["resource_templates"], node_templates)
+        if self.context.get("instances"):
+            # add context instances to spec instances
+            self._load_resource_templates(self.context["instances"], spec.setdefault('instances', {}))
+
+        self._set_spec(spec, more_spec, skip_validation)
         assert self.tosca
 
         status = manifest.get("status", {})
@@ -432,14 +437,15 @@ class YamlManifest(ReadOnlyManifest):
             self.create_node_instance(key, val, root)
         return root
 
-    def _load_resource_templates(self, spec, more_spec):
+    def _load_resource_templates(self, templates, node_templates):
         # "resource_templates" are node templates that aren't included in the topology_template
-        # include node templates for the deployment blueprints
+        # but are referenced by the deployment blueprints
+        # or are instances that are part of the environment
         # XXX these might not be node_templates, need to check type
-        for name, tpl in spec["resource_templates"].items():
-            # hacky way to keep them from being deployed:
-            tpl.setdefault("directives", []).append("virtual")  # XXX fix this
-            more_spec["topology_template"]["node_templates"][name] = tpl
+        for name, tpl in templates.items():
+            # hacky way to exclude being part of the deployment plan and the manifest's status
+            tpl.setdefault("directives", []).append("virtual")
+            node_templates[name] = tpl
 
     def _load_context(self, context, localEnv):
         imports = context.get("imports")
@@ -608,6 +614,8 @@ class YamlManifest(ReadOnlyManifest):
         return [{name: status}]
 
     def _save_entity_if_instantiated(self, resource, checkstatus=True):
+        if "virtual" in resource.template.directives:
+            return None
         if not resource.last_change and (
             not resource.local_status
             or (

@@ -51,14 +51,13 @@ class Manifest(AttributeManager):
         self.specDigest = None
         self.repositories = {}
 
-    def _set_spec(self, config, more_spec=None, skip_validation=False):
+    def _set_spec(self, spec, more_spec=None, skip_validation=False):
         """
         Set the TOSCA service template.
         """
         repositories = {
             name: repo.repository.tpl for name, repo in self.repositories.items()
         }
-        spec = config.get("spec", {})
         self.tosca = self._load_spec(spec, self.path, repositories, more_spec, skip_validation)
         self.specDigest = self.get_spec_digest(spec)
 
@@ -540,5 +539,5 @@ class SnapShotManifest(Manifest):
         self.update_repositories(oldManifest)
         expanded = self.manifest.expanded
         # just needs the spec, not root resource
-        self._set_spec(expanded)
+        self._set_spec(expanded.get("spec", {}))
         self._ready(None)
