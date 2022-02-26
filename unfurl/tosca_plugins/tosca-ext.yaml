@@ -57,7 +57,7 @@ node_types:
         required: false
       credential:
         description: >
-            The credential, if present, of the repository this node instance represents.
+          The credential, if present, of the repository this node instance represents.
         type: tosca.datatypes.Credential
         required: false
         metadata:
@@ -88,8 +88,7 @@ node_types:
           className: unfurl.configurators.DelegateConfigurator
         inputs:
           target:
-            eval:
-              .artifacts::install
+            eval: .artifacts::install
           inputs: {}
       Standard:
         operations:
@@ -141,11 +140,12 @@ node_types:
         description: "URL for viewing this resource in its cloud provider's console"
         type: string
         required: False
-    requirements:
-      - cloud:
-          node: unfurl.nodes.CloudAccount
-          relationship: unfurl.relationships.ConnectsTo.CloudAccount
-          occurrences: [0, 1] # make optional so we aren't forced to always explicitly declare this
+    # XXX re-enable this when we handle subtypes of requirements properly
+    # requirements:
+    #   - cloud:
+    #       node: unfurl.nodes.CloudAccount
+    #       relationship: unfurl.relationships.ConnectsTo.CloudAccount
+    #       occurrences: [0, 1] # make optional so we aren't forced to always explicitly declare this
 
   unfurl.nodes.AWSAccount:
     derived_from: unfurl.nodes.CloudAccount
@@ -156,6 +156,7 @@ node_types:
       - cloud:
           node: unfurl.nodes.AWSAccount
           relationship: unfurl.relationships.ConnectsTo.AWSAccount
+          occurrences: [0, 1] # make optional so we aren't forced to always explicitly declare this
 
   unfurl.nodes.AzureAccount:
     derived_from: unfurl.nodes.CloudAccount
@@ -166,6 +167,7 @@ node_types:
       - cloud:
           node: unfurl.nodes.AzureAccount
           relationship: unfurl.relationships.ConnectsTo.Azure
+          occurrences: [0, 1] # make optional so we aren't forced to always explicitly declare this
 
 data_types:
   unfurl.datatypes.EnvVar:
@@ -253,31 +255,31 @@ relationship_types:
     derived_from: unfurl.relationships.ConnectsTo.CloudAccount
     properties:
       CLOUDSDK_CORE_PROJECT:
-         description: id of the project
-         type: unfurl.datatypes.EnvVar
-         default: {get_env: CLOUDSDK_CORE_PROJECT}
+        description: id of the project
+        type: unfurl.datatypes.EnvVar
+        default: { get_env: CLOUDSDK_CORE_PROJECT }
       CLOUDSDK_COMPUTE_REGION:
-         description: default region to use
-         type: unfurl.datatypes.EnvVar
-         default: {get_env: CLOUDSDK_COMPUTE_REGION}
+        description: default region to use
+        type: unfurl.datatypes.EnvVar
+        default: { get_env: CLOUDSDK_COMPUTE_REGION }
       CLOUDSDK_COMPUTE_ZONE:
-         description: default zone to use
-         type: unfurl.datatypes.EnvVar
-         default: {get_env: CLOUDSDK_COMPUTE_ZONE}
+        description: default zone to use
+        type: unfurl.datatypes.EnvVar
+        default: { get_env: CLOUDSDK_COMPUTE_ZONE }
       GOOGLE_APPLICATION_CREDENTIALS:
         description: "Path to file containing service account private keys in JSON format"
         type: unfurl.datatypes.EnvVar
-        default: {get_env: GOOGLE_APPLICATION_CREDENTIALS}
+        default: { get_env: GOOGLE_APPLICATION_CREDENTIALS }
 
       # other authentication options:
       GOOGLE_OAUTH_ACCESS_TOKEN:
         description: A temporary OAuth 2.0 access token obtained from the Google Authorization server
         type: unfurl.datatypes.EnvVar
-        default: {get_env: GOOGLE_OAUTH_ACCESS_TOKEN}
+        default: { get_env: GOOGLE_OAUTH_ACCESS_TOKEN }
       GCP_SERVICE_ACCOUNT_CONTENTS:
         description: "Content of file containing service account private keys"
         type: tosca.datatypes.json
-        default: {get_env: GCP_SERVICE_ACCOUNT_CONTENTS}
+        default: { get_env: GCP_SERVICE_ACCOUNT_CONTENTS }
         metadata:
           sensitive: true
         # some of the keys in the credential json:
@@ -289,7 +291,7 @@ relationship_types:
         type: unfurl.datatypes.EnvVar
         constraints:
           - valid_values: [application, machineaccount, serviceaccount]
-        default: {get_env: [GCP_AUTH_KIND, 'serviceaccount']}
+        default: { get_env: [GCP_AUTH_KIND, "serviceaccount"] }
       scopes:
         type: list
         entry_schema:
@@ -300,39 +302,39 @@ relationship_types:
     derived_from: unfurl.relationships.ConnectsTo.CloudAccount
     properties:
       endpoints:
-         description: custom service endpoints
-         type: map
-         required: false
+        description: custom service endpoints
+        type: map
+        required: false
       AWS_DEFAULT_REGION:
         description: "The default region to use, e.g. us-west-1, us-west-2, etc."
         type: unfurl.datatypes.EnvVar
-        default: {get_env: AWS_DEFAULT_REGION}
+        default: { get_env: AWS_DEFAULT_REGION }
       AWS_ACCESS_KEY_ID:
         description: "The access key for your AWS account"
         type: unfurl.datatypes.EnvVar
-        default: {get_env: AWS_ACCESS_KEY_ID}
+        default: { get_env: AWS_ACCESS_KEY_ID }
       AWS_SECRET_ACCESS_KEY:
         description: "The secret key for your AWS account."
         type: unfurl.datatypes.EnvVar
-        default: {get_env: AWS_SECRET_ACCESS_KEY}
+        default: { get_env: AWS_SECRET_ACCESS_KEY }
         metadata:
           sensitive: true
       # other authentication options:
       AWS_SESSION_TOKEN:
         description: "The session key for your AWS account."
         type: unfurl.datatypes.EnvVar
-        default: {get_env: AWS_SESSION_TOKEN}
+        default: { get_env: AWS_SESSION_TOKEN }
         metadata:
           sensitive: true
       AWS_PROFILE:
         type: unfurl.datatypes.EnvVar
-        default: {get_env: AWS_PROFILE}
+        default: { get_env: AWS_PROFILE }
       AWS_SHARED_CREDENTIALS_FILE:
         type: unfurl.datatypes.EnvVar
-        default: {get_env: AWS_SHARED_CREDENTIALS_FILE}
+        default: { get_env: AWS_SHARED_CREDENTIALS_FILE }
       AWS_CONFIG_FILE:
         type: unfurl.datatypes.EnvVar
-        default: {get_env: AWS_CONFIG_FILE}
+        default: { get_env: AWS_CONFIG_FILE }
     # see https://boto3.amazonaws.com/v1/documentation/api/latest/guide/configuration.html#using-environment-variables
     # for more environment variables
 
@@ -341,34 +343,34 @@ relationship_types:
     properties:
       AZURE_CLIENT_ID:
         type: unfurl.datatypes.EnvVar
-        default: {get_env: AZURE_CLIENT_ID}
+        default: { get_env: AZURE_CLIENT_ID }
       AZURE_TENANT:
         type: unfurl.datatypes.EnvVar
-        default: {get_env: AZURE_TENANT}
+        default: { get_env: AZURE_TENANT }
       AZURE_SUBSCRIPTION_ID:
         description: for authentication with service principal
         type: unfurl.datatypes.EnvVar
-        default: {get_env: AZURE_SUBSCRIPTION_ID}
+        default: { get_env: AZURE_SUBSCRIPTION_ID }
       AZURE_SECRET:
         description: for authentication with service principal
         type: unfurl.datatypes.EnvVar
-        default: {get_env: AZURE_SECRET}
+        default: { get_env: AZURE_SECRET }
         metadata:
           sensitive: true
       AZURE_AD_USER:
         description: for authentication with Active Directory
         type: unfurl.datatypes.EnvVar
-        default: {get_env: AZURE_AD_USER}
+        default: { get_env: AZURE_AD_USER }
       AZURE_PASSWORD:
         description: for authentication with Active Directory
         type: unfurl.datatypes.EnvVar
-        default: {get_env: AZURE_PASSWORD}
+        default: { get_env: AZURE_PASSWORD }
         metadata:
           sensitive: true
       AZURE_ADFS_AUTHORITY_URL:
         description: set if you have your own ADFS authority
         type: unfurl.datatypes.EnvVar
-        default: {get_env: AZURE_ADFS_AUTHORITY_URL}
+        default: { get_env: AZURE_ADFS_AUTHORITY_URL }
 
   unfurl.relationships.ConnectsTo.Packet:
     derived_from: unfurl.relationships.ConnectsTo.CloudAccount
@@ -378,7 +380,7 @@ relationship_types:
         type: string
       PACKET_API_TOKEN:
         type: unfurl.datatypes.EnvVar
-        default: {get_env: PACKET_API_TOKEN}
+        default: { get_env: PACKET_API_TOKEN }
         metadata:
           sensitive: true
 

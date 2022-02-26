@@ -248,7 +248,8 @@ def node_type_to_graphql(spec, type_definition, types: dict):
       inputsSchema: JSON
       outputsSchema: JSON
       requirements: [RequirementConstraint!]
-      implementations: []
+      implementations: [string]
+      implementation_requirements: [string]
     }
     """
     jsontype = dict(
@@ -292,6 +293,7 @@ def node_type_to_graphql(spec, type_definition, types: dict):
     # XXX capabilities can hava attributes too
     # add_capabilities_as_attributes(jsontype["outputs"], type_definition, spec)
 
+    # XXX merge subtyped requirements (and in nodetemplate._getRequirementDefinition too)
     jsontype["requirements"] = [
         requirement_to_graphql(spec, req)
         for req in (type_definition.get_all_requirements() or ())
@@ -305,6 +307,7 @@ def node_type_to_graphql(spec, type_definition, types: dict):
     jsontype["implementations"] = [
         op for op in operations if op in ("create", "configure")
     ]
+    jsontype["implementation_requirements"] = type_definition.get_interface_requirements()
     return jsontype
 
 

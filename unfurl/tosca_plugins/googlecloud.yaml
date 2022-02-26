@@ -7,8 +7,8 @@ metadata:
   template_version: 0.1.0
 
 imports:
-    - repository: unfurl
-      file: tosca_plugins/artifacts.yaml # makes sure gcloud is installed
+  - repository: unfurl
+    file: tosca_plugins/artifacts.yaml # makes sure gcloud is installed
 
 node_types:
   unfurl.nodes.GoogleCloudObject:
@@ -17,6 +17,7 @@ node_types:
       - cloud:
           node: unfurl.nodes.GoogleCloudProject
           relationship: unfurl.relationships.ConnectsTo.GoogleCloudProject
+          occurrences: [0, 1] # make optional so we aren't forced to always explicitly declare this
 
   unfurl.nodes.GoogleCloudProject:
     derived_from: unfurl.nodes.CloudAccount
@@ -130,25 +131,28 @@ node_types:
       filename:
         type: string
         default: # XXX replace('@', '-') | replace('.iam.gserviceaccount.com', '')
-          eval: {concat: [{get_property: [SELF, account_id]}, "-credentials.json"]}
+          eval:
+            {
+              concat:
+                [{ get_property: [SELF, account_id] }, "-credentials.json"],
+            }
       download_location:
         type: string
         default: secrets
     interfaces:
       Standard:
         create:
-            # Downloads key to {instance-name}/secretes/{seed-service-account-credentials.json
-            implementation:
-              primary: gcloud
-              preConditions:
-                properties:
-                  account_id:
-                    type: string
-            inputs:
-              command: >
-                gcloud iam service-accounts keys create "{{ SELF.filename | abspath(SELF.download_location) }}"
-                 --iam-account "{{SELF.account_id}}" --user-output-enabled false
-
+          # Downloads key to {instance-name}/secretes/{seed-service-account-credentials.json
+          implementation:
+            primary: gcloud
+            preConditions:
+              properties:
+                account_id:
+                  type: string
+          inputs:
+            command: >
+              gcloud iam service-accounts keys create "{{ SELF.filename | abspath(SELF.download_location) }}"
+               --iam-account "{{SELF.account_id}}" --user-output-enabled false
 
   #  https://cloud.google.com/resource-manager/
   unfurl.nodes.GoogleCloudResource:
@@ -163,11 +167,15 @@ node_types:
         type: string
       name:
         type: string
-        default: {concat: [{get_property: [SELF, type]}, /, {get_property: [SELF, id]}]}
+        default:
+          {
+            concat:
+              [{ get_property: [SELF, type] }, /, { get_property: [SELF, id] }],
+          }
     capabilities:
       host:
         type: tosca.capabilities.Container
-        valid_source_types: [ unfurl.nodes.GoogleCloudResource ]
+        valid_source_types: [unfurl.nodes.GoogleCloudResource]
 
   unfurl.nodes.GoogleCloudOrganization:
     derived_from: unfurl.nodes.GoogleCloudResource
