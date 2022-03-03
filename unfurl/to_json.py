@@ -17,7 +17,7 @@ from toscaparser.elements.property_definition import PropertyDef
 from toscaparser.elements.nodetype import NodeType
 from toscaparser.elements.statefulentitytype import StatefulEntityType
 from toscaparser.common.exception import ExceptionCollector
-
+from toscaparser.elements.scalarunit import get_scalarunit_class
 from toscaparser.elements.datatype import DataType
 from .tosca import is_function
 from .localenv import LocalEnv
@@ -76,24 +76,20 @@ VALUE_TYPES = dict(
     version={"type": "string"},
     any={"type": "string"},  # we'll have to interpret the string as json
     range={"type": "array", "items": {"type": "integer", "maxItems": 2}},
+    # XXX:
+    # "PortDef",
+    # PortSpec.SHORTNAME,
 )
 
-_SCALAR_TYPE = {
-    "type": "object",
-    "properties": {"value": {"type": "number"}, "unit": {"type": "string"}},
-}
+_SCALAR_TYPE = {}
 VALUE_TYPES.update(
     {
         "scalar-unit.size": _SCALAR_TYPE,
         "scalar-unit.frequency": _SCALAR_TYPE,
         "scalar-unit.time": _SCALAR_TYPE,
-        # XXX:
-        # "version",
-        # "PortDef",
-        # PortSpec.SHORTNAME,
+        # "scalar-unit.bitrate": _SCALAR_TYPE, # XXX add parser support 3.3.6.7 scalar-unit.bitrate
     }
 )
-
 
 def tosca_type_to_jsonschema(spec, propdefs, toscatype):
     jsonschema = dict(
@@ -106,11 +102,30 @@ def tosca_type_to_jsonschema(spec, propdefs, toscatype):
     return jsonschema
 
 
-def get_valuetype(dt):
+def _get_valuetype_schema(tosca_type, metadata):
+    type_schema = VALUE_TYPES[tosca_type]
+    if type_schema is _SCALAR_TYPE:
+        return get_scalar_unit(tosca_type, metadata)
+    else:
+        return type_schema
+
+
+def get_valuetype(dt, metadata):
+    # find the base, built-in value type
     schema = Schema(None, dt.defs)
     while dt.value_type not in VALUE_TYPES:
         dt = dt.parent_type()
-    return VALUE_TYPES.get(dt.value_type), schema
+    return _get_valuetype_schema(dt.value_Type, metadata), schema
+
+
+def get_scalar_unit(value_type, metadata):
+    default_unit = metadata and metadata.get("default_unit")
+    if default_unit:
+        return {"type": "number"}
+    else:
+        return {"type": "string"}
+    # XXX add format specifier
+    # regex: "|".join(get_scalarunit_class(value_type).SCALAR_UNIT_DICT)
 
 
 def tosca_schema_to_jsonschema(p, spec, omitComputed=True):
@@ -141,14 +156,14 @@ def tosca_schema_to_jsonschema(p, spec, omitComputed=True):
         schema.update(metadata)
     constraints = toscaSchema.constraints or []
     if tosca_type in VALUE_TYPES:
-        type_schema = VALUE_TYPES[tosca_type]
+        type_schema = _get_valuetype_schema(tosca_type, metadata)
     else:
         dt = DataType(tosca_type, spec.template.topology_template.custom_defs)
-        if dt.value_type:  # its a simple type
-            type_schema, valuetype_schema = get_valuetype(dt)
+        if dt.value_type:  # it's a simple type
+            type_schema, valuetype_schema = get_valuetype(dt, metadata)
             if valuetype_schema.constraints:  # merge constraints
                 constraints = valuetype_schema.constraints + constraints
-        else:  # it's complex type with properties:
+        else:  # it's a complex type with properties:
             type_schema = tosca_type_to_jsonschema(
                 spec, dt.get_properties_def_objects(), dt.type
             )
@@ -234,6 +249,15 @@ def is_computed(p):
         or is_function(p.value)
         or is_function(p.default)
     )
+
+
+def property_value_to_json(p):
+    scalar_class = get_scalarunit_class(p.type)
+    if scalar_class:
+        unit = p.schema.metadata.get('default_unit')
+        if unit: # covert to the default_unit
+            return scalar_class(p.value).get_num_from_scalar_unit(unit)
+    return p.value
 
 
 # XXX outputs: only include "public" attributes?
@@ -421,7 +445,7 @@ def nodetemplate_to_json(nodetemplate, spec, types):
 
     jsonnodetype = types[nodetemplate.type]
     json["properties"] = [
-        dict(name=p.name, value=p.value)
+        dict(name=p.name, value=property_value_to_json(p))
         for p in nodetemplate.get_properties_objects()
         if not is_computed(p)
     ]
@@ -435,6 +459,7 @@ def nodetemplate_to_json(nodetemplate, spec, types):
         # properties are already added via the type definition
         cap = capabilities.get(prop["name"])
         if cap:
+            # XXX need to map property values like property_value_to_json above
             prop["value"] = cap._properties
 
     # XXX
