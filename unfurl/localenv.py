@@ -836,7 +836,9 @@ class LocalEnv:
 
         if project:
             url, file, revision = split_git_url(project["url"])
-            repo = self.find_git_repo(url)
+            repo = currentProject.find_git_repo(url)
+            if not repo:
+                repo = self.find_git_repo(url)
             if project.get("file"):
                 file = os.path.join(file, project.get("file"))
 
