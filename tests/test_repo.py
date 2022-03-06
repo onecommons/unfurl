@@ -428,9 +428,6 @@ ensemble.yaml
             else:
                 self.assertRaises(URLException, RepoView, dict(name="", url=url), None)
 
-    @unittest.skipIf(
-        "slow" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set"
-    )
     def test_home_template(self):
         # test creating and deploying the home template
         runner = CliRunner()
