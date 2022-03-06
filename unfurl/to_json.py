@@ -16,6 +16,7 @@ from toscaparser.elements.constraints import Schema
 from toscaparser.elements.property_definition import PropertyDef
 from toscaparser.elements.nodetype import NodeType
 from toscaparser.elements.statefulentitytype import StatefulEntityType
+from toscaparser.entity_template import EntityTemplate
 from toscaparser.common.exception import ExceptionCollector
 from toscaparser.elements.scalarunit import get_scalarunit_class
 from toscaparser.elements.datatype import DataType
@@ -90,6 +91,7 @@ VALUE_TYPES.update(
         # "scalar-unit.bitrate": _SCALAR_TYPE, # XXX add parser support 3.3.6.7 scalar-unit.bitrate
     }
 )
+
 
 def tosca_type_to_jsonschema(spec, propdefs, toscatype):
     jsonschema = dict(
@@ -254,8 +256,8 @@ def is_computed(p):
 def property_value_to_json(p):
     scalar_class = get_scalarunit_class(p.type)
     if scalar_class:
-        unit = p.schema.metadata.get('default_unit')
-        if unit: # covert to the default_unit
+        unit = p.schema.metadata.get("default_unit")
+        if unit:  # covert to the default_unit
             return scalar_class(p.value).get_num_from_scalar_unit(unit)
     return p.value
 
@@ -287,6 +289,8 @@ def node_type_to_graphql(spec, type_definition, types: dict):
             jsontype["badge"] = metadata["badge"]
         if "title" in metadata:
             jsontype["title"] = metadata["title"]
+        if "details_url" in metadata:
+            jsontype["details_url"] = metadata["details_url"]
 
     propertydefs = (
         p for p in type_definition.get_properties_def_objects() if not is_computed(p)
@@ -324,14 +328,13 @@ def node_type_to_graphql(spec, type_definition, types: dict):
         if next(iter(req)) != "dependency"
     ]
 
-    operations = set()
-    if type_definition.interfaces:
-        for idef in type_definition.interfaces.values():
-            operations.update(idef)  # add operation names
-    jsontype["implementations"] = [
-        op for op in operations if op in ("create", "configure")
-    ]
-    jsontype["implementation_requirements"] = type_definition.get_interface_requirements()
+    operations = set(
+        op.name for op in EntityTemplate._create_interfaces(type_definition, None)
+    )
+    jsontype["implementations"] = list(operations)
+    jsontype[
+        "implementation_requirements"
+    ] = type_definition.get_interface_requirements()
     return jsontype
 
 
