@@ -331,7 +331,7 @@ def node_type_to_graphql(spec, type_definition, types: dict):
     operations = set(
         op.name for op in EntityTemplate._create_interfaces(type_definition, None)
     )
-    jsontype["implementations"] = list(operations)
+    jsontype["implementations"] = sorted(operations)
     jsontype[
         "implementation_requirements"
     ] = type_definition.get_interface_requirements()
@@ -489,7 +489,85 @@ def nodetemplate_to_json(nodetemplate, spec, types):
     return json
 
 
-def to_graphql_blueprint(spec, deploymentTemplates=None):
+primary_name = "__primary"
+
+
+def _generate_primary(spec, db, base_type="tosca:Root"):
+    topology = spec.template.topology_template
+    # generate a node type and node template that represents root of the topology
+    # generate a type that exposes the topology's inputs and outputs as properties and attributes
+    attributes = [
+        dict(
+            name=o.name, default=o.value, type="string", description=o.description or ""
+        )
+        for o in topology.outputs
+    ]
+    nodetype_tpl = dict(
+        derived_from=base_type, properties=topology._tpl_inputs(), attributes=attributes
+    )
+    # set as requirements all the node templates that aren't the target of any other requirements
+    roots = [
+        node
+        for node in topology.node_templates
+        if not node.get_relationship_templates()
+    ]
+    nodetype_tpl["requirements"] = [{node.name: dict(node=node.type)} for node in roots]
+
+    topology.custom_defs[primary_name] = nodetype_tpl
+    tpl = dict(type=primary_name, directives=["virtual"])
+    # need to assign the nodes explicitly (needed if multiple templates have the same type)
+    tpl["requirements"] = [{node.name: dict(node=node.name)} for node in roots]
+    tpl["properties"] = {name: dict(get_input=name) for name in topology._tpl_inputs()}
+    node_template = topology.add_template(primary_name, tpl)
+
+    types = db["ResourceType"]
+    types[primary_name] = node_type_to_graphql(
+        spec, node_template.type_definition, types
+    )
+    db["ResourceTemplate"][node_template.name] = nodetemplate_to_json(
+        node_template, spec, types
+    )
+    return node_template
+
+
+# if a node type or template is specified, use that, but it needs to be compatible with the generated type
+def _get_or_make_primary(spec, db):
+    ExceptionCollector.start()  # topology.add_template may generate validation exceptions
+    topology = spec.template.topology_template
+    # we need to generate a root template
+    root_type = None
+    root = None
+    if topology.substitution_mappings:
+        if topology.substitution_mappings.node:
+            root = topology.node_templates.get(topology.substitution_mappings.node)
+            if root:
+                root_type = root.type_definition
+        else:
+            root_type = NodeType(
+                topology.substitution_mappings.type, topology.custom_defs
+            )
+
+    if root_type:
+        properties_tpl = root_type.get_definition("properties") or {}
+        for input in topology.inputs:
+            if input.name not in properties_tpl:
+                # XXX if root: raise error substitution_template template is missing input
+                root = _generate_primary(spec, db, root_type.type)
+                break
+        if not root:
+            tpl = dict(type=root_type.type, directives=["virtual"])
+            root = topology.add_template(primary_name, tpl)
+            db["ResourceTemplate"][root.name] = nodetemplate_to_json(
+                root, spec, db["ResourceType"]
+            )
+    else:
+        root = _generate_primary(spec, db)
+
+    assert root
+    return root.name, root.type
+
+
+def to_graphql_blueprint(spec, db, deploymentTemplates=None):
     """
     Returns json object as ApplicationBlueprint
 
@@ -506,15 +584,11 @@ def to_graphql_blueprint(spec, deploymentTemplates=None):
       projectIcon: String
     }
     """
-    topology = spec.template.topology_template
-    if topology.substitution_mappings and topology.substitution_mappings.node:
-        root = topology.node_templates[topology.substitution_mappings.node]
-    else:
-        root = list(topology.nodetemplates)[0]
-    title = spec.template.tpl.get("template_name") or root.name
+    root_name, root_type = _get_or_make_primary(spec, db)
+    title = spec.template.tpl.get("template_name") or root_name
     name = slugify(title)
     blueprint = dict(__typename="ApplicationBlueprint", name=name, title=title)
-    blueprint["primary"] = root.type
+    blueprint["primary"] = root_type
     blueprint["deploymentTemplates"] = deploymentTemplates or []
     blueprint["description"] = spec.template.description
     metadata = spec.template.tpl.get("metadata") or {}
@@ -522,7 +596,7 @@ def to_graphql_blueprint(spec, deploymentTemplates=None):
     blueprint["sourceCodeUrl"] = metadata.get("sourceCodeUrl")
     blueprint["image"] = metadata.get("image")
     blueprint["projectIcon"] = metadata.get("projectIcon")
-    return blueprint, root
+    return blueprint, root_name
 
 
 def slugify(text):
@@ -533,7 +607,7 @@ def slugify(text):
 
 
 # XXX cloud = spec.topology.primary_provider
-def to_graphql_deployment_template(spec, db):
+def to_deployment_blueprint_from_topology(spec, db):
     """
     Returns json object as DeploymentTemplate:
 
@@ -559,9 +633,9 @@ def to_graphql_deployment_template(spec, db):
         description=spec.template.description,
     )
     # XXX cloud = spec.topology.primary_provider
-    blueprint, root_resource_template = to_graphql_blueprint(spec, [title])
+    blueprint, root_name = to_graphql_blueprint(spec, db, [title])
     template["blueprint"] = blueprint["name"]
-    template["primary"] = root_resource_template.name
+    template["primary"] = root_name
     # names of ResourceTemplates
     template["resourceTemplates"] = list(db["ResourceTemplate"])
     return blueprint, template
@@ -652,12 +726,13 @@ def to_blueprint(localEnv):
     """
     db, connections, connection_types, env_instances = to_graphql(localEnv)
     manifest = localEnv.get_manifest()
-    blueprint, root_resource_template = to_graphql_blueprint(manifest.tosca)
+    blueprint, root_name = to_graphql_blueprint(manifest.tosca, db)
     deployment_blueprints = (
         manifest.manifest.expanded.get("spec", {}).get("deployment_blueprints") or {}
     )
     db["DeploymentTemplate"] = {}
     for name, tpl in deployment_blueprints.items():
+        # note: root_resource_template is derived from inputs, outputs and substitution_template from topology_template
         slug = slugify(name)
         template = tpl.copy()
         template.update(
@@ -667,7 +742,7 @@ def to_blueprint(localEnv):
                 name=name,
                 slug=slug,
                 blueprint=blueprint["name"],
-                primary=tpl.get("primary") or root_resource_template.name,
+                primary=tpl.get("primary") or root_name,
             )
         )
         db["DeploymentTemplate"][name] = template
@@ -680,7 +755,7 @@ def to_blueprint(localEnv):
 def to_deployment(localEnv):
     db, connections, connection_types, env_instances = to_graphql(localEnv)
     manifest = localEnv.get_manifest()
-    blueprint, dtemplate = to_graphql_deployment_template(manifest.tosca, db)
+    blueprint, dtemplate = to_deployment_blueprint_from_topology(manifest.tosca, db)
     db["DeploymentTemplate"] = {dtemplate["name"]: dtemplate}
     db["ApplicationBlueprint"] = {blueprint["name"]: blueprint}
     add_graphql_deployment(manifest, db, dtemplate)

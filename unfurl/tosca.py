@@ -799,17 +799,17 @@ class NodeSpec(EntitySpec):
         """
         returns a list of RelationshipSpecs that are targeting this node template.
         """
-        for r in self.toscaEntityTemplate.relationship_tpl:
+        for r in self.toscaEntityTemplate.get_relationship_templates():
             assert r.source
             # calling requirement property will ensure the RelationshipSpec is properly linked
             self.spec.get_template(r.source.name).requirements
         return self._get_relationship_specs()
 
     def _get_relationship_specs(self):
-        if len(self._relationships) != len(self.toscaEntityTemplate.relationship_tpl):
-            # relationship_tpl is a list of RelationshipTemplates that target the node
+        if len(self._relationships) != len(self.toscaEntityTemplate.get_relationship_templates()):
+            # get_relationship_templates() is a list of RelationshipTemplates that target the node
             rIds = {id(r.toscaEntityTemplate) for r in self._relationships}
-            for r in self.toscaEntityTemplate.relationship_tpl:
+            for r in self.toscaEntityTemplate.get_relationship_templates():
                 if id(r) not in rIds:
                     self._relationships.append(RelationshipSpec(r, self.spec, self))
         return self._relationships
