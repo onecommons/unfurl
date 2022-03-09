@@ -408,6 +408,8 @@ Built-in keys start with a leading **.**:
 .capabilities  list of capabilities
 .requirements  list of requirements
 .relationships relationships that target this capability
+.targets       map with requirement names as keys and target instances as values
+.sources       map with requirement names as keys and source instances as values
 .descendents   (including self)
 .all           dictionary of child resources with their names as keys
 ============== ========================================================
