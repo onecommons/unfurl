@@ -806,7 +806,9 @@ class NodeSpec(EntitySpec):
         return self._get_relationship_specs()
 
     def _get_relationship_specs(self):
-        if len(self._relationships) != len(self.toscaEntityTemplate.get_relationship_templates()):
+        if len(self._relationships) != len(
+            self.toscaEntityTemplate.get_relationship_templates()
+        ):
             # get_relationship_templates() is a list of RelationshipTemplates that target the node
             rIds = {id(r.toscaEntityTemplate) for r in self._relationships}
             for r in self.toscaEntityTemplate.get_relationship_templates():

@@ -44,6 +44,7 @@ def copy(src):
 def make_map_with_base(doc, baseDir):
     loadTemplate = getattr(doc, "loadTemplate", None)
     _anchorCache = getattr(doc, "_anchorCache", None)
+    lc = getattr(doc, "lc", None)
 
     def factory(*args, **kws):
         if six.PY2 and args and isinstance(args[0], dict):
@@ -55,6 +56,9 @@ def make_map_with_base(doc, baseDir):
             map.loadTemplate = loadTemplate
         if _anchorCache is not None:
             map._anchorCache = _anchorCache
+        if lc is not None:
+            map.lc.line = lc.line
+            map.lc.col = lc.col
         return map
 
     return factory

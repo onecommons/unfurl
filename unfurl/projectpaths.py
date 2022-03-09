@@ -538,7 +538,10 @@ def _get_base_dir(ctx, name=None):
         return instance.base_dir
     elif name == "src":
         # folder of the source file
-        return ctx.base_dir
+        if os.path.isabs(ctx.base_dir):
+            return ctx.base_dir
+        else:  # XXX ctx.base_dir should be abs
+            return os.path.join(instance.template.base_dir, ctx.base_dir or "")
     elif name == "tmp":
         return os.path.join(instance.root.tmp_dir, instance.name)
     elif name in Folders.Persistent:

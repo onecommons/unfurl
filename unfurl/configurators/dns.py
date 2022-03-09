@@ -42,7 +42,8 @@ def _get_records(attrs):
     records = attrs.get_copy("records") or {}
     ctx = attrs.context
     name = lambda name: apply_template(name, ctx) if is_template(name, ctx) else name
-    return {name(key): value for key, value in records.items()}
+    records = {name(key).strip(): value for key, value in records.items()}
+    return records
 
 
 class DNSConfigurator(Configurator):

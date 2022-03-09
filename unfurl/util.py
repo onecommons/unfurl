@@ -219,7 +219,9 @@ def load_module(path, full_name=None):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", RuntimeWarning)
         if imp is None:  # Python 3
-            spec = importlib.util.spec_from_file_location(full_name, path)
+            spec = importlib.util.spec_from_file_location(
+                full_name, os.path.abspath(path)
+            )
             module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(module)
             sys.modules[full_name] = module
@@ -287,7 +289,8 @@ def to_dotenv(env: dict):
             keys.append(f"{k}='{value}'")
         else:
             keys.append(f"{k}={repr(value)}")
-    return '\n'.join(keys)
+    return "\n".join(keys)
+
 
 def dump(obj, tp, suffix="", yaml=None, encoding=None):
     from .yamlloader import yaml as _yaml
@@ -295,7 +298,9 @@ def dump(obj, tp, suffix="", yaml=None, encoding=None):
     try:
         if six.PY3:
             textEncoding = (
-                "utf-8" if encoding in [None, "yaml", "vault", "json", "env"] else encoding
+                "utf-8"
+                if encoding in [None, "yaml", "vault", "json", "env"]
+                else encoding
             )
             f = io.TextIOWrapper(tp, textEncoding)
         else:
