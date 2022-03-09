@@ -219,11 +219,9 @@ def requirement_to_graphql(spec, req_dict):
 
     nodetype = req.get("node")
     if nodetype:
-        if nodetype in spec.template.topology_template.nodetemplates:
-            # req['node'] can be a node_template instead of a type
-            nodetype = spec.template.topology_template.nodetemplates[
-                nodetype
-            ].type_definition.type
+        # req['node'] can be a node_template instead of a type
+        if nodetype in spec.nodeTemplates:
+            nodetype = spec.nodeTemplates[nodetype].type
     else:
         nodetype = req["capability"]
     reqobj["resourceType"] = nodetype
@@ -250,6 +248,7 @@ def is_computed(p):
         p.name in ["tosca_id", "state", "tosca_name"]
         or is_function(p.value)
         or is_function(p.default)
+        or p.schema.get("metadata", {}).get("computed")
     )
 
 
@@ -356,8 +355,8 @@ def to_graphql_nodetypes(spec):
         ):
             types[typename] = node_type_to_graphql(spec, typedef, types)
 
-    for toscaNodeTemplate in spec.template.topology_template.nodetemplates:
-        type_definition = toscaNodeTemplate.type_definition
+    for node_spec in spec.nodeTemplates.values():
+        type_definition = node_spec.toscaEntityTemplate.type_definition
         typename = type_definition.type
         if typename not in types:
             types[typename] = {}  # set now to avoid circular references
@@ -492,32 +491,37 @@ def nodetemplate_to_json(nodetemplate, spec, types):
 primary_name = "__primary"
 
 
-def _generate_primary(spec, db, base_type="tosca:Root"):
+def _generate_primary(spec, db, node_tpl=None):
+    base_type = node_tpl["type"] if node_tpl else "tosca:Root"
     topology = spec.template.topology_template
     # generate a node type and node template that represents root of the topology
     # generate a type that exposes the topology's inputs and outputs as properties and attributes
-    attributes = [
-        dict(
-            name=o.name, default=o.value, type="string", description=o.description or ""
-        )
+    attributes = {
+        o.name: dict(default=o.value, type="string", description=o.description or "")
         for o in topology.outputs
-    ]
+    }
     nodetype_tpl = dict(
         derived_from=base_type, properties=topology._tpl_inputs(), attributes=attributes
     )
     # set as requirements all the node templates that aren't the target of any other requirements
     roots = [
-        node
-        for node in topology.node_templates
-        if not node.get_relationship_templates()
+        node.toscaEntityTemplate
+        for node in spec.nodeTemplates.values()
+        if not node.toscaEntityTemplate.get_relationship_templates()
+        and "default" not in node.directives
     ]
     nodetype_tpl["requirements"] = [{node.name: dict(node=node.type)} for node in roots]
 
     topology.custom_defs[primary_name] = nodetype_tpl
-    tpl = dict(type=primary_name, directives=["virtual"])
-    # need to assign the nodes explicitly (needed if multiple templates have the same type)
-    tpl["requirements"] = [{node.name: dict(node=node.name)} for node in roots]
-    tpl["properties"] = {name: dict(get_input=name) for name in topology._tpl_inputs()}
+    tpl = node_tpl or {}
+    tpl["type"] = primary_name
+    tpl.setdefault("directives", []).append("virtual")
+    tpl.setdefault("properties", {}).update(
+        {name: dict(get_input=name) for name in topology._tpl_inputs()}
+    )
+    # if create new template, need to assign the nodes explicitly (needed if multiple templates have the same type)
+    if not node_tpl:
+        tpl["requirements"] = [{node.name: dict(node=node.name)} for node in roots]
     node_template = topology.add_template(primary_name, tpl)
 
     types = db["ResourceType"]
@@ -543,6 +547,7 @@ def _get_or_make_primary(spec, db):
             if root:
                 root_type = root.type_definition
         else:
+            assert topology.substitution_mappings.type
             root_type = NodeType(
                 topology.substitution_mappings.type, topology.custom_defs
             )
@@ -551,8 +556,7 @@ def _get_or_make_primary(spec, db):
         properties_tpl = root_type.get_definition("properties") or {}
         for input in topology.inputs:
             if input.name not in properties_tpl:
-                # XXX if root: raise error substitution_template template is missing input
-                root = _generate_primary(spec, db, root_type.type)
+                root = _generate_primary(spec, db, root.entity_tpl)
                 break
         if not root:
             tpl = dict(type=root_type.type, directives=["virtual"])
@@ -651,12 +655,13 @@ def to_graphql(localEnv):
     db["ResourceTemplate"] = {}
     environment_instances = {}
     connection_types = {}
-    for toscaNodeTemplate in spec.template.topology_template.nodetemplates:
-        t = nodetemplate_to_json(toscaNodeTemplate, spec, types)
+    for node_spec in spec.nodeTemplates.values():
+        toscaEntityTemplate = node_spec.toscaEntityTemplate
+        t = nodetemplate_to_json(toscaEntityTemplate, spec, types)
         name = t["name"]
-        if "virtual" in toscaNodeTemplate.directives:
+        if "virtual" in toscaEntityTemplate.directives:
             environment_instances[name] = t
-            typename = toscaNodeTemplate.type_definition.type
+            typename = toscaEntityTemplate.type_definition.type
             connection_types[typename] = types[typename]
         else:
             db["ResourceTemplate"][name] = t

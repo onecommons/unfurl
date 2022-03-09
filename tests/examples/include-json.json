@@ -103,6 +103,14 @@
         }
       ],
       "dependencies": []
+    },
+    "configurator-artifacts": {
+      "dependencies": [],
+      "description": "",
+      "name": "configurator-artifacts",
+      "properties": [],
+      "title": "configurator-artifacts",
+      "type": "unfurl.nodes.LocalRepository"
     }
   },
   "DeploymentTemplate": {
