@@ -591,12 +591,8 @@ class EntitySpec(ResourceRef):
         else:
             self.defaultAttributes = {}
 
-    parent = None
-
-    def __reflookup__(self, key):
+    def _resolve(self, key):
         """Make attributes available to expressions"""
-        if key[0] == ".":
-            return self._get_prop(key)
         if key in ["name", "type", "uri", "groups", "policies"]:
             return getattr(self, key)
         raise KeyError(key)
@@ -734,9 +730,9 @@ class NodeSpec(EntitySpec):
         self._relationships = []
         self._artifacts = None
 
-    def __reflookup__(self, key):
+    def _resolve(self, key):
         try:
-            return super().__reflookup__(key)
+            return super()._resolve(key)
         except KeyError:
             req = self.get_requirement(key)
             if not req:
@@ -911,9 +907,9 @@ class RelationshipSpec(EntitySpec):
     def target(self):
         return self.capability.parentNode if self.capability else None
 
-    def __reflookup__(self, key):
+    def _resolve(self, key):
         try:
-            return super().__reflookup__(key)
+            return super()._resolve(key)
         except KeyError:
             if self.capability:
                 if self.capability.parentNode.is_compatible_target(key):
@@ -1073,10 +1069,10 @@ class TopologySpec(EntitySpec):
     def base_dir(self):
         return self.spec.base_dir
 
-    def __reflookup__(self, key):
+    def _resolve(self, key):
         """Make attributes available to expressions"""
         try:
-            return super().__reflookup__(key)
+            return super()._resolve(key)
         except KeyError:
             nodeTemplates = self.spec.nodeTemplates
             nodeSpec = nodeTemplates.get(key)

@@ -1,6 +1,7 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
 from collections.abc import Mapping, MutableSequence, MutableMapping
+from abc import ABC, abstractmethod
 from datetime import datetime, timedelta
 import six
 import hashlib
@@ -71,8 +72,14 @@ def serialize_value(value, **kw):
         return value
 
 
-class ResourceRef:
-    # ABC requires 'parent', and '_resolve'
+class ResourceRef(ABC):
+
+    parent = None  # parent must be defined by subclass
+
+    @abstractmethod
+    def _resolve(self, key):
+        ...
+
     _templar = None
 
     def _get_prop(self, name):
@@ -435,7 +442,7 @@ class Result(ChangeAware):
         return "Result(%r, %r, %r)" % (self.resolved, self.external, self.select)
 
 
-class Results:
+class Results(ABC):
     """
     Evaluating expressions are not guaranteed to be idempotent (consider quoting)
     and resolving the whole tree up front can lead to evaluations of circular references unless the
@@ -447,6 +454,14 @@ class Results:
 
     doFullResolve = False
     applyTemplates = True
+
+    @abstractmethod
+    def _values(self):
+        ...
+
+    @abstractmethod
+    def resolve_all(self):
+        ...
 
     def __init__(self, serializedOriginal, resourceOrCxt):
         from .eval import RefContext
