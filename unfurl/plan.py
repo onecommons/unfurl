@@ -771,8 +771,9 @@ def order_templates(templates, filter=None, interface=None):
 def get_ancestor_templates(source):
     # note: opposite direction as NodeSpec.relationships
     for (rel, req, reqDef) in source.relationships:
-        for ancestor in get_ancestor_templates(rel.target):
-            yield ancestor
+        if rel.target is not source:
+            for ancestor in get_ancestor_templates(rel.target):
+                yield ancestor
     yield source
 
 

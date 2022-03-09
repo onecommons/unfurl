@@ -16,14 +16,14 @@ spec:
 
       testy.nodes.aNodeType:
         properties:
-          private_address: "annotated"
+          private_address: annotated
           ports: []
 
       node3::a_connection:
         relationship:
-           type:  tosca.relationships.ConnectsTo
-           properties:
-              foo: bar
+          type: tosca.relationships.ConnectsTo
+          properties:
+            foo: bar
 
     node_types:
       testy.nodes.aNodeType:
@@ -35,7 +35,7 @@ spec:
         attributes:
           distribution:
             type: string
-            default: { get_attribute: [ HOST, os, distribution ] }
+            default: { get_attribute: [HOST, os, distribution] }
         properties:
           private_address:
             type: string
@@ -46,16 +46,19 @@ spec:
             entry_schema:
               type: tosca.datatypes.network.PortSpec
 
+      testy.nodes.subType:
+        derived_from: testy.nodes.aNodeType
+
     topology_template:
       node_templates:
         anode:
-          type: testy.nodes.aNodeType
+          type: testy.nodes.subType
           # this is in error without the annotations: missing properties
 
         anothernode:
-          type: testy.nodes.aNodeType
+          type: testy.nodes.subType
           properties:
-            private_address: "base"
+            private_address: base
             ports: []
 
         node3:
@@ -69,12 +72,13 @@ spec:
           capabilities:
             # Host container properties
             host:
-             properties:
-               num_cpus: { eval: ::root::inputs::cpus }
-               disk_size: 10 GB
-               mem_size: 512 MB
+              properties:
+                num_cpus: { eval: ::root::inputs::cpus }
+                disk_size: 10 GB
+                mem_size: 512 MB
 
           properties:
             foo: bar
           requirements:
+            # test handling of circular references
             - dependency: my_server

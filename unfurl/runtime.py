@@ -699,6 +699,35 @@ class NodeInstance(EntityInstance):
         return list(self._get_default_relationships(relation))
 
     @property
+    def sources(self):
+        dep = {}
+        for cap in self.capabilities:
+            for rel in cap.relationships:
+                if rel.source:
+                    if rel.name in dep:
+                        if isinstance(dep[rel.name], list):
+                            dep[rel.name].append(rel.source)
+                        else:
+                            dep[rel.name] = [dep[rel.name], rel.source]
+                    else:
+                        dep[rel.name] = rel.source
+        return dep
+
+    @property
+    def targets(self):
+        dep = {}
+        for rel in self.requirements:
+            if rel.target:
+                if rel.name in dep:
+                    if isinstance(dep[rel.name], list):
+                        dep[rel.name].append(rel.target)
+                    else:
+                        dep[rel.name] = [dep[rel.name], rel.target]
+                else:
+                    dep[rel.name] = rel.target
+        return dep
+
+    @property
     def names(self):
         # matches TOSCA logic for get_attribute lookup
         return ChainMap(

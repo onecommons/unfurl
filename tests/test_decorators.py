@@ -1,7 +1,9 @@
 import unittest
+import io
 from click.testing import CliRunner
 from unfurl.yamlmanifest import YamlManifest
 from unfurl.eval import Ref, map_value, RefContext
+from unfurl.job import Runner, JobOptions
 
 # expressions evaluate on tosca nodespecs (ignore validation errors)
 # a compute instant that supports cloudinit and hosts a DockerComposeApp
@@ -34,3 +36,13 @@ class DecoratorTest(unittest.TestCase):
                     "node3"
                 ]["requirements"][0]["a_connection"]["relationship"]["properties"]
             )
+
+            # run job so we generate instances
+            # set out we don't save the file
+            Runner(manifest).run(JobOptions(out=io.StringIO()))
+            assert manifest.rootResource.instances
+
+            result = manifest.rootResource.query("::my_server::.sources::a_connection")
+            assert result and result.name == "node3"
+            result2 = manifest.rootResource.query("::my_server::.targets::dependency")
+            assert result2 and result2.name == "my_server"

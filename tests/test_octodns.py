@@ -220,7 +220,7 @@ spec:
                   type: A
                   value:
                     q:
-                      eval: .source::.requirements::[.name=host]::.target::public_address
+                      eval: .source::.targets::host::public_address
 
     topology_template:
       node_templates:
