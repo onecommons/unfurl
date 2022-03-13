@@ -809,7 +809,7 @@ class EnsembleBuilder:
             Repo.create_working_dir(repoURL, destDir, revision)
 
         targetDir = os.path.join(destDir, filePath)
-        sourceProjectRoot = Project.find_path(targetDir)
+        sourceProjectRoot = Project.find_path(targetDir, destDir)
         self.logger.debug(f'cloned {self.input_source}" to "{destDir}"')
         if not sourceProjectRoot:
             raise UnfurlError(

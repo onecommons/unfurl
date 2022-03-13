@@ -119,12 +119,14 @@ class Project:
             return path
 
     @staticmethod
-    def find_path(testPath):
+    def find_path(testPath, stopPath=None):
         """
         Walk parents looking for unfurl.yaml
         """
         current = os.path.abspath(testPath)
-        while current and current != os.sep:
+        if not stopPath:
+            stopPath = os.sep
+        while current and current != stopPath:
             test = os.path.join(current, DefaultNames.LocalConfig)
             if os.path.exists(test):
                 return test
@@ -984,6 +986,10 @@ class LocalEnv:
                     repo = project.create_working_dir(repoURL, revision)
                     break
                 project = project.parentProject
+            else:
+                repo = (self.project or self.homeProject).create_working_dir(
+                    repoURL, revision
+                )
         if not repo:
             return None, None, None
 
