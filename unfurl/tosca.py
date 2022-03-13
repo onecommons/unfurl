@@ -600,6 +600,11 @@ class EntitySpec(ResourceRef):
     def get_interfaces(self):
         return self.toscaEntityTemplate.interfaces
 
+    def get_interface_requirements(self):
+        return self.toscaEntityTemplate.type_definition.get_interface_requirements(
+            self.toscaEntityTemplate.entity_tpl
+        )
+
     @property
     def groups(self):
         if not self.spec:
@@ -1048,6 +1053,7 @@ class TopologySpec(EntitySpec):
         self.propertyDefs = {}
         self.attributeDefs = {}
         self.capabilities = []
+        self._defaultRelationships = None
 
     def get_interfaces(self):
         # doesn't have any interfaces
@@ -1064,6 +1070,16 @@ class TopologySpec(EntitySpec):
     @property
     def primary_provider(self):
         return self.spec.relationshipTemplates.get("primary_provider")
+
+    @property
+    def default_relationships(self):
+        if self._defaultRelationships is None:
+            self._defaultRelationships = [
+                relSpec
+                for relSpec in self.spec.relationshipTemplates.values()
+                if relSpec.toscaEntityTemplate.default_for
+            ]
+        return self._defaultRelationships
 
     @property
     def base_dir(self):

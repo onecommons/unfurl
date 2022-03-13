@@ -436,7 +436,12 @@ class Plan:
         # order by ancestors
         return list(
             order_templates(
-                {t.name: t for t in templates if "virtual" not in t.directives},
+                {
+                    t.name: t
+                    for t in templates
+                    if "virtual" not in t.directives
+                    and interface_requirements_ok(self.tosca, t)
+                },
                 self.filterTemplate and self.filterTemplate.name,
                 self.interface,
             )
@@ -738,6 +743,26 @@ def find_explicit_operation_hosts(template, interface):
                 "SOURCE",
             ]:
                 yield operation_host
+
+
+def interface_requirements_ok(spec, template):
+    reqs = template.get_interface_requirements()
+    if reqs:
+        assert isinstance(reqs, list)
+        for req in reqs:
+            if not any(
+                [
+                    rel.is_compatible_type(req)
+                    for rel in spec.topology.default_relationships
+                ]
+            ):
+                logger.debug(
+                    'Skipping template "%s": could not find a connection for interface requirements: %s',
+                    template.name,
+                    reqs,
+                )
+                return False
+    return True
 
 
 def order_templates(templates, filter=None, interface=None):
