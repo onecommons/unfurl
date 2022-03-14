@@ -590,8 +590,7 @@ def to_graphql_blueprint(spec, db, deploymentTemplates=None):
     }
     """
     root_name, root_type = _get_or_make_primary(spec, db)
-    title = spec.template.tpl.get("template_name") or root_name
-    name = slugify(title)
+    title, name = _template_title(spec, root_name)
     blueprint = dict(__typename="ApplicationBlueprint", name=name, title=title)
     blueprint["primary"] = root_type
     blueprint["deploymentTemplates"] = deploymentTemplates or []
@@ -605,10 +604,17 @@ def to_graphql_blueprint(spec, db, deploymentTemplates=None):
 
 
 def slugify(text):
+    # XXX match unfurl-gui algorithms and only allow env var names
     text = text.lower().strip()
     text = re.sub(r"\s+", "-", text)
     text = re.sub(r"[^\w\-]", "", text)
     return re.sub(r"\-\-+", "-", text)
+
+
+def _template_title(spec, default):
+    title = (spec.template.tpl.get("metadata") or {}).get("template_name") or default
+    slug = slugify(title)
+    return title, slug
 
 
 # XXX cloud = spec.topology.primary_provider
@@ -628,8 +634,7 @@ def to_deployment_blueprint_from_topology(spec, db):
       cloud: ResourceType
     }
     """
-    title = spec.template.tpl.get("template_name") or "unnamed"
-    slug = slugify(title)
+    title, slug = _template_title(spec, "unnamed")
     template = dict(
         __typename="DeploymentTemplate",
         title=title,
