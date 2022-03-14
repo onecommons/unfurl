@@ -15,6 +15,7 @@ from toscaparser.properties import Property
 from toscaparser.elements.constraints import Schema
 from toscaparser.elements.property_definition import PropertyDef
 from toscaparser.elements.nodetype import NodeType
+from toscaparser.elements.relationshiptype import RelationshipType
 from toscaparser.elements.statefulentitytype import StatefulEntityType
 from toscaparser.entity_template import EntityTemplate
 from toscaparser.common.exception import ExceptionCollector
@@ -342,17 +343,14 @@ def to_graphql_nodetypes(spec):
     types = {}
     custom_defs = spec.template.topology_template.custom_defs
     for typename, defs in custom_defs.items():
-        for key in defs:
-            # hacky way to avoid validation exception if type isn't a node type
-            if key not in NodeType.SECTIONS:
-                typedef = StatefulEntityType(typename, "", custom_defs)
-                break
-        else:
+        typedef = None
+        # prefix is only used to expand "tosca:Type"
+        test_typedef = StatefulEntityType(typename, StatefulEntityType.NODE_PREFIX, custom_defs)
+        if test_typedef.is_derived_from("tosca.nodes.Root"):
             typedef = NodeType(typename, custom_defs)
-
-        if typedef.is_derived_from("tosca.nodes.Root") or typedef.is_derived_from(
-            "tosca.relationships.Root"
-        ):
+        elif test_typedef.is_derived_from("tosca.relationships.Root"):
+            typedef = RelationshipType(typename, custom_defs)
+        if typedef:
             types[typename] = node_type_to_graphql(spec, typedef, types)
 
     for node_spec in spec.nodeTemplates.values():
@@ -559,7 +557,10 @@ def _get_or_make_primary(spec, db):
                 root = _generate_primary(spec, db, root.entity_tpl)
                 break
         if not root:
-            tpl = dict(type=root_type.type, directives=["virtual"])
+            properties = {name: dict(get_input=name) for name in topology._tpl_inputs()}
+            tpl = dict(
+                type=root_type.type, directives=["virtual"], properties=properties
+            )
             root = topology.add_template(primary_name, tpl)
             db["ResourceTemplate"][root.name] = nodetemplate_to_json(
                 root, spec, db["ResourceType"]
