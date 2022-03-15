@@ -513,7 +513,6 @@ def _generate_primary(spec, db, node_tpl=None):
     topology.custom_defs[primary_name] = nodetype_tpl
     tpl = node_tpl or {}
     tpl["type"] = primary_name
-    tpl.setdefault("directives", []).append("virtual")
     tpl.setdefault("properties", {}).update(
         {name: dict(get_input=name) for name in topology._tpl_inputs()}
     )
@@ -554,12 +553,12 @@ def _get_or_make_primary(spec, db):
         properties_tpl = root_type.get_definition("properties") or {}
         for input in topology.inputs:
             if input.name not in properties_tpl:
-                root = _generate_primary(spec, db, root.entity_tpl)
+                root = _generate_primary(spec, db, root and root.entity_tpl)
                 break
         if not root:
             properties = {name: dict(get_input=name) for name in topology._tpl_inputs()}
             tpl = dict(
-                type=root_type.type, directives=["virtual"], properties=properties
+                type=root_type.type, properties=properties
             )
             root = topology.add_template(primary_name, tpl)
             db["ResourceTemplate"][root.name] = nodetemplate_to_json(

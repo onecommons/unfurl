@@ -19,11 +19,11 @@ class DecoratorTest(unittest.TestCase):
 
             ctx = RefContext(manifest.tosca.topology)
             result1 = Ref("my_server::dependency::tosca.nodes.Compute").resolve(ctx)
-            self.assertEqual("my_server", result1[0].name)
+            self.assertEqual("my_server2", result1[0].name)
 
             self.assertEqual(
-                {"foo": "bar", "test": "annotated"},
-                manifest.tosca.nodeTemplates["my_server"].properties,
+                {"test": "annotated"},
+                manifest.tosca.nodeTemplates["my_server2"].properties,
             )
             for name in ["anode", "anothernode"]:
                 node = manifest.tosca.nodeTemplates[name]
@@ -45,4 +45,4 @@ class DecoratorTest(unittest.TestCase):
             result = manifest.rootResource.query("::my_server::.sources::a_connection")
             assert result and result.name == "node3"
             result2 = manifest.rootResource.query("::my_server::.targets::dependency")
-            assert result2 and result2.name == "my_server"
+            assert result2 and result2.name == "my_server2"

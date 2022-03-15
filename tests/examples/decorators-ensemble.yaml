@@ -80,5 +80,7 @@ spec:
           properties:
             foo: bar
           requirements:
-            # test handling of circular references
-            - dependency: my_server
+            - dependency: my_server2
+
+        my_server2:
+          type: tosca.nodes.Compute
