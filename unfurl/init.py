@@ -522,7 +522,7 @@ def _looks_like(path, name):
     return None
 
 
-def _get_ensemble_paths(sourcePath, sourceProject):
+def _get_ensemble_paths(sourcePath, sourceProject, want_init):
     """
     Returns either a pointer to the ensemble to clone
     or a dict of variables to pass to an ensemble template to create a new one
@@ -543,7 +543,7 @@ def _get_ensemble_paths(sourcePath, sourceProject):
 
     # we only support cloning TOSCA service templates if their names end in "service-template.yaml"
     isServiceTemplate = sourcePath.endswith(DefaultNames.ServiceTemplate)
-    if not isServiceTemplate:
+    if not want_init and not isServiceTemplate:
         try:
             localEnv = LocalEnv(relPath, project=sourceProject)
             sourceDir = sourceProject.get_relative_path(
@@ -645,8 +645,7 @@ class EnsembleBuilder:
         # source is a path into the project relative to the current directory
         source_path = os.path.join(self.source_project.projectRoot, self.source_path)
         self.templateVars = _get_ensemble_paths(
-            source_path,
-            self.source_project,
+            source_path, self.source_project, self.options.get("want_init")
         )
         (self.environment, self.shared_repo) = _get_context_and_shared_repo(
             self.dest_project, self.options
@@ -740,7 +739,7 @@ class EnsembleBuilder:
         )
 
         templateVars = self.templateVars
-        if "localEnv" not in templateVars or self.options.get("want_init"):
+        if "localEnv" not in templateVars:
             # we found a template file to clone
             templateVars["inputs"] = self._get_inputs_template()
             localEnv, manifest = self._create_ensemble_from_template(
