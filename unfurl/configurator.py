@@ -260,6 +260,9 @@ class Configurator:
                 newKeys,
             )
             return True  # an old input was removed
+        elif not oldInputs:
+            assert not newKeys
+            return False
 
         # only resolve the inputs and dependencies that were resolved before
         results = []
