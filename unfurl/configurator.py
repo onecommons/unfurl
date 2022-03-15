@@ -246,10 +246,19 @@ class Configurator:
         newKeys = {k for k in task.inputs.keys() if k not in self.exclude_from_digest}
         task.logger.debug("checking digest for %s: %s", task.target.name, _parameters)
         if not _parameters:
-            return bool(newKeys)
-        keys = _parameters.split(",")
+            keys = []
+        else:
+            keys = _parameters.split(",")
         oldInputs = {key for key in keys if "::" not in key}
+        # XXX is is incomplete because this isn't considering new inputs because we don't know if they will be resolved or not
+        # but maybe this ok because it implies the spec changed and we've already tested for that?
         if oldInputs - newKeys:
+            task.logger.verbose(
+                "digest keys changed for %s: old %s, new %s",
+                task.target.name,
+                oldInputs,
+                newKeys,
+            )
             return True  # an old input was removed
 
         # only resolve the inputs and dependencies that were resolved before
@@ -272,6 +281,9 @@ class Configurator:
             )
         return mismatch
 
+class MockConfigurator(Configurator):
+    def run(self, task):
+        yield task.done(True)
 
 class _ConnectionsMap(dict):
     def by_type(self):

@@ -4,6 +4,7 @@ import collections
 import re
 import six
 import shlex
+import os
 import os.path
 from .util import (
     lookup_class,
@@ -93,7 +94,11 @@ class ConfigurationSpec:
         return find_schema_errors(expanded, self.preConditions)
 
     def create(self):
-        klass = lookup_class(self.className)
+        if os.getenv("UNFURL_MOCK_DEPLOY"):
+            className = "unfurl.configurator.MockConfigurator"
+        else:
+            className = self.className
+        klass = lookup_class(className)
         if not klass:
             raise UnfurlError(f"Could not load configurator {self.className}")
         else:
