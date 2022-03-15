@@ -124,7 +124,7 @@ def get_valuetype(dt, metadata):
 def get_scalar_unit(value_type, metadata):
     default_unit = metadata and metadata.get("default_unit")
     if default_unit:
-        return {"type": "number"}
+        return {"type": "number", "default_unit": default_unit}
     else:
         return {"type": "string"}
     # XXX add format specifier
