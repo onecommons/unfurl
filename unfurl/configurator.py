@@ -246,12 +246,20 @@ class Configurator:
         newKeys = {k for k in task.inputs.keys() if k not in self.exclude_from_digest}
         task.logger.debug("checking digest for %s: %s", task.target.name, _parameters)
         if not _parameters:
-            keys = []
+            if newKeys:
+                task.logger.verbose(
+                    "digest keys for %s was previously empty, now found %s",
+                    task.target.name,
+                    newKeys,
+                )
+                return True
+            else:
+                return False
         else:
             keys = _parameters.split(",")
         oldInputs = {key for key in keys if "::" not in key}
-        # XXX is is incomplete because this isn't considering new inputs because we don't know if they will be resolved or not
-        # but maybe this ok because it implies the spec changed and we've already tested for that?
+        # XXX this check is incomplete because this isn't considering new inputs because we don't know if they will be resolved or not
+        # we could fix this by having digest keys include unresolved inputs
         if oldInputs - newKeys:
             task.logger.verbose(
                 "digest keys changed for %s: old %s, new %s",
@@ -260,9 +268,6 @@ class Configurator:
                 newKeys,
             )
             return True  # an old input was removed
-        elif not oldInputs:
-            assert not newKeys
-            return False
 
         # only resolve the inputs and dependencies that were resolved before
         results = []
