@@ -11,6 +11,7 @@ Output a normalized json representation of a TOSCA service template for machine 
 - Requirements has a "resourceType" which can be either a node type or a capability type.
 """
 import re
+from collections import Counter
 from toscaparser.properties import Property
 from toscaparser.elements.constraints import Schema
 from toscaparser.elements.property_definition import PropertyDef
@@ -78,8 +79,8 @@ VALUE_TYPES = dict(
     version={"type": "string"},
     any={"type": "string"},  # we'll have to interpret the string as json
     range={"type": "array", "items": {"type": "integer", "maxItems": 2}},
+    PortDef={"type": "number", "minimum": 1, "maximum": 65535}
     # XXX:
-    # "PortDef",
     # PortSpec.SHORTNAME,
 )
 
@@ -203,6 +204,8 @@ def requirement_to_graphql(spec, req_dict):
     name, req = list(req_dict.items())[0]
     if isinstance(req, str):
         req = dict(node=req)
+    else:
+        assert isinstance(req, dict), f"bad {req} in {req_dict}"
     reqobj = dict(name=name, title=name, description=req.get("description") or "")
     metadata = req.get("metadata")
     if metadata:
@@ -262,6 +265,20 @@ def property_value_to_json(p):
     return p.value
 
 
+def _include_requirement(spec, req):
+    name = next(iter(req))
+    if name == "dependency":
+        return False
+    if isinstance(req[name], str):
+        node = req[name]
+    else:
+        node = req[name].get("node")
+    if node and node in spec.nodeTemplates:
+        # using a predefined template, so exclude it from the user
+        return False
+    return True
+
+
 # XXX outputs: only include "public" attributes?
 def node_type_to_graphql(spec, type_definition, types: dict):
     """
@@ -312,7 +329,6 @@ def node_type_to_graphql(spec, type_definition, types: dict):
     add_capabilities_as_properties(
         jsontype["inputsSchema"]["properties"], type_definition, spec
     )
-
     # XXX only include "public" attributes?
     attributedefs = (
         p for p in type_definition.get_attributes_def_objects() if not is_computed(p)
@@ -321,11 +337,10 @@ def node_type_to_graphql(spec, type_definition, types: dict):
     # XXX capabilities can hava attributes too
     # add_capabilities_as_attributes(jsontype["outputs"], type_definition, spec)
 
-    # XXX merge subtyped requirements (and in nodetemplate._getRequirementDefinition too)
     jsontype["requirements"] = [
         requirement_to_graphql(spec, req)
-        for req in (type_definition.get_all_requirements() or ())
-        if next(iter(req)) != "dependency"
+        for req in type_definition.get_all_requirements()
+        if _include_requirement(spec, req)
     ]
 
     operations = set(
@@ -345,7 +360,9 @@ def to_graphql_nodetypes(spec):
     for typename, defs in custom_defs.items():
         typedef = None
         # prefix is only used to expand "tosca:Type"
-        test_typedef = StatefulEntityType(typename, StatefulEntityType.NODE_PREFIX, custom_defs)
+        test_typedef = StatefulEntityType(
+            typename, StatefulEntityType.NODE_PREFIX, custom_defs
+        )
         if test_typedef.is_derived_from("tosca.nodes.Root"):
             typedef = NodeType(typename, custom_defs)
         elif test_typedef.is_derived_from("tosca.relationships.Root"):
@@ -360,6 +377,7 @@ def to_graphql_nodetypes(spec):
             types[typename] = {}  # set now to avoid circular references
             types[typename] = node_type_to_graphql(spec, type_definition, types)
 
+    mark_user_visible(types)
     return types
 
 
@@ -557,9 +575,7 @@ def _get_or_make_primary(spec, db):
                 break
         if not root:
             properties = {name: dict(get_input=name) for name in topology._tpl_inputs()}
-            tpl = dict(
-                type=root_type.type, properties=properties
-            )
+            tpl = dict(type=root_type.type, properties=properties)
             root = topology.add_template(primary_name, tpl)
             db["ResourceTemplate"][root.name] = nodetemplate_to_json(
                 root, spec, db["ResourceType"]
@@ -611,8 +627,10 @@ def slugify(text):
 
 
 def _template_title(spec, default):
-    title = (spec.template.tpl.get("metadata") or {}).get("template_name") or default
-    slug = slugify(title)
+    metadata = spec.template.tpl.get("metadata") or {}
+    name = metadata.get("template_name") or default
+    slug = slugify(name)
+    title = metadata.get("title") or name
     return title, slug
 
 
@@ -730,6 +748,7 @@ def to_blueprint(localEnv):
         deployment_blueprints:
          title: Google Cloud Platform
          cloud: unfurl.relationships.ConnectsTo.GoogleCloudProject
+         description: Deploy compute instances on Google Cloud Platform
          resourceTemplates: [resource_template_name*]
         resource_templates:
           <map of ResourceTemplates>
@@ -772,6 +791,27 @@ def to_deployment(localEnv):
     # don't include base node type:
     db["ResourceType"].pop("tosca.nodes.Root")
     return db
+
+
+def mark_user_visible(types):
+    # types without implementations can't be instantiated by users
+    # treat non-leaf types as abstract types that shouldn't be instatiated
+    # treat leaf types that have requirements as having implementations
+    counts = Counter()
+    for rt in types.values():
+        for name in rt["extends"]:
+            counts[name] += 1
+    for (name, count) in counts.most_common():
+        jsontype = types.get(name)
+        if not jsontype:
+            continue
+        if count == 1:
+            # not subtyped so assume its a concrete type
+            if not jsontype.get("implementations") and jsontype.get("requirements"):
+                # hack: if we're a "compound" type that is just a sum of its requirement, add an implementation so it is included
+                jsontype["implementations"] = ["create"]
+        elif jsontype.get("implementations"):
+            jsontype["implementations"] = []
 
 
 def to_environments(localEnv):
