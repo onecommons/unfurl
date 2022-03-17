@@ -3,11 +3,12 @@
 import os
 import os.path
 from pathlib import Path
+import sys
 import git
 from git.repo.fun import is_git_dir
 import logging
 from six.moves.urllib.parse import urlparse
-from .util import UnfurlError, save_to_file, to_text
+from .util import UnfurlError, save_to_file
 import toscaparser.repositories
 from ruamel.yaml.comments import CommentedMap
 
@@ -62,7 +63,7 @@ class _ProgressPrinter(git.RemoteProgress):
     def update(self, op_code, cur_count, max_count=None, message=""):
         # we use print instead of logging because we don't want to clutter logs with this message
         if message and logger.getEffectiveLevel() <= logging.INFO:
-            print(f"fetching from {self.gitUrl}, received: {message} ")
+            print(f"fetching from {self.gitUrl}, received: {message} ", file=sys.stderr)
 
 
 class Repo:
