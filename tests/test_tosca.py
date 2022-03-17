@@ -46,7 +46,7 @@ spec:
         derived_from: tosca.nodes.Root
         requirements:
           - host:
-              capabilities: tosca.capabilities.Compute
+              capability: tosca.capabilities.Compute
               relationship: tosca.relationships.HostedOn
         attributes:
           distribution:
@@ -586,7 +586,7 @@ spec:
   service_template:
     imports:
       - repository: unfurl
-        file: tosca_plugins/k8s.yaml  
+        file: tosca_plugins/k8s.yaml
     topology_template:
       node_templates:
         myCluster:

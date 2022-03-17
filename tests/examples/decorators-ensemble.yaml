@@ -30,7 +30,7 @@ spec:
         derived_from: tosca.nodes.Root
         requirements:
           - host:
-              capabilities: tosca.capabilities.Compute
+              capability: tosca.capabilities.Compute
               relationship: tosca.relationships.HostedOn
         attributes:
           distribution:
