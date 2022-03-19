@@ -266,7 +266,9 @@ def _find_template(doc, key, path, cls, fail):
             if not fail:
                 return None
             else:
-                raise UnfurlError(f"could not find relative path '{('.' * key.relative)}'")
+                raise UnfurlError(
+                    f"could not find relative path '{('.' * key.relative)}'"
+                )
     for index, segment in enumerate(key.pointer):
         if isinstance(template, Sequence):
             # Array indexes should be turned into integers
@@ -441,7 +443,8 @@ def expand_doc(doc, current=None, cls=dict):
             return includes, expanded
         if len(missing) == last:  # no progress
             raise UnfurlError(
-                "missing includes: %s" % [f"{i.key.key}:{i.value or ''}" for i in missing]
+                "missing includes: %s"
+                % [f"{i.key.key}:{i.value or ''}" for i in missing]
             )
         last = len(missing)
         includes = CommentedMap()

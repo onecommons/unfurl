@@ -289,9 +289,11 @@ class Configurator:
             )
         return mismatch
 
+
 class MockConfigurator(Configurator):
     def run(self, task):
         yield task.done(True)
+
 
 class _ConnectionsMap(dict):
     def by_type(self):

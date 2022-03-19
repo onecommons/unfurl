@@ -58,7 +58,9 @@ class Manifest(AttributeManager):
         repositories = {
             name: repo.repository.tpl for name, repo in self.repositories.items()
         }
-        self.tosca = self._load_spec(spec, self.path, repositories, more_spec, skip_validation)
+        self.tosca = self._load_spec(
+            spec, self.path, repositories, more_spec, skip_validation
+        )
         self.specDigest = self.get_spec_digest(spec)
 
     def _find_repo(self):
@@ -96,7 +98,9 @@ class Manifest(AttributeManager):
         ):
             # note: we only recorded the baseDir not the name of the included file
             path = toscaDef.base_dir
-        return ToscaSpec(toscaDef, spec, path, self.get_import_resolver(expand=True), skip_validation)
+        return ToscaSpec(
+            toscaDef, spec, path, self.get_import_resolver(expand=True), skip_validation
+        )
 
     def get_spec_digest(self, spec):
         m = hashlib.sha1()  # use same digest function as git

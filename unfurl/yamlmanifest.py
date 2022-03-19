@@ -320,7 +320,9 @@ class YamlManifest(ReadOnlyManifest):
             self._load_resource_templates(spec["resource_templates"], node_templates)
         if self.context.get("instances"):
             # add context instances to spec instances
-            self._load_resource_templates(self.context["instances"], spec.setdefault('instances', {}))
+            self._load_resource_templates(
+                self.context["instances"], spec.setdefault("instances", {})
+            )
 
         self._set_spec(spec, more_spec, skip_validation)
         assert self.tosca

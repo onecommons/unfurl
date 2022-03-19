@@ -4,21 +4,21 @@ tosca_definitions_version: tosca_simple_unfurl_1_0_0
 
 decorators:
   unfurl.nodes.DNSZone::parent_zone:
-      relationship:
-         type: unfurl.relationships.DNSRecords
-         properties:
-           records:
-             q:
-              eval:
-                if: $zone
-                # XXX should only select NS records not all ''
-                then: "{{ {subdomain.split('.')[0] : zone['']} }}"
-                else: {}
-              vars:
-                subdomain:
-                  eval: .source::name
-                zone:
-                  eval: .source::zone
+    relationship:
+      type: unfurl.relationships.DNSRecords
+      properties:
+        records:
+          q:
+            eval:
+              if: $zone
+              # XXX should only select NS records not all ''
+              then: "{{ {subdomain.split('.')[0] : zone['']} }}"
+              else: {}
+            vars:
+              subdomain:
+                eval: .source::name
+              zone:
+                eval: .source::zone
 
 node_types:
   unfurl.nodes.DNSZone:
@@ -34,6 +34,8 @@ node_types:
         description: DNS records to add to the zone
         type: map
         default: {}
+        metadata: # XXX
+          computed: true
       exclusive:
         description: Zone exclusively managed by this instance (removes unrecognized records)
         type: boolean
@@ -50,12 +52,12 @@ node_types:
         type: map
         required: false
     capabilities:
-        resolve:
-           type: unfurl.capabilities.DNSZone
+      resolve:
+        type: unfurl.capabilities.DNSZone
     requirements:
-        - parent_zone:
-           capability: unfurl.capabilities.DNSZone
-           occurrences: [0, 1] # it isn't always required
+      - parent_zone:
+          capability: unfurl.capabilities.DNSZone
+          occurrences: [0, 1] # it isn't always required
 
     interfaces:
       defaults:
@@ -70,7 +72,6 @@ node_types:
           check:
 
 capability_types:
-
   unfurl.capabilities.DNSZone:
     derived_from: tosca.capabilities.Root
 
