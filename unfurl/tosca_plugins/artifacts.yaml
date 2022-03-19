@@ -30,11 +30,11 @@ artifact_types:
           asdf plugin add {{SELF.file}}
           asdf {%if task.operation == 'delete' %}uninstall{%else%}install{%endif%} {{SELF.file}} {{SELF.version}}
         inputs:
-           # set this .tool-versions is written to the project root
-            cwd: '{{ "project" | get_dir }}'
-            keeplines: true
-            # asdf.sh requires bash
-            shell: '{{ "bash" | which }}'
+          # set this .tool-versions is written to the project root
+          cwd: '{{ "project" | get_dir }}'
+          keeplines: true
+          # asdf.sh requires bash
+          shell: '{{ "bash" | which }}'
       Standard:
         configure:
         delete:
@@ -45,8 +45,9 @@ artifact_types:
       Install:
         check: unfurl.configurators.PythonPackageCheckConfigurator
       Standard:
-        create: pipenv --bare install {{SELF.file}}
-        delete: pipenv --bare remove {{SELF.file}}
+        # don't create a new virtual environment, use current or system
+        create: pipenv --bare {%if not lookup('env', 'VIRTUAL_ENV') %}--system{% endif %} install {{SELF.file}}
+        delete: pipenv --bare uninstall {{SELF.file}}
 
   # XXX update TerraformConfigurator to read from artifact
   # unfurl.artifacts.TerraformModule:
@@ -70,7 +71,7 @@ node_types:
         implementation:
           className: unfurl.configurators.terraform.TerraformConfigurator
         inputs:
-           main: { get_property: [SELF, main] }
+          main: { get_property: [SELF, main] }
       Standard:
         operations:
           delete:
@@ -104,4 +105,4 @@ topology_template:
           type: artifact.AsdfTool
           file: gcloud
           properties:
-            version: 368.0.0
+            version: 377.0.0
