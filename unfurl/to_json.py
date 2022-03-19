@@ -635,7 +635,7 @@ def _template_title(spec, default):
 
 
 # XXX cloud = spec.topology.primary_provider
-def to_deployment_blueprint_from_topology(spec, db):
+def get_blueprints_from_topology(manifest, db):
     """
     Returns json object as DeploymentTemplate:
 
@@ -651,16 +651,22 @@ def to_deployment_blueprint_from_topology(spec, db):
       cloud: ResourceType
     }
     """
+    spec = manifest.tosca
     title, slug = _template_title(spec, "unnamed")
-    template = dict(
-        __typename="DeploymentTemplate",
-        title=title,
-        name=slug,
-        slug=slug,
-        description=spec.template.description,
-    )
     # XXX cloud = spec.topology.primary_provider
     blueprint, root_name = to_graphql_blueprint(spec, db, [title])
+    templates = get_deployment_blueprints(manifest, blueprint, root_name)
+    for name, value in templates.items():
+        template = value
+        break
+    else:
+        template = dict(
+            __typename="DeploymentTemplate",
+            title=title,
+            name=slug,
+            slug=slug,
+            description=spec.template.description,
+        )
     template["blueprint"] = blueprint["name"]
     template["primary"] = root_name
     # names of ResourceTemplates
@@ -725,7 +731,7 @@ def add_graphql_deployment(manifest, db, dtemplate):
     """
     # XXX add env deployment graphql needs pipeline metadata (pipeline id, commit, branch)
     # XXX job
-    title = "unnamed"  # XXX
+    title = dtemplate["name"]
     deployment = dict(name=title, title=title)
     deployment["resources"] = [
         to_graphql_resource(instance, manifest, db)
@@ -734,8 +740,32 @@ def add_graphql_deployment(manifest, db, dtemplate):
     ]
     db["Resource"] = {r["name"]: r for r in deployment["resources"]}
     deployment["primary"] = dtemplate["primary"]
+    deployment['deploymentTemplate'] = dtemplate["name"]
     db["Deployment"] = {title: deployment}
-    return db
+    return deployment
+
+
+def get_deployment_blueprints(manifest, blueprint, root_name):
+    deployment_blueprints = (
+        manifest.manifest.expanded.get("spec", {}).get("deployment_blueprints") or {}
+    )
+    deployment_templates = {}
+    for name, tpl in deployment_blueprints.items():
+        # note: root_resource_template is derived from inputs, outputs and substitution_template from topology_template
+        slug = slugify(name)
+        template = tpl.copy()
+        template.update(
+            dict(
+                __typename="DeploymentTemplate",
+                title=tpl.get("title") or name,
+                name=name,
+                slug=slug,
+                blueprint=blueprint["name"],
+                primary=tpl.get("primary") or root_name,
+            )
+        )
+        deployment_templates[name] = template
+    return deployment_templates
 
 
 def to_blueprint(localEnv):
@@ -756,26 +786,8 @@ def to_blueprint(localEnv):
     db, connections, connection_types, env_instances = to_graphql(localEnv)
     manifest = localEnv.get_manifest()
     blueprint, root_name = to_graphql_blueprint(manifest.tosca, db)
-    deployment_blueprints = (
-        manifest.manifest.expanded.get("spec", {}).get("deployment_blueprints") or {}
-    )
-    db["DeploymentTemplate"] = {}
-    for name, tpl in deployment_blueprints.items():
-        # note: root_resource_template is derived from inputs, outputs and substitution_template from topology_template
-        slug = slugify(name)
-        template = tpl.copy()
-        template.update(
-            dict(
-                __typename="DeploymentTemplate",
-                title=tpl.get("title") or name,
-                name=name,
-                slug=slug,
-                blueprint=blueprint["name"],
-                primary=tpl.get("primary") or root_name,
-            )
-        )
-        db["DeploymentTemplate"][name] = template
-
+    deployment_blueprints = get_deployment_blueprints(manifest, blueprint, root_name)
+    db["DeploymentTemplate"] = deployment_blueprints
     blueprint["deploymentTemplates"] = list(deployment_blueprints)
     db["ApplicationBlueprint"] = {blueprint["name"]: blueprint}
     return db
@@ -784,10 +796,10 @@ def to_blueprint(localEnv):
 def to_deployment(localEnv):
     db, connections, connection_types, env_instances = to_graphql(localEnv)
     manifest = localEnv.get_manifest()
-    blueprint, dtemplate = to_deployment_blueprint_from_topology(manifest.tosca, db)
+    blueprint, dtemplate = get_blueprints_from_topology(manifest, db)
     db["DeploymentTemplate"] = {dtemplate["name"]: dtemplate}
     db["ApplicationBlueprint"] = {blueprint["name"]: blueprint}
-    add_graphql_deployment(manifest, db, dtemplate)
+    deployment = add_graphql_deployment(manifest, db, dtemplate)
     # don't include base node type:
     db["ResourceType"].pop("tosca.nodes.Root")
     return db
