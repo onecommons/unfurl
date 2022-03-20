@@ -92,6 +92,18 @@ def create_default_topology():
     )
     return ToscaTemplate(yaml_dict_tpl=tpl)
 
+def _patch(node, patchsrc, quote=False):
+    tpl = node.toscaEntityTemplate.entity_tpl
+    ctx = RefContext(node, dict(template=tpl))
+    ctx.base_dir = getattr(patchsrc, "base_dir", ctx.base_dir)
+    if quote:
+        patch = patchsrc
+    else:
+        patch = map_value(patchsrc, ctx)
+    logger.trace("patching node %s was %s", node.name, tpl)
+    patched = patch_dict(tpl, patch, True)
+    logger.trace("patched node %s: now %s", node.name, patched)
+    return patched
 
 class ToscaSpec:
     InstallerType = "unfurl.nodes.Installer"
@@ -127,6 +139,19 @@ class ToscaSpec:
             return True
         return False
 
+    def enforce_filters(self):
+        patched = False
+        for nodespec in self.nodeTemplates.values():
+            for req in nodespec.requirements.values():
+                for prop, value in req.get_nodefilters():
+                    target = req.relationship and req.relationship.target
+                    if target and isinstance(value, dict) and 'eval' in value:
+                        value.setdefault('vars', {})['SOURCE'] = dict(eval="::"+nodespec.name)
+                        patch = dict(properties={prop: value})
+                        _patch(target, patch, quote=True)
+                        patched = True
+        return patched
+
     def _overlay(self, overlays):
         def _find_matches():
             ExceptionCollector.start()  # clears previous errors
@@ -151,19 +176,7 @@ class ToscaSpec:
                     )
 
         matches = list(_find_matches())
-
-        def _patch(m):
-            node, patchsrc = m
-            tpl = node.toscaEntityTemplate.entity_tpl
-            ctx = RefContext(node, dict(template=tpl))
-            ctx.base_dir = getattr(patchsrc, "base_dir", ctx.base_dir)
-            patch = map_value(patchsrc, ctx)
-            logger.trace("patching node %s was %s", node.name, tpl)
-            patched = patch_dict(tpl, patch, True)
-            logger.trace("patched node %s: now %s", node.name, patched)
-            return patched
-
-        return [_patch(m) for m in matches]
+        return [_patch(*m) for m in matches]
 
     def _parse_template(self, path, inputs, toscaDef, resolver):
         # need to set a path for the import loader
@@ -248,7 +261,8 @@ class ToscaSpec:
                     )
 
             modified_imports = self.evaluate_imports(toscaDef)
-            if decorators or modified_imports:
+            annotated = self.enforce_filters()
+            if decorators or modified_imports or annotated:
                 # overlay and evaluate_imports modifies tosaDef in-place, try reparsing it
                 self._parse_template(path, inputs, toscaDef, resolver)
 
@@ -776,9 +790,9 @@ class NodeSpec(EntitySpec):
         if self._requirements is None:
             self._requirements = {}
             nodeTemplate = self.toscaEntityTemplate
-            for (relTpl, req, reqDef) in nodeTemplate.relationships:
+            for (relTpl, req, req_type_def) in nodeTemplate.relationships:
                 name, values = next(iter(req.items()))
-                reqSpec = RequirementSpec(name, req, self)
+                reqSpec = RequirementSpec(name, req, self, req_type_def)
                 if relTpl.target:
                     nodeSpec = self.spec.get_template(relTpl.target.name)
                     assert nodeSpec
@@ -953,12 +967,13 @@ class RequirementSpec:
     """
 
     # XXX need __eq__ since this doesn't derive from EntitySpec
-    def __init__(self, name, req, parent):
+    def __init__(self, name, req, parent, type_tpl):
         self.source = self.parentNode = parent  # NodeSpec
         self.spec = parent.spec
         self.name = name
         self.entity_tpl = req
         self.relationship = None
+        self.type_tpl = type_tpl
         # entity_tpl may specify:
         # capability (definition name or type name), node (template name or type name), and node_filter,
         # relationship (template name or type name or inline relationship template)
@@ -973,6 +988,19 @@ class RequirementSpec:
 
     def get_interfaces(self):
         return self.relationship.get_interfaces() if self.relationship else []
+
+    def get_nodefilters(self):
+        # XXX should merge with type_tpl with entity_tpl 
+        return get_nodefilters(self.type_tpl)
+
+def get_nodefilters(entity_tpl):
+    if not isinstance(entity_tpl, dict):
+        return
+    nodefilter = entity_tpl.get('node_filter')
+    if nodefilter and 'properties' in nodefilter:
+        for filter in nodefilter['properties']:
+            name, value = next(iter(filter.items()))
+            yield name, value
 
 
 class CapabilitySpec(EntitySpec):
