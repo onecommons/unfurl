@@ -22,7 +22,8 @@ from toscaparser.entity_template import EntityTemplate
 from toscaparser.common.exception import ExceptionCollector
 from toscaparser.elements.scalarunit import get_scalarunit_class
 from toscaparser.elements.datatype import DataType
-from .tosca import is_function
+from toscaparser.activities import ConditionClause
+from .tosca import is_function, get_nodefilters
 from .localenv import LocalEnv
 
 numeric_constraints = {
@@ -64,7 +65,7 @@ def map_constraints(jsonType, constraints):
         return map_constraint(jsonType, constraints[0])
 
 
-ONE_TO_ONE_TYPES = ("string", "boolean", "number", "map", "list")
+ONE_TO_ONE_TYPES = ("string", "boolean", "map", "list")
 
 #  see constraints.PROPERTY_TYPES
 VALUE_TYPES = dict(
@@ -229,6 +230,8 @@ def requirement_to_graphql(spec, req_dict):
     else:
         nodetype = req["capability"]
     reqobj["resourceType"] = nodetype
+    if req.get("node_filter"):
+        reqobj["node_filter"] = req["node_filter"]
 
     return reqobj
 
@@ -244,6 +247,25 @@ def _get_extends(spec, typedef, extends: list, types):
         types[name] = node_type_to_graphql(spec, typedef, types)
     for p in typedef.parent_types():
         _get_extends(spec, p, extends, types)
+
+
+def is_resource_user_visible(spec, t):
+  if 'default' in t.directives:
+      return False
+  metadata = t.entity_tpl.get('metadata')
+  if metadata and metadata.get('internal'):
+      return False
+  if spec.discovered and t.name in spec.discovered:
+      return False
+  return True
+
+
+def is_property_user_visible(p):
+    if p.schema.get("metadata", {}).get("user_settable"):
+        return True
+    if p.default is not None or is_computed(p):
+        return False
+    return True
 
 
 def is_computed(p):
@@ -274,7 +296,11 @@ def _include_requirement(spec, req):
     else:
         node = req[name].get("node")
     if node and node in spec.nodeTemplates:
-        # using a predefined template, so exclude it from the user
+        # using a predefined template, so hide this requirement from the user
+        metadata = spec.nodeTemplates[node].toscaEntityTemplate.entity_tpl.setdefault('metadata', {})
+        if 'internal' not in metadata:
+            # hide this template from the user
+            metadata['internal'] = True
         return False
     return True
 
@@ -310,7 +336,7 @@ def node_type_to_graphql(spec, type_definition, types: dict):
             jsontype["details_url"] = metadata["details_url"]
 
     propertydefs = (
-        p for p in type_definition.get_properties_def_objects() if not is_computed(p)
+        p for p in type_definition.get_properties_def_objects() if is_property_user_visible(p)
     )
     jsontype["inputsSchema"] = tosca_type_to_jsonschema(spec, propertydefs, None)
 
@@ -331,7 +357,7 @@ def node_type_to_graphql(spec, type_definition, types: dict):
     )
     # XXX only include "public" attributes?
     attributedefs = (
-        p for p in type_definition.get_attributes_def_objects() if not is_computed(p)
+        p for p in type_definition.get_attributes_def_objects() if is_property_user_visible(p)
     )
     jsontype["outputsSchema"] = tosca_type_to_jsonschema(spec, attributedefs, None)
     # XXX capabilities can hava attributes too
@@ -378,6 +404,7 @@ def to_graphql_nodetypes(spec):
             types[typename] = node_type_to_graphql(spec, type_definition, types)
 
     mark_user_visible(types)
+    annotate_properties(types)
     return types
 
 
@@ -465,7 +492,7 @@ def nodetemplate_to_json(nodetemplate, spec, types):
     json["properties"] = [
         dict(name=p.name, value=property_value_to_json(p))
         for p in nodetemplate.get_properties_objects()
-        if not is_computed(p)
+        if is_property_user_visible(p)
     ]
     json["dependencies"] = []
 
@@ -686,6 +713,8 @@ def to_graphql(localEnv):
     connection_types = {}
     for node_spec in spec.nodeTemplates.values():
         toscaEntityTemplate = node_spec.toscaEntityTemplate
+        if not is_resource_user_visible(spec, toscaEntityTemplate):
+            continue
         t = nodetemplate_to_json(toscaEntityTemplate, spec, types)
         name = t["name"]
         if "virtual" in toscaEntityTemplate.directives:
@@ -733,10 +762,11 @@ def add_graphql_deployment(manifest, db, dtemplate):
     # XXX job
     title = dtemplate["name"]
     deployment = dict(name=title, title=title)
+    templates = db["ResourceTemplate"]
     deployment["resources"] = [
         to_graphql_resource(instance, manifest, db)
         for instance in manifest.rootResource.get_self_and_descendents()
-        if instance is not manifest.rootResource
+        if instance is not manifest.rootResource and instance.template.name in templates
     ]
     db["Resource"] = {r["name"]: r for r in deployment["resources"]}
     deployment["primary"] = dtemplate["primary"]
@@ -825,6 +855,32 @@ def mark_user_visible(types):
         elif jsontype.get("implementations"):
             jsontype["implementations"] = []
 
+def annotate_properties(types):
+    annotations = {}
+    for jsontype in types.values():
+        for req in (jsontype.get("requirements") or []):
+            if req.get('node_filter'):
+                annotations[req['resourceType']] = req['node_filter']
+    for jsontype in types.values():
+        for typename in jsontype['extends']:
+            node_filter = annotations.get(typename)
+            if node_filter:
+                map_nodefilter(node_filter, jsontype['inputsSchema']['properties'])
+
+def map_nodefilter(filters, jsonprops):
+    ONE_TO_ONE_MAP = dict(object="map", array="list")
+    for name, value in get_nodefilters(filters):
+        if name not in jsonprops or not isinstance(value, dict):
+            continue
+        if 'eval' in value:
+            # delete annotated properties from target
+            del jsonprops[name]
+        else:
+            # update schema definition with node filter constraints
+            schema = jsonprops[name]
+            tosca_datatype = schema.get("$toscatype") or ONE_TO_ONE_MAP.get(schema['type'], schema['type'])
+            constraints = ConditionClause(name, value, tosca_datatype).conditions
+            schema.update(map_constraints(schema["type"], constraints))
 
 def to_environments(localEnv):
     """
