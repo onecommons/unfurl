@@ -721,6 +721,8 @@ def to_graphql(localEnv):
         t = nodetemplate_to_json(toscaEntityTemplate, spec, types)
         name = t["name"]
         if "virtual" in toscaEntityTemplate.directives:
+            # virtual is only set when loading resources from an environment
+            # or from "spec/resource_templates"
             environment_instances[name] = t
             typename = toscaEntityTemplate.type_definition.type
             connection_types[typename] = types[typename]
@@ -917,11 +919,10 @@ def to_environments(localEnv):
     # XXX one manifest and blueprint per environment
     environments = {}
     all_connection_types = {}
+    blueprintdb = None
     for name in localEnv.project.contexts:
-        if name == "defaults":
-            continue
         # we create new LocalEnv for each context because we need to instantiate a different ToscaSpec object
-        blueprint, connections, connection_types, env_instances = to_graphql(
+        blueprintdb, connections, connection_types, env_instances = to_graphql(
             LocalEnv(
                 localEnv.manifestPath,
                 project=localEnv.project,
@@ -938,8 +939,10 @@ def to_environments(localEnv):
 
     db = {}
     db["DeploymentEnvironment"] = environments
-    # don't include base node type:
-    all_connection_types.pop("tosca.relationships.Root", None)
+    if blueprintdb:
+        # add the rest of the types too
+        # XXX is it safe to only include types with "connect" implementations?
+        all_connection_types.update(blueprintdb["ResourceType"])
     db["ResourceType"] = all_connection_types
     return db
 
