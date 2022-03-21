@@ -404,6 +404,8 @@ interface_types:
       description: Discovers current state of the current instance and (possibly) related instances, updates the spec as needed.
     revert:
       description: Restore the instance to the state it was original found in
+    connect:
+      description: Connect to a pre-existing resource
 
 group_types:
   unfurl.groups.AnsibleInventoryGroup:
