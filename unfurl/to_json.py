@@ -601,12 +601,15 @@ def _get_or_make_primary(spec, db):
                 root = _generate_primary(spec, db, root and root.entity_tpl)
                 break
         if not root:
-            properties = {name: dict(get_input=name) for name in topology._tpl_inputs()}
-            tpl = dict(type=root_type.type, properties=properties)
-            root = topology.add_template(primary_name, tpl)
-            db["ResourceTemplate"][root.name] = nodetemplate_to_json(
-                root, spec, db["ResourceType"]
-            )
+            root =  topology.node_templates.get(primary_name)
+            if not root:
+                properties = {name: dict(get_input=name) for name in topology._tpl_inputs()}
+                tpl = dict(type=root_type.type, properties=properties)
+                root = topology.add_template(primary_name, tpl)
+                # XXX connections are missing
+                db["ResourceTemplate"][root.name] = nodetemplate_to_json(
+                    root, spec, db["ResourceType"]
+                )
     else:
         root = _generate_primary(spec, db)
 
@@ -956,7 +959,7 @@ def to_graphql_resource(instance, manifest, db):
     """
     # XXX url
     resource = dict(
-        name=instance.key,
+        name=instance.name,
         title=instance.name,
         template=instance.template.name,
         state=instance.state,
@@ -985,7 +988,7 @@ def to_graphql_resource(instance, manifest, db):
     if template["dependencies"]:
         requirements = {r["name"]: r.copy() for r in template["dependencies"]}
         for rel in instance.requirements:
-            requirements[rel.name]["target"] = rel.target.key
+            requirements[rel.name]["target"] = rel.target.name
         resource["connections"] = list(requirements.values())
     else:
         resource["connections"] = []
