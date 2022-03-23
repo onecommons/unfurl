@@ -318,7 +318,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                         doc.includes = includes
                     doc.path = path
 
-            if fragment:
+            if fragment and doc:
                 return _refResolver.resolve_fragment(doc, fragment)
             else:
                 return doc
@@ -407,7 +407,7 @@ class YamlConfig:
         logger.debug("attempting to load YAML file: %s", path)
         with open(path, "r") as f:
             config = self.yaml.load(f)
-        if fragment:
+        if fragment and config:
             return path, _refResolver.resolve_fragment(config, fragment)
         return path, config
 
@@ -523,6 +523,9 @@ class YamlConfig:
                     f"`file` key missing from document include: {templatePath}"
                 )
             key = templatePath["file"]
+            when = templatePath.get("when")
+            if when and not os.getenv(when):
+                return value, None, ''
         else:
             value = None
             key = templatePath
