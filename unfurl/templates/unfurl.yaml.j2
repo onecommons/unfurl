@@ -45,7 +45,10 @@ ensembles:
     # the ensemble is located in a different project
     project: [%external%]
     {% endif -%}
-    {%- if context | default("") %}
+    {% if context | default("") %}
     environment: [%context%]
+    {% else %}
+    # uncomment to associate this ensemble with an environment
+    # environment: your_environment
     {% endif %}
 {% endif %}
