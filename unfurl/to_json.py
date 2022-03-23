@@ -11,6 +11,7 @@ Output a normalized json representation of a TOSCA service template for machine 
 - Requirements has a "resourceType" which can be either a node type or a capability type.
 """
 import re
+import os
 from collections import Counter
 from toscaparser.properties import Property
 from toscaparser.elements.constraints import Schema
@@ -697,17 +698,22 @@ def get_blueprints_from_topology(manifest, db):
     # XXX cloud = spec.topology.primary_provider
     blueprint, root_name = to_graphql_blueprint(spec, db, [title])
     templates = get_deployment_blueprints(manifest, blueprint, root_name)
-    for name, value in templates.items():
-        template = value
-        break
+    deployment_name = os.getenv("DEPLOYMENT")
+    if deployment_name and deployment_name in templates:
+        template = templates[deployment_name].copy()
     else:
-        template = dict(
-            __typename="DeploymentTemplate",
-            title=title,
-            name=slug,
-            slug=slug,
-            description=spec.template.description,
-        )
+        # just use the first one if present
+        for name, value in templates.items():
+            template = value.copy()
+            break
+        else:
+            template = dict(
+                __typename="DeploymentTemplate",
+                title=title,
+                name=slug,
+                slug=slug,
+                description=spec.template.description,
+            )
     template["blueprint"] = blueprint["name"]
     template["primary"] = root_name
     # names of ResourceTemplates
@@ -774,14 +780,13 @@ def add_graphql_deployment(manifest, db, dtemplate):
       title: String!
       primary: Resource
       resources: [Resource!]
+      deploymentTemplate: DeploymentTemplate!
+      url: url
+
       job: Job?
       ready: Boolean
-      deploymentTemplate: DeploymentTemplate!
-      sourceDeploymentTemplateName: String
     }
     """
-    # XXX add env deployment graphql needs pipeline metadata (pipeline id, commit, branch)
-    # XXX job
     title = dtemplate["name"]
     deployment = dict(name=title, title=title)
     templates = db["ResourceTemplate"]
@@ -791,8 +796,13 @@ def add_graphql_deployment(manifest, db, dtemplate):
         if instance is not manifest.rootResource and instance.template.name in templates
     ]
     db["Resource"] = {r["name"]: r for r in deployment["resources"]}
-    deployment["primary"] = dtemplate["primary"]
+    primary_name = deployment["primary"] = dtemplate["primary"]
     deployment['deploymentTemplate'] = dtemplate["name"]
+    deployment['ci_job_id'] = os.getenv('CI_JOB_ID')
+    deployment['ci_pipeline_id'] = os.getenv('CI_PIPELINE_ID')
+    primary_resource = db["Resource"].get(primary_name)
+    if primary_resource:
+        deployment['url'] = primary_resource['attributes'].get('url')
     db["Deployment"] = {title: deployment}
     return deployment
 
