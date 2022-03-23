@@ -379,22 +379,33 @@ def node_type_to_graphql(spec, type_definition, types: dict):
     return jsontype
 
 
+def _make_typedef(typename, custom_defs):
+    typedef = None
+    # prefix is only used to expand "tosca:Type"
+    test_typedef = StatefulEntityType(
+        typename, StatefulEntityType.NODE_PREFIX, custom_defs
+    )
+    if test_typedef.is_derived_from("tosca.nodes.Root"):
+        typedef = NodeType(typename, custom_defs)
+    elif test_typedef.is_derived_from("tosca.relationships.Root"):
+        typedef = RelationshipType(typename, custom_defs)
+    return typedef
+
+
 def to_graphql_nodetypes(spec):
     # node types are readonly, so mapping doesn't need to be bijective
     types = {}
     custom_defs = spec.template.topology_template.custom_defs
-    for typename, defs in custom_defs.items():
-        typedef = None
-        # prefix is only used to expand "tosca:Type"
-        test_typedef = StatefulEntityType(
-            typename, StatefulEntityType.NODE_PREFIX, custom_defs
-        )
-        if test_typedef.is_derived_from("tosca.nodes.Root"):
-            typedef = NodeType(typename, custom_defs)
-        elif test_typedef.is_derived_from("tosca.relationships.Root"):
-            typedef = RelationshipType(typename, custom_defs)
+    for typename in custom_defs:
+        typedef = _make_typedef(typename, custom_defs)
         if typedef:
             types[typename] = node_type_to_graphql(spec, typedef, types)
+    for typename in StatefulEntityType.TOSCA_DEF: # builtin types
+        if typename.startswith('unfurl.nodes') or typename.startswith('unfurl.relationships'):
+            # only include our extensions
+            typedef = _make_typedef(typename, custom_defs)
+            if typedef:
+                types[typename] = node_type_to_graphql(spec, typedef, types)
 
     for node_spec in spec.nodeTemplates.values():
         type_definition = node_spec.toscaEntityTemplate.type_definition
