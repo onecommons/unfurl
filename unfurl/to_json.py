@@ -759,7 +759,13 @@ def to_graphql(localEnv):
             connections[name] = connection_template
 
     db["Overview"] = manifest.tosca.template.tpl.get("metadata") or {}
-    return db, connections, connection_types, environment_instances
+    env = dict(
+            connections=connections,
+            primary_provider=connections.get("primary_provider"),
+            instances=environment_instances,
+            repositories = manifest.context.get('repositories') or {}
+        )
+    return db, manifest, env, connection_types
 
 
 def add_graphql_deployment(manifest, db, dtemplate):
@@ -829,8 +835,7 @@ def to_blueprint(localEnv):
         resource_templates:
           <map of ResourceTemplates>
     """
-    db, connections, connection_types, env_instances = to_graphql(localEnv)
-    manifest = localEnv.get_manifest()
+    db, manifest, env, env_types = to_graphql(localEnv)
     blueprint, root_name = to_graphql_blueprint(manifest.tosca, db)
     deployment_blueprints = get_deployment_blueprints(manifest, blueprint, root_name)
     db["DeploymentTemplate"] = deployment_blueprints
@@ -840,8 +845,7 @@ def to_blueprint(localEnv):
 
 
 def to_deployment(localEnv):
-    db, connections, connection_types, env_instances = to_graphql(localEnv)
-    manifest = localEnv.get_manifest()
+    db, manifest, env, env_types = to_graphql(localEnv)
     blueprint, dtemplate = get_blueprints_from_topology(manifest, db)
     db["DeploymentTemplate"] = {dtemplate["name"]: dtemplate}
     db["ApplicationBlueprint"] = {blueprint["name"]: blueprint}
@@ -933,20 +937,16 @@ def to_environments(localEnv):
     blueprintdb = None
     for name in localEnv.project.contexts:
         # we create new LocalEnv for each context because we need to instantiate a different ToscaSpec object
-        blueprintdb, connections, connection_types, env_instances = to_graphql(
+        blueprintdb, manifest, env, env_types  = to_graphql(
             LocalEnv(
                 localEnv.manifestPath,
                 project=localEnv.project,
                 override_context=name,
             )
         )
-        environments[name] = dict(
-            name=name,
-            connections=connections,
-            primary_provider=connections.get("primary_provider"),
-            instances=env_instances,
-        )
-        all_connection_types.update(connection_types)
+        env['name'] = name
+        environments[name] = env
+        all_connection_types.update(env_types)
 
     db = {}
     db["DeploymentEnvironment"] = environments
@@ -983,19 +983,19 @@ def to_graphql_resource(instance, manifest, db):
     # instance._attributes should already be serialized
     template = db["ResourceTemplate"][instance.template.name]
     if instance._attributes:
-        inputs = []
+        outputs = []
         # include the default values by starting with the template's outputs
         if template.get("outputs"):
-            inputs = [p.copy() for p in template["outputs"]]
+            outputs = [p.copy() for p in template["outputs"]]
         attributes = instance._attributes.copy()
-        for prop in inputs:
+        for prop in outputs:
             name = prop["name"]
             if name in attributes:
                 prop["value"] = attributes.pop(name)
         # left over
         for name, value in attributes.items():
-            inputs.append(dict(name=name, value=value))
-        resource["attributes"] = inputs
+            outputs.append(dict(name=name, value=value))
+        resource["attributes"] = outputs
     else:
         resource["attributes"] = []
 
