@@ -97,7 +97,7 @@ def _patch(node, patchsrc, quote=False):
     ctx = RefContext(node, dict(template=tpl))
     ctx.base_dir = getattr(patchsrc, "base_dir", ctx.base_dir)
     if quote:
-        patch = patchsrc
+        patch = copy.deepcopy(patchsrc)
     else:
         patch = map_value(patchsrc, ctx)
     logger.trace("patching node %s was %s", node.name, tpl)
@@ -211,6 +211,33 @@ class ToscaSpec:
             for p in self.template.topology_template.policies
         }
 
+    def _patch(self, toscaDef, path):
+        matches = None
+        decorators = self.load_decorators()
+        if decorators:
+            logger.debug("applying decorators %s", decorators)
+            # copy errors before we clear them in _overlay
+            errorsSoFar = ExceptionCollector.exceptions[:]
+            # overlay uses ExceptionCollector
+            matches = self._overlay(decorators)
+            if ExceptionCollector.exceptionsCaught():
+                # abort if overlay caused errors
+                # report previously collected errors too
+                ExceptionCollector.exceptions[:0] = errorsSoFar
+                message = "\n".join(
+                    ExceptionCollector.getExceptionsReport(
+                        full=(get_console_log_level() < logging.INFO)
+                    )
+                )
+                raise UnfurlValidationError(
+                    f"TOSCA validation failed for {path}: \n{message}",
+                    ExceptionCollector.getExceptions(),
+                )
+        modified_imports = self.evaluate_imports(toscaDef)
+        annotated = self.enforce_filters()
+        return matches or modified_imports or annotated
+
+
     def __init__(
         self, toscaDef, spec=None, path=None, resolver=None, skip_validation=False
     ):
@@ -240,42 +267,24 @@ class ToscaSpec:
                 if not ExceptionCollector.exceptionsCaught() or not self.template:
                     raise  # unexpected error
 
-            decorators = self.load_decorators()
-            if decorators:
-                logger.debug("applying decorators %s", decorators)
-                # copy errors before we clear them in _overlay
-                errorsSoFar = ExceptionCollector.exceptions[:]
-                self._overlay(decorators)
-                if not skip_validation and ExceptionCollector.exceptionsCaught():
-                    # abort if overlay caused errors
-                    # report previously collected errors too
-                    ExceptionCollector.exceptions[:0] = errorsSoFar
-                    message = "\n".join(
-                        ExceptionCollector.getExceptionsReport(
-                            full=(get_console_log_level() < logging.INFO)
-                        )
-                    )
-                    raise UnfurlValidationError(
-                        f"TOSCA validation failed for {path}: \n{message}",
-                        ExceptionCollector.getExceptions(),
-                    )
-
-            modified_imports = self.evaluate_imports(toscaDef)
-            annotated = self.enforce_filters()
-            if decorators or modified_imports or annotated:
+            patched = self._patch(toscaDef, path)
+            if patched:
                 # overlay and evaluate_imports modifies tosaDef in-place, try reparsing it
                 self._parse_template(path, inputs, toscaDef, resolver)
 
-            if not skip_validation and ExceptionCollector.exceptionsCaught():
+            if ExceptionCollector.exceptionsCaught():
                 message = "\n".join(
                     ExceptionCollector.getExceptionsReport(
                         full=(get_console_log_level() < logging.INFO)
                     )
                 )
-                raise UnfurlValidationError(
-                    f"TOSCA validation failed for {path}: \n{message}",
-                    ExceptionCollector.getExceptions(),
-                )
+                if skip_validation:
+                    logger.warning("Found TOSCA validation failures: %s", message)
+                else:
+                    raise UnfurlValidationError(
+                        f"TOSCA validation failed for {path}: \n{message}",
+                        ExceptionCollector.getExceptions(),
+                    )
 
     @property
     def base_dir(self):
@@ -990,7 +999,7 @@ class RequirementSpec:
         return self.relationship.get_interfaces() if self.relationship else []
 
     def get_nodefilters(self):
-        # XXX should merge with type_tpl with entity_tpl 
+        # XXX should merge type_tpl with entity_tpl
         return get_nodefilters(self.type_tpl)
 
 def get_nodefilters(entity_tpl):
