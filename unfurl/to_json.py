@@ -801,8 +801,11 @@ def add_graphql_deployment(manifest, db, dtemplate):
     deployment['ci_job_id'] = os.getenv('CI_JOB_ID')
     deployment['ci_pipeline_id'] = os.getenv('CI_PIPELINE_ID')
     primary_resource = db["Resource"].get(primary_name)
-    if primary_resource:
-        deployment['url'] = primary_resource['attributes'].get('url')
+    if primary_resource and primary_resource.get("attributes"):
+        for prop in primary_resource["attributes"]:
+            if prop["name"] == "url":
+                deployment["url"] = prop["value"]
+                break
     db["Deployment"] = {title: deployment}
     return deployment
 
