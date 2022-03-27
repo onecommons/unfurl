@@ -99,7 +99,7 @@
         },
         {
           "name": "password",
-          "value": "*******"
+          "value": "<<REDACTED>>"
         }
       ],
       "dependencies": []
