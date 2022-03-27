@@ -294,6 +294,8 @@ class MockConfigurator(Configurator):
     def run(self, task):
         yield task.done(True)
 
+    def can_dry_run(self, task):
+        return True
 
 class _ConnectionsMap(dict):
     def by_type(self):

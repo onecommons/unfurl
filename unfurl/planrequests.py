@@ -94,10 +94,7 @@ class ConfigurationSpec:
         return find_schema_errors(expanded, self.preConditions)
 
     def create(self):
-        if os.getenv("UNFURL_MOCK_DEPLOY"):
-            className = "unfurl.configurator.MockConfigurator"
-        else:
-            className = self.className
+        className = self.className
         klass = lookup_class(className)
         if not klass:
             raise UnfurlError(f"Could not load configurator {self.className}")
@@ -631,6 +628,18 @@ def create_instance_from_spec(_manifest, target, rname, resourceSpec):
     # note: if resourceSpec[parent] is set it overrides the parent keyword
     return _manifest.create_node_instance(rname, resourceSpec, parent=parent)
 
+def _maybe_mock(iDef, template):
+    if not os.getenv("UNFURL_MOCK_DEPLOY"):
+        return iDef
+    mock = _find_implementation("Mock", iDef.name, template)
+    if mock:
+        return mock
+    # mock operation not found, so patch iDef
+    if not isinstance(iDef.implementation, dict):
+        # it's a string naming an artifact
+        iDef.implementation = dict(primary=iDef.implementation)
+    iDef.implementation['className'] = "unfurl.configurator.MockConfigurator"
+    return iDef
 
 def create_task_request(
     jobOptions,
@@ -647,6 +656,7 @@ def create_task_request(
     interface, sep, action = operation.rpartition(".")
     iDef = _find_implementation(interface, action, resource.template)
     if iDef and iDef.name != "default":
+        iDef = _maybe_mock(iDef, resource.template)
         # merge inputs
         if inputs:
             inputs = dict(iDef.inputs, **inputs)
@@ -788,7 +798,7 @@ def _get_config_spec_args_from_implementation(iDef, inputs, target, operation_ho
             elif name == "dependencies":
                 dependencies = value
             elif name in configSpecArgs:
-                # sets operation_host, environment, timeout
+                # sets operation_host, environment, timeout, className
                 kw[name] = value
     else:
         # "either because it refers to a named artifact specified in the artifacts section of a type or template,
