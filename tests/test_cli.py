@@ -3,6 +3,7 @@ import traceback
 import unittest
 from collections.abc import MutableSequence
 import six
+import sys
 import unfurl
 from click.testing import CliRunner
 from unfurl.__main__ import _args, cli
@@ -163,6 +164,7 @@ class CliTest(unittest.TestCase):
     @unittest.skipIf(
         "slow" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set"
     )
+    @unittest.skipIf(sys.version_info[:2] == (3,10)) # XXX
     def test_runtime(self):
         runner = CliRunner()
         venvSrc = os.path.join(os.path.dirname(__file__), "fixtures/venv")
