@@ -189,11 +189,11 @@ file
   ========= ===============================
   file:     path
   dir?:     path
-  encoding? "binary" | "vault" | "json" | "yaml" | python_text_encoding
+  encoding? "binary" | "vault" | "json" | "yaml" | "env" | python_text_encoding
   contents? any
   ========= ===============================
 
-  ``encoding`` can be "binary", "vault", "json", "yaml" or an encoding registered with the Python codec registry
+  ``encoding`` can be "binary", "vault", "json", "yaml", "env" or an encoding registered with the Python codec registry
 
   The ``select`` clause can evaluate the following keys:
 

@@ -1236,6 +1236,14 @@ group_types:
       <span class="n">Install</span><span class="p">:</span>
         <span class="n">operations</span><span class="p">:</span>
           <span class="n">check</span><span class="p">:</span>
+      <span class="n">Mock</span><span class="p">:</span>
+        <span class="n">operations</span><span class="p">:</span>
+          <span class="n">delete</span><span class="p">:</span>
+          <span class="n">create</span><span class="p">:</span>
+          <span class="n">configure</span><span class="p">:</span>
+          <span class="n">start</span><span class="p">:</span>
+          <span class="n">stop</span><span class="p">:</span>
+          <span class="n">check</span><span class="p">:</span>
 
   <span class="n">unfurl</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">Installer</span><span class="p">:</span>
     <span class="n">derived_from</span><span class="p">:</span> <span class="n">tosca</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">Root</span>
@@ -1532,6 +1540,9 @@ group_types:
     <span class="n">derived_from</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">ConnectsTo</span><span class="o">.</span><span class="n">OpenStack</span>
 
 <span class="n">interface_types</span><span class="p">:</span>
+  <span class="n">Mock</span><span class="p">:</span>
+    <span class="n">derived_from</span><span class="p">:</span> <span class="n">tosca</span><span class="o">.</span><span class="n">interfaces</span><span class="o">.</span><span class="n">Root</span>
+
   <span class="n">unfurl</span><span class="o">.</span><span class="n">interfaces</span><span class="o">.</span><span class="n">Install</span><span class="p">:</span>
     <span class="n">derived_from</span><span class="p">:</span> <span class="n">tosca</span><span class="o">.</span><span class="n">interfaces</span><span class="o">.</span><span class="n">Root</span>
     <span class="n">check</span><span class="p">:</span>
