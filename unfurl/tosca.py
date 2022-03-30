@@ -741,6 +741,16 @@ class EntitySpec(ResourceRef):
         else:
             return None
 
+    def is_template_aggregate(template):
+        "The template is only the sum of its parts."
+        for iDef in template.get_interfaces():
+            if iDef.interfacename == "Standard":
+                return False
+            if iDef.interfacename == "Install" and iDef.name == "discover":
+                return False
+        # no implementations found
+        return True
+
 
 class NodeSpec(EntitySpec):
     # has attributes: tosca_id, tosca_name, state, (3.4.1 Node States p.61)
