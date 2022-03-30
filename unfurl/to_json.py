@@ -299,15 +299,12 @@ def _include_requirement(spec, req):
     else:
         node = req[name].get("node")
         metadata = req[name].get("metadata")
-    if node and node in spec.nodeTemplates:
-        # using a predefined template, so hide this requirement from the user
-        node_metadata = spec.nodeTemplates[node].toscaEntityTemplate.entity_tpl.setdefault('metadata', {})
-        if 'internal' not in node_metadata:
-            # hide this template from the user
-            node_metadata['internal'] = True
-        return False
     if metadata and metadata.get('internal'):
         return False
+    if node and node in spec.nodeTemplates:
+        node_metadata = spec.nodeTemplates[node].toscaEntityTemplate.entity_tpl.get('metadata') or {}
+        if node_metadata.get('internal'):
+            return False
     return True
 
 
