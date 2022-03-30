@@ -280,7 +280,9 @@ class Ref:
         base_dir = getattr(self.source, "base_dir", None)
         if base_dir:
             ctx.base_dir = base_dir
-
+        # $start is set in eval_ref but the user use that to override currentResource
+        if 'start' in self.vars:
+            ctx.currentResource = ctx.resolve_var('$start')
         ctx.trace(
             f"Ref.resolve(wantList={wantList}) start strict {ctx.strict}",
             self.source,
