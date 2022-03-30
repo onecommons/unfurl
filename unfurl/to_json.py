@@ -147,8 +147,8 @@ def tosca_schema_to_jsonschema(p, spec):
     toscaSchema = prop.schema
     tosca_type = toscaSchema.type
     schema = {}
-    if p.name:
-        schema["title"] = p.name
+    if toscaSchema.title or p.name:
+        schema["title"] = toscaSchema.title or p.name
     if toscaSchema.default is not None and not is_function(toscaSchema.default):
         schema["default"] = toscaSchema.default
     if toscaSchema.required:
