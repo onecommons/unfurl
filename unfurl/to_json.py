@@ -913,7 +913,7 @@ def annotate_properties(types):
 
 def map_nodefilter(filters, jsonprops):
     ONE_TO_ONE_MAP = dict(object="map", array="list")
-    for name, value in get_nodefilters(filters):
+    for name, value in get_nodefilters(filters, "properties"):
         if name not in jsonprops or not isinstance(value, dict):
             continue
         if 'eval' in value:
