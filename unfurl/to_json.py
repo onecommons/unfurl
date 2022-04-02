@@ -583,7 +583,8 @@ def _generate_primary(spec, db, node_tpl=None):
     # if create new template, need to assign the nodes explicitly (needed if multiple templates have the same type)
     if not node_tpl:
         tpl["requirements"] = [{node.name: dict(node=node.name)} for node in roots]
-    node_template = topology.add_template(primary_name, tpl)
+    node_spec = spec.add_node_template(primary_name, tpl)
+    node_template = node_spec.toscaEntityTemplate
 
     types = db["ResourceType"]
     node_type_to_graphql(
@@ -624,7 +625,8 @@ def _get_or_make_primary(spec, db):
             if not root:
                 properties = {name: dict(get_input=name) for name in topology._tpl_inputs()}
                 tpl = dict(type=root_type.type, properties=properties)
-                root = topology.add_template(primary_name, tpl)
+                node_spec = spec.add_node_template(primary_name, tpl)
+                root = node_spec.toscaEntityTemplate
                 # XXX connections are missing
                 db["ResourceTemplate"][root.name] = nodetemplate_to_json(
                     root, spec, db["ResourceType"]
@@ -653,6 +655,7 @@ def to_graphql_blueprint(spec, db, deploymentTemplates=None):
       projectIcon: String
     }
     """
+    # note: root_resource_template is derived from inputs, outputs and substitution_template from topology_template
     root_name, root_type = _get_or_make_primary(spec, db)
     title, name = _template_title(spec, root_name)
     blueprint = dict(__typename="ApplicationBlueprint", name=name, title=title)
@@ -682,10 +685,24 @@ def _template_title(spec, default):
     return title, slug
 
 
-# XXX cloud = spec.topology.primary_provider
-def get_blueprints_from_topology(manifest, db):
+def get_deployment_blueprints(manifest, blueprint, root_name, db):
     """
-    Returns json object as DeploymentTemplate:
+    The blueprint will include deployement blueprints that follows this syntax in the manifest:
+
+    .. code-block:: YAML
+
+      spec:
+        deployment_blueprints:
+          <name>:
+            title: Google Cloud Platform
+            cloud: unfurl.relationships.ConnectsTo.GoogleCloudProject
+            description: Deploy compute instances on Google Cloud Platform
+            resource_templates:
+              <map of ResourceTemplates>
+            # graphql json import / export only:
+            resourceTemplates: [resource_template_name*]
+
+    Returns json object with DeploymentTemplates:
 
     type DeploymentTemplate {
       name: String!
@@ -699,11 +716,50 @@ def get_blueprints_from_topology(manifest, db):
       cloud: ResourceType
     }
     """
+    deployment_blueprints = (
+        manifest.manifest.expanded.get("spec", {}).get("deployment_blueprints") or {}
+    )
+    spec = manifest.tosca
+    deployment_templates = {}
+    for name, tpl in deployment_blueprints.items():
+        slug = slugify(name)
+        template = tpl.copy()
+        local_resource_templates = {}
+        resource_templates = template.get("resource_templates")
+        if resource_templates:
+            for node_name, node_tpl in resource_templates.items():
+                # nodes here overrides node_templates
+                node_spec = spec.add_node_template(node_name, node_tpl)
+                node_template = node_spec.toscaEntityTemplate
+                local_resource_templates[node_name] = nodetemplate_to_json(
+                    node_template, spec, db["ResourceType"]
+                )
+        # XXX assert that db["ResourceTemplate"] has already has all the node_templates
+        # names of ResourceTemplates:
+        resourceTemplates = list(set(db["ResourceTemplate"]) | set(local_resource_templates))
+        template.update(
+            dict(
+                __typename="DeploymentTemplate",
+                title=tpl.get("title") or name,
+                description=tpl.get("description"),
+                name=name,
+                slug=slug,
+                blueprint=blueprint["name"],
+                primary=tpl.get("primary") or root_name,
+                resourceTemplates=resourceTemplates,
+                ResourceTemplate=local_resource_templates
+            )
+        )
+        deployment_templates[name] = template
+    return deployment_templates
+
+
+def get_blueprint_from_topology(manifest, db):
     spec = manifest.tosca
     title, slug = _template_title(spec, "unnamed")
     # XXX cloud = spec.topology.primary_provider
     blueprint, root_name = to_graphql_blueprint(spec, db, [title])
-    templates = get_deployment_blueprints(manifest, blueprint, root_name)
+    templates = get_deployment_blueprints(manifest, blueprint, root_name, db)
     deployment_name = os.getenv("DEPLOYMENT")
     if deployment_name and deployment_name in templates:
         template = templates[deployment_name].copy()
@@ -713,17 +769,19 @@ def get_blueprints_from_topology(manifest, db):
             template = value.copy()
             break
         else:
+            # none exist, create one
             template = dict(
                 __typename="DeploymentTemplate",
                 title=title,
                 name=slug,
                 slug=slug,
                 description=spec.template.description,
+                # names of ResourceTemplates
+                resourceTemplates=list(db["ResourceTemplate"]),
+                ResourceTemplate={}
             )
     template["blueprint"] = blueprint["name"]
     template["primary"] = root_name
-    # names of ResourceTemplates
-    template["resourceTemplates"] = list(db["ResourceTemplate"])
     return blueprint, template
 
 
@@ -820,48 +878,10 @@ def add_graphql_deployment(manifest, db, dtemplate):
     return deployment
 
 
-def get_deployment_blueprints(manifest, blueprint, root_name):
-    deployment_blueprints = (
-        manifest.manifest.expanded.get("spec", {}).get("deployment_blueprints") or {}
-    )
-    deployment_templates = {}
-    for name, tpl in deployment_blueprints.items():
-        # note: root_resource_template is derived from inputs, outputs and substitution_template from topology_template
-        slug = slugify(name)
-        template = tpl.copy()
-        template.update(
-            dict(
-                __typename="DeploymentTemplate",
-                title=tpl.get("title") or name,
-                description=tpl.get("description"),
-                name=name,
-                slug=slug,
-                blueprint=blueprint["name"],
-                primary=tpl.get("primary") or root_name,
-            )
-        )
-        deployment_templates[name] = template
-    return deployment_templates
-
-
 def to_blueprint(localEnv):
-    """
-    The blueprint will include deployement blueprints that follows this syntax in the manifest:
-
-    .. code-block:: YAML
-
-      spec:
-        deployment_blueprints:
-         title: Google Cloud Platform
-         cloud: unfurl.relationships.ConnectsTo.GoogleCloudProject
-         description: Deploy compute instances on Google Cloud Platform
-         resourceTemplates: [resource_template_name*]
-        resource_templates:
-          <map of ResourceTemplates>
-    """
     db, manifest, env, env_types = to_graphql(localEnv)
     blueprint, root_name = to_graphql_blueprint(manifest.tosca, db)
-    deployment_blueprints = get_deployment_blueprints(manifest, blueprint, root_name)
+    deployment_blueprints = get_deployment_blueprints(manifest, blueprint, root_name, db)
     db["DeploymentTemplate"] = deployment_blueprints
     blueprint["deploymentTemplates"] = list(deployment_blueprints)
     db["ApplicationBlueprint"] = {blueprint["name"]: blueprint}
@@ -870,7 +890,7 @@ def to_blueprint(localEnv):
 
 def to_deployment(localEnv):
     db, manifest, env, env_types = to_graphql(localEnv)
-    blueprint, dtemplate = get_blueprints_from_topology(manifest, db)
+    blueprint, dtemplate = get_blueprint_from_topology(manifest, db)
     db["DeploymentTemplate"] = {dtemplate["name"]: dtemplate}
     db["ApplicationBlueprint"] = {blueprint["name"]: blueprint}
     deployment = add_graphql_deployment(manifest, db, dtemplate)
