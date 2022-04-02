@@ -751,9 +751,9 @@ class EntitySpec(ResourceRef):
         else:
             return None
 
-    def is_template_aggregate(template):
+    def aggregate_only(self):
         "The template is only the sum of its parts."
-        for iDef in template.get_interfaces():
+        for iDef in self.get_interfaces():
             if iDef.interfacename == "Standard":
                 return False
             if iDef.interfacename == "Install" and iDef.name == "discover":
