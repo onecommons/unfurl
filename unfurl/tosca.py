@@ -583,6 +583,7 @@ class EntitySpec(ResourceRef):
             )
 
         self.type = toscaNodeTemplate.type
+        self._isReferenced = None # this is referenced by another template or via property traversal
         # nodes have both properties and attributes
         # as do capability properties and relationships
         # but only property values are declared
@@ -761,6 +762,10 @@ class EntitySpec(ResourceRef):
         # no implementations found
         return True
 
+    @property
+    def required(self):
+        # don't require default templates that aren't referenced
+        return self._isReferenced or 'default' not in self.directives
 
 class NodeSpec(EntitySpec):
     # has attributes: tosca_id, tosca_name, state, (3.4.1 Node States p.61)
@@ -1114,6 +1119,7 @@ class TopologySpec(EntitySpec):
         self.attributeDefs = {}
         self.capabilities = []
         self._defaultRelationships = None
+        self._isReferenced = True 
 
     def get_interfaces(self):
         # doesn't have any interfaces

@@ -792,6 +792,8 @@ def order_templates(templates, filter=None, interface=None):
                     continue
                 seen.add(spec)
                 if spec:
+                    if "default" not in source.directives:
+                        spec._isReferenced = True
                     yield spec
 
 

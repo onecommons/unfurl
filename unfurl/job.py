@@ -569,6 +569,8 @@ class Job(ConfigChange):
         # if there were circular dependencies or errors then notReady won't be empty
         if notReady:
             for parent, req in get_render_requests(notReady):
+                if not req.target.template.required: # we don't want to run these
+                    continue
                 message = f"can't fulfill {req.target.name}: never ran {req.future_dependencies}"
                 logger.info(message)
                 req.task.finished(ConfiguratorResult(False, False, result=message))
@@ -1124,6 +1126,8 @@ class Job(ConfigChange):
             if isGroup and not request.children:
                 continue  # don't include in the plan
             if request.target is not target:
+                if not request.target.template.required:
+                    continue
                 # target changed, add it to the parent's list
                 # switch to the "plan" member of the new target
                 target = request.target
@@ -1219,6 +1223,8 @@ class Job(ConfigChange):
             for request in requests:
                 isGroup = isinstance(request, TaskRequestGroup)
                 if isGroup and not request.children:
+                    continue
+                if not request.target.template.required:
                     continue
                 if isinstance(request, JobRequest):
                     count += 1

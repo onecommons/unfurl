@@ -16,6 +16,15 @@ spec:
 
     topology_template:
       node_templates:
+        should_skip:
+          directives:
+          - default
+          description: this default template isn't referenced so shouldn't be part of the plan
+          type: tosca:Root
+          interfaces:
+            Standard:
+              configure: echo "should have been skipped"
+
         gcp-org:
           type: unfurl.nodes.GoogleCloudOrganization
           properties:

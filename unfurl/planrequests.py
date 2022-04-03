@@ -471,6 +471,7 @@ def _render_request(job, parent, req, requests):
     except Exception:
         # note: failed rendering may be re-tried later if it has dependencies
         error = UnfurlTaskError(task, "Configurator render failed", logging.DEBUG)
+    task._attributeManager.mark_referenced_templates()
 
     if parent and parent.workflow == "undeploy":
         # when removing an instance don't worry about depending values changing in the future
@@ -511,6 +512,16 @@ def _add_to_req_list(reqs, parent, request):
     else:
         reqs.append(request)
 
+def _reevaluate_not_required(not_required, render_requests):
+    # keep rendering if a not_required template was referenced and is now required
+    new_not_required = []
+    for (parent, request) in not_required:
+        if request.target.template.required:
+            render_requests.append( (parent, request) )
+        else:
+            new_not_required.append( (parent, request) )
+    return new_not_required
+
 
 def do_render_requests(job, requests):
     ready, notReady, errors = [], [], []
@@ -519,20 +530,30 @@ def do_render_requests(job, requests):
         for (p, r) in get_render_requests(requests)
         if _prepare_request(job, r, errors)
     )
+    not_required = []
     render_requests = collections.deque(flattened_requests)
     while render_requests:
         parent, request = render_requests.popleft()
-        deps, error = _render_request(job, parent, request, flattened_requests)
-        if error:
-            errors.append(error)
-        if deps:
-            # remove if we already added the parent
-            if parent and ready and ready[-1] is parent:
-                ready.pop()
-            _add_to_req_list(notReady, parent, request)
-        elif not parent or not notReady or notReady[-1] is not parent:
-            # don't add if the parent was placed on the notReady list
-            _add_to_req_list(ready, parent, request)
+        # we dont require default templates that aren't referenced
+        required = request.target.template.required
+        if not required:
+            not_required.append( (parent, request) )
+        else:
+            deps, error = _render_request(job, parent, request, flattened_requests)
+            if error:
+                errors.append(error)
+            if deps:
+                # remove parent from ready if added it there
+                if parent and ready and ready[-1] is parent:
+                    ready.pop()
+                _add_to_req_list(notReady, parent, request)
+            elif not parent or not notReady or notReady[-1] is not parent:
+                # don't add if the parent was placed on the notReady list
+                _add_to_req_list(ready, parent, request)
+            not_required = _reevaluate_not_required(not_required, render_requests)
+
+    for (parent, request) in not_required:
+        _add_to_req_list(notReady, parent, request)
     return ready, notReady, errors
 
 
