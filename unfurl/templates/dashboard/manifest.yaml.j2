@@ -9,6 +9,10 @@ kind: Ensemble
 metadata:
   uri: {{ ensembleUri }}
 {%- endif %}
+{%- if deployment_blueprint | default("") %}
+environment:
+  deployment_blueprint: {{ deployment_blueprint }}
+{%- endif %}
 spec:
 {%- if inputs | default("") %}
   inputs:
@@ -19,7 +23,7 @@ spec:
   service_template:
     metadata:
       +?include: deployment.json#/ApplicationBlueprint
-    topology_template:    
+    topology_template:
       node_templates:
         +?include: deployment.json#/ResourceTemplate
     {%- if serviceTemplate is defined %}

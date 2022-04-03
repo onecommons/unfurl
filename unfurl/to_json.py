@@ -725,7 +725,7 @@ def get_deployment_blueprints(manifest, blueprint, root_name, db):
         slug = slugify(name)
         template = tpl.copy()
         local_resource_templates = {}
-        resource_templates = template.get("resource_templates")
+        resource_templates = template.pop("resource_templates", None)
         if resource_templates:
             for node_name, node_tpl in resource_templates.items():
                 # nodes here overrides node_templates

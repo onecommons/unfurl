@@ -842,6 +842,10 @@ def runtime(ctx, project_folder, init=False, **options):
     is_flag=True,
     help="Create ensemble in the given directory even if it exists.",
 )
+@click.option(
+    "--use-deployment-blueprint",
+    help="Use this deployment blueprint.",
+)
 def clone(ctx, source, dest, **options):
     """Create a new ensemble or project from a service template or an existing ensemble or project.
 
