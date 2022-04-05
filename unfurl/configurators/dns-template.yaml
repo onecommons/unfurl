@@ -30,6 +30,8 @@ node_types:
       provider:
         description: OctoDNS provider configuration
         type: map
+        metadata:
+          sensitive: true # might have credentials
       records:
         description: DNS records to add to the zone
         type: map
