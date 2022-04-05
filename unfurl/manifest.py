@@ -17,7 +17,7 @@ from .runtime import (
 )
 from .util import UnfurlError, to_enum, sensitive_str, get_base_dir
 from .repo import RevisionManager, split_git_url, RepoView
-from .merge import patch_dict
+from .merge import merge_dicts
 from .yamlloader import YamlConfig, yaml, ImportResolver
 from .job import ConfigChange
 import toscaparser.imports
@@ -89,8 +89,10 @@ class Manifest(AttributeManager):
         toscaDef["tosca_definitions_version"] = TOSCA_VERSION
 
         if more_spec:
-            patch_dict(toscaDef, more_spec, True)
-
+            # don't merge individual templates
+            toscaDef = merge_dicts(
+                toscaDef, more_spec, replaceKeys=['node_templates', 'relationship_templates']
+            )
         if not isinstance(toscaDef, CommentedMap):
             toscaDef = CommentedMap(toscaDef.items())
         if getattr(toscaDef, "base_dir", None) and (

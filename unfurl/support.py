@@ -877,6 +877,10 @@ class AttributeManager:
         else:
             self.statuses[resource.key][1] = newvalue
 
+    def mark_referenced_templates(self):
+        for (resource, attr) in self.attributes.values():
+            resource.template._isReferenced = True
+
     def get_attributes(self, resource):
         if resource.key not in self.attributes:
             # deepcopy() because lazily created ResultMaps and ResultLists will mutate

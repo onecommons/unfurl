@@ -100,6 +100,14 @@ node_types:
       Install:
         operations:
           check:
+      Mock:
+        operations:
+          delete:
+          create:
+          configure:
+          start:
+          stop:
+          check:
 
   unfurl.nodes.Installer:
     derived_from: tosca.nodes.Root
@@ -396,6 +404,9 @@ relationship_types:
     derived_from: unfurl.relationships.ConnectsTo.OpenStack
 
 interface_types:
+  Mock:
+    derived_from: tosca.interfaces.Root
+
   unfurl.interfaces.Install:
     derived_from: tosca.interfaces.Root
     check:

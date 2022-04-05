@@ -70,6 +70,7 @@
         "inputs": { "$ref": "#/definitions/attributes" },
         "defaultProject": { "type": "string" },
         "name": { "type": "string" },
+        "deployment_blueprint": { "type": "string" },
         "variables": { "anyOf": [{ "type": "object" }, { "type": "null" }] },
         "locals": { "$ref": "#/definitions/attributes" },
         "secrets": { "$ref": "#/definitions/attributes" },

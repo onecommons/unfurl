@@ -138,7 +138,7 @@ class Plan:
 
     def create_resource(self, template):
         parent = find_parent_resource(self.root, template)
-        if not template.get_interfaces():
+        if template.aggregate_only():
             status = Status.ok
         elif self.jobOptions.check:
             status = Status.unknown
@@ -792,6 +792,8 @@ def order_templates(templates, filter=None, interface=None):
                     continue
                 seen.add(spec)
                 if spec:
+                    if "default" not in source.directives:
+                        spec._isReferenced = True
                     yield spec
 
 

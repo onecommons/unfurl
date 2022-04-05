@@ -103,7 +103,7 @@ class TemplateConfigurator(Configurator):
                 done["result"] = {"run": runResult}
             else:
                 done["result"] = runResult
-        if self.process_result_template(task, done.get("result")):
+        if self.process_result_template(task, done.get("result") or {}):
             done["success"] = False  # returned errors
         yield task.done(**done)
 

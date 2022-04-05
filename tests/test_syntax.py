@@ -22,26 +22,6 @@ def test_jsonexport():
     # XXX verify that saving the manifest preserves the json include
 
 
-# def test_deployment_blueprints():
-# unfurl.yaml:
-#     environments:
-#       # include service connections
-#      +include: environment.json#DeploymentEnvironments
-#
-# ensemble.yaml
-#   service_template:
-#     +include: blueprint_ensemble_template.yaml#spec/service_template
-#     node_templates:
-#       +include: resource-templates.json#ResourceTemplate
-#
-# blueprint_ensemble_template.yaml:
-#   spec:
-#     deployment_blueprints:
-#       +include: unfurl-blueprint.json#DeploymentTemplate
-#     resource_templates:
-#         +include: unfurl-blueprint.json#ResourceTemplate
-
-
 class ManifestSyntaxTest(unittest.TestCase):
     def test_hasVersion(self):
         hasVersion = """

@@ -647,6 +647,8 @@ class EnsembleBuilder:
         self.templateVars = _get_ensemble_paths(
             source_path, self.source_project, self.options.get("want_init")
         )
+        if self.options.get("use_deployment_blueprint"):
+            self.templateVars['deployment_blueprint'] = self.options['use_deployment_blueprint']
         (self.environment, self.shared_repo) = _get_context_and_shared_repo(
             self.dest_project, self.options
         )
@@ -743,7 +745,7 @@ class EnsembleBuilder:
             # we found a template file to clone
             templateVars["inputs"] = self._get_inputs_template()
             localEnv, manifest = self._create_ensemble_from_template(
-                destProject, destDir, manifestName
+                destProject, destDir, manifestName,
             )
         else:
             # look for an ensemble at the given path or use the source project's default

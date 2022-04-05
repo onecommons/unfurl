@@ -94,10 +94,7 @@ class ConfigurationSpec:
         return find_schema_errors(expanded, self.preConditions)
 
     def create(self):
-        if os.getenv("UNFURL_MOCK_DEPLOY"):
-            className = "unfurl.configurator.MockConfigurator"
-        else:
-            className = self.className
+        className = self.className
         klass = lookup_class(className)
         if not klass:
             raise UnfurlError(f"Could not load configurator {self.className}")
@@ -474,6 +471,7 @@ def _render_request(job, parent, req, requests):
     except Exception:
         # note: failed rendering may be re-tried later if it has dependencies
         error = UnfurlTaskError(task, "Configurator render failed", logging.DEBUG)
+    task._attributeManager.mark_referenced_templates()
 
     if parent and parent.workflow == "undeploy":
         # when removing an instance don't worry about depending values changing in the future
@@ -514,6 +512,16 @@ def _add_to_req_list(reqs, parent, request):
     else:
         reqs.append(request)
 
+def _reevaluate_not_required(not_required, render_requests):
+    # keep rendering if a not_required template was referenced and is now required
+    new_not_required = []
+    for (parent, request) in not_required:
+        if request.target.template.required:
+            render_requests.append( (parent, request) )
+        else:
+            new_not_required.append( (parent, request) )
+    return new_not_required
+
 
 def do_render_requests(job, requests):
     ready, notReady, errors = [], [], []
@@ -522,20 +530,30 @@ def do_render_requests(job, requests):
         for (p, r) in get_render_requests(requests)
         if _prepare_request(job, r, errors)
     )
+    not_required = []
     render_requests = collections.deque(flattened_requests)
     while render_requests:
         parent, request = render_requests.popleft()
-        deps, error = _render_request(job, parent, request, flattened_requests)
-        if error:
-            errors.append(error)
-        if deps:
-            # remove if we already added the parent
-            if parent and ready and ready[-1] is parent:
-                ready.pop()
-            _add_to_req_list(notReady, parent, request)
-        elif not parent or not notReady or notReady[-1] is not parent:
-            # don't add if the parent was placed on the notReady list
-            _add_to_req_list(ready, parent, request)
+        # we dont require default templates that aren't referenced
+        required = request.target.template.required
+        if not required:
+            not_required.append( (parent, request) )
+        else:
+            deps, error = _render_request(job, parent, request, flattened_requests)
+            if error:
+                errors.append(error)
+            if deps:
+                # remove parent from ready if added it there
+                if parent and ready and ready[-1] is parent:
+                    ready.pop()
+                _add_to_req_list(notReady, parent, request)
+            elif not parent or not notReady or notReady[-1] is not parent:
+                # don't add if the parent was placed on the notReady list
+                _add_to_req_list(ready, parent, request)
+            not_required = _reevaluate_not_required(not_required, render_requests)
+
+    for (parent, request) in not_required:
+        _add_to_req_list(notReady, parent, request)
     return ready, notReady, errors
 
 
@@ -631,6 +649,18 @@ def create_instance_from_spec(_manifest, target, rname, resourceSpec):
     # note: if resourceSpec[parent] is set it overrides the parent keyword
     return _manifest.create_node_instance(rname, resourceSpec, parent=parent)
 
+def _maybe_mock(iDef, template):
+    if not os.getenv("UNFURL_MOCK_DEPLOY"):
+        return iDef
+    mock = _find_implementation("Mock", iDef.name, template)
+    if mock:
+        return mock
+    # mock operation not found, so patch iDef
+    if not isinstance(iDef.implementation, dict):
+        # it's a string naming an artifact
+        iDef.implementation = dict(primary=iDef.implementation)
+    iDef.implementation['className'] = "unfurl.configurator.MockConfigurator"
+    return iDef
 
 def create_task_request(
     jobOptions,
@@ -647,6 +677,7 @@ def create_task_request(
     interface, sep, action = operation.rpartition(".")
     iDef = _find_implementation(interface, action, resource.template)
     if iDef and iDef.name != "default":
+        iDef = _maybe_mock(iDef, resource.template)
         # merge inputs
         if inputs:
             inputs = dict(iDef.inputs, **inputs)
@@ -788,7 +819,7 @@ def _get_config_spec_args_from_implementation(iDef, inputs, target, operation_ho
             elif name == "dependencies":
                 dependencies = value
             elif name in configSpecArgs:
-                # sets operation_host, environment, timeout
+                # sets operation_host, environment, timeout, className
                 kw[name] = value
     else:
         # "either because it refers to a named artifact specified in the artifacts section of a type or template,

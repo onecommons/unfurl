@@ -92,8 +92,9 @@ def create_default_topology():
     )
     return ToscaTemplate(yaml_dict_tpl=tpl)
 
-def _patch(node, patchsrc, quote=False):
-    tpl = node.toscaEntityTemplate.entity_tpl
+def _patch(node, patchsrc, quote=False, tpl=None):
+    if tpl is None:
+        tpl = node.toscaEntityTemplate.entity_tpl
     ctx = RefContext(node, dict(template=tpl))
     ctx.base_dir = getattr(patchsrc, "base_dir", ctx.base_dir)
     if quote:
@@ -143,13 +144,22 @@ class ToscaSpec:
         patched = False
         for nodespec in self.nodeTemplates.values():
             for req in nodespec.requirements.values():
-                for prop, value in req.get_nodefilters():
+                for prop, value in req.get_nodefilter_properties():
+                    # annotate the target's properties
                     target = req.relationship and req.relationship.target
                     if target and isinstance(value, dict) and 'eval' in value:
                         value.setdefault('vars', {})['SOURCE'] = dict(eval="::"+nodespec.name)
                         patch = dict(properties={prop: value})
                         _patch(target, patch, quote=True)
                         patched = True
+                for name, value in req.get_nodefilter_requirements():
+                    # annotate the target's requirements
+                    target = req.relationship and req.relationship.target
+                    if target:
+                        matching_target_req = target.requirements.get(name)
+                        _patch(nodespec, value, tpl=matching_target_req.entity_tpl[name])
+                        patched = True
+
         return patched
 
     def _overlay(self, overlays):
@@ -573,6 +583,7 @@ class EntitySpec(ResourceRef):
             )
 
         self.type = toscaNodeTemplate.type
+        self._isReferenced = None # this is referenced by another template or via property traversal
         # nodes have both properties and attributes
         # as do capability properties and relationships
         # but only property values are declared
@@ -741,6 +752,20 @@ class EntitySpec(ResourceRef):
         else:
             return None
 
+    def aggregate_only(self):
+        "The template is only the sum of its parts."
+        for iDef in self.get_interfaces():
+            if iDef.interfacename == "Standard":
+                return False
+            if iDef.interfacename == "Install" and iDef.name == "discover":
+                return False
+        # no implementations found
+        return True
+
+    @property
+    def required(self):
+        # don't require default templates that aren't referenced
+        return self._isReferenced or 'default' not in self.directives
 
 class NodeSpec(EntitySpec):
     # has attributes: tosca_id, tosca_name, state, (3.4.1 Node States p.61)
@@ -998,19 +1023,22 @@ class RequirementSpec:
     def get_interfaces(self):
         return self.relationship.get_interfaces() if self.relationship else []
 
-    def get_nodefilters(self):
+    def get_nodefilter_properties(self):
         # XXX should merge type_tpl with entity_tpl
-        return get_nodefilters(self.type_tpl)
+        return get_nodefilters(self.type_tpl, 'properties')
 
-def get_nodefilters(entity_tpl):
+    def get_nodefilter_requirements(self):
+        # XXX should merge type_tpl with entity_tpl
+        return get_nodefilters(self.type_tpl, "requirements")
+
+def get_nodefilters(entity_tpl, key):
     if not isinstance(entity_tpl, dict):
         return
     nodefilter = entity_tpl.get('node_filter')
-    if nodefilter and 'properties' in nodefilter:
-        for filter in nodefilter['properties']:
+    if nodefilter and key in nodefilter:
+        for filter in nodefilter[key]:
             name, value = next(iter(filter.items()))
             yield name, value
-
 
 class CapabilitySpec(EntitySpec):
     def __init__(self, parent=None, capability=None):
@@ -1091,6 +1119,7 @@ class TopologySpec(EntitySpec):
         self.attributeDefs = {}
         self.capabilities = []
         self._defaultRelationships = None
+        self._isReferenced = True 
 
     def get_interfaces(self):
         # doesn't have any interfaces

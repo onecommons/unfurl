@@ -1,0 +1,17 @@
+#jinja2: variable_start_string: '[%', variable_end_string: '%]'
+apiVersion: unfurl/v1alpha1
+kind: Project
+[%include | default("") %]
+
+{%- if default_context | default("") %}
+default_environment: [%default_context%]
+{% endif %}
+
+# To create/update environments.json run:
+# unfurl --home '' export --format environments
+environments:
+  defaults:
+    repositories:
+      types:
+        url: https://gitlab.com/onecommons/unfurl-types
+  +?include: environments.json#DeploymentEnvironment
