@@ -398,6 +398,11 @@ def get_base_dir(path):
     else:
         return os.path.normpath(os.path.dirname(path))
 
+def truncate_str(v):
+    s = str(v)
+    if len(s) > 1000:
+        return f"{s[:494]} [{len(s) - 1000} omitted...]  {s[-494:]}"
+    return v
 
 @contextmanager
 def change_cwd(new_path: str, log: Logger = None):

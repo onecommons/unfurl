@@ -22,7 +22,7 @@ inputs:
 # XXX add support for a stdin parameter
 
 from ..configurator import Status
-from ..util import which
+from ..util import which, truncate_str
 from . import TemplateConfigurator
 import os
 import sys
@@ -79,14 +79,6 @@ def _run(*args, **kwargs):
             raise
         retcode = process.poll()
     return subprocess.CompletedProcess(process.args, retcode, stdout, stderr)
-
-
-def _truncate(s):
-    if not s:
-        return ""
-    if len(s) > 1000:
-        return f"{s[:500]} [{len(s)} omitted...]  {s[-500:]}"
-    return s
 
 
 def clean_output(value: str) -> str:
@@ -192,11 +184,11 @@ class ShellConfigurator(TemplateConfigurator):
                 task.logger.info(
                     "shell task return code: %s, stderr: %s",
                     result.returncode,
-                    _truncate(result.stderr),
+                    truncate_str(result.stderr),
                 )
         else:
             task.logger.info("shell task run success: %s", result.cmd)
-            task.logger.debug("shell task output: %s", _truncate(result.stdout))
+            task.logger.debug("shell task output: %s", truncate_str(result.stdout))
         # strips terminal escapes after we printed output via logger
         result.stdout = clean_output(result.stdout or "")
         result.stderr = clean_output(result.stderr or "")
