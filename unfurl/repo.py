@@ -180,7 +180,7 @@ class Repo:
 
 def commit_secrets(working_dir, yaml):
     vault = yaml and getattr(yaml.representer, "vault", None)
-    if not vault:
+    if not vault or not vault.secrets:
         return []
     saved = []
     for filepath, dotsecrets in find_dirty_secrets(working_dir):
