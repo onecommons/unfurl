@@ -191,6 +191,28 @@ def tosca_schema_to_jsonschema(p, spec):
     return schema
 
 
+def _requirement_visibility(spec, name, req):
+    if name == "dependency":
+        return "omit"
+    node = req.get("node")
+    metadata = req.get("metadata")
+    if metadata and metadata.get('internal'):
+        return "hidden"
+    if node and node in spec.nodeTemplates:
+        # if there's already a resource template assigned and it is marked internal
+        node_metadata = spec.nodeTemplates[node].toscaEntityTemplate.entity_tpl.get('metadata') or {}
+        if node_metadata.get('internal'):
+            return "hidden"
+    return "visible"
+
+def _get_req(req_dict):
+    name, req = list(req_dict.items())[0]
+    if isinstance(req, str):
+        req = dict(node=req)
+    else:
+        assert isinstance(req, dict), f"bad {req} in {req_dict}"
+    return name, req
+
 def requirement_to_graphql(spec, req_dict):
     """
     type RequirementConstraint {
@@ -201,15 +223,17 @@ def requirement_to_graphql(spec, req_dict):
         min: Int
         max: Int
         badge: String
+        visibility: String
     }
     """
-    name, req = list(req_dict.items())[0]
-    if isinstance(req, str):
-        req = dict(node=req)
-    else:
-        assert isinstance(req, dict), f"bad {req} in {req_dict}"
-    reqobj = dict(name=name, title=name, description=req.get("description") or "")
+    name, req = _get_req(req_dict)
+    visibility = _requirement_visibility(spec, name, req)
+    if visibility == "omit":
+        return None
+
+    reqobj = dict(name=name, title=name, description=req.get("description") or "", visibility=visibility)
     metadata = req.get("metadata")
+
     if metadata:
         if "badge" in metadata:
             reqobj["badge"] = metadata["badge"]
@@ -233,7 +257,6 @@ def requirement_to_graphql(spec, req_dict):
     reqobj["resourceType"] = nodetype
     if req.get("node_filter"):
         reqobj["node_filter"] = req["node_filter"]
-
     return reqobj
 
 
@@ -249,15 +272,17 @@ def _get_extends(spec, typedef, extends: list, types):
         _get_extends(spec, p, extends, types)
 
 
-def is_resource_user_visible(spec, t):
-  if 'default' in t.directives:
-      return False
-  metadata = t.entity_tpl.get('metadata')
-  if metadata and metadata.get('internal'):
-      return False
-  if spec.discovered and t.name in spec.discovered:
-      return False
-  return True
+def resource_visibility(spec, t):
+    if "default" in t.directives:
+        # NB: directives aren't preserved in export so
+        # if default isn't omitted, it will lose its default directive if the export is included
+        return "omit"
+    metadata = t.entity_tpl.get('metadata')
+    if metadata and metadata.get('internal'):
+        return "hidden"
+    if spec.discovered and t.name in spec.discovered:
+        return "omit"
+    return "visible"
 
 
 def is_property_user_visible(p):
@@ -289,39 +314,22 @@ def property_value_to_json(p, value):
     return value
 
 
-def _include_requirement(spec, req):
-    name = next(iter(req))
-    if name == "dependency":
-        return False
-    if isinstance(req[name], str):
-        node = req[name]
-        metadata = None
-    else:
-        node = req[name].get("node")
-        metadata = req[name].get("metadata")
-    if metadata and metadata.get('internal'):
-        return False
-    if node and node in spec.nodeTemplates:
-        node_metadata = spec.nodeTemplates[node].toscaEntityTemplate.entity_tpl.get('metadata') or {}
-        if node_metadata.get('internal'):
-            return False
-    return True
-
-
 # XXX outputs: only include "public" attributes?
 def node_type_to_graphql(spec, type_definition, types: dict):
     """
     type ResourceType {
-      name: string!
-      title: string
+      name: String!
+      title: String
       extends: [ResourceType!]
-      description: string
-      badge: string
+      description: String
+      badge: String
+      visibility: String
+      details_url: String
       inputsSchema: JSON
       outputsSchema: JSON
       requirements: [RequirementConstraint!]
-      implementations: [string]
-      implementation_requirements: [string]
+      implementations: [String]
+      implementation_requirements: [String]
     }
     """
     jsontype = dict(
@@ -331,6 +339,7 @@ def node_type_to_graphql(spec, type_definition, types: dict):
     )
     types[type_definition.type] = jsontype # set now to avoid circular reference via _get_extends
     metadata = type_definition.get_value("metadata")
+    visibility = "visible"
     if metadata:
         if "badge" in metadata:
             jsontype["badge"] = metadata["badge"]
@@ -338,6 +347,9 @@ def node_type_to_graphql(spec, type_definition, types: dict):
             jsontype["title"] = metadata["title"]
         if "details_url" in metadata:
             jsontype["details_url"] = metadata["details_url"]
+        if metadata.get("internal"):
+            visibility = "hidden"
+    jsontype["visibility"] = visibility
 
     propertydefs = (
         p for p in type_definition.get_properties_def_objects() if is_property_user_visible(p)
@@ -367,11 +379,10 @@ def node_type_to_graphql(spec, type_definition, types: dict):
     # XXX capabilities can hava attributes too
     # add_capabilities_as_attributes(jsontype["outputs"], type_definition, spec)
 
-    jsontype["requirements"] = [
+    jsontype["requirements"] = list(filter(None, [
         requirement_to_graphql(spec, req)
         for req in type_definition.get_all_requirements()
-        if _include_requirement(spec, req)
-    ]
+    ]))
 
     operations = set(
         op.name for op in EntityTemplate._create_interfaces(type_definition, None)
@@ -422,7 +433,7 @@ def to_graphql_nodetypes(spec):
         if typename not in types:
             node_type_to_graphql(spec, type_definition, types)
 
-    mark_user_visible(types)
+    mark_leaf_types(types)
     annotate_properties(types)
     return types
 
@@ -484,6 +495,7 @@ def nodetemplate_to_json(nodetemplate, spec, types):
       name: String!
       title: String
       type: ResourceType!
+      visibility: String
 
       description: string
 
@@ -496,6 +508,7 @@ def nodetemplate_to_json(nodetemplate, spec, types):
     type Requirement {
       name: String!
       constraint: RequirementConstraint!
+      visibility: String
       match: ResourceTemplate
       target: Resource
     }
@@ -514,6 +527,7 @@ def nodetemplate_to_json(nodetemplate, spec, types):
         if is_property_user_visible(p)
     ]
     json["dependencies"] = []
+    json["visibility"] = resource_visibility(spec, nodetemplate)
 
     if not nodetemplate.type_definition.is_derived_from("tosca.nodes.Root"):
         return json
@@ -534,7 +548,7 @@ def nodetemplate_to_json(nodetemplate, spec, types):
     if nodetemplate.requirements:
         for req in nodetemplate.requirements:
             reqDef, rel_template = nodetemplate._get_explicit_relationship(req)
-            name = next(iter(req))  # first key
+            name, req_dict = _get_req(req)
             reqconstraint = _find_requirement_constraint(
                 jsonnodetype["requirements"], name
             )
@@ -544,7 +558,8 @@ def nodetemplate_to_json(nodetemplate, spec, types):
             if rel_template and rel_template.target:
                 reqjson["match"] = rel_template.target.name
             else:
-                reqjson["match"] = None
+                # the node template name might not match a template if it is only defined in the deployment blueprints
+                reqjson["match"] = req_dict.get("node")
             json["dependencies"].append(reqjson)
 
     return json
@@ -577,13 +592,14 @@ def _generate_primary(spec, db, node_tpl=None):
     topology.custom_defs[primary_name] = nodetype_tpl
     tpl = node_tpl or {}
     tpl["type"] = primary_name
-    tpl.setdefault("properties", {}).update(
+    tpl.setdefault("properties",
+    {}).update(
         {name: dict(get_input=name) for name in topology._tpl_inputs()}
     )
     # if create new template, need to assign the nodes explicitly (needed if multiple templates have the same type)
     if not node_tpl:
         tpl["requirements"] = [{node.name: dict(node=node.name)} for node in roots]
-    node_spec = spec.add_node_template(primary_name, tpl)
+    node_spec = spec.add_node_template(primary_name, tpl, False)
     node_template = node_spec.toscaEntityTemplate
 
     types = db["ResourceType"]
@@ -625,7 +641,7 @@ def _get_or_make_primary(spec, db):
             if not root:
                 properties = {name: dict(get_input=name) for name in topology._tpl_inputs()}
                 tpl = dict(type=root_type.type, properties=properties)
-                node_spec = spec.add_node_template(primary_name, tpl)
+                node_spec = spec.add_node_template(primary_name, tpl, False)
                 root = node_spec.toscaEntityTemplate
                 # XXX connections are missing
                 db["ResourceTemplate"][root.name] = nodetemplate_to_json(
@@ -729,11 +745,15 @@ def get_deployment_blueprints(manifest, blueprint, root_name, db):
         if resource_templates:
             for node_name, node_tpl in resource_templates.items():
                 # nodes here overrides node_templates
-                node_spec = spec.add_node_template(node_name, node_tpl)
+                node_spec = spec.add_node_template(node_name, node_tpl, False)
                 node_template = node_spec.toscaEntityTemplate
-                local_resource_templates[node_name] = nodetemplate_to_json(
+                t = nodetemplate_to_json(
                     node_template, spec, db["ResourceType"]
                 )
+                if t['visibility'] == 'omit':
+                    continue
+                local_resource_templates[node_name] = t
+
         # XXX assert that db["ResourceTemplate"] has already has all the node_templates
         # names of ResourceTemplates:
         resourceTemplates = list(set(db["ResourceTemplate"]) | set(local_resource_templates))
@@ -800,9 +820,9 @@ def to_graphql(localEnv):
     connection_types = {}
     for node_spec in spec.nodeTemplates.values():
         toscaEntityTemplate = node_spec.toscaEntityTemplate
-        if not is_resource_user_visible(spec, toscaEntityTemplate):
-            continue
         t = nodetemplate_to_json(toscaEntityTemplate, spec, types)
+        if t['visibility'] == 'omit':
+            continue
         name = t["name"]
         if "virtual" in toscaEntityTemplate.directives:
             # virtual is only set when loading resources from an environment
@@ -825,6 +845,8 @@ def to_graphql(localEnv):
                     spec, type_definition, connection_types
                 )
             connection_template = nodetemplate_to_json(template, spec, connection_types)
+            if connection_template['visibility'] == 'omit':
+                continue
             name = connection_template["name"]
             assert name not in db["ResourceTemplate"], f"template name conflict: {name}"
             # db["ResourceTemplate"][name] = connection_template
@@ -899,7 +921,7 @@ def to_deployment(localEnv):
     return db
 
 
-def mark_user_visible(types):
+def mark_leaf_types(types):
     # types without implementations can't be instantiated by users
     # treat non-leaf types as abstract types that shouldn't be instatiated
     # treat leaf types that have requirements as having implementations

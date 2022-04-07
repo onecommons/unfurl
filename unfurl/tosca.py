@@ -314,7 +314,7 @@ class ToscaSpec:
                     return manifest.localEnv.project.projectRoot
         return None
 
-    def add_node_template(self, name, tpl):
+    def add_node_template(self, name, tpl, discovered=True):
         custom_types = None
         if "custom_types" in tpl:
             custom_types = tpl.pop("custom_types")
@@ -325,9 +325,10 @@ class ToscaSpec:
         nodeTemplate = self.template.topology_template.add_template(name, tpl)
         nodeSpec = NodeSpec(nodeTemplate, self)
         self.nodeTemplates[name] = nodeSpec
-        if self.discovered is None:
-            self.discovered = CommentedMap()
-        self.discovered[name] = tpl
+        if discovered:
+            if self.discovered is None:
+                self.discovered = CommentedMap()
+            self.discovered[name] = tpl
         # add custom_types back for serialization later
         if custom_types:
             tpl["custom_types"] = custom_types
@@ -1119,7 +1120,7 @@ class TopologySpec(EntitySpec):
         self.attributeDefs = {}
         self.capabilities = []
         self._defaultRelationships = None
-        self._isReferenced = True 
+        self._isReferenced = True
 
     def get_interfaces(self):
         # doesn't have any interfaces

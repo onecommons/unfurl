@@ -11,7 +11,8 @@
           "value": "foo.com"
         }
       ],
-      "dependencies": []
+      "dependencies": [],
+      "visibility": "visible"
     },
     "the_app": {
       "type": "MEANStack",
@@ -30,6 +31,7 @@
             "name": "host",
             "title": "host",
             "description": "A compute instance with at least 512MB RAM",
+            "visibility": "visible",
             "min": 1,
             "max": 1,
             "resourceType": "Compute"
@@ -43,6 +45,7 @@
             "name": "resolver",
             "title": "resolver",
             "description": "",
+            "visibility": "visible",
             "min": 1,
             "max": 1,
             "resourceType": "DNS"
@@ -56,6 +59,7 @@
             "name": "db",
             "title": "db",
             "description": "MongoDB database service",
+            "visibility": "visible",
             "min": 1,
             "max": 1,
             "resourceType": "MongoDb"
@@ -64,7 +68,8 @@
           "__typename": "Requirement",
           "match": "atlas_service"
         }
-      ]
+      ],
+      "visibility": "visible"
     },
     "app_container": {
       "type": "DockerHost",
@@ -85,7 +90,8 @@
           "value": 200
         }
       ],
-      "dependencies": []
+      "dependencies": [],
+      "visibility": "visible"
     },
     "atlas_service": {
       "type": "Atlas",
@@ -102,15 +108,8 @@
           "value": "<<REDACTED>>"
         }
       ],
-      "dependencies": []
-    },
-    "configurator-artifacts": {
       "dependencies": [],
-      "description": "",
-      "name": "configurator-artifacts",
-      "properties": [],
-      "title": "configurator-artifacts",
-      "type": "unfurl.nodes.LocalRepository"
+      "visibility": "visible"
     }
   },
   "DeploymentTemplate": {
