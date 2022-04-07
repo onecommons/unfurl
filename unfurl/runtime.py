@@ -332,6 +332,7 @@ class EntityInstance(OperationalInstance, ResourceRef):
             p.append(self)
 
         self.template = template or self.templateType()
+        self._properties = {}
 
     def _resolve(self, key):
         # might return a Result

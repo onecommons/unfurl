@@ -128,6 +128,7 @@
               "$ref": "#/definitions/attributes",
               "default": {}
             },
+            "properties": { "$ref": "#/definitions/attributes" },
             "instances": { "$ref": "#/definitions/instances" },
             "capabilities": { "$ref": "#/definitions/instances" },
             "requirements": { "$ref": "#/definitions/instances" },
