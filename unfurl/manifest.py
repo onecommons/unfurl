@@ -341,6 +341,9 @@ class Manifest(AttributeManager):
             instance.created = status["created"]
         if imported:
             self.imports.set_shadow(importName, instance)
+        properties = status.get("properties")
+        if isinstance(properties, dict):
+            instance._properties = properties
         return instance
 
     def status_summary(self):

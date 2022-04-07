@@ -975,6 +975,7 @@ class AttributeManager:
                     # save the Result not savedValue because we need the ExternalValue
                     live[key] = (isLive, savedValue if is_sensitive else value)
                     if not isLive:
+                        resource._properties[key] = savedValue
                         assert not changed  # changed implies isLive
                         continue  # it hasn't changed and it is part of the spec so don't save it as an attribute
 

@@ -606,6 +606,9 @@ class YamlManifest(ReadOnlyManifest):
         # particularly, because these will get loaded in later runs and mask any spec properties with the same name
         if resource._attributes:
             status["attributes"] = resource._attributes
+        # save computed values for properties as they were observed
+        if resource._properties:
+            status["properties"] = resource._properties
         if resource.shadow:
             # name will be the same as the import name
             status["imported"] = resource.name
