@@ -311,6 +311,11 @@ class Plan:
 
             reason = include(resource)
             if reason:
+                # if the resource doesn't instantiate itself just mark it as absent because otherwise will be in error
+                # (because it will remain with status ok while its dependendents are absent)
+                if resource.template.aggregate_only():
+                    resource._localStatus = Status.absent
+
                 logger.debug("%s instance %s", reason, resource.name)
                 workflow = "undeploy" if reason == Reason.prune else self.workflow
                 yield from self._generate_configurations(resource, reason, workflow)
