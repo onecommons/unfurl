@@ -195,13 +195,13 @@ def _requirement_visibility(spec, name, req):
     if name == "dependency":
         return "omit"
     node = req.get("node")
-    metadata = req.get("metadata")
-    if metadata and metadata.get('internal'):
+    metadata = req.get("metadata") or {}
+    if metadata.get('internal'):
         return "hidden"
     if node and node in spec.nodeTemplates:
         # if there's already a resource template assigned and it is marked internal
         node_metadata = spec.nodeTemplates[node].toscaEntityTemplate.entity_tpl.get('metadata') or {}
-        if node_metadata.get('internal'):
+        if not node_metadata.get('user_settable') and not metadata.get('user_settable'):
             return "hidden"
     return "visible"
 
