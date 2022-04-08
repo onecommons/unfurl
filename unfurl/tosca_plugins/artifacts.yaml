@@ -50,11 +50,11 @@ artifact_types:
         create:
           implementation: Cmd
           inputs:
-            cmd: "{%if lookup('env', 'VIRTUAL_ENV') %}pipenv --bare{% else %}pip{% endif %} install {{SELF.file}}"
+            cmd: "{%if lookup('env', 'VIRTUAL_ENV') %}pipenv --bare{% else %}{{ __python_executable }} -m pip{% endif %} install {{SELF.file}}"
         delete:
           implementation: Cmd
           inputs:
-            cmd: "{%if lookup('env', 'VIRTUAL_ENV') %}pipenv --bare{% else %}pip{% endif %} uninstall {{SELF.file}}"
+            cmd: "{%if lookup('env', 'VIRTUAL_ENV') %}pipenv --bare{% else %}{{ __python_executable }} -m pip{% endif %} uninstall {{SELF.file}}"
 
   # XXX update TerraformConfigurator to read from artifact
   # unfurl.artifacts.TerraformModule:

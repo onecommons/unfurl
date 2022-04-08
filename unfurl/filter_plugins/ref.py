@@ -51,6 +51,7 @@ class FilterModule:
             "ref": ref,
             "eval": ref,
             "mapValue": map_value_filter,
+            "map_value": map_value_filter,
             "abspath": abspath,
             "get_dir": get_dir,
             "which": which,

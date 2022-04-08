@@ -7,6 +7,7 @@ import collections
 from collections.abc import MutableSequence, Mapping
 import copy
 import os
+import sys
 import os.path
 import six
 import re
@@ -281,7 +282,7 @@ def apply_template(value, ctx, overrides=None):
     # templar.environment.lstrip_blocks = False
     fail_on_undefined = ctx.strict
 
-    vars = _VarTrackerDict(__unfurl=ctx)
+    vars = _VarTrackerDict(__unfurl=ctx, __python_executable=sys.executable)
     vars.update(ctx.vars)
     vars.ctx = ctx
 
