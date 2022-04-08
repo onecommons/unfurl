@@ -9,6 +9,10 @@ kind: Ensemble
 metadata:
   uri: {{ ensembleUri }}
 {%- endif %}
+{%- if deployment_blueprint | default("") %}
+environment:
+  deployment_blueprint: {{ deployment_blueprint }}
+{%- endif %}
 spec:
 {%- if inputs | default("") %}
   inputs:
