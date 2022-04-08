@@ -21,15 +21,16 @@ artifact_types:
         # XXX get_dir only works on localhost
         # asdf uninstall helm 3.6.3
         # INFO     unfurl.task:shell.py:187 shell task return code: 2, stderr: /bin/sh: -c: line 1: syntax error: unexpected end of file
-        implementation: |
-          if ! [ -x "$(command -v asdf)" ]; then
-            ASDF_REPO={{ "asdf" | get_dir }}
-            export ASDF_DATA_DIR="${ASDF_DATA_DIR:-$ASDF_REPO}"
-            source $ASDF_REPO/asdf.sh
-          fi
-          asdf plugin add {{SELF.file}}
-          asdf {%if task.operation == 'delete' %}uninstall{%else%}install{%endif%} {{SELF.file}} {{SELF.version}}
+        implementation: Cmd
         inputs:
+          cmd: |
+            if ! [ -x "$(command -v asdf)" ]; then
+              ASDF_REPO={{ "asdf" | get_dir }}
+              export ASDF_DATA_DIR="${ASDF_DATA_DIR:-$ASDF_REPO}"
+              source $ASDF_REPO/asdf.sh
+            fi
+            asdf plugin add {{SELF.file}}
+            asdf {%if task.operation == 'delete' %}uninstall{%else%}install{%endif%} {{SELF.file}} {{SELF.version}}
           # set this .tool-versions is written to the project root
           cwd: '{{ "project" | get_dir }}'
           keeplines: true
@@ -46,8 +47,14 @@ artifact_types:
         check: unfurl.configurators.PythonPackageCheckConfigurator
       Standard:
         # don't create a new virtual environment, use current or system
-        create: pipenv --bare {%if not lookup('env', 'VIRTUAL_ENV') %}--system{% endif %} install {{SELF.file}}
-        delete: pipenv --bare uninstall {{SELF.file}}
+        create:
+          implementation: Cmd
+          inputs:
+            cmd: "{%if lookup('env', 'VIRTUAL_ENV') %}pipenv --bare{% else %}pip{% endif %} install {{SELF.file}}"
+        delete:
+          implementation: Cmd
+          inputs:
+            cmd: "{%if lookup('env', 'VIRTUAL_ENV') %}pipenv --bare{% else %}pip{% endif %} uninstall {{SELF.file}}"
 
   # XXX update TerraformConfigurator to read from artifact
   # unfurl.artifacts.TerraformModule:
