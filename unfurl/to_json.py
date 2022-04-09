@@ -196,6 +196,8 @@ def _requirement_visibility(spec, name, req):
         return "omit"
     node = req.get("node")
     metadata = req.get("metadata") or {}
+    if metadata.get('visibility'):
+        return metadata['visibility']
     if metadata.get('internal'):
         return "hidden"
     if node and node in spec.nodeTemplates:
@@ -203,7 +205,9 @@ def _requirement_visibility(spec, name, req):
         node_metadata = spec.nodeTemplates[node].toscaEntityTemplate.entity_tpl.get('metadata') or {}
         if not node_metadata.get('user_settable') and not metadata.get('user_settable'):
             return "hidden"
-    return "visible"
+        else:
+            return "visible"
+    return "inherit"
 
 def _get_req(req_dict):
     name, req = list(req_dict.items())[0]
@@ -231,7 +235,9 @@ def requirement_to_graphql(spec, req_dict):
     if visibility == "omit":
         return None
 
-    reqobj = dict(name=name, title=name, description=req.get("description") or "", visibility=visibility)
+    reqobj = dict(name=name, title=name, description=req.get("description") or "")
+    if visibility != "inherit":
+        reqobj["visibility"] = visibility
     metadata = req.get("metadata")
 
     if metadata:
@@ -252,6 +258,8 @@ def requirement_to_graphql(spec, req_dict):
         # req['node'] can be a node_template instead of a type
         if nodetype in spec.nodeTemplates:
             nodetype = spec.nodeTemplates[nodetype].type
+        # else:
+        # XXX error (or local to a DT?)
     else:
         nodetype = req["capability"]
     reqobj["resourceType"] = nodetype
@@ -282,7 +290,7 @@ def resource_visibility(spec, t):
         return "hidden"
     if spec.discovered and t.name in spec.discovered:
         return "omit"
-    return "visible"
+    return "inherit"
 
 
 def is_property_user_visible(p):
@@ -339,7 +347,7 @@ def node_type_to_graphql(spec, type_definition, types: dict):
     )
     types[type_definition.type] = jsontype # set now to avoid circular reference via _get_extends
     metadata = type_definition.get_value("metadata")
-    visibility = "visible"
+    visibility = "inherit"
     if metadata:
         if "badge" in metadata:
             jsontype["badge"] = metadata["badge"]
@@ -487,6 +495,13 @@ def _find_requirement_constraint(reqs, name):
     )
 
 
+def _get_typedef(name: str, spec):
+    typedef = spec.template.topology_template.custom_defs.get(name)
+    if not typedef:
+        typedef = StatefulEntityType.TOSCA_DEF.get(name)
+    return typedef
+
+
 def nodetemplate_to_json(nodetemplate, spec, types):
     """
     Returns json object as a ResourceTemplate:
@@ -527,7 +542,9 @@ def nodetemplate_to_json(nodetemplate, spec, types):
         if is_property_user_visible(p)
     ]
     json["dependencies"] = []
-    json["visibility"] = resource_visibility(spec, nodetemplate)
+    visibility = resource_visibility(spec, nodetemplate)
+    if visibility != "inherit":
+        json["visibility"] = visibility
 
     if not nodetemplate.type_definition.is_derived_from("tosca.nodes.Root"):
         return json
@@ -555,11 +572,20 @@ def nodetemplate_to_json(nodetemplate, spec, types):
             reqjson = dict(
                 constraint=reqconstraint, name=name, __typename="Requirement"
             )
-            if rel_template and rel_template.target:
-                reqjson["match"] = rel_template.target.name
-            else:
-                # the node template name might not match a template if it is only defined in the deployment blueprints
-                reqjson["match"] = req_dict.get("node")
+            req_metadata = req_dict.get("metadata") or {}
+            visibility = req_metadata and "constraint" in req_metadata and req_metadata["constraint"].get("visibility")
+            if req_dict.get("node") and not _get_typedef(req_dict["node"], spec):
+                # it's not a type, assume it's a node template
+                # (the node template name might not match a template if it is only defined in the deployment blueprints)
+                reqjson["match"] = req_dict["node"]
+            if not visibility and reqjson["match"]:
+                # user-defined templates should always have visibility set, so if it doesn't and the requirement is already set to a node
+                # assume it is internal and set to hidden.
+                if reqconstraint.get("visibility") != "visible" and not req_metadata.get('user_settable'):
+                    # unless visibility wasn't explicitly set to visibile
+                    visibility = "hidden"
+            if visibility:
+                reqjson["constraint"] = dict(reqjson["constraint"], visibility=visibility)
             json["dependencies"].append(reqjson)
 
     return json
@@ -750,7 +776,7 @@ def get_deployment_blueprints(manifest, blueprint, root_name, db):
                 t = nodetemplate_to_json(
                     node_template, spec, db["ResourceType"]
                 )
-                if t['visibility'] == 'omit':
+                if t.get("visibility") == 'omit':
                     continue
                 local_resource_templates[node_name] = t
 
@@ -821,7 +847,7 @@ def to_graphql(localEnv):
     for node_spec in spec.nodeTemplates.values():
         toscaEntityTemplate = node_spec.toscaEntityTemplate
         t = nodetemplate_to_json(toscaEntityTemplate, spec, types)
-        if t['visibility'] == 'omit':
+        if t.get("visibility") == 'omit':
             continue
         name = t["name"]
         if "virtual" in toscaEntityTemplate.directives:

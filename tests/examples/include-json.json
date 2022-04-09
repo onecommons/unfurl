@@ -11,8 +11,7 @@
           "value": "foo.com"
         }
       ],
-      "dependencies": [],
-      "visibility": "visible"
+      "dependencies": []
     },
     "the_app": {
       "type": "MEANStack",
@@ -68,8 +67,7 @@
           "__typename": "Requirement",
           "match": "atlas_service"
         }
-      ],
-      "visibility": "visible"
+      ]
     },
     "app_container": {
       "type": "DockerHost",
@@ -90,8 +88,7 @@
           "value": 200
         }
       ],
-      "dependencies": [],
-      "visibility": "visible"
+      "dependencies": []
     },
     "atlas_service": {
       "type": "Atlas",
@@ -108,8 +105,7 @@
           "value": "<<REDACTED>>"
         }
       ],
-      "dependencies": [],
-      "visibility": "visible"
+      "dependencies": []
     }
   },
   "DeploymentTemplate": {

@@ -58,6 +58,8 @@ node_types:
         type: unfurl.capabilities.DNSZone
     requirements:
       - parent_zone:
+          metadata:
+            visibility: hidden
           capability: unfurl.capabilities.DNSZone
           occurrences: [0, 1] # it isn't always required
 
