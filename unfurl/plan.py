@@ -138,9 +138,7 @@ class Plan:
 
     def create_resource(self, template):
         parent = find_parent_resource(self.root, template)
-        if template.aggregate_only():
-            status = Status.ok
-        elif self.jobOptions.check:
+        if self.jobOptions.check:
             status = Status.unknown
         else:
             status = Status.pending

@@ -108,10 +108,12 @@ class Operational(ChangeAware):
             return status
 
         dependentStatus = self.aggregate_status(self.get_operational_dependencies())
+        if self.is_computed():
+            # if local_status is a no op (status purely determined by dependents) set to ok
+            status = Status.ok
+
         if dependentStatus is None:
-            # note if local_status is a no op (status purely determined by dependents)
-            # it should be set to ok
-            # then ok + None = ok, which makes sense, since it has no dependendents
+            # ok + None = ok, which makes sense, since it has no dependendents
             return status  # return local status
         else:
             # local status is ok, degraded
@@ -150,6 +152,9 @@ class Operational(ChangeAware):
         if not changeset:
             return True
         return self.last_change > changeset.changeId
+
+    def is_computed(self):
+        return False
 
     @staticmethod
     def aggregate_status(statuses):
@@ -368,6 +373,9 @@ class EntityInstance(OperationalInstance, ResourceRef):
 
         for d in self.dependencies:
             yield d
+
+    def is_computed(self):
+      return self.template.aggregate_only()
 
     @property
     def key(self):
