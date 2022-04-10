@@ -9,22 +9,24 @@ spec:
       docker_hub:
         url: https://index.docker.io
         credential:
-           user: a_user
-           token: a_password
+          user: a_user
+          token: a_password
     topology_template:
       node_templates:
         container1:
           type: unfurl.nodes.Container.Application.Docker
           properties:
-            name: test_docker
-          artifacts:
-            image:
-              type: tosca.artifacts.Deployment.Image.Container.Docker
-              file: busybox
+            container:
+              container_name: test_docker
+              image: busybox:latest
+              environment:
+                FOO: "1"
+              ports:
+                - 80:80
           interfaces:
             Standard:
               inputs:
                 configuration:
                   command: ["sleep", "300"]
-                  detach:  yes
+                  detach: yes
                   output_logs: yes

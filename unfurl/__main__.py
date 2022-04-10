@@ -270,7 +270,7 @@ def _remote_cmd(runtime_, cmd_line, local_env):
     context = local_env.get_context()
     kind, sep, rest = runtime_.partition(":")
     envvar_filter = context.get("variables") or {}
-    for name in ["UNFURL_APPROVE", "UNFURL_LOGGING"]:
+    for name in ["UNFURL_APPROVE", "UNFURL_LOGGING", "UNFURL_MOCK_DEPLOY"]:
         if name in os.environ:
             envvar_filter[name] = os.environ[name]
 

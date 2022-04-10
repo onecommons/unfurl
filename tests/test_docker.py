@@ -99,6 +99,7 @@ class DockerTest(unittest.TestCase):
         # configure (start op shouldn't run since docker_container sets state to started)
         assert len(run1.workDone) == 2, run1.workDone
         tasks = list(run1.workDone.values())
+        assert not tasks[1].target.attributes.get("container"), "testing that container property isn't required"
         # print([task.result.outputs for task in tasks])
         container = tasks[1].result.outputs.get("container")
         assert container
