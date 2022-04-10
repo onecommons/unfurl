@@ -684,6 +684,10 @@ def plan(ctx, ensemble=None, **options):
     default=False,
     help="Generate files only (don't commit them).",
 )
+@click.option(
+    "--use-deployment-blueprint",
+    help="Use this deployment blueprint.",
+)
 def init(ctx, projectdir, ensemble_name=None, **options):
     """
     Create a new project or, if [project_dir] exists or is inside a project, create a new ensemble.
@@ -721,6 +725,10 @@ def init(ctx, projectdir, ensemble_name=None, **options):
                 'Can not create project in "' + projectdir + '": folder is not empty'
             )
 
+    if options.get("use_deployment_blueprint"):
+        raise click.ClickException(
+            'Can not use "--use-deployment-blueprint" option when creating a new project.'
+        )
     homePath, projectPath, repo = initmod.create_project(
         os.path.abspath(projectdir), ensemble_name, **options
     )
