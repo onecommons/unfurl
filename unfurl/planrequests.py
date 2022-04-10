@@ -471,7 +471,7 @@ def _render_request(job, parent, req, requests):
     except Exception:
         # note: failed rendering may be re-tried later if it has dependencies
         error = UnfurlTaskError(task, "Configurator render failed", logging.DEBUG)
-    task._attributeManager.mark_referenced_templates()
+    task._attributeManager.mark_referenced_templates(task.target.template)
 
     if parent and parent.workflow == "undeploy":
         # when removing an instance don't worry about depending values changing in the future
@@ -512,6 +512,7 @@ def _add_to_req_list(reqs, parent, request):
     else:
         reqs.append(request)
 
+
 def _reevaluate_not_required(not_required, render_requests):
     # keep rendering if a not_required template was referenced and is now required
     new_not_required = []
@@ -535,7 +536,8 @@ def do_render_requests(job, requests):
     while render_requests:
         parent, request = render_requests.popleft()
         # we dont require default templates that aren't referenced
-        required = request.target.template.required
+        # (but skip this check if the job already specified specific instances)
+        required = job.is_filtered() or request.target.template.required
         if not required:
             not_required.append( (parent, request) )
         else:

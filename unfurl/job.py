@@ -104,7 +104,6 @@ class JobOptions:
         instance=None,
         instances=None,
         template=None,
-        instance_updates=(),
         # default options:
         add=True,  # add new templates
         skip_new=False,  # don't create newly defined instances (override add)
@@ -498,6 +497,9 @@ class Job(ConfigChange):
     def get_outputs(self):
         return self.rootResource.attributes["outputs"]
 
+    def is_filtered(self):
+        return self.instance or self.instances or self.template
+
     def run_query(self, query, trace=0):
         from .eval import eval_for_func, RefContext
 
@@ -637,6 +639,7 @@ class Job(ConfigChange):
             ).name
             for resourceSpec in self.jobOptions.instances
         ]
+        self.instances = self.jobOptions.instances
 
     def create_plan(self):
         self.validate_job_options()
@@ -1224,8 +1227,8 @@ class Job(ConfigChange):
                 isGroup = isinstance(request, TaskRequestGroup)
                 if isGroup and not request.children:
                     continue
-                if not request.target.template.required:
-                    continue
+                if not self.is_filtered() and not request.target.template.required:
+                   continue
                 if isinstance(request, JobRequest):
                     count += 1
                     nodeStr = f'Job for "{request.name}":'

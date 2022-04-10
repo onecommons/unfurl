@@ -878,9 +878,10 @@ class AttributeManager:
         else:
             self.statuses[resource.key][1] = newvalue
 
-    def mark_referenced_templates(self):
+    def mark_referenced_templates(self, template):
         for (resource, attr) in self.attributes.values():
-            resource.template._isReferenced = True
+            if resource.template is not template:
+                resource.template._isReferencedBy.append(template)
 
     def get_attributes(self, resource):
         if resource.key not in self.attributes:

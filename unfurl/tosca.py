@@ -212,6 +212,11 @@ class ToscaSpec:
                 self.relationshipTemplates[template.name] = relTemplate
         self.load_imported_default_templates()
         self.topology = TopologySpec(self, inputs)
+        substitution_mappings = self.template.topology_template.substitution_mappings
+        if substitution_mappings and substitution_mappings.node:
+            self.substitution_template = self.nodeTemplates.get(substitution_mappings.node)
+        else:
+            self.substitution_template = None
         self.load_workflows()
         self.groups = {
             g.name: GroupSpec(g, self) for g in self.template.topology_template.groups
@@ -584,7 +589,7 @@ class EntitySpec(ResourceRef):
             )
 
         self.type = toscaNodeTemplate.type
-        self._isReferenced = None # this is referenced by another template or via property traversal
+        self._isReferencedBy = [] # this is referenced by another template or via property traversal
         # nodes have both properties and attributes
         # as do capability properties and relationships
         # but only property values are declared
@@ -765,8 +770,22 @@ class EntitySpec(ResourceRef):
 
     @property
     def required(self):
-        # don't require default templates that aren't referenced
-        return self._isReferenced or 'default' not in self.directives
+        # if this template is required by another template
+        for root in _get_roots(self):
+            if self.spec.substitution_template:
+                if self.spec.substitution_template is root:
+                    # if don't require if a root is the substitution_mappings
+                    return True
+            elif 'default' not in root.directives:
+                # if don't require if this only has defaults templates as a root
+                return True
+        return False
+
+def _get_roots(node):
+    if not node._isReferencedBy:
+        yield node
+    for parent in node._isReferencedBy:
+        yield from _get_roots(parent)
 
 class NodeSpec(EntitySpec):
     # has attributes: tosca_id, tosca_name, state, (3.4.1 Node States p.61)
@@ -1120,7 +1139,7 @@ class TopologySpec(EntitySpec):
         self.attributeDefs = {}
         self.capabilities = []
         self._defaultRelationships = None
-        self._isReferenced = True
+        self._isReferencedBy = []
 
     def get_interfaces(self):
         # doesn't have any interfaces

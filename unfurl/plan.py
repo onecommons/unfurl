@@ -791,13 +791,13 @@ def order_templates(templates, filter=None, interface=None):
         for ancestor in get_ancestor_templates(source.toscaEntityTemplate):
             spec = templates.get(ancestor.name)
             if spec:
+                if spec is not source:
+                    # ancestor is required by source
+                    spec._isReferencedBy.append(source)
                 if spec in seen:
                     continue
                 seen.add(spec)
-                if spec:
-                    if "default" not in source.directives:
-                        spec._isReferenced = True
-                    yield spec
+                yield spec
 
 
 def get_ancestor_templates(source):
