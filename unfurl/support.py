@@ -880,7 +880,7 @@ class AttributeManager:
 
     def mark_referenced_templates(self, template):
         for (resource, attr) in self.attributes.values():
-            if resource.template is not template:
+            if resource.template is not template and template not in resource.template._isReferencedBy:
                 resource.template._isReferencedBy.append(template)
 
     def get_attributes(self, resource):

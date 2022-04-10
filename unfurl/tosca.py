@@ -781,11 +781,15 @@ class EntitySpec(ResourceRef):
                 return True
         return False
 
-def _get_roots(node):
-    if not node._isReferencedBy:
-        yield node
+def _get_roots(node, seen=None):
+    # node can reference each other's properties, so we need to handle circular references
+    if seen is None:
+        seen = set()
+    yield node
     for parent in node._isReferencedBy:
-        yield from _get_roots(parent)
+        if parent.name not in seen:
+            seen.add( node.name )
+            yield from _get_roots(parent, seen)
 
 class NodeSpec(EntitySpec):
     # has attributes: tosca_id, tosca_name, state, (3.4.1 Node States p.61)
