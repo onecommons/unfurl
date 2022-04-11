@@ -768,6 +768,7 @@ def _set_config_spec_args(kw, target, base_dir):
     artifact = kw["primary"]
     className = kw.get("className")
     if not className and not artifact:  # malformed implementation
+        logger.warning("no artifact or className set on operation for %s: %s", target.name, kw)
         return None
     guessing = False
     if not className:
