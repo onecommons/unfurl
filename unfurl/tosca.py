@@ -919,14 +919,15 @@ class NodeSpec(EntitySpec):
                 relSpec.toscaEntityTemplate.source.name
                 == reqSpec.parentNode.toscaEntityTemplate.name
             ):
-                assert not reqSpec.relationship or reqSpec.relationship is relSpec
+                assert not reqSpec.relationship or reqSpec.relationship is relSpec, (reqSpec.relationship, relSpec)
                 reqSpec.relationship = relSpec
-                assert not relSpec.requirement or relSpec.requirement is reqSpec
-                relSpec.requirement = reqSpec
+                assert not relSpec.requirement or relSpec.requirement is reqSpec, (relSpec.requirement, reqSpec)
+                if not relSpec.requirement:
+                    relSpec.requirement = reqSpec
                 break
         else:
             msg = f'relationship not found for requirement "{reqSpec.name}" on "{reqSpec.parentNode}" targeting "{self.name}"'
-            raise UnfurlValidationError(msg)
+            ExceptionCollector.appendException(UnfurlValidationError(msg))
 
     @property
     def abstract(self):
@@ -1036,6 +1037,9 @@ class RequirementSpec:
         # capability (definition name or type name), node (template name or type name), and node_filter,
         # relationship (template name or type name or inline relationship template)
         # occurrences
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}('{self.name}')"
 
     @property
     def artifacts(self):

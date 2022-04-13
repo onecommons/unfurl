@@ -1096,8 +1096,10 @@ def to_graphql_resource(instance, manifest, db):
 
     if template["dependencies"]:
         requirements = {r["name"]: r.copy() for r in template["dependencies"]}
-        for rel in instance.requirements:
-            requirements[rel.name]["target"] = rel.target.name
+        for req in instance.template.requirements.values():
+            # test because it might not be set if the template is incomplete
+            if req.relationship and req.relationship.target:
+                requirements[req.name]["target"] = req.relationship.target.name
         resource["connections"] = list(requirements.values())
     else:
         resource["connections"] = []
