@@ -196,8 +196,8 @@ def _requirement_visibility(spec, name, req):
         return "omit"
     node = req.get("node")
     metadata = req.get("metadata") or {}
-    if metadata.get('visibility'):
-        return metadata['visibility']
+    if metadata.get("visibility"):
+        return metadata["visibility"]
     if metadata.get('internal'):
         return "hidden"
     if node and node in spec.nodeTemplates:
@@ -871,7 +871,7 @@ def to_graphql(localEnv):
                     spec, type_definition, connection_types
                 )
             connection_template = nodetemplate_to_json(template, spec, connection_types)
-            if connection_template['visibility'] == 'omit':
+            if connection_template.get("visibility") == 'omit':
                 continue
             name = connection_template["name"]
             assert name not in db["ResourceTemplate"], f"template name conflict: {name}"
