@@ -22,6 +22,8 @@ decorators:
 
 node_types:
   unfurl.nodes.DNSZone:
+    metadata:
+      title: DNS Zone
     derived_from: tosca.nodes.Root
     properties:
       name:
