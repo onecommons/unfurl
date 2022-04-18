@@ -412,6 +412,20 @@ class ConfigTask(ConfigChange, TaskView):
     #     for d in self.dependencies:
     #         d.refresh(self)
 
+    def find_missing_dependencies(self):
+        missing = []
+        reason = ""
+        # XXX this logic should be replaced with entry_state on check and delete operations
+        if self.configSpec.operation not in ["check", "delete"] and (
+            self.reason not in [Reason.force, Reason.run]
+        ):
+            # check if the live attributes are set
+            missing, reason = _dependency_check(self)
+            # don't check if this operation does depend on the operational dependencies being live
+            if not missing and self.configSpec.entry_state > NodeState.initial:
+                missing, reason =_dependency_check(self.target)
+        return missing, reason
+
     @property
     def name(self):
         name = self.configSpec.name
@@ -462,6 +476,18 @@ class ConfigTask(ConfigChange, TaskView):
 
     def __repr__(self):
         return f"ConfigTask({self.target}:{self.name})"
+
+
+def _dependency_check(instance):
+    dependencies = list(instance.get_operational_dependencies())
+    missing = [dep for dep in dependencies if not dep.operational and dep.required]
+    if missing:
+        reason = "required dependencies not operational: %s" % ", ".join(
+            [f"{dep.name} is {dep.status.name}" for dep in missing]
+        )
+    else:
+        reason = ""
+    return missing, reason
 
 
 class Job(ConfigChange):
@@ -784,17 +810,6 @@ class Job(ConfigChange):
                 break
         return external_jobs
 
-    def _dependency_check(self, instance):
-        dependencies = list(instance.get_operational_dependencies())
-        missing = [dep for dep in dependencies if not dep.operational and dep.required]
-        if missing:
-            reason = "required dependencies not operational: %s" % ", ".join(
-                [f"{dep.name} is {dep.status.name}" for dep in missing]
-            )
-        else:
-            reason = ""
-        return missing, reason
-
     def should_run_task(self, task):
         """
         Checked at runtime right before each task is run
@@ -850,13 +865,7 @@ class Job(ConfigChange):
                 can_run = False
                 reason = "dry run not supported"
             else:
-                missing = []
-                if task.configSpec.operation not in ["check", "delete"] and (
-                    task.reason not in [Reason.force, Reason.run]
-                ):
-                    missing, reason = self._dependency_check(task.target)
-                    if not missing:
-                        missing, reason = self._dependency_check(task)
+                missing, reason = task.find_missing_dependencies()
                 if not missing:
                     errors = task.configSpec.find_invalidate_inputs(task.inputs)
                     if errors:
@@ -911,7 +920,7 @@ class Job(ConfigChange):
             workflow,
         )
         if req.configSpec.operation == "check":
-            missing, reason = self._dependency_check(resource)
+            missing, reason = _dependency_check(resource)
             if missing:
                 return False, reason
             if not workflow:

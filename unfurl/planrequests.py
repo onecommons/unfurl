@@ -12,9 +12,10 @@ from .util import (
     find_schema_errors,
     UnfurlError,
     UnfurlTaskError,
+    to_enum
 )
 from .result import serialize_value
-from .support import Defaults
+from .support import Defaults, NodeState
 import logging
 
 logger = logging.getLogger("unfurl")
@@ -39,6 +40,7 @@ class ConfigurationSpec:
             dependencies=None,
             outputs=None,
             interface=None,
+            entry_state=None,
         )
 
     def __init__(
@@ -60,6 +62,7 @@ class ConfigurationSpec:
         dependencies=None,
         outputs=None,
         interface=None,
+        entry_state=None,
     ):
         assert name and className, "missing required arguments"
         self.name = name
@@ -79,6 +82,7 @@ class ConfigurationSpec:
         self.artifact = primary
         self.dependencies = dependencies
         self.interface = interface
+        self.entry_state = to_enum(NodeState, entry_state, NodeState.creating)
 
     def find_invalidate_inputs(self, inputs):
         if not self.inputSchema:
@@ -806,7 +810,7 @@ def _set_config_spec_args(kw, target, base_dir):
 
 def _get_config_spec_args_from_implementation(iDef, inputs, target, operation_host):
     implementation = iDef.implementation
-    kw = dict(inputs=inputs, outputs=iDef.outputs, operation_host=operation_host)
+    kw = dict(inputs=inputs, outputs=iDef.outputs, operation_host=operation_host, entry_state=iDef.entry_state)
     configSpecArgs = ConfigurationSpec.getDefaults()
     artifactTpl = None
     dependencies = None
