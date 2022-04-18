@@ -99,13 +99,13 @@
 <h1>Jobs and Workflows<a class="headerlink" href="#jobs-and-workflows" title="Permalink to this headline"></a></h1>
 <p>The core behavior of Unfurl is to run a <a class="reference internal" href="glossary.html#job"><span class="std std-ref">Job</span></a> that executes a <a class="reference internal" href="glossary.html#workflow"><span class="std std-ref">Workflow</span></a> on a given topology instance.
 There are two fundamental workflows (“normative workflows” in TOSCA terminology):
-<code class="xref any docutils literal notranslate"><span class="pre">deploy</span></code>, which installs the topology, and <code class="xref any docutils literal notranslate"><span class="pre">undeploy</span></code>, which uninstalls it.</p>
-<p>There are also <code class="xref any docutils literal notranslate"><span class="pre">check</span></code> and <code class="xref any docutils literal notranslate"><span class="pre">discover</span></code> workflows which update the status of
+<a class="reference internal" href="cli.html#unfurl-deploy"><span class="std std-ref">deploy</span></a>, which installs the topology, and <a class="reference internal" href="cli.html#unfurl-undeploy"><span class="std std-ref">undeploy</span></a>, which uninstalls it.</p>
+<p>There are also <a class="reference internal" href="cli.html#unfurl-check"><span class="std std-ref">check</span></a> and <a class="reference internal" href="cli.html#unfurl-discover"><span class="std std-ref">discover</span></a> workflows which update the status of
 instances the based on their current live state.
 Users can also define custom workflows but they do not affect the change history of the topology.</p>
 <section id="job-lifecycle">
 <h2>Job Lifecycle<a class="headerlink" href="#job-lifecycle" title="Permalink to this headline"></a></h2>
-<p>When a command that invokes a workflow is executed (<code class="xref any docutils literal notranslate"><span class="pre">deploy</span></code>, <code class="xref any docutils literal notranslate"><span class="pre">undeploy</span></code>, <code class="xref any docutils literal notranslate"><span class="pre">check</span></code>, <code class="xref any docutils literal notranslate"><span class="pre">discover</span></code> and <span class="xref std std-ref">run</span>)
+<p>When a command that invokes a workflow is executed (<a class="reference internal" href="cli.html#unfurl-deploy"><span class="std std-ref">deploy</span></a>, <a class="reference internal" href="cli.html#unfurl-undeploy"><span class="std std-ref">undeploy</span></a>, <a class="reference internal" href="cli.html#unfurl-check"><span class="std std-ref">check</span></a>, <a class="reference internal" href="cli.html#unfurl-discover"><span class="std std-ref">discover</span></a> and <a class="reference internal" href="cli.html#unfurl-run"><span class="std std-ref">run</span></a>)
 a job is created and run. Running a job entails these steps:</p>
 <ol class="arabic simple">
 <li><p>YAML parsed and <a class="reference internal" href="processing.html#yaml-merge-directives"><span class="std std-ref">merge directives</span></a> are processed</p></li>
@@ -148,9 +148,9 @@ its relationship to its specification:</p>
 </div></blockquote>
 <p>When a workflow is applied to an instance it will be skipped if it already has
 the desired status (either “OK” or “Absent”). If its status is <code class="docutils literal notranslate"><span class="pre">Unknown</span></code>,
-<code class="xref any docutils literal notranslate"><span class="pre">check</span></code> will be run first. Otherwise the workflow will be applied by executing one or more <a class="reference internal" href="glossary.html#operation"><span class="std std-ref">operations</span></a> on a target instance.</p>
+<a class="reference internal" href="cli.html#unfurl-check"><span class="std std-ref">check</span></a> will be run first. Otherwise the workflow will be applied by executing one or more <a class="reference internal" href="glossary.html#operation"><span class="std std-ref">operations</span></a> on a target instance.</p>
 <p>If it succeeds, the target instance status will be set to either <code class="docutils literal notranslate"><span class="pre">OK</span></code> or <code class="docutils literal notranslate"><span class="pre">Absent</span></code>
-for <code class="xref any docutils literal notranslate"><span class="pre">deploy</span></code> and <code class="xref any docutils literal notranslate"><span class="pre">undeploy</span></code>, respectively.
+for <a class="reference internal" href="cli.html#unfurl-deploy"><span class="std std-ref">deploy</span></a> and <a class="reference internal" href="cli.html#unfurl-undeploy"><span class="std std-ref">undeploy</span></a>, respectively.
 If it fails, the status will depend on whether the instance was modified by the operation.
 If it has been, the status is set to <code class="docutils literal notranslate"><span class="pre">Error</span></code> (or to <code class="docutils literal notranslate"><span class="pre">Degraded</span></code> the task was optional);
 if the operation didn’t report whether or not it was modified, it is set to <code class="docutils literal notranslate"><span class="pre">Unknown</span></code>.

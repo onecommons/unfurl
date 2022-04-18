@@ -1374,6 +1374,13 @@ group_types:
     <span class="n">derived_from</span><span class="p">:</span> <span class="n">tosca</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">Root</span>
     <span class="n">valid_target_types</span><span class="p">:</span> <span class="p">[</span><span class="n">unfurl</span><span class="o">.</span><span class="n">capabilities</span><span class="o">.</span><span class="n">Installer</span><span class="p">]</span>
 
+  <span class="n">unfurl</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">Configures</span><span class="p">:</span>
+    <span class="n">derived_from</span><span class="p">:</span> <span class="n">tosca</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">Root</span>
+
+  <span class="n">unfurl</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">ConfiguringHostedOn</span><span class="p">:</span>
+    <span class="n">derived_from</span><span class="p">:</span>
+      <span class="p">[</span><span class="n">unfurl</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">Configures</span><span class="p">,</span> <span class="n">tosca</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">HostedOn</span><span class="p">]</span>
+
   <span class="n">unfurl</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">ConnectsTo</span><span class="o">.</span><span class="n">Ansible</span><span class="p">:</span>
     <span class="n">derived_from</span><span class="p">:</span> <span class="n">tosca</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">ConnectsTo</span>
     <span class="n">valid_target_types</span><span class="p">:</span> <span class="p">[</span><span class="n">unfurl</span><span class="o">.</span><span class="n">capabilities</span><span class="o">.</span><span class="n">Endpoint</span><span class="o">.</span><span class="n">Ansible</span><span class="p">]</span>
