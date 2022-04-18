@@ -9,9 +9,10 @@ from jinja2.filters import contextfilter
 
 
 @contextfilter
-def ref(context, ref, **vars):
+def ref(context, ref, *args, **vars):
     refContext = context["__unfurl"]
-    return Ref(ref, vars=vars).resolve_one(refContext)
+    trace = vars.pop("trace", None)
+    return Ref(ref, trace=trace, vars=vars).resolve_one(refContext)
 
 
 @contextfilter

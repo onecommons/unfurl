@@ -250,17 +250,18 @@ class Expr:
 class Ref:
     """A Ref objects describes a path to metadata associated with a resource."""
 
-    def __init__(self, exp, vars=None):
+    def __init__(self, exp, vars=None, trace=None):
         self.vars = {"true": True, "false": False, "null": None}
 
         self.foreach = None
-        self.trace = 0
+        trace = RefContext.DefaultTraceLevel if trace is None else trace
+        self.trace = trace
         if isinstance(exp, Mapping):
             keys = list(exp)
             if keys and keys[0] not in _FuncsTop:
                 self.vars.update(exp.get("vars", {}))
                 self.foreach = exp.get("foreach", exp.get("select"))
-                self.trace = exp.get("trace", 0)
+                self.trace = exp.get("trace", trace)
                 exp = exp.get("eval", exp.get("ref", exp))
 
         if vars:
