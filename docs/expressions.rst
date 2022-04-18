@@ -410,6 +410,7 @@ Built-in keys start with a leading **.**:
 .relationships relationships that target this capability
 .targets       map with requirement names as keys and target instances as values
 .sources       map with requirement names as keys and source instances as values
+.configured_by Filter .sources by the ``Configures`` relationship
 .descendents   (including self)
 .all           dictionary of child resources with their names as keys
 ============== ========================================================

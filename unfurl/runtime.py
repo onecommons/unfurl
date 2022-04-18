@@ -722,6 +722,18 @@ class NodeInstance(EntityInstance):
                         dep[rel.name] = rel.source
         return dep
 
+    def _configured_by(self):
+        for cap in self.capabilities:
+            for rel in cap.relationships:
+                if rel.source:
+                      if rel.template.is_compatible_type("unfurl.relationships.Configures"):
+                          yield rel.source
+                      yield from rel.source._configured_by()
+
+    @property
+    def configured_by(self):
+      return list(self._configured_by())
+
     @property
     def targets(self):
         dep = {}

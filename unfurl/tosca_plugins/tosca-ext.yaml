@@ -238,6 +238,13 @@ relationship_types:
     derived_from: tosca.relationships.Root
     valid_target_types: [unfurl.capabilities.Installer]
 
+  unfurl.relationships.Configures:
+    derived_from: tosca.relationships.Root
+
+  unfurl.relationships.ConfiguringHostedOn:
+    derived_from:
+      [unfurl.relationships.Configures, tosca.relationships.HostedOn]
+
   unfurl.relationships.ConnectsTo.Ansible:
     derived_from: tosca.relationships.ConnectsTo
     valid_target_types: [unfurl.capabilities.Endpoint.Ansible]
