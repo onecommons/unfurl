@@ -321,7 +321,7 @@ class YamlManifest(ReadOnlyManifest):
             )
             if deployment_blueprint not in deployment_blueprints:
                 raise UnfurlError(
-                    f"Can not requested deployment blueprint '{deployment_blueprint}' missing from ensemble."
+                    f"Can not find requested deployment blueprint: '{deployment_blueprint}' is missing from the ensemble."
                 )
             resource_templates = deployment_blueprints[deployment_blueprint].get("resource_templates")
             if resource_templates:

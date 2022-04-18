@@ -99,7 +99,8 @@ node_types:
                     image: "{{ image_path }}" # Repository path and tag
                     state: "<%  inputs.state %>"
                     {%if SELF.container is defined %}
-                    env: <% SELF.container.environment | map_value | to_json %>
+                    # filter out env vars set to none
+                    env: <% SELF.container.environment | map_value | dict2items | rejectattr("value", "none") | list | items2dict | to_json %>
                     # merge container dict after stripping out "container_name" and "environment" keys
                     <<: <% SELF.container | map_value | dict2items | rejectattr("key", "equalto" , "container_name") | rejectattr("key", "equalto" , "environment") | list | items2dict | to_json %>
                     {%endif%}

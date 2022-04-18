@@ -108,6 +108,7 @@ def _patch(node, patchsrc, quote=False, tpl=None):
 
 class ToscaSpec:
     InstallerType = "unfurl.nodes.Installer"
+    topology = None
 
     def evaluate_imports(self, toscaDef):
         if not toscaDef.get("imports"):
@@ -197,10 +198,13 @@ class ToscaSpec:
             import_resolver=resolver,
             verify=False,  # we display the error messages ourselves so we don't need to verify here
         )
+        ExceptionCollector.collecting = True # don't stop collecting validation errors
         self.nodeTemplates = {}
         self.installers = {}
         self.relationshipTemplates = {}
         for template in self.template.nodetemplates:
+            if not template.type_definition:
+                continue # invalidate template
             nodeTemplate = NodeSpec(template, self)
             if template.is_derived_from(self.InstallerType):
                 self.installers[template.name] = nodeTemplate
@@ -225,6 +229,7 @@ class ToscaSpec:
             p.name: PolicySpec(p, self)
             for p in self.template.topology_template.policies
         }
+        ExceptionCollector.collecting = False
 
     def _patch(self, toscaDef, path):
         matches = None
@@ -279,7 +284,7 @@ class ToscaSpec:
             try:
                 self._parse_template(path, inputs, toscaDef, resolver)
             except:
-                if not ExceptionCollector.exceptionsCaught() or not self.template:
+                if not ExceptionCollector.exceptionsCaught() or not self.template or not self.topology:
                     raise  # unexpected error
 
             patched = self._patch(toscaDef, path)
@@ -853,8 +858,11 @@ class NodeSpec(EntitySpec):
                 reqSpec = RequirementSpec(name, req, self, req_type_def)
                 if relTpl.target:
                     nodeSpec = self.spec.get_template(relTpl.target.name)
-                    assert nodeSpec
-                    nodeSpec.add_relationship(reqSpec)
+                    if nodeSpec:
+                        nodeSpec.add_relationship(reqSpec)
+                    else:
+                        msg = f'Missing target node "{relTpl.target.name}" for requirement "{name}" on "{self.name}"'
+                        ExceptionCollector.appendException(UnfurlValidationError(msg))
                 self._requirements[name] = reqSpec
         return self._requirements
 
