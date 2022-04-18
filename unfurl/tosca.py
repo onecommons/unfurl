@@ -199,6 +199,7 @@ class ToscaSpec:
             verify=False,  # we display the error messages ourselves so we don't need to verify here
         )
         ExceptionCollector.collecting = True # don't stop collecting validation errors
+        ExceptionCollector.near = ' while instantiating the spec'
         self.nodeTemplates = {}
         self.installers = {}
         self.relationshipTemplates = {}
