@@ -1,3 +1,4 @@
+
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
 """
@@ -40,6 +41,7 @@ import ansible.template
 from ansible.parsing.dataloader import DataLoader
 from ansible.utils import unsafe_proxy
 from ansible.utils.unsafe_proxy import wrap_var, AnsibleUnsafeText, AnsibleUnsafeBytes
+from jinja2.runtime import ChainableUndefined
 
 import logging
 
@@ -249,6 +251,15 @@ def _wrap_sequence(v):
 unsafe_proxy._wrap_sequence = _wrap_sequence
 
 
+class UnfurlUndefined(ChainableUndefined):
+     def __getattr__(self, name):
+          if name == '__UNSAFE__':
+              # AnsibleUndefined should never be assumed to be unsafe
+              # This prevents ``hasattr(val, '__UNSAFE__')`` from evaluating to ``True``
+              raise AttributeError(name)
+          # Return original Undefined object to preserve the first failure context
+          return self
+
 def apply_template(value, ctx, overrides=None):
     if not isinstance(value, six.string_types):
         msg = f"Error rendering template: source must be a string, not {type(value)}"
@@ -281,6 +292,8 @@ def apply_template(value, ctx, overrides=None):
     templar.environment.trim_blocks = False
     # templar.environment.lstrip_blocks = False
     fail_on_undefined = ctx.strict
+    if not fail_on_undefined:
+        templar.environment.undefined = UnfurlUndefined
 
     vars = _VarTrackerDict(__unfurl=ctx, __python_executable=sys.executable)
     vars.update(ctx.vars)

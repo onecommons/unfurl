@@ -471,10 +471,15 @@ def _render_request(job, parent, req, requests):
     error = None
     try:
         task.logger.debug("rendering %s %s", task.target.name, task.name)
+        task._rendering = True
+        if task._inputs:
+            # turn strictness off so we can detect dependencies
+            task._inputs.context.strict = False
         task.rendered = task.configurator.render(task)
     except Exception:
         # note: failed rendering may be re-tried later if it has dependencies
         error = UnfurlTaskError(task, "Configurator render failed", logging.DEBUG)
+    task._rendering = False
     task._attributeManager.mark_referenced_templates(task.target.template)
 
     if parent and parent.workflow == "undeploy":

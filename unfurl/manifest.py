@@ -327,7 +327,7 @@ class Manifest(AttributeManager):
                 changerecord = self._get_last_change(operational)
                 template = self.load_template(templateName, changerecord)
         if template is None:
-            raise UnfurlError(f"missing resource template {templateName}")
+            raise UnfurlError(f"missing template definition for '{templateName}' while instantiating instance '{name}'")
         # logger.debug("creating instance for template %s: %s", templateName, template)
 
         # omit keys that match <<REDACTED>> so can we use the computed property

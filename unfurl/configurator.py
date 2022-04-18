@@ -354,6 +354,7 @@ class TaskView:
         self.dependencies = dependencies or []
         self._resourceChanges = ResourceChanges()
         self._workFolders = {}
+        self._rendering = False
         # public:
         self.operation_host = find_operation_host(target, configSpec.operation_host)
 
@@ -400,7 +401,7 @@ class TaskView:
                 vars["SOURCE"] = self.target.source.attributes
                 vars["TARGET"] = target.attributes
             # expose inputs lazily to allow self-referencee
-            ctx = RefContext(self.target, vars, task=self)
+            ctx = RefContext(self.target, vars, task=self, strict=not self._rendering)
             if self.configSpec.artifact and self.configSpec.artifact.base_dir:
                 ctx.base_dir = self.configSpec.artifact.base_dir
             self._inputs = ResultsMap(inputs, ctx)
