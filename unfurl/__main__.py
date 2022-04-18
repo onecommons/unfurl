@@ -23,7 +23,7 @@ from typing import Optional
 
 import click
 
-from . import DefaultNames, __version__, get_home_config_path
+from . import DefaultNames, __version__, get_home_config_path, is_version_unreleased
 from . import init as initmod
 from . import logs, version_tuple
 from .job import start_job
@@ -75,7 +75,12 @@ def option_group(*options):
 @click.option(
     "--version-check",
     envvar="UNFURL_VERSION_CHECK",
-    help="warn if older than the given version",
+    help="Abort if the runtime's Unfurl is older than the given version",
+)
+@click.option(
+    "--no-version-check",
+    is_flag=True,
+    help="Skip the Unfurl version check when invoking the runtime.",
 )
 def cli(
     ctx,
@@ -100,12 +105,17 @@ def cli(
     logs.set_console_log_level(effective_log_level)
 
     if version_check and version_tuple() < version_tuple(version_check):
-        logging.warning(
-            "current version %s older than expected version %s",
+        logging.error(
+            "Current unfurl version %s older than expected version %s",
             __version__(True),
             version_check,
         )
-
+        if is_version_unreleased(version_check):
+            msg = f"{sys.executable} -m pip install -U 'git+https://github.com/onecommons/unfurl.git#egg=unfurl'"
+        else:
+            msg = f"{sys.executable} -m pip install -U unfurl=={version_check}"
+        logging.error("Use --no-version-check to ignore or run this command to upgrade: \n %s", msg)
+        raise click.Abort()
 
 def detect_log_level(loglevel: Optional[str], quiet: bool, verbose: int) -> Levels:
     if quiet:
@@ -261,12 +271,13 @@ def _venv(runtime, env):
         env = os.environ.copy()
     # see virtualenv activate
     env.pop("PYTHONHOME", None)  # unset if set
+    runtime = os.path.expanduser(runtime)
     env["VIRTUAL_ENV"] = runtime
     env["PATH"] = os.path.join(runtime, "bin") + os.pathsep + env.get("PATH", "")
     return env
 
 
-def _remote_cmd(runtime_, cmd_line, local_env):
+def _remote_cmd(runtime_, cmd_line, local_env, version_check):
     context = local_env.get_context()
     kind, sep, rest = runtime_.partition(":")
     envvar_filter = context.get("variables") or {}
@@ -289,9 +300,8 @@ def _remote_cmd(runtime_, cmd_line, local_env):
                 "-m",
                 "unfurl",
                 "--no-runtime",
-                "--version-check",
-                __version__(True),
             ]
+            + version_check
             + cmd_line,
             False,
         )
@@ -303,7 +313,7 @@ def _remote_cmd(runtime_, cmd_line, local_env):
         cmd = shlex.split(runtime_)
         return (
             env,
-            cmd + ["--no-runtime", "--version-check", __version__(True)] + cmd_line,
+            cmd + ["--no-runtime"] + version_check + cmd_line,
             True,
         )
 
@@ -387,11 +397,18 @@ class DockerCmd:
 
 def _run_remote(runtime, options, localEnv):
     logger = logging.getLogger("unfurl")
-    logger.debug('running command remotely on "%s"', runtime)
+    logger.info('running command remotely on "%s"', runtime)
     cmdLine = _args or sys.argv[1:]
     if _args:  # set by test driver to override command line
         print(f"TESTING: running remote with _args {_args}")
-    env, remote, shell = _remote_cmd(runtime, cmdLine, localEnv)
+
+    if options.get("no_version_check"):
+        cmdLine.remove('--no-version-check')
+        version_check = []
+    else:
+        version_check = ["--version-check", __version__(True)]
+
+    env, remote, shell = _remote_cmd(runtime, cmdLine, localEnv, version_check)
     logger.debug("executing remote command: %s", remote)
     rv = subprocess.call(remote, env=env, shell=shell)
     if options.get("standalone_mode") is False:
