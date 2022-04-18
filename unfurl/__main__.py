@@ -307,7 +307,7 @@ def _remote_cmd(runtime_, cmd_line, local_env, version_check):
         )
     elif kind == "docker":
         cmd = DockerCmd(runtime_, env or {}).build()
-        return env, cmd + cmd_line, False
+        return env, cmd + version_check + cmd_line, False
     else:
         # treat as shell command
         cmd = shlex.split(runtime_)
@@ -365,7 +365,7 @@ class DockerCmd:
         cmd.extend(self.default_volumes())
         cmd.extend(self.docker_args)
         cmd.extend(
-            [self.image, "unfurl", "--no-runtime", "--version-check", __version__(True)]
+            [self.image, "unfurl", "--no-runtime"]
         )
         return cmd
 
