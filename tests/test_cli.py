@@ -245,6 +245,7 @@ spec:
         runtime = "docker:onecommons/unfurl:latest"
         _args[:] = [
             f"--runtime={runtime}",
+            "--no-version-check"
             "-vvv",
             "deploy",
             "ensemble.yaml",
