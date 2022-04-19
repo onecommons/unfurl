@@ -216,7 +216,6 @@ class CliTest(unittest.TestCase):
             finally:
                 os.environ["UNFURL_NORUNTIME"] = "1"
 
-    @unittest.skip("temporary skip while new image is published")
     @unittest.skipIf(
         "slow" in os.getenv("UNFURL_TEST_SKIP", "")
         or "docker" in os.getenv("UNFURL_TEST_SKIP", ""),
