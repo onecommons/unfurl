@@ -258,7 +258,7 @@ spec:
                 if os.environ.get("UNFURL_NORUNTIME"):
                     del os.environ["UNFURL_NORUNTIME"]
                 result = runner.invoke(
-                    cli, ["--runtime=" + runtime, "deploy", "ensemble.yaml"]
+                    cli, ["--runtime=" + runtime, "--no-version-check", "deploy", "ensemble.yaml"]
                 )
             finally:
                 os.environ["UNFURL_NORUNTIME"] = "1"
