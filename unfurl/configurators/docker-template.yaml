@@ -45,7 +45,9 @@ data_types:
 
 node_types:
   unfurl.nodes.Container.Application.Docker:
-    derived_from: tosca.nodes.Container.Application.Docker
+    # derived_from: tosca.nodes.Container.Application.Docker
+    # the requirements for tosca.nodes.Container.Application are too strong, so break inheritance for now
+    derived_from: tosca.nodes.Root
     artifacts:
       image:
         type: tosca.artifacts.Deployment.Image.Container.Docker
