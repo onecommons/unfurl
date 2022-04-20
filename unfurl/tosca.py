@@ -355,7 +355,7 @@ class ToscaSpec:
         return decorators
 
     def load_imported_default_templates(self):
-        for topology in self.template.nested_topologies.values():
+        for name, topology in self.template.nested_topologies.items():
             for nodeTemplate in topology.nodetemplates:
                 if (
                     "default" in nodeTemplate.directives

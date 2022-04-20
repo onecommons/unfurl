@@ -577,7 +577,8 @@ def nodetemplate_to_json(nodetemplate, spec, types):
             if req_dict.get("node") and not _get_typedef(req_dict["node"], spec):
                 # it's not a type, assume it's a node template
                 # (the node template name might not match a template if it is only defined in the deployment blueprints)
-                reqjson["match"] = req_dict["node"]
+                match = req_dict["node"]
+                reqjson["match"] = match
             if not visibility and reqjson["match"]:
                 # user-defined templates should always have visibility set, so if it doesn't and the requirement is already set to a node
                 # assume it is internal and set to hidden.
@@ -905,8 +906,14 @@ def add_graphql_deployment(manifest, db, dtemplate):
     title = dtemplate.get('title') or name
     deployment = dict(name=name, title=title)
     templates = db["ResourceTemplate"]
+    relationships = {}
+    for t in templates.values():
+        if "dependencies" in t:
+            for c in t["dependencies"]:
+                if c.get("match"):
+                    relationships.setdefault(c["match"], []).append(c)
     resources = [
-        to_graphql_resource(instance, manifest, db)
+        to_graphql_resource(instance, manifest, db, relationships)
         for instance in manifest.rootResource.get_self_and_descendents()
         if instance is not manifest.rootResource and instance.template.name in templates
     ]
@@ -1050,7 +1057,7 @@ def to_environments(localEnv):
     return db
 
 
-def to_graphql_resource(instance, manifest, db):
+def to_graphql_resource(instance, manifest, db, relationships):
     """
     type Resource {
       name: String!
@@ -1071,7 +1078,17 @@ def to_graphql_resource(instance, manifest, db):
         state=instance.state,
         status=instance.status,
     )
-    template = db["ResourceTemplate"][instance.template.name]
+    template = db["ResourceTemplate"].get(instance.template.name)
+    assert template # pre-condition
+    if "visibility" in template and template["visibility"] != "inherit":
+        resource["visibility"] = template["visibility"]
+    elif instance.template.name in relationships:
+        visibilities = set(reqjson["constraint"].get("visibility", "inherit")
+                            for reqjson in relationships[instance.template.name])
+        if len(visibilities) == 1 and "hidden" in visibilities:
+            # non-visible visibilities override hidden
+            resource["visibility"] = "hidden"
+
     attrs = []
     # instance._attributes only has values that were set by the instance, not spec properties or attribute defaults
     # instance._attributes should already be serialized
