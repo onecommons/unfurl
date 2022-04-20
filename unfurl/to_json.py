@@ -1113,10 +1113,15 @@ def to_graphql_resource(instance, manifest, db, relationships):
 
     if template["dependencies"]:
         requirements = {r["name"]: r.copy() for r in template["dependencies"]}
-        for req in instance.template.requirements.values():
-            # test because it might not be set if the template is incomplete
-            if req.relationship and req.relationship.target:
-                requirements[req.name]["target"] = req.relationship.target.name
+        # XXX there is a bug where this can't find instances sometimes:
+        # so for now just copy match if it exists
+        # for req in instance.template.requirements.values():
+        #     # test because it might not be set if the template is incomplete
+        #     if req.relationship and req.relationship.target:
+        #         requirements[req.name]["target"] = req.relationship.target.name
+        for req in requirements.values():
+            if req.get("match"):
+                req["target"] = req["match"]
         resource["connections"] = list(requirements.values())
     else:
         resource["connections"] = []
