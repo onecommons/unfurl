@@ -37,9 +37,14 @@ numeric_constraints = {
 }
 
 
-def map_constraint(jsonType, constraint):
+def map_constraint(jsonType, constraint, schema):
     key = constraint.constraint_key
     value = constraint.constraint_value
+    unit = schema.get("default_unit")
+    if unit and key != "in_range":
+        scalar_class = get_scalarunit_class(schema["$toscatype"])
+        # value has already been converted to the base unit, now we need to convert it back to the default_unit
+        value = scalar_class(str(value) + scalar_class.SCALAR_UNIT_DEFAULT).get_num_from_scalar_unit(unit)
     if key == "schema":
         return value
     elif key == "pattern":
@@ -51,21 +56,27 @@ def map_constraint(jsonType, constraint):
     elif key in numeric_constraints:
         return {numeric_constraints[key]: value}
     elif key in ["in_range", "length", "min_length", "max_length"]:
-        suffix = dict(string="Length", object="Properties", array="Items")[jsonType]
+        suffix = dict(string="Length", object="Properties", array="Items", number="imum")[jsonType]
         prefix = key[:3]
+        if key == "in_range":
+            start, stop = value
+            if unit:
+                # values have already been converted to the base unit, now we need to convert it back to the default_unit
+                scalar_class = get_scalarunit_class(schema["$toscatype"])
+                start = scalar_class(str(start) + scalar_class.SCALAR_UNIT_DEFAULT).get_num_from_scalar_unit(unit)
+                stop = scalar_class(str(stop) + scalar_class.SCALAR_UNIT_DEFAULT).get_num_from_scalar_unit(unit)
+            return {"min" + suffix: start, "max" + suffix: stop}
         if prefix == "min" or prefix == "max":
             return {prefix + suffix: value}
         elif key == "length":
             return {"min" + suffix: value, "max" + suffix: value}
-        else:  # in_range
-            return {"min" + suffix: value[0], "max" + suffix: value[1]}
 
 
-def map_constraints(jsonType, constraints):
+def map_constraints(jsonType, constraints, schema):
     if len(constraints) > 1:
-        return dict(allOf=[map_constraint(jsonType, c) for c in constraints])
+        return dict(allOf=[map_constraint(jsonType, c, schema) for c in constraints])
     else:
-        return map_constraint(jsonType, constraints[0])
+        return map_constraint(jsonType, constraints[0], schema)
 
 
 ONE_TO_ONE_TYPES = ("string", "boolean", "map", "list")
@@ -187,7 +198,7 @@ def tosca_schema_to_jsonschema(p, spec):
             schema["additionalProperties"] = entrySchema
 
     if constraints:
-        schema.update(map_constraints(schema["type"], toscaSchema.constraints))
+        schema.update(map_constraints(schema["type"], toscaSchema.constraints, schema))
     return schema
 
 
@@ -999,7 +1010,7 @@ def map_nodefilter(filters, jsonprops):
             schema = jsonprops[name]
             tosca_datatype = schema.get("$toscatype") or ONE_TO_ONE_MAP.get(schema['type'], schema['type'])
             constraints = ConditionClause(name, value, tosca_datatype).conditions
-            schema.update(map_constraints(schema["type"], constraints))
+            schema.update(map_constraints(schema["type"], constraints, schema))
 
 def to_environments(localEnv):
     """
