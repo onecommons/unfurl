@@ -575,8 +575,8 @@ def nodetemplate_to_json(nodetemplate, spec, types):
     ExceptionCollector.start()
     if nodetemplate.requirements:
         for req in nodetemplate.requirements:
-            reqDef, rel_template = nodetemplate._get_explicit_relationship(req)
             name, req_dict = _get_req(req)
+            reqDef, rel_template = nodetemplate._get_explicit_relationship(name, req_dict)
             reqconstraint = _find_requirement_constraint(
                 jsonnodetype["requirements"], name
             )
