@@ -94,14 +94,15 @@ def cli(
     # ensure that ctx.obj exists and is a dict (in case `cli()` is called
     # by means other than the `if` block below
     ctx.ensure_object(dict)
+    if not kw.get("logfile"):
+        kw["logfile"] = logs.get_tmplog_path()
     ctx.obj.update(kw)
-
     if tmp is not None:
         os.environ["UNFURL_TMPDIR"] = tmp
+
     effective_log_level = detect_log_level(loglevel, quiet, verbose)
     ctx.obj["verbose"] = detect_verbose_level(effective_log_level)
-    if kw["logfile"]:
-        logs.add_log_file(kw["logfile"])
+    logs.add_log_file(kw["logfile"])
     logs.set_console_log_level(effective_log_level)
 
     if version_check and version_tuple() < version_tuple(version_check):
@@ -452,33 +453,27 @@ def yesno(prompt):
 
 
 def _stop_logging(job, options, verbose, tmplogfile):
-    if options["logfile"]:
-        if verbose > -1:
-            click.echo("Done, full log appended to " + options["logfile"])
+    if job and job.log_path:
+        log_path = job.log_path
+        dir = os.path.dirname(log_path)
+        if not os.path.exists(dir):
+            os.makedirs(dir)
+        try:
+            os.rename(tmplogfile, log_path)
+        except OSError:
+            # handle [Errno 18] Invalid cross-device link
+            shutil.copy(tmplogfile, log_path)
     else:
-        if job and job.log_path:
-            log_path = job.log_path
-            dir = os.path.dirname(log_path)
-            if not os.path.exists(dir):
-                os.makedirs(dir)
-            try:
-                os.rename(tmplogfile, log_path)
-            except OSError:
-                # handle [Errno 18] Invalid cross-device link
-                shutil.copy(tmplogfile, log_path)
-        else:
-            log_path = tmplogfile
-        if verbose > -1:
-            click.echo("Done, full log written to " + log_path)
+        log_path = tmplogfile
+    if verbose > -1:
+        click.echo("Done, full log written to " + log_path)
 
 
 def _run_local(ensemble, options):
+    logger = logging.getLogger("unfurl")
+    logger.verbose('Running command: %s', sys.argv[1:])
     verbose = options.get("verbose", 0)
-    tmplogfile = None
-    if not options["logfile"]:
-        tmplogfile = logs.get_tmplog_path()
-        logs.add_log_file(tmplogfile)
-
+    tmplogfile = options["logfile"]
     job, rendered, proceed = start_job(ensemble, options)
     _latestJobs.append(job)  # testing only
     if job:

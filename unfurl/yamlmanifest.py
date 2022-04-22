@@ -315,18 +315,21 @@ class YamlManifest(ReadOnlyManifest):
         spec = manifest.get("spec", {})
         more_spec = self._load_context(self.context, localEnv)
         deployment_blueprint = self.context.get("deployment_blueprint")
+        deployment_blueprints = (
+            manifest.get("spec", {}).get("deployment_blueprints") or {}
+        )
         if deployment_blueprint:
-            deployment_blueprints = (
-                manifest.get("spec", {}).get("deployment_blueprints") or {}
-            )
             if deployment_blueprint not in deployment_blueprints:
                 raise UnfurlError(
                     f"Can not find requested deployment blueprint: '{deployment_blueprint}' is missing from the ensemble."
                 )
+            logger.info('Using deployment blueprint "%s"', deployment_blueprint)
             resource_templates = deployment_blueprints[deployment_blueprint].get("resource_templates")
             if resource_templates:
                 node_templates = more_spec["topology_template"]["node_templates"]
                 self._load_resource_templates(resource_templates, node_templates, False)
+        elif deployment_blueprints:
+            logger.warning("This ensemble contains deployment blueprints but none were specified for use.")
         if self.context.get("instances"):
             # add context instances to spec instances
             self._load_resource_templates(
