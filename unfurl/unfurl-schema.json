@@ -41,17 +41,17 @@
     },
     "environments": {
       "anyOf": [
-        { "type": "null" },
         {
           "type": "object",
           "propertyNames": { "pattern": "^[A-Za-z._][A-Za-z0-9._\\-]*$" },
           "additionalProperties": {
             "anyOf": [
-              { "type": "null" },
-              { "$ref": "./manifest-schema.json#/definitions/environment"}
+              { "$ref": "./manifest-schema.json#/definitions/environment" },
+              { "type": "null" }
             ]
           }
-        }
+        },
+        { "type": "null" }
       ]
     },
     "default_environment": { "type": "string" },
