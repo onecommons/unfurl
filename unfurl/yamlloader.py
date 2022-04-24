@@ -266,7 +266,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
 
     def load_yaml(self, importLoader, path, isFile=True, fragment=None):
         try:
-            logger.debug(
+            logger.trace(
                 "attempting to load YAML %s: %s", "file" if isFile else "url", path
             )
             originalPath = path
@@ -404,7 +404,7 @@ class YamlConfig:
         path = os.path.abspath(os.path.join(baseDir or self.get_base_dir(), path))
         if warnWhenNotFound and not os.path.isfile(path):
             return path, None
-        logger.debug("attempting to load YAML file: %s", path)
+        logger.trace("attempting to load YAML file: %s", path)
         with open(path, "r") as f:
             config = self.yaml.load(f)
         if fragment and config:

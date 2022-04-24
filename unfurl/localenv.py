@@ -976,6 +976,8 @@ class LocalEnv:
 
     def find_or_create_working_dir(self, repoURL, revision=None, basepath=None):
         repo = self.find_git_repo(repoURL, revision)
+        if repo:
+            logger.debug("Using existing repository at %s for %s", repo.working_dir, repoURL)
         # git-local repos must already exist
         if not repo and not repoURL.startswith("git-local://"):
             project = self.project or self.homeProject
