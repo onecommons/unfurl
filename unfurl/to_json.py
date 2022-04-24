@@ -575,32 +575,33 @@ def nodetemplate_to_json(nodetemplate, spec, types):
     # json["outputs"] = jsonnodetype["outputs"]
 
     ExceptionCollector.start()
-    if nodetemplate.requirements:
-        for req in nodetemplate.requirements:
-            name, req_dict = _get_req(req)
-            reqDef, rel_template = nodetemplate._get_explicit_relationship(name, req_dict)
-            reqconstraint = _find_requirement_constraint(
-                jsonnodetype["requirements"], name
-            )
-            reqjson = dict(
-                constraint=reqconstraint, name=name, __typename="Requirement"
-            )
-            req_metadata = req_dict.get("metadata") or {}
-            visibility = req_metadata and "constraint" in req_metadata and req_metadata["constraint"].get("visibility")
-            if req_dict.get("node") and not _get_typedef(req_dict["node"], spec):
-                # it's not a type, assume it's a node template
-                # (the node template name might not match a template if it is only defined in the deployment blueprints)
-                match = req_dict["node"]
-                reqjson["match"] = match
-            if not visibility and reqjson["match"]:
-                # user-defined templates should always have visibility set, so if it doesn't and the requirement is already set to a node
-                # assume it is internal and set to hidden.
-                if reqconstraint.get("visibility") != "visible" and not req_metadata.get('user_settable'):
-                    # unless visibility wasn't explicitly set to visibile
-                    visibility = "hidden"
-            if visibility:
-                reqjson["constraint"] = dict(reqjson["constraint"], visibility=visibility)
-            json["dependencies"].append(reqjson)
+    for req in nodetemplate.all_requirements:
+        name, req_dict = _get_req(req)
+        if name == "dependency":
+            continue
+        reqDef, rel_template = nodetemplate._get_explicit_relationship(name, req_dict)
+        reqconstraint = _find_requirement_constraint(
+            jsonnodetype["requirements"], name
+        )
+        reqjson = dict(
+            constraint=reqconstraint, name=name, __typename="Requirement"
+        )
+        req_metadata = req_dict.get("metadata") or {}
+        visibility = req_metadata and "constraint" in req_metadata and req_metadata["constraint"].get("visibility")
+        if req_dict.get("node") and not _get_typedef(req_dict["node"], spec):
+            # it's not a type, assume it's a node template
+            # (the node template name might not match a template if it is only defined in the deployment blueprints)
+            match = req_dict["node"]
+            reqjson["match"] = match
+        if not visibility and reqjson.get("match"):
+            # user-defined templates should always have visibility set, so if it doesn't and the requirement is already set to a node
+            # assume it is internal and set to hidden.
+            if reqconstraint.get("visibility") != "visible" and not req_metadata.get('user_settable'):
+                # unless visibility wasn't explicitly set to visibile
+                visibility = "hidden"
+        if visibility:
+            reqjson["constraint"] = dict(reqjson["constraint"], visibility=visibility)
+        json["dependencies"].append(reqjson)
 
     return json
 
