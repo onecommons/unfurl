@@ -1026,6 +1026,8 @@ def export(ctx, project_or_ensemble_path, format, **options):
     exporter = getattr(to_json, "to_" + format)
     jsonSummary = exporter(localEnv)
     click.echo(json.dumps(jsonSummary, indent=2))
+    logger = logging.getLogger("unfurl")
+    logger.info('Export complete.')
 
 
 @cli.command()

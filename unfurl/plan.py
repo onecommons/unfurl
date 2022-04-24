@@ -467,7 +467,7 @@ class Plan:
         opts = self.jobOptions
         templates = self._get_templates()
 
-        logger.debug("checking for tasks for templates %s", [t.name for t in templates])
+        logger.verbose("checking for tasks for templates %s", [t.name for t in templates])
         visited = set()
         for template in templates:
             found = False

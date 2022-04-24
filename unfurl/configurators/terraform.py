@@ -15,10 +15,11 @@ import re
 def _get_env(env, verbose, dataDir):
     env["TF_IN_AUTOMATION"] = "1"
     env["TF_INPUT"] = "0"
-    # terraform currently only supports TF_LOG=TRACE
+    # see https://www.terraform.io/plugin/log/managing
     # env["TF_LOG"] = "ERROR WARN INFO DEBUG TRACE".split()[verbose + 1]
     if verbose > 0:
-        env["TF_LOG"] = "DEBUG"
+        # providers can be very verbose, don't set them to debug
+        env["TF_LOG_CORE"] = "DEBUG"
 
     # note: modules with relative paths get confused .terraform isn't child of the config dir
     # contains modules/modules.json and plugins/plugins.json:
