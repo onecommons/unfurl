@@ -647,7 +647,8 @@ class YamlManifest(ReadOnlyManifest):
 
     def save_resource(self, resource, discovered):
         # XXX checkstatus break unit tests so skip mostly
-        checkstatus = resource.template.type == "unfurl.nodes.LocalRepository"
+        checkstatus = (resource.template.type == "unfurl.nodes.LocalRepository"
+                        or "default" in resource.template.directives)
         ret = self._save_entity_if_instantiated(resource, checkstatus)
         if not ret:
             return ret
