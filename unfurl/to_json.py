@@ -28,6 +28,8 @@ from toscaparser.activities import ConditionClause
 from .logs import sensitive
 from .tosca import is_function, get_nodefilters
 from .localenv import LocalEnv
+from .util import to_enum
+from .support import Status
 
 numeric_constraints = {
     "greater_than": "exclusiveMinimum",
@@ -908,9 +910,8 @@ def add_graphql_deployment(manifest, db, dtemplate):
       resources: [Resource!]
       deploymentTemplate: DeploymentTemplate!
       url: url
-
-      job: Job?
-      ready: Boolean
+      status: Status
+      summary: String
     }
     """
     name = dtemplate['name']
@@ -932,6 +933,9 @@ def add_graphql_deployment(manifest, db, dtemplate):
     deployment["resources"] = list(db["Resource"])
     primary_name = deployment["primary"] = dtemplate["primary"]
     deployment['deploymentTemplate'] = dtemplate["name"]
+    if manifest.lastJob:
+        deployment['status'] = to_enum(manifest.lastJob["readyState"]["effective"], Status)
+        deployment['summary'] = manifest.lastJob["summary"]
     deployment['ci_job_id'] = os.getenv('CI_JOB_ID')
     deployment['ci_pipeline_id'] = os.getenv('CI_PIPELINE_ID')
     primary_resource = db["Resource"].get(primary_name)
@@ -954,6 +958,7 @@ def to_blueprint(localEnv):
     return db
 
 
+# NB! to_deployment is the default export format used by __main__.export (but you won't find that via grep)
 def to_deployment(localEnv):
     db, manifest, env, env_types = to_graphql(localEnv)
     blueprint, dtemplate = get_blueprint_from_topology(manifest, db)
