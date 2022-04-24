@@ -29,7 +29,7 @@ from .logs import sensitive
 from .tosca import is_function, get_nodefilters
 from .localenv import LocalEnv
 from .util import to_enum
-from .support import Status
+from .support import Status, is_template
 
 numeric_constraints = {
     "greater_than": "exclusiveMinimum",
@@ -162,7 +162,7 @@ def tosca_schema_to_jsonschema(p, spec):
     schema = {}
     if toscaSchema.title or p.name:
         schema["title"] = toscaSchema.title or p.name
-    if toscaSchema.default is not None and not is_function(toscaSchema.default):
+    if toscaSchema.default is not None and not is_function(toscaSchema.default) and not is_template(toscaSchema.default):
         schema["default"] = toscaSchema.default
     if toscaSchema.required:
         schema["required"] = True
@@ -314,17 +314,24 @@ def is_property_user_visible(p):
     return True
 
 
-def is_computed(p):
+def is_computed(p): # p: Property | PropertyDef
     # XXX be smarter about is_computed() if the user should be able to override the default
+    if isinstance(p.schema, Schema):
+        metadata = p.schema.metadata
+    else:
+        metadata = p.schema.get("metadata") or {}
     return (
         p.name in ["tosca_id", "state", "tosca_name"]
-        or is_function(p.value)
-        or is_function(p.default)
-        or p.schema.get("metadata", {}).get("computed")
+        or is_function(p.value) or is_template(p.value)
+        or is_function(p.default) or is_template(p.default)
+        or metadata.get("computed")
     )
 
 
 def property_value_to_json(p, value):
+    # XXX fix when we handle re-export smarter
+    # if is_computed(p):
+    #     return None
     if isinstance(value, sensitive) or p.schema.metadata.get('sensitive'):
         return sensitive.redacted_str
     scalar_class = get_scalarunit_class(p.type)

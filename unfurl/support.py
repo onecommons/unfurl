@@ -207,7 +207,7 @@ def _get_template_test_reg_ex():
 _clean_regex = _get_template_test_reg_ex()
 
 
-def is_template(val, ctx):
+def is_template(val, ctx=None):
     if isinstance(val, (AnsibleUnsafeText, AnsibleUnsafeBytes)):
         # already evaluated in a template, don't evaluate again
         return False

@@ -170,7 +170,7 @@ readonlyJobControlOptions = option_group(
         "--jobexitcode",
         type=click.Choice(["error", "degraded", "never"]),
         default="never",
-        help="Set exit code to 1 if job status is not ok.",
+        help="Set exit code to 1 if job status is not ok. (Default: never)",
     ),
 )
 jobControlOptions = option_group(
