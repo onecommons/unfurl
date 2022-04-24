@@ -11,7 +11,7 @@ import os
 import os.path
 
 import six
-from .repo import Repo, normalize_git_url, split_git_url, RepoView
+from .repo import Repo, split_git_url, RepoView, normalize_git_url_hard
 from .util import UnfurlError
 from .merge import merge_dicts
 from .yamlloader import YamlConfig, make_vault_lib_ex, make_yaml
@@ -217,7 +217,7 @@ class Project:
                 initialCommit = urlparse(repoURL).netloc.partition(":")[0]
                 match = initialCommit == repo.get_initial_revision()
             else:
-                match = normalize_git_url(repoURL) == normalize_git_url(repo.url)
+                match = normalize_git_url_hard(repoURL) == normalize_git_url_hard(repo.url)
             if match:
                 if revision:
                     if repo.revision == repo.resolve_rev_spec(revision):
@@ -533,9 +533,9 @@ class LocalConfig:
         return None
 
     def find_repository_path_by_url(self, repourl):
-        url = normalize_git_url(repourl)
+        url = normalize_git_url_hard(repourl)
         for path, tpl in self.localRepositories.items():
-            if normalize_git_url(tpl["url"]) == url:
+            if normalize_git_url_hard(tpl["url"]) == url:
                 return path
         return None
 
@@ -548,7 +548,7 @@ class LocalConfig:
     def _get_project_name(self, project):
         repo = project.project_repoview
         for name, val in self.projects.items():
-            if normalize_git_url(val["url"]) == normalize_git_url(repo.url):
+            if normalize_git_url_hard(val["url"]) == normalize_git_url_hard(repo.url):
                 return name
 
         # if project isn't already in projects, use generated name

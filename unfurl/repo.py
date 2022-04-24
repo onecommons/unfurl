@@ -27,6 +27,11 @@ def normalize_git_url(url):
             return "ssh://" + url.replace(":", "/", 1)
     return url
 
+def normalize_git_url_hard(url):
+    parts = urlparse(normalize_git_url(url))
+    # remove scheme, user, and .git
+    return parts.netloc.rpartition("@")[2] + parts.path.rstrip('.git')
+
 
 def is_url_or_git_path(url):
     if "://" in url and not url.startswith("file:"):
