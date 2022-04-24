@@ -759,8 +759,8 @@ class TaskView:
 
         attributes = resourceSpec.get("attributes")
         if attributes:
-            for key, value in map_value(attributes, existingResource).items():
-                existingResource.attributes[key] = value
+            for key, value in attributes.items():
+                existingResource.attributes[key] = map_value(value, existingResource)
                 self.logger.debug(
                     "setting attribute %s on %s with %s",
                     key,
