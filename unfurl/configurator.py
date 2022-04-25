@@ -949,7 +949,9 @@ class Dependency(Operational):
     @property
     def local_status(self):
         if self.target and self.target is not self.target.root:
-            return self.target.status
+            # (only care about local status of instances with live attribute, not their full operational status)
+            # (reduces circular dependencies)
+            return self.target.local_status
         else:  # the root has inputs which don't have operational status
             return Status.ok
 
