@@ -942,8 +942,10 @@ def add_graphql_deployment(manifest, db, dtemplate):
     primary_name = deployment["primary"] = dtemplate["primary"]
     deployment['deploymentTemplate'] = dtemplate["name"]
     if manifest.lastJob:
-        deployment['status'] = to_enum(manifest.lastJob["readyState"]["effective"], Status)
-        deployment['summary'] = manifest.lastJob["summary"]
+        readyState = manifest.lastJob.get("readyState")
+        if isinstance(readyState, dict):
+            deployment['status'] = to_enum(Status, readyState.get("effective", readyState.get("local")) )
+        deployment['summary'] = manifest.lastJob.get("summary")
     deployment['ci_job_id'] = os.getenv('CI_JOB_ID')
     deployment['ci_pipeline_id'] = os.getenv('CI_PIPELINE_ID')
     primary_resource = db["Resource"].get(primary_name)

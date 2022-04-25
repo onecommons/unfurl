@@ -894,7 +894,7 @@ class NodeSpec(EntitySpec):
             # get_relationship_templates() is a list of RelationshipTemplates that target the node
             rIds = {id(r.toscaEntityTemplate) for r in self._relationships}
             for r in self.toscaEntityTemplate.get_relationship_templates():
-                if id(r) not in rIds:
+                if id(r) not in rIds and r.capability:
                     self._relationships.append(RelationshipSpec(r, self.spec, self))
         return self._relationships
 
