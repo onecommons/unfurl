@@ -419,8 +419,10 @@ class ConfigTask(ConfigChange, TaskView):
         if self.configSpec.operation not in ["check", "delete"] and (
             self.reason not in [Reason.force, Reason.run]
         ):
-            # check if the live attributes are set
-            missing, reason = _dependency_check(self)
+            # check if the live attributes this task depends on has been set
+            # (only care about local status of instances with live attribute, not their full operational status)
+            # (reduces circular dependencies)
+            missing, reason = _dependency_check(self, check_local=True)
             # don't check if this operation does depend on the operational dependencies being live
             if not missing and self.configSpec.entry_state > NodeState.initial:
                 missing, reason =_dependency_check(self.target)
@@ -478,9 +480,14 @@ class ConfigTask(ConfigChange, TaskView):
         return f"ConfigTask({self.target}:{self.name})"
 
 
-def _dependency_check(instance):
+def _dependency_check(instance, check_local=False):
     dependencies = list(instance.get_operational_dependencies())
-    missing = [dep for dep in dependencies if not dep.operational and dep.required]
+    def ok(dep):
+      if check_local:
+          return dep.local_status == Status.ok or dep.local_status == Status.degraded
+      else:
+          return dep.operational
+    missing = [dep for dep in dependencies if not ok(dep) and dep.required]
     if missing:
         reason = "required dependencies not operational: %s" % ", ".join(
             [f"{dep.name} is {dep.status.name}" for dep in missing]
