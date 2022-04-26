@@ -1138,7 +1138,7 @@ def to_graphql_resource(instance, manifest, db, relationships):
       status: Status
       state: State
       attributes: [Input!]
-      properties: [Input!]
+      computedProperties: [Input!]
       connections: [Requirement!]
     }
     """
@@ -1162,7 +1162,7 @@ def to_graphql_resource(instance, manifest, db, relationships):
             resource["visibility"] = "hidden"
 
     resource["attributes"] = add_attributes(instance)
-    resource["properties"] = add_computed_properties(instance)
+    resource["computedProperties"] = add_computed_properties(instance)
 
     if template["dependencies"]:
         requirements = {r["name"]: r.copy() for r in template["dependencies"]}
