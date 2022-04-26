@@ -548,6 +548,10 @@ def nodetemplate_to_json(nodetemplate, spec, types):
       target: Resource
     }
     """
+    if '__typename' in nodetemplate.entity_tpl:
+        # previously imported from the json, just return it
+        return nodetemplate.entity_tpl
+
     json = dict(
         type=nodetemplate.type,
         name=nodetemplate.name,
