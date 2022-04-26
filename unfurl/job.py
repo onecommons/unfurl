@@ -597,7 +597,7 @@ class Job(ConfigChange):
         # if there were circular dependencies or errors then notReady won't be empty
         if notReady:
             for parent, req in get_render_requests(notReady):
-                if not req.target.template.required: # we don't want to run these
+                if self.workflow == "deploy" and not req.target.template.required: # we don't want to run these
                     continue
                 message = f"can't fulfill {req.target.name}: never ran {req.future_dependencies}"
                 logger.info(message)
@@ -1128,7 +1128,7 @@ class Job(ConfigChange):
         return new_summary_list
 
     @staticmethod
-    def _list_plan_summary(requests, target, parent_summary_list, include_rendered):
+    def _list_plan_summary(requests, target, parent_summary_list, include_rendered, workflow):
         summary_list = parent_summary_list
         for request in requests:
             if isinstance(request, JobRequest):
@@ -1138,7 +1138,7 @@ class Job(ConfigChange):
             if isGroup and not request.children:
                 continue  # don't include in the plan
             if request.target is not target:
-                if not request.target.template.required:
+                if workflow == "deploy" and not request.target.template.required:
                     continue
                 # target changed, add it to the parent's list
                 # switch to the "plan" member of the new target
@@ -1152,7 +1152,7 @@ class Job(ConfigChange):
                 group["sequence"] = sequence
                 summary_list.append(group)
                 Job._list_plan_summary(
-                    request.children, target, sequence, include_rendered
+                    request.children, target, sequence, include_rendered, workflow
                 )
             else:
                 summary_list.append(request._summary_dict(include_rendered))
@@ -1176,7 +1176,7 @@ class Job(ConfigChange):
         summary = []
         for (m, requests) in self.external_requests:
             summary.extend(self._job_request_summary(requests, m))
-        self._list_plan_summary(self.plan_requests, None, summary, include_rendered)
+        self._list_plan_summary(self.plan_requests, None, summary, include_rendered, self.workflow)
         if not pretty:
             return summary
         else:
@@ -1236,8 +1236,9 @@ class Job(ConfigChange):
                 isGroup = isinstance(request, TaskRequestGroup)
                 if isGroup and not request.children:
                     continue
-                if not self.is_filtered() and not request.target.template.required:
-                   continue
+                if not self.is_filtered() and self.workflow == "deploy":
+                    if not request.target.template.required:
+                        continue
                 if isinstance(request, JobRequest):
                     count += 1
                     nodeStr = f'Job for "{request.name}":'

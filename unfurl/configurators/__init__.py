@@ -89,6 +89,8 @@ class TemplateConfigurator(Configurator):
         return runResult
 
     def done(self, task, **kw):
+        # this is called by derived classes like ShellConfigurator to allow the user
+        # to override the default logic for updating the state and status of a task.
         done = task.inputs.get_copy("done", {})
         if done:
             task.logger.trace("evaluated done template with %s", done)

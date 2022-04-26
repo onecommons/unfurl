@@ -546,7 +546,7 @@ def do_render_requests(job, requests):
         parent, request = render_requests.popleft()
         # we dont require default templates that aren't referenced
         # (but skip this check if the job already specified specific instances)
-        required = job.is_filtered() or request.target.template.required
+        required = job.workflow != "deploy" or job.is_filtered() or request.target.template.required
         if not required:
             not_required.append( (parent, request) )
         else:

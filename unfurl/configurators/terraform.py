@@ -442,10 +442,14 @@ class TerraformConfigurator(ShellConfigurator):
             or "Creating..." in result.stdout
             or "Destroying..." in result.stdout
         )
-        yield task.done(
-            success, modified, status, result=result.__dict__, outputs=outputs
-        )
-
+        yield self.done(
+                task,
+                success=success,
+                modified=modified,
+                status=status,
+                result=result.__dict__,
+                outputs=outputs,
+            )
 
 # XXX implement discover:
 # terraform import -allow-missing-config {type.name}
