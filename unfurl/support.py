@@ -495,7 +495,7 @@ def get_env(args, ctx):
         name = args
         default = None
 
-    return env.get(name, default)
+    return env.get(name, map_value(default, ctx))
 
 
 set_eval_func("get_env", get_env, True)
