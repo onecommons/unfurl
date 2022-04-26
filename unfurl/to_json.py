@@ -1086,6 +1086,47 @@ def to_environments(localEnv):
     db["ResourceType"] = all_connection_types
     return db
 
+def add_attributes(instance):
+    attrs = []
+    attributeDefs = instance.template.attributeDefs.copy()
+    # instance._attributes only has values that were set by the instance, not spec properties or attribute defaults
+    # instance._attributes should already be serialized
+    if instance._attributes:
+        for name, value in instance._attributes.items():
+            p = attributeDefs.pop(name, None)
+            if not p:
+                # check if shadowed property
+                p = instance.template.propertyDefs.get(name)
+                if not p:
+                    # same as EntityTemplate._create_properties()
+                    p = Property(name, value, dict(type="any"),
+                            instance.template.toscaEntityTemplate.custom_def)
+            if is_property_user_visible(p):
+                attrs.append(dict(name=p.name, value=property_value_to_json(p, value)))
+    # add leftover attribute defs that have a default value
+    for prop in attributeDefs.values():
+        if prop.default is not None:
+            attrs.append( dict(name=prop.name, value=property_value_to_json(prop, prop.default)) )
+    return attrs
+
+
+def add_computed_properties(instance):
+    attrs = []
+    _attributes = instance._attributes or {}
+    # instance._properties should already be serialized
+    if instance._properties:
+        for name, value in instance._properties.items():
+            if name in _attributes: # shadowed, don't include both
+                continue
+            p = instance.template.propertyDefs.get(name)
+            if not p:
+                # same as EntityTemplate._create_properties()
+                p = Property(name, value, dict(type="any"),
+                        instance.template.toscaEntityTemplate.custom_def)
+            if p.schema.get("metadata", {}).get("visibility") != 'hidden':
+                attrs.append(dict(name=p.name, value=property_value_to_json(p, value)))
+    return attrs
+
 
 def to_graphql_resource(instance, manifest, db, relationships):
     """
@@ -1097,6 +1138,7 @@ def to_graphql_resource(instance, manifest, db, relationships):
       status: Status
       state: State
       attributes: [Input!]
+      properties: [Input!]
       connections: [Requirement!]
     }
     """
@@ -1119,27 +1161,8 @@ def to_graphql_resource(instance, manifest, db, relationships):
             # non-visible visibilities override hidden
             resource["visibility"] = "hidden"
 
-    attrs = []
-    # instance._attributes only has values that were set by the instance, not spec properties or attribute defaults
-    # instance._attributes should already be serialized
-    attributeDefs = instance.template.attributeDefs.copy()
-    if instance._attributes:
-        for name, value in instance._attributes.items():
-            p = attributeDefs.pop(name, None)
-            if not p:
-                # check if shadowed property
-                p = instance.template.propertyDefs.get(name)
-                if not p:
-                    # same as EntityTemplate._create_properties()
-                    p = Property(name, value, dict(type="any"),
-                            instance.template.toscaEntityTemplate.custom_def)
-            if is_property_user_visible(p):
-                attrs.append(dict(name=p.name, value=property_value_to_json(p, value)))
-    # add leftover attribute defs that have a default value
-    for prop in attributeDefs.values():
-        if prop.default is not None:
-            attrs.append( dict(name=prop.name, value=property_value_to_json(prop, prop.default)) )
-    resource["attributes"] = attrs
+    resource["attributes"] = add_attributes(instance)
+    resource["properties"] = add_computed_properties(instance)
 
     if template["dependencies"]:
         requirements = {r["name"]: r.copy() for r in template["dependencies"]}

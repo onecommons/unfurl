@@ -627,7 +627,9 @@ class NodeInstance(EntityInstance):
             # instantiate missing relationships (they are only added, never deleted)
             instantiated = {id(r.template) for r in self._requirements}
             for name, template in self.template.requirements.items():
-                assert template.relationship
+                if not template.relationship:
+                    # XXX ValidationError
+                    continue
                 if id(template.relationship) not in instantiated:
                     relInstance = self._find_relationship(template.relationship)
                     if not relInstance:
