@@ -715,6 +715,7 @@ def to_graphql_blueprint(spec, db, deploymentTemplates=None):
       title: String
       description: String
       primary: ResourceType!
+      primaryDeploymentBlueprint: String
       deploymentTemplates: [DeploymentTemplate!]
 
       livePreview: String
@@ -735,6 +736,7 @@ def to_graphql_blueprint(spec, db, deploymentTemplates=None):
     blueprint["sourceCodeUrl"] = metadata.get("sourceCodeUrl")
     blueprint["image"] = metadata.get("image")
     blueprint["projectIcon"] = metadata.get("projectIcon")
+    blueprint["primaryDeploymentBlueprint"] = metadata.get("primaryDeploymentBlueprint")
     return blueprint, root_name
 
 
