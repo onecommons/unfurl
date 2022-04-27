@@ -237,6 +237,7 @@ def requirement_to_graphql(spec, req_dict):
         title: String
         description: String
         resourceType: ResourceType!
+        match: ResourceTemplate
         min: Int
         max: Int
         badge: String
@@ -258,6 +259,8 @@ def requirement_to_graphql(spec, req_dict):
             reqobj["badge"] = metadata["badge"]
         if "title" in metadata:
             reqobj["title"] = metadata["title"]
+        if "icon" in metadata:
+            reqobj["icon"] = metadata["icon"]
 
     if "occurrences" in req:
         reqobj["min"] = req["occurrences"][0]
@@ -266,13 +269,13 @@ def requirement_to_graphql(spec, req_dict):
         reqobj["min"] = 1
         reqobj["max"] = 1
 
+    reqobj["match"] = None
     nodetype = req.get("node")
     if nodetype:
         # req['node'] can be a node_template instead of a type
         if nodetype in spec.nodeTemplates:
+            reqobj["match"] = nodetype
             nodetype = spec.nodeTemplates[nodetype].type
-        # else:
-        # XXX error (or local to a DT?)
     else:
         nodetype = req["capability"]
     reqobj["resourceType"] = nodetype
