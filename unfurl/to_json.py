@@ -552,6 +552,8 @@ def nodetemplate_to_json(nodetemplate, spec, types):
     """
     if '__typename' in nodetemplate.entity_tpl:
         # previously imported from the json, just return it
+        nodetemplate.entity_tpl['properties'] = getattr(nodetemplate, "__original_properties",
+                                                          nodetemplate.entity_tpl["properties"])
         return nodetemplate.entity_tpl
 
     json = dict(
@@ -1147,15 +1149,15 @@ def to_graphql_resource(instance, manifest, db, relationships):
     }
     """
     # XXX url
+    template = db["ResourceTemplate"].get(instance.template.name)
+    assert template # pre-condition
     resource = dict(
         name=instance.name,
-        title=instance.name,
+        title=template.get("title", instance.name),
         template=instance.template.name,
         state=instance.state,
         status=instance.status,
     )
-    template = db["ResourceTemplate"].get(instance.template.name)
-    assert template # pre-condition
     if "visibility" in template and template["visibility"] != "inherit":
         resource["visibility"] = template["visibility"]
     elif instance.template.name in relationships:
