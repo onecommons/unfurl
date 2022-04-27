@@ -552,8 +552,8 @@ def nodetemplate_to_json(nodetemplate, spec, types):
     """
     if '__typename' in nodetemplate.entity_tpl:
         # previously imported from the json, just return it
-        nodetemplate.entity_tpl['properties'] = getattr(nodetemplate, "__original_properties",
-                                                          nodetemplate.entity_tpl["properties"])
+        if hasattr(nodetemplate, "__original_properties"):
+            nodetemplate.entity_tpl['properties'] = nodetemplate.__original_properties
         return nodetemplate.entity_tpl
 
     json = dict(
