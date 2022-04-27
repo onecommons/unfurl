@@ -332,9 +332,8 @@ def is_computed(p): # p: Property | PropertyDef
 
 
 def property_value_to_json(p, value):
-    # XXX fix when we handle re-export smarter
-    # if is_computed(p):
-    #     return None
+    if is_computed(p):
+        return None
     if isinstance(value, sensitive) or p.schema.metadata.get('sensitive'):
         return sensitive.redacted_str
     scalar_class = get_scalarunit_class(p.type)
@@ -628,7 +627,7 @@ def _generate_primary(spec, db, node_tpl=None):
     topology = spec.template.topology_template
     # generate a node type and node template that represents root of the topology
     # generate a type that exposes the topology's inputs and outputs as properties and attributes
-    attributes = {
+    attributes = { # XXX is this computed?
         o.name: dict(default=o.value, type="string", description=o.description or "")
         for o in topology.outputs
     }
