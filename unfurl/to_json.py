@@ -552,8 +552,9 @@ def nodetemplate_to_json(nodetemplate, spec, types):
     """
     if '__typename' in nodetemplate.entity_tpl:
         # previously imported from the json, just return it
-        if hasattr(nodetemplate, "__original_properties"):
-            nodetemplate.entity_tpl['properties'] = nodetemplate.__original_properties
+        ogprops = nodetemplate.entity_tpl.pop("_original_properties", None)
+        if ogprops is not None:
+            nodetemplate.entity_tpl['properties'] = ogprops
         return nodetemplate.entity_tpl
 
     json = dict(
