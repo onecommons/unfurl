@@ -4,6 +4,8 @@ import logging.config
 from enum import IntEnum
 import os
 import tempfile
+from typing import Dict, Tuple, Union
+from typing_extensions import NotRequired, TypedDict, reveal_type
 
 import click
 
@@ -59,9 +61,14 @@ class UnfurlLogger(logging.Logger):
         self.log(Levels.VERBOSE.value, msg, *args, **kwargs)
 
 
+class StyleDict(TypedDict):
+    bg: NotRequired[Union[str, Tuple[int, int, int]]]
+    fg: NotRequired[Union[str, Tuple[int, int, int]]]
+
+
 class ColorHandler(logging.StreamHandler):
     # We can use ANSI colors: https://click.palletsprojects.com/en/8.0.x/api/#click.style
-    STYLE_LEVEL = {
+    STYLE_LEVEL: Dict[Levels, StyleDict] = {
         Levels.CRITICAL: {"bg": "bright_red", "fg": "white"},
         Levels.ERROR: {"bg": "red", "fg": "white"},
         Levels.WARNING: {"bg": (255, 126, 0), "fg": "white"},
@@ -70,7 +77,7 @@ class ColorHandler(logging.StreamHandler):
         Levels.DEBUG: {"bg": "black", "fg": "white"},
         Levels.TRACE: {"bg": "bright_black", "fg": "white"},
     }
-    STYLE_MESSAGE = {
+    STYLE_MESSAGE: Dict[Levels, StyleDict] = {
         Levels.CRITICAL: {"fg": "bright_red"},
         Levels.ERROR: {"fg": "red"},
         Levels.WARNING: {"fg": (255, 126, 0)},
@@ -134,7 +141,7 @@ def initialize_logging():
 
 
 def set_console_log_level(log_level: int):
-    LOGGING["handlers"]["console"]["level"] = log_level
+    LOGGING["handlers"]["console"]["level"] = log_level  # type: ignore
     LOGGING["incremental"] = True
     logging.config.dictConfig(LOGGING)
 
