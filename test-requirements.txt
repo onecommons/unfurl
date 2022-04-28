@@ -4,6 +4,7 @@ moto[server]==3.1.4
 Jinja2==2.11.3
 werkzeug==2.0.2
 mock; python_version=='2.7'
+mypy==0.950
 coverage
 pytest
 pytest-cov
