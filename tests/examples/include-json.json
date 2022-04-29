@@ -122,6 +122,14 @@
         }
       ],
       "dependencies": []
+    },
+    "configurator-artifacts": {
+      "type": "unfurl.nodes.LocalRepository",
+      "name": "configurator-artifacts",
+      "title": "configurator-artifacts",
+      "description": "",
+      "properties": [],
+      "dependencies": []
     }
   },
   "DeploymentTemplate": {
