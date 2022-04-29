@@ -4,13 +4,13 @@ import logging.config
 from enum import IntEnum
 import os
 import tempfile
-from typing import Dict, Tuple, Union
+from typing import Any, Dict, Tuple, Union
 from typing_extensions import NotRequired, TypedDict, reveal_type
 
 import click
 
 
-def truncate(s, max=1200):
+def truncate(s: str, max: int=1200) -> str:
     if not s:
         return ""
     if len(s) > max:
@@ -54,10 +54,10 @@ LOGGING = {
 
 
 class UnfurlLogger(logging.Logger):
-    def trace(self, msg, *args, **kwargs):
+    def trace(self, msg: str, *args: object, **kwargs: Any) -> None:
         self.log(Levels.TRACE.value, msg, *args, **kwargs)
 
-    def verbose(self, msg, *args, **kwargs):
+    def verbose(self, msg: str, *args: object, **kwargs: Any) -> None:
         self.log(Levels.VERBOSE.value, msg, *args, **kwargs)
 
 
@@ -109,53 +109,54 @@ class sensitive:
 
     redacted_str = "<<REDACTED>>"
 
-    def __sensitive__(self):
+    def __sensitive__(self) -> bool:
         return True
 
 
 class SensitiveFilter(logging.Filter):
-    def filter(self, record):
+    def filter(self, record: logging.LogRecord) -> bool:
         if isinstance(record.args, collections.abc.Mapping):
             record.args = {
-                self.redact(k): self.redact(v) for k, v in record.args.items()
+                self.redact(k): self.redact(v) for k, v in record.args.items()  # type: ignore
             }
         else:
-            record.args = tuple(self.redact(a) for a in record.args)
+            if record.args is not None:
+                record.args = tuple(self.redact(a) for a in record.args)
         return True
 
     @staticmethod
-    def redact(value):
+    def redact(value: Union[sensitive, str, object]) -> Union[str, object]:
         return sensitive.redacted_str if isinstance(value, sensitive) else value
 
 
-def initialize_logging():
+def initialize_logging() -> None:
     logging.setLoggerClass(UnfurlLogger)
     logging.captureWarnings(True)
     logging.addLevelName(Levels.TRACE.value, Levels.TRACE.name)
     logging.addLevelName(Levels.VERBOSE.value, Levels.VERBOSE.name)
     if os.getenv("UNFURL_LOGGING"):
-        LOGGING["handlers"]["console"]["level"] = Levels[
-            os.getenv("UNFURL_LOGGING").upper()
+        LOGGING["handlers"]["console"]["level"] = Levels[  # type: ignore
+            os.getenv("UNFURL_LOGGING").upper()  # type: ignore
         ]
     logging.config.dictConfig(LOGGING)
 
 
-def set_console_log_level(log_level: int):
+def set_console_log_level(log_level: int) -> None:
     LOGGING["handlers"]["console"]["level"] = log_level  # type: ignore
     LOGGING["incremental"] = True
     logging.config.dictConfig(LOGGING)
 
 
-def get_console_log_level():
-    return LOGGING["handlers"]["console"]["level"]
+def get_console_log_level() -> Levels:
+    return LOGGING["handlers"]["console"]["level"]  # type: ignore
 
 
-def get_tmplog_path():
+def get_tmplog_path() -> str:
     # mktemp is safe here, we just want a random file path to write too
     return tempfile.mktemp("-unfurl.log", dir=os.environ.get("UNFURL_TMPDIR"))
 
 
-def add_log_file(filename):
+def add_log_file(filename: str) -> str:
     dir = os.path.dirname(filename)
     if dir and not os.path.isdir(dir):
         os.makedirs(dir)
@@ -164,7 +165,7 @@ def add_log_file(filename):
     f = SensitiveFilter()
     formatter = logging.Formatter("[%(asctime)s] %(name)s:%(levelname)s: %(message)s")
     handler.setFormatter(formatter)
-    log_level = min(LOGGING["handlers"]["console"]["level"], Levels.DEBUG)
+    log_level = min(LOGGING["handlers"]["console"]["level"], Levels.DEBUG)  # type: ignore
     handler.setLevel(log_level)
     handler.addFilter(f)
     logging.getLogger().addHandler(handler)
