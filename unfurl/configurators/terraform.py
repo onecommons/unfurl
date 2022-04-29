@@ -158,10 +158,12 @@ class TerraformConfigurator(ShellConfigurator):
         ]
         # folder is "tasks" WorkFolder
         cwd = folder.cwd
+        # don't save_lock_file if using a shared TF_DATA_DIR
+        use_lock_file = env["TF_DATA_DIR"] == os.path.join(cwd, ".terraform")
         lock_file = get_path(
             task.inputs.context, ".terraform.lock.hcl", Folders.artifacts
         )
-        if os.path.exists(lock_file):
+        if use_lock_file and os.path.exists(lock_file):
             folder.copy_from(lock_file)
 
         echo = task.verbose > -1
