@@ -1164,7 +1164,7 @@ def to_graphql_resource(instance, manifest, db, relationships):
         template=instance.template.name,
         state=instance.state,
         status=instance.status,
-        __typename="ResourceTemplate",
+        __typename="Resource",
     )
     if "visibility" in template and template["visibility"] != "inherit":
         resource["visibility"] = template["visibility"]
