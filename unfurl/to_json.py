@@ -298,10 +298,10 @@ def _get_extends(spec, typedef, extends: list, types):
 
 
 def resource_visibility(spec, t):
-    # if "default" in t.directives:
-    #     # XXX: directives aren't preserved in export so
-    #     # if default isn't omitted, it will lose its default directive if the export is included
-    #     return "omit"
+    if "default" in t.directives:
+        # XXX: directives aren't preserved in export so
+        # if default isn't omitted, it will lose its default directive if the export is included
+        return "hidden"
     metadata = t.entity_tpl.get('metadata')
     if metadata and metadata.get('internal'):
         return "hidden"
@@ -963,8 +963,10 @@ def add_graphql_deployment(manifest, db, dtemplate):
         deployment['summary'] = manifest.lastJob.get("summary")
     deployment['ci_job_id'] = os.getenv('CI_JOB_ID')
     deployment['ci_pipeline_id'] = os.getenv('CI_PIPELINE_ID')
+
+    url = manifest.rootResource.attributes["outputs"].get("url")
     primary_resource = db["Resource"].get(primary_name)
-    if primary_resource and primary_resource.get("attributes"):
+    if url is None and primary_resource and primary_resource.get("attributes"):
         for prop in primary_resource["attributes"]:
             if prop["name"] == "url":
                 deployment["url"] = prop["value"]
