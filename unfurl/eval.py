@@ -153,7 +153,8 @@ class RefContext:
 
     def trace(self, *msg):
         if self._trace:
-            logger.trace(f"{' '.join(str(a) for a in msg)} (ctx: {self._lastResource})")
+            log = logger.info if self._trace == 2 else logger.trace
+            log(f"{' '.join(str(a) for a in msg)} (ctx: {self._lastResource})")
 
     def add_external_reference(self, external):
         result = Result(external)

@@ -69,7 +69,7 @@ node_types:
         implementation:
           className: unfurl.configurators.ansible.AnsibleConfigurator
         outputs:
-          container:
+          container: # dict matching docker container inspect output, including HostPort
           image_path:
         inputs:
           playbook:

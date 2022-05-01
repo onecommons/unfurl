@@ -148,7 +148,7 @@ def get_tmplog_path():
     return tempfile.mktemp("-unfurl.log", dir=os.environ.get("UNFURL_TMPDIR"))
 
 
-def add_log_file(filename):
+def add_log_file(filename, console_level = Levels.INFO):
     dir = os.path.dirname(filename)
     if dir and not os.path.isdir(dir):
         os.makedirs(dir)
@@ -157,7 +157,7 @@ def add_log_file(filename):
     f = SensitiveFilter()
     formatter = logging.Formatter("[%(asctime)s] %(name)s:%(levelname)s: %(message)s")
     handler.setFormatter(formatter)
-    log_level = min(LOGGING["handlers"]["console"]["level"], Levels.DEBUG)
+    log_level = min(console_level, Levels.DEBUG)
     handler.setLevel(log_level)
     handler.addFilter(f)
     logging.getLogger().addHandler(handler)
