@@ -242,6 +242,7 @@ def requirement_to_graphql(spec, req_dict):
         max: Int
         badge: String
         visibility: String
+        icon: String
     }
     """
     name, req = _get_req(req_dict)
@@ -298,9 +299,9 @@ def _get_extends(spec, typedef, extends: list, types):
 
 def resource_visibility(spec, t):
     if "default" in t.directives:
-        # NB: directives aren't preserved in export so
+        # XXX: directives aren't preserved in export so
         # if default isn't omitted, it will lose its default directive if the export is included
-        return "omit"
+        return "hidden"
     metadata = t.entity_tpl.get('metadata')
     if metadata and metadata.get('internal'):
         return "hidden"
@@ -353,6 +354,7 @@ def node_type_to_graphql(spec, type_definition, types: dict):
       extends: [ResourceType!]
       description: String
       badge: String
+      icon: String
       visibility: String
       details_url: String
       inputsSchema: JSON
@@ -373,6 +375,8 @@ def node_type_to_graphql(spec, type_definition, types: dict):
     if metadata:
         if "badge" in metadata:
             jsontype["badge"] = metadata["badge"]
+        if "icon" in metadata:
+            jsontype["icon"] = metadata["icon"]
         if "title" in metadata:
             jsontype["title"] = metadata["title"]
         if "details_url" in metadata:
@@ -935,7 +939,7 @@ def add_graphql_deployment(manifest, db, dtemplate):
     """
     name = dtemplate['name']
     title = dtemplate.get('title') or name
-    deployment = dict(name=name, title=title)
+    deployment = dict(name=name, title=title, __typename="Deployment")
     templates = db["ResourceTemplate"]
     relationships = {}
     for t in templates.values():
@@ -959,8 +963,10 @@ def add_graphql_deployment(manifest, db, dtemplate):
         deployment['summary'] = manifest.lastJob.get("summary")
     deployment['ci_job_id'] = os.getenv('CI_JOB_ID')
     deployment['ci_pipeline_id'] = os.getenv('CI_PIPELINE_ID')
+
+    url = manifest.rootResource.attributes["outputs"].get("url")
     primary_resource = db["Resource"].get(primary_name)
-    if primary_resource and primary_resource.get("attributes"):
+    if url is None and primary_resource and primary_resource.get("attributes"):
         for prop in primary_resource["attributes"]:
             if prop["name"] == "url":
                 deployment["url"] = prop["value"]
@@ -1158,6 +1164,7 @@ def to_graphql_resource(instance, manifest, db, relationships):
         template=instance.template.name,
         state=instance.state,
         status=instance.status,
+        __typename="Resource",
     )
     if "visibility" in template and template["visibility"] != "inherit":
         resource["visibility"] = template["visibility"]

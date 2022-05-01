@@ -609,6 +609,12 @@ class Job(ConfigChange):
             jobRequest = self.jobRequestQueue[0]
             self.run_job_request(jobRequest)
 
+        # force outputs to be evaluated now and commit the changes
+        # so any attributes that were evaluated computing the outputs are saved in the manifest.
+        outputs = serialize_value(self.get_outputs())
+        if outputs:
+            logger.info("Job outputs: %s", outputs)
+        self.rootResource.attributeManager.commit_changes()
         return self.rootResource
 
     def run(self, rendered):
