@@ -1,3 +1,4 @@
+import os
 from collections import defaultdict
 from dataclasses import dataclass
 
@@ -45,6 +46,10 @@ def _get_records(attrs):
     records = {name(key).strip(): value for key, value in records.items()}
     return records
 
+def _get_zone(zone):
+  if zone.endswith("."):
+    return zone
+  return zone + '.'
 
 class DNSConfigurator(Configurator):
     """A configurator for managing a DNS zone using OctoDNS.
@@ -79,7 +84,6 @@ class DNSConfigurator(Configurator):
         for cap in task.target.get_capabilities("resolve"):
             for rel in cap.relationships:
                 managed.update(_get_records(rel.attributes))
-
         # set up for the syncing that happens in run()
         folder = task.set_work_folder()
         self._create_main_config_file(folder, properties)
@@ -105,7 +109,7 @@ class DNSConfigurator(Configurator):
     @staticmethod
     def _extract_properties_from(task) -> DnsProperties:
         attrs = task.vars["SELF"]
-        name = attrs.get_copy("name")
+        name = _get_zone(attrs.get_copy("name"))
         exclusive = attrs.get_copy("exclusive")
         provider = attrs.get_copy("provider")
         records = _get_records(attrs)
@@ -137,7 +141,7 @@ class DNSConfigurator(Configurator):
         task.logger.debug("OctoDNS configurator - downloading current DNS records")
 
         path = folder.cwd
-        zone_name = task.vars["SELF"]["name"]
+        zone_name = _get_zone(task.vars["SELF"]["name"])
         with change_cwd(path, task.logger):
             manager = Manager(config_file="main-config.yaml")
             zone = Zone(zone_name, manager.configured_sub_zones(zone_name))
@@ -172,7 +176,12 @@ class DNSConfigurator(Configurator):
         # update zone and managed
         op = task.configSpec.operation
         task.logger.debug(f"OctoDNS configurator - run - {op}")
-        if op in ["configure", "delete"]:
+        if os.getenv("UNFURL_MOCK_DEPLOY"):
+            managed = task.rendered
+            task.vars["SELF"]["managed_records"] = managed
+            task.logger.debug("setting managed_records %s", managed)
+            yield task.done(success=True, modified=True, result="Mock OctoDNS synced")
+        elif op in ["configure", "delete"]:
             yield self._run_octodns_sync(task)  # create or update zone
         elif op == "check":
             yield self._run_check(task)
@@ -192,7 +201,7 @@ class DNSConfigurator(Configurator):
             task.target.attributes, task.configSpec.operation, managed
         )
         # note: render will already written the same data if live hasn't changed
-        self._write_zone_data(folder, task.vars["SELF"]["name"], updated)
+        self._write_zone_data(folder, _get_zone(task.vars["SELF"]["name"]), updated)
         task.vars["SELF"]["managed_records"] = managed
         task.logger.debug("setting managed_records %s", managed)
 
@@ -218,7 +227,7 @@ class DNSConfigurator(Configurator):
         if task.vars["SELF"]["zone"] != records:
             task.vars["SELF"]["zone"] = records
             modified = True
-            self._write_zone_data(folder, task.vars["SELF"]["name"], records)
+            self._write_zone_data(folder, _get_zone(task.vars["SELF"]["name"]), records)
 
         msg = None
         if task.vars["SELF"]["exclusive"]:
