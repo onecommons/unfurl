@@ -24,6 +24,7 @@ from toscaparser.entity_template import EntityTemplate
 from toscaparser.common.exception import ExceptionCollector
 from toscaparser.elements.scalarunit import get_scalarunit_class
 from toscaparser.elements.datatype import DataType
+from toscaparser.elements.portspectype import PortSpec
 from toscaparser.activities import ConditionClause
 from .logs import sensitive
 from .tosca import is_function, get_nodefilters
@@ -96,9 +97,8 @@ VALUE_TYPES = dict(
     version={"type": "string"},
     any={"type": "string"},  # XXX we'll have to interpret the string as json?
     range={"type": "array", "items": {"type": "integer", "maxItems": 2}},
-    PortDef={"type": "number", "minimum": 1, "maximum": 65535}
-    # XXX:
-    # PortSpec.SHORTNAME,
+    PortDef={"type": "number", "minimum": 1, "maximum": 65535},
+    PortSpec={"type": "string"}
 )
 
 _SCALAR_TYPE = {}
@@ -108,6 +108,8 @@ VALUE_TYPES.update(
         "scalar-unit.frequency": _SCALAR_TYPE,
         "scalar-unit.time": _SCALAR_TYPE,
         # "scalar-unit.bitrate": _SCALAR_TYPE, # XXX add parser support 3.3.6.7 scalar-unit.bitrate
+        "tosca.datatypes.network.PortDef": VALUE_TYPES["PortDef"],
+        "tosca.datatypes.network.PortSpec": VALUE_TYPES["PortSpec"],
     }
 )
 
@@ -278,7 +280,7 @@ def requirement_to_graphql(spec, req_dict):
             reqobj["match"] = nodetype
             nodetype = spec.nodeTemplates[nodetype].type
     else:
-        nodetype = req["capability"]
+        nodetype = req.get("capability") or "tosca.nodes.Root"
     reqobj["resourceType"] = nodetype
     if req.get("node_filter"):
         reqobj["node_filter"] = req["node_filter"]
@@ -337,6 +339,8 @@ def property_value_to_json(p, value):
         return None
     if isinstance(value, sensitive) or p.schema.metadata.get('sensitive'):
         return sensitive.redacted_str
+    if isinstance(value, PortSpec):
+        return value.spec
     scalar_class = get_scalarunit_class(p.type)
     if scalar_class:
         unit = p.schema.metadata.get("default_unit")

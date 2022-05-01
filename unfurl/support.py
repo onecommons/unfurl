@@ -18,7 +18,6 @@ from .eval import RefContext, set_eval_func, Ref, map_value
 from .result import (
     Results,
     ResultsMap,
-    ResultsList,
     Result,
     ExternalValue,
     serialize_value,
@@ -42,6 +41,7 @@ from ansible.parsing.dataloader import DataLoader
 from ansible.utils import unsafe_proxy
 from ansible.utils.unsafe_proxy import wrap_var, AnsibleUnsafeText, AnsibleUnsafeBytes
 from jinja2.runtime import ChainableUndefined
+from toscaparser.elements.portspectype import PortSpec
 
 import logging
 
@@ -129,6 +129,12 @@ set_eval_func("python", eval_python)
 set_eval_func(
     "sensitive",
     lambda arg, ctx: wrap_sensitive_value(map_value(arg, ctx)),
+)
+
+
+set_eval_func(
+    "portspec",
+    lambda arg, ctx: PortSpec.make(map_value(arg, ctx)),
 )
 
 
