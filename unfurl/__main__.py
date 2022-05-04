@@ -445,16 +445,6 @@ def _print_summary(job, options):
         click.echo(json.dumps(jsonSummary, indent=2))
 
 
-def yesno(prompt):
-    click.echo(prompt + " [yN] ", nl=False)
-    c = click.getchar()
-    click.echo(c)
-    if c == "y" or c == "Y":
-        return True
-    else:
-        return False
-
-
 def _stop_logging(job, options, verbose, tmplogfile):
     if job and job.log_path:
         log_path = job.log_path
@@ -482,7 +472,7 @@ def _run_local(ensemble, options):
     if job:
         declined = False
         if not job.unexpectedAbort and not job.planOnly and proceed:
-            if options.get("approve") or yesno("proceed with job?"):
+            if options.get("approve") or click.confirm("proceed with job?"):
                 job.run(rendered)
             else:
                 declined = True
