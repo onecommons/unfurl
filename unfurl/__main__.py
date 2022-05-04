@@ -64,7 +64,10 @@ def option_group(*options):
     is_flag=True,
     help="Only output errors to the stdout",
 )
-@click.option("--logfile", default=None, help="Log messages to file (at DEBUG level)")
+@click.option("--logfile",
+  default=None,
+  envvar="UNFURL_LOGFILE",
+  help="Log messages to file (at DEBUG level)")
 @click.option(
     "--tmp",
     envvar="UNFURL_TMPDIR",

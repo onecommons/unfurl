@@ -625,6 +625,7 @@ required_envvars = [
     "UNFURL_NORUNTIME",
     "UNFURL_APPROVE",
     "UNFURL_MOCK_DEPLOY",
+    "UNFURL_LOGFILE",
 ]
 # hack for sphinx ext documentedlist
 _sphinx_envvars = [(i,) for i in required_envvars]
