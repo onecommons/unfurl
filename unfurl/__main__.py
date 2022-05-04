@@ -477,7 +477,7 @@ def _run_local(ensemble, options):
             else:
                 declined = True
         if job.unexpectedAbort:
-            click.echo("Job unexpected aborted")
+            click.echo("Job unexpectedly aborted")
             if verbose > 0:
                 raise job.unexpectedAbort
         elif not declined:
