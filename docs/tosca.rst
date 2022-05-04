@@ -96,7 +96,7 @@ Entity Types
 ^^^^^^^^^^^^
 
 Every entity in TOSCA (including Nodes, Relationships, Artifacts and Data) has a declared type and custom type hierarchies can be defined in the `Service Template`.
-Types declare the required properties, default definitions, and interface operations for an entity. Each type of entity has can have its own section in the service template, for example, ``node_types``, ``relationship_types``, ``data_types``,``artifact_types``, ``interface_types``, etc.
+Types declare the required properties, default definitions, and interface operations for an entity. Each type of entity has can have its own section in the service template, for example, ``node_types``, ``relationship_types``, ``data_types``, ``artifact_types``, ``interface_types``, etc.
 
 Example
 -------
