@@ -1,11 +1,18 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
+from typing import TYPE_CHECKING, Dict, Generator, List, Optional, Union, ValuesView, cast
 import six
 from collections.abc import Mapping, MutableSequence
 import os
 import copy
+
+from unfurl.logs import UnfurlLogger
+if TYPE_CHECKING:
+    from unfurl.manifest import Manifest
+
 from .support import Status, ResourceChanges, Priority, TopologyMap
 from .result import (
+    ChangeRecord,
     serialize_value,
     ChangeAware,
     Results,
@@ -26,7 +33,7 @@ from .util import (
 )
 from . import merge
 from .eval import Ref, map_value, RefContext
-from .runtime import RelationshipInstance, Operational
+from .runtime import NodeInstance, RelationshipInstance, Operational
 from .yamlloader import yaml
 from .projectpaths import WorkFolder, Folders
 from .planrequests import (
@@ -40,8 +47,8 @@ from .planrequests import (
 
 import logging
 
-logger = logging.getLogger("unfurl.task")
-
+# Tell mypy the logger is of type UnfurlLogger
+logger = cast(UnfurlLogger, logging.getLogger("unfurl.task"))  
 
 class ConfiguratorResult:
     """
@@ -53,14 +60,14 @@ class ConfiguratorResult:
 
     def __init__(
         self,
-        success,
-        modified,
-        status=None,
-        configChanged=None,
-        result=None,
-        outputs=None,
-        exception=None,
-    ):
+        success: bool,
+        modified: bool,
+        status: Optional[Status]=None,
+        configChanged: bool=None,
+        result: object=None,
+        outputs: Optional[List[object]]=None,
+        exception: None=None,
+    ) -> None:
         self.modified = modified
         self.status = to_enum(Status, status)
         self.configChanged = configChanged
@@ -69,7 +76,7 @@ class ConfiguratorResult:
         self.outputs = outputs
         self.exception = None
 
-    def __str__(self):
+    def __str__(self) -> str:
         result = "" if self.result is None else str(self.result)[:240] + "..."
         return (
             "changes: "
@@ -78,9 +85,10 @@ class ConfiguratorResult:
                     filter(
                         None,
                         [
-                            self.success and "success",
-                            self.modified and "modified",
-                            self.status is not None and self.status.name,
+                            # mypy isn't happy with the following lines, but they should work fine
+                            self.success and "success",  # type: ignore
+                            self.modified and "modified",  # type: ignore
+                            self.status is not None and self.status.name,  # type: ignore
                         ],
                     )
                 )
@@ -92,10 +100,10 @@ class ConfiguratorResult:
 
 
 class AutoRegisterClass(type):
-    def __new__(mcls, name, bases, dct):
+    def __new__(mcls, name: str, bases: tuple, dct: dict) -> "type":
         cls = type.__new__(mcls, name, bases, dct)
-        if cls.short_name:
-            name = cls.short_name
+        if cls.short_name:  # type: ignore
+            name = cls.short_name  # type: ignore
         elif name.endswith("Configurator"):
             name = name[: -len("Configurator")]
         if name:
@@ -106,7 +114,7 @@ class AutoRegisterClass(type):
 @six.add_metaclass(AutoRegisterClass)
 class Configurator:
 
-    short_name = None
+    short_name: Optional[str] = None
     """shortName can be used to customize the "short name" of the configurator
     as an alternative to using the full name ("module.class") when setting the implementation on an operation.
     (Titlecase recommended)"""
@@ -114,16 +122,16 @@ class Configurator:
     exclude_from_digest = ()
 
     @classmethod
-    def set_config_spec_args(klass, kw: dict, target):
+    def set_config_spec_args(klass, kw: dict, target: None) -> dict:
         return kw
 
-    def __init__(self, configurationSpec):
+    def __init__(self, configurationSpec: ConfigurationSpec) -> None:
         self.configSpec = configurationSpec
 
-    def get_generator(self, task):
+    def get_generator(self, task: "TaskView") -> Generator:
         return self.run(task)
 
-    def render(self, task):
+    def render(self, task: "TaskView") -> None:
         """
         This method is called is called during the planning phase to give the configurator an
         opportunity to do early validation and error detection and generate any plan information or configuration files that the user may want to review before the running the deployment task.
@@ -136,7 +144,7 @@ class Configurator:
         return None
 
     # yields a JobRequest, TaskRequest or a ConfiguratorResult
-    def run(self, task):
+    def run(self, task: "TaskView") -> Generator:
         """
         This should perform the operation specified in the :class:`ConfigurationSpec`
         on the :obj:`task.target`.
@@ -150,7 +158,7 @@ class Configurator:
         """
         yield task.done(False)
 
-    def can_dry_run(self, task):
+    def can_dry_run(self, task: "TaskView") -> bool:
         """
         Returns whether this configurator can handle a dry-runs for the given task.
         (And should check :attr:`.TaskView.dry_run` in during run().
@@ -163,7 +171,7 @@ class Configurator:
         """
         return False
 
-    def can_run(self, task):
+    def can_run(self, task: "TaskView") -> Union[bool, str]:
         """
         Return whether or not the configurator can execute the given task
         depending on if this configurator support the requested action and parameters
@@ -177,11 +185,11 @@ class Configurator:
         """
         return True
 
-    def should_run(self, task):
+    def should_run(self, task: "TaskView") -> bool:
         """Does this configuration need to be run?"""
         return self.configSpec.should_run()
 
-    def save_digest(self, task):
+    def save_digest(self, task: "TaskView") -> dict:
         """
         Generate a compact, deterministic representation of the current configuration.
         This is saved in the job log and used by `check_digest` in subsequent jobs to
@@ -198,7 +206,8 @@ class Configurator:
             dict: A dictionary whose keys are strings that start with "digest"
         """
         # XXX user definition should be able to exclude inputs from digest
-        inputs = task._resolved_inputs
+        # XXX might throw AttributeError
+        inputs = task._resolved_inputs  # type: ignore
 
         # sensitive values are always redacted so no point in including them in the digest
         # (for cleaner output and security-in-depth)
@@ -226,7 +235,7 @@ class Configurator:
         )
         return digest
 
-    def check_digest(self, task, changeset):
+    def check_digest(self, task: "TaskView", changeset: ChangeRecord) -> bool:
         """
         Examine the previous :class:`ChangeRecord` generated by the previous time this operation
         was performed on the target instance and return whether it should be rerun or not.
@@ -279,27 +288,28 @@ class Configurator:
                 results.append(task.inputs._getresult(key))
 
         newDigest = get_digest(results, manifest=task._manifest)
-        mismatch = changeset.digestValue != newDigest
+        # I can't find somewhere where digestValue is defined on ChangeRecord, but I'll assume the use is correct
+        mismatch = changeset.digestValue != newDigest  # type: ignore
         if mismatch:
             task.logger.verbose(
                 "digests didn't match for %s with %s: old %s, new %s",
                 task.target.name,
                 _parameters,
-                changeset.digestValue,
+                changeset.digestValue, # type: ignore
                 newDigest,
             )
         return mismatch
 
 
 class MockConfigurator(Configurator):
-    def run(self, task):
+    def run(self, task: "TaskView") -> Generator:
         yield task.done(True)
 
-    def can_dry_run(self, task):
+    def can_dry_run(self, task: "TaskView") -> bool:
         return True
 
 class _ConnectionsMap(dict):
-    def by_type(self):
+    def by_type(self) -> ValuesView:
         # return unique connection by type
         # reverse so nearest relationships replace less specific ones that have matching names
         by_type = {  # the list() is for Python 3.7
@@ -307,7 +317,7 @@ class _ConnectionsMap(dict):
         }
         return by_type.values()
 
-    def __missing__(self, key):
+    def __missing__(self, key: object) -> object:
         # the more specific connections are inserted first so this should find
         # the most relevant connection of the given type
         for value in self.values():
@@ -335,7 +345,13 @@ class TaskView:
         verbose (int): Verbosity level set for this job (-1 error, 0 normal, 1 verbose, 2 debug)
     """
 
-    def __init__(self, manifest, configSpec, target, reason=None, dependencies=None):
+    def __init__(self, 
+        manifest: "Manifest", 
+        configSpec: ConfigurationSpec, 
+        target: NodeInstance, 
+        reason: Optional[str]=None, 
+        dependencies: Optional[List["Dependency"]]=None
+    ) -> None:
         # public:
         self.configSpec = configSpec
         self.target = target
@@ -344,22 +360,22 @@ class TaskView:
         self.cwd = os.path.abspath(self.target.base_dir)
         self.rendered = None
         # private:
-        self._errors = []  # UnfurlTaskError objects appends themselves to this list
+        self._errors: List[UnfurlTaskError] = []  # UnfurlTaskError objects appends themselves to this list
         self._inputs = None
         self._environ = None
         self._manifest = manifest
-        self.messages = []
-        self._addedResources = []
+        self.messages: List[object] = []
+        self._addedResources: List[NodeInstance] = []
         self._dependenciesChanged = False
         self.dependencies = dependencies or []
         self._resourceChanges = ResourceChanges()
-        self._workFolders = {}
+        self._workFolders: Dict[object, WorkFolder] = {}
         self._rendering = False
         # public:
         self.operation_host = find_operation_host(target, configSpec.operation_host)
 
     @property
-    def inputs(self):
+    def inputs(self) -> ResultsMap:
         """
         Exposes inputs and task settings as expression variables, so they can be accessed like:
 
@@ -370,12 +386,13 @@ class TaskView:
         {{ inputs.param }}
         """
         if self._inputs is None:
-            assert self._attributeManager
-            assert self.target.root.attributeManager is self._attributeManager
+            assert self._attributeManager  # type: ignore
+            assert self.target.root.attributeManager is self._attributeManager  # type: ignore
             # deepcopy because ResultsMap might modify interior maps and lists
             inputs = copy.deepcopy(self.configSpec.inputs)
             relationship = isinstance(self.target, RelationshipInstance)
             if relationship:
+                self.target = self.target # type: RelationshipInstance
                 target = self.target.target
             else:
                 target = self.target
