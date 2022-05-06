@@ -158,9 +158,7 @@ class TerraformConfigurator(ShellConfigurator):
         ]
         # folder is "tasks" WorkFolder
         cwd = folder.cwd
-        lock_file = get_path(
-            task.inputs.context, ".terraform.lock.hcl", Folders.artifacts
-        )
+        lock_file = task.set_work_folder(Folders.artifacts).permanent_path(".terraform.lock.hcl", False)
         if os.path.exists(lock_file):
             folder.copy_from(lock_file)
 
@@ -284,7 +282,7 @@ class TerraformConfigurator(ShellConfigurator):
         folderName = self._get_workfolder_name(task)
         if folderName == "remote":  # don't use local state file
             return ""
-        yamlPath = get_path(task.inputs.context, "terraform.tfstate.yaml", folderName)
+        yamlPath = task.set_work_folder(folderName).permanent_path("terraform.tfstate.yaml", False)
         if os.path.exists(yamlPath):
             task.logger.debug(
                 "Found exiting terraform.tfstate file at %s", yamlPath
