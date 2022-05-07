@@ -164,7 +164,7 @@ def tosca_schema_to_jsonschema(p, spec):
     schema = {}
     if toscaSchema.title or p.name:
         schema["title"] = toscaSchema.title or p.name
-    if toscaSchema.default is not None and not is_function(toscaSchema.default) and not is_template(toscaSchema.default):
+    if toscaSchema.default is not None and not is_value_computed(toscaSchema.default):
         schema["default"] = toscaSchema.default
     if toscaSchema.required:
         schema["required"] = True
@@ -320,6 +320,12 @@ def is_property_user_visible(p):
     return True
 
 
+def is_value_computed(value):
+    if isinstance(value, list):
+        return any(is_function(item) or is_template(item) for item in value)
+    return is_function(value) or is_template(value)
+
+
 def is_computed(p): # p: Property | PropertyDef
     # XXX be smarter about is_computed() if the user should be able to override the default
     if isinstance(p.schema, Schema):
@@ -328,8 +334,8 @@ def is_computed(p): # p: Property | PropertyDef
         metadata = p.schema.get("metadata") or {}
     return (
         p.name in ["tosca_id", "state", "tosca_name"]
-        or is_function(p.value) or is_template(p.value)
-        or is_function(p.default) or is_template(p.default)
+        or is_value_computed(p.value)
+        or is_value_computed(p.default)
         or metadata.get("computed")
     )
 
@@ -941,6 +947,7 @@ def add_graphql_deployment(manifest, db, dtemplate):
       url: url
       status: Status
       summary: String
+      workflow: String
     }
     """
     name = dtemplate['name']
@@ -964,8 +971,13 @@ def add_graphql_deployment(manifest, db, dtemplate):
     deployment['deploymentTemplate'] = dtemplate["name"]
     if manifest.lastJob:
         readyState = manifest.lastJob.get("readyState")
+        workflow = manifest.lastJob.get("workflow")
+        deployment['workflow'] = workflow
         if isinstance(readyState, dict):
             deployment['status'] = to_enum(Status, readyState.get("effective", readyState.get("local")) )
+            if workflow == "undeploy" and deployment['status'] == Status.ok:
+                deployment['status'] = Status.absent
+
         deployment['summary'] = manifest.lastJob.get("summary")
     deployment['ci_job_id'] = os.getenv('CI_JOB_ID')
     deployment['ci_pipeline_id'] = os.getenv('CI_PIPELINE_ID')
