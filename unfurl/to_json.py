@@ -541,6 +541,7 @@ def nodetemplate_to_json(nodetemplate, spec, types):
       title: String
       type: ResourceType!
       visibility: String
+      directives: [String!]
 
       description: string
 
@@ -570,6 +571,7 @@ def nodetemplate_to_json(nodetemplate, spec, types):
         name=nodetemplate.name,
         title=nodetemplate.name,
         description=nodetemplate.entity_tpl.get("description") or "",
+        directives=nodetemplate.directives
     )
 
     jsonnodetype = types[nodetemplate.type]

@@ -5,6 +5,7 @@
       "name": "foo.com-zone",
       "title": "foo.com-zone",
       "description": "",
+      "directives": [],
       "properties": [
         {
           "name": "domain",
@@ -18,6 +19,7 @@
       "name": "the_app",
       "title": "the_app",
       "description": "",
+      "directives": [],
       "properties": [
         {
           "name": "image",
@@ -90,6 +92,7 @@
       "name": "app_container",
       "title": "app_container",
       "description": "",
+      "directives": [],
       "properties": [
         {
           "name": "CPUs",
@@ -111,6 +114,7 @@
       "name": "atlas_service",
       "title": "atlas_service",
       "description": "",
+      "directives": [],
       "properties": [
         {
           "name": "login",
@@ -128,6 +132,7 @@
       "name": "configurator-artifacts",
       "title": "configurator-artifacts",
       "description": "",
+      "directives": [],
       "properties": [],
       "dependencies": []
     }
