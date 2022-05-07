@@ -285,7 +285,7 @@ class TerraformConfigurator(ShellConfigurator):
         yamlPath = task.set_work_folder(folderName).permanent_path("terraform.tfstate.yaml", False)
         if os.path.exists(yamlPath):
             task.logger.debug(
-                "Found exiting terraform.tfstate file at %s", yamlPath
+                "Found existing terraform.tfstate file at %s", yamlPath
             )
             # if exists in home, load and write out state file as json
             with open(yamlPath, "r") as f:
