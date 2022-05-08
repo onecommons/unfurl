@@ -6,11 +6,12 @@ import six
 from collections.abc import Mapping, MutableSequence
 import os
 import copy
-from unfurl.job import ConfigChange, ConfigTask
 
 from unfurl.logs import UnfurlLogger
 if TYPE_CHECKING:
     from unfurl.manifest import Manifest
+    from unfurl.job import ConfigTask
+
 
 from .support import Status, ResourceChanges, Priority, TopologyMap
 from .result import (
@@ -995,7 +996,7 @@ class Dependency(Operational):
     def priority(self) -> Priority:
         return Priority.required if self._required else Priority.optional
 
-    def refresh(self, config: ConfigTask) -> None:
+    def refresh(self, config: "ConfigTask") -> None:
         if self.expected is not None:
             changeId = config.changeId
             context = RefContext(
@@ -1021,7 +1022,7 @@ class Dependency(Operational):
             return False
         return False  # assuming this is what is meant by the function
 
-    def has_changed(self, config: ConfigTask) -> bool:
+    def has_changed(self, config: "ConfigTask") -> bool:
         changeId = config.changeId
         context = RefContext(config.target, dict(val=self.expected, changeId=changeId))
         result = Ref(self.expr).resolve_one(context)  # resolve(context, self.wantList)
