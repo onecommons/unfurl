@@ -1,10 +1,12 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
-from typing import TYPE_CHECKING, Dict, Generator, List, Optional, Union, ValuesView, cast
+import collections
+from typing import TYPE_CHECKING, Any, Dict, Generator, List, Optional, Tuple, TypedDict, Union, ValuesView, cast
 import six
 from collections.abc import Mapping, MutableSequence
 import os
 import copy
+from unfurl.job import ConfigChange, ConfigTask
 
 from unfurl.logs import UnfurlLogger
 if TYPE_CHECKING:
@@ -13,6 +15,7 @@ if TYPE_CHECKING:
 from .support import Status, ResourceChanges, Priority, TopologyMap
 from .result import (
     ChangeRecord,
+    ResultsList,
     serialize_value,
     ChangeAware,
     Results,
@@ -61,12 +64,12 @@ class ConfiguratorResult:
     def __init__(
         self,
         success: bool,
-        modified: bool,
+        modified: Optional[bool],
         status: Optional[Status]=None,
         configChanged: bool=None,
         result: object=None,
-        outputs: Optional[List[object]]=None,
-        exception: None=None,
+        outputs: Optional[dict]=None,
+        exception: Optional[UnfurlTaskError]=None,
     ) -> None:
         self.modified = modified
         self.status = to_enum(Status, status)
@@ -361,7 +364,7 @@ class TaskView:
         self.rendered = None
         # private:
         self._errors: List[UnfurlTaskError] = []  # UnfurlTaskError objects appends themselves to this list
-        self._inputs = None
+        self._inputs: Optional[ResultsMap] = None
         self._environ = None
         self._manifest = manifest
         self.messages: List[object] = []
@@ -369,7 +372,7 @@ class TaskView:
         self._dependenciesChanged = False
         self.dependencies = dependencies or []
         self._resourceChanges = ResourceChanges()
-        self._workFolders: Dict[object, WorkFolder] = {}
+        self._workFolders: dict = {}
         self._rendering = False
         # public:
         self.operation_host = find_operation_host(target, configSpec.operation_host)
@@ -392,8 +395,7 @@ class TaskView:
             inputs = copy.deepcopy(self.configSpec.inputs)
             relationship = isinstance(self.target, RelationshipInstance)
             if relationship:
-                self.target = self.target # type: RelationshipInstance
-                target = self.target.target
+                target = self.target.target  # type: ignore  # checked with isinstance above
             else:
                 target = self.target
             HOST = (target.parent or target).attributes
@@ -415,7 +417,7 @@ class TaskView:
                 or {},
             )
             if relationship:
-                vars["SOURCE"] = self.target.source.attributes
+                vars["SOURCE"] = self.target.source.attributes  # type: ignore  
                 vars["TARGET"] = target.attributes
             # expose inputs lazily to allow self-referencee
             ctx = RefContext(self.target, vars, task=self, strict=not self._rendering)
@@ -425,14 +427,14 @@ class TaskView:
         return self._inputs
 
     @property
-    def vars(self):
+    def vars(self) -> dict:
         """
         A dictionary of the same variables that are available to expressions when evaluating inputs.
         """
         return self.inputs.context.vars
 
     @staticmethod
-    def _get_connection(source, target, seen):
+    def _get_connection(source: NodeInstance, target: Optional[NodeInstance], seen: dict) -> None:
         """
         Find the requirements on source that match the target
         If source is root, requirements will be the connections that are the default_for the target.
@@ -443,7 +445,7 @@ class TaskView:
             if id(rel) not in seen:
                 seen[id(rel)] = rel
 
-    def _get_connections(self):
+    def _get_connections(self) -> _ConnectionsMap:
         """
         Build a dictionary of connections by looking for instances that the task's implementation
         might to connect to (transitively following the target's hostedOn relationship)
@@ -451,7 +453,7 @@ class TaskView:
         Then add any default connections, prioritizing default connections to those instances.
         (Connections that explicity set a ``default_for`` key that matches those instances.)
         """
-        seen = {}
+        seen: Dict[int, Any] = {}
         for parent in self.target.ancestors:
             if parent is self.target.root:
                 break
@@ -467,7 +469,7 @@ class TaskView:
         )
         return connections
 
-    def _find_relationship_env_vars(self):
+    def _find_relationship_env_vars(self) -> dict:
         """
         Collect any environment variables set by the connections returned by ``_get_connections()``.
 
@@ -483,7 +485,7 @@ class TaskView:
 
         return env
 
-    def get_environment(self, addOnly):
+    def get_environment(self, addOnly: bool) -> dict:
         """Return a dictionary of environment variables applicable to this task.
 
         Args:
@@ -520,7 +522,7 @@ class TaskView:
         env = filter_env(rules, env, addOnly=addOnly)
 
         # add the variables required by TOSCA 1.3 spec
-        targets = []
+        targets: List[str] = []
         if isinstance(self.target, RelationshipInstance):
             targets = [
                 c.tosca_id
@@ -545,11 +547,11 @@ class TaskView:
             )
         return env
 
-    def get_settings(self):
+    def get_settings(self) -> dict:
         return dict(
-            verbose=self.verbose,
+            verbose=self.verbose,  # type: ignore
             name=self.configSpec.name,
-            dryrun=self.dry_run,
+            dryrun=self.dry_run,  # type: ignore
             workflow=self.configSpec.workflow,
             operation=self.configSpec.operation,
             timeout=self.configSpec.timeout,
@@ -558,7 +560,7 @@ class TaskView:
             cwd=self.cwd,
         )
 
-    def find_connection(self, target, relation="tosca.relationships.ConnectsTo"):
+    def find_connection(self, target: NodeInstance, relation: str="tosca.relationships.ConnectsTo") -> Any:
         connection = self.query(
             f"$OPERATION_HOST::.requirements::*[.type={relation}][.target=$target]",
             vars=dict(target=target),
@@ -571,7 +573,7 @@ class TaskView:
                 connection = endpoints[0]
         return connection
 
-    def sensitive(self, value):
+    def sensitive(self, value: object) -> Union[sensitive, object]:
         """Mark the given value as sensitive. Sensitive values will be encrypted or redacted when outputed.
 
         Returns:
@@ -580,10 +582,10 @@ class TaskView:
         """
         return wrap_sensitive_value(value)
 
-    def add_message(self, message):
+    def add_message(self, message: object) -> None:
         self.messages.append(message)
 
-    def find_instance(self, name):
+    def find_instance(self, name: str) -> NodeInstance:
         return self._manifest.get_root_resource().find_instance_or_external(name)
 
     # XXX
@@ -598,13 +600,13 @@ class TaskView:
 
     def done(
         self,
-        success=None,
-        modified=None,
-        status=None,
-        result=None,
-        outputs=None,
-        captureException=None,
-    ):
+        success: Optional[bool]=None,
+        modified: Optional[bool]=None,
+        status: Optional[Status]=None,
+        result: Optional[dict]=None,
+        outputs: Optional[dict]=None,  # so the docstring says dict, but ConfiguratorResult  
+        captureException: Optional[object]=None,
+    ) -> ConfiguratorResult:
         """`run()` should call this method and yield its return value before terminating.
 
         >>> yield task.done(True)
@@ -628,10 +630,20 @@ class TaskView:
             status = modified
             modified = True
 
-        kw = dict(result=result, outputs=outputs)
+        kw = dict(result=result, outputs=outputs)  # type: kwType
         if captureException is not None:
             logLevel = logging.DEBUG if success else logging.ERROR
-            kw["exception"] = UnfurlTaskError(self, captureException, logLevel)
+            kw["exception"] = UnfurlTaskError(self, captureException, logLevel)  # type: ignore
+
+        # Typechecking
+        class kwTypeBase(TypedDict):
+            result: Optional[dict]
+            outputs: Optional[dict]
+        
+        class kwType(kwTypeBase, total=False):
+            exception: UnfurlTaskError
+
+        kw = cast(kwType, kw)
 
         return ConfiguratorResult(success, modified, status, **kw)
 
@@ -641,16 +653,16 @@ class TaskView:
     # other configurations maybe modify those changes, triggering a configuration change
     def query(
         self,
-        query,
-        dependency=False,
-        name=None,
-        required=False,
-        wantList=False,
-        resolveExternal=True,
-        strict=True,
-        vars=None,
-        throw=False,
-    ):
+        query: str,
+        dependency: bool=False,
+        name: Optional[str]=None,
+        required: bool=False,
+        wantList: bool=False,
+        resolveExternal: bool=True,
+        strict: bool=True,
+        vars: Optional[dict]=None,
+        throw: bool=False,
+    ) -> Optional[Ref]:
         # XXX pass resolveExternal to context?
         try:
             result = Ref(query, vars=vars).resolve(
@@ -672,14 +684,14 @@ class TaskView:
 
     def add_dependency(
         self,
-        expr,
-        expected=None,
-        schema=None,
-        name=None,
-        required=True,
-        wantList=False,
-        target=None,
-    ):
+        expr: Union[str, dict],
+        expected: Optional[Union[list, ResultsList, Result]]=None,
+        schema: Optional[Mapping]=None,
+        name: Optional[str]=None,
+        required: bool=True,
+        wantList: bool=False,
+        target: Optional[NodeInstance]=None,
+    ) -> "Dependency":
         getter = getattr(expr, "as_ref", None)
         if getter:
             # expr is a configuration or resource or ExternalValue
@@ -697,7 +709,7 @@ class TaskView:
         self._dependenciesChanged = True
         return dependency
 
-    def remove_dependency(self, name):
+    def remove_dependency(self, name: str) -> Optional["Dependency"]:
         for i, dep in enumerate(self.dependencies):
             if dep.name == name:
                 self.dependencies.pop(i)
@@ -711,8 +723,13 @@ class TaskView:
     #     return self._manifest.loadConfigSpec(name, configSpec)
 
     def create_sub_task(
-        self, operation=None, resource=None, inputs=None, persist=False, required=None
-    ):
+        self, 
+        operation: Optional[str]=None, 
+        resource: Optional[NodeInstance]=None, 
+        inputs: Optional[dict]=None, 
+        persist: bool=False,
+        required: Optional[bool]=None
+    ) -> Optional[TaskRequest]:
         """Create a subtask that will be executed if yielded by `run()`
 
         Args:
@@ -732,7 +749,7 @@ class TaskView:
             operation = f"{self.configSpec.interface}.{self.configSpec.operation}"
         if isinstance(operation, six.string_types):
             taskRequest = create_task_request(
-                self.job.jobOptions,
+                self.job.jobOptions,  # type: ignore
                 operation,
                 resource,
                 "subtask: " + self.configSpec.name,
@@ -758,7 +775,7 @@ class TaskView:
         # otherwise operation should be a ConfigurationSpec
         return TaskRequest(operation, resource, "subtask", persist, required)
 
-    def _update_instance(self, existingResource, resourceSpec):
+    def _update_instance(self, existingResource: NodeInstance, resourceSpec: Mapping) -> bool:
         from .manifest import Manifest
 
         updated = False
@@ -769,9 +786,9 @@ class TaskView:
             # XXX track all status attributes (esp. state and created) and remove this hack
             operational = Manifest.load_status(resourceSpec)
             if operational.local_status is not None:
-                existingResource.local_status = operational.local_status
+                existingResource.local_status = operational.local_status  # type: ignore
             if operational.state is not None:
-                existingResource.state = operational.state
+                existingResource.state = operational.state  # type: ignore
             updated = True
 
         attributes = resourceSpec.get("attributes")
@@ -787,7 +804,9 @@ class TaskView:
             updated = True
         return updated
 
-    def _parse_instances_tpl(self, instances):
+    def _parse_instances_tpl(self, 
+        instances: Union[str, Mapping, MutableSequence]
+    ) -> Union[Tuple[None, UnfurlTaskError], Tuple[MutableSequence, None]]:
         if isinstance(instances, six.string_types):
             try:
                 instances = yaml.load(instances)
@@ -807,7 +826,7 @@ class TaskView:
 
     # # XXX how can we explicitly associate relations with target resources etc.?
     # # through capability attributes and dependencies/relationship attributes
-    def update_instances(self, instances):
+    def update_instances(self, instances: Union[str, List]) -> Union[Tuple[JobRequest, List], Tuple[None, List]]:
         """Notify Unfurl of new or changes to instances made while the configurator was running.
 
         Operational status indicates if the instance currently exists or not.
@@ -834,7 +853,7 @@ class TaskView:
           :class:`JobRequest`: To run the job based on the supplied spec
               immediately, yield the returned JobRequest.
         """
-        instances, err = self._parse_instances_tpl(instances)
+        instances, err = self._parse_instances_tpl(instances)  # type: ignore
         if err:
             return None, [err]
 
@@ -884,12 +903,12 @@ class TaskView:
             self.logger.info("add resources %s", newResources)
 
             jobRequest = JobRequest(newResources, errors)
-            if self.job:
-                self.job.jobRequestQueue.append(jobRequest)
+            if self.job:  # type: ignore
+                self.job.jobRequestQueue.append(jobRequest)  # type: ignore
             return jobRequest, errors
         return None, errors
 
-    def set_work_folder(self, location="operation", preserve=None) -> WorkFolder:
+    def set_work_folder(self, location: str="operation", preserve: Optional[bool]=None) -> WorkFolder:
         if location in self._workFolders:
             return self._workFolders[location]
         if preserve is None:
@@ -902,7 +921,7 @@ class TaskView:
         #     self, location, preserve
         # )
 
-    def get_work_folder(self, location=None):
+    def get_work_folder(self, location: Optional[str]=None) -> WorkFolder:
         # return self.job.getFolder(self, location)
         if location is None:
             # XXX error if there is more than one?
@@ -910,19 +929,19 @@ class TaskView:
         else:
             return self._workFolders[location]
 
-    def discard_work_folders(self):
+    def discard_work_folders(self) -> None:
         while self._workFolders:
             _, wf = self._workFolders.popitem()
             wf.discard()
 
-    def fail_work_folders(self):
+    def fail_work_folders(self) -> None:
         while self._workFolders:
             _, wf = self._workFolders.popitem()
             wf.failed()
 
-    def apply_work_folders(self, *names):
+    def apply_work_folders(self, *names: str) -> None:
         if not names:  # no args were passed, apply them all
-            names = self._workFolders.keys()
+            names = self._workFolders.keys()  # type: ignore
         for name in names:
             wf = self._workFolders.get(name)
             if wf:
@@ -940,14 +959,14 @@ class Dependency(Operational):
 
     def __init__(
         self,
-        expr,
-        expected=None,
-        schema=None,
-        name=None,
-        required=False,
-        wantList=False,
-        target=None,
-    ):
+        expr: Union[str, dict],
+        expected: Optional[Union[ResultsList, list, Result, None]]=None,
+        schema: Optional[Mapping]=None,
+        name: Optional[str]=None,
+        required: bool=False,
+        wantList: bool=False,
+        target: Optional[NodeInstance]=None,
+    ) -> None:
         """
         if schema is not None, validate the result using schema
         if expected is not None, test that result equals expected
@@ -964,19 +983,19 @@ class Dependency(Operational):
         self.target = target
 
     @property
-    def local_status(self):
+    def local_status(self)-> Status:
         if self.target and self.target is not self.target.root:
             # (only care about local status of instances with live attribute, not their full operational status)
             # (reduces circular dependencies)
-            return self.target.local_status
+            return self.target.local_status  # type: ignore  # mypy has trouble with @property calls
         else:  # the root has inputs which don't have operational status
             return Status.ok
 
     @property
-    def priority(self):
+    def priority(self) -> Priority:
         return Priority.required if self._required else Priority.optional
 
-    def refresh(self, config):
+    def refresh(self, config: ConfigTask) -> None:
         if self.expected is not None:
             changeId = config.changeId
             context = RefContext(
@@ -987,7 +1006,7 @@ class Dependency(Operational):
             self.expected = result
 
     @staticmethod
-    def has_value_changed(value, changeset):
+    def has_value_changed(value: Union[Results, Mapping, MutableSequence, tuple, ChangeAware, Any], changeset: ChangeRecord) -> bool:
         if isinstance(value, Results):
             return Dependency.has_value_changed(value._attributes, changeset)
         elif isinstance(value, Mapping):
@@ -1000,8 +1019,9 @@ class Dependency(Operational):
             return value.has_changed(changeset)
         else:
             return False
+        return False  # assuming this is what is meant by the function
 
-    def has_changed(self, config):
+    def has_changed(self, config: ConfigTask) -> bool:
         changeId = config.changeId
         context = RefContext(config.target, dict(val=self.expected, changeId=changeId))
         result = Ref(self.expr).resolve_one(context)  # resolve(context, self.wantList)

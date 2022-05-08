@@ -56,6 +56,7 @@ import logging
 # TYPE_CHECKING is always false at runtime
 if TYPE_CHECKING:
     from .job import ConfigTask
+    from unfurl.configurator import TaskView
 
 logger = logging.getLogger("unfurl")
 
@@ -106,7 +107,7 @@ class UnfurlValidationError(UnfurlError):
 
 
 class UnfurlTaskError(UnfurlError):
-    def __init__(self, task: "ConfigTask", message: object, log: int=logging.ERROR):
+    def __init__(self, task: "TaskView", message: object, log: int=logging.ERROR):
         message = f"{task.changeId} on {task.target.name} {task.name}: {message}"
         super().__init__(message, True, False)
         self.task = task
@@ -117,7 +118,7 @@ class UnfurlTaskError(UnfurlError):
 
 
 class UnfurlAddingResourceError(UnfurlTaskError):
-    def __init__(self, task: "ConfigTask", resourceSpec: Mapping, name: str, log: int=logging.DEBUG) -> None:
+    def __init__(self, task: "TaskView", resourceSpec: Mapping, name: str, log: int=logging.DEBUG) -> None:
         message = f"error updating resource {name}"
         super().__init__(task, message, log)
         self.resourceSpec = resourceSpec
