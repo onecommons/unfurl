@@ -1,7 +1,7 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
-import collections
-from typing import TYPE_CHECKING, Any, Dict, Generator, List, Optional, Tuple, TypedDict, Union, ValuesView, cast
+from typing import TYPE_CHECKING, Any, Dict, Generator, List, Optional, Tuple, Union, ValuesView, cast
+from typing_extensions import TypedDict
 import six
 from collections.abc import Mapping, MutableSequence
 import os
