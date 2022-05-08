@@ -7,6 +7,8 @@ The state of the system is represented as a collection of Instances.
 Each instance have a status; attributes that describe its state; and a TOSCA template
 which describes its capabilities, relationships and available interfaces for configuring and interacting with it.
 """
+from datetime import datetime
+from typing import Any, Dict, List, Optional, Tuple, Union, TYPE_CHECKING
 import six
 from collections.abc import Mapping
 
@@ -26,6 +28,9 @@ from .tosca import (
 
 import logging
 
+if TYPE_CHECKING:
+    from unfurl.configurator import Dependency
+
 logger = logging.getLogger("unfurl")
 
 # CF 3.4.1 Node States p61
@@ -41,49 +46,49 @@ class Operational(ChangeAware):
 
     # core properties to override
     @property
-    def priority(self):
+    def priority(self) -> Priority:
         return Defaults.shouldRun
 
     @property
-    def local_status(self):
+    def local_status(self) -> Status:
         return Status.unknown
 
     @property
-    def state(self):
+    def state(self) -> NodeState:
         return NodeState.initial
 
-    def get_operational_dependencies(self):
+    def get_operational_dependencies(self) -> List["Operational"]:
         """
         Return an iterator of `Operational` object that this instance depends on to be operational.
         """
-        return ()
+        return ()  # type: ignore  # mypy doesn't like empty tuples
 
-    def get_operational_dependents(self):
-        return ()
+    def get_operational_dependents(self) -> List["Operational"]:  # type: ignore
+        return ()  # type: ignore  # mypy doesn't like empty tuples
 
     @property
-    def manual_overide_status(self):
+    def manual_overide_status(self) -> None:
         return None
 
     # derived properties:
     @property
-    def operational(self):
+    def operational(self) -> bool:
         return self.status == Status.ok or self.status == Status.degraded
 
     @property
-    def active(self):
+    def active(self) -> bool:
         return self.status <= Status.error
 
     @property
-    def present(self):
+    def present(self) -> bool:
         return self.operational or self.status == Status.error
 
     @property
-    def missing(self):
+    def missing(self) -> bool:
         return self.status == Status.pending or self.status == Status.absent
 
     @property
-    def status(self):
+    def status(self) -> Status:
         """
         Return the effective status, considering first the local readyState and
         then the aggregate status' of its dependencies (see `aggregate_status()`
@@ -120,7 +125,7 @@ class Operational(ChangeAware):
             return max(status, dependentStatus)
 
     @property
-    def required(self):
+    def required(self) -> bool:
         return self.priority == Priority.required
 
     # `lastConfigChange` indicated the last configuration change applied to the instance.
@@ -129,15 +134,15 @@ class Operational(ChangeAware):
     # The computed attribute `lastChange` is whichever of the above two attributes are more recent.
 
     @property
-    def last_state_change(self):
+    def last_state_change(self) -> Optional[datetime]:
         return None
 
     @property
-    def last_config_change(self):
+    def last_config_change(self) -> Optional[datetime]:
         return None
 
     @property
-    def last_change(self):
+    def last_change(self) -> Optional[datetime]:
         if not self.last_state_change:
             return self.last_config_change
         elif not self.last_config_change:
@@ -145,7 +150,7 @@ class Operational(ChangeAware):
         else:
             return max(self.last_state_change, self.last_config_change)
 
-    def has_changed(self, changeset):
+    def has_changed(self, changeset) -> bool:
         # if changed since the last time we checked
         if not self.last_change:
             return False
@@ -153,11 +158,11 @@ class Operational(ChangeAware):
             return True
         return self.last_change > changeset.changeId
 
-    def is_computed(self):
+    def is_computed(self) -> bool:
         return False
 
     @staticmethod
-    def aggregate_status(statuses):
+    def aggregate_status(statuses: Union[Tuple["Operational"], List["Operational"]]) -> Optional[Status]:
         """
         Returns: ok, degraded, pending or None
 
@@ -202,21 +207,21 @@ class OperationalInstance(Operational):
 
     def __init__(
         self,
-        status=None,
-        priority=None,
-        manualOveride=None,
-        lastStateChange=None,
-        lastConfigChange=None,
-        state=None,
-    ):
+        status: Optional[Union["OperationalInstance", int, str]]=None,
+        priority: Optional[Union[int, str, Priority]]=None,
+        manualOveride: Optional[Union["OperationalInstance", int, str]]=None,
+        lastStateChange: Optional[datetime]=None,
+        lastConfigChange: Optional[datetime]=None,
+        state: NodeState=None,
+    ) -> None:
         if isinstance(status, OperationalInstance):
-            self._localStatus = status._localStatus
-            self._manualOverideStatus = status._manualOverideStatus
-            self._priority = status._priority
-            self._lastStateChange = status._lastStateChange
-            self._lastConfigChange = status._lastConfigChange
-            self._state = status._state
-            self.dependencies = status.dependencies
+            self._localStatus: Optional[Status] = status._localStatus
+            self._manualOverideStatus: Optional[Status] = status._manualOverideStatus
+            self._priority: Optional[Priority] = status._priority
+            self._lastStateChange: Optional[datetime] = status._lastStateChange
+            self._lastConfigChange: Optional[datetime] = status._lastConfigChange
+            self._state: Optional[NodeState] = status._state
+            self.dependencies: List["Operational"] = status.dependencies
         else:
             self._localStatus = to_enum(Status, status)
             self._manualOverideStatus = to_enum(Status, manualOveride)
@@ -228,77 +233,77 @@ class OperationalInstance(Operational):
         # self.repairable = False # XXX3
         # self.messages = [] # XXX3
 
-    def get_operational_dependencies(self):
+    def get_operational_dependencies(self) -> List["Operational"]:
         return self.dependencies
 
-    def local_status():
+    def local_status() -> Dict[str, Any]:  # type: ignore
         doc = "The local_status property."
 
-        def fget(self):
+        def fget(self: "OperationalInstance") -> Optional[Status]:
             return self._localStatus
 
-        def fset(self, value):
+        def fset(self: "OperationalInstance", value: Status) -> None:
             self._localStatus = value
 
-        def fdel(self):
+        def fdel(self: "OperationalInstance") -> None:
             del self._localStatus
 
         return locals()
 
-    local_status = property(**local_status())
+    local_status = property(**local_status())  # type: ignore
 
-    def manual_overide_status():
+    def manual_overide_status() -> Dict[str, Any]:  # type: ignore
         doc = "The manualOverideStatus property."
 
-        def fget(self):
+        def fget(self: "OperationalInstance") -> Optional[Status]:
             return self._manualOverideStatus
 
-        def fset(self, value):
+        def fset(self: "OperationalInstance", value: Status) -> None:
             self._manualOverideStatus = value
 
-        def fdel(self):
+        def fdel(self: "OperationalInstance") -> None:
             del self._manualOverideStatus
 
         return locals()
 
-    manual_overide_status = property(**manual_overide_status())
+    manual_overide_status = property(**manual_overide_status())  # type: ignore
 
-    def priority():
+    def priority():  # type: ignore
         doc = "The priority property."
 
-        def fget(self):
+        def fget(self: "OperationalInstance") -> Optional[Priority]:
             return Defaults.shouldRun if self._priority is None else self._priority
 
-        def fset(self, value):
+        def fset(self: "OperationalInstance", value: Priority) -> None:
             self._priority = value
 
-        def fdel(self):
+        def fdel(self: "OperationalInstance") -> None:
             del self._priority
 
         return locals()
 
-    priority = property(**priority())
+    priority = property(**priority())  # type: ignore
 
     @property
-    def last_state_change(self):
+    def last_state_change(self) -> Optional[datetime]:
         return self._lastStateChange
 
     @property
-    def last_config_change(self):
+    def last_config_change(self) -> Optional[datetime]:
         return self._lastConfigChange
 
-    def state():
+    def state():  # type: ignore
         doc = "The state property."
 
-        def fget(self):
+        def fget(self: "OperationalInstance") -> Optional[NodeState]:
             return self._state
 
-        def fset(self, value):
+        def fset(self: "OperationalInstance", value):  # type: ignore
             self._state = to_enum(NodeState, value)
 
         return locals()
 
-    state = property(**state())
+    state = property(**state())  # type: ignore
 
 
 class _ChildResources(Mapping):
