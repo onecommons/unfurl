@@ -80,17 +80,6 @@ node_types:
       Mock:
         operations:
           configure:
-            implementation: Template
-            inputs:
-              dryrun: true
-              resultTemplate:
-                attributes:
-                  managed_records:
-                    mock:
-                      ttl: 60
-                      type: A
-                      values:
-                        - 99.99.999.99
 
 capability_types:
   unfurl.capabilities.DNSZone:

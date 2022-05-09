@@ -158,9 +158,7 @@ class TerraformConfigurator(ShellConfigurator):
         ]
         # folder is "tasks" WorkFolder
         cwd = folder.cwd
-        lock_file = get_path(
-            task.inputs.context, ".terraform.lock.hcl", Folders.artifacts
-        )
+        lock_file = task.set_work_folder(Folders.artifacts).permanent_path(".terraform.lock.hcl", False)
         if os.path.exists(lock_file):
             folder.copy_from(lock_file)
 
@@ -275,7 +273,7 @@ class TerraformConfigurator(ShellConfigurator):
         return None
 
     def _get_workfolder_name(self, task):
-        return task.inputs.get("stateLocation") or Folders.secrets
+        return task.inputs.get("stateLocation") or Folders.artifacts # XXX global option for secrets
 
     def _prepare_state(self, task, cwd):
         # the terraform state file is associate with the current instance
@@ -284,12 +282,19 @@ class TerraformConfigurator(ShellConfigurator):
         folderName = self._get_workfolder_name(task)
         if folderName == "remote":  # don't use local state file
             return ""
-        yamlPath = get_path(task.inputs.context, "terraform.tfstate.yaml", folderName)
+        yamlPath = task.set_work_folder(folderName).permanent_path("terraform.tfstate.yaml", False)
         if os.path.exists(yamlPath):
+            task.logger.debug(
+                "Found existing terraform.tfstate file at %s", yamlPath
+            )
             # if exists in home, load and write out state file as json
             with open(yamlPath, "r") as f:
                 state = task._manifest.yaml.load(f.read())
             cwd.write_file(state, "terraform.tfstate")
+        else:
+            task.logger.debug(
+                "Couldn't find terraform.tfstate file at %s", yamlPath
+            )
         return "terraform.tfstate"
 
     def _get_plan_path(self, task, cwd):

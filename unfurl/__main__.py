@@ -64,7 +64,10 @@ def option_group(*options):
     is_flag=True,
     help="Only output errors to the stdout",
 )
-@click.option("--logfile", default=None, help="Log messages to file (at DEBUG level)")
+@click.option("--logfile",
+  default=None,
+  envvar="UNFURL_LOGFILE",
+  help="Log messages to file (at DEBUG level)")
 @click.option(
     "--tmp",
     envvar="UNFURL_TMPDIR",
@@ -102,7 +105,7 @@ def cli(
 
     effective_log_level = detect_log_level(loglevel, quiet, verbose)
     ctx.obj["verbose"] = detect_verbose_level(effective_log_level)
-    logs.add_log_file(kw["logfile"])
+    logs.add_log_file(kw["logfile"], effective_log_level)
     logs.set_console_log_level(effective_log_level)
 
     if version_check and version_tuple() < version_tuple(version_check):

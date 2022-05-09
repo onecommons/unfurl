@@ -106,8 +106,8 @@ jobs:
             TERRAFORM_VERSION=${{ env.TERRAFORM_VERSION }}
             GCLOUD_VERSION=${{ env.GCLOUD_VERSION }}
           tags: |
-             onecommons/unfurl:latest
-             onecommons/unfurl:${{ steps.get_tag_name.outputs.tag }}
+            onecommons/unfurl:latest
+            onecommons/unfurl:${{ steps.get_tag_name.outputs.tag }}
   publish:
     needs: deploy_dockerhub
     if: needs.deploy_dockerhub.outputs.release
@@ -127,7 +127,7 @@ jobs:
           password: ${{ secrets.PYPI }}
           verbose: true
   docs:
-    needs: test
+    needs: deploy_dockerhub
     if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/publish-docs'
     runs-on: ubuntu-latest
     steps:

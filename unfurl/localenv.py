@@ -378,7 +378,8 @@ class Project:
             return
         for vaultId, password in secrets.items():
             password = os.getenv(f"UNFURL_VAULT_{vaultId.upper()}_PASSWORD", password)
-            yield vaultId, password
+            if password:
+                yield vaultId, password
 
     def make_vault_lib(self, contextName: Optional[str]=None) -> Optional[VaultLib]:
         secrets = list(self.get_vault_passwords(contextName))

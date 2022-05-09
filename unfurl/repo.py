@@ -292,7 +292,11 @@ class RepoView:
                     except Exception as err:
                         logger.warning("could not decrypt %s: %s", filepath, err)
                         continue
-                    with open(str(target), "w") as f:
+                    target_path = str(target)
+                    dir = os.path.dirname(target_path)
+                    if dir and not os.path.isdir(dir):
+                        os.makedirs(dir)
+                    with open(target_path, "w") as f:
                         f.write(contents)
                     os.utime(target, (stinfo.st_atime, stinfo.st_mtime))
                     logger.verbose("decrypted secret file to %s", target)
@@ -304,7 +308,9 @@ class RepoView:
         assert not self.readOnly
         if self.yaml:
             for saved in self.save_secrets():
-                self.repo.repo.git.add(str(saved.relative_to(self.repo.working_dir)))
+                local_path = str(saved.relative_to(self.repo.working_dir))
+                if not self.repo.is_path_excluded(local_path):
+                    self.repo.repo.git.add(local_path)
         if addAll:
             self.add_all()
         self.repo.repo.index.commit(message)

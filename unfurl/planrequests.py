@@ -4,6 +4,7 @@ import collections
 import re
 import six
 import shlex
+import sys
 import os
 import os.path
 from .util import (
@@ -469,6 +470,7 @@ def _render_request(job, parent, req, requests):
     task.target.root.attributeManager = task._attributeManager
 
     error = None
+    error_info = None
     try:
         task.logger.debug("rendering %s %s", task.target.name, task.name)
         task._rendering = True
@@ -478,7 +480,8 @@ def _render_request(job, parent, req, requests):
         task.rendered = task.configurator.render(task)
     except Exception:
         # note: failed rendering may be re-tried later if it has dependencies
-        error = UnfurlTaskError(task, "Configurator render failed", logging.DEBUG)
+        error_info = sys.exc_info()
+        error = UnfurlTaskError(task, "Configurator render failed", False)
     task._rendering = False
     task._attributeManager.mark_referenced_templates(task.target.template)
 
@@ -497,7 +500,7 @@ def _render_request(job, parent, req, requests):
             "%s:%s can not render yet, depends on %s",
             task.target.name,
             req.configSpec.operation,
-            str(deps),
+            str(deps), exc_info=error_info
         )
         # rollback changes:
         task._errors = []
@@ -508,6 +511,7 @@ def _render_request(job, parent, req, requests):
     elif error:
         task.fail_work_folders()
         task._inputs = None
+        task.logger.warning("Configurator render failed",  exc_info=error_info)
         task._attributeManager.attributes = {}  # rollback changes
     else:
         task.commit_changes()
@@ -721,7 +725,7 @@ def create_task_request(
         )
     else:
         errorMsg = f'unable to find an implementation for operation "{action}" on node "{resource.template.name}"'
-        logger.debug(errorMsg)
+        logger.trace(errorMsg)
         return None
 
     req = TaskRequest(
