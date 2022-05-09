@@ -793,7 +793,7 @@ class Job(ConfigChange):
                 if parent and task.target is parent.target:
                     # if the task explicitly set the status use that
                     if task.result.status is not None:  # type: ignore 
-                        successStatus = task.result.statu  # type: ignore
+                        successStatus = task.result.status  # type: ignore
                     else:
                         successStatus = True
             else:
