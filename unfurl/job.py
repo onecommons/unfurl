@@ -7,15 +7,18 @@ Each task tracks and records its modifications to the system's state
 """
 
 import collections
+from datetime import datetime
 import types
 import itertools
 import os
 import json
+from typing import Any, Iterable, List, Mapping, Optional, Tuple, Union, cast, TYPE_CHECKING
+
 from .support import Status, Priority, Defaults, AttributeManager, Reason, NodeState
-from .result import serialize_value, ChangeRecord
+from .result import ResourceRef, serialize_value, ChangeRecord
 from .util import UnfurlError, UnfurlTaskError, to_enum, change_cwd
 from .merge import merge_dicts
-from .runtime import OperationalInstance
+from .runtime import NodeInstance, Operational, OperationalInstance
 from . import logs
 from .configurator import (
     TaskView,
@@ -45,8 +48,11 @@ except ImportError:
     from time import clock as perf_counter
 import logging
 
-logger = logging.getLogger("unfurl")
+if TYPE_CHECKING:
+    from .manifest import Manifest
 
+
+logger = cast(logs.UnfurlLogger, logging.getLogger("unfurl"))  
 
 class ConfigChange(OperationalInstance, ChangeRecord):
     """
@@ -59,17 +65,22 @@ class ConfigChange(OperationalInstance, ChangeRecord):
     """
 
     def __init__(
-        self, parentJob=None, startTime=None, status=None, previousId=None, **kw
-    ):
+        self,
+        parentJob: Optional["Job"]=None,
+        startTime: Optional[datetime]=None,
+        status: Optional[Union[OperationalInstance, int, str]]=None,
+        previousId: Optional[str]=None, 
+        **kw: Any
+    ) -> None:
         OperationalInstance.__init__(self, status, **kw)
         if parentJob:  # use the parent's job id and startTime
             ChangeRecord.__init__(self, parentJob.changeId, parentJob.startTime)
         else:  # generate a new job id and use the given startTime
             ChangeRecord.__init__(self, startTime=startTime, previousId=previousId)
 
-    def get_operational_dependencies(self):
+    def get_operational_dependencies(self) -> Iterable[Operational]:
         for d in self.dependencies:
-            if d.target != self.target:
+            if d.target != self.target:  # type: ignore
                 yield d
 
 
@@ -121,7 +132,7 @@ class JobOptions:
         workflow=Defaults.workflow,
     )
 
-    def __init__(self, **kw):
+    def __init__(self, **kw: Any) -> None:
         options = self.defaults.copy()
         if kw.get("starttime"):  # rename
             options["startTime"] = kw["starttime"]
@@ -133,7 +144,7 @@ class JobOptions:
         self.__dict__.update(options)
         self.userConfig = kw
 
-    def copy(self, **kw):
+    def copy(self, **kw: Any) -> "JobOptions":
         # only copy global
         _copy = {
             k: self.userConfig[k]
@@ -141,7 +152,7 @@ class JobOptions:
         }
         return JobOptions(**dict(_copy, **kw))
 
-    def get_user_settings(self):
+    def get_user_settings(self) -> dict:
         # only include settings different from the defaults
         return {
             k: self.userConfig[k]
@@ -497,41 +508,47 @@ class Job(ConfigChange):
 
     MAX_NESTED_SUBTASKS = 100
 
-    def __init__(self, manifest, rootResource, jobOptions, previousId=None):
+    def __init__(
+        self,
+        manifest: "Manifest",
+        rootResource: NodeInstance,
+        jobOptions: JobOptions,
+        previousId: Optional[str]=None
+    ) -> None:
         assert isinstance(jobOptions, JobOptions)
         self.__dict__.update(jobOptions.__dict__)
-        super().__init__(self.parentJob, self.startTime, Status.ok, previousId)
-        self.dry_run = jobOptions.dryrun
+        super().__init__(self.parentJob, self.startTime, Status.ok, previousId)  # type: ignore
+        self.dry_run = jobOptions.dryrun  # type: ignore
         self.jobOptions = jobOptions
         self.manifest = manifest
         self.rootResource = rootResource
-        self.jobRequestQueue = []
+        self.jobRequestQueue: List[JobRequest] = []
         self.unexpectedAbort = None
-        self.workDone = collections.OrderedDict()
+        self.workDone: collections.OrderedDict = collections.OrderedDict()
         self.timeElapsed = 0
         self.plan_requests = None
         self.task_count = 0
         self.external_requests = None
         self.external_jobs = None
 
-    def get_operational_dependencies(self):
+    def get_operational_dependencies(self) -> Iterable[ConfigTask]:
         # XXX3 this isn't right, root job might have too many and child job might not have enough
         # plus dynamic configurations probably shouldn't be included if yielded by a configurator
         for task in self.workDone.values():
             yield task
 
-    def get_outputs(self):
-        return self.rootResource.attributes["outputs"]
+    def get_outputs(self) -> Any:
+        return self.rootResource.attributes["outputs"]  # type: ignore
 
-    def is_filtered(self):
-        return self.instance or self.instances or self.template
+    def is_filtered(self) -> bool:
+        return self.instance or self.instances or self.template  # type: ignore
 
-    def run_query(self, query, trace=0):
+    def run_query(self, query: Union[str, Mapping], trace: int=0) -> list:
         from .eval import eval_for_func, RefContext
 
         return eval_for_func(query, RefContext(self.rootResource, trace=trace))
 
-    def create_task(self, configSpec, target, reason=None):
+    def create_task(self, configSpec: ConfiguratorResult, target: NodeInstance, reason: Optional[str]=None) -> ConfigTask:
         task = ConfigTask(self, configSpec, target, reason=reason)
         try:
             task.inputs
@@ -540,15 +557,15 @@ class Job(ConfigChange):
             UnfurlTaskError(task, "unable to create task")
         return task
 
-    def validate_job_options(self):
-        if self.jobOptions.instance and not self.rootResource.find_resource(
-            self.jobOptions.instance
+    def validate_job_options(self) -> None:
+        if self.jobOptions.instance and not self.rootResource.find_resource(  # type: ignore  # mypy doesn't like the way JobOptions is defined
+            self.jobOptions.instance  # type: ignore
         ):
             logger.warning(
-                'selected instance not found: "%s"', self.jobOptions.instance
+                'selected instance not found: "%s"', self.jobOptions.instance  # type: ignore
             )
 
-    def render(self):
+    def render(self) -> Tuple[list, list, list]:
         if self.plan_requests is None:
             ready = self.create_plan()
         else:
@@ -569,7 +586,7 @@ class Job(ConfigChange):
         ready, notReady, errors = do_render_requests(self, ready)
         return ready, notReady, errors
 
-    def _run(self, rendered_requests=None):
+    def _run(self, rendered_requests: Optional[Tuple[list, list, list]]=None) -> ResourceRef:
         if rendered_requests:
             ready, notReady, errors = rendered_requests
         else:
@@ -1405,7 +1422,7 @@ def start_job(manifestPath=None, _opts=None):
     return job, rendered, count and not errors
 
 
-def run_job(manifestPath=None, _opts=None):
+def run_job(manifestPath: Optional[str]=None, _opts: Optional[dict]=None) -> Job:
     """
     Loads the given Ensemble and creates and runs a job.
 

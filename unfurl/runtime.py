@@ -8,7 +8,7 @@ Each instance have a status; attributes that describe its state; and a TOSCA tem
 which describes its capabilities, relationships and available interfaces for configuring and interacting with it.
 """
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple, Union, TYPE_CHECKING
+from typing import Any, Dict, Iterable, List, Optional, Tuple, Union, TYPE_CHECKING
 import six
 from collections.abc import Mapping
 
@@ -57,7 +57,7 @@ class Operational(ChangeAware):
     def state(self) -> NodeState:
         return NodeState.initial
 
-    def get_operational_dependencies(self) -> List["Operational"]:
+    def get_operational_dependencies(self) -> Iterable["Operational"]:
         """
         Return an iterator of `Operational` object that this instance depends on to be operational.
         """
@@ -233,7 +233,7 @@ class OperationalInstance(Operational):
         # self.repairable = False # XXX3
         # self.messages = [] # XXX3
 
-    def get_operational_dependencies(self) -> List["Operational"]:
+    def get_operational_dependencies(self) -> Iterable["Operational"]:
         return self.dependencies
 
     def local_status() -> Dict[str, Any]:  # type: ignore
