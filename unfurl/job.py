@@ -12,7 +12,7 @@ import types
 import itertools
 import os
 import json
-from typing import Any, Iterable, List, Mapping, Optional, Tuple, Union, cast, TYPE_CHECKING
+from typing import Any, Iterable, List, Mapping, Optional, Tuple, Union, cast, TYPE_CHECKING, Iterator
 
 from .support import Status, Priority, Defaults, AttributeManager, Reason, NodeState
 from .result import ResourceRef, serialize_value, ChangeRecord
@@ -49,7 +49,7 @@ except ImportError:
 import logging
 
 if TYPE_CHECKING:
-    from .manifest import Manifest
+    from unfurl.yamlmanifest import YamlManifest
 
 
 logger = cast(logs.UnfurlLogger, logging.getLogger("unfurl"))  
@@ -510,7 +510,7 @@ class Job(ConfigChange):
 
     def __init__(
         self,
-        manifest: "Manifest",
+        manifest: "YamlManifest",
         rootResource: NodeInstance,
         jobOptions: JobOptions,
         previousId: Optional[str]=None
@@ -523,12 +523,12 @@ class Job(ConfigChange):
         self.manifest = manifest
         self.rootResource = rootResource
         self.jobRequestQueue: List[JobRequest] = []
-        self.unexpectedAbort = None
+        self.unexpectedAbort: Optional[UnfurlError] = None
         self.workDone: collections.OrderedDict = collections.OrderedDict()
-        self.timeElapsed = 0
-        self.plan_requests = None
+        self.timeElapsed: float = 0
+        self.plan_requests: Optional[List[TaskRequestGroup]] = None
         self.task_count = 0
-        self.external_requests = None
+        self.external_requests: Optional[List[Tuple[Any, Iterator[Any]]]] = None
         self.external_jobs = None
 
     def get_operational_dependencies(self) -> Iterable[ConfigTask]:
@@ -614,7 +614,7 @@ class Job(ConfigChange):
         # if there were circular dependencies or errors then notReady won't be empty
         if notReady:
             for parent, req in get_render_requests(notReady):
-                if self.workflow == "deploy" and not req.target.template.required: # we don't want to run these
+                if self.workflow == "deploy" and not req.target.template.required:  # type: ignore # we don't want to run these
                     continue
                 message = f"can't fulfill {req.target.name}: never ran {req.future_dependencies}"
                 logger.info(message)
@@ -631,23 +631,23 @@ class Job(ConfigChange):
         outputs = serialize_value(self.get_outputs())
         if outputs:
             logger.info("Job outputs: %s", outputs)
-        self.rootResource.attributeManager.commit_changes()
+        self.rootResource.attributeManager.commit_changes()  # type: ignore
         return self.rootResource
 
-    def run(self, rendered):
+    def run(self, rendered: Tuple[list, list, list]) -> None:
         manifest = self.manifest
         startTime = perf_counter()
         jobOptions = self.jobOptions
         with change_cwd(manifest.get_base_dir()):
             try:
                 ready, notReady, errors = rendered
-                if not jobOptions.out:
+                if not jobOptions.out:  # type: ignore
                     # out is used by unit tests to avoid writing to disk
                     manifest.lock()
-                if jobOptions.dirty == "auto":  # default to false if committing
-                    checkIfClean = jobOptions.commit
+                if jobOptions.dirty == "auto":  # type: ignore  # default to false if committing
+                    checkIfClean = jobOptions.commit  # type: ignore
                 else:
-                    checkIfClean = jobOptions.dirty == "abort"
+                    checkIfClean = jobOptions.dirty == "abort"  # type: ignore
                 if checkIfClean:
                     for repo in manifest.repositories.values():
                         if repo.is_dirty():
@@ -657,10 +657,10 @@ class Job(ConfigChange):
                             )
                             return None
                 try:
-                    display.verbosity = jobOptions.verbose
+                    display.verbosity = jobOptions.verbose  # type: ignore
                     self._run((ready, notReady, errors))
                 except Exception:
-                    self.local_status = Status.error
+                    self.local_status = Status.error  # type: ignore
                     self.unexpectedAbort = UnfurlError(
                         "unexpected exception while running job", True, True
                     )
@@ -671,33 +671,33 @@ class Job(ConfigChange):
                 self.timeElapsed = perf_counter() - startTime
                 manifest.unlock()
 
-    def _apply_workfolders(self):
+    def _apply_workfolders(self) -> None:
         for task in self.workDone.values():
             if task.status == Status.ok:
                 task.apply_work_folders()
 
-    def _update_joboption_instances(self):
-        if not self.jobOptions.instances:
+    def _update_joboption_instances(self) -> None:
+        if not self.jobOptions.instances:  # type: ignore
             return
         # process any instances that are a full resource spec
-        self.jobOptions.instances = [
+        self.jobOptions.instances = [  # type: ignore
             resourceSpec
             if isinstance(resourceSpec, str)
             else create_instance_from_spec(
                 self.manifest, self.rootResource, resourceSpec["name"], resourceSpec
             ).name
-            for resourceSpec in self.jobOptions.instances
+            for resourceSpec in self.jobOptions.instances  # type: ignore
         ]
-        self.instances = self.jobOptions.instances
+        self.instances = self.jobOptions.instances  # type: ignore
 
-    def create_plan(self):
+    def create_plan(self) -> List[TaskRequestGroup]:
         self.validate_job_options()
         joboptions = self.jobOptions
         self._update_joboption_instances()
         self.plan_requests = []
-        WorkflowPlan = Plan.get_plan_class_for_workflow(joboptions.workflow)
+        WorkflowPlan = Plan.get_plan_class_for_workflow(joboptions.workflow)  # type: ignore
         if not WorkflowPlan:
-            raise UnfurlError(f"unknown workflow: {joboptions.workflow}")
+            raise UnfurlError(f"unknown workflow: {joboptions.workflow}")  # type: ignore
 
         rmtree(os.path.join(self.rootResource.base_dir, Folders.Planned))
         plan = WorkflowPlan(self.rootResource, self.manifest.tosca, joboptions)
@@ -717,7 +717,7 @@ class Job(ConfigChange):
         for key, reqs in itertools.groupby(artifact_jobs, lambda r: id(r.root)):
             # external manifest activating an instance via artifact reification
             # XXX or substitution mapping -- but unique inputs require dynamically creating ensembles??
-            reqs = list(reqs)
+            reqs = list(reqs)  # type: ignore
             externalManifest = self.manifest._importedManifests.get(key)
             if externalManifest:
                 external_requests.append((externalManifest, reqs))
@@ -730,14 +730,14 @@ class Job(ConfigChange):
         self.plan_requests = plan_requests
         return self.plan_requests[:]
 
-    def _get_success_status(self, workflow, success):
+    def _get_success_status(self, workflow: str, success: Any) -> Optional[Status]:
         if isinstance(success, Status):
             return success
         if success:
             return get_success_status(workflow)
         return None
 
-    def apply_group(self, depth, groupRequest):
+    def apply_group(self, depth: int, groupRequest: TaskRequestGroup) -> ConfigTask:
         workflow = groupRequest.workflow
         starting_status = groupRequest.target.local_status
         task, success = self.apply(groupRequest.children, depth, groupRequest)
@@ -749,16 +749,21 @@ class Job(ConfigChange):
                     "successStatus %s for %s with local_status %s",
                     successStatus.name,
                     task.target.name,
-                    task.target.local_status,
+                    task.target.local_status,  # type: ignore
                 )
                 # one of the child tasks succeeded and the workflow is one that modifies the target
                 # update the target's status
                 task._finished_workflow(successStatus, workflow)
         return task
 
-    def apply(self, taskRequests, depth=0, parent=None):
+    def apply(
+        self,
+        taskRequests: List[Union[JobRequest, TaskRequestGroup]],
+        depth: int=0,
+        parent: "TaskRequestGroup"=None
+    ) -> Tuple[ConfigTask, bool]:
         failed = False
-        task = None
+        task: Optional[ConfigTask] = None
         successStatus = False
         if parent:
             workflow = parent.workflow
@@ -784,18 +789,18 @@ class Job(ConfigChange):
                 continue
             task = _task
 
-            if task.result.success:
+            if task.result.success:  # type: ignore 
                 if parent and task.target is parent.target:
                     # if the task explicitly set the status use that
-                    if task.result.status is not None:
-                        successStatus = task.result.status
+                    if task.result.status is not None:  # type: ignore 
+                        successStatus = task.result.statu  # type: ignore
                     else:
                         successStatus = True
             else:
                 failed = True
         return task, successStatus
 
-    def run_job_request(self, jobRequest):
+    def run_job_request(self, jobRequest: JobRequest) -> "Job":
         logger.debug("running jobrequest: %s", jobRequest)
         if self.jobRequestQueue:
             self.jobRequestQueue.remove(jobRequest)
