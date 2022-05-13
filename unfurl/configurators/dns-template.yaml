@@ -46,12 +46,14 @@ node_types:
         default: false
       default_ttl:
         type: integer
+        title: Default TTL
         default: 300
     attributes:
       zone:
         description: The records found in the zone
         type: map
       managed_records:
+        title: "Managed Records"
         description: The records in the zone that are managed by this instance
         type: map
         required: false

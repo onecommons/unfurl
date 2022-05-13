@@ -25,6 +25,8 @@ import codecs
 import io
 from contextlib import contextmanager
 from logging import Logger
+import string
+import random
 
 try:
     from shutil import which
@@ -403,6 +405,16 @@ def truncate_str(v):
     if len(s) > 1000:
         return f"{s[:494]} [{len(s) - 1000} omitted...]  {s[-494:]}"
     return v
+
+def get_random_password(count=12, prefix="uv", extra=None):
+    srandom = random.SystemRandom()
+    start = string.ascii_letters + string.digits
+    if extra is None:
+        extra = "%&()*+,-./:<>?=@^_`~"
+    source = string.ascii_letters + string.digits + extra
+    return prefix + "".join(
+        srandom.choice(source if i else start) for i in range(count)
+    )
 
 @contextmanager
 def change_cwd(new_path: str, log: Logger = None):

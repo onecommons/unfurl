@@ -6,9 +6,7 @@ This module implements creating and cloning project and ensembles as well Unfurl
 import datetime
 import os
 import os.path
-import random
 import shutil
-import string
 import sys
 import uuid
 import logging
@@ -18,7 +16,7 @@ from pathlib import Path
 from . import DefaultNames, __version__, get_home_config_path, is_version_unreleased
 from .localenv import LocalEnv, Project, LocalConfig
 from .repo import GitRepo, Repo, is_url_or_git_path, split_git_url, commit_secrets
-from .util import UnfurlError
+from .util import UnfurlError, get_random_password
 from .yamlloader import make_yaml, make_vault_lib
 
 _templatePath = os.path.join(os.path.abspath(os.path.dirname(__file__)), "templates")
@@ -29,17 +27,6 @@ def rename_for_backup(dir):
     new = dir + "." + ctime.strftime("%Y-%m-%d-%H-%M-%S")
     os.rename(dir, new)
     return new
-
-
-def get_random_password(count=12, prefix="uv", extra=None):
-    srandom = random.SystemRandom()
-    start = string.ascii_letters + string.digits
-    if extra is None:
-        extra = "%&()*+,-./:<>?=@^_`~"
-    source = string.ascii_letters + string.digits + extra
-    return prefix + "".join(
-        srandom.choice(source if i else start) for i in range(count)
-    )
 
 
 def _write_file(folder, filename, content):

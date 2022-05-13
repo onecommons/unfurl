@@ -33,6 +33,7 @@ from .util import (
     load_module,
     load_class,
     sensitive,
+    get_random_password
 )
 from .merge import intersect_dict, merge_dicts
 from unfurl.projectpaths import get_path
@@ -610,6 +611,9 @@ def get_artifact(ctx, entity_name, artifact_name, location=None, remove=None):
 set_eval_func("get_artifact", lambda args, ctx: get_artifact(ctx, *args), True)
 
 
+# XXX fully implement _generate: {"preset": "password"} (and rename)
+set_eval_func("_generate", lambda args, ctx: wrap_sensitive_value(get_random_password(prefix="")), True)
+
 def get_import(arg, ctx):
     """
     Returns the external resource associated with the named import
@@ -975,7 +979,7 @@ class AttributeManager:
     def commit_changes(self):
         changes = {}
         liveDependencies = {}
-        for resource, attributes in self.attributes.values():
+        for resource, attributes in list(self.attributes.values()):
             overrides, specd = attributes._attributes.split()
             # overrides will only contain:
             #  - properties accessed or added while running a task
