@@ -609,9 +609,9 @@ def filter_env(rules, env=None, addOnly=False):
                         match = {k: (val + os.pathsep + v) for k, v in match.items()}
                     start.update(match)
                 elif val is not None:  # name isn't in existing, use default is set
-                    start[name] = val
+                    start[name] = (val and "true" or "") if isinstance(val, bool) else str(val)
         elif val is not None:  # don't set if val is None
-            start[name] = val
+            start[name] = (val and "true" or "") if isinstance(val, bool) else str(val)
     return start
 
 
