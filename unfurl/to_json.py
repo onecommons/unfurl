@@ -368,6 +368,7 @@ def node_type_to_graphql(spec, type_definition, types: dict):
       visibility: String
       details_url: String
       inputsSchema: JSON
+      computedPropertiesSchema: JSON
       outputsSchema: JSON
       requirements: [RequirementConstraint!]
       implementations: [String]
@@ -395,10 +396,11 @@ def node_type_to_graphql(spec, type_definition, types: dict):
             visibility = "hidden"
     jsontype["visibility"] = visibility
 
-    propertydefs = (
-        p for p in type_definition.get_properties_def_objects() if is_property_user_visible(p)
+    propertydefs = list(
+        (p, is_property_user_visible(p)) for p in type_definition.get_properties_def_objects()
     )
-    jsontype["inputsSchema"] = tosca_type_to_jsonschema(spec, propertydefs, None)
+    jsontype["inputsSchema"] = tosca_type_to_jsonschema(spec, (p[0] for p in propertydefs if p[1]), None)
+    jsontype["computedPropertiesSchema"] = tosca_type_to_jsonschema(spec, (p[0] for p in propertydefs if not p[1]), None)
 
     extends = []
     # add ancestors classes to extends
