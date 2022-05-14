@@ -611,9 +611,6 @@ def get_artifact(ctx, entity_name, artifact_name, location=None, remove=None):
 set_eval_func("get_artifact", lambda args, ctx: get_artifact(ctx, *args), True)
 
 
-# XXX fully implement _generate: {"preset": "password"} (and rename)
-set_eval_func("_generate", lambda args, ctx: wrap_sensitive_value(get_random_password(prefix="")), True)
-
 def get_import(arg, ctx):
     """
     Returns the external resource associated with the named import
