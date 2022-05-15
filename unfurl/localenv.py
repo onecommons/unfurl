@@ -985,7 +985,7 @@ class LocalEnv:
             if not project:
                 return None, None, None
             while project:
-                if basepath is None or self.project.is_path_in_project(basepath):
+                if basepath is None or project.is_path_in_project(basepath):
                     repo = project.create_working_dir(repoURL, revision)
                     break
                 project = project.parentProject
