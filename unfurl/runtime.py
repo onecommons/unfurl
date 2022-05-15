@@ -120,7 +120,7 @@ class Operational(ChangeAware):
 
     @property
     def status(self):
-        return self._status( set([id(self)]) )
+        return self._status( {id(self):self} )
 
     @property
     def required(self):
@@ -186,8 +186,10 @@ class Operational(ChangeAware):
             if status.priority == Priority.ignore:
                 continue
             if id(status) in seen:
-                raise UnfurlError(f'Circular operational dependency when checking status {status}')
-            _status = status._status(seen | set([id(status)]))
+                logger.verbose(f'Circular operational dependency when checking status {status} in {seen}')
+                continue
+            seen[id(status)] = status
+            _status = status._status(seen)
             operational = _status == Status.ok or _status == Status.degraded
             if status.required and not operational:
                 if _status == Status.pending:
