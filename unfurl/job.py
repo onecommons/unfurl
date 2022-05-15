@@ -178,8 +178,7 @@ class ConfigTask(ConfigChange, TaskView):
         self.target.root.attributeManager = self._attributeManager
         self._resolved_inputs = {}
 
-    @property
-    def status(self):
+    def _status(self, seen):
         return self.local_status
 
     def priority():
