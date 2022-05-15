@@ -780,7 +780,7 @@ which describes its capabilities, relationships and available interfaces for con
 and all use the same algorithm to compute their status from their dependent resouces, tasks, and configurations</p>
 <dl class="py method">
 <dt class="sig sig-object py" id="unfurl.runtime.Operational.aggregate_status">
-<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">aggregate_status</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">statuses</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.runtime.Operational.aggregate_status" title="Permalink to this definition"></a></dt>
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">aggregate_status</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">statuses</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">seen</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.runtime.Operational.aggregate_status" title="Permalink to this definition"></a></dt>
 <dd><p>Returns: ok, degraded, pending or None</p>
 <p>If there are no instances, return None
 If any required are not operational, return pending or error
@@ -799,17 +799,6 @@ Otherwise return ok.
 <dt class="sig sig-object py" id="unfurl.runtime.Operational.has_changed">
 <span class="sig-name descname"><span class="pre">has_changed</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">changeset</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.runtime.Operational.has_changed" title="Permalink to this definition"></a></dt>
 <dd><p>Whether or not this object changed since the give ChangeRecord.</p>
-</dd></dl>
-
-<dl class="py property">
-<dt class="sig sig-object py" id="unfurl.runtime.Operational.status">
-<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">status</span></span><a class="headerlink" href="#unfurl.runtime.Operational.status" title="Permalink to this definition"></a></dt>
-<dd><p>Return the effective status, considering first the local readyState and
-then the aggregate status’ of its dependencies (see <a class="reference internal" href="#unfurl.runtime.Operational.aggregate_status" title="unfurl.runtime.Operational.aggregate_status"><code class="xref any py py-meth docutils literal notranslate"><span class="pre">aggregate_status()</span></code></a>
-and <a class="reference internal" href="#unfurl.runtime.Operational.get_operational_dependencies" title="unfurl.runtime.Operational.get_operational_dependencies"><code class="xref any py py-meth docutils literal notranslate"><span class="pre">get_operational_dependencies()</span></code></a>).</p>
-<p>If the local_status is non-operational, that takes precedence.
-Otherwise the local_status is compared with its aggregate dependent status
-and worser value is choosen.</p>
 </dd></dl>
 
 </dd></dl>
