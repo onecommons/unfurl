@@ -989,7 +989,9 @@ def add_graphql_deployment(manifest, db, dtemplate):
 
     url = manifest.rootResource.attributes["outputs"].get("url")
     primary_resource = db["Resource"].get(primary_name)
-    if url is None and primary_resource and primary_resource.get("attributes"):
+    if url:
+        deployment["url"] = url
+    elif primary_resource and primary_resource.get("attributes"):
         for prop in primary_resource["attributes"]:
             if prop["name"] == "url":
                 deployment["url"] = prop["value"]
