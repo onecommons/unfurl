@@ -5,7 +5,6 @@ import os.path
 from pathlib import Path
 import sys
 import git
-from git.repo.fun import is_git_dir
 import logging
 from six.moves.urllib.parse import urlparse
 from .util import UnfurlError, save_to_file
@@ -14,6 +13,9 @@ from ruamel.yaml.comments import CommentedMap
 
 logger = logging.getLogger("unfurl")
 
+def is_git_worktree(path, gitDir=".git"):
+    # NB: if work tree is a submodule .git will be a file that looks like "gitdir: ./relative/path"
+    return os.path.exists(os.path.join(path, gitDir))
 
 def normalize_git_url(url):
     if url.startswith("git-local://"):  # truncate url after commit digest
@@ -79,7 +81,7 @@ class Repo:
         """
         current = os.path.abspath(rootDir)
         while current and current != os.sep:
-            if is_git_dir(os.path.join(current, gitDir)):
+            if is_git_worktree(current, gitDir):
                 return GitRepo(git.Repo(current))
             current = os.path.dirname(current)
         return None
@@ -94,7 +96,7 @@ class Repo:
 
     @staticmethod
     def update_git_working_dirs(working_dirs, root, dirs, gitDir=".git"):
-        if gitDir in dirs and is_git_dir(os.path.join(root, gitDir)):
+        if gitDir in dirs and is_git_worktree(root, gitDir):
             assert os.path.isdir(root), root
             repo = GitRepo(git.Repo(root))
             key = os.path.abspath(root)
