@@ -1134,7 +1134,7 @@ def add_attributes(instance):
                     # same as EntityTemplate._create_properties()
                     p = Property(name, value, dict(type="any"),
                             instance.template.toscaEntityTemplate.custom_def)
-            if is_property_user_visible(p):
+            if not p.schema.get("metadata", {}).get("internal"):
                 attrs.append(dict(name=p.name, value=property_value_to_json(p, value)))
     # add leftover attribute defs that have a default value
     for prop in attributeDefs.values():
