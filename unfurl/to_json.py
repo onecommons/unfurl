@@ -343,6 +343,9 @@ def is_computed(p): # p: Property | PropertyDef
 def property_value_to_json(p, value):
     if is_computed(p):
         return None
+    return attribute_value_to_json(p, value)
+
+def attribute_value_to_json(p, value):
     if isinstance(value, sensitive) or p.schema.metadata.get('sensitive'):
         return sensitive.redacted_str
     if isinstance(value, PortSpec):
@@ -1135,11 +1138,11 @@ def add_attributes(instance):
                     p = Property(name, value, dict(type="any"),
                             instance.template.toscaEntityTemplate.custom_def)
             if not p.schema.get("metadata", {}).get("internal"):
-                attrs.append(dict(name=p.name, value=property_value_to_json(p, value)))
+                attrs.append(dict(name=p.name, value=attribute_value_to_json(p, value)))
     # add leftover attribute defs that have a default value
     for prop in attributeDefs.values():
-        if prop.default is not None:
-            attrs.append( dict(name=prop.name, value=property_value_to_json(prop, prop.default)) )
+        if prop.default is not None:# and prop.name not in :
+            attrs.append( dict(name=prop.name, value=attribute_value_to_json(prop, prop.default)) )
     return attrs
 
 
@@ -1157,7 +1160,7 @@ def add_computed_properties(instance):
                 p = Property(name, value, dict(type="any"),
                         instance.template.toscaEntityTemplate.custom_def)
             if p.schema.get("metadata", {}).get("visibility") != 'hidden':
-                attrs.append(dict(name=p.name, value=property_value_to_json(p, value)))
+                attrs.append(dict(name=p.name, value=attribute_value_to_json(p, value)))
     return attrs
 
 
