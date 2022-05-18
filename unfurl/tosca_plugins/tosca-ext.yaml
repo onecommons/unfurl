@@ -353,6 +353,26 @@ relationship_types:
     # see https://boto3.amazonaws.com/v1/documentation/api/latest/guide/configuration.html#using-environment-variables
     # for more environment variables
 
+  unfurl.relationships.ConnectsTo.DigitalOceanAccount:
+    derived_from: unfurl.relationships.ConnectsTo.CloudAccount
+    properties:
+      endpoints:
+        description: custom service endpoints
+        type: map
+        required: false
+      DIGITALOCEAN_DEFAULT_REGION:
+        description: "The default region to use, e.g. fra1, nyc2, etc."
+        type: unfurl.datatypes.EnvVar
+        default: { get_env: DIGITALOCEAN_DEFAULT_REGION }
+      DIGITALOCEAN_ACCESS_TOKEN:
+        description: "Access token for Digitalocean account."
+        type: unfurl.datatypes.EnvVar
+        default: { get_env: DIGITALOCEAN_ACCESS_TOKEN }
+      DIGITALOCEAN_PRIVATE_KEY:
+        description: "File with private key."
+        type: unfurl.datatypes.EnvVar
+        default: { get_env: DIGITALOCEAN_PRIVATE_KEY }
+
   unfurl.relationships.ConnectsTo.Azure:
     derived_from: unfurl.relationships.ConnectsTo.CloudAccount
     properties:
