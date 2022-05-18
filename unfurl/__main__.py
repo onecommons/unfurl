@@ -92,6 +92,7 @@ def cli(
     loglevel=None,
     tmp=None,
     version_check=None,
+    home=None,
     **kw,
 ):
     # ensure that ctx.obj exists and is a dict (in case `cli()` is called
@@ -102,7 +103,8 @@ def cli(
     ctx.obj.update(kw)
     if tmp is not None:
         os.environ["UNFURL_TMPDIR"] = tmp
-
+    if home is not None:
+        os.environ["UNFURL_HOME"] = home
     effective_log_level = detect_log_level(loglevel, quiet, verbose)
     ctx.obj["verbose"] = detect_verbose_level(effective_log_level)
     logs.add_log_file(kw["logfile"], effective_log_level)
