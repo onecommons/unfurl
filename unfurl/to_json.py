@@ -1118,6 +1118,11 @@ def to_environments(localEnv):
     db = {}
     db["DeploymentEnvironment"] = environments
     if blueprintdb:
+        if blueprintdb.get("repositories", {}).get("types"):
+            # don't include ResourceTypes if we are including a types repository
+            db["ResourceType"] = {}
+            return db
+
         # add the rest of the types too
         # XXX is it safe to only include types with "connect" implementations?
         all_connection_types.update(blueprintdb["ResourceType"])
