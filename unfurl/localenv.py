@@ -976,24 +976,31 @@ class LocalEnv:
             project = project.parentProject
         return None
 
+    def _create_working_dir(self, repoURL, revision, basepath):
+        project = self.project or self.homeProject
+        if not project:
+            return None
+        while project:
+            if basepath is None or project.is_path_in_project(basepath):
+                repo = project.create_working_dir(repoURL, revision)
+                break
+            project = project.parentProject
+        else:
+            repo = (self.project or self.homeProject).create_working_dir(
+                repoURL, revision
+            )
+        return repo
+
     def find_or_create_working_dir(self, repoURL, revision=None, basepath=None):
         repo = self.find_git_repo(repoURL, revision)
         if repo:
             logger.debug("Using existing repository at %s for %s", repo.working_dir, repoURL)
+            if not repo.is_dirty():
+                repo.pull(revision=revision)
+
         # git-local repos must already exist
         if not repo and not repoURL.startswith("git-local://"):
-            project = self.project or self.homeProject
-            if not project:
-                return None, None, None
-            while project:
-                if basepath is None or project.is_path_in_project(basepath):
-                    repo = project.create_working_dir(repoURL, revision)
-                    break
-                project = project.parentProject
-            else:
-                repo = (self.project or self.homeProject).create_working_dir(
-                    repoURL, revision
-                )
+            repo = self._create_working_dir(repoURL, revision, basepath)
         if not repo:
             return None, None, None
 

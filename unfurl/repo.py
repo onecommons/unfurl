@@ -489,9 +489,9 @@ class GitRepo(Repo):
         status, stdout, stderr = self.run_cmd(["submodule", "add", gitDir])
         success = not status
         if success:
-            logging.debug("added submodule %s: %s %s", gitDir, stdout, stderr)
+            logger.debug("added submodule %s: %s %s", gitDir, stdout, stderr)
         else:
-            logging.error("failed to add submodule %s: %s %s", gitDir, stdout, stderr)
+            logger.error("failed to add submodule %s: %s %s", gitDir, stdout, stderr)
         return success
 
     def get_initial_revision(self):
@@ -514,6 +514,20 @@ class GitRepo(Repo):
         # diff = self.repo.git.diff()  # "--abbrev=40", "--full-index", "--raw")
         # https://gitpython.readthedocs.io/en/stable/reference.html?highlight=is_dirty#git.repo.base.Repo.is_dirty
         return self.repo.is_dirty(untracked_files=untracked_files, path=path or None)
+
+    def pull(self, remote="origin", revision=None, ff_only=True):
+        if remote in self.repo.remotes:
+            cmd = ["pull", remote, revision or "HEAD"]
+            if ff_only:
+                cmd.append("--ff-only")
+            code, out, err = self.run_cmd(cmd)
+            if code:
+                logger.info("attempt to pull latest from %s into %s failed: %s %s", self.url, self.working_dir, out, err)
+            else:
+                logger.verbose("pull latest from %s into %s: %s %s", self.url, self.working_dir, out, err)
+            return not code
+        else:
+            return False
 
     def clone(self, newPath):
         # note: repo.clone uses bare path, which breaks submodule path resolution
