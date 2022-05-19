@@ -5,7 +5,8 @@ from enum import IntEnum
 import os
 import tempfile
 
-import click
+# import click
+import rich
 
 
 def truncate(s, max=1200):
@@ -80,17 +81,30 @@ class ColorHandler(logging.StreamHandler):
         Levels.TRACE: {},
     }
 
+    RICH_STYLE_LEVEL = {
+        Levels.CRITICAL: "black on red",
+        Levels.ERROR: "red",
+        Levels.WARNING: "yellow",
+        Levels.INFO: "bright_blue",
+        Levels.VERBOSE: "grey66",
+        Levels.DEBUG: "grey42",
+        Levels.TRACE: "grey27",
+    }
+
     def emit(self, record: logging.LogRecord) -> None:
         message = truncate(self.format(record))
         level = Levels[record.levelname]
         try:
-            click.secho(
-                " UNFURL ", nl=False, file=self.stream, fg="white", bg="bright_cyan"
-            )
-            click.secho(
-                f" {level.name} ", nl=False, file=self.stream, **self.STYLE_LEVEL[level]
-            )
-            click.secho(f" {message}", file=self.stream, **self.STYLE_MESSAGE[level])
+            # click.secho(
+            #     " UNFURL ", nl=False, file=self.stream, fg="white", bg="bright_cyan"
+            # )
+            # click.secho(
+            #     f" {level.name} ", nl=False, file=self.stream, **self.STYLE_LEVEL[level]
+            # )
+            # click.secho(f" {message}", file=self.stream, **self.STYLE_MESSAGE[level])
+            rich.print(f"[bold white] UNFURL [/bold white]", end="", file=self.stream)
+            rich.print(f"[{self.RICH_STYLE_LEVEL[level]}] {level.name} [/]", end="", file=self.stream)
+            rich.print(f" {message}", file=self.stream)
         except:
             pass
 

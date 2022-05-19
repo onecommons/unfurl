@@ -45,6 +45,7 @@ except ImportError:
     from time import clock as perf_counter
 import logging
 
+from rich.text import Text
 logger = logging.getLogger("unfurl")
 
 
@@ -1207,7 +1208,7 @@ class Job(ConfigChange):
             return json.dumps(summary, indent=2)
         return summary
 
-    def stats(self, asMessage=False):
+    def stats(self, asMessage=False, richtext=False):
         tasks = self.workDone.values()
         key = lambda t: t._localStatus or Status.unknown
         tasks = sorted(tasks, key=key)
@@ -1219,9 +1220,12 @@ class Job(ConfigChange):
                 stats[k.name] = len(list(g))
         stats["changed"] = len([t for t in tasks if t.modified_target])
         if asMessage:
-            return "{total} tasks ({changed} changed, {ok} ok, {error} failed, {unknown} unknown, {skipped} skipped)".format(
-                **stats
-            )
+            if not richtext:
+                return "{total} tasks ({changed} changed, {ok} ok, {error} failed, {unknown} unknown, {skipped} skipped)".format(
+                    **stats
+                )
+            else:
+                return Text("[bold]{total}[/bold] tasks ([bright_blue]{changed}[/bright_blue] changed, [green]{ok}[/green] ok, [red]{error}[/red] failed, [yellow]{unknown}[/yellow] unknown, [bright_black]{skipped}[/bright_black] skipped)".format(**stats))
         return stats
 
     def _plan_summary(self, plan_requests, external_requests):
@@ -1301,7 +1305,7 @@ class Job(ConfigChange):
             output.append("Nothing to do.")
         return "\n".join(output), count
 
-    def summary(self):
+    def summary(self, richtext=False):
         outputString = ""
         outputs = self.get_outputs()
         if outputs:
@@ -1319,7 +1323,7 @@ class Job(ConfigChange):
             self.changeId,
             self.timeElapsed,
             self.status.name,
-            self.stats(asMessage=True),
+            self.stats(asMessage=True, richtext=richtext),
         )
         tasks = "\n    ".join(
             format(i + 1, task) for i, task in enumerate(self.workDone.values())
