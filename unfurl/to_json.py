@@ -1148,7 +1148,7 @@ def add_attributes(instance):
                 attrs.append(dict(name=p.name, value=attribute_value_to_json(p, value)))
     # add leftover attribute defs that have a default value
     for prop in attributeDefs.values():
-        if prop.default is not None and not is_computed(p):
+        if prop.default is not None and not is_computed(prop):
             attrs.append( dict(name=prop.name, value=attribute_value_to_json(prop, prop.default)) )
     return attrs
 
