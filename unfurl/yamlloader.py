@@ -4,7 +4,7 @@ import os.path
 import sys
 import codecs
 import json
-import functools
+import os
 from typing import Union
 import six
 from six.moves import urllib
@@ -103,6 +103,8 @@ def represent_sensitive_bytes(dumper, data):
 def _construct_vault(constructor, node, tag):
     value = constructor.construct_scalar(node)
     if not constructor.vault.secrets:
+        if os.getenv("UNFURL_VAULT_SKIP_DECRYPT"):
+            return sensitive_str.redacted_str
         raise ConstructorError(
             context=None,
             context_mark=None,
@@ -115,18 +117,24 @@ def _construct_vault(constructor, node, tag):
 
 def construct_vault(constructor, node):
     value = _construct_vault(constructor, node, "!vault")
+    if value is sensitive_str.redacted_str:
+        return value
     cleartext = to_text(constructor.vault.decrypt(value))
     return sensitive_str(cleartext)
 
 
 def construct_vaultjson(constructor, node):
     value = _construct_vault(constructor, node, "!vault-json")
+    if value is sensitive_str.redacted_str:
+        return value
     cleartext = to_text(constructor.vault.decrypt(value))
     return wrap_sensitive_value(json.loads(cleartext))
 
 
 def construct_vaultbinary(constructor, node):
     value = _construct_vault(constructor, node, "!vault-binary")
+    if value is sensitive_str.redacted_str:
+        return value
     cleartext = constructor.vault.decrypt(value)
     return sensitive_bytes(cleartext)
 
