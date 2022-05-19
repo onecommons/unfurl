@@ -553,6 +553,15 @@ class Generate:
             return False
 
 
+def _env_var_value(val):
+    if isinstance(val, bool):
+        return val and "true" or ""
+    elif is_sensitive(val):
+        return wrap_sensitive_value(str(val))
+    else:
+        return str(val)
+
+
 def filter_env(rules, env=None, addOnly=False):
     """
     Applies the given list of rules to a dictionary of environment variables and returns a new dictionary.
@@ -609,9 +618,9 @@ def filter_env(rules, env=None, addOnly=False):
                         match = {k: (val + os.pathsep + v) for k, v in match.items()}
                     start.update(match)
                 elif val is not None:  # name isn't in existing, use default is set
-                    start[name] = (val and "true" or "") if isinstance(val, bool) else str(val)
+                    start[name] = _env_var_value(val)
         elif val is not None:  # don't set if val is None
-            start[name] = (val and "true" or "") if isinstance(val, bool) else str(val)
+            start[name] = _env_var_value(val)
     return start
 
 
