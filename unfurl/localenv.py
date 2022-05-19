@@ -145,12 +145,13 @@ class Project:
             return venv
         return None
 
-    def get_asdf_paths(self, asdfDataDir, toolVersions={}):
+    @staticmethod
+    def get_asdf_paths(projectRoot, asdfDataDir, toolVersions={}):
         paths = []
         toolVersionsFilename = (
             os.getenv("ASDF_DEFAULT_TOOL_VERSIONS_FILENAME") or ".tool-versions"
         )
-        versionConf = os.path.join(self.projectRoot, toolVersionsFilename)
+        versionConf = os.path.join(projectRoot, toolVersionsFilename)
         if os.path.exists(versionConf):
             with open(versionConf) as conf:
                 for line in conf.readlines():
@@ -1067,8 +1068,10 @@ class LocalEnv:
             project = self.project or self.homeProject
             count = 0
             while project:
-                paths += project.get_asdf_paths(asdfDataDir, self.toolVersions)
+                paths += Project.get_asdf_paths(project.projectRoot, asdfDataDir, self.toolVersions)
                 count += 1
                 assert count < 4
                 project = project.parentProject
+            if os.getenv("HOME"):
+                paths += Project.get_asdf_paths(os.getenv("HOME"), asdfDataDir, self.toolVersions)
         return paths
