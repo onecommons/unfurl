@@ -764,10 +764,16 @@ class EnsembleBuilder:
             ".."
         ), f"{self.source_path} should be inside the project"
         if currentProject:
-            newrepo = currentProject.find_or_create_working_dir(
-                sourceProject.project_repoview.repo.url,
-            )
-            search = os.path.join(newrepo.working_dir, self.source_path)
+            repoURL = sourceProject.project_repoview.repo.url
+            if currentProject.find_git_repo(repoURL):
+                # if the repo has already been cloned into this project, just use that one
+                newrepo = currentProject.find_or_create_working_dir(repoURL)
+                search = os.path.join(newrepo.working_dir, self.source_path)
+            else:
+                # just register the source project's repo as a localRepository
+                currentProject.localConfig.register_project(sourceProject, save_project=False)
+                self.source_project = sourceProject
+                return sourceProject
         else:
             # clone the source project's git repo
             newrepo = sourceProject.project_repoview.repo.clone(dest_dir)
@@ -815,7 +821,7 @@ class EnsembleBuilder:
         assert self.dest_project is None
         new_project = self.source_project is not existingSourceProject
         if existingDestProject:
-            #     set that as the dest_project
+            #  set that as the dest_project
             self.dest_project = existingDestProject
         else:
             # otherwise set source_project as the dest_project

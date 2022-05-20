@@ -563,7 +563,7 @@ class LocalConfig:
 
         return name
 
-    def register_project(self, project, for_context=None, changed=False):
+    def register_project(self, project, for_context=None, changed=False, save_project=True):
         """
         Register an external project with current project.
         If the external project's repository is only local (without a remote origin repository) then save it in the local config if it exists.
@@ -595,24 +595,25 @@ class LocalConfig:
         if file and file != ".":
             externalProject["file"] = file
 
-        self.projects[name] = externalProject
-        if repo.is_local_only():
-            projectConfig = local
-        else:
-            projectConfig = self.config.config
-        project_tpl = projectConfig.setdefault("projects", {})
-        if project_tpl.get(name) != externalProject:
-            project_tpl[name] = externalProject
-            changed = True
-
-        if for_context:
-            # set the project to be the default project for the given context
-            context = projectConfig.setdefault("environments", {}).setdefault(
-                for_context, {}
-            )
-            if context.get("defaultProject") != name:
-                context["defaultProject"] = name
+        if save_project:
+            self.projects[name] = externalProject
+            if repo.is_local_only():
+                projectConfig = local
+            else:
+                projectConfig = self.config.config
+            project_tpl = projectConfig.setdefault("projects", {})
+            if project_tpl.get(name) != externalProject:
+                project_tpl[name] = externalProject
                 changed = True
+
+            if for_context:
+                # set the project to be the default project for the given context
+                context = projectConfig.setdefault("environments", {}).setdefault(
+                    for_context, {}
+                )
+                if context.get("defaultProject") != name:
+                    context["defaultProject"] = name
+                    changed = True
 
         if changed:
             if key:
