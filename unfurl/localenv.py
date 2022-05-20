@@ -747,6 +747,11 @@ class LocalEnv:
             and self.homeProject.localConfig
             or LocalConfig()
         )
+        if override_context and override_context != "defaults":
+            assert override_context == self.manifest_context_name, self.manifest_context_name
+            project = self.project or self.homeProject
+            if not project or self.manifest_context_name not in project.contexts:
+                raise UnfurlError(f'No environment named "{self.manifest_context_name}" found.')
 
     def _get_home_project(self):
         homeProject = None

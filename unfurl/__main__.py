@@ -177,6 +177,11 @@ readonlyJobControlOptions = option_group(
         default="never",
         help="Set exit code to 1 if job status is not ok. (Default: never)",
     ),
+    click.option(
+        "--use-environment",
+        default=None,
+        help="Run this job in the given environment.",
+    ),
 )
 jobControlOptions = option_group(
     readonlyJobControlOptions,
@@ -1022,12 +1027,17 @@ def git_status(ctx, project_or_ensemble_path, dirty, **options):
     default="deployment",
     type=click.Choice(["blueprint", "environments", "deployment"]),
 )
+@click.option(
+    "--use-environment",
+    default=None,
+    help="Export using this environment.",
+)
 def export(ctx, project_or_ensemble_path, format, **options):
     """Export ensemble in a simplified json format."""
     from . import to_json
 
     options.update(ctx.obj)
-    localEnv = LocalEnv(project_or_ensemble_path, options.get("home"))
+    localEnv = LocalEnv(project_or_ensemble_path, options.get("home"), override_context=options.get("use_environment"))
     exporter = getattr(to_json, "to_" + format)
     jsonSummary = exporter(localEnv)
     click.echo(json.dumps(jsonSummary, indent=2))

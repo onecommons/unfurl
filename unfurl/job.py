@@ -1380,7 +1380,7 @@ def _render(job):
 
 def start_job(manifestPath=None, _opts=None):
     _opts = _opts or {}
-    localEnv = LocalEnv(manifestPath, _opts.get("home"))
+    localEnv = LocalEnv(manifestPath, _opts.get("home"), override_context=_opts.get("use_environment"))
     opts = JobOptions(**_opts)
     path = localEnv.manifestPath
     if not opts.planOnly:
