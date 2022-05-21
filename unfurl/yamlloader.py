@@ -5,7 +5,7 @@ import sys
 import codecs
 import json
 import os
-from typing import Union
+from typing import Union, Tuple, List
 import six
 from six.moves import urllib
 
@@ -180,7 +180,7 @@ def make_vault_lib(passwordBytes, vaultId="default"):
     return None
 
 
-def make_vault_lib_ex(secrets: [str, Union[str, bytes]]):
+def make_vault_lib_ex(secrets: List[Tuple[str, Union[str, bytes]]]):
     vault_secrets = []
     for vaultId, passwordBytes in secrets:
         if isinstance(passwordBytes, six.string_types):

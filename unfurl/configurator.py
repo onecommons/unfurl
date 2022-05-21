@@ -363,6 +363,7 @@ class TaskView:
         self.logger = logger
         self.cwd = os.path.abspath(self.target.base_dir)
         self.rendered = None
+        self.dry_run = None
         # private:
         self._errors: List[UnfurlTaskError] = []  # UnfurlTaskError objects appends themselves to this list
         self._inputs: Optional[ResultsMap] = None
@@ -604,7 +605,7 @@ class TaskView:
         success: Optional[bool]=None,
         modified: Optional[bool]=None,
         status: Optional[Status]=None,
-        result: Optional[dict]=None,
+        result: Optional[Union[dict, str]]=None,
         outputs: Optional[dict]=None,  # so the docstring says dict, but ConfiguratorResult
         captureException: Optional[object]=None,
     ) -> ConfiguratorResult:

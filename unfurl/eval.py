@@ -31,15 +31,15 @@ from .result import ResultsList, Result, Results, ExternalValue, ResourceRef, Re
 import logging
 
 if TYPE_CHECKING:
-    from .job import ConfigTask
+    from .configurator import TaskView
     from .runtime import NodeInstance
 
 
-logger = cast(UnfurlLogger, logging.getLogger("unfurl.eval"))  
+logger = cast(UnfurlLogger, logging.getLogger("unfurl.eval"))
 
 
 def map_value(
-    value: Union[Mapping, "Ref"],
+    value: Any,
     resourceOrCxt: Union["RefContext", "NodeInstance"],
     applyTemplates: bool=True
     ) -> Optional[Union[ResultsList, Result, List[Result]]]:
@@ -123,7 +123,7 @@ class RefContext:
         resolveExternal: bool=False,
         trace: Optional[int]=None,
         strict: bool=_defaultStrictness,
-        task: "ConfigTask"=None,
+        task: "TaskView"=None,
     ) -> None:
         self.vars = vars or {}
         # the original context:
@@ -171,7 +171,7 @@ class RefContext:
         copy.task = self.task
         return copy
 
-    def trace(self, *msg: str) -> None:
+    def trace(self, *msg: Any) -> None:
         if self._trace:
             log = logger.info if self._trace == 2 else logger.trace
             log(f"{' '.join(str(a) for a in msg)} (ctx: {self._lastResource})")
@@ -276,7 +276,7 @@ class Expr:
 class Ref:
     """A Ref objects describes a path to metadata associated with a resource."""
 
-    def __init__(self, exp: Mapping, vars: dict=None, trace: Optional[int]=None) -> None:
+    def __init__(self, exp: Union[str, Mapping], vars: dict=None, trace: Optional[int]=None) -> None:
         self.vars = {"true": True, "false": False, "null": None}
 
         self.foreach = None

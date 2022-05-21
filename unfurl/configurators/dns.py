@@ -5,8 +5,7 @@ from dataclasses import dataclass
 from octodns.manager import Manager
 from octodns.zone import Zone
 
-from ..configurator import Configurator
-from ..job import ConfigTask
+from ..configurator import Configurator, TaskView
 from ..projectpaths import WorkFolder
 from ..support import Status
 
@@ -77,7 +76,7 @@ class DNSConfigurator(Configurator):
             records.update(managed)
         return records
 
-    def render(self, task: ConfigTask):
+    def render(self, task: TaskView):
         """Create yaml config files which will be consumed by OctoDNS"""
         properties = self._extract_properties_from(task)
         managed = properties.records
@@ -137,7 +136,7 @@ class DNSConfigurator(Configurator):
         }
         folder.write_file(content, "main-config.yaml")
 
-    def _dump_current_dns_records(self, task: ConfigTask, folder: WorkFolder):
+    def _dump_current_dns_records(self, task: TaskView, folder: WorkFolder):
         task.logger.debug("OctoDNS configurator - downloading current DNS records")
 
         path = folder.cwd
@@ -171,7 +170,7 @@ class DNSConfigurator(Configurator):
 
             return sort_dict(data)
 
-    def run(self, task: ConfigTask):
+    def run(self, task: TaskView):
         """Apply DNS configuration"""
         # update zone and managed
         op = task.configSpec.operation
@@ -188,7 +187,7 @@ class DNSConfigurator(Configurator):
         else:
             raise NotImplementedError(f"Operation '{op}' is not allowed")
 
-    def _run_octodns_sync(self, task: ConfigTask):
+    def _run_octodns_sync(self, task: TaskView):
         managed = task.rendered
         # get the latest live records
         # XXX if check ran during this job don't recheck (check state change?)
@@ -217,7 +216,7 @@ class DNSConfigurator(Configurator):
             task.logger.debug("setting zone %s", updated)
             return task.done(success=True, modified=True, result="OctoDNS synced")
 
-    def _run_check(self, task: ConfigTask):
+    def _run_check(self, task: TaskView):
         """Retrieves current zone data and compares with expected"""
         managed = task.rendered
         task.vars["SELF"]["managed_records"] = managed

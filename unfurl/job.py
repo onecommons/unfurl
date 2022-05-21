@@ -42,17 +42,14 @@ from .localenv import LocalEnv
 from . import configurators  # need to import configurators even though it is unused
 from . import display
 
-try:
-    from time import perf_counter
-except ImportError:
-    from time import clock as perf_counter
+from time import perf_counter
 import logging
 
 if TYPE_CHECKING:
     from unfurl.yamlmanifest import YamlManifest
 
 
-logger = cast(logs.UnfurlLogger, logging.getLogger("unfurl"))  
+logger = cast(logs.UnfurlLogger, logging.getLogger("unfurl"))
 
 class ConfigChange(OperationalInstance, ChangeRecord):
     """
@@ -69,7 +66,7 @@ class ConfigChange(OperationalInstance, ChangeRecord):
         parentJob: Optional["Job"]=None,
         startTime: Optional[datetime]=None,
         status: Optional[Union[OperationalInstance, int, str]]=None,
-        previousId: Optional[str]=None, 
+        previousId: Optional[str]=None,
         **kw: Any
     ) -> None:
         OperationalInstance.__init__(self, status, **kw)
@@ -788,10 +785,10 @@ class Job(ConfigChange):
                 continue
             task = _task
 
-            if task.result.success:  # type: ignore 
+            if task.result.success:  # type: ignore
                 if parent and task.target is parent.target:
                     # if the task explicitly set the status use that
-                    if task.result.status is not None:  # type: ignore 
+                    if task.result.status is not None:  # type: ignore
                         successStatus = task.result.status  # type: ignore
                     else:
                         successStatus = True
@@ -846,7 +843,7 @@ class Job(ConfigChange):
                 priority = task.configurator.should_run(task)
             else:
                 priority = task.priority  # type: ignore
-        except Exception: 
+        except Exception:
             # unexpected error don't run this
             UnfurlTaskError(task, "shouldRun failed unexpectedly")
             return False, "unexpected failure"
@@ -1023,7 +1020,7 @@ class Job(ConfigChange):
             self.run_task(task, depth)
 
             # if # task succeeded but didn't update nodestate
-            if task.result.success and resource.state == startingState:  # type: ignore  
+            if task.result.success and resource.state == startingState:  # type: ignore
                 if req.startState is not None:
                     # advance the state if a startState was set in the TaskRequest
                     resource.state = NodeState(req.startState + 1)
@@ -1253,7 +1250,7 @@ class Job(ConfigChange):
         return stats
 
     def _plan_summary(
-        self, 
+        self,
         plan_requests: List[TaskRequest],
         external_requests: Iterable[Tuple[Any, Any]]
     ) -> Tuple[str, int]:
@@ -1274,7 +1271,7 @@ class Job(ConfigChange):
         ) -> None:
             nonlocal count
             for request in requests:
-                isGroup = isinstance(request, TaskRequestGroup)  
+                isGroup = isinstance(request, TaskRequestGroup)
                 if isGroup and not request.children:  # type: ignore
                     continue
                 if not self.is_filtered() and self.workflow == "deploy":  # type: ignore

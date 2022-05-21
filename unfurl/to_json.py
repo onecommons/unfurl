@@ -13,6 +13,7 @@ Output a normalized json representation of a TOSCA service template for machine 
 import re
 import os
 import sys
+from typing import Any, Dict, List, Optional, Union, cast, TYPE_CHECKING
 from collections import Counter
 from toscaparser.properties import Property
 from toscaparser.elements.constraints import Schema
@@ -31,6 +32,7 @@ from .tosca import is_function, get_nodefilters
 from .localenv import LocalEnv
 from .util import to_enum
 from .support import Status, is_template
+
 
 numeric_constraints = {
     "greater_than": "exclusiveMinimum",
@@ -101,7 +103,7 @@ VALUE_TYPES = dict(
     PortSpec={"type": "string"}
 )
 
-_SCALAR_TYPE = {}
+_SCALAR_TYPE: Any = {}
 VALUE_TYPES.update(
     {
         "scalar-unit.size": _SCALAR_TYPE,
