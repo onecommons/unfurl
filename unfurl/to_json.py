@@ -343,6 +343,9 @@ def is_computed(p): # p: Property | PropertyDef
 def property_value_to_json(p, value):
     if is_computed(p):
         return None
+    return attribute_value_to_json(p, value)
+
+def attribute_value_to_json(p, value):
     if isinstance(value, sensitive) or p.schema.metadata.get('sensitive'):
         return sensitive.redacted_str
     if isinstance(value, PortSpec):
@@ -368,6 +371,7 @@ def node_type_to_graphql(spec, type_definition, types: dict):
       visibility: String
       details_url: String
       inputsSchema: JSON
+      computedPropertiesSchema: JSON
       outputsSchema: JSON
       requirements: [RequirementConstraint!]
       implementations: [String]
@@ -395,10 +399,11 @@ def node_type_to_graphql(spec, type_definition, types: dict):
             visibility = "hidden"
     jsontype["visibility"] = visibility
 
-    propertydefs = (
-        p for p in type_definition.get_properties_def_objects() if is_property_user_visible(p)
+    propertydefs = list(
+        (p, is_property_user_visible(p)) for p in type_definition.get_properties_def_objects()
     )
-    jsontype["inputsSchema"] = tosca_type_to_jsonschema(spec, propertydefs, None)
+    jsontype["inputsSchema"] = tosca_type_to_jsonschema(spec, (p[0] for p in propertydefs if p[1]), None)
+    jsontype["computedPropertiesSchema"] = tosca_type_to_jsonschema(spec, (p[0] for p in propertydefs if not p[1]), None)
 
     extends = []
     # add ancestors classes to extends
@@ -984,7 +989,9 @@ def add_graphql_deployment(manifest, db, dtemplate):
 
     url = manifest.rootResource.attributes["outputs"].get("url")
     primary_resource = db["Resource"].get(primary_name)
-    if url is None and primary_resource and primary_resource.get("attributes"):
+    if url:
+        deployment["url"] = url
+    elif primary_resource and primary_resource.get("attributes"):
         for prop in primary_resource["attributes"]:
             if prop["name"] == "url":
                 deployment["url"] = prop["value"]
@@ -1111,6 +1118,11 @@ def to_environments(localEnv):
     db = {}
     db["DeploymentEnvironment"] = environments
     if blueprintdb:
+        if blueprintdb.get("repositories", {}).get("types"):
+            # don't include ResourceTypes if we are including a types repository
+            db["ResourceType"] = {}
+            return db
+
         # add the rest of the types too
         # XXX is it safe to only include types with "connect" implementations?
         all_connection_types.update(blueprintdb["ResourceType"])
@@ -1132,12 +1144,12 @@ def add_attributes(instance):
                     # same as EntityTemplate._create_properties()
                     p = Property(name, value, dict(type="any"),
                             instance.template.toscaEntityTemplate.custom_def)
-            if is_property_user_visible(p):
-                attrs.append(dict(name=p.name, value=property_value_to_json(p, value)))
+            if not p.schema.get("metadata", {}).get("internal"):
+                attrs.append(dict(name=p.name, value=attribute_value_to_json(p, value)))
     # add leftover attribute defs that have a default value
     for prop in attributeDefs.values():
-        if prop.default is not None:
-            attrs.append( dict(name=prop.name, value=property_value_to_json(prop, prop.default)) )
+        if prop.default is not None and not is_computed(prop):
+            attrs.append( dict(name=prop.name, value=attribute_value_to_json(prop, prop.default)) )
     return attrs
 
 
@@ -1155,7 +1167,7 @@ def add_computed_properties(instance):
                 p = Property(name, value, dict(type="any"),
                         instance.template.toscaEntityTemplate.custom_def)
             if p.schema.get("metadata", {}).get("visibility") != 'hidden':
-                attrs.append(dict(name=p.name, value=property_value_to_json(p, value)))
+                attrs.append(dict(name=p.name, value=attribute_value_to_json(p, value)))
     return attrs
 
 

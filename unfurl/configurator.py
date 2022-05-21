@@ -984,8 +984,8 @@ class Dependency(Operational):
         self.target = target
 
     @property
-    def local_status(self)-> Status:
-        if self.target and self.target is not self.target.root:
+    def local_status(self) -> Status:
+        if self.target and self.target is not self.target.root and not self.target.is_computed():
             # (only care about local status of instances with live attribute, not their full operational status)
             # (reduces circular dependencies)
             return self.target.local_status  # type: ignore  # mypy has trouble with @property calls

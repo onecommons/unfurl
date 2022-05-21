@@ -338,6 +338,11 @@ class YamlManifest(ReadOnlyManifest):
 
         self._set_spec(spec, more_spec, skip_validation)
         assert self.tosca
+        if self.localEnv:
+            msg = f'Loading ensemble in environment "{self.localEnv.manifest_context_name}"'
+            if self.tosca.topology and self.tosca.topology.primary_provider:
+                msg += f' with a primary_provider of type "{self.tosca.topology.primary_provider.type}"'
+            logger.info(msg)
 
         status = manifest.get("status", {})
         self.changeLogPath = manifest.get("jobsLog")

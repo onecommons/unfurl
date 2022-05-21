@@ -189,8 +189,7 @@ class ConfigTask(ConfigChange, TaskView):
         self.target.root.attributeManager = self._attributeManager
         self._resolved_inputs = {}
 
-    @property
-    def status(self):
+    def _status(self, seen):
         return self.local_status
 
     def priority():
@@ -1417,7 +1416,7 @@ def _render(job):
 
 def start_job(manifestPath=None, _opts=None):
     _opts = _opts or {}
-    localEnv = LocalEnv(manifestPath, _opts.get("home"))
+    localEnv = LocalEnv(manifestPath, _opts.get("home"), override_context=_opts.get("use_environment"))
     opts = JobOptions(**_opts)
     path = localEnv.manifestPath
     if not opts.planOnly:

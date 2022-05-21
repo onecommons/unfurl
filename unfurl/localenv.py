@@ -154,12 +154,13 @@ class Project:
             return venv
         return None
 
-    def get_asdf_paths(self, asdfDataDir: str, toolVersions: dict={}) -> List[str]:
+    @staticmethod
+    def get_asdf_paths(projectRoot, asdfDataDir, toolVersions={}) -> List[str]:
         paths = []
         toolVersionsFilename = (
             os.getenv("ASDF_DEFAULT_TOOL_VERSIONS_FILENAME") or ".tool-versions"
         )
-        versionConf = os.path.join(self.projectRoot, toolVersionsFilename)
+        versionConf = os.path.join(projectRoot, toolVersionsFilename)
         if os.path.exists(versionConf):
             with open(versionConf) as conf:
                 for line in conf.readlines():
@@ -291,9 +292,9 @@ class Project:
             repo = self.create_working_dir(repoURL, revision)
         return repo
 
-    def get_manifest_path(self, 
-        localEnv: "LocalEnv", 
-        manifestPath: str, 
+    def get_manifest_path(self,
+        localEnv: "LocalEnv",
+        manifestPath: str,
         can_be_empty: bool
     ) -> Tuple[Optional["Project"], str, str]:
         if manifestPath:
@@ -582,7 +583,7 @@ class LocalConfig:
 
         return name
 
-    def register_project(self, project, for_context=None, changed=False):
+    def register_project(self, project, for_context=None, changed=False, save_project=True):
         """
         Register an external project with current project.
         If the external project's repository is only local (without a remote origin repository) then save it in the local config if it exists.
@@ -614,24 +615,25 @@ class LocalConfig:
         if file and file != ".":
             externalProject["file"] = file
 
-        self.projects[name] = externalProject
-        if repo.is_local_only():
-            projectConfig = local
-        else:
-            projectConfig = self.config.config
-        project_tpl = projectConfig.setdefault("projects", {})
-        if project_tpl.get(name) != externalProject:
-            project_tpl[name] = externalProject
-            changed = True
-
-        if for_context:
-            # set the project to be the default project for the given context
-            context = projectConfig.setdefault("environments", {}).setdefault(
-                for_context, {}
-            )
-            if context.get("defaultProject") != name:
-                context["defaultProject"] = name
+        if save_project:
+            self.projects[name] = externalProject
+            if repo.is_local_only():
+                projectConfig = local
+            else:
+                projectConfig = self.config.config
+            project_tpl = projectConfig.setdefault("projects", {})
+            if project_tpl.get(name) != externalProject:
+                project_tpl[name] = externalProject
                 changed = True
+
+            if for_context:
+                # set the project to be the default project for the given context
+                context = projectConfig.setdefault("environments", {}).setdefault(
+                    for_context, {}
+                )
+                if context.get("defaultProject") != name:
+                    context["defaultProject"] = name
+                    changed = True
 
         if changed:
             if key:
@@ -765,6 +767,11 @@ class LocalEnv:
             and self.homeProject.localConfig
             or LocalConfig()
         )
+        if override_context and override_context != "defaults":
+            assert override_context == self.manifest_context_name, self.manifest_context_name
+            project = self.project or self.homeProject
+            if not project or self.manifest_context_name not in project.contexts:
+                raise UnfurlError(f'No environment named "{self.manifest_context_name}" found.')
 
     def _get_home_project(self) -> Optional[Project]:
         homeProject = None
@@ -1001,6 +1008,21 @@ class LocalEnv:
             project = project.parentProject
         return None
 
+    def _create_working_dir(self, repoURL, revision, basepath):
+        project = self.project or self.homeProject
+        if not project:
+            return None
+        while project:
+            if basepath is None or project.is_path_in_project(basepath):
+                repo = project.create_working_dir(repoURL, revision)
+                break
+            project = project.parentProject
+        else:
+            repo = (self.project or self.homeProject).create_working_dir(
+                repoURL, revision
+            )
+        return repo
+
     def find_or_create_working_dir(self,
         repoURL: str,
         revision: Optional[str]=None,
@@ -1009,20 +1031,12 @@ class LocalEnv:
         repo = self.find_git_repo(repoURL, revision)
         if repo:
             logger.debug("Using existing repository at %s for %s", repo.working_dir, repoURL)
+            if not repo.is_dirty():
+                repo.pull(revision=revision)
+
         # git-local repos must already exist
         if not repo and not repoURL.startswith("git-local://"):
-            project = self.project or self.homeProject
-            if not project:
-                return None, None, None
-            while project:
-                if basepath is None or self.project.is_path_in_project(basepath):  # type: ignore
-                    repo = project.create_working_dir(repoURL, revision)
-                    break
-                project = project.parentProject
-            else:
-                repo = (self.project or self.homeProject).create_working_dir(  # type: ignore
-                    repoURL, revision
-                )
+            repo = self._create_working_dir(repoURL, revision, basepath)
         if not repo:
             return None, None, None
 
@@ -1033,7 +1047,7 @@ class LocalEnv:
         else:
             return repo, repo.revision, False
 
-    def find_path_in_repos(self, 
+    def find_path_in_repos(self,
         path: str,
         importLoader: Optional[Any]=None
     ) -> Tuple[Optional[GitRepo], Optional[str], Optional[str], Optional[bool]]:
@@ -1100,8 +1114,10 @@ class LocalEnv:
             project = self.project or self.homeProject
             count = 0
             while project:
-                paths += project.get_asdf_paths(asdfDataDir, self.toolVersions)
+                paths += Project.get_asdf_paths(project.projectRoot, asdfDataDir, self.toolVersions)
                 count += 1
                 assert count < 4
                 project = project.parentProject
+            if os.getenv("HOME"):
+                paths += Project.get_asdf_paths(os.getenv("HOME"), asdfDataDir, self.toolVersions)
         return paths

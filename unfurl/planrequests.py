@@ -491,6 +491,7 @@ def _render_request(job, parent, req, requests):
     else:
         # key => (instance, list<attribute>)
         liveDependencies = task._attributeManager.find_live_dependencies()
+        logger.trace(f"liveDependencies for {task.target}: {liveDependencies}")
         # a future request may change the value of these attributes
         deps = list(_get_deps(parent, req, liveDependencies, requests))
 

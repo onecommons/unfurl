@@ -479,3 +479,31 @@ a_dict:
 
         result = map_value("transformed " + asTemplate, ctx2)
         self.assertEqual(result, "transformed test")
+
+    def test_to_env(self):
+        import six
+        from unfurl.yamlloader import make_yaml
+        src = """
+          eval:
+            to_env:
+              FOO: 1 # get converted to string
+              BAR: false # get converted to empty string
+              BAZ: true # get converted to string
+              NUL: null # key gets excluded
+              QUU: # redacted when serialized into yaml
+                eval:
+                  sensitive: "passw0rd"
+          """
+        yaml = make_yaml()
+        expr = yaml.load(six.StringIO(src))
+        ctx = RefContext(self._getTestResource())
+        env = map_value(expr, ctx)
+        assert env == {'FOO': '1', 'BAR': '', 'BAZ': 'true', 'QUU': 'passw0rd'}
+        out=six.StringIO()
+        yaml.dump(serialize_value(env), out)
+        assert out.getvalue() == '''\
+FOO: '1'
+BAR: ''
+BAZ: 'true'
+QUU: <<REDACTED>>
+'''

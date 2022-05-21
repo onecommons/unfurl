@@ -33,6 +33,7 @@ from .util import (
     load_module,
     load_class,
     sensitive,
+    filter_env
 )
 from .merge import intersect_dict, merge_dicts
 from unfurl.projectpaths import get_path
@@ -506,6 +507,8 @@ def get_env(args, ctx):
 
 set_eval_func("get_env", get_env, True)
 
+set_eval_func("to_env", lambda args, ctx: filter_env(map_value(args, ctx), addOnly=True))
+
 _toscaKeywordsToExpr = {
     "SELF": ".",
     "SOURCE": ".source",
@@ -975,7 +978,7 @@ class AttributeManager:
     def commit_changes(self):
         changes = {}
         liveDependencies = {}
-        for resource, attributes in self.attributes.values():
+        for resource, attributes in list(self.attributes.values()):
             overrides, specd = attributes._attributes.split()
             # overrides will only contain:
             #  - properties accessed or added while running a task
@@ -985,7 +988,7 @@ class AttributeManager:
             foundSensitive = []
             live = {}
             # items in overrides of type Result have been accessed during this transaction
-            for key, value in overrides.items():
+            for key, value in list(overrides.items()):
                 if not isinstance(value, Result):
                     # hasn't been accessed so keep it as is
                     _attributes[key] = value

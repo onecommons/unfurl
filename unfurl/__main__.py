@@ -92,6 +92,7 @@ def cli(
     loglevel=None,
     tmp=None,
     version_check=None,
+    home=None,
     **kw,
 ):
     # ensure that ctx.obj exists and is a dict (in case `cli()` is called
@@ -102,7 +103,8 @@ def cli(
     ctx.obj.update(kw)
     if tmp is not None:
         os.environ["UNFURL_TMPDIR"] = tmp
-
+    if home is not None:
+        os.environ["UNFURL_HOME"] = home
     effective_log_level = detect_log_level(loglevel, quiet, verbose)
     ctx.obj["verbose"] = detect_verbose_level(effective_log_level)
     logs.add_log_file(kw["logfile"], effective_log_level)
@@ -174,6 +176,11 @@ readonlyJobControlOptions = option_group(
         type=click.Choice(["error", "degraded", "never"]),
         default="never",
         help="Set exit code to 1 if job status is not ok. (Default: never)",
+    ),
+    click.option(
+        "--use-environment",
+        default=None,
+        help="Run this job in the given environment.",
     ),
 )
 jobControlOptions = option_group(
@@ -1020,12 +1027,17 @@ def git_status(ctx, project_or_ensemble_path, dirty, **options):
     default="deployment",
     type=click.Choice(["blueprint", "environments", "deployment"]),
 )
+@click.option(
+    "--use-environment",
+    default=None,
+    help="Export using this environment.",
+)
 def export(ctx, project_or_ensemble_path, format, **options):
     """Export ensemble in a simplified json format."""
     from . import to_json
 
     options.update(ctx.obj)
-    localEnv = LocalEnv(project_or_ensemble_path, options.get("home"))
+    localEnv = LocalEnv(project_or_ensemble_path, options.get("home"), override_context=options.get("use_environment"))
     exporter = getattr(to_json, "to_" + format)
     jsonSummary = exporter(localEnv)
     click.echo(json.dumps(jsonSummary, indent=2))

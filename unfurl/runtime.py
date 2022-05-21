@@ -87,8 +87,7 @@ class Operational(ChangeAware):
     def missing(self) -> bool:
         return self.status == Status.pending or self.status == Status.absent
 
-    @property
-    def status(self) -> Status:
+    def _status(self, seen) -> Status:
         """
         Return the effective status, considering first the local readyState and
         then the aggregate status' of its dependencies (see `aggregate_status()`
@@ -112,7 +111,7 @@ class Operational(ChangeAware):
             # return error, pending, or absent
             return status
 
-        dependentStatus = self.aggregate_status(self.get_operational_dependencies())
+        dependentStatus = self.aggregate_status(self.get_operational_dependencies(), seen)
         if self.is_computed():
             # if local_status is a no op (status purely determined by dependents) set to ok
             status = Status.ok
@@ -123,6 +122,10 @@ class Operational(ChangeAware):
         else:
             # local status is ok, degraded
             return max(status, dependentStatus)
+
+    @property
+    def status(self) -> Status:
+        return self._status( {id(self):self} )
 
     @property
     def required(self) -> bool:
@@ -162,7 +165,7 @@ class Operational(ChangeAware):
         return False
 
     @staticmethod
-    def aggregate_status(statuses: Union[Tuple["Operational"], List["Operational"]]) -> Optional[Status]:
+    def aggregate_status(statuses: Union[Tuple["Operational"], List["Operational"]], seen) -> Optional[Status]:
         """
         Returns: ok, degraded, pending or None
 
@@ -187,15 +190,21 @@ class Operational(ChangeAware):
                 aggregate = Status.ok
             if status.priority == Priority.ignore:
                 continue
-            elif status.required and not status.operational:
-                if status.status == Status.pending:
+            if id(status) in seen:
+                logger.verbose(f'Circular operational dependency when checking status {status} in {seen}')
+                continue
+            seen[id(status)] = status
+            _status = status._status(seen)
+            operational = _status == Status.ok or _status == Status.degraded
+            if status.required and not operational:
+                if _status == Status.pending:
                     aggregate = Status.pending
                 else:
                     aggregate = Status.error
                     break
             else:
                 if aggregate <= Status.degraded:
-                    if not status.operational or status.status == Status.degraded:
+                    if not operational or _status == Status.degraded:
                         aggregate = Status.degraded
         return aggregate
 

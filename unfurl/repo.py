@@ -5,7 +5,6 @@ import os.path
 from pathlib import Path
 import sys
 import git
-from git.repo.fun import is_git_dir
 import logging
 from six.moves.urllib.parse import urlparse
 from .util import UnfurlError, save_to_file
@@ -14,6 +13,9 @@ from ruamel.yaml.comments import CommentedMap
 
 logger = logging.getLogger("unfurl")
 
+def is_git_worktree(path, gitDir=".git"):
+    # NB: if work tree is a submodule .git will be a file that looks like "gitdir: ./relative/path"
+    return os.path.exists(os.path.join(path, gitDir))
 
 def normalize_git_url(url):
     if url.startswith("git-local://"):  # truncate url after commit digest
@@ -79,7 +81,7 @@ class Repo:
         """
         current = os.path.abspath(rootDir)
         while current and current != os.sep:
-            if is_git_dir(os.path.join(current, gitDir)):
+            if is_git_worktree(current, gitDir):
                 return GitRepo(git.Repo(current))
             current = os.path.dirname(current)
         return None
@@ -94,7 +96,7 @@ class Repo:
 
     @staticmethod
     def update_git_working_dirs(working_dirs, root, dirs, gitDir=".git"):
-        if gitDir in dirs and is_git_dir(os.path.join(root, gitDir)):
+        if gitDir in dirs and is_git_worktree(root, gitDir):
             assert os.path.isdir(root), root
             repo = GitRepo(git.Repo(root))
             key = os.path.abspath(root)
@@ -487,9 +489,9 @@ class GitRepo(Repo):
         status, stdout, stderr = self.run_cmd(["submodule", "add", gitDir])
         success = not status
         if success:
-            logging.debug("added submodule %s: %s %s", gitDir, stdout, stderr)
+            logger.debug("added submodule %s: %s %s", gitDir, stdout, stderr)
         else:
-            logging.error("failed to add submodule %s: %s %s", gitDir, stdout, stderr)
+            logger.error("failed to add submodule %s: %s %s", gitDir, stdout, stderr)
         return success
 
     def get_initial_revision(self):
@@ -512,6 +514,20 @@ class GitRepo(Repo):
         # diff = self.repo.git.diff()  # "--abbrev=40", "--full-index", "--raw")
         # https://gitpython.readthedocs.io/en/stable/reference.html?highlight=is_dirty#git.repo.base.Repo.is_dirty
         return self.repo.is_dirty(untracked_files=untracked_files, path=path or None)
+
+    def pull(self, remote="origin", revision=None, ff_only=True):
+        if remote in self.repo.remotes:
+            cmd = ["pull", remote, revision or "HEAD"]
+            if ff_only:
+                cmd.append("--ff-only")
+            code, out, err = self.run_cmd(cmd)
+            if code:
+                logger.info("attempt to pull latest from %s into %s failed: %s %s", self.url, self.working_dir, out, err)
+            else:
+                logger.verbose("pull latest from %s into %s: %s %s", self.url, self.working_dir, out, err)
+            return not code
+        else:
+            return False
 
     def clone(self, newPath):
         # note: repo.clone uses bare path, which breaks submodule path resolution

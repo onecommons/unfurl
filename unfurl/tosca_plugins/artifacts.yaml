@@ -16,11 +16,11 @@ artifact_types:
     properties:
       version:
         type: string
+        default: latest
     interfaces:
       defaults:
         # XXX get_dir only works on localhost
-        # asdf uninstall helm 3.6.3
-        # INFO     unfurl.task:shell.py:187 shell task return code: 2, stderr: /bin/sh: -c: line 1: syntax error: unexpected end of file
+        # XXX unfurl only reads .tool-versions on startup
         implementation: Cmd
         inputs:
           cmd: |
@@ -31,7 +31,8 @@ artifact_types:
             fi
             asdf plugin add {{SELF.file}}
             asdf {%if task.operation == 'delete' %}uninstall{%else%}install{%endif%} {{SELF.file}} {{SELF.version}}
-          # set this .tool-versions is written to the project root
+            {%if task.operation != 'delete' %}asdf local {{SELF.file}} {{SELF.version}}{%endif%}
+          # set cwd so .tool-versions is written to the project root
           cwd: '{{ "project" | get_dir }}'
           keeplines: true
           # asdf.sh requires bash

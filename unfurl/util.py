@@ -29,6 +29,8 @@ import codecs
 import io
 from contextlib import contextmanager
 from logging import Logger
+import string
+import random
 
 try:
     from shutil import which
@@ -420,6 +422,16 @@ def truncate_str(v: str) -> str:
         return f"{s[:494]} [{len(s) - 1000} omitted...]  {s[-494:]}"
     return v
 
+def get_random_password(count=12, prefix="uv", extra=None):
+    srandom = random.SystemRandom()
+    start = string.ascii_letters + string.digits
+    if extra is None:
+        extra = "%&()*+,-./:<>?=@^_`~"
+    source = string.ascii_letters + string.digits + extra
+    return prefix + "".join(
+        srandom.choice(source if i else start) for i in range(count)
+    )
+
 @contextmanager
 def change_cwd(new_path: str, log: UnfurlLogger = None) -> Iterator:
     """Temporarily change current working directory"""
@@ -557,6 +569,15 @@ class Generate:
             return False
 
 
+def _env_var_value(val):
+    if isinstance(val, bool):
+        return val and "true" or ""
+    elif is_sensitive(val):
+        return wrap_sensitive_value(str(val))
+    else:
+        return str(val)
+
+
 def filter_env(rules: Mapping, env: Optional[Union[Dict, "os._Environ[str]"]]=None, addOnly: Optional[bool]=False) -> Dict[str, str]:
     """
     Applies the given list of rules to a dictionary of environment variables and returns a new dictionary.
@@ -613,9 +634,9 @@ def filter_env(rules: Mapping, env: Optional[Union[Dict, "os._Environ[str]"]]=No
                         match = {k: (val + os.pathsep + v) for k, v in match.items()}
                     start.update(match)
                 elif val is not None:  # name isn't in existing, use default is set
-                    start[name] = val
+                    start[name] = _env_var_value(val)
         elif val is not None:  # don't set if val is None
-            start[name] = val
+            start[name] = _env_var_value(val)
     return start
 
 
