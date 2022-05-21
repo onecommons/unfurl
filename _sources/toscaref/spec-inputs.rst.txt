@@ -1,4 +1,4 @@
-.. _inputs:
+.. _inputs_spec:
 
 Inputs
 ======
@@ -24,7 +24,7 @@ Declaration
 Definition
 +++++++++++
 
-.. list-table:: 
+.. list-table::
    :widths: 10 10 10 50
    :header-rows: 1
 
