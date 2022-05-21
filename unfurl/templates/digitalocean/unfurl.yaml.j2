@@ -1,0 +1,24 @@
+#jinja2: variable_start_string: '[%', variable_end_string: '%]'
+apiVersion: unfurl/v1alpha1
+kind: Project
+[%include | default("") %]
+{%- if default_context | default("") %}
+default_environment: [%default_context%]
+{% endif %}
+
+environments:
+  [% default_context  | default("defaults") %]:
+    connections:
+      # declare the primary_provider as a connection to a DigitalOcean account:
+      primary_provider:
+        type: unfurl.relationships.ConnectsTo.DOAccount
+        #  properties:
+        #   DIGITALOCEAN_DEFAULT_REGION: us-east-1
+        #   you should declare sensitive properties like this following in secrets/secrets.yaml or local/unfurl.yaml or define them as environment variables:
+        #   DIGITALOCEAN_ACCESS_TOKEN:
+        #   DIGITALOCEAN_PRIVATE_KEY:
+        #  For more properties see https://docs.unfurl.run/toscadef.html#unfurl-types
+
+        # Alternatively, if you have already declared the connection in UNFURL_HOME you can rename the existing connection by
+        # setting "primary_provider" to the name of the inherited connection, for example:
+        # primary_provider: do
