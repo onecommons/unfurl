@@ -3,6 +3,7 @@
 import logging
 import os
 import sys
+from typing import Dict, Union
 
 import pbr.version
 
@@ -13,7 +14,7 @@ from unfurl import logs
 logs.initialize_logging()
 
 
-def __version__(release=False):
+def __version__(release: bool=False) -> str:
     # a function because this is expensive
     if release:  # appends .devNNN
         return pbr.version.VersionInfo(__name__).release_string()
@@ -21,13 +22,13 @@ def __version__(release=False):
         return pbr.version.VersionInfo(__name__).version_string()
 
 
-def version_tuple(v=None):
+def version_tuple(v: Union[None, str]=None) -> tuple:
     if v is None:
         v = __version__(True)
     return tuple(int(x.lstrip("dev") or 0) for x in v.split("."))
 
 
-def is_version_unreleased(v=None):
+def is_version_unreleased(v: Union[None, str]=None) -> bool:
     return len(version_tuple(v)) > 3
 
 
@@ -49,11 +50,11 @@ class DefaultNames:
     LocalConfigTemplate = ".unfurl-local-template.yaml"
     InputsTemplate = "inputs-template.yaml"
 
-    def __init__(self, **names):
+    def __init__(self, **names: Dict[str, str]) -> None:
         self.__dict__.update({name: value for name, value in names.items() if value})
 
 
-def get_home_config_path(homepath):
+def get_home_config_path(homepath: Union[None, str]) -> Union[None, str]:
     # if homepath is explicitly it overrides UNFURL_HOME
     # (set it to empty string to disable the homepath)
     # otherwise use UNFURL_HOME or the default location
@@ -100,9 +101,15 @@ else:
     # Display is a singleton which we can't subclass so monkey patch instead
     _super_display = ansible.utils.display.Display.display
 
-    def _display(self, msg, color=None, stderr=False, screen_only=False, log_only=True):
+    def _display(self: ansible.utils.display.Display.display,
+        msg: str,
+        color: Union[None, str]=None, 
+        stderr: bool=False, 
+        screen_only: bool=False, 
+        log_only: bool=True
+    ) -> Union[None, ansible.utils.display.Display]:
         if screen_only:
-            return
+            return None
         return _super_display(self, msg, color, stderr, screen_only, log_only)
 
     ansible.utils.display.Display.display = _display

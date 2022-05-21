@@ -8,6 +8,7 @@ import os
 import os.path
 import shutil
 import sys
+from typing import Any
 import uuid
 import logging
 from jinja2.loaders import FileSystemLoader
@@ -902,7 +903,7 @@ class EnsembleBuilder:
         return f'Created new ensemble at "{os.path.abspath(destDir)}"'
 
 
-def clone(source, dest, ensemble_name=DefaultNames.EnsembleDirectory, **options):
+def clone(source: str, dest: str, ensemble_name: str=DefaultNames.EnsembleDirectory, **options: Any) -> str:
     """
     Clone the ``source`` ensemble to ``dest``. If ``dest`` isn't in a project, create one.
     ``source`` can point to an ensemble_template, a service_template, an existing ensemble

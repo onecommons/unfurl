@@ -15,21 +15,34 @@ eval_ref() given expression (string or dictionary) return list of Result
 Expr.resolve() given expression string, return list of Result
 Results._map_value same as map_value but with lazily evaluation
 """
+from typing import Any, Dict, List, Optional, Union, cast, TYPE_CHECKING
 import six
 import re
 import operator
 import collections
 from collections.abc import Mapping, MutableSequence
 from ruamel.yaml.comments import CommentedMap
+
+from unfurl.logs import UnfurlLogger
+
 from .util import validate_schema, UnfurlError, assert_form
-from .result import ResultsList, Result, Results, ExternalValue, ResourceRef
+from .result import ResultsList, Result, Results, ExternalValue, ResourceRef, ResultsMap
 
 import logging
 
-logger = logging.getLogger("unfurl.eval")
+if TYPE_CHECKING:
+    from .job import ConfigTask
+    from .runtime import NodeInstance
 
 
-def map_value(value, resourceOrCxt, applyTemplates=True):
+logger = cast(UnfurlLogger, logging.getLogger("unfurl.eval"))  
+
+
+def map_value(
+    value: Union[Mapping, "Ref"],
+    resourceOrCxt: Union["RefContext", "NodeInstance"],
+    applyTemplates: bool=True
+    ) -> Optional[Union[ResultsList, Result, List[Result]]]:
     if not isinstance(resourceOrCxt, RefContext):
         resourceOrCxt = RefContext(resourceOrCxt)
     return _map_value(value, resourceOrCxt, False, applyTemplates)
@@ -104,14 +117,14 @@ class RefContext:
 
     def __init__(
         self,
-        currentResource,
-        vars=None,
-        wantList=False,
-        resolveExternal=False,
-        trace=None,
-        strict=_defaultStrictness,
-        task=None,
-    ):
+        currentResource: "NodeInstance",
+        vars: Optional[dict]=None,
+        wantList: bool=False,
+        resolveExternal: bool=False,
+        trace: Optional[int]=None,
+        strict: bool=_defaultStrictness,
+        task: "ConfigTask"=None,
+    ) -> None:
         self.vars = vars or {}
         # the original context:
         self.currentResource = currentResource
@@ -128,7 +141,14 @@ class RefContext:
         self.referenced = _Tracker()
         self.task = task
 
-    def copy(self, resource=None, vars=None, wantList=None, trace=0, strict=None):
+    def copy(
+        self,
+        resource: Optional["NodeInstance"]=None,
+        vars: dict=None,
+        wantList: bool=None,
+        trace:  int=0,
+        strict: bool=None
+        ) -> "RefContext":
         copy = RefContext(
             resource or self.currentResource,
             self.vars,
@@ -151,23 +171,23 @@ class RefContext:
         copy.task = self.task
         return copy
 
-    def trace(self, *msg):
+    def trace(self, *msg: str) -> None:
         if self._trace:
             log = logger.info if self._trace == 2 else logger.trace
             log(f"{' '.join(str(a) for a in msg)} (ctx: {self._lastResource})")
 
-    def add_external_reference(self, external):
+    def add_external_reference(self, external: ExternalValue) -> Result:
         result = Result(external)
         self.referenced.addReference(None, result)
         return result
 
-    def add_reference(self, ref, result):
+    def add_reference(self, ref: str, result: Result) -> None:
         self.referenced.addReference(ref, result)
 
-    def resolve_var(self, key):
+    def resolve_var(self, key: str) -> Optional[Union[Results, ResultsList, List[Result], ResultsMap]]:
         return self._resolve_var(key[1:]).resolved
 
-    def _resolve_var(self, key):
+    def _resolve_var(self, key: str) -> Result:
         value = self.vars[key]
         if isinstance(value, Result):
             return value
@@ -179,16 +199,21 @@ class RefContext:
             self.vars[key] = val
             return val
 
-    def resolve_reference(self, key):
+    def resolve_reference(self, key: str) -> Union[Results, ResultsList, List[Result], ResultsMap]:
         val = self._resolve_var(key)
         self.add_reference(key, val)
         assert not isinstance(val.resolved, Result)
         return val.resolved
 
-    def query(self, expr, vars=None, wantList=False):
+    def query(
+        self,
+        expr: Mapping,
+        vars: Optional[dict]=None,
+        wantList: Union[bool, str]=False
+    ) -> Optional[Union[ResultsList, Result, List[Result]]]:
         return Ref(expr, vars).resolve(self, wantList)
 
-    def __getstate__(self):
+    def __getstate__(self) -> Dict[str, Any]:
         # Remove the unpicklable entries.
         state = self.__dict__.copy()
         state["templar"] = None
@@ -196,7 +221,7 @@ class RefContext:
         del state["referenced"]
         return state
 
-    def __setstate__(self, d):
+    def __setstate__(self, d: dict) -> None:
         self.__dict__ = d
         self.referenced = _Tracker()
 
@@ -251,7 +276,7 @@ class Expr:
 class Ref:
     """A Ref objects describes a path to metadata associated with a resource."""
 
-    def __init__(self, exp, vars=None, trace=None):
+    def __init__(self, exp: Mapping, vars: dict=None, trace: Optional[int]=None) -> None:
         self.vars = {"true": True, "false": False, "null": None}
 
         self.foreach = None
@@ -269,7 +294,12 @@ class Ref:
             self.vars.update(vars)
         self.source = exp
 
-    def resolve(self, ctx, wantList=True, strict=_defaultStrictness):
+    def resolve(
+        self,
+        ctx: RefContext,
+        wantList: Union[bool, str]=True,
+        strict: bool=_defaultStrictness
+    ) -> Optional[Union[ResultsList, Result, List[Result]]]:
         """
         If wantList=True (default) returns a ResultList of matches
         Note that values in the list can be a list or None
@@ -313,7 +343,7 @@ class Ref:
                 else:
                     return list(results)
 
-    def resolve_one(self, ctx, strict=_defaultStrictness):
+    def resolve_one(self, ctx: RefContext, strict: bool=_defaultStrictness) -> Optional[Union[ResultsList, Result, List[Result]]]:
         """
         If no match return None
         If more than one match return a list of matches
@@ -326,7 +356,7 @@ class Ref:
         return self.resolve(ctx, False, strict)
 
     @staticmethod
-    def is_ref(value):
+    def is_ref(value: Union[Mapping, "Ref"]) -> bool:
         if isinstance(value, Mapping):
             if not value:
                 return False
@@ -498,7 +528,7 @@ def set_eval_func(name, val, topLevel=False):
         _FuncsTop.append(name)
 
 
-def eval_ref(val, ctx, top=False):
+def eval_ref(val: Union[Mapping, str], ctx: RefContext, top: bool=False) -> List[Result]:
     "val is assumed to be an expression, evaluate and return a list of Result"
     from .support import is_template, apply_template
 
@@ -513,10 +543,10 @@ def eval_ref(val, ctx, top=False):
             func = _Funcs.get(key)
             if func:
                 args = val[key]
-                ctx.kw = val
-                ctx.currentFunc = key
+                ctx.kw = val  # type: ignore
+                ctx.currentFunc = key  # type: ignore
                 if "var" in val:
-                    unexpected = "var"
+                    unexpected: Union[bool, str] = "var"
                 elif key != "foreach" and "foreach" in val:
                     unexpected = "foreach"
                 else:

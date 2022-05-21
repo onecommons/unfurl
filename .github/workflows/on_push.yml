@@ -59,7 +59,7 @@ jobs:
           tox -e $PY_V -- -n auto --dist loadfile
       - name: build docs
         if: matrix.python == 3.9
-        run: tox -e docs
+        run: tox -e docs -- -W
       - name: upload docs
         if: matrix.python == 3.9
         uses: actions/upload-artifact@v1

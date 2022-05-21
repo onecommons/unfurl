@@ -3,6 +3,7 @@
 from collections.abc import Mapping, MutableSequence, MutableMapping
 from abc import ABC, abstractmethod
 from datetime import datetime, timedelta
+from typing import Match, Optional
 import six
 import hashlib
 import re
@@ -144,7 +145,12 @@ class ChangeRecord:
     DateTimeFormat = "%Y-%m-%d-%H-%M-%S-%f"
 
     def __init__(
-        self, jobId=None, startTime=None, taskId=0, previousId=None, parse=None
+        self, 
+        jobId: Optional[str]=None,
+        startTime: Optional[datetime]=None,
+        taskId: int=0,
+        previousId: Optional[str]=None, 
+        parse: Optional[str]=None
     ):
         if parse:
             self.parse(parse)
@@ -158,7 +164,7 @@ class ChangeRecord:
             else:
                 self.changeId = self.make_change_id(self.startTime, taskId, previousId)
 
-    def set_start_time(self, startTime=None):
+    def set_start_time(self, startTime: Optional[datetime]=None) -> None:
         if not startTime:
             self.startTime = datetime.utcnow()
         elif isinstance(startTime, datetime):
@@ -173,24 +179,24 @@ class ChangeRecord:
                 except ValueError:
                     self.startTime = self.EpochStartTime
 
-    def get_start_time(self):
+    def get_start_time(self) -> str:
         return self.startTime.strftime(self.DateTimeFormat)
 
-    def set_task_id(self, taskId):
+    def set_task_id(self, taskId: int) -> None:
         self.taskId = taskId
         self.changeId = self.update_change_id(self.changeId, taskId)
 
     @staticmethod
-    def get_job_id(changeId):
+    def get_job_id(changeId: str) -> str:
         return ChangeRecord.update_change_id(changeId, 0)
 
     @staticmethod
-    def update_change_id(changeId, taskId):
+    def update_change_id(changeId: str, taskId: int) -> str:
         return changeId[:-4] + "{:04x}".format(taskId)
 
     @staticmethod
-    def decode(changeId):
-        def _decode_chr(i, c):
+    def decode(changeId: str) -> str:
+        def _decode_chr(i: int, c: str) -> str:
             offset = 48 if c < "A" else 55
             val = ord(c) - offset
             return str(val + (2020 if i == 0 else 0))
@@ -202,13 +208,13 @@ class ChangeRecord:
         )
 
     @staticmethod
-    def is_change_id(test):
+    def is_change_id(test: str) -> Optional[Match]:
         if not isinstance(test, six.string_types):
             return None
         return re.match("^A[A-Za-z0-9]{11}$", test)
 
     @classmethod
-    def make_change_id(cls, timestamp=None, taskid=0, previousId=None):
+    def make_change_id(cls, timestamp: Optional[datetime]=None, taskid: int=0, previousId: Optional[str]=None) -> str:
         b62 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
         if not timestamp:
             timestamp = datetime.utcnow()
@@ -236,7 +242,7 @@ class ChangeRecord:
                 )
         return changeId
 
-    def parse(self, log):
+    def parse(self, log: str) -> None:
         terms = log.split("\t")
         if not terms:
             raise UnfurlError(f'can not parse ChangeRecord from "{log}"')
@@ -249,16 +255,16 @@ class ChangeRecord:
             #     self.parentId=ChangeId(term)
             else:
                 left, sep, right = term.partition("=")
-                attributes[left] = right
+                attributes[left] = right  # type: ignore
         self.__dict__.update(attributes)
 
     @classmethod
-    def format_log(cls, changeId, attributes):
+    def format_log(cls, changeId: str, attributes: dict) -> str:
         r"format: changeid\tkey=value\tkey=value"
         terms = [changeId] + ["{}={}".format(k, v) for k, v in attributes.items()]
         return "\t".join(terms) + "\n"
 
-    def log(self, attributes=None):
+    def log(self, attributes: Optional[dict]=None) -> str:
         r"changeid\tkey=value\tkey=value"
         default = {
             k: getattr(self, k)
@@ -271,7 +277,7 @@ class ChangeRecord:
 
 
 class ChangeAware:
-    def has_changed(self, changeRecord):
+    def has_changed(self, changeRecord: ChangeRecord) -> bool:
         """
         Whether or not this object changed since the give ChangeRecord.
         """

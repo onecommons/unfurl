@@ -11,7 +11,7 @@ VERSION = unfurl.__version__()
 # -- Project information -----------------------------------------------------
 
 project = "Unfurl"
-copyright = "2020, Adam Souzis"
+copyright = "2022, OneCommons Co."
 author = "Adam Souzis"
 release = VERSION
 
@@ -34,9 +34,9 @@ extensions = [
     "sphinx_rtd_theme",
 ]
 
-suppress_warnings = ["autosectionlabel.*"]
+suppress_warnings = ["autosectionlabel.*", "toc.excluded"]
 
-autodoc_typehints = "description"
+autodoc_typehints = "both"
 modindex_common_prefix = ["unfurl."]
 
 myst_enable_extensions = [

@@ -1,6 +1,10 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
 import sys
+from types import ModuleType
+from typing import IO, Dict, Generator, Iterable, List, Optional, Set, Tuple, Union, Iterator, TYPE_CHECKING
+from typing_extensions import SupportsIndex
+import git
 import six
 import traceback
 import itertools
@@ -33,7 +37,7 @@ try:
 except ImportError:
     from distutils import spawn
 
-    def which(executable, mode=os.F_OK | os.X_OK, path=None):
+    def which(executable, mode=os.F_OK | os.X_OK, path=None):  # type: ignore
         executable = spawn.find_executable(executable, path)
         if executable:
             if os.access(executable, mode):
@@ -46,9 +50,15 @@ try:
 
     imp = None
 except ImportError:
-    import imp
-from .logs import sensitive
+    import imp  # type: ignore
+from .logs import UnfurlLogger, sensitive
 import logging
+
+# Used for python typing, prevents circular imports
+# TYPE_CHECKING is always false at runtime
+if TYPE_CHECKING:
+    from .job import ConfigTask
+    from unfurl.configurator import TaskView
 
 logger = logging.getLogger("unfurl")
 
@@ -57,12 +67,11 @@ API_VERSION = "unfurl/v1alpha1"
 try:
     from importlib.metadata import files
 except ImportError:
-    from importlib_metadata import files
+    from importlib_metadata import files  # type: ignore
 
 _basepath = os.path.abspath(os.path.dirname(__file__))
 
-
-def get_package_digest():
+def get_package_digest() -> Union[git.Repo, str, object]:
     from git import Repo
 
     basedir = os.path.dirname(_basepath)
@@ -70,14 +79,14 @@ def get_package_digest():
         return Repo(basedir).git.describe("--dirty", "--always")
 
     try:
-        pbr = [p for p in files("unfurl") if "pbr.json" in str(p)][0]
+        pbr = [p for p in files("unfurl") if "pbr.json" in str(p)][0]  # type: ignore  # Ignored because of the try/except
         return json.loads(pbr.read_text())["git_version"]
     except:
         return ""
 
 
 class UnfurlError(Exception):
-    def __init__(self, message, saveStack=False, log=False):
+    def __init__(self, message: object, saveStack: bool=False, log: bool=False) -> None:
         if saveStack:
             (etype, value, traceback) = sys.exc_info()
             if value:
@@ -87,20 +96,20 @@ class UnfurlError(Exception):
         if log:
             logger.error(message, exc_info=True)
 
-    def get_stack_trace(self):
+    def get_stack_trace(self) -> str:
         if not self.stackInfo:
             return ""
         return "".join(traceback.format_exception(*self.stackInfo))
 
 
 class UnfurlValidationError(UnfurlError):
-    def __init__(self, message, errors=None, log=False):
+    def __init__(self, message: object, errors: Optional[List[Exception]]=None, log: bool=False) -> None:
         super().__init__(message, log=log)
         self.errors = errors or []
 
 
 class UnfurlTaskError(UnfurlError):
-    def __init__(self, task, message, log=logging.ERROR):
+    def __init__(self, task: "ConfigTask", message: object, log: int=logging.ERROR):
         message = f"{task.changeId} on {task.target.name} {task.name}: {message}"
         super().__init__(message, True, False)
         self.task = task
@@ -111,13 +120,13 @@ class UnfurlTaskError(UnfurlError):
 
 
 class UnfurlAddingResourceError(UnfurlTaskError):
-    def __init__(self, task, resourceSpec, name, log=logging.DEBUG):
+    def __init__(self, task: "ConfigTask", resourceSpec: Mapping, name: str, log: int=logging.DEBUG) -> None:
         message = f"error updating resource {name}"
         super().__init__(task, message, log)
         self.resourceSpec = resourceSpec
 
 
-def wrap_sensitive_value(obj):
+def wrap_sensitive_value(obj: object) -> object:
     # we don't remember the vault and vault id associated with this value
     # so the value will be rekeyed with whichever vault is associated with the serializing yaml
     if isinstance(obj, bytes):
@@ -138,7 +147,7 @@ def wrap_sensitive_value(obj):
         return obj
 
 
-def is_sensitive(obj):
+def is_sensitive(obj: object) -> bool:
     test = getattr(obj, "__sensitive__", None)
     if test:
         return test()
@@ -155,7 +164,7 @@ def is_sensitive(obj):
 class sensitive_bytes(AnsibleUnsafeBytes, sensitive):
     """Transparent wrapper class to mark bytes as sensitive"""
 
-    def decode(self, *args, **kwargs):
+    def decode(self, *args: List[object], **kwargs: Mapping) -> "sensitive_str":
         """Wrapper method to ensure type conversions maintain sensitive context"""
         return sensitive_str(super().decode(*args, **kwargs))
 
@@ -164,7 +173,7 @@ class sensitive_bytes(AnsibleUnsafeBytes, sensitive):
 class sensitive_str(AnsibleUnsafeText, sensitive):
     """Transparent wrapper class to mark a str as sensitive"""
 
-    def encode(self, *args, **kwargs):
+    def encode(self, *args: List[object], **kwargs: Mapping) -> "sensitive_bytes":
         """Wrapper method to ensure type conversions maintain sensitive context"""
         return sensitive_bytes(super().encode(*args, **kwargs))
 
@@ -177,7 +186,7 @@ class sensitive_list(list, sensitive):
     """Transparent wrapper class to mark a list as sensitive"""
 
 
-def to_yaml_text(val):
+def to_yaml_text(val: object) -> Union[sensitive, ScalarString, FoldedScalarString, str]:
     if isinstance(val, (ScalarString, sensitive)):
         return val
     # convert or copy string (copy to deal with things like AnsibleUnsafeText)
@@ -189,21 +198,21 @@ def to_yaml_text(val):
     return val
 
 
-def assert_form(src, types=Mapping, test=True):
+def assert_form(src: object, types: Union[type, Tuple[type, ...]]=Mapping, test: bool=True) -> object:
     if not isinstance(src, types) or not test:
         raise UnfurlError(f"Malformed definition: {src}")
     return src
 
 
-_ClassRegistry = {}
-_shortNameRegistry = {}
+_ClassRegistry = {}  # type: ignore
+_shortNameRegistry = {}  # type: ignore
 
 
-def register_short_names(shortNames):
+def register_short_names(shortNames: Union[Mapping, Iterable]) -> None:
     _shortNameRegistry.update(shortNames)
 
 
-def register_class(className, factory, short_name=None, replace=True):
+def register_class(className: str, factory: object, short_name: str=None, replace: bool=True) -> None:
     if short_name:
         _shortNameRegistry[short_name] = className
     if not replace and className in _ClassRegistry:
@@ -212,7 +221,7 @@ def register_class(className, factory, short_name=None, replace=True):
     _ClassRegistry[className] = factory
 
 
-def load_module(path, full_name=None):
+def load_module(path: str, full_name: str=None) -> ModuleType:
     if full_name is None:
         full_name = re.sub(r"\W", "_", path)  # generate a name from the path
     if full_name in sys.modules:
@@ -224,8 +233,9 @@ def load_module(path, full_name=None):
             spec = importlib.util.spec_from_file_location(
                 full_name, os.path.abspath(path)
             )
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
+            # XXX: spec might be None
+            module = importlib.util.module_from_spec(spec)  # type: ignore
+            spec.loader.exec_module(module)  # type: ignore
             sys.modules[full_name] = module
         else:
             with open(to_bytes(path), "rb") as module_file:
@@ -236,7 +246,7 @@ def load_module(path, full_name=None):
     return module
 
 
-def load_class(klass, defaultModule="__main__"):
+def load_class(klass: str, defaultModule: str="__main__") -> object:
     import importlib
 
     prefix, sep, suffix = klass.rpartition(".")
@@ -247,11 +257,11 @@ def load_class(klass, defaultModule="__main__"):
 _shortNameRegistry = {}
 
 
-def check_class_registry(kind):
+def check_class_registry(kind: str) -> bool:
     return kind in _ClassRegistry or kind in _shortNameRegistry
 
-
-def lookup_class(kind, apiVersion=None, default=None):
+# XXX: can't infer arg "default"'s type for now
+def lookup_class(kind: str, apiVersion: Optional[str]=None, default: Optional[str]=None) -> object:
     if kind in _ClassRegistry:
         return _ClassRegistry[kind]
     elif kind in _shortNameRegistry:
@@ -268,7 +278,7 @@ def lookup_class(kind, apiVersion=None, default=None):
     return klass
 
 
-def to_enum(enum, value, default=None):
+def to_enum(enum, value, default=None):  # type: ignore
     # from string: Status[name]; to string: status.name
     if isinstance(value, six.string_types):
         return enum[value]
@@ -280,7 +290,7 @@ def to_enum(enum, value, default=None):
         return value
 
 
-def to_dotenv(env: dict):
+def to_dotenv(env: dict) -> str:
     # https://hexdocs.pm/dotenvy/dotenv-file-format.html
     keys = []
     for k, v in env.items():
@@ -294,7 +304,7 @@ def to_dotenv(env: dict):
     return "\n".join(keys)
 
 
-def dump(obj, tp, suffix="", yaml=None, encoding=None):
+def dump(obj: object, tp: IO[bytes], suffix: str="", yaml: Optional[ModuleType]=None, encoding: Optional[str]=None) -> None:
     from .yamlloader import yaml as _yaml
 
     try:
@@ -328,7 +338,7 @@ def dump(obj, tp, suffix="", yaml=None, encoding=None):
                 return
 
         if suffix.endswith(".env") or encoding == "env" and isinstance(obj, dict):
-            tp.write(codecs.encode(to_dotenv(obj), "utf-8"))
+            tp.write(codecs.encode(to_dotenv(obj), "utf-8"))  # type: ignore
             return
 
         # try to dump any other object as json
@@ -339,7 +349,7 @@ def dump(obj, tp, suffix="", yaml=None, encoding=None):
             f.detach()
 
 
-def _save_to_vault(path, obj, yaml=None, encoding=None, fd=None):
+def _save_to_vault(path: str, obj: object, yaml: Optional[ModuleType]=None, encoding: Optional[str]=None, fd: Union[str, int]=None) -> bool:
     vaultExt = path.endswith(".vault")
     if vaultExt or encoding == "vault":
         assert yaml and yaml.representer.vault and yaml.representer.vault.secrets
@@ -356,7 +366,7 @@ def _save_to_vault(path, obj, yaml=None, encoding=None, fd=None):
     return False
 
 
-def save_to_file(path, obj, yaml=None, encoding=None):
+def save_to_file(path: str, obj: object, yaml: Optional[ModuleType]=None, encoding: Optional[str]=None) -> None:
     dir = os.path.dirname(path)
     if dir and not os.path.isdir(dir):
         os.makedirs(dir)
@@ -365,7 +375,13 @@ def save_to_file(path, obj, yaml=None, encoding=None):
             dump(obj, f, path, yaml, encoding)
 
 
-def save_to_tempfile(obj, suffix="", delete=True, dir=None, yaml=None, encoding=None):
+def save_to_tempfile(obj: object,
+        suffix: str="",
+        delete: bool=True,
+        dir: Optional[str]=None,
+        yaml: Optional[ModuleType]=None,
+        encoding: Optional[str]=None
+    ) -> tempfile._TemporaryFileWrapper:
     tp = tempfile.NamedTemporaryFile(
         "w+b",
         suffix=suffix or "",
@@ -373,7 +389,7 @@ def save_to_tempfile(obj, suffix="", delete=True, dir=None, yaml=None, encoding=
         dir=dir or os.environ.get("UNFURL_TMPDIR"),
     )
     if delete:
-        atexit.register(lambda: os.path.exists(tp.name) and os.unlink(tp.name))
+        atexit.register(lambda: os.path.exists(tp.name) and os.unlink(tp.name))  # type: ignore
 
     if not _save_to_vault(suffix or "", obj, yaml, encoding, tp.fileno()):
         try:
@@ -383,14 +399,14 @@ def save_to_tempfile(obj, suffix="", delete=True, dir=None, yaml=None, encoding=
     return tp
 
 
-def make_temp_dir(delete=True, prefix="unfurl"):
+def make_temp_dir(delete: bool=True, prefix: str="unfurl") -> str:
     tempDir = tempfile.mkdtemp(prefix, dir=os.environ.get("UNFURL_TMPDIR"))
     if delete:
-        atexit.register(lambda: os.path.isdir(tempDir) and shutil.rmtree(tempDir))
+        atexit.register(lambda: os.path.isdir(tempDir) and shutil.rmtree(tempDir))  # type: ignore
     return tempDir
 
 
-def get_base_dir(path):
+def get_base_dir(path: str) -> str:
     if os.path.exists(path):
         isdir = os.path.isdir(path)
     else:
@@ -400,7 +416,7 @@ def get_base_dir(path):
     else:
         return os.path.normpath(os.path.dirname(path))
 
-def truncate_str(v):
+def truncate_str(v: str) -> str:
     s = str(v)
     if len(s) > 1000:
         return f"{s[:494]} [{len(s) - 1000} omitted...]  {s[-494:]}"
@@ -417,7 +433,7 @@ def get_random_password(count=12, prefix="uv", extra=None):
     )
 
 @contextmanager
-def change_cwd(new_path: str, log: Logger = None):
+def change_cwd(new_path: str, log: UnfurlLogger = None) -> Iterator:
     """Temporarily change current working directory"""
     old_path = os.getcwd()
     if new_path:
@@ -434,7 +450,7 @@ def change_cwd(new_path: str, log: Logger = None):
 
 # https://python-jsonschema.readthedocs.io/en/latest/faq/#why-doesn-t-my-schema-s-default-property-set-the-default-on-my-instance
 # XXX unused because this breaks check_schema
-def extend_with_default(validator_class):
+def extend_with_default(validator_class: Draft7Validator) -> None:
     """
     # Example usage:
     obj = {}
@@ -446,7 +462,7 @@ def extend_with_default(validator_class):
     """
     validate_properties = validator_class.VALIDATORS["properties"]
 
-    def set_defaults(validator, properties, instance, schema):
+    def set_defaults(validator: Draft7Validator, properties: Mapping, instance: Draft7Validator, schema: Mapping) -> Union[Generator, Draft7Validator]:
         if not validator.is_type(instance, "object"):
             return
 
@@ -466,11 +482,11 @@ DefaultValidatingLatestDraftValidator = (
 )
 
 
-def validate_schema(obj, schema, baseUri=None):
+def validate_schema(obj: Mapping, schema: Mapping, baseUri: Optional[str]=None) -> bool:
     return not find_schema_errors(obj, schema)
 
 
-def find_schema_errors(obj, schema, baseUri=None):
+def find_schema_errors(obj: Mapping, schema: Mapping, baseUri: Optional[str]=None) -> Optional[Tuple[str, List[object]]]:
     # XXX2 have option that includes definitions from manifest's schema
     if baseUri is not None:
         resolver = RefResolver(base_uri=baseUri, referrer=schema)
@@ -494,15 +510,15 @@ class ChainMap(Mapping):
     Combine multiple mappings for sequential lookup.
     """
 
-    def __init__(self, *maps, **kw):
+    def __init__(self, *maps: List[object], **kw: Mapping) -> None:
         self._maps = maps
         self._track = kw.get("track")
-        self.accessed = set()
+        self.accessed: Set[object] = set()
 
-    def split(self):
+    def split(self) -> Tuple[object, "ChainMap"]:
         return self._maps[0], ChainMap(*self._maps[1:])
 
-    def __getitem__(self, key):
+    def __getitem__(self, key: Union[SupportsIndex, slice]) -> object:
         for mapping in self._maps:
             try:
                 return mapping[key]
@@ -513,19 +529,19 @@ class ChainMap(Mapping):
                     self.accessed.add(key)
         raise KeyError(key)
 
-    def __setitem__(self, key, value):
+    def __setitem__(self, key: SupportsIndex, value: object) -> None:
         self._maps[0][key] = value
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator:
         return iter(frozenset(itertools.chain(*self._maps)))
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(frozenset(itertools.chain(*self._maps)))
 
-    def __nonzero__(self):
+    def __nonzero__(self) -> bool:
         return all(self._maps)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return "ChainMap(%r)" % (self._maps,)
 
 
@@ -540,12 +556,12 @@ class Generate:
     >>>    gen.result = yield gen.next
     """
 
-    def __init__(self, generator):
+    def __init__(self, generator: Generator) -> None:
         self.generator = generator
         self.result = None
         self.next = None
 
-    def __call__(self):
+    def __call__(self) -> bool:
         try:
             self.next = self.generator.send(self.result)
             return True
@@ -562,7 +578,7 @@ def _env_var_value(val):
         return str(val)
 
 
-def filter_env(rules, env=None, addOnly=False):
+def filter_env(rules: Mapping, env: Optional[Union[Dict, "os._Environ[str]"]]=None, addOnly: Optional[bool]=False) -> Dict[str, str]:
     """
     Applies the given list of rules to a dictionary of environment variables and returns a new dictionary.
 
@@ -586,7 +602,7 @@ def filter_env(rules, env=None, addOnly=False):
         env = os.environ
 
     if addOnly:
-        start = {}
+        start: Dict[str, str] = {}
     else:
         start = env.copy()
     for name, val in rules.items():
@@ -600,7 +616,7 @@ def filter_env(rules, env=None, addOnly=False):
             if remove:
                 source = start  # if remove, look in the current set, not original
             else:
-                source = env
+                source = env  # type: ignore
             match = {
                 k: v for k, v in source.items() if fnmatch.fnmatchcase(k, name) ^ neg
             }

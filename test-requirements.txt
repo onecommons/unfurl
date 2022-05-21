@@ -8,3 +8,6 @@ coverage
 pytest
 pytest-cov
 pytest-xdist[psutil]
+# type checking
+mypy==0.950
+types-six==1.16.15

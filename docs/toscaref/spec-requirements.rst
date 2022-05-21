@@ -1,5 +1,6 @@
-.. _requirements:
+:orphan:
 
+.. _requirements_spec:
 
 Requirements
 ============
@@ -23,4 +24,3 @@ Declaration
    occurrences: [ <min_occurrences>, <max_occurrences> ]
 
 .. seealso:: For more information, refer to :tosca_spec2:`TOSCA Requirement Section <DEFN_ELEMENT_REQUIREMENT_DEF>`
-
