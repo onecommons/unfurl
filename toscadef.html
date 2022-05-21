@@ -1489,6 +1489,26 @@ group_types:
     <span class="c1"># see https://boto3.amazonaws.com/v1/documentation/api/latest/guide/configuration.html#using-environment-variables</span>
     <span class="c1"># for more environment variables</span>
 
+  <span class="n">unfurl</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">ConnectsTo</span><span class="o">.</span><span class="n">DigitalOceanAccount</span><span class="p">:</span>
+    <span class="n">derived_from</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">ConnectsTo</span><span class="o">.</span><span class="n">CloudAccount</span>
+    <span class="n">properties</span><span class="p">:</span>
+      <span class="n">endpoints</span><span class="p">:</span>
+        <span class="n">description</span><span class="p">:</span> <span class="n">custom</span> <span class="n">service</span> <span class="n">endpoints</span>
+        <span class="nb">type</span><span class="p">:</span> <span class="nb">map</span>
+        <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
+      <span class="n">DIGITALOCEAN_DEFAULT_REGION</span><span class="p">:</span>
+        <span class="n">description</span><span class="p">:</span> <span class="s2">&quot;The default region to use, e.g. fra1, nyc2, etc.&quot;</span>
+        <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvVar</span>
+        <span class="n">default</span><span class="p">:</span> <span class="p">{</span> <span class="n">get_env</span><span class="p">:</span> <span class="n">DIGITALOCEAN_DEFAULT_REGION</span> <span class="p">}</span>
+      <span class="n">DIGITALOCEAN_ACCESS_TOKEN</span><span class="p">:</span>
+        <span class="n">description</span><span class="p">:</span> <span class="s2">&quot;Access token for Digitalocean account.&quot;</span>
+        <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvVar</span>
+        <span class="n">default</span><span class="p">:</span> <span class="p">{</span> <span class="n">get_env</span><span class="p">:</span> <span class="n">DIGITALOCEAN_ACCESS_TOKEN</span> <span class="p">}</span>
+      <span class="n">DIGITALOCEAN_PRIVATE_KEY</span><span class="p">:</span>
+        <span class="n">description</span><span class="p">:</span> <span class="s2">&quot;File with private key.&quot;</span>
+        <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvVar</span>
+        <span class="n">default</span><span class="p">:</span> <span class="p">{</span> <span class="n">get_env</span><span class="p">:</span> <span class="n">DIGITALOCEAN_PRIVATE_KEY</span> <span class="p">}</span>
+
   <span class="n">unfurl</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">ConnectsTo</span><span class="o">.</span><span class="n">Azure</span><span class="p">:</span>
     <span class="n">derived_from</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">ConnectsTo</span><span class="o">.</span><span class="n">CloudAccount</span>
     <span class="n">properties</span><span class="p">:</span>
