@@ -1,5 +1,3 @@
-.. _runtime:
-
 ===================
 Runtime Environment
 ===================

@@ -1,5 +1,6 @@
-.. _interfaces2:
+:orphan:
 
+.. _interfaces_spec:
 
 Interfaces
 ==========

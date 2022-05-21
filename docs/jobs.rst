@@ -24,7 +24,7 @@ a job is created and run. Running a job entails these steps:
 5. After the job completes, `ensemble.yaml` is updated with any changes to its instances status.
    ``jobs.tsv`` will also be updated with line for each task run and a new `job.yaml` file is created in the ``jobs`` folder.
 6. Depending on the commit options of the job, the ensemble's git repository will see a new commit,
-   along with any other repository that had changes to it (e.g. files in the `spec` directory).
+   along with any other repository that had changes to it (e.g. files in the ``spec`` directory).
 
 Operational status and state
 =============================

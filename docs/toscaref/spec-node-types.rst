@@ -66,11 +66,11 @@ interfaces
 ------------
 
 The ``interfaces`` property may be used to define common behaviors for
-node templates. 
+node templates.
 
 .. seealso::
 
- For more information, please refer to the :ref:`Interfaces<interfaces2>` section.
+ For more information, please refer to the :ref:`Interfaces<interfaces_spec>` section.
 
 properties
 ------------
@@ -82,7 +82,7 @@ schema for node templates.
 describing the property. The nested dictionary includes the following
 keys:
 
-.. list-table:: 
+.. list-table::
    :widths: 10 10 10 50
    :header-rows: 1
 

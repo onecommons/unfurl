@@ -1,5 +1,3 @@
-.. _configurators:
-
 ===============
 Configurators
 ===============
@@ -435,7 +433,7 @@ declare node templates with the needed properties and operation inputs.
    :local:
    :depth: 1
 
-.. _docker:
+.. _docker_configurator:
 
 Docker
 ======
@@ -719,6 +717,8 @@ unfurl.nodes.ProcessController.Supervisor
 -----------------------------------------
 
 TOSCA type that represents a process ("program" in supervisord terminology) that is managed by a Supervisor instance. Derived from ``unfurl.nodes.ProcessController``.
+
+.. _sup_requirements:
 
 requirements
 ~~~~~~~~~~~~

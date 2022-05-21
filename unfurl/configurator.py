@@ -52,7 +52,7 @@ from .planrequests import (
 import logging
 
 # Tell mypy the logger is of type UnfurlLogger
-logger = cast(UnfurlLogger, logging.getLogger("unfurl.task"))  
+logger = cast(UnfurlLogger, logging.getLogger("unfurl.task"))
 
 class ConfiguratorResult:
     """
@@ -349,11 +349,11 @@ class TaskView:
         verbose (int): Verbosity level set for this job (-1 error, 0 normal, 1 verbose, 2 debug)
     """
 
-    def __init__(self, 
-        manifest: "Manifest", 
-        configSpec: ConfigurationSpec, 
-        target: NodeInstance, 
-        reason: Optional[str]=None, 
+    def __init__(self,
+        manifest: "Manifest",
+        configSpec: ConfigurationSpec,
+        target: NodeInstance,
+        reason: Optional[str]=None,
         dependencies: Optional[List["Dependency"]]=None
     ) -> None:
         # public:
@@ -418,7 +418,7 @@ class TaskView:
                 or {},
             )
             if relationship:
-                vars["SOURCE"] = self.target.source.attributes  # type: ignore  
+                vars["SOURCE"] = self.target.source.attributes  # type: ignore
                 vars["TARGET"] = target.attributes
             # expose inputs lazily to allow self-referencee
             ctx = RefContext(self.target, vars, task=self, strict=not self._rendering)
@@ -605,10 +605,10 @@ class TaskView:
         modified: Optional[bool]=None,
         status: Optional[Status]=None,
         result: Optional[dict]=None,
-        outputs: Optional[dict]=None,  # so the docstring says dict, but ConfiguratorResult  
+        outputs: Optional[dict]=None,  # so the docstring says dict, but ConfiguratorResult
         captureException: Optional[object]=None,
     ) -> ConfiguratorResult:
-        """`run()` should call this method and yield its return value before terminating.
+        """:py:meth:`unfurl.configurator.Configurator.run` should call this method and yield its return value before terminating.
 
         >>> yield task.done(True)
 
@@ -640,7 +640,7 @@ class TaskView:
         class kwTypeBase(TypedDict):
             result: Optional[dict]
             outputs: Optional[dict]
-        
+
         class kwType(kwTypeBase, total=False):
             exception: UnfurlTaskError
 
@@ -724,14 +724,14 @@ class TaskView:
     #     return self._manifest.loadConfigSpec(name, configSpec)
 
     def create_sub_task(
-        self, 
-        operation: Optional[str]=None, 
-        resource: Optional[NodeInstance]=None, 
-        inputs: Optional[dict]=None, 
+        self,
+        operation: Optional[str]=None,
+        resource: Optional[NodeInstance]=None,
+        inputs: Optional[dict]=None,
         persist: bool=False,
         required: Optional[bool]=None
     ) -> Optional[TaskRequest]:
-        """Create a subtask that will be executed if yielded by `run()`
+        """Create a subtask that will be executed if yielded by :py:meth:`unfurl.configurator.Configurator.run`
 
         Args:
           operation (str): The operation call (like ``interface.operation``)
@@ -805,7 +805,7 @@ class TaskView:
             updated = True
         return updated
 
-    def _parse_instances_tpl(self, 
+    def _parse_instances_tpl(self,
         instances: Union[str, Mapping, MutableSequence]
     ) -> Union[Tuple[None, UnfurlTaskError], Tuple[MutableSequence, None]]:
         if isinstance(instances, six.string_types):

@@ -78,6 +78,8 @@ Ensembles
 
   A representation of an isolated collections of resources. Ensembles are implemented in manifest files that describe the resources' operations, properties and current state. Ensembles can lives in its own git repository, maintaining a history of changes applied to its resources.
 
+.. _configurator_def:
+
 Configurators
 +++++++++++++
 
