@@ -164,7 +164,6 @@ Unfurl is in early stages of development and should not be used in production. I
 - Only clone and deploy trusted repositories and projects. The docker runtime is not configured to provide isolation so you should assume any project may contain executable code that can gain full access to your system.
 - Locking to prevent multiple instances of Unfurl from modifying the same resources at the same time currently only works with instances accessing the same local copy of an ensemble.
 - Incremental updates are only partially implemented. You can incrementally update an ensemble by explicitly limiting jobs with the `--force` and `--instance` [command line options](https://docs.unfurl.run/cli.html#unfurl-deploy).
-- Google Cloud SDK [doesn't yet work](https://issuetracker.google.com/issues/202172882?pli=1) with Python 3.10.
 
 ## Get Started
 
