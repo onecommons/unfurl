@@ -535,7 +535,7 @@ def set_eval_func(name, val, topLevel=False):
     if topLevel:
         _FuncsTop.append(name)
 
-if sys.version_info > (3, 6):
+if sys.version_info >= (3, 9):
     MutableSequence_Result = MutableSequence[Result]
 else:
     MutableSequence_Result = MutableSequence
