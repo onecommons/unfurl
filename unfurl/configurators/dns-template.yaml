@@ -49,8 +49,10 @@ node_types:
         title: Default TTL
         default: 300
       testing:
+        metadata:
+          user_settable: true
         type: boolean
-        description: Is this DNS zone being used for testing? (If so, use Let's Encrypt staging)
+        description: Is this DNS zone being used for testing? (If set, Let's Encrypt staging will be used.)
         default: true
     attributes:
       zone:

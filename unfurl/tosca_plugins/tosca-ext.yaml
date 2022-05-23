@@ -353,25 +353,29 @@ relationship_types:
     # see https://boto3.amazonaws.com/v1/documentation/api/latest/guide/configuration.html#using-environment-variables
     # for more environment variables
 
-  unfurl.relationships.ConnectsTo.DigitalOceanAccount:
+  unfurl.relationships.ConnectsTo.DigitalOcean:
     derived_from: unfurl.relationships.ConnectsTo.CloudAccount
     properties:
-      endpoints:
-        description: custom service endpoints
-        type: map
-        required: false
-      DIGITALOCEAN_DEFAULT_REGION:
+      DIGITALOCEAN_TOKEN:
+        type: unfurl.datatypes.EnvVar
+        default: { get_env: DIGITALOCEAN_TOKEN }
+        metadata:
+          sensitive: true
+      SPACES_ACCESS_KEY_ID:
+        description: "The access key for Spaces object storage."
+        type: unfurl.datatypes.EnvVar
+        default: { get_env: SPACES_ACCESS_KEY_ID }
+      SPACES_SECRET_ACCESS_KEY:
+        description: "The secret key for Spaces object storage."
+        type: unfurl.datatypes.EnvVar
+        default: { get_env: SPACES_SECRET_ACCESS_KEY }
+        metadata:
+          sensitive: true
+      default_region:
+        type: string
+        title: Default Region
+        default: nyc1
         description: "The default region to use, e.g. fra1, nyc2, etc."
-        type: unfurl.datatypes.EnvVar
-        default: { get_env: DIGITALOCEAN_DEFAULT_REGION }
-      DIGITALOCEAN_ACCESS_TOKEN:
-        description: "Access token for Digitalocean account."
-        type: unfurl.datatypes.EnvVar
-        default: { get_env: DIGITALOCEAN_ACCESS_TOKEN }
-      DIGITALOCEAN_PRIVATE_KEY:
-        description: "File with private key."
-        type: unfurl.datatypes.EnvVar
-        default: { get_env: DIGITALOCEAN_PRIVATE_KEY }
 
   unfurl.relationships.ConnectsTo.Azure:
     derived_from: unfurl.relationships.ConnectsTo.CloudAccount
