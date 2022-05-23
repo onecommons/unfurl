@@ -12,7 +12,7 @@ jsonschema = {version = "==3.2", extras = ["format_nongpl"]}
 "ruamel.yaml" = ">=0.16.13"
 ansible = ">=4.2.0,<5.0"
 pbr = ">=2.0.0,!=2.1.0"
-cliff = "!=2.9.0,>=2.8.0"
+cliff = ">=2.8.0,!=2.9.0"
 python-dateutil = ">=2.5.3"
 stevedore = ">=1.20.0"
 requests = ">=2.14.2"
@@ -29,6 +29,7 @@ PyYAML = ">=3.12"
 Jinja2 = "==2.11.3"
 itsdangerous = "==2.0.1"
 MarkupSafe = "==2.0.1"
+typing-extensions = "==4.1.1"
 
 [dev-packages]
 

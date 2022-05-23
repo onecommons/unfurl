@@ -13,7 +13,7 @@ jsonschema = {version = "==3.2", extras = ["format_nongpl"]}
 "ruamel.yaml" = ">=0.16.13"
 docker = {extras = ["tls"], version = "*"}
 pbr = ">=2.0.0,!=2.1.0"
-cliff = "!=2.9.0,>=2.8.0"
+cliff = ">=2.8.0,!=2.9.0"
 python-dateutil = ">=2.5.3"
 six = ">=1.10.0"
 stevedore = ">=1.20.0"
@@ -37,6 +37,7 @@ importlib-metadata = "*"
 cryptography = "*"
 itsdangerous = "==2.0.1"
 MarkupSafe = "==2.0.1"
+typing-extensions = "==4.1.1"
 
 [requires]
 python_version = "3.8"
