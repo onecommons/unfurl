@@ -19,6 +19,7 @@ from typing import Any, Dict, List, Optional, Union, cast, TYPE_CHECKING
 import six
 import re
 import operator
+import sys
 import collections
 from collections.abc import Mapping, MutableSequence
 from ruamel.yaml.comments import CommentedMap
@@ -87,7 +88,11 @@ class _Tracker:
         self.count -= 1
         return self.count
 
-    def addReference(self, ref, result):
+    def add_ref_reference(self, ref: "Ref", result: ResultsList):
+        if self.count > 0:
+            self.referenced.append([ref, result])
+
+    def add_result_reference(self, ref: Union[str, None], result: Result):
         if self.count > 0:
             self.referenced.append([ref, result])
 
@@ -178,11 +183,14 @@ class RefContext:
 
     def add_external_reference(self, external: ExternalValue) -> Result:
         result = Result(external)
-        self.referenced.addReference(None, result)
+        self.referenced.add_result_reference(None, result)
         return result
 
-    def add_reference(self, ref: str, result: Result) -> None:
-        self.referenced.addReference(ref, result)
+    def add_ref_reference(self, ref: "Ref", result: ResultsList) -> None:
+        self.referenced.add_ref_reference(ref, result)
+
+    def add_result_reference(self, ref: str, result: Result) -> None:
+        self.referenced.add_result_reference(ref, result)
 
     def resolve_var(self, key: str) -> Optional[Union[Results, ResultsList, List[Result], ResultsMap]]:
         return self._resolve_var(key[1:]).resolved
@@ -201,7 +209,7 @@ class RefContext:
 
     def resolve_reference(self, key: str) -> Union[Results, ResultsList, List[Result], ResultsMap]:
         val = self._resolve_var(key)
-        self.add_reference(key, val)
+        self.add_result_reference(key, val)
         assert not isinstance(val.resolved, Result)
         return val.resolved
 
@@ -325,7 +333,7 @@ class Ref:
             results = for_each(self.foreach, results, ctx)
         assert not isinstance(results, ResultsList), results
         results = ResultsList(results, ctx)
-        ctx.add_reference(self, results)
+        ctx.add_ref_reference(self, results)
         ctx.trace(f"Ref.resolve(wantList={wantList}) results", self.source, results)
         if wantList and not wantList == "result":
             return results
@@ -527,8 +535,11 @@ def set_eval_func(name, val, topLevel=False):
     if topLevel:
         _FuncsTop.append(name)
 
-
-def eval_ref(val: Union[Mapping, str], ctx: RefContext, top: bool=False) -> List[Result]:
+if sys.version_info > (3, 6):
+    MutableSequence_Result = MutableSequence[Result]
+else:
+    MutableSequence_Result = MutableSequence
+def eval_ref(val: Union[Mapping, str], ctx: RefContext, top: bool=False) -> MutableSequence_Result:
     "val is assumed to be an expression, evaluate and return a list of Result"
     from .support import is_template, apply_template
 

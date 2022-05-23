@@ -9,7 +9,7 @@ By convention, the "home" project defines a localhost instance and adds it to it
 """
 import os
 import os.path
-from typing import Any, Iterable, List, Optional, Tuple, TYPE_CHECKING
+from typing import Any, Iterable, List, Optional, Tuple, Union, TYPE_CHECKING
 
 from ansible.parsing.vault import VaultLib
 import six
@@ -371,7 +371,7 @@ class Project:
             return secrets.get(vaultId)
         return None
 
-    def get_vault_passwords(self, contextName: Optional[str]=None) -> Iterable[Tuple[str, str]]:
+    def get_vault_passwords(self, contextName: Optional[str]=None) -> Iterable[Tuple[str, Union[str, bytes]]]:
         # we want to support multiple vault ids
         context = self.get_context(contextName)  # type: ignore
         secrets = context.get("secrets", {}).get(f"vault_secrets")

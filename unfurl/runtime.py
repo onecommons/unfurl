@@ -8,7 +8,7 @@ Each instance have a status; attributes that describe its state; and a TOSCA tem
 which describes its capabilities, relationships and available interfaces for configuring and interacting with it.
 """
 from datetime import datetime
-from typing import Any, Dict, Iterable, List, Optional, Tuple, Union, TYPE_CHECKING
+from typing import Any, Dict, Iterable, List, Optional, Tuple, Union, TYPE_CHECKING, cast
 import six
 from collections.abc import Mapping
 
@@ -25,13 +25,14 @@ from .tosca import (
     TopologySpec,
     ArtifactSpec,
 )
-
+from unfurl.logs import UnfurlLogger
 import logging
 
 if TYPE_CHECKING:
     from unfurl.configurator import Dependency
 
-logger = logging.getLogger("unfurl")
+# Tell mypy the logger is of type UnfurlLogger
+logger = cast(UnfurlLogger, logging.getLogger("unfurl"))
 
 # CF 3.4.1 Node States p61
 

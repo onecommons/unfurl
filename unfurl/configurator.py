@@ -686,7 +686,7 @@ class TaskView:
 
     def add_dependency(
         self,
-        expr: Union[str, dict],
+        expr: Union[str, Mapping],
         expected: Optional[Union[list, ResultsList, Result]]=None,
         schema: Optional[Mapping]=None,
         name: Optional[str]=None,

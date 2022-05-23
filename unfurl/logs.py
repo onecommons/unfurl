@@ -5,7 +5,7 @@ from enum import IntEnum
 import os
 import tempfile
 from typing import Any, Dict, Tuple, Union
-from typing_extensions import NotRequired, TypedDict, reveal_type
+from typing_extensions import NotRequired, TypedDict
 
 import click
 

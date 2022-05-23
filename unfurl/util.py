@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 import sys
 from types import ModuleType
-from typing import IO, Dict, Generator, Iterable, List, Optional, Set, Tuple, Union, Iterator, TYPE_CHECKING
+from typing import IO, Dict, Generator, Iterable, List, Optional, Set, Tuple, Union, Iterator, TYPE_CHECKING, cast
 from typing_extensions import SupportsIndex
 import git
 import six
@@ -110,6 +110,7 @@ class UnfurlValidationError(UnfurlError):
 
 class UnfurlTaskError(UnfurlError):
     def __init__(self, task: "TaskView", message: object, log: int=logging.ERROR):
+        task = cast("ConfigTask", task)
         message = f"{task.changeId} on {task.target.name} {task.name}: {message}"
         super().__init__(message, True, False)
         self.task = task

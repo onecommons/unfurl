@@ -48,6 +48,10 @@ node_types:
         type: integer
         title: Default TTL
         default: 300
+      testing:
+        type: boolean
+        description: Is this DNS zone being used for testing? (If so, use Let's Encrypt staging)
+        default: true
     attributes:
       zone:
         description: The records found in the zone
