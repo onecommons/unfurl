@@ -371,11 +371,6 @@ relationship_types:
         default: { get_env: SPACES_SECRET_ACCESS_KEY }
         metadata:
           sensitive: true
-      default_region:
-        type: string
-        title: Default Region
-        default: nyc1
-        description: "The default region to use, e.g. fra1, nyc2, etc."
 
   unfurl.relationships.ConnectsTo.Azure:
     derived_from: unfurl.relationships.ConnectsTo.CloudAccount
