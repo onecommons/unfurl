@@ -61,7 +61,7 @@ class Project:
         )
         self.parentProject = parentProject
         if parentProject:
-            parentProject.localConfig.register_project(self)
+            parentProject.register_project(self)
         self._set_contexts()
         # depends on _set_contexts():
         self.project_repoview.yaml = make_yaml(self.make_vault_lib())  # type: ignore
@@ -473,10 +473,14 @@ class Project:
             self.localConfig.ensembles.append(props)
         if managedBy or project:
             assert not (managedBy and project)
-            self.localConfig.register_project(managedBy or project, changed=True)
+            self.register_project(managedBy or project, changed=True)
         elif context:
             self.localConfig.config.config["ensembles"] = self.localConfig.ensembles
             self.localConfig.config.save()
+
+    def register_project(self, project, for_context=None, changed=False, save_project=True):
+        self.localConfig.register_project(project, for_context, changed, save_project)
+        self.workingDirs[project.project_repoview.working_dir] = project.project_repoview
 
 
 class LocalConfig:
@@ -640,7 +644,7 @@ class LocalConfig:
                 self.config.save_include(key)
             self.config.config["ensembles"] = self.ensembles
             self.config.save()
-        return name
+        return lock
 
 
 class LocalEnv:
@@ -1110,6 +1114,7 @@ class LocalEnv:
                 if os.path.isdir(homeAsdf):
                     asdfDataDir = homeAsdf
         if asdfDataDir:  # asdf is installed
+            os.environ["ASDF_DATA_DIR"] = asdfDataDir
             # current project has higher priority over home project
             project = self.project or self.homeProject
             count = 0

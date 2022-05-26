@@ -452,7 +452,7 @@ def create_project(
         assert newProject
         homeProject = newProject.parentProject
         assert homeProject
-        homeProject.localConfig.register_project(newProject, create_context)
+        homeProject.register_project(newProject, create_context)
 
     if not kw.get("render"):
         if password_vault:
@@ -772,7 +772,7 @@ class EnsembleBuilder:
                 search = os.path.join(newrepo.working_dir, self.source_path)
             else:
                 # just register the source project's repo as a localRepository
-                currentProject.localConfig.register_project(sourceProject, save_project=False)
+                currentProject.register_project(sourceProject, save_project=False)
                 self.source_project = sourceProject
                 return sourceProject
         else:
