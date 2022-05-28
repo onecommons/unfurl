@@ -1069,7 +1069,7 @@ class Job(ConfigChange):
                     "task_count": task_count,
                     "success": task.result.success,
                     "target_status": task.target.status.name, 
-                    "target_state": task.target.state.name,
+                    "target_state": task.target.state and task.target.state.name or "",
                 }))
 
             logger.info(
