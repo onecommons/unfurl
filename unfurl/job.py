@@ -766,7 +766,7 @@ class Job(ConfigChange):
         else:
             workflow = None
 
-        for taskRequest in taskRequests:
+        for idk, taskRequest in enumerate(taskRequests):
             # if parent is set, stop processing requests once one fails
             if parent and failed:
                 logger.debug(
@@ -780,7 +780,7 @@ class Job(ConfigChange):
             elif isinstance(taskRequest, TaskRequestGroup):
                 _task = self.apply_group(depth, taskRequest)
             else:
-                _task = self._run_operation(taskRequest, workflow, depth)
+                _task = self._run_operation(taskRequest, workflow, depth, meta={"task_number": idk, "task_count": len(taskRequests)})
             if not _task:
                 continue
             task = _task
@@ -982,7 +982,12 @@ class Job(ConfigChange):
                 return False, "instance already entered state"
         return True, "passed"
 
-    def _run_operation(self, req: TaskRequest, workflow: str, depth: int) -> Optional[ConfigTask]:
+    def _run_operation(self, req: TaskRequest, workflow: str, depth: int, meta: Mapping={}) -> Optional[ConfigTask]:
+        meta_enabled =  (meta.keys() & {"task_count", "task_number"}) == {"task_count", "task_number"}
+        if meta_enabled:
+            task_number = meta["task_number"]
+            task_count = meta["task_count"]
+
         if isinstance(req, SetStateRequest):
             logger.debug("Setting state with %s", req)
             self._set_state(req)
@@ -994,9 +999,15 @@ class Job(ConfigChange):
         if req.error:
             return None
 
+        if meta_enabled:
+            logger.info(json.dumps({"state": "starting_task", "task_number": task_number, "task_count": task_count}))
+
         logger.info("Running task %s", req)
         test, msg = self._entry_test(req, workflow)
         if not test:
+            if meta_enabled:
+                logger.info(json.dumps({"state": "skipped_task", "task_number": task_number, "task_count": task_count, "reason": msg}))
+
             logger.debug(
                 "skipping operation %s for instance %s with state %s and status %s: %s",
                 req.configSpec.operation,
@@ -1051,6 +1062,16 @@ class Job(ConfigChange):
             #     task.target.state,
             #     req.startState,
             # )
+            if meta_enabled:
+                logger.info(json.dumps({
+                    "state": "finished_task",
+                    "task_number": task_number,
+                    "task_count": task_count,
+                    "success": task.result.success,
+                    "target_status": task.target.status.name, 
+                    "target_state": task.target.state.name,
+                }))
+
             logger.info(
                 "finished taskrequest %s: %s %s %s",
                 task,
