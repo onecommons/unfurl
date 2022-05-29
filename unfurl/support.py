@@ -27,6 +27,7 @@ from .util import (
     find_schema_errors,
     UnfurlError,
     UnfurlValidationError,
+    UnfurlTaskError,
     assert_form,
     wrap_sensitive_value,
     is_sensitive,
@@ -332,6 +333,8 @@ def apply_template(value, ctx, overrides=None):
             else:
                 logger.warning(value[2:100] + "... see debug log for full report")
                 logger.debug(value, exc_info=True)
+                if ctx.task:
+                    ctx.task._errors.append( UnfurlTaskError(ctx.task, msg) )
         else:
             if value != oldvalue:
                 ctx.trace("successfully processed template:", value)

@@ -482,6 +482,10 @@ def _render_request(job, parent, req, requests):
         # note: failed rendering may be re-tried later if it has dependencies
         error_info = sys.exc_info()
         error = UnfurlTaskError(task, "Configurator render failed", False)
+    if task._errors:
+        # we turned off strictness so templating errors got saved here instead
+        error = task._errors[0]
+        task._errors = []
     task._rendering = False
     task._attributeManager.mark_referenced_templates(task.target.template)
 
@@ -491,7 +495,7 @@ def _render_request(job, parent, req, requests):
     else:
         # key => (instance, list<attribute>)
         liveDependencies = task._attributeManager.find_live_dependencies()
-        logger.trace(f"liveDependencies for {task.target}: {liveDependencies}")
+        task.logger.trace(f"liveDependencies for {task.target}: {liveDependencies}")
         # a future request may change the value of these attributes
         deps = list(_get_deps(parent, req, liveDependencies, requests))
 
@@ -515,6 +519,7 @@ def _render_request(job, parent, req, requests):
         task.logger.warning("Configurator render failed",  exc_info=error_info)
         task._attributeManager.attributes = {}  # rollback changes
     else:
+        task.logger.trace(f"committing changes from rendering task {task.target}")
         task.commit_changes()
     return deps, error
 
