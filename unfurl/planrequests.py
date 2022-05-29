@@ -474,9 +474,9 @@ def _render_request(job, parent, req, requests):
     try:
         task.logger.debug("rendering %s %s", task.target.name, task.name)
         task._rendering = True
-        if task._inputs:
-            # turn strictness off so we can detect dependencies
-            task._inputs.context.strict = False
+        task.inputs
+        # turn strictness off so we can detect dependencies
+        task._inputs.context.strict = False
         task.rendered = task.configurator.render(task)
     except Exception:
         # note: failed rendering may be re-tried later if it has dependencies

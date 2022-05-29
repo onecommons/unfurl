@@ -304,6 +304,8 @@ def apply_template(value, ctx, overrides=None):
         templar.environment.undefined = UnfurlUndefined
 
     vars = _VarTrackerDict(__unfurl=ctx, __python_executable=sys.executable)
+    if hasattr(ctx.currentResource, "attributes"):
+        vars['SELF'] = ctx.currentResource.attributes
     vars.update(ctx.vars)
     vars.ctx = ctx
 
