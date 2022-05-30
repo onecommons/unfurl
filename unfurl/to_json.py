@@ -315,8 +315,9 @@ def resource_visibility(spec, t):
 
 
 def is_property_user_visible(p):
-    if p.schema.get("metadata", {}).get("user_settable"):
-        return True
+    user_settable = p.schema.get("metadata", {}).get("user_settable")
+    if user_settable is not None:
+        return user_settable
     if p.default is not None or is_computed(p):
         return False
     return True
@@ -545,6 +546,25 @@ def _get_typedef(name: str, spec):
     return typedef
 
 
+def template_properties_to_json(nodetemplate):
+    # if they aren't only include ones with an explicity value
+    for p in nodetemplate.get_properties_objects():
+        computed = is_computed(p)
+        if computed:
+            # don't expose values that are expressions to the user
+            value = None
+        else:
+            value = attribute_value_to_json(p, p.value)
+        if not is_property_user_visible(p):
+            if p.value is None:
+                # assumed to not be set, just use the default value and skip
+                continue
+            if computed:
+                # preserve the expression
+                value = p.value
+        yield dict(name=p.name, value=value)
+
+
 def nodetemplate_to_json(nodetemplate, spec, types):
     """
     Returns json object as a ResourceTemplate:
@@ -588,11 +608,7 @@ def nodetemplate_to_json(nodetemplate, spec, types):
     )
 
     jsonnodetype = types[nodetemplate.type]
-    json["properties"] = [
-        dict(name=p.name, value=property_value_to_json(p, p.value))
-        for p in nodetemplate.get_properties_objects()
-        if is_property_user_visible(p)
-    ]
+    json["properties"] = list(template_properties_to_json(nodetemplate))
     json["dependencies"] = []
     visibility = resource_visibility(spec, nodetemplate)
     if visibility != "inherit":
