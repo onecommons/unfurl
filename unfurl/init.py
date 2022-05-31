@@ -491,7 +491,7 @@ def _create_ensemble_repo(manifest, repo, commit=True):
     elif not os.path.isdir(destDir):
         os.makedirs(destDir)
 
-    manifest.metadata["uri"] = repo.get_url_with_path(manifest.manifest.path)
+    manifest.metadata["uri"] = repo.get_url_with_path(manifest.manifest.path, True)
     with open(manifest.manifest.path, "w") as f:
         manifest.dump(f)
 

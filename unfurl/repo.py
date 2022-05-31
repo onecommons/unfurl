@@ -6,7 +6,7 @@ from pathlib import Path
 import sys
 import git
 import logging
-from six.moves.urllib.parse import urlparse
+from urllib.parse import urlparse
 from .util import UnfurlError, save_to_file
 import toscaparser.repositories
 from ruamel.yaml.comments import CommentedMap
@@ -17,7 +17,7 @@ def is_git_worktree(path, gitDir=".git"):
     # NB: if work tree is a submodule .git will be a file that looks like "gitdir: ./relative/path"
     return os.path.exists(os.path.join(path, gitDir))
 
-def normalize_git_url(url):
+def normalize_git_url(url, hard=0):
     if url.startswith("git-local://"):  # truncate url after commit digest
         return "git-local://" + urlparse(url).netloc.partition(":")[0]
 
@@ -27,12 +27,25 @@ def normalize_git_url(url):
         elif "@" in url:  # scp style used by git: user@server:project.git
             # convert to ssh://user@server/project.git
             return "ssh://" + url.replace(":", "/", 1)
+    if hard:
+        parts = urlparse(url)
+        # remove password and .git
+        user, sep, host = parts.netloc.rpartition("@")
+        if sep:
+            netloc = f"{user.partition(':')[0]}@{host}"
+        else:
+            netloc = host
+        if hard == 2:
+            path = parts.path.rstrip('.git')
+        else:
+            path = parts.path
+        return parts._replace(netloc=netloc, path=path).geturl()
     return url
 
+
 def normalize_git_url_hard(url):
-    parts = urlparse(normalize_git_url(url))
-    # remove scheme, user, and .git
-    return parts.netloc.rpartition("@")[2] + parts.path.rstrip('.git')
+    # remove scheme, .git and fragment
+    return normalize_git_url(url, hard=1).rpartition("://")[2].partition("#")[0]
 
 
 def is_url_or_git_path(url):
@@ -364,7 +377,7 @@ class RepoView:
     def lock(self):
         record = CommentedMap(
             [
-                ("url", self.url),
+                ("url", normalize_git_url(self.url, 1)),
                 ("revision", self.get_current_revision()),
                 ("initial", self.get_initial_revision()),
             ]
@@ -408,12 +421,12 @@ class GitRepo(Repo):
         except:
             return None
 
-    def get_url_with_path(self, path):
+    def get_url_with_path(self, path, sanitize=False):
         if is_url_or_git_path(self.url):
             if os.path.isabs(path):
                 # get path relative to repository's root
                 path = os.path.relpath(path, self.working_dir)
-            return normalize_git_url(self.url) + "#:" + path
+            return normalize_git_url(self.url, sanitize) + "#:" + path
         else:
             return self.get_git_local_url(path)
 
