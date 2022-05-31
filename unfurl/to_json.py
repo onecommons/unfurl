@@ -1065,7 +1065,7 @@ def annotate_properties(types):
     for jsontype in types.values():
         for req in (jsontype.get("requirements") or []):
             if req.get('node_filter'):
-                annotations[req['resourceType']] = req['node_filter']
+                annotations[req['resourceType']] = req
     for jsontype in types.values():
         for typename in jsontype['extends']:
             node_filter = annotations.get(typename)
@@ -1078,10 +1078,12 @@ def map_nodefilter(filters, jsonprops):
         if name not in jsonprops or not isinstance(value, dict):
             continue
         if 'eval' in value:
-            # delete annotated properties from target
+            # the filter declared an expression to set the property's value
+            # delete the annotated property from the target to it hide from the user
+            # (since they can't shouldn't set this property now)
             del jsonprops[name]
         else:
-            # update schema definition with node filter constraints
+            # update schema definition with the node filter's constraints
             schema = jsonprops[name]
             tosca_datatype = schema.get("$toscatype") or ONE_TO_ONE_MAP.get(schema['type'], schema['type'])
             constraints = ConditionClause(name, value, tosca_datatype).conditions
