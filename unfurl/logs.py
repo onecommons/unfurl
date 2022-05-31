@@ -7,7 +7,8 @@ import tempfile
 from typing import Any, Dict, Tuple, Union
 from typing_extensions import NotRequired, TypedDict
 
-import click
+# import click
+import rich
 
 
 def truncate(s: str, max: int=1200) -> str:
@@ -44,10 +45,19 @@ LOGGING = {
             "class": "unfurl.logs.ColorHandler",
             "level": logging.INFO,
             "filters": ["sensitive"],
+        },
+        "JobLogHandler": {
+            "class": "unfurl.logs.JobLogHandler",
+            "level": logging.INFO,
+            "filters": ["sensitive"],
         }
     },
     "loggers": {
         "git": {"level": logging.INFO, "handlers": ["console"]},
+        "unfurljob": {
+            "handlers": ["JobLogHandler"],
+            "level": logging.INFO,
+        }
     },
     "root": {"level": Levels.TRACE, "handlers": ["console"]},
 }
@@ -60,6 +70,10 @@ class UnfurlLogger(logging.Logger):
     def verbose(self, msg: str, *args: object, **kwargs: Any) -> None:
         self.log(Levels.VERBOSE.value, msg, *args, **kwargs)
 
+
+class JobLogHandler(logging.StreamHandler):
+    def emit(self, record: logging.LogRecord) -> None:
+        rich.print(record.msg)
 
 class StyleDict(TypedDict):
     bg: NotRequired[Union[str, Tuple[int, int, int]]]
@@ -86,18 +100,30 @@ class ColorHandler(logging.StreamHandler):
         Levels.DEBUG: {},
         Levels.TRACE: {},
     }
+    RICH_STYLE_LEVEL = {
+        Levels.CRITICAL: "black on red",
+        Levels.ERROR: "red",
+        Levels.WARNING: "yellow",
+        Levels.INFO: "cyan",
+        Levels.VERBOSE: "grey",
+        Levels.DEBUG: "grey",
+        Levels.TRACE: "grey",
+    }
 
     def emit(self, record: logging.LogRecord) -> None:
         message = truncate(self.format(record))
         level = Levels[record.levelname]
         try:
-            click.secho(
-                " UNFURL ", nl=False, file=self.stream, fg="white", bg="bright_cyan"
-            )
-            click.secho(
-                f" {level.name} ", nl=False, file=self.stream, **self.STYLE_LEVEL[level]
-            )
-            click.secho(f" {message}", file=self.stream, **self.STYLE_MESSAGE[level])
+            rich.print(f"[bold] UNFURL [/bold]", end="", file=self.stream)
+            rich.print(f"[{self.RICH_STYLE_LEVEL[level]}] {level.name} [/]", end="", file=self.stream)
+            rich.print(f" {message}", file=self.stream)
+            # click.secho(
+            #     " UNFURL ", nl=False, file=self.stream, fg="white", bg="bright_cyan"
+            # )
+            # click.secho(
+            #     f" {level.name} ", nl=False, file=self.stream, **self.STYLE_LEVEL[level]
+            # )
+            # click.secho(f" {message}", file=self.stream, **self.STYLE_MESSAGE[level])
         except:
             pass
 
