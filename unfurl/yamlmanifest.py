@@ -319,15 +319,8 @@ class YamlManifest(ReadOnlyManifest):
             manifest.get("spec", {}).get("deployment_blueprints") or {}
         )
         if deployment_blueprint:
-            if deployment_blueprint not in deployment_blueprints:
-                raise UnfurlError(
-                    f"Can not find requested deployment blueprint: '{deployment_blueprint}' is missing from the ensemble."
-                )
+            self._add_deployment_blueprint_template(deployment_blueprints, deployment_blueprint, more_spec)
             logger.info('Using deployment blueprint "%s"', deployment_blueprint)
-            resource_templates = deployment_blueprints[deployment_blueprint].get("resource_templates")
-            if resource_templates:
-                node_templates = more_spec["topology_template"]["node_templates"]
-                self._load_resource_templates(resource_templates, node_templates, False)
         elif deployment_blueprints:
             logger.warning("This ensemble contains deployment blueprints but none were specified for use.")
         if self.context.get("instances"):
@@ -374,6 +367,21 @@ class YamlManifest(ReadOnlyManifest):
 
         self._configure_root(rootResource)
         self._ready(rootResource)
+
+    def _add_deployment_blueprint_template(self, deployment_blueprints, deployment_blueprint, more_spec):
+        if deployment_blueprint not in deployment_blueprints:
+            raise UnfurlError(
+                f"Can not find requested deployment blueprint: '{deployment_blueprint}' is missing from the ensemble."
+            )
+        local_resource_templates = deployment_blueprints[deployment_blueprint].get("resource_templates") or {}
+        local_resource_templates.update(deployment_blueprints[deployment_blueprint].get("ResourceTemplate") or {})
+        resource_templates = {}
+        for template_name in deployment_blueprints[deployment_blueprint].get("resourceTemplates", []):
+            if template_name in local_resource_templates:
+                resource_templates[template_name] = local_resource_templates[template_name]
+        if resource_templates:
+            node_templates = more_spec["topology_template"]["node_templates"]
+            self._load_resource_templates(resource_templates, node_templates, False)
 
     def _configure_root(self, rootResource):
         rootResource.imports = self.imports
