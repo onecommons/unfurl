@@ -780,13 +780,18 @@ class Job(ConfigChange):
             elif isinstance(taskRequest, TaskRequestGroup):
                 _task = self.apply_group(depth, taskRequest)
             else:
-                print("\e[0Ksection_start:`date +%s`:my_first_section\r\e[0K" + f"Task #{idx}/{len(taskRequests)}")
+                ci = os.environ.get("CI", False) # Running in a CI environment (eg GitLab CI)
+                if ci:
+                    # Start collapsible section
+                    print(f"\e[0Ksection_start:`date +%s`:task_{idx + 1}/{len(taskRequests)}\r\e[0K" + f"Task #{idx + 1}/{len(taskRequests)}")
+
                 _task = self._run_operation(taskRequest, workflow, depth, meta={
                     "task_number": idx,
                     "task_count": len(taskRequests),
                     "logger": logging.getLogger(f"unfurljob.{idx}")
-                })
-                print("\e[0Ksection_end:`date +%s`:my_first_section\r\e[0K")
+                } if ci else {})
+                if ci:
+                    print("\e[0Ksection_end:`date +%s`:my_first_section\r\e[0K")
             if not _task:
                 continue
             task = _task
