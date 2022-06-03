@@ -348,12 +348,12 @@ def is_computed(p): # p: Property | PropertyDef
 #         return None
 #     return attribute_value_to_json(p, value)
 
-def _is_get_env_value(value):
-    return isinstance(value, dict) and 'get_env' in value
+def _is_get_env_or_secret(value):
+    return isinstance(value, dict) and ('get_env' in value or 'secret' in value)
 
 def attribute_value_to_json(p, value):
     if isinstance(value, sensitive) or p.schema.metadata.get('sensitive'):
-        if _is_get_env_value(value):
+        if _is_get_env_or_secret(value):
             return value
         return sensitive.redacted_str
     if isinstance(value, PortSpec):
@@ -557,7 +557,7 @@ def template_properties_to_json(nodetemplate):
     # if they aren't only include ones with an explicity value
     for p in nodetemplate.get_properties_objects():
         computed = is_computed(p)
-        if computed and not _is_get_env_value(p.value):
+        if computed and not _is_get_env_or_secret(p.value):
             # don't expose values that are expressions to the user
             value = None
         else:
@@ -1194,7 +1194,11 @@ def add_computed_properties(instance):
                 p = Property(name, value, dict(type="any"),
                         instance.template.toscaEntityTemplate.custom_def)
             if p.schema.get("metadata", {}).get("visibility") != 'hidden':
-                attrs.append(dict(name=p.name, value=attribute_value_to_json(p, value)))
+                if isinstance(value, sensitive) and _is_get_env_or_secret(p.value):
+                    value = p.value
+                else:
+                    value = attribute_value_to_json(p, value)
+                attrs.append(dict(name=p.name, value=value))
     return attrs
 
 
