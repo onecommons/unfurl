@@ -353,6 +353,8 @@ def attribute_value_to_json(p, value):
         return sensitive.redacted_str
     if isinstance(value, PortSpec):
         return value.spec
+    elif isinstance(value, dict) and p.type in ["tosca.datatypes.network.PortSpec", "PortSpec"]:
+        return PortSpec(value).spec
     scalar_class = get_scalarunit_class(p.type)
     if scalar_class:
         unit = p.schema.metadata.get("default_unit")
@@ -556,7 +558,7 @@ def template_properties_to_json(nodetemplate):
         else:
             value = attribute_value_to_json(p, p.value)
         if not is_property_user_visible(p):
-            if p.value is None:
+            if p.value is None or p.value == p.default:
                 # assumed to not be set, just use the default value and skip
                 continue
             if computed:
