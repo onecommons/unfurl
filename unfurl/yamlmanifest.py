@@ -373,12 +373,17 @@ class YamlManifest(ReadOnlyManifest):
             raise UnfurlError(
                 f"Can not find requested deployment blueprint: '{deployment_blueprint}' is missing from the ensemble."
             )
-        local_resource_templates = deployment_blueprints[deployment_blueprint].get("resource_templates") or {}
-        local_resource_templates.update(deployment_blueprints[deployment_blueprint].get("ResourceTemplate") or {})
-        resource_templates = {}
-        for template_name in deployment_blueprints[deployment_blueprint].get("resourceTemplates", []):
-            if template_name in local_resource_templates:
-                resource_templates[template_name] = local_resource_templates[template_name]
+        deployment_blueprint_tpl = deployment_blueprints[deployment_blueprint]
+        resource_templates = deployment_blueprint_tpl.get("resource_templates")
+        resourceTemplates = deployment_blueprint_tpl.get("resourceTemplates")
+        if resourceTemplates is not None:
+            # resourceTemplates and ResourceTemplate keys exist when imported from json
+            resource_templates = {}
+            local_resource_templates = deployment_blueprint_tpl.get("ResourceTemplate") or {}
+            for template_name in resourceTemplates:
+                if template_name in local_resource_templates:
+                    resource_templates[template_name] = local_resource_templates[template_name]
+
         if resource_templates:
             node_templates = more_spec["topology_template"]["node_templates"]
             self._load_resource_templates(resource_templates, node_templates, False)
