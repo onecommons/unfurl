@@ -359,7 +359,7 @@ def attribute_value_to_json(p, value):
     if isinstance(value, PortSpec):
         return value.spec
     elif isinstance(value, dict) and p.type in ["tosca.datatypes.network.PortSpec", "PortSpec"]:
-        return PortSpec(value).spec
+        return PortSpec.make(value).spec
     scalar_class = get_scalarunit_class(p.type)
     if scalar_class:
         unit = p.schema.metadata.get("default_unit")
