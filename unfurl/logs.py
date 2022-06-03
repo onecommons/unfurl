@@ -6,6 +6,7 @@ import os
 import tempfile
 from typing import Any, Dict, Tuple, Union
 from typing_extensions import NotRequired, TypedDict
+import click
 
 # import click
 import rich
@@ -114,16 +115,11 @@ class ColorHandler(logging.StreamHandler):
         message = truncate(self.format(record))
         level = Levels[record.levelname]
         try:
-            rich.print(f"[bold] UNFURL [/bold]", end="", file=self.stream)
-            rich.print(f"[{self.RICH_STYLE_LEVEL[level]}] {level.name} [/]", end="", file=self.stream)
-            rich.print(f" {message}", file=self.stream)
-            # click.secho(
-            #     " UNFURL ", nl=False, file=self.stream, fg="white", bg="bright_cyan"
-            # )
-            # click.secho(
-            #     f" {level.name} ", nl=False, file=self.stream, **self.STYLE_LEVEL[level]
-            # )
-            # click.secho(f" {message}", file=self.stream, **self.STYLE_MESSAGE[level])
+            from rich.console import Console
+            console = Console(soft_wrap=True)
+            console.print(f"[bold] UNFURL [/bold]", end="")
+            console.print(f"[{self.RICH_STYLE_LEVEL[level]}] {level.name} [/]", end="")
+            console.print(f" {message}")
         except:
             pass
 

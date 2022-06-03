@@ -786,14 +786,14 @@ class Job(ConfigChange):
                 ci = os.environ.get("CI", False) # Running in a CI environment (eg GitLab CI)
                 if ci:
                     # Start collapsible section
-                    print(f"\033[0Ksection_start:{int(time.time())}:task_{hash(taskRequest)}[collapsed=true]\r\033[0K", end="")
-                    rich.print(f"Task [bold blue]{taskRequest.target.name}[/bold blue]")
+                    print(f"\033[0Ksection_start:{int(time.time())}:task_{hash(taskRequest)}[collapsed=true]\r\033[0KTask {taskRequest.target.name} ({taskRequest}")
 
                 _task = self._run_operation(taskRequest, workflow, depth, meta={
                     "task_number": idx,
                     "task_count": len(taskRequests),
                     "logger": logging.getLogger(f"unfurljob.{idx}")
                 } if ci else {})
+
                 if ci:
                     print(f"\033[0Ksection_end:{int(time.time())}:task_{hash(taskRequest)}\r\033[0K")
             if not _task:
