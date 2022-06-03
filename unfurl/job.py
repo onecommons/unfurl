@@ -8,11 +8,14 @@ Each task tracks and records its modifications to the system's state
 
 import collections
 from datetime import datetime
+import time
 import types
 import itertools
 import os
 import json
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple, Union, cast, TYPE_CHECKING
+
+import rich
 
 from .support import Status, Priority, Defaults, AttributeManager, Reason, NodeState
 from .result import ResourceRef, serialize_value, ChangeRecord
@@ -783,7 +786,8 @@ class Job(ConfigChange):
                 ci = os.environ.get("CI", False) # Running in a CI environment (eg GitLab CI)
                 if ci:
                     # Start collapsible section
-                    print(f"\e[0Ksection_start:`date +%s`:task_{idx + 1}/{len(taskRequests)}\r\e[0K" + f"Task #{idx + 1}/{len(taskRequests)}")
+                    print(f"\033[0Ksection_start:{int(time.time())}:task_{hash(taskRequest)}[collapsed=true]\r\033[0K", end="")
+                    rich.print(f"Task [bold blue]{taskRequest.target.name}[/bold blue]")
 
                 _task = self._run_operation(taskRequest, workflow, depth, meta={
                     "task_number": idx,
@@ -791,7 +795,7 @@ class Job(ConfigChange):
                     "logger": logging.getLogger(f"unfurljob.{idx}")
                 } if ci else {})
                 if ci:
-                    print("\e[0Ksection_end:`date +%s`:my_first_section\r\e[0K")
+                    print(f"\033[0Ksection_end:{int(time.time())}:task_{hash(taskRequest)}\r\033[0K")
             if not _task:
                 continue
             task = _task
