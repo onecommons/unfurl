@@ -14,7 +14,6 @@ environments:
     secrets:
       vault_secrets:
         default: # leaving secret value blank, expecting a UNFURL_VAULT_DEFAULT_PASSWORD environment variable
-      default: "{{ lookup('env', key) }}"
     repositories:
       types:
         url: https://gitlab.com/onecommons/unfurl-types

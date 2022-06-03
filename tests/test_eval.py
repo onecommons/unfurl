@@ -215,6 +215,10 @@ class EvalTest(unittest.TestCase):
             map_value("{{ lookup('env', 'TEST_ENV') }}", resource), "testEnv"
         )
 
+        self.assertEqual(
+            map_value("{{ lookup('env', 'MISSING') }}", resource), ""
+        )
+
         # test that ref vars as can be used as template string vars
         exp = {"a": "{{ aVar }} world"}
         vars = {"aVar": "hello"}
