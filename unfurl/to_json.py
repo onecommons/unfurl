@@ -343,13 +343,18 @@ def is_computed(p): # p: Property | PropertyDef
     )
 
 
-def property_value_to_json(p, value):
-    if is_computed(p):
-        return None
-    return attribute_value_to_json(p, value)
+# def property_value_to_json(p, value):
+#     if is_computed(p):
+#         return None
+#     return attribute_value_to_json(p, value)
+
+def _is_get_env_value(value):
+    return isinstance(value, dict) and 'get_env' in value
 
 def attribute_value_to_json(p, value):
     if isinstance(value, sensitive) or p.schema.metadata.get('sensitive'):
+        if _is_get_env_value(value):
+            return value
         return sensitive.redacted_str
     if isinstance(value, PortSpec):
         return value.spec
@@ -552,7 +557,7 @@ def template_properties_to_json(nodetemplate):
     # if they aren't only include ones with an explicity value
     for p in nodetemplate.get_properties_objects():
         computed = is_computed(p)
-        if computed:
+        if computed and not _is_get_env_value(p.value):
             # don't expose values that are expressions to the user
             value = None
         else:
