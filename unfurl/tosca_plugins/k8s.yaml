@@ -3,7 +3,6 @@
 tosca_definitions_version: tosca_simple_unfurl_1_0_0
 
 node_types:
-
   unfurl.nodes.K8sCluster:
     derived_from: tosca.nodes.Root
     capabilities:
@@ -32,6 +31,7 @@ node_types:
       - host:
           node: unfurl.nodes.K8sCluster
           relationship: tosca.relationships.HostedOn
+          occurrences: [0, 1]
     properties:
       definition:
         type: any
@@ -93,7 +93,6 @@ node_types:
           sensitive: true
 
 capability_types:
-
   unfurl.capabilities.Endpoint.K8sCluster:
     derived_from: tosca.capabilities.Endpoint.Admin
     description: >
@@ -110,7 +109,6 @@ capability_types:
         required: false
 
 relationship_types:
-
   unfurl.relationships.ConnectsTo.K8sCluster:
     derived_from: tosca.relationships.ConnectsTo
     valid_target_types: [unfurl.capabilities.Endpoint.K8sCluster]
@@ -120,7 +118,7 @@ relationship_types:
         description: >
           Path to an existing Kubernetes config file. If not provided, and no other connection
           options are provided, and the KUBECONFIG environment variable is not set, the default location will be used (~/.kube/config.json).
-        default: {get_env: KUBECONFIG}
+        default: { get_env: KUBECONFIG }
       context:
         type: string
         description: >
