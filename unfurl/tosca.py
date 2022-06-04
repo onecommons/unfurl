@@ -191,6 +191,7 @@ class ToscaSpec:
 
     def _parse_template(self, path, inputs, toscaDef, resolver):
         # need to set a path for the import loader
+        ToscaTemplate.strict = True
         self.template = ToscaTemplate(
             path=path,
             parsed_params=inputs,
