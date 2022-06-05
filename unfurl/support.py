@@ -894,6 +894,7 @@ class AttributeManager:
         self.attributes = {}
         self.statuses = {}
         self._yaml = yaml  # hack to safely expose the yaml context
+        self._context = None
 
     @property
     def yaml(self):
@@ -921,6 +922,19 @@ class AttributeManager:
             if resource.template is not template and template not in resource.template._isReferencedBy:
                 resource.template._isReferencedBy.append(template)
 
+    def _get_context(self, resource):
+        if self._context:
+            # assumes vars are already created
+            return self._context.copy(resource)
+        else:
+            vars = dict(NODES=TopologyMap(resource.root))
+            if "inputs" in resource.root._attributes:
+                vars["TOPOLOGY"] = dict(
+                    inputs=resource.root._attributes["inputs"],
+                    outputs=resource.root._attributes["outputs"],
+                )
+            return RefContext(resource, vars, strict=False) # XXX
+
     def get_attributes(self, resource):
         if resource.key not in self.attributes:
             # deepcopy() because lazily created ResultMaps and ResultLists will mutate
@@ -934,19 +948,17 @@ class AttributeManager:
                 )
             else:
                 _attributes = ChainMap(copy.deepcopy(resource._attributes))
-
-            vars = dict(NODES=TopologyMap(resource.root))
-            if "inputs" in resource.root._attributes:
-                vars["TOPOLOGY"] = dict(
-                    inputs=resource.root._attributes["inputs"],
-                    outputs=resource.root._attributes["outputs"],
-                )
-            ctx = RefContext(resource, vars)
-            attributes = ResultsMap(_attributes, ctx)
+            ctx = self._get_context(resource)
+            mode = os.getenv("UNFURL_VALIDATION_MODE")
+            validate = False # XXX
+            if mode is not None:
+                validate = "propcheck" in mode
+            attributes = ResultsMap(_attributes, ctx, validate=validate)
             self.attributes[resource.key] = (resource, attributes)
             return attributes
         else:
-            return self.attributes[resource.key][1]
+            attributes = self.attributes[resource.key][1]
+            return attributes
 
     # def revertChanges(self):
     #   self.attributes = {}

@@ -12,6 +12,7 @@ from .result import ResourceRef, ResultsList
 from .merge import patch_dict, merge_dicts
 from .logs import get_console_log_level
 from toscaparser.tosca_template import ToscaTemplate
+from toscaparser.entity_template import EntityTemplate
 from toscaparser.properties import Property
 from toscaparser.elements.entity_type import EntityType
 from toscaparser.elements.statefulentitytype import StatefulEntityType
@@ -19,7 +20,7 @@ import toscaparser.workflow
 import toscaparser.imports
 import toscaparser.artifacts
 from toscaparser.common.exception import ExceptionCollector
-import six
+import os
 import logging
 import re
 
@@ -192,6 +193,11 @@ class ToscaSpec:
     def _parse_template(self, path, inputs, toscaDef, resolver):
         # need to set a path for the import loader
         ToscaTemplate.strict = True
+        mode = os.getenv("UNFURL_VALIDATION_MODE")
+        additionalProperties = True # XXX default to False
+        if mode is not None:
+            additionalProperties = "additionalProperties" in mode
+        EntityTemplate.additionalProperties = additionalProperties
         self.template = ToscaTemplate(
             path=path,
             parsed_params=inputs,
@@ -702,7 +708,7 @@ class EntitySpec(ResourceRef):
     def find_or_create_artifact(self, nameOrTpl, path=None, predefined=False):
         if not nameOrTpl:
             return None
-        if isinstance(nameOrTpl, six.string_types):
+        if isinstance(nameOrTpl, str):
             name = nameOrTpl
             artifact = self.artifacts.get(nameOrTpl)
             if artifact:

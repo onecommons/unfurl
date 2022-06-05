@@ -393,6 +393,8 @@ class TaskView:
         if self._inputs is None:
             assert self._attributeManager  # type: ignore
             assert self.target.root.attributeManager is self._attributeManager  # type: ignore
+            ctx = RefContext(self.target, task=self)
+            self._attributeManager._context = ctx
             # deepcopy because ResultsMap might modify interior maps and lists
             inputs = copy.deepcopy(self.configSpec.inputs)
             relationship = isinstance(self.target, RelationshipInstance)
@@ -422,7 +424,7 @@ class TaskView:
                 vars["SOURCE"] = self.target.source.attributes  # type: ignore
                 vars["TARGET"] = target.attributes
             # expose inputs lazily to allow self-referencee
-            ctx = RefContext(self.target, vars, task=self, strict=not self._rendering)
+            ctx.vars = vars
             if self.configSpec.artifact and self.configSpec.artifact.base_dir:
                 ctx.base_dir = self.configSpec.artifact.base_dir
             self._inputs = ResultsMap(inputs, ctx)

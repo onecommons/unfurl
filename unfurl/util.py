@@ -665,6 +665,8 @@ required_envvars = [
     "UNFURL_APPROVE",
     "UNFURL_MOCK_DEPLOY",
     "UNFURL_LOGFILE",
+    "UNFURL_VAULT_SKIP_DECRYPT",
+    "UNFURL_VALIDATION_MODE"
 ]
 # hack for sphinx ext documentedlist
 _sphinx_envvars = [(i,) for i in required_envvars]

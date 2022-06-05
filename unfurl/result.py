@@ -7,10 +7,12 @@ from typing import Match, Optional
 import six
 import hashlib
 import re
+from toscaparser.common.exception import ValidationError
 
 from .merge import diff_dicts
 from .util import (
     UnfurlError,
+    UnfurlTaskError,
     is_sensitive,
     sensitive_dict,
     sensitive_list,
@@ -145,11 +147,11 @@ class ChangeRecord:
     DateTimeFormat = "%Y-%m-%d-%H-%M-%S-%f"
 
     def __init__(
-        self, 
+        self,
         jobId: Optional[str]=None,
         startTime: Optional[datetime]=None,
         taskId: int=0,
-        previousId: Optional[str]=None, 
+        previousId: Optional[str]=None,
         parse: Optional[str]=None
     ):
         if parse:
@@ -469,7 +471,7 @@ class Results(ABC):
     def resolve_all(self):
         ...
 
-    def __init__(self, serializedOriginal, resourceOrCxt):
+    def __init__(self, serializedOriginal, resourceOrCxt, validate=False):
         from .eval import RefContext
 
         assert not isinstance(serializedOriginal, Results), serializedOriginal
@@ -487,6 +489,7 @@ class Results(ABC):
             ctx.base_dir = newBaseDir
             ctx.trace("found baseDir", newBaseDir, "old", oldBaseDir)
         self.context = ctx
+        self.validate = validate
 
     def get_copy(self, key, default=None):
         # return a copy of value or default if not found
@@ -555,9 +558,34 @@ class Results(ABC):
             else:
                 result = Result(resolved)
             result.original = _Get
+            if self.validate:
+                self._validate(key, result.resolved)
             self._attributes[key] = result
             assert not isinstance(resolved, Result), val
             return result
+
+    def _validate(self, key, value):
+        resource = self.context.currentResource
+        defs = resource.template and resource.template.propertyDefs or {}
+        propDef = defs.get(key)
+        if not propDef:
+            return
+        try:
+            if value is None:
+                # required attributes might be null depending on the state of the resource
+                if propDef.required and key not in resource.template.attributeDefs:
+                  msg = f'Property "{key}" on "{resource.template.name}" cannot be null.'
+                  raise ValidationError(message=msg)
+            else:
+                propDef._validate(value)
+        except Exception as err:
+            msg = f'Error while evaluating "{key}" on "{resource.name}": {err}'
+            if self.context.task:
+                UnfurlTaskError(self.context.task, msg)
+            elif self.context.strict:
+                raise UnfurlError(msg, True)
+            else:
+                self.context.trace(msg)
 
     def _haskey(self, key):
         # can't use "in" operator for lists
@@ -572,6 +600,8 @@ class Results(ABC):
         if self._haskey(key):
             resolved = self[key]
             if resolved != value:
+                if self.validate:
+                    self._validate(key, value)
                 # exisiting value changed
                 result = self._attributes[key]
                 if result.original is _Get:
@@ -579,6 +609,8 @@ class Results(ABC):
                     result.original = result.resolved
                 result.resolved = value
         else:
+            if self.validate:
+                self._validate(key, value)
             self._attributes[key] = Result(value)
 
         # remove from deleted if it's there
