@@ -233,15 +233,13 @@ class ToscaSpec:
         }
         ExceptionCollector.collecting = False
 
-    def _patch(self, toscaDef, path):
+    def _patch(self, toscaDef, path, errorsSoFar):
         matches = None
         decorators = self.load_decorators()
         if decorators:
             logger.debug("applying decorators %s", decorators)
-            # copy errors before we clear them in _overlay
-            errorsSoFar = ExceptionCollector.exceptions[:]
-            # overlay uses ExceptionCollector
             matches = self._overlay(decorators)
+            # overlay uses ExceptionCollector
             if ExceptionCollector.exceptionsCaught():
                 # abort if overlay caused errors
                 # report previously collected errors too
@@ -289,10 +287,14 @@ class ToscaSpec:
                 if not ExceptionCollector.exceptionsCaught() or not self.template or not self.topology:
                     raise  # unexpected error
 
-            patched = self._patch(toscaDef, path)
+            # copy errors because self._patch() might clear them
+            errorsSoFar = ExceptionCollector.exceptions[:]
+            patched = self._patch(toscaDef, path, errorsSoFar)
             if patched:
                 # overlay and evaluate_imports modifies tosaDef in-place, try reparsing it
                 self._parse_template(path, inputs, toscaDef, resolver)
+            else: # restore previously errors
+                ExceptionCollector.exceptions[:0] = errorsSoFar
 
             if ExceptionCollector.exceptionsCaught():
                 message = "\n".join(
