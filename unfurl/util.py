@@ -609,7 +609,8 @@ def filter_env(rules: Mapping, env: Optional[Union[Dict, "os._Environ[str]"]]=No
     for name, val in rules.items():
         if name[:1] in "+-^":
             # add or remove from env
-            remove = name[1] == "-"
+            remove = name[0] == "-"
+            prepend = name[0] == "^"
             name = name[1:]
             neg = name[:1] == "!"
             if neg:
@@ -630,7 +631,7 @@ def filter_env(rules: Mapping, env: Optional[Union[Dict, "os._Environ[str]"]]=No
                 ]
             else:
                 if match:
-                    if name[1] == "^" and val:
+                    if prepend and val:
                         # treat as PATH-like and prepend val
                         match = {k: (val + os.pathsep + v) for k, v in match.items()}
                     start.update(match)

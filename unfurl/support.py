@@ -512,7 +512,18 @@ def get_env(args, ctx):
 
 set_eval_func("get_env", get_env, True)
 
-set_eval_func("to_env", lambda args, ctx: filter_env(map_value(args, ctx), addOnly=True))
+
+def to_env(args, ctx):
+    env = None
+    if ctx.task:
+        env = ctx.task.get_environment()
+    result = filter_env(map_value(args, ctx), env, addOnly=True)
+    if ctx.kw.get('update_os_environ'):
+        os.environ.update(result)
+    return result
+
+
+set_eval_func("to_env", to_env)
 
 _toscaKeywordsToExpr = {
     "SELF": ".",
