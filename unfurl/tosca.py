@@ -192,11 +192,13 @@ class ToscaSpec:
 
     def _parse_template(self, path, inputs, toscaDef, resolver):
         # need to set a path for the import loader
-        ToscaTemplate.strict = True
         mode = os.getenv("UNFURL_VALIDATION_MODE")
+        ToscaTemplate.strict = False # XXX default to True
         additionalProperties = True # XXX default to False
         if mode is not None:
             additionalProperties = "additionalProperties" in mode
+            additionalProperties = "noextraprops" not in mode
+            ToscaTemplate.strict = "reqcheck" in mode
         EntityTemplate.additionalProperties = additionalProperties
         self.template = ToscaTemplate(
             path=path,
