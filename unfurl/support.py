@@ -516,7 +516,7 @@ set_eval_func("get_env", get_env, True)
 def to_env(args, ctx):
     env = None
     if ctx.task:
-        env = ctx.task.get_environment()
+        env = ctx.task.get_environment(False)
     result = filter_env(map_value(args, ctx), env, addOnly=True)
     if ctx.kw.get('update_os_environ'):
         os.environ.update(result)
