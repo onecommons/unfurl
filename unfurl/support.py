@@ -27,6 +27,7 @@ from .util import (
     find_schema_errors,
     UnfurlError,
     UnfurlValidationError,
+    UnfurlTaskError,
     assert_form,
     wrap_sensitive_value,
     is_sensitive,
@@ -303,6 +304,8 @@ def apply_template(value, ctx, overrides=None):
         templar.environment.undefined = UnfurlUndefined
 
     vars = _VarTrackerDict(__unfurl=ctx, __python_executable=sys.executable)
+    if hasattr(ctx.currentResource, "attributes"):
+        vars['SELF'] = ctx.currentResource.attributes
     vars.update(ctx.vars)
     vars.ctx = ctx
 
@@ -332,6 +335,8 @@ def apply_template(value, ctx, overrides=None):
             else:
                 logger.warning(value[2:100] + "... see debug log for full report")
                 logger.debug(value, exc_info=True)
+                if ctx.task:
+                    ctx.task._errors.append( UnfurlTaskError(ctx.task, msg) )
         else:
             if value != oldvalue:
                 ctx.trace("successfully processed template:", value)
@@ -507,7 +512,18 @@ def get_env(args, ctx):
 
 set_eval_func("get_env", get_env, True)
 
-set_eval_func("to_env", lambda args, ctx: filter_env(map_value(args, ctx), addOnly=True))
+
+def to_env(args, ctx):
+    env = None
+    if ctx.task:
+        env = ctx.task.get_environment(False)
+    result = filter_env(map_value(args, ctx), env, addOnly=True)
+    if ctx.kw.get('update_os_environ'):
+        os.environ.update(result)
+    return result
+
+
+set_eval_func("to_env", to_env)
 
 _toscaKeywordsToExpr = {
     "SELF": ".",
@@ -878,6 +894,7 @@ class AttributeManager:
         self.attributes = {}
         self.statuses = {}
         self._yaml = yaml  # hack to safely expose the yaml context
+        self._context = None
 
     @property
     def yaml(self):
@@ -905,6 +922,19 @@ class AttributeManager:
             if resource.template is not template and template not in resource.template._isReferencedBy:
                 resource.template._isReferencedBy.append(template)
 
+    def _get_context(self, resource):
+        if self._context:
+            # assumes vars are already created
+            return self._context.copy(resource)
+        else:
+            vars = dict(NODES=TopologyMap(resource.root))
+            if "inputs" in resource.root._attributes:
+                vars["TOPOLOGY"] = dict(
+                    inputs=resource.root._attributes["inputs"],
+                    outputs=resource.root._attributes["outputs"],
+                )
+            return RefContext(resource, vars, strict=False) # XXX
+
     def get_attributes(self, resource):
         if resource.key not in self.attributes:
             # deepcopy() because lazily created ResultMaps and ResultLists will mutate
@@ -918,19 +948,17 @@ class AttributeManager:
                 )
             else:
                 _attributes = ChainMap(copy.deepcopy(resource._attributes))
-
-            vars = dict(NODES=TopologyMap(resource.root))
-            if "inputs" in resource.root._attributes:
-                vars["TOPOLOGY"] = dict(
-                    inputs=resource.root._attributes["inputs"],
-                    outputs=resource.root._attributes["outputs"],
-                )
-            ctx = RefContext(resource, vars)
-            attributes = ResultsMap(_attributes, ctx)
+            ctx = self._get_context(resource)
+            mode = os.getenv("UNFURL_VALIDATION_MODE")
+            validate = False # XXX
+            if mode is not None:
+                validate = "propcheck" in mode
+            attributes = ResultsMap(_attributes, ctx, validate=validate)
             self.attributes[resource.key] = (resource, attributes)
             return attributes
         else:
-            return self.attributes[resource.key][1]
+            attributes = self.attributes[resource.key][1]
+            return attributes
 
     # def revertChanges(self):
     #   self.attributes = {}

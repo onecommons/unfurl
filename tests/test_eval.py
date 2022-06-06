@@ -215,6 +215,10 @@ class EvalTest(unittest.TestCase):
             map_value("{{ lookup('env', 'TEST_ENV') }}", resource), "testEnv"
         )
 
+        self.assertEqual(
+            map_value("{{ lookup('env', 'MISSING') }}", resource), ""
+        )
+
         # test that ref vars as can be used as template string vars
         exp = {"a": "{{ aVar }} world"}
         vars = {"aVar": "hello"}
@@ -507,3 +511,21 @@ BAR: ''
 BAZ: 'true'
 QUU: <<REDACTED>>
 '''
+
+    def test_to_env_set_environ(self):
+        import six
+        from unfurl.yamlloader import make_yaml
+        src = """
+          eval:
+            to_env:
+              ^PATH: /foo/bin
+            update_os_environ: true
+          """
+        yaml = make_yaml()
+        expr = yaml.load(six.StringIO(src))
+        ctx = RefContext(self._getTestResource())
+        path = os.environ['PATH']
+        env = map_value(expr, ctx)
+        new_path = "/foo/bin:"+path
+        assert os.environ['PATH'] == new_path
+        assert env == {'PATH': new_path}

@@ -31,14 +31,17 @@ node_types:
           eval: name
       organization_id:
         type: integer
+        required: false
         default:
           eval: .parent::.ancestors::organization_id
       billing_account:
         type: string
+        required: false
         default:
           eval: .parent::.ancestors::billing_account
       folder_id:
         type: integer
+        required: false
         default:
           eval: .parent[.type=unfurl.nodes.GoogleCloudFolder]::id
       activate_apis:
@@ -172,6 +175,10 @@ node_types:
             concat:
               [{ get_property: [SELF, type] }, /, { get_property: [SELF, id] }],
           }
+      billing_account:
+        type: string
+        required: false
+        description: Default billing account for projects in this resource
     capabilities:
       host:
         type: tosca.capabilities.Container

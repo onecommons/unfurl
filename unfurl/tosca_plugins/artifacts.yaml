@@ -20,7 +20,6 @@ artifact_types:
     interfaces:
       defaults:
         # XXX get_dir only works on localhost
-        # XXX unfurl only reads .tool-versions on startup
         implementation: Cmd
         inputs:
           cmd: |
@@ -37,6 +36,11 @@ artifact_types:
           keeplines: true
           # asdf.sh requires bash
           shell: '{{ "bash" | which }}'
+          resultTemplate:
+            # update the process's PATH to the tool is available right away
+            to_env:
+              ^PATH: '{{ lookup("env", "ASDF_DATA_DIR") }}/installs/{{ SELF.plugin}}/{{SELF.version}}/bin }}'
+            update_os_environ: true
       Standard:
         configure:
         delete:

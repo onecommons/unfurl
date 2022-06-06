@@ -140,11 +140,18 @@ class RefContext:
         self.wantList = wantList
         self.resolveExternal = resolveExternal
         self._trace = self.DefaultTraceLevel if trace is None else trace
-        self.strict = strict
+        self._strict = strict
         self.base_dir = currentResource.base_dir
         self.templar = currentResource.templar
         self.referenced = _Tracker()
         self.task = task
+
+    @property
+    def strict(self):
+        if self.task:
+           return not self.task._rendering
+        else:
+            return self._strict
 
     def copy(
         self,
@@ -160,7 +167,7 @@ class RefContext:
             self.wantList,
             self.resolveExternal,
             max(self._trace, trace),
-            self.strict if strict is None else strict,
+            self._strict if strict is None else strict,
         )
         if not isinstance(copy.currentResource, ResourceRef) and isinstance(
             self._lastResource, ResourceRef

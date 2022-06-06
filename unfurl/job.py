@@ -1484,6 +1484,7 @@ def start_job(manifestPath=None, _opts=None):
     errors = rendered[2]
     if errors:
         logger.error("Aborting job: there were errors during rendering: %s", errors)
+        job.local_status = Status.error  # type: ignore
     return job, rendered, count and not errors
 
 

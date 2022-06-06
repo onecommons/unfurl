@@ -178,11 +178,6 @@ readonlyJobControlOptions = option_group(
         default="never",
         help="Set exit code to 1 if job status is not ok. (Default: never)",
     ),
-    click.option(
-        "--use-environment",
-        default=None,
-        help="Run this job in the given environment.",
-    ),
 )
 jobControlOptions = option_group(
     readonlyJobControlOptions,
@@ -212,6 +207,11 @@ commonJobFilterOptions = option_group(
         default=False,
         is_flag=True,
         help="(Re)run operation regardless of instance's status or state",
+    ),
+    click.option(
+        "--use-environment",
+        default=None,
+        help="Run this job in the given environment.",
     ),
 )
 destroyUnmanagedOption = click.option(

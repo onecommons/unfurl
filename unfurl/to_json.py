@@ -315,8 +315,9 @@ def resource_visibility(spec, t):
 
 
 def is_property_user_visible(p):
-    if p.schema.get("metadata", {}).get("user_settable"):
-        return True
+    user_settable = p.schema.get("metadata", {}).get("user_settable")
+    if user_settable is not None:
+        return user_settable
     if p.default is not None or is_computed(p):
         return False
     return True
@@ -342,16 +343,23 @@ def is_computed(p): # p: Property | PropertyDef
     )
 
 
-def property_value_to_json(p, value):
-    if is_computed(p):
-        return None
-    return attribute_value_to_json(p, value)
+# def property_value_to_json(p, value):
+#     if is_computed(p):
+#         return None
+#     return attribute_value_to_json(p, value)
+
+def _is_get_env_or_secret(value):
+    return isinstance(value, dict) and ('get_env' in value or 'secret' in value)
 
 def attribute_value_to_json(p, value):
     if isinstance(value, sensitive) or p.schema.metadata.get('sensitive'):
+        if _is_get_env_or_secret(value):
+            return value
         return sensitive.redacted_str
     if isinstance(value, PortSpec):
         return value.spec
+    elif isinstance(value, dict) and p.type in ["tosca.datatypes.network.PortSpec", "PortSpec"]:
+        return PortSpec.make(value).spec
     scalar_class = get_scalarunit_class(p.type)
     if scalar_class:
         unit = p.schema.metadata.get("default_unit")
@@ -545,6 +553,25 @@ def _get_typedef(name: str, spec):
     return typedef
 
 
+def template_properties_to_json(nodetemplate):
+    # if they aren't only include ones with an explicity value
+    for p in nodetemplate.get_properties_objects():
+        computed = is_computed(p)
+        if computed and not _is_get_env_or_secret(p.value):
+            # don't expose values that are expressions to the user
+            value = None
+        else:
+            value = attribute_value_to_json(p, p.value)
+        if not is_property_user_visible(p):
+            if p.value is None or p.value == p.default:
+                # assumed to not be set, just use the default value and skip
+                continue
+            if computed:
+                # preserve the expression
+                value = p.value
+        yield dict(name=p.name, value=value)
+
+
 def nodetemplate_to_json(nodetemplate, spec, types):
     """
     Returns json object as a ResourceTemplate:
@@ -588,11 +615,7 @@ def nodetemplate_to_json(nodetemplate, spec, types):
     )
 
     jsonnodetype = types[nodetemplate.type]
-    json["properties"] = [
-        dict(name=p.name, value=property_value_to_json(p, p.value))
-        for p in nodetemplate.get_properties_objects()
-        if is_property_user_visible(p)
-    ]
+    json["properties"] = list(template_properties_to_json(nodetemplate))
     json["dependencies"] = []
     visibility = resource_visibility(spec, nodetemplate)
     if visibility != "inherit":
@@ -1049,7 +1072,7 @@ def annotate_properties(types):
     for jsontype in types.values():
         for req in (jsontype.get("requirements") or []):
             if req.get('node_filter'):
-                annotations[req['resourceType']] = req['node_filter']
+                annotations[req['resourceType']] = req
     for jsontype in types.values():
         for typename in jsontype['extends']:
             node_filter = annotations.get(typename)
@@ -1062,10 +1085,12 @@ def map_nodefilter(filters, jsonprops):
         if name not in jsonprops or not isinstance(value, dict):
             continue
         if 'eval' in value:
-            # delete annotated properties from target
+            # the filter declared an expression to set the property's value
+            # delete the annotated property from the target to it hide from the user
+            # (since they can't shouldn't set this property now)
             del jsonprops[name]
         else:
-            # update schema definition with node filter constraints
+            # update schema definition with the node filter's constraints
             schema = jsonprops[name]
             tosca_datatype = schema.get("$toscatype") or ONE_TO_ONE_MAP.get(schema['type'], schema['type'])
             constraints = ConditionClause(name, value, tosca_datatype).conditions
@@ -1169,7 +1194,11 @@ def add_computed_properties(instance):
                 p = Property(name, value, dict(type="any"),
                         instance.template.toscaEntityTemplate.custom_def)
             if p.schema.get("metadata", {}).get("visibility") != 'hidden':
-                attrs.append(dict(name=p.name, value=attribute_value_to_json(p, value)))
+                if isinstance(value, sensitive) and _is_get_env_or_secret(p.value):
+                    value = p.value
+                else:
+                    value = attribute_value_to_json(p, value)
+                attrs.append(dict(name=p.name, value=value))
     return attrs
 
 

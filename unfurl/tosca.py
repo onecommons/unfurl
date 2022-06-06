@@ -12,6 +12,7 @@ from .result import ResourceRef, ResultsList
 from .merge import patch_dict, merge_dicts
 from .logs import get_console_log_level
 from toscaparser.tosca_template import ToscaTemplate
+from toscaparser.entity_template import EntityTemplate
 from toscaparser.properties import Property
 from toscaparser.elements.entity_type import EntityType
 from toscaparser.elements.statefulentitytype import StatefulEntityType
@@ -19,7 +20,7 @@ import toscaparser.workflow
 import toscaparser.imports
 import toscaparser.artifacts
 from toscaparser.common.exception import ExceptionCollector
-import six
+import os
 import logging
 import re
 
@@ -191,6 +192,14 @@ class ToscaSpec:
 
     def _parse_template(self, path, inputs, toscaDef, resolver):
         # need to set a path for the import loader
+        mode = os.getenv("UNFURL_VALIDATION_MODE")
+        ToscaTemplate.strict = False # XXX default to True
+        additionalProperties = True # XXX default to False
+        if mode is not None:
+            additionalProperties = "additionalProperties" in mode
+            additionalProperties = "noextraprops" not in mode
+            ToscaTemplate.strict = "reqcheck" in mode
+        EntityTemplate.additionalProperties = additionalProperties
         self.template = ToscaTemplate(
             path=path,
             parsed_params=inputs,
@@ -232,15 +241,13 @@ class ToscaSpec:
         }
         ExceptionCollector.collecting = False
 
-    def _patch(self, toscaDef, path):
+    def _patch(self, toscaDef, path, errorsSoFar):
         matches = None
         decorators = self.load_decorators()
         if decorators:
             logger.debug("applying decorators %s", decorators)
-            # copy errors before we clear them in _overlay
-            errorsSoFar = ExceptionCollector.exceptions[:]
-            # overlay uses ExceptionCollector
             matches = self._overlay(decorators)
+            # overlay uses ExceptionCollector
             if ExceptionCollector.exceptionsCaught():
                 # abort if overlay caused errors
                 # report previously collected errors too
@@ -288,10 +295,14 @@ class ToscaSpec:
                 if not ExceptionCollector.exceptionsCaught() or not self.template or not self.topology:
                     raise  # unexpected error
 
-            patched = self._patch(toscaDef, path)
+            # copy errors because self._patch() might clear them
+            errorsSoFar = ExceptionCollector.exceptions[:]
+            patched = self._patch(toscaDef, path, errorsSoFar)
             if patched:
                 # overlay and evaluate_imports modifies tosaDef in-place, try reparsing it
                 self._parse_template(path, inputs, toscaDef, resolver)
+            else: # restore previously errors
+                ExceptionCollector.exceptions[:0] = errorsSoFar
 
             if ExceptionCollector.exceptionsCaught():
                 message = "\n".join(
@@ -699,7 +710,7 @@ class EntitySpec(ResourceRef):
     def find_or_create_artifact(self, nameOrTpl, path=None, predefined=False):
         if not nameOrTpl:
             return None
-        if isinstance(nameOrTpl, six.string_types):
+        if isinstance(nameOrTpl, str):
             name = nameOrTpl
             artifact = self.artifacts.get(nameOrTpl)
             if artifact:
