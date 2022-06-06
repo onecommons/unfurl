@@ -15,7 +15,6 @@ import os
 import json
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple, Union, cast, TYPE_CHECKING
 
-import rich
 
 from .support import Status, Priority, Defaults, AttributeManager, Reason, NodeState
 from .result import ResourceRef, serialize_value, ChangeRecord
@@ -479,10 +478,19 @@ class ConfigTask(ConfigChange, TaskView):
         if asJson:
             return summary
         else:
+            color = {
+                Status.unknown: "grey",
+                Status.ok: "green",
+                Status.degraded: "yellow",
+                Status.error: "red",
+                Status.pending: "yellow",
+                Status.absent: "red",
+            }[self.target_status]
+
             return (
-                "{operation} on instance {rname} (type {type}, status {targetStatus}) "
+                "{operation} on instance {rname} (type {type}, status [{color}]{targetStatus}[/{color}]) "
                 + "using configurator {cname}, priority: {priority}, reason: {reason}"
-            ).format(cname=cname, rname=rname, **summary)
+            ).format(cname=cname, rname=rname, color=color, **summary)
 
     def __repr__(self):
         return f"ConfigTask({self.target}:{self.name})"
@@ -786,6 +794,8 @@ class Job(ConfigChange):
                 ci = os.environ.get("CI", False) # Running in a CI environment (eg GitLab CI)
                 if ci:
                     # Start collapsible section
+                    # https://docs.gitlab.com/ee/ci/jobs/#expand-and-collapse-job-log-sections
+                    # The octal \033 is used instead of \e because python doesn't recognize \e as an escape sequence
                     print(f"\033[0Ksection_start:{int(time.time())}:task_{hash(taskRequest)}[collapsed=true]\r\033[0KTask {taskRequest.target.name} ({taskRequest}")
 
                 _task = self._run_operation(taskRequest, workflow, depth, meta={
@@ -795,6 +805,7 @@ class Job(ConfigChange):
                 } if ci else {})
 
                 if ci:
+                    # End compressible section
                     print(f"\033[0Ksection_end:{int(time.time())}:task_{hash(taskRequest)}\r\033[0K")
             if not _task:
                 continue

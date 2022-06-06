@@ -82,25 +82,7 @@ class StyleDict(TypedDict):
 
 
 class ColorHandler(logging.StreamHandler):
-    # We can use ANSI colors: https://click.palletsprojects.com/en/8.0.x/api/#click.style
-    STYLE_LEVEL: Dict[Levels, StyleDict] = {
-        Levels.CRITICAL: {"bg": "bright_red", "fg": "white"},
-        Levels.ERROR: {"bg": "red", "fg": "white"},
-        Levels.WARNING: {"bg": (255, 126, 0), "fg": "white"},
-        Levels.INFO: {"bg": "blue", "fg": "white"},
-        Levels.VERBOSE: {"bg": "bright_blue", "fg": "white"},
-        Levels.DEBUG: {"bg": "black", "fg": "white"},
-        Levels.TRACE: {"bg": "bright_black", "fg": "white"},
-    }
-    STYLE_MESSAGE: Dict[Levels, StyleDict] = {
-        Levels.CRITICAL: {"fg": "bright_red"},
-        Levels.ERROR: {"fg": "red"},
-        Levels.WARNING: {"fg": (255, 126, 0)},
-        Levels.INFO: {"fg": "blue"},
-        Levels.VERBOSE: {},
-        Levels.DEBUG: {},
-        Levels.TRACE: {},
-    }
+    # https://rich.readthedocs.io/en/stable/markup.html
     RICH_STYLE_LEVEL = {
         Levels.CRITICAL: "black on red",
         Levels.ERROR: "red",
@@ -116,7 +98,8 @@ class ColorHandler(logging.StreamHandler):
         level = Levels[record.levelname]
         try:
             from rich.console import Console
-            console = Console(soft_wrap=True)
+            # Soft wrap prevents rich from breaking lines automatically (needed for emulated terminals, like gitlab CI)
+            console = Console(soft_wrap=True) 
             console.print(f"[bold] UNFURL [/bold]", end="")
             console.print(f"[{self.RICH_STYLE_LEVEL[level]}] {level.name} [/]", end="")
             console.print(f" {message}")
