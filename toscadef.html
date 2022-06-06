@@ -134,9 +134,9 @@
 tosca_definitions_version: tosca_simple_yaml_1_3
 
 description: &gt;
-    The content of this file reflects TOSCA Simple Profile in YAML version
-    1.3. It describes the definition for TOSCA types including Node Type,
-    Relationship Type, Capability Type and Interfaces.
+  The content of this file reflects TOSCA Simple Profile in YAML version
+  1.3. It describes the definition for TOSCA types including Node Type,
+  Relationship Type, Capability Type and Interfaces.
 
 ##########################################################################
 # Node Type.
@@ -162,7 +162,7 @@ node_types:
           capability: tosca.capabilities.Node
           node: tosca.nodes.Root
           relationship: tosca.relationships.DependsOn
-          occurrences: [ 0, UNBOUNDED ]
+          occurrences: [0, UNBOUNDED]
     interfaces:
       Standard:
         type: tosca.interfaces.node.lifecycle.Standard
@@ -170,9 +170,9 @@ node_types:
   tosca.nodes.Abstract.Compute:
     derived_from: tosca.nodes.Root
     capabilities:
-        host:
-          type: tosca.capabilities.Compute
-          valid_source_types: []
+      host:
+        type: tosca.capabilities.Compute
+        valid_source_types: []
 
   tosca.nodes.Compute:
     derived_from: tosca.nodes.Abstract.Compute
@@ -190,17 +190,17 @@ node_types:
         entry_schema:
           type: tosca.datatypes.network.PortInfo
     capabilities:
-        host:
-           type: tosca.capabilities.Compute
-           valid_source_types: [tosca.nodes.SoftwareComponent]
-        binding:
-           type: tosca.capabilities.network.Bindable
-        os:
-           type: tosca.capabilities.OperatingSystem
-        scalable:
-           type: tosca.capabilities.Scalable
-        endpoint:
-           type: tosca.capabilities.Endpoint.Admin
+      host:
+        type: tosca.capabilities.Compute
+        valid_source_types: [tosca.nodes.SoftwareComponent]
+      binding:
+        type: tosca.capabilities.network.Bindable
+      os:
+        type: tosca.capabilities.OperatingSystem
+      scalable:
+        type: tosca.capabilities.Scalable
+      endpoint:
+        type: tosca.capabilities.Endpoint.Admin
     requirements:
       - local_storage:
           capability: tosca.capabilities.Attachment
@@ -225,6 +225,7 @@ node_types:
           capability: tosca.capabilities.Compute
           node: tosca.nodes.Compute
           relationship: tosca.relationships.HostedOn
+          occurrences: [0, UNBOUNDED] # make optional
 
   tosca.nodes.DBMS:
     derived_from: tosca.nodes.SoftwareComponent
@@ -255,7 +256,7 @@ node_types:
       port:
         required: false
         type: integer
-        description:  &gt;
+        description: &gt;
           The port the database service will use to listen for incoming data and
           requests.
       name:
@@ -333,7 +334,7 @@ node_types:
         required: false
         default: 4
         constraints:
-          - valid_values: [ 4, 6 ]
+          - valid_values: [4, 6]
         description: &gt;
           The IP version of the requested network. Valid values are 4 for ipv4
           or 6 for ipv6.
@@ -346,58 +347,58 @@ node_types:
         type: string
         required: false
         description: &gt;
-           The IP address to be used as the start of a pool of addresses within
-           the full IP range derived from the cidr block.
+          The IP address to be used as the start of a pool of addresses within
+          the full IP range derived from the cidr block.
       end_ip:
         type: string
         required: false
         description: &gt;
-            The IP address to be used as the end of a pool of addresses within
-            the full IP range derived from the cidr block.
+          The IP address to be used as the end of a pool of addresses within
+          the full IP range derived from the cidr block.
       gateway_ip:
         type: string
         required: false
         description: &gt;
-           The gateway IP address.
+          The gateway IP address.
       network_name:
         type: string
         required: false
         description: &gt;
-           An identifier that represents an existing Network instance in the
-           underlying cloud infrastructure or can be used as the name of the
-           newly created network. If network_name is provided and no other
-           properties are provided (with exception of network_id), then an
-           existing network instance will be used. If network_name is provided
-           alongside with more properties then a new network with this name will
-           be created.
+          An identifier that represents an existing Network instance in the
+          underlying cloud infrastructure or can be used as the name of the
+          newly created network. If network_name is provided and no other
+          properties are provided (with exception of network_id), then an
+          existing network instance will be used. If network_name is provided
+          alongside with more properties then a new network with this name will
+          be created.
       network_id:
         type: string
         required: false
         description: &gt;
-           An identifier that represents an existing Network instance in the
-           underlying cloud infrastructure. This property is mutually exclusive
-           with all other properties except network_name. This can be used alone
-           or together with network_name to identify an existing network.
+          An identifier that represents an existing Network instance in the
+          underlying cloud infrastructure. This property is mutually exclusive
+          with all other properties except network_name. This can be used alone
+          or together with network_name to identify an existing network.
       segmentation_id:
         type: string
         required: false
         description: &gt;
-           A segmentation identifier in the underlying cloud infrastructure.
-           E.g. VLAN ID, GRE tunnel ID, etc..
+          A segmentation identifier in the underlying cloud infrastructure.
+          E.g. VLAN ID, GRE tunnel ID, etc..
       network_type:
         type: string
         required: false
         description: &gt;
-           It specifies the nature of the physical network in the underlying
-           cloud infrastructure. Examples are flat, vlan, gre or vxlan.
-           For flat and vlan types, physical_network should be provided too.
+          It specifies the nature of the physical network in the underlying
+          cloud infrastructure. Examples are flat, vlan, gre or vxlan.
+          For flat and vlan types, physical_network should be provided too.
       physical_network:
         type: string
         required: false
         description: &gt;
-           It identifies the physical network on top of which the network is
-           implemented, e.g. physnet1. This property is required if network_type
-           is flat or vlan.
+          It identifies the physical network on top of which the network is
+          implemented, e.g. physnet1. This property is required if network_type
+          is flat or vlan.
       dhcp_enabled:
         type: boolean
         required: false
@@ -596,18 +597,18 @@ relationship_types:
 
   tosca.relationships.HostedOn:
     derived_from: tosca.relationships.Root
-    valid_target_types: [ tosca.capabilities.Container ]
+    valid_target_types: [tosca.capabilities.Container]
 
   tosca.relationships.ConnectsTo:
     derived_from: tosca.relationships.Root
-    valid_target_types: [ tosca.capabilities.Endpoint ]
+    valid_target_types: [tosca.capabilities.Endpoint]
     credential:
       type: tosca.datatypes.Credential
       required: false
 
   tosca.relationships.AttachesTo:
     derived_from: tosca.relationships.Root
-    valid_target_types: [ tosca.capabilities.Attachment ]
+    valid_target_types: [tosca.capabilities.Attachment]
     properties:
       location:
         required: true
@@ -620,15 +621,15 @@ relationship_types:
 
   tosca.relationships.RoutesTo:
     derived_from: tosca.relationships.ConnectsTo
-    valid_target_types: [ tosca.capabilities.Endpoint ]
+    valid_target_types: [tosca.capabilities.Endpoint]
 
   tosca.relationships.network.LinksTo:
     derived_from: tosca.relationships.DependsOn
-    valid_target_types: [ tosca.capabilities.network.Linkable ]
+    valid_target_types: [tosca.capabilities.network.Linkable]
 
   tosca.relationships.network.BindsTo:
     derived_from: tosca.relationships.DependsOn
-    valid_target_types: [ tosca.capabilities.network.Bindable ]
+    valid_target_types: [tosca.capabilities.network.Bindable]
 
 ##########################################################################
 # Capability Type.
@@ -872,10 +873,10 @@ capability_types:
           from the Docker container to a directory on the host machine.
 
 ##########################################################################
- # Interfaces Type.
- # The Interfaces element describes a list of one or more interface
- # definitions for a modelable entity (e.g., a Node or Relationship Type)
- # as defined within the TOSCA Simple Profile specification.
+# Interfaces Type.
+# The Interfaces element describes a list of one or more interface
+# definitions for a modelable entity (e.g., a Node or Relationship Type)
+# as defined within the TOSCA Simple Profile specification.
 ##########################################################################
 interface_types:
   tosca.interfaces.node.lifecycle.Standard:
@@ -917,9 +918,9 @@ interface_types:
         target changed
 
 ##########################################################################
- # Data Type.
- # A Datatype is a complex data type declaration which contains other
- # complex or simple data types.
+# Data Type.
+# A Datatype is a complex data type declaration which contains other
+# complex or simple data types.
 ##########################################################################
 data_types:
   tosca.datatypes.Root:
@@ -958,7 +959,7 @@ data_types:
     derived_from: tosca.datatypes.Root
     type: integer
     constraints:
-      - in_range: [ 1, 65535 ]
+      - in_range: [1, 65535]
 
   tosca.datatypes.network.PortSpec:
     derived_from: tosca.datatypes.Root
@@ -968,7 +969,7 @@ data_types:
         required: true
         default: tcp
         constraints:
-          - valid_values: [ udp, tcp, icmp ]
+          - valid_values: [udp, tcp, icmp]
       target:
         type: tosca.datatypes.network.PortDef
         required: false
@@ -976,7 +977,7 @@ data_types:
         type: range
         required: false
         constraints:
-          - in_range: [ 1, 65535 ]
+          - in_range: [1, 65535]
       source:
         type: tosca.datatypes.network.PortDef
         required: false
@@ -984,7 +985,7 @@ data_types:
         type: range
         required: false
         constraints:
-          - in_range: [ 1, 65535 ]
+          - in_range: [1, 65535]
 
   tosca.datatypes.Credential:
     derived_from: tosca.datatypes.Root
@@ -1017,10 +1018,10 @@ data_types:
     type: string
 
 ##########################################################################
- # Artifact Type.
- # An Artifact Type is a reusable entity that defines the type of one or more
- # files which Node Types or Node Templates can have dependent relationships
- # and used during operations such as during installation or deployment.
+# Artifact Type.
+# An Artifact Type is a reusable entity that defines the type of one or more
+# files which Node Types or Node Templates can have dependent relationships
+# and used during operations such as during installation or deployment.
 ##########################################################################
 artifact_types:
   tosca.artifacts.Root:
@@ -1049,13 +1050,13 @@ artifact_types:
     derived_from: tosca.artifacts.Implementation
     description: Script artifact for the Unix Bash shell
     mime_type: application/x-sh
-    file_ext: [ sh ]
+    file_ext: [sh]
 
   tosca.artifacts.Implementation.Python:
     derived_from: tosca.artifacts.Implementation
     description: Artifact for the interpreted Python language
     mime_type: application/x-python
-    file_ext: [ py ]
+    file_ext: [py]
 
   tosca.artifacts.Deployment.Image.Container.Docker:
     derived_from: tosca.artifacts.Deployment.Image
@@ -1065,23 +1066,23 @@ artifact_types:
     derived_from: tosca.artifacts.Deployment.Image
     description: Virtual Machine (VM) image in ISO disk format
     mime_type: application/octet-stream
-    file_ext: [ iso ]
+    file_ext: [iso]
 
   tosca.artifacts.Deployment.Image.VM.QCOW2:
     derived_from: tosca.artifacts.Deployment.Image
     description: Virtual Machine (VM) image in QCOW v2 standard disk format
     mime_type: application/octet-stream
-    file_ext: [ qcow2 ]
+    file_ext: [qcow2]
 
   tosca.artifacts.template:
     derived_from: tosca.artifacts.Root
     description: TOSCA base type for template type artifacts
 
 ##########################################################################
- # Policy Type.
- # TOSCA Policy Types represent logical grouping of TOSCA nodes that have
- # an implied relationship and need to be orchestrated or managed together
- # to achieve some result.
+# Policy Type.
+# TOSCA Policy Types represent logical grouping of TOSCA nodes that have
+# an implied relationship and need to be orchestrated or managed together
+# to achieve some result.
 ##########################################################################
 policy_types:
   tosca.policies.Root:
@@ -1118,10 +1119,10 @@ policy_types:
       TOSCA nodes or group of nodes based on the reservation.
 
 ##########################################################################
- # Group Type.
- # Group Type represents logical grouping of TOSCA nodes that have an
- # implied membership relationship and may need to be orchestrated or
- # managed together to achieve some result.
+# Group Type.
+# Group Type represents logical grouping of TOSCA nodes that have an
+# implied membership relationship and may need to be orchestrated or
+# managed together to achieve some result.
 ##########################################################################
 group_types:
   tosca.groups.Root:
