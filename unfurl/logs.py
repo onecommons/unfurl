@@ -99,7 +99,7 @@ class ColorHandler(logging.StreamHandler):
         try:
             from rich.console import Console
             # Soft wrap prevents rich from breaking lines automatically (needed for emulated terminals, like gitlab CI)
-            console = Console(soft_wrap=True) 
+            console = Console(soft_wrap=True, file=self.stream) 
             console.print(f"[bold] UNFURL [/bold]", end="")
             console.print(f"[{self.RICH_STYLE_LEVEL[level]}] {level.name} [/]", end="")
             console.print(f" {message}")
