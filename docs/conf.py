@@ -49,15 +49,15 @@ extlinks = {
     "unfurl_site": ("https://unfurl.run/%s", None),
     "tosca_spec": (
         "_static/TOSCA-Simple-Profile-YAML-v1.3-os-toc.html#%s",
-        "TOSCA 1.3 Specification",
+        "TOSCA 1.3 Specification: %",
     ),
     "tosca_spec2": (
         "../_static/TOSCA-Simple-Profile-YAML-v1.3-os-toc.html#%s",
-        "TOSCA 1.3 Specification",
+        "TOSCA 1.3 Specification: %s",
     ),
     "cli": (
         "cli.html#%s",
-        "Command Line",
+        "Command Line: %s",
     ),
 }
 
