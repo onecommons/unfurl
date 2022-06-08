@@ -476,7 +476,6 @@ def _render_request(job, parent, req, requests):
         task._rendering = True
         task.inputs
         assert not task._inputs.context.strict
-        assert task._attributeManager._context
         task.rendered = task.configurator.render(task)
     except Exception:
         # note: failed rendering may be re-tried later if it has dependencies
@@ -521,7 +520,6 @@ def _render_request(job, parent, req, requests):
     else:
         task.logger.trace(f"committing changes from rendering task {task.target}")
         task.commit_changes()
-    task._attributeManager._context = None
     return deps, error
 
 

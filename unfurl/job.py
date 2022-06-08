@@ -182,7 +182,7 @@ class ConfigTask(ConfigChange, TaskView):
         self.target_state = target.state
 
         # set the attribute manager on the root resource
-        self._attributeManager = AttributeManager(self._manifest.yaml)
+        self._attributeManager = AttributeManager(self._manifest.yaml, self)
         self.target.root.attributeManager = self._attributeManager
         self._resolved_inputs = {}
 
@@ -1276,6 +1276,7 @@ class Job(ConfigChange):
                     continue
                 if not self.is_filtered() and self.workflow == "deploy":  # type: ignore
                     if not request.target.template.required:
+                        logger.trace('excluding "%s" from plan: not required', request.target.name)
                         continue
                 if isinstance(request, JobRequest):
                     count += 1

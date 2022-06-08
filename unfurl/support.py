@@ -890,11 +890,11 @@ class AttributeManager:
 
     # what about an attribute that is added to the spec that already exists in status?
     # XXX2 tests for the above behavior
-    def __init__(self, yaml=None):
+    def __init__(self, yaml=None, task=None):
         self.attributes = {}
         self.statuses = {}
         self._yaml = yaml  # hack to safely expose the yaml context
-        self._context = None
+        self.task = task
 
     @property
     def yaml(self):
@@ -923,17 +923,13 @@ class AttributeManager:
                 resource.template._isReferencedBy.append(template)
 
     def _get_context(self, resource):
-        if self._context:
-            # assumes vars are already created
-            return self._context.copy(resource)
-        else:
-            vars = dict(NODES=TopologyMap(resource.root))
-            if "inputs" in resource.root._attributes:
-                vars["TOPOLOGY"] = dict(
-                    inputs=resource.root._attributes["inputs"],
-                    outputs=resource.root._attributes["outputs"],
-                )
-            return RefContext(resource, vars, strict=False) # XXX
+        vars = dict(NODES=TopologyMap(resource.root))
+        if "inputs" in resource.root._attributes:
+            vars["TOPOLOGY"] = dict(
+                inputs=resource.root._attributes["inputs"],
+                outputs=resource.root._attributes["outputs"],
+            )
+        return RefContext(resource, vars, task=self.task)
 
     def get_attributes(self, resource):
         if resource.key not in self.attributes:
