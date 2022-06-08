@@ -17,6 +17,7 @@ artifact_types:
       version:
         type: string
         default: latest
+        required: false
     interfaces:
       defaults:
         # XXX get_dir only works on localhost
@@ -47,6 +48,10 @@ artifact_types:
 
   artifact.PythonPackage:
     derived_from: tosca.artifacts.Root
+    properties:
+      version:
+        type: string
+        required: false
     interfaces:
       Install:
         check: unfurl.configurators.PythonPackageCheckConfigurator
