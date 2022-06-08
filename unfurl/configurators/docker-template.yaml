@@ -5,6 +5,8 @@ data_types:
   unfurl.datatypes.DockerContainer:
     # properties match Docker compose schema
     # see https://docs.docker.com/compose/compose-file/compose-file-v3
+    metadata:
+      additionalProperties: true
     properties:
       environment: # env
         type: map
@@ -30,6 +32,10 @@ data_types:
         type: list
         entry_schema:
           type: string
+        required: false
+      user:
+        type: string
+        description: "<UID>[:<GID>] Overrides the user used to run the container process. Default is that set by image (i.e. Dockerfile USER), if not set, root."
         required: false
       expose:
         # https://docs.docker.com/compose/compose-file/compose-file-v3/#expose
