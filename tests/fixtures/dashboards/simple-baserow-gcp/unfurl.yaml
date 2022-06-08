@@ -1,0 +1,19 @@
+apiVersion: unfurl/v1alpha1
+kind: Project
+
+# To create/update environments.json run:
+# unfurl --home '' export --format environments
+environments:
+  defaults:
+    secrets:
+      vault_secrets:
+        default: # leaving secret value blank, expecting a UNFURL_VAULT_DEFAULT_PASSWORD environment variable
+    repositories:
+      types:
+        url: https://gitlab.com/onecommons/unfurl-types
+  +?include: environments.json#DeploymentEnvironment
+
+ensembles:
+- file: ensemble/ensemble.yaml
+  alias: ensemble
+  default: true

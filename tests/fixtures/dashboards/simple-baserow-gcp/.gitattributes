@@ -1,0 +1,2 @@
+**/*jobs.tsv merge=union
+*.remotelock lockable

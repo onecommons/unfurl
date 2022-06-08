@@ -1,0 +1,603 @@
+{
+  "DeploymentTemplate": {
+    "cy-baserow-minimal-l44egpb8": {
+      "name": "cy-baserow-minimal-l44egpb8",
+      "title": "Cy baserow-minimal l44egpb8",
+      "cloud": "unfurl.relationships.ConnectsTo.GoogleCloudProject",
+      "description": "Deploy using Google Compute Engine",
+      "__typename": "DeploymentTemplate",
+      "slug": "cy-baserow-minimal-l44egpb8",
+      "blueprint": "baserow",
+      "primary": "the_app",
+      "resourceTemplates": [
+        "db-dockerhost",
+        "redis-dockerhost",
+        "dockerhost-gcp-bootimage",
+        "the_app",
+        "container_service",
+        "configurator-artifacts",
+        "dockerhost-aws-bootimage",
+        "aws_metadata",
+        "gcp_artifacts",
+        "gcp_metadata",
+        "__typename",
+        "dockerhost",
+        "compute",
+        "__staging-dns",
+        "__mail-server"
+      ],
+      "ResourceTemplate": {
+        "dockerhost-gcp-bootimage": {
+          "type": "unfurl.nodes.GCPBootImage",
+          "name": "dockerhost-gcp-bootimage",
+          "title": "dockerhost-gcp-bootimage",
+          "description": "",
+          "directives": [
+
+          ],
+          "properties": [
+            {
+              "name": "project",
+              "value": "ubuntu-os-cloud"
+            },
+            {
+              "name": "family",
+              "value": "ubuntu-2204-lts"
+            }
+          ],
+          "dependencies": [
+
+          ],
+          "computedProperties": [
+
+          ],
+          "__typename": "ResourceTemplate"
+        }
+      },
+      "projectPath": "blueprints/baserow",
+      "source": "gcp"
+    }
+  },
+  "ApplicationBlueprint": {
+    "baserow": {
+      "name": "baserow",
+      "__typename": "ApplicationBlueprint",
+      "title": "Baserow",
+      "primary": "Baserow",
+      "deploymentTemplates": [
+        "gcp",
+        "aws",
+        "cy-baserow-minimal-l44egpb8"
+      ],
+      "description": "Baserow is an Open source no-code database and Airtable alternative that enables users without technical experience to create their own online database.",
+      "livePreview": null,
+      "sourceCodeUrl": null,
+      "image": null,
+      "projectIcon": "https://unfurl.cloud/uploads/-/system/project/avatar/93/avatar.png?width=300",
+      "primaryDeploymentBlueprint": "gcp"
+    }
+  },
+  "DefaultTemplate": {
+    "configurator-artifacts": {
+      "name": "configurator-artifacts",
+      "type": "unfurl.nodes.LocalRepository",
+      "title": "configurator-artifacts",
+      "description": "",
+      "directives": [
+        "default"
+      ],
+      "properties": [
+        {
+          "name": "repository",
+          "value": null
+        },
+        {
+          "name": "url",
+          "value": null
+        },
+        {
+          "name": "credential",
+          "value": null
+        }
+      ],
+      "dependencies": [
+
+      ],
+      "visibility": "hidden",
+      "__typename": "DefaultTemplate",
+      "computedProperties": [
+
+      ]
+    },
+    "gcp_artifacts": {
+      "name": "gcp_artifacts",
+      "type": "unfurl.nodes.LocalRepository",
+      "title": "gcp_artifacts",
+      "description": "",
+      "directives": [
+        "default"
+      ],
+      "properties": [
+        {
+          "name": "repository",
+          "value": null
+        },
+        {
+          "name": "url",
+          "value": null
+        },
+        {
+          "name": "credential",
+          "value": null
+        }
+      ],
+      "dependencies": [
+
+      ],
+      "visibility": "hidden",
+      "__typename": "DefaultTemplate",
+      "computedProperties": [
+
+      ]
+    },
+    "db-dockerhost": {
+      "name": "db-dockerhost",
+      "type": "unfurl.nodes.DockerHost",
+      "title": "db-dockerhost",
+      "description": "This is an incomplete, placeholder template that needs to be defined in your blueprint",
+      "directives": [
+        "default"
+      ],
+      "properties": [
+
+      ],
+      "dependencies": [
+
+      ],
+      "visibility": "hidden",
+      "__typename": "DefaultTemplate",
+      "computedProperties": [
+
+      ]
+    },
+    "aws_metadata": {
+      "name": "aws_metadata",
+      "type": "unfurl.nodes.AWSMetadata",
+      "title": "aws_metadata",
+      "description": "",
+      "directives": [
+        "default"
+      ],
+      "properties": [
+
+      ],
+      "dependencies": [
+
+      ],
+      "visibility": "hidden",
+      "__typename": "DefaultTemplate",
+      "computedProperties": [
+
+      ]
+    },
+    "dockerhost-gcp-bootimage": {
+      "name": "dockerhost-gcp-bootimage",
+      "type": "unfurl.nodes.GCPBootImage",
+      "title": "dockerhost-gcp-bootimage",
+      "description": "",
+      "directives": [
+        "default"
+      ],
+      "properties": [
+        {
+          "name": "project",
+          "value": "cos-cloud"
+        },
+        {
+          "name": "family",
+          "value": "cos-85-lts"
+        }
+      ],
+      "dependencies": [
+        {
+          "constraint": {
+            "name": "configures",
+            "title": "configures",
+            "description": "",
+            "min": 0,
+            "max": 1,
+            "match": null,
+            "resourceType": "tosca.nodes.Root",
+            "visibility": "visible"
+          },
+          "name": "configures",
+          "__typename": "Requirement"
+        }
+      ],
+      "visibility": "hidden",
+      "__typename": "DefaultTemplate",
+      "computedProperties": [
+
+      ]
+    },
+    "gcp_metadata": {
+      "name": "gcp_metadata",
+      "type": "unfurl.nodes.GCPMetadata",
+      "title": "gcp_metadata",
+      "description": "",
+      "directives": [
+        "default"
+      ],
+      "properties": [
+
+      ],
+      "dependencies": [
+
+      ],
+      "visibility": "hidden",
+      "__typename": "DefaultTemplate",
+      "computedProperties": [
+
+      ]
+    },
+    "redis-dockerhost": {
+      "name": "redis-dockerhost",
+      "type": "unfurl.nodes.DockerHost",
+      "title": "redis-dockerhost",
+      "description": "This is an incomplete, placeholder template that needs to be defined in your blueprint",
+      "directives": [
+        "default"
+      ],
+      "properties": [
+
+      ],
+      "dependencies": [
+
+      ],
+      "visibility": "hidden",
+      "__typename": "DefaultTemplate",
+      "computedProperties": [
+
+      ]
+    },
+    "dockerhost-aws-bootimage": {
+      "name": "dockerhost-aws-bootimage",
+      "type": "unfurl.nodes.AMIBootImage",
+      "title": "dockerhost-aws-bootimage",
+      "description": "",
+      "directives": [
+        "default"
+      ],
+      "properties": [
+        {
+          "name": "owner",
+          "value": "099720109477"
+        },
+        {
+          "name": "name_regex",
+          "value": "focal"
+        }
+      ],
+      "dependencies": [
+        {
+          "constraint": {
+            "name": "configures",
+            "title": "configures",
+            "description": "",
+            "min": 0,
+            "max": 1,
+            "match": null,
+            "resourceType": "tosca.nodes.Root",
+            "visibility": "visible"
+          },
+          "name": "configures",
+          "__typename": "Requirement"
+        }
+      ],
+      "visibility": "hidden",
+      "__typename": "DefaultTemplate",
+      "computedProperties": [
+
+      ]
+    }
+  },
+  "ResourceTemplate": {
+    "the_app": {
+      "name": "the_app",
+      "type": "Baserow",
+      "title": "the_app",
+      "description": "",
+      "directives": [
+
+      ],
+      "properties": [
+        {
+          "name": "database_name",
+          "value": "baserow"
+        },
+        {
+          "name": "subdomain",
+          "value": "uf_simple_baserow_gcp"
+        },
+        {
+          "name": "email",
+          "value": "admin@mailu.untrusted.me"
+        }
+      ],
+      "dependencies": [
+        {
+          "constraint": {
+            "name": "container",
+            "title": "container",
+            "description": "",
+            "visibility": "hidden",
+            "min": 1,
+            "max": 1,
+            "match": "container_service",
+            "resourceType": "unfurl.nodes.ContainerService"
+          },
+          "name": "container",
+          "__typename": "Requirement",
+          "match": "container_service"
+        },
+        {
+          "constraint": {
+            "name": "mail",
+            "title": "Mail Server",
+            "description": "Mail server to use for user registration and notifications",
+            "min": 1,
+            "max": 1,
+            "match": null,
+            "resourceType": "SMTPServer",
+            "visibility": "visible"
+          },
+          "name": "mail",
+          "__typename": "Requirement",
+          "completionStatus": "connected",
+          "valid": true,
+          "match": "__mail-server"
+        }
+      ],
+      "__typename": "ResourceTemplate",
+      "computedProperties": [
+
+      ]
+    },
+    "container_service": {
+      "name": "container_service",
+      "type": "unfurl.nodes.ContainerService",
+      "title": "container_service",
+      "description": "",
+      "directives": [
+
+      ],
+      "properties": [
+        {
+          "name": "container",
+          "value": {
+            "image": "baserow/baserow",
+            "ports": [
+              "8080:80"
+            ],
+            "volumes": [
+              "/var/app/baserow:/baserow/data"
+            ],
+            "environment": {
+              "eval": {
+                "to_env": {
+                  "BASEROW_PUBLIC_URL": "https://{{ SELF.host }}",
+                  "DATABASE_HOST": {
+                    "eval": {
+                      "if": ".configured_by::.targets::db",
+                      "then": ".configured_by::.targets::db::host",
+                      "else": null
+                    }
+                  },
+                  "DATABASE_USER": {
+                    "eval": ".configured_by::.targets::db::root_user"
+                  },
+                  "DATABASE_PASSWORD": {
+                    "eval": ".configured_by::.targets::db::root_password"
+                  },
+                  "DATABASE_NAME": {
+                    "eval": ".configured_by::database_name"
+                  },
+                  "REDIS_URL": {
+                    "eval": {
+                      "if": ".configured_by::.targets::redis",
+                      "then": "redis://default:{{ '.configured_by::.targets::redis::password' | eval }}@{{ '.configured_by::.targets::redis::host' | eval }}:{{ '.configured_by::.targets::redis::port' | eval }}",
+                      "else": null
+                    }
+                  },
+                  "FROM_EMAIL": {
+                    "eval": ".configured_by::email"
+                  },
+                  "EMAIL_SMTP": {
+                    "eval": {
+                      "if": ".configured_by::.targets::mail",
+                      "then": "true",
+                      "else": null
+                    }
+                  },
+                  "EMAIL_SMTP_HOST": {
+                    "eval": ".configured_by::.targets::mail::host"
+                  },
+                  "EMAIL_SMTP_USER": {
+                    "eval": ".configured_by::.targets::mail::user_name"
+                  },
+                  "EMAIL_SMTP_PASSWORD": {
+                    "eval": ".configured_by::.targets::mail::password"
+                  }
+                }
+              }
+            }
+          }
+        }
+      ],
+      "dependencies": [
+        {
+          "constraint": {
+            "name": "host",
+            "title": "host",
+            "description": "",
+            "min": 1,
+            "max": 1,
+            "match": null,
+            "resourceType": "unfurl.nodes.DockerHost",
+            "visibility": "hidden"
+          },
+          "name": "host",
+          "__typename": "Requirement",
+          "match": "dockerhost"
+        }
+      ],
+      "__typename": "ResourceTemplate",
+      "computedProperties": [
+
+      ]
+    },
+    "dockerhost": {
+      "name": "dockerhost",
+      "type": "unfurl.nodes.TraefikDockerComputeHost",
+      "title": "dockerhost",
+      "description": "",
+      "directives": [
+
+      ],
+      "properties": [
+
+      ],
+      "dependencies": [
+        {
+          "constraint": {
+            "name": "dns",
+            "title": "DNS",
+            "description": "DNS provider for domain name configuration",
+            "min": 1,
+            "max": 1,
+            "match": null,
+            "resourceType": "unfurl.nodes.DNSZone",
+            "visibility": "visible"
+          },
+          "name": "dns",
+          "__typename": "Requirement",
+          "completionStatus": "connected",
+          "valid": true,
+          "match": "__staging-dns"
+        },
+        {
+          "constraint": {
+            "name": "host",
+            "title": "Compute",
+            "description": "A compute instance with at least 1000MB RAM",
+            "min": 1,
+            "max": 1,
+            "match": null,
+            "resourceType": "unfurl.nodes.Compute",
+            "node_filter": {
+              "properties": [
+                {
+                  "user_data": {
+                    "eval": ".configured_by::user_data"
+                  }
+                },
+                {
+                  "portspec": {
+                    "eval": ".configured_by::portspec"
+                  }
+                }
+              ]
+            },
+            "visibility": "visible"
+          },
+          "name": "host",
+          "__typename": "Requirement",
+          "completionStatus": "created",
+          "valid": true,
+          "match": "compute"
+        }
+      ],
+      "computedProperties": [
+
+      ],
+      "__typename": "ResourceTemplate"
+    },
+    "compute": {
+      "name": "compute",
+      "type": "unfurl.nodes.GCPComputeInstance",
+      "title": "Compute",
+      "__typename": "ResourceTemplate",
+      "properties": [
+        {
+          "name": "num_cpus",
+          "value": 1
+        },
+        {
+          "name": "mem_size",
+          "value": 2048
+        },
+        {
+          "name": "disk_size",
+          "value": 32
+        }
+      ],
+      "dependencies": [
+
+      ]
+    },
+    "__staging-dns": {
+      "name": "__staging-dns",
+      "type": "DigitalOceanDNSZone",
+      "title": "staging-dns",
+      "__typename": "ResourceTemplate",
+      "properties": [
+        {
+          "name": "DIGITALOCEAN_TOKEN",
+          "value": {
+            "get_env": "DIGITALOCEAN_TOKEN"
+          }
+        },
+        {
+          "name": "name",
+          "value": "untrusted.me"
+        },
+        {
+          "name": "testing",
+          "value": true
+        }
+      ],
+      "dependencies": [
+
+      ]
+    },
+    "__mail-server": {
+      "name": "__mail-server",
+      "type": "GenericSMTPServer",
+      "title": "Mail Server",
+      "__typename": "ResourceTemplate",
+      "properties": [
+        {
+          "name": "host",
+          "value": "mailu.untrusted.me"
+        },
+        {
+          "name": "user_name",
+          "value": "admin@mailu.untrusted.me"
+        },
+        {
+          "name": "password",
+          "value": {
+            "get_env": "MAIL_PASSWORD"
+          }
+        },
+        {
+          "name": "protocol",
+          "value": "tls"
+        }
+      ],
+      "dependencies": [
+
+      ]
+    }
+  }
+}

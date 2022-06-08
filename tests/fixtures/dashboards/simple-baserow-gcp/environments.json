@@ -1,0 +1,2687 @@
+{
+  "DeploymentEnvironment": {
+    "defaults": {
+      "connections": {
+      },
+      "primary_provider": null,
+      "instances": {
+      },
+      "repositories": {
+        "types": {
+          "url": "https://gitlab.com/onecommons/unfurl-types"
+        }
+      },
+      "name": "defaults"
+    },
+    "gcp-2022-06-07t16-51-39": {
+      "name": "gcp-2022-06-07t16-51-39",
+      "__typename": "DeploymentEnvironment",
+      "connections": {
+        "primary_provider": {
+          "name": "primary_provider",
+          "type": "unfurl.relationships.ConnectsTo.GoogleCloudProject",
+          "__typename": "ResourceTemplate"
+        }
+      },
+      "instances": {
+        "staging-dns": {
+          "type": "DigitalOceanDNSZone",
+          "name": "staging-dns",
+          "title": "staging-dns",
+          "__typename": "ResourceTemplate",
+          "properties": [
+            {
+              "name": "DIGITALOCEAN_TOKEN",
+              "value": {
+                "get_env": "staging_dns__DIGITALOCEAN_TOKEN"
+              }
+            },
+            {
+              "name": "name",
+              "value": "untrusted.me"
+            },
+            {
+              "name": "testing",
+              "value": true
+            }
+          ],
+          "dependencies": [
+
+          ]
+        },
+        "mail-server": {
+          "type": "GenericSMTPServer",
+          "name": "mail-server",
+          "title": "Mail Server",
+          "__typename": "ResourceTemplate",
+          "properties": [
+            {
+              "name": "host",
+              "value": "mailu.untrusted.me"
+            },
+            {
+              "name": "user_name",
+              "value": "admin@mailu.untrusted.me"
+            },
+            {
+              "name": "password",
+              "value": {
+                "get_env": "mail_server__password"
+              }
+            },
+            {
+              "name": "protocol",
+              "value": "tls"
+            }
+          ],
+          "dependencies": [
+
+          ]
+        }
+      }
+    }
+  },
+  "ResourceType": {
+    "unfurl.nodes.DNSZone": {
+      "name": "unfurl.nodes.DNSZone",
+      "title": "DNSZone",
+      "description": "",
+      "inputsSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "title": "name",
+            "required": true,
+            "description": "DNS name of the zone (end with .)",
+            "type": "string"
+          },
+          "provider": {
+            "title": "provider",
+            "required": true,
+            "description": "OctoDNS provider configuration",
+            "type": "object"
+          }
+        }
+      },
+      "extends": [
+        "unfurl.nodes.DNSZone",
+        "tosca.nodes.Root",
+        "unfurl.capabilities.DNSZone",
+        "tosca.capabilities.Root",
+        "tosca.capabilities.Node"
+      ],
+      "outputsSchema": {
+        "type": "object",
+        "properties": {
+          "zone": {
+            "title": "zone",
+            "required": true,
+            "description": "The records found in the zone",
+            "type": "object"
+          },
+          "managed_records": {
+            "title": "managed_records",
+            "description": "The records in the zone that are managed by this instance",
+            "type": "object"
+          }
+        }
+      },
+      "requirements": [
+        {
+          "name": "parent_zone",
+          "title": "parent_zone",
+          "description": "",
+          "min": 0,
+          "max": 1,
+          "resourceType": "unfurl.capabilities.DNSZone"
+        }
+      ],
+      "implementations": [
+
+      ],
+      "implementation_requirements": [
+
+      ]
+    },
+    "tosca.nodes.Root": {
+      "name": "tosca.nodes.Root",
+      "title": "Root",
+      "description": "The TOSCA root node all other TOSCA base node types derive from.\n",
+      "inputsSchema": {
+        "type": "object",
+        "properties": {
+        }
+      },
+      "extends": [
+        "tosca.nodes.Root",
+        "tosca.capabilities.Node",
+        "tosca.capabilities.Root"
+      ],
+      "outputsSchema": {
+        "type": "object",
+        "properties": {
+        }
+      },
+      "requirements": [
+
+      ],
+      "implementations": [
+
+      ],
+      "implementation_requirements": [
+
+      ]
+    },
+    "unfurl.relationships.DNSRecords": {
+      "name": "unfurl.relationships.DNSRecords",
+      "title": "DNSRecords",
+      "description": "",
+      "inputsSchema": {
+        "type": "object",
+        "properties": {
+          "records": {
+            "title": "records",
+            "required": true,
+            "type": "object"
+          }
+        }
+      },
+      "extends": [
+        "unfurl.relationships.DNSRecords",
+        "tosca.relationships.Root"
+      ]
+    },
+    "tosca.relationships.Root": {
+      "name": "tosca.relationships.Root",
+      "title": "Root",
+      "description": "The TOSCA root Relationship Type all other TOSCA base Relationship Types derive from.\n",
+      "inputsSchema": {
+        "type": "object",
+        "properties": {
+        }
+      },
+      "extends": [
+        "tosca.relationships.Root"
+      ]
+    },
+    "unfurl.nodes.Installer.Terraform": {
+      "name": "unfurl.nodes.Installer.Terraform",
+      "title": "Terraform",
+      "description": "",
+      "inputsSchema": {
+        "type": "object",
+        "properties": {
+        }
+      },
+      "extends": [
+        "unfurl.nodes.Installer.Terraform",
+        "unfurl.nodes.Installer",
+        "tosca.nodes.Root",
+        "unfurl.capabilities.Installer",
+        "tosca.capabilities.Root",
+        "tosca.capabilities.Node"
+      ],
+      "outputsSchema": {
+        "type": "object",
+        "properties": {
+        }
+      },
+      "requirements": [
+
+      ],
+      "implementations": [
+
+      ],
+      "implementation_requirements": [
+
+      ]
+    },
+    "unfurl.nodes.Installer": {
+      "name": "unfurl.nodes.Installer",
+      "title": "Installer",
+      "description": "",
+      "inputsSchema": {
+        "type": "object",
+        "properties": {
+        }
+      },
+      "extends": [
+        "unfurl.nodes.Installer",
+        "tosca.nodes.Root",
+        "unfurl.capabilities.Installer",
+        "tosca.capabilities.Root",
+        "tosca.capabilities.Node"
+      ],
+      "outputsSchema": {
+        "type": "object",
+        "properties": {
+        }
+      },
+      "requirements": [
+
+      ],
+      "implementations": [
+
+      ],
+      "implementation_requirements": [
+
+      ]
+    },
+    "unfurl.nodes.AWSMetadata": {
+      "name": "unfurl.nodes.AWSMetadata",
+      "title": "AWSMetadata",
+      "description": "",
+      "inputsSchema": {
+        "type": "object",
+        "properties": {
+        }
+      },
+      "extends": [
+        "unfurl.nodes.AWSMetadata",
+        "tosca.nodes.Root",
+        "tosca.capabilities.Node",
+        "tosca.capabilities.Root"
+      ],
+      "outputsSchema": {
+        "type": "object",
+        "properties": {
+          "machine_types": {
+            "title": "machine_types",
+            "required": true,
+            "type": "object"
+          }
+        }
+      },
+      "requirements": [
+
+      ],
+      "implementations": [
+        "configure"
+      ],
+      "implementation_requirements": [
+        "unfurl.relationships.ConnectsTo.AWSAccount"
+      ]
+    },
+    "unfurl.nodes.AMIBootImage": {
+      "name": "unfurl.nodes.AMIBootImage",
+      "title": "AMIBootImage",
+      "description": "",
+      "inputsSchema": {
+        "type": "object",
+        "properties": {
+          "owner": {
+            "title": "owner",
+            "required": true,
+            "type": "string"
+          },
+          "name_regex": {
+            "title": "name_regex",
+            "required": true,
+            "type": "string"
+          }
+        }
+      },
+      "extends": [
+        "unfurl.nodes.AMIBootImage",
+        "unfurl.nodes.BootImage",
+        "unfurl.nodes.Configuration",
+        "tosca.nodes.Root",
+        "unfurl.capabilities.Configuration",
+        "tosca.capabilities.Root",
+        "tosca.capabilities.Node"
+      ],
+      "outputsSchema": {
+        "type": "object",
+        "properties": {
+          "boot_image": {
+            "title": "boot_image",
+            "required": true,
+            "type": "string"
+          }
+        }
+      },
+      "requirements": [
+
+      ],
+      "implementations": [
+        "configure"
+      ],
+      "implementation_requirements": [
+        "unfurl.relationships.ConnectsTo.AWSAccount"
+      ]
+    },
+    "unfurl.nodes.BootImage": {
+      "name": "unfurl.nodes.BootImage",
+      "title": "BootImage",
+      "description": "",
+      "inputsSchema": {
+        "type": "object",
+        "properties": {
+        }
+      },
+      "extends": [
+        "unfurl.nodes.BootImage",
+        "unfurl.nodes.Configuration",
+        "tosca.nodes.Root",
+        "unfurl.capabilities.Configuration",
+        "tosca.capabilities.Root",
+        "tosca.capabilities.Node"
+      ],
+      "outputsSchema": {
+        "type": "object",
+        "properties": {
+          "boot_image": {
+            "title": "boot_image",
+            "required": true,
+            "type": "string"
+          }
+        }
+      },
+      "requirements": [
+
+      ],
+      "implementations": [
+
+      ],
+      "implementation_requirements": [
+
+      ]
+    },
+    "unfurl.nodes.Configuration": {
+      "name": "unfurl.nodes.Configuration",
+      "title": "Configuration",
+      "description": "",
+      "inputsSchema": {
+        "type": "object",
+        "properties": {
+        }
+      },
+      "extends": [
+        "unfurl.nodes.Configuration",
+        "tosca.nodes.Root",
+        "unfurl.capabilities.Configuration",
+        "tosca.capabilities.Root",
+        "tosca.capabilities.Node"
+      ],
+      "outputsSchema": {
+        "type": "object",
+        "properties": {
+        }
+      },
+      "requirements": [
+
+      ],
+      "implementations": [
+
+      ],
+      "implementation_requirements": [
+
+      ]
+    },
+    "unfurl.nodes.EC2Compute": {
+      "name": "unfurl.nodes.EC2Compute",
+      "title": "EC2Compute",
+      "description": "",
+      "inputsSchema": {
+        "type": "object",
+        "properties": {
+          "key_name": {
+            "title": "key_name",
+            "description": "Name of your AWS ssh key pair. Set if you want to be able to SSH into this instance.",
+            "type": "string"
+          },
+          "num_cpus": {
+            "title": "num_cpus",
+            "required": true,
+            "description": "Number of CPUs for the server",
+            "$toscatype": "integer",
+            "type": "number"
+          },
+          "mem_size": {
+            "title": "mem_size",
+            "required": true,
+            "description": "Amount of RAM (in MB)",
+            "default_unit": "MB",
+            "$toscatype": "scalar-unit.size",
+            "type": "number"
+          },
+          "disk_size": {
+            "title": "disk_size",
+            "required": true,
+            "description": "Size of boot disk (in GB)",
+            "default_unit": "GB",
+            "$toscatype": "scalar-unit.size",
+            "type": "number"
+          }
+        }
+      },
+      "extends": [
+        "unfurl.nodes.EC2Compute",
+        "unfurl.nodes.Compute",
+        "tosca.nodes.Root",
+        "tosca.capabilities.Node",
+        "tosca.capabilities.Root"
+      ],
+      "outputsSchema": {
+        "type": "object",
+        "properties": {
+          "private_address": {
+            "title": "private_address",
+            "required": true,
+            "type": "string"
+          },
+          "public_address": {
+            "title": "public_address",
+            "required": true,
+            "type": "string"
+          },
+          "networks": {
+            "title": "networks",
+            "required": true,
+            "type": "object",
+            "additionalProperties": {
+              "required": true,
+              "$toscatype": "tosca.datatypes.network.NetworkInfo",
+              "type": "object",
+              "properties": {
+                "network_name": {
+                  "title": "network_name",
+                  "required": true,
+                  "type": "string"
+                },
+                "network_id": {
+                  "title": "network_id",
+                  "required": true,
+                  "type": "string"
+                },
+                "addresses": {
+                  "title": "addresses",
+                  "required": true,
+                  "type": "array",
+                  "items": {
+                    "required": true,
+                    "type": "string"
+                  }
+                },
+                "$toscatype": {
+                  "const": "tosca.datatypes.network.NetworkInfo"
+                }
+              }
+            }
+          },
+          "ports": {
+            "title": "ports",
+            "required": true,
+            "type": "object",
+            "additionalProperties": {
+              "required": true,
+              "$toscatype": "tosca.datatypes.network.PortInfo",
+              "type": "object",
+              "properties": {
+                "port_name": {
+                  "title": "port_name",
+                  "required": true,
+                  "type": "string"
+                },
+                "port_id": {
+                  "title": "port_id",
+                  "required": true,
+                  "type": "string"
+                },
+                "network_id": {
+                  "title": "network_id",
+                  "required": true,
+                  "type": "string"
+                },
+                "mac_address": {
+                  "title": "mac_address",
+                  "required": true,
+                  "type": "string"
+                },
+                "addresses": {
+                  "title": "addresses",
+                  "required": true,
+                  "type": "array",
+                  "items": {
+                    "required": true,
+                    "type": "string"
+                  }
+                },
+                "$toscatype": {
+                  "const": "tosca.datatypes.network.PortInfo"
+                }
+              }
+            }
+          }
+        }
+      },
+      "requirements": [
+
+      ],
+      "implementations": [
+        "check",
+        "create",
+        "default",
+        "delete"
+      ],
+      "implementation_requirements": [
+        "unfurl.relationships.ConnectsTo.AWSAccount"
+      ]
+    },
+    "unfurl.nodes.Compute": {
+      "name": "unfurl.nodes.Compute",
+      "title": "Compute",
+      "description": "",
+      "badge": "COMPUTE",
+      "inputsSchema": {
+        "type": "object",
+        "properties": {
+          "num_cpus": {
+            "title": "num_cpus",
+            "required": true,
+            "description": "Number of CPUs for the server",
+            "$toscatype": "integer",
+            "type": "number"
+          },
+          "mem_size": {
+            "title": "mem_size",
+            "required": true,
+            "description": "Amount of RAM (in MB)",
+            "default_unit": "MB",
+            "$toscatype": "scalar-unit.size",
+            "type": "number"
+          },
+          "disk_size": {
+            "title": "disk_size",
+            "required": true,
+            "description": "Size of boot disk (in GB)",
+            "default_unit": "GB",
+            "$toscatype": "scalar-unit.size",
+            "type": "number"
+          }
+        }
+      },
+      "extends": [
+        "unfurl.nodes.Compute",
+        "tosca.nodes.Root",
+        "tosca.capabilities.Node",
+        "tosca.capabilities.Root"
+      ],
+      "outputsSchema": {
+        "type": "object",
+        "properties": {
+          "private_address": {
+            "title": "private_address",
+            "required": true,
+            "type": "string"
+          },
+          "public_address": {
+            "title": "public_address",
+            "required": true,
+            "type": "string"
+          },
+          "networks": {
+            "title": "networks",
+            "required": true,
+            "type": "object",
+            "additionalProperties": {
+              "required": true,
+              "$toscatype": "tosca.datatypes.network.NetworkInfo",
+              "type": "object",
+              "properties": {
+                "network_name": {
+                  "title": "network_name",
+                  "required": true,
+                  "type": "string"
+                },
+                "network_id": {
+                  "title": "network_id",
+                  "required": true,
+                  "type": "string"
+                },
+                "addresses": {
+                  "title": "addresses",
+                  "required": true,
+                  "type": "array",
+                  "items": {
+                    "required": true,
+                    "type": "string"
+                  }
+                },
+                "$toscatype": {
+                  "const": "tosca.datatypes.network.NetworkInfo"
+                }
+              }
+            }
+          },
+          "ports": {
+            "title": "ports",
+            "required": true,
+            "type": "object",
+            "additionalProperties": {
+              "required": true,
+              "$toscatype": "tosca.datatypes.network.PortInfo",
+              "type": "object",
+              "properties": {
+                "port_name": {
+                  "title": "port_name",
+                  "required": true,
+                  "type": "string"
+                },
+                "port_id": {
+                  "title": "port_id",
+                  "required": true,
+                  "type": "string"
+                },
+                "network_id": {
+                  "title": "network_id",
+                  "required": true,
+                  "type": "string"
+                },
+                "mac_address": {
+                  "title": "mac_address",
+                  "required": true,
+                  "type": "string"
+                },
+                "addresses": {
+                  "title": "addresses",
+                  "required": true,
+                  "type": "array",
+                  "items": {
+                    "required": true,
+                    "type": "string"
+                  }
+                },
+                "$toscatype": {
+                  "const": "tosca.datatypes.network.PortInfo"
+                }
+              }
+            }
+          }
+        }
+      },
+      "requirements": [
+
+      ],
+      "implementations": [
+
+      ],
+      "implementation_requirements": [
+
+      ]
+    },
+    "unfurl.nodes.GCPMetadata": {
+      "name": "unfurl.nodes.GCPMetadata",
+      "title": "GCPMetadata",
+      "description": "",
+      "inputsSchema": {
+        "type": "object",
+        "properties": {
+        }
+      },
+      "extends": [
+        "unfurl.nodes.GCPMetadata",
+        "tosca.nodes.Root",
+        "tosca.capabilities.Node",
+        "tosca.capabilities.Root"
+      ],
+      "outputsSchema": {
+        "type": "object",
+        "properties": {
+          "machine_types": {
+            "title": "machine_types",
+            "required": true,
+            "type": "object"
+          }
+        }
+      },
+      "requirements": [
+
+      ],
+      "implementations": [
+        "configure"
+      ],
+      "implementation_requirements": [
+        "unfurl.relationships.ConnectsTo.GoogleCloudProject"
+      ]
+    },
+    "unfurl.nodes.GCPBootImage": {
+      "name": "unfurl.nodes.GCPBootImage",
+      "title": "GCPBootImage",
+      "description": "",
+      "inputsSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "title": "project",
+            "required": true,
+            "type": "string"
+          },
+          "family": {
+            "title": "family",
+            "required": true,
+            "type": "string"
+          }
+        }
+      },
+      "extends": [
+        "unfurl.nodes.GCPBootImage",
+        "unfurl.nodes.BootImage",
+        "unfurl.nodes.Configuration",
+        "tosca.nodes.Root",
+        "unfurl.capabilities.Configuration",
+        "tosca.capabilities.Root",
+        "tosca.capabilities.Node"
+      ],
+      "outputsSchema": {
+        "type": "object",
+        "properties": {
+          "boot_image": {
+            "title": "boot_image",
+            "required": true,
+            "type": "string"
+          }
+        }
+      },
+      "requirements": [
+
+      ],
+      "implementations": [
+        "configure"
+      ],
+      "implementation_requirements": [
+        "unfurl.relationships.ConnectsTo.GoogleCloudProject"
+      ]
+    },
+    "unfurl.nodes.GCPComputeInstance": {
+      "name": "unfurl.nodes.GCPComputeInstance",
+      "title": "GCPComputeInstance",
+      "description": "",
+      "inputsSchema": {
+        "type": "object",
+        "properties": {
+          "num_cpus": {
+            "title": "num_cpus",
+            "required": true,
+            "description": "Number of CPUs for the server",
+            "$toscatype": "integer",
+            "type": "number"
+          },
+          "mem_size": {
+            "title": "mem_size",
+            "required": true,
+            "description": "Amount of RAM (in MB)",
+            "default_unit": "MB",
+            "$toscatype": "scalar-unit.size",
+            "type": "number"
+          },
+          "disk_size": {
+            "title": "disk_size",
+            "required": true,
+            "description": "Size of boot disk (in GB)",
+            "default_unit": "GB",
+            "$toscatype": "scalar-unit.size",
+            "type": "number"
+          }
+        }
+      },
+      "extends": [
+        "unfurl.nodes.GCPComputeInstance",
+        "unfurl.nodes.Compute",
+        "tosca.nodes.Root",
+        "tosca.capabilities.Node",
+        "tosca.capabilities.Root"
+      ],
+      "outputsSchema": {
+        "type": "object",
+        "properties": {
+          "private_address": {
+            "title": "private_address",
+            "required": true,
+            "type": "string"
+          },
+          "public_address": {
+            "title": "public_address",
+            "required": true,
+            "type": "string"
+          },
+          "networks": {
+            "title": "networks",
+            "required": true,
+            "type": "object",
+            "additionalProperties": {
+              "required": true,
+              "$toscatype": "tosca.datatypes.network.NetworkInfo",
+              "type": "object",
+              "properties": {
+                "network_name": {
+                  "title": "network_name",
+                  "required": true,
+                  "type": "string"
+                },
+                "network_id": {
+                  "title": "network_id",
+                  "required": true,
+                  "type": "string"
+                },
+                "addresses": {
+                  "title": "addresses",
+                  "required": true,
+                  "type": "array",
+                  "items": {
+                    "required": true,
+                    "type": "string"
+                  }
+                },
+                "$toscatype": {
+                  "const": "tosca.datatypes.network.NetworkInfo"
+                }
+              }
+            }
+          },
+          "ports": {
+            "title": "ports",
+            "required": true,
+            "type": "object",
+            "additionalProperties": {
+              "required": true,
+              "$toscatype": "tosca.datatypes.network.PortInfo",
+              "type": "object",
+              "properties": {
+                "port_name": {
+                  "title": "port_name",
+                  "required": true,
+                  "type": "string"
+                },
+                "port_id": {
+                  "title": "port_id",
+                  "required": true,
+                  "type": "string"
+                },
+                "network_id": {
+                  "title": "network_id",
+                  "required": true,
+                  "type": "string"
+                },
+                "mac_address": {
+                  "title": "mac_address",
+                  "required": true,
+                  "type": "string"
+                },
+                "addresses": {
+                  "title": "addresses",
+                  "required": true,
+                  "type": "array",
+                  "items": {
+                    "required": true,
+                    "type": "string"
+                  }
+                },
+                "$toscatype": {
+                  "const": "tosca.datatypes.network.PortInfo"
+                }
+              }
+            }
+          }
+        }
+      },
+      "requirements": [
+
+      ],
+      "implementations": [
+        "check",
+        "create",
+        "default",
+        "delete"
+      ],
+      "implementation_requirements": [
+        "unfurl.relationships.ConnectsTo.GoogleCloudProject"
+      ]
+    },
+    "unfurl.nodes.ContainerApp": {
+      "name": "unfurl.nodes.ContainerApp",
+      "title": "ContainerApp",
+      "description": "",
+      "inputsSchema": {
+        "type": "object",
+        "properties": {
+        }
+      },
+      "extends": [
+        "unfurl.nodes.ContainerApp",
+        "tosca.nodes.Root",
+        "tosca.capabilities.Node",
+        "tosca.capabilities.Root"
+      ],
+      "outputsSchema": {
+        "type": "object",
+        "properties": {
+        }
+      },
+      "requirements": [
+        {
+          "name": "host",
+          "title": "host",
+          "description": "A compute instance with at least 512MB RAM",
+          "min": 1,
+          "max": 1,
+          "resourceType": "unfurl.nodes.Compute",
+          "node_filter": {
+            "properties": [
+              {
+                "user_data": {
+                  "eval": "$SOURCE::.targets::container::user_data"
+                }
+              },
+              {
+                "portspec": {
+                  "eval": "$SOURCE::.targets::container::portspec"
+                }
+              },
+              {
+                "name": {
+                  "eval": "$SOURCE::.targets::container::domain_name"
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "implementations": [
+
+      ],
+      "implementation_requirements": [
+
+      ]
+    },
+    "unfurl.nodes.WebApp": {
+      "name": "unfurl.nodes.WebApp",
+      "title": "WebApp",
+      "description": "",
+      "inputsSchema": {
+        "type": "object",
+        "properties": {
+          "domain_name": {
+            "title": "domain_name",
+            "required": true,
+            "description": "The domain name to associate this application with, e.g. subdomain.mydomain.com",
+            "type": "string"
+          },
+          "admin_email": {
+            "title": "admin_email",
+            "required": true,
+            "description": "This email is registered with Lets Encrypt when generating TLS certificates.",
+            "type": "string"
+          }
+        }
+      },
+      "extends": [
+        "unfurl.nodes.WebApp",
+        "unfurl.nodes.ContainerApp",
+        "tosca.nodes.Root",
+        "tosca.capabilities.Node",
+        "tosca.capabilities.Root"
+      ],
+      "outputsSchema": {
+        "type": "object",
+        "properties": {
+        }
+      },
+      "requirements": [
+        {
+          "name": "container",
+          "title": "container",
+          "description": "",
+          "min": 1,
+          "max": 1,
+          "resourceType": "unfurl.nodes.DockerComputeHost",
+          "node_filter": {
+            "properties": [
+              {
+                "domain_name": {
+                  "eval": "$SOURCE::domain_name"
+                }
+              },
+              {
+                "admin_email": {
+                  "eval": "$SOURCE::admin_email"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "name": "dns",
+          "title": "dns",
+          "description": "DNS provider for domain name configuration",
+          "min": 0,
+          "max": 1,
+          "resourceType": "unfurl.nodes.DNSZone",
+          "node_filter": {
+            "properties": [
+              {
+                "name": {
+                  "eval": "{{ '$SOURCE::domain_name' | eval | regex_replace('^.+?\\.', '') | trim  }}."
+                }
+              },
+              {
+                "records": {
+                  "eval": {
+                    "{{ '$SOURCE::domain_name' | eval | split('.') | first | trim }}": {
+                      "ttl": 60,
+                      "type": "A",
+                      "values": [
+                        {
+                          "eval": "$SOURCE::.targets::host::public_address"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "name": "host",
+          "title": "host",
+          "description": "A compute instance with at least 512MB RAM",
+          "min": 1,
+          "max": 1,
+          "resourceType": "unfurl.nodes.Compute",
+          "node_filter": {
+            "properties": [
+              {
+                "user_data": {
+                  "eval": "$SOURCE::.targets::container::user_data"
+                }
+              },
+              {
+                "portspec": {
+                  "eval": "$SOURCE::.targets::container::portspec"
+                }
+              },
+              {
+                "name": {
+                  "eval": "$SOURCE::.targets::container::domain_name"
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "implementations": [
+
+      ],
+      "implementation_requirements": [
+
+      ]
+    },
+    "unfurl.nodes.DockerHost": {
+      "name": "unfurl.nodes.DockerHost",
+      "title": "DockerHost",
+      "description": "",
+      "inputsSchema": {
+        "type": "object",
+        "properties": {
+          "portspec": {
+            "title": "portspec",
+            "$toscatype": "tosca.datatypes.network.PortSpec",
+            "type": "object",
+            "properties": {
+              "protocol": {
+                "title": "protocol",
+                "default": "tcp",
+                "required": true,
+                "type": "string",
+                "enum": [
+                  "udp",
+                  "tcp",
+                  "icmp"
+                ]
+              },
+              "target": {
+                "title": "target",
+                "$toscatype": "integer",
+                "type": "number"
+              },
+              "target_range": {
+                "title": "target_range",
+                "$toscatype": "range",
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "maxItems": 2
+                },
+                "minItems": 1,
+                "maxItems": 65535
+              },
+              "source": {
+                "title": "source",
+                "$toscatype": "integer",
+                "type": "number"
+              },
+              "source_range": {
+                "title": "source_range",
+                "$toscatype": "range",
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "maxItems": 2
+                },
+                "minItems": 1,
+                "maxItems": 65535
+              },
+              "$toscatype": {
+                "const": "tosca.datatypes.network.PortSpec"
+              }
+            }
+          }
+        }
+      },
+      "extends": [
+        "unfurl.nodes.DockerHost",
+        "unfurl.nodes.Configuration",
+        "tosca.nodes.Root",
+        "unfurl.capabilities.Configuration",
+        "tosca.capabilities.Root",
+        "tosca.capabilities.Node"
+      ],
+      "outputsSchema": {
+        "type": "object",
+        "properties": {
+        }
+      },
+      "requirements": [
+
+      ],
+      "implementations": [
+
+      ],
+      "implementation_requirements": [
+
+      ]
+    },
+    "unfurl.nodes.DockerComputeHost": {
+      "name": "unfurl.nodes.DockerComputeHost",
+      "title": "DockerComputeHost",
+      "description": "Given a docker-compose.yaml file create a cloudinit file",
+      "inputsSchema": {
+        "type": "object",
+        "properties": {
+          "portspec": {
+            "title": "portspec",
+            "$toscatype": "tosca.datatypes.network.PortSpec",
+            "type": "object",
+            "properties": {
+              "protocol": {
+                "title": "protocol",
+                "default": "tcp",
+                "required": true,
+                "type": "string",
+                "enum": [
+                  "udp",
+                  "tcp",
+                  "icmp"
+                ]
+              },
+              "target": {
+                "title": "target",
+                "$toscatype": "integer",
+                "type": "number"
+              },
+              "target_range": {
+                "title": "target_range",
+                "$toscatype": "range",
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "maxItems": 2
+                },
+                "minItems": 1,
+                "maxItems": 65535
+              },
+              "source": {
+                "title": "source",
+                "$toscatype": "integer",
+                "type": "number"
+              },
+              "source_range": {
+                "title": "source_range",
+                "$toscatype": "range",
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "maxItems": 2
+                },
+                "minItems": 1,
+                "maxItems": 65535
+              },
+              "$toscatype": {
+                "const": "tosca.datatypes.network.PortSpec"
+              }
+            }
+          }
+        }
+      },
+      "extends": [
+        "unfurl.nodes.DockerComputeHost",
+        "unfurl.nodes.DockerHost",
+        "unfurl.nodes.Configuration",
+        "tosca.nodes.Root",
+        "unfurl.capabilities.Configuration",
+        "tosca.capabilities.Root",
+        "tosca.capabilities.Node"
+      ],
+      "outputsSchema": {
+        "type": "object",
+        "properties": {
+          "user_data": {
+            "title": "user_data",
+            "required": true,
+            "type": "string"
+          }
+        }
+      },
+      "requirements": [
+
+      ],
+      "implementations": [
+        "configure"
+      ],
+      "implementation_requirements": [
+
+      ]
+    },
+    "Route53DNSZone": {
+      "name": "Route53DNSZone",
+      "title": "Route53DNSZone",
+      "description": "Amazon Web Services Route53 DNS provider for domain name configuration",
+      "badge": "DNS",
+      "inputsSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "title": "name",
+            "required": true,
+            "description": "DNS name of the zone (end with .)",
+            "type": "string"
+          }
+        }
+      },
+      "extends": [
+        "Route53DNSZone",
+        "unfurl.nodes.DNSZone",
+        "tosca.nodes.Root",
+        "unfurl.capabilities.DNSZone",
+        "tosca.capabilities.Root",
+        "tosca.capabilities.Node"
+      ],
+      "outputsSchema": {
+        "type": "object",
+        "properties": {
+          "zone": {
+            "title": "zone",
+            "required": true,
+            "description": "The records found in the zone",
+            "type": "object"
+          },
+          "managed_records": {
+            "title": "managed_records",
+            "description": "The records in the zone that are managed by this instance",
+            "type": "object"
+          }
+        }
+      },
+      "requirements": [
+        {
+          "name": "parent_zone",
+          "title": "parent_zone",
+          "description": "",
+          "min": 0,
+          "max": 1,
+          "resourceType": "unfurl.capabilities.DNSZone"
+        }
+      ],
+      "implementations": [
+        "check",
+        "configure",
+        "connect",
+        "default",
+        "delete"
+      ],
+      "implementation_requirements": [
+
+      ]
+    },
+    "DigitalOceanDNSZone": {
+      "name": "DigitalOceanDNSZone",
+      "title": "DigitalOceanDNSZone",
+      "description": "Digitial Ocean DNS provider for domain name configuration",
+      "badge": "DNS",
+      "inputsSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "title": "name",
+            "required": true,
+            "description": "DNS name of the zone (end with .)",
+            "type": "string"
+          }
+        }
+      },
+      "extends": [
+        "DigitalOceanDNSZone",
+        "unfurl.nodes.DNSZone",
+        "tosca.nodes.Root",
+        "unfurl.capabilities.DNSZone",
+        "tosca.capabilities.Root",
+        "tosca.capabilities.Node"
+      ],
+      "outputsSchema": {
+        "type": "object",
+        "properties": {
+          "zone": {
+            "title": "zone",
+            "required": true,
+            "description": "The records found in the zone",
+            "type": "object"
+          },
+          "managed_records": {
+            "title": "managed_records",
+            "description": "The records in the zone that are managed by this instance",
+            "type": "object"
+          }
+        }
+      },
+      "requirements": [
+        {
+          "name": "parent_zone",
+          "title": "parent_zone",
+          "description": "",
+          "min": 0,
+          "max": 1,
+          "resourceType": "unfurl.capabilities.DNSZone"
+        }
+      ],
+      "implementations": [
+        "check",
+        "configure",
+        "connect",
+        "default",
+        "delete"
+      ],
+      "implementation_requirements": [
+
+      ]
+    },
+    "unfurl.nodes.MongoDBWebApp": {
+      "name": "unfurl.nodes.MongoDBWebApp",
+      "title": "MongoDBWebApp",
+      "description": "A web app that uses MongoDB",
+      "inputsSchema": {
+        "type": "object",
+        "properties": {
+          "domain_name": {
+            "title": "domain_name",
+            "required": true,
+            "description": "The domain name to associate this application with, e.g. subdomain.mydomain.com",
+            "type": "string"
+          },
+          "admin_email": {
+            "title": "admin_email",
+            "required": true,
+            "description": "This email is registered with Lets Encrypt when generating TLS certificates.",
+            "type": "string"
+          }
+        }
+      },
+      "extends": [
+        "unfurl.nodes.MongoDBWebApp",
+        "unfurl.nodes.WebApp",
+        "unfurl.nodes.ContainerApp",
+        "tosca.nodes.Root",
+        "tosca.capabilities.Node",
+        "tosca.capabilities.Root"
+      ],
+      "outputsSchema": {
+        "type": "object",
+        "properties": {
+        }
+      },
+      "requirements": [
+        {
+          "name": "db",
+          "title": "db",
+          "description": "MongoDB database service",
+          "min": 1,
+          "max": 1,
+          "resourceType": "MongoDb"
+        },
+        {
+          "name": "container",
+          "title": "container",
+          "description": "",
+          "min": 1,
+          "max": 1,
+          "resourceType": "unfurl.nodes.DockerComputeHost",
+          "node_filter": {
+            "properties": [
+              {
+                "domain_name": {
+                  "eval": "$SOURCE::domain_name"
+                }
+              },
+              {
+                "admin_email": {
+                  "eval": "$SOURCE::admin_email"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "name": "dns",
+          "title": "dns",
+          "description": "DNS provider for domain name configuration",
+          "min": 0,
+          "max": 1,
+          "resourceType": "unfurl.nodes.DNSZone",
+          "node_filter": {
+            "properties": [
+              {
+                "name": {
+                  "eval": "{{ '$SOURCE::domain_name' | eval | regex_replace('^.+?\\.', '') | trim  }}."
+                }
+              },
+              {
+                "records": {
+                  "eval": {
+                    "{{ '$SOURCE::domain_name' | eval | split('.') | first | trim }}": {
+                      "ttl": 60,
+                      "type": "A",
+                      "values": [
+                        {
+                          "eval": "$SOURCE::.targets::host::public_address"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "name": "host",
+          "title": "host",
+          "description": "A compute instance with at least 512MB RAM",
+          "min": 1,
+          "max": 1,
+          "resourceType": "unfurl.nodes.Compute",
+          "node_filter": {
+            "properties": [
+              {
+                "user_data": {
+                  "eval": "$SOURCE::.targets::container::user_data"
+                }
+              },
+              {
+                "portspec": {
+                  "eval": "$SOURCE::.targets::container::portspec"
+                }
+              },
+              {
+                "name": {
+                  "eval": "$SOURCE::.targets::container::domain_name"
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "implementations": [
+        "create"
+      ],
+      "implementation_requirements": [
+
+      ]
+    },
+    "unfurl.nodes.SoftwareService": {
+      "name": "unfurl.nodes.SoftwareService",
+      "title": "SoftwareService",
+      "description": "",
+      "inputsSchema": {
+        "type": "object",
+        "properties": {
+          "software_version": {
+            "title": "software_version",
+            "required": true,
+            "type": "string"
+          }
+        }
+      },
+      "extends": [
+        "unfurl.nodes.SoftwareService",
+        "tosca.nodes.Root",
+        "tosca.capabilities.Node",
+        "tosca.capabilities.Root"
+      ],
+      "outputsSchema": {
+        "type": "object",
+        "properties": {
+        }
+      },
+      "requirements": [
+
+      ],
+      "implementations": [
+
+      ],
+      "implementation_requirements": [
+
+      ]
+    },
+    "MongoDb": {
+      "name": "MongoDb",
+      "title": "MongoDb",
+      "description": "",
+      "badge": "Database",
+      "inputsSchema": {
+        "type": "object",
+        "properties": {
+        }
+      },
+      "extends": [
+        "MongoDb",
+        "unfurl.nodes.SoftwareService",
+        "tosca.nodes.Root",
+        "tosca.capabilities.Node",
+        "tosca.capabilities.Root"
+      ],
+      "outputsSchema": {
+        "type": "object",
+        "properties": {
+        }
+      },
+      "requirements": [
+
+      ],
+      "implementations": [
+
+      ],
+      "implementation_requirements": [
+
+      ]
+    },
+    "AtlasService": {
+      "name": "AtlasService",
+      "title": "Atlas MongoDB Service",
+      "description": "",
+      "inputsSchema": {
+        "type": "object",
+        "properties": {
+          "public_key": {
+            "title": "public_key",
+            "required": true,
+            "description": "Public API key to authenticate Atlas",
+            "type": "string"
+          },
+          "private_key": {
+            "title": "private_key",
+            "required": true,
+            "description": "Private API key to authenticate Atlas",
+            "sensitive": true,
+            "type": "string"
+          }
+        }
+      },
+      "extends": [
+        "AtlasService",
+        "MongoDb",
+        "unfurl.nodes.SoftwareService",
+        "tosca.nodes.Root",
+        "unfurl.nodes.Installer.Terraform",
+        "unfurl.nodes.Installer",
+        "tosca.capabilities.Node",
+        "tosca.capabilities.Root",
+        "unfurl.capabilities.Installer"
+      ],
+      "outputsSchema": {
+        "type": "object",
+        "properties": {
+        }
+      },
+      "requirements": [
+
+      ],
+      "implementations": [
+        "_source",
+        "configure",
+        "default",
+        "delete"
+      ],
+      "implementation_requirements": [
+
+      ]
+    },
+    "MongoDbInstance": {
+      "name": "MongoDbInstance",
+      "title": "Self-hosted MongoDB",
+      "description": "",
+      "inputsSchema": {
+        "type": "object",
+        "properties": {
+        }
+      },
+      "extends": [
+        "MongoDbInstance",
+        "MongoDb",
+        "unfurl.nodes.SoftwareService",
+        "tosca.nodes.Root",
+        "unfurl.nodes.ContainerApp",
+        "tosca.capabilities.Node",
+        "tosca.capabilities.Root"
+      ],
+      "outputsSchema": {
+        "type": "object",
+        "properties": {
+        }
+      },
+      "requirements": [
+        {
+          "name": "host",
+          "title": "host",
+          "description": "A compute instance with at least 512MB RAM",
+          "min": 1,
+          "max": 1,
+          "resourceType": "unfurl.nodes.Compute",
+          "node_filter": {
+            "properties": [
+              {
+                "user_data": {
+                  "eval": "$SOURCE::.targets::container::user_data"
+                }
+              },
+              {
+                "portspec": {
+                  "eval": "$SOURCE::.targets::container::portspec"
+                }
+              },
+              {
+                "name": {
+                  "eval": "$SOURCE::.targets::container::domain_name"
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "implementations": [
+        "create"
+      ],
+      "implementation_requirements": [
+
+      ]
+    },
+    "Mail": {
+      "name": "Mail",
+      "title": "Mail Server",
+      "description": "Mail server to use for sending mail",
+      "badge": "MAIL",
+      "inputsSchema": {
+        "type": "object",
+        "properties": {
+        }
+      },
+      "extends": [
+        "Mail",
+        "tosca.nodes.Root",
+        "tosca.capabilities.Node",
+        "tosca.capabilities.Root"
+      ],
+      "outputsSchema": {
+        "type": "object",
+        "properties": {
+        }
+      },
+      "requirements": [
+
+      ],
+      "implementations": [
+
+      ],
+      "implementation_requirements": [
+
+      ]
+    },
+    "SendGrid": {
+      "name": "SendGrid",
+      "title": "SendGrid",
+      "description": "Use sendgrid.com to send mail.",
+      "inputsSchema": {
+        "type": "object",
+        "properties": {
+          "user_name": {
+            "title": "user_name",
+            "required": true,
+            "type": "string"
+          },
+          "key": {
+            "title": "key",
+            "required": true,
+            "type": "string"
+          },
+          "secret": {
+            "title": "secret",
+            "required": true,
+            "sensitive": true,
+            "type": "string"
+          }
+        }
+      },
+      "extends": [
+        "SendGrid",
+        "Mail",
+        "tosca.nodes.Root",
+        "tosca.capabilities.Node",
+        "tosca.capabilities.Root"
+      ],
+      "outputsSchema": {
+        "type": "object",
+        "properties": {
+        }
+      },
+      "requirements": [
+
+      ],
+      "implementations": [
+        "connect"
+      ],
+      "implementation_requirements": [
+
+      ]
+    },
+    "unfurl.relationships.ConfiguredBy": {
+      "name": "unfurl.relationships.ConfiguredBy",
+      "title": "ConfiguredBy",
+      "description": "",
+      "inputsSchema": {
+        "type": "object",
+        "properties": {
+        }
+      },
+      "extends": [
+        "unfurl.relationships.ConfiguredBy",
+        "tosca.relationships.Root"
+      ]
+    },
+    "unfurl.relationships.ConnectsTo.DigitalOcean": {
+      "name": "unfurl.relationships.ConnectsTo.DigitalOcean",
+      "title": "DigitalOcean",
+      "description": "",
+      "inputsSchema": {
+        "type": "object",
+        "properties": {
+        }
+      },
+      "extends": [
+        "unfurl.relationships.ConnectsTo.DigitalOcean",
+        "unfurl.relationships.ConnectsTo.CloudAccount",
+        "tosca.relationships.ConnectsTo",
+        "tosca.relationships.Root"
+      ]
+    },
+    "unfurl.relationships.ConnectsTo.CloudAccount": {
+      "name": "unfurl.relationships.ConnectsTo.CloudAccount",
+      "title": "CloudAccount",
+      "description": "",
+      "inputsSchema": {
+        "type": "object",
+        "properties": {
+        }
+      },
+      "extends": [
+        "unfurl.relationships.ConnectsTo.CloudAccount",
+        "tosca.relationships.ConnectsTo",
+        "tosca.relationships.Root"
+      ]
+    },
+    "tosca.relationships.ConnectsTo": {
+      "name": "tosca.relationships.ConnectsTo",
+      "title": "ConnectsTo",
+      "description": "",
+      "inputsSchema": {
+        "type": "object",
+        "properties": {
+        }
+      },
+      "extends": [
+        "tosca.relationships.ConnectsTo",
+        "tosca.relationships.Root"
+      ]
+    },
+    "unfurl.nodes.Repository": {
+      "name": "unfurl.nodes.Repository",
+      "title": "Repository",
+      "description": "Reification of a TOSCA repository. Artifacts listed in the \"artifacts\" section of this node template will able available in the repository.\n",
+      "inputsSchema": {
+        "type": "object",
+        "properties": {
+          "repository": {
+            "title": "repository",
+            "description": "The name of the repository this node instance represent.",
+            "type": "string"
+          },
+          "url": {
+            "title": "url",
+            "description": "The url of this repository",
+            "type": "string"
+          },
+          "credential": {
+            "title": "credential",
+            "description": "The credential, if present, of the repository this node instance represents.\n",
+            "sensitive": true,
+            "$toscatype": "tosca.datatypes.Credential",
+            "type": "object",
+            "properties": {
+              "protocol": {
+                "title": "protocol",
+                "type": "string"
+              },
+              "token_type": {
+                "title": "token_type",
+                "default": "password",
+                "required": true,
+                "type": "string"
+              },
+              "token": {
+                "title": "token",
+                "required": true,
+                "type": "string"
+              },
+              "keys": {
+                "title": "keys",
+                "type": "object",
+                "additionalProperties": {
+                  "required": true,
+                  "type": "string"
+                }
+              },
+              "user": {
+                "title": "user",
+                "type": "string"
+              },
+              "$toscatype": {
+                "const": "tosca.datatypes.Credential"
+              }
+            }
+          }
+        }
+      },
+      "extends": [
+        "unfurl.nodes.Repository",
+        "tosca.nodes.Root",
+        "tosca.capabilities.Node",
+        "tosca.capabilities.Root"
+      ],
+      "outputsSchema": {
+        "type": "object",
+        "properties": {
+        }
+      },
+      "requirements": [
+
+      ],
+      "implementations": [
+
+      ],
+      "implementation_requirements": [
+
+      ]
+    },
+    "unfurl.nodes.LocalRepository": {
+      "name": "unfurl.nodes.LocalRepository",
+      "title": "LocalRepository",
+      "description": "Represents the collection of artifacts available to the local operation host.\n",
+      "inputsSchema": {
+        "type": "object",
+        "properties": {
+          "repository": {
+            "title": "repository",
+            "description": "The name of the repository this node instance represent.",
+            "type": "string"
+          },
+          "url": {
+            "title": "url",
+            "description": "The url of this repository",
+            "type": "string"
+          },
+          "credential": {
+            "title": "credential",
+            "description": "The credential, if present, of the repository this node instance represents.\n",
+            "sensitive": true,
+            "$toscatype": "tosca.datatypes.Credential",
+            "type": "object",
+            "properties": {
+              "protocol": {
+                "title": "protocol",
+                "type": "string"
+              },
+              "token_type": {
+                "title": "token_type",
+                "default": "password",
+                "required": true,
+                "type": "string"
+              },
+              "token": {
+                "title": "token",
+                "required": true,
+                "type": "string"
+              },
+              "keys": {
+                "title": "keys",
+                "type": "object",
+                "additionalProperties": {
+                  "required": true,
+                  "type": "string"
+                }
+              },
+              "user": {
+                "title": "user",
+                "type": "string"
+              },
+              "$toscatype": {
+                "const": "tosca.datatypes.Credential"
+              }
+            }
+          }
+        }
+      },
+      "extends": [
+        "unfurl.nodes.LocalRepository",
+        "unfurl.nodes.Repository",
+        "tosca.nodes.Root",
+        "tosca.capabilities.Node",
+        "tosca.capabilities.Root"
+      ],
+      "outputsSchema": {
+        "type": "object",
+        "properties": {
+        }
+      },
+      "requirements": [
+
+      ],
+      "implementations": [
+
+      ],
+      "implementation_requirements": [
+
+      ]
+    },
+    "unfurl.nodes.ArtifactBuilder": {
+      "name": "unfurl.nodes.ArtifactBuilder",
+      "title": "ArtifactBuilder",
+      "description": "Creates or builds the given artifact and \"uploads\" it to the artifact's repository.\n",
+      "inputsSchema": {
+        "type": "object",
+        "properties": {
+        }
+      },
+      "extends": [
+        "unfurl.nodes.ArtifactBuilder",
+        "tosca.nodes.Root",
+        "tosca.capabilities.Node",
+        "tosca.capabilities.Root"
+      ],
+      "outputsSchema": {
+        "type": "object",
+        "properties": {
+        }
+      },
+      "requirements": [
+
+      ],
+      "implementations": [
+
+      ],
+      "implementation_requirements": [
+
+      ]
+    },
+    "unfurl.nodes.ArtifactInstaller": {
+      "name": "unfurl.nodes.ArtifactInstaller",
+      "title": "ArtifactInstaller",
+      "description": "Reification of an artifact that needs to be installed. Node templates of this type are \"discovered\" when artifacts need to be installed on an operation_host.\n",
+      "inputsSchema": {
+        "type": "object",
+        "properties": {
+        }
+      },
+      "extends": [
+        "unfurl.nodes.ArtifactInstaller",
+        "tosca.nodes.Root",
+        "tosca.capabilities.Node",
+        "tosca.capabilities.Root"
+      ],
+      "outputsSchema": {
+        "type": "object",
+        "properties": {
+        }
+      },
+      "requirements": [
+
+      ],
+      "implementations": [
+        "check",
+        "configure",
+        "create",
+        "default",
+        "delete",
+        "start",
+        "stop"
+      ],
+      "implementation_requirements": [
+
+      ]
+    },
+    "unfurl.nodes.Installation": {
+      "name": "unfurl.nodes.Installation",
+      "title": "Installation",
+      "description": "",
+      "inputsSchema": {
+        "type": "object",
+        "properties": {
+        }
+      },
+      "extends": [
+        "unfurl.nodes.Installation",
+        "tosca.nodes.Root",
+        "tosca.capabilities.Node",
+        "tosca.capabilities.Root"
+      ],
+      "outputsSchema": {
+        "type": "object",
+        "properties": {
+        }
+      },
+      "requirements": [
+        {
+          "name": "installer",
+          "title": "installer",
+          "description": "",
+          "min": 0,
+          "max": 1,
+          "resourceType": "unfurl.nodes.Installer"
+        }
+      ],
+      "implementations": [
+
+      ],
+      "implementation_requirements": [
+
+      ]
+    },
+    "unfurl.nodes.Default": {
+      "name": "unfurl.nodes.Default",
+      "title": "Default",
+      "description": "Used if pre-existing instances are declared with no TOSCA template",
+      "inputsSchema": {
+        "type": "object",
+        "properties": {
+        }
+      },
+      "extends": [
+        "unfurl.nodes.Default",
+        "unfurl.nodes.Installation",
+        "tosca.nodes.Root",
+        "tosca.capabilities.Node",
+        "tosca.capabilities.Root"
+      ],
+      "outputsSchema": {
+        "type": "object",
+        "properties": {
+        }
+      },
+      "requirements": [
+        {
+          "name": "installer",
+          "title": "installer",
+          "description": "",
+          "min": 0,
+          "max": 1,
+          "resourceType": "unfurl.nodes.Installer"
+        }
+      ],
+      "implementations": [
+        "create"
+      ],
+      "implementation_requirements": [
+
+      ]
+    },
+    "unfurl.nodes.CloudAccount": {
+      "name": "unfurl.nodes.CloudAccount",
+      "title": "CloudAccount",
+      "description": "",
+      "inputsSchema": {
+        "type": "object",
+        "properties": {
+        }
+      },
+      "extends": [
+        "unfurl.nodes.CloudAccount",
+        "tosca.nodes.Root",
+        "tosca.capabilities.Node",
+        "tosca.capabilities.Root"
+      ],
+      "outputsSchema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "title": "account_id",
+            "required": true,
+            "description": "Cloud provider specific account identifier",
+            "type": "string"
+          }
+        }
+      },
+      "requirements": [
+
+      ],
+      "implementations": [
+
+      ],
+      "implementation_requirements": [
+
+      ]
+    },
+    "unfurl.nodes.CloudObject": {
+      "name": "unfurl.nodes.CloudObject",
+      "title": "CloudObject",
+      "description": "",
+      "inputsSchema": {
+        "type": "object",
+        "properties": {
+        }
+      },
+      "extends": [
+        "unfurl.nodes.CloudObject",
+        "tosca.nodes.Root",
+        "tosca.capabilities.Node",
+        "tosca.capabilities.Root"
+      ],
+      "outputsSchema": {
+        "type": "object",
+        "properties": {
+          "uri": {
+            "title": "uri",
+            "required": true,
+            "description": "Unique identifier",
+            "type": "string"
+          },
+          "name": {
+            "title": "name",
+            "required": true,
+            "description": "Human-friendly name of the resource",
+            "type": "string"
+          },
+          "console_url": {
+            "title": "console_url",
+            "description": "URL for viewing this resource in its cloud provider's console",
+            "type": "string"
+          }
+        }
+      },
+      "requirements": [
+
+      ],
+      "implementations": [
+
+      ],
+      "implementation_requirements": [
+
+      ]
+    },
+    "unfurl.nodes.AWSAccount": {
+      "name": "unfurl.nodes.AWSAccount",
+      "title": "AWSAccount",
+      "description": "",
+      "inputsSchema": {
+        "type": "object",
+        "properties": {
+        }
+      },
+      "extends": [
+        "unfurl.nodes.AWSAccount",
+        "unfurl.nodes.CloudAccount",
+        "tosca.nodes.Root",
+        "tosca.capabilities.Node",
+        "tosca.capabilities.Root"
+      ],
+      "outputsSchema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "title": "account_id",
+            "required": true,
+            "description": "Cloud provider specific account identifier",
+            "type": "string"
+          }
+        }
+      },
+      "requirements": [
+
+      ],
+      "implementations": [
+
+      ],
+      "implementation_requirements": [
+
+      ]
+    },
+    "unfurl.nodes.AWSResource": {
+      "name": "unfurl.nodes.AWSResource",
+      "title": "AWSResource",
+      "description": "",
+      "inputsSchema": {
+        "type": "object",
+        "properties": {
+        }
+      },
+      "extends": [
+        "unfurl.nodes.AWSResource",
+        "unfurl.nodes.CloudObject",
+        "tosca.nodes.Root",
+        "tosca.capabilities.Node",
+        "tosca.capabilities.Root"
+      ],
+      "outputsSchema": {
+        "type": "object",
+        "properties": {
+          "uri": {
+            "title": "uri",
+            "required": true,
+            "description": "Unique identifier",
+            "type": "string"
+          },
+          "name": {
+            "title": "name",
+            "required": true,
+            "description": "Human-friendly name of the resource",
+            "type": "string"
+          },
+          "console_url": {
+            "title": "console_url",
+            "description": "URL for viewing this resource in its cloud provider's console",
+            "type": "string"
+          }
+        }
+      },
+      "requirements": [
+        {
+          "name": "cloud",
+          "title": "cloud",
+          "description": "",
+          "min": 0,
+          "max": 1,
+          "resourceType": "unfurl.nodes.AWSAccount"
+        }
+      ],
+      "implementations": [
+        "create"
+      ],
+      "implementation_requirements": [
+
+      ]
+    },
+    "unfurl.nodes.AzureAccount": {
+      "name": "unfurl.nodes.AzureAccount",
+      "title": "AzureAccount",
+      "description": "",
+      "inputsSchema": {
+        "type": "object",
+        "properties": {
+        }
+      },
+      "extends": [
+        "unfurl.nodes.AzureAccount",
+        "unfurl.nodes.CloudAccount",
+        "tosca.nodes.Root",
+        "tosca.capabilities.Node",
+        "tosca.capabilities.Root"
+      ],
+      "outputsSchema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "title": "account_id",
+            "required": true,
+            "description": "Cloud provider specific account identifier",
+            "type": "string"
+          }
+        }
+      },
+      "requirements": [
+
+      ],
+      "implementations": [
+
+      ],
+      "implementation_requirements": [
+
+      ]
+    },
+    "unfurl.nodes.AzureResource": {
+      "name": "unfurl.nodes.AzureResource",
+      "title": "AzureResource",
+      "description": "",
+      "inputsSchema": {
+        "type": "object",
+        "properties": {
+        }
+      },
+      "extends": [
+        "unfurl.nodes.AzureResource",
+        "unfurl.nodes.CloudObject",
+        "tosca.nodes.Root",
+        "tosca.capabilities.Node",
+        "tosca.capabilities.Root"
+      ],
+      "outputsSchema": {
+        "type": "object",
+        "properties": {
+          "uri": {
+            "title": "uri",
+            "required": true,
+            "description": "Unique identifier",
+            "type": "string"
+          },
+          "name": {
+            "title": "name",
+            "required": true,
+            "description": "Human-friendly name of the resource",
+            "type": "string"
+          },
+          "console_url": {
+            "title": "console_url",
+            "description": "URL for viewing this resource in its cloud provider's console",
+            "type": "string"
+          }
+        }
+      },
+      "requirements": [
+        {
+          "name": "cloud",
+          "title": "cloud",
+          "description": "",
+          "min": 0,
+          "max": 1,
+          "resourceType": "unfurl.nodes.AzureAccount"
+        }
+      ],
+      "implementations": [
+        "create"
+      ],
+      "implementation_requirements": [
+
+      ]
+    },
+    "unfurl.relationships.InstalledBy": {
+      "name": "unfurl.relationships.InstalledBy",
+      "title": "InstalledBy",
+      "description": "",
+      "inputsSchema": {
+        "type": "object",
+        "properties": {
+        }
+      },
+      "extends": [
+        "unfurl.relationships.InstalledBy",
+        "tosca.relationships.Root"
+      ]
+    },
+    "unfurl.relationships.ConnectsTo.Ansible": {
+      "name": "unfurl.relationships.ConnectsTo.Ansible",
+      "title": "Ansible",
+      "description": "",
+      "inputsSchema": {
+        "type": "object",
+        "properties": {
+          "credential": {
+            "title": "credential",
+            "description": "Its \"user\" property sets \"ansible_user\", add properties like \"ssh_private_key_file\" to \"keys\"",
+            "sensitive": true,
+            "$toscatype": "tosca.datatypes.Credential",
+            "type": "object",
+            "properties": {
+              "protocol": {
+                "title": "protocol",
+                "type": "string"
+              },
+              "token_type": {
+                "title": "token_type",
+                "default": "password",
+                "required": true,
+                "type": "string"
+              },
+              "token": {
+                "title": "token",
+                "required": true,
+                "type": "string"
+              },
+              "keys": {
+                "title": "keys",
+                "type": "object",
+                "additionalProperties": {
+                  "required": true,
+                  "type": "string"
+                }
+              },
+              "user": {
+                "title": "user",
+                "type": "string"
+              },
+              "$toscatype": {
+                "const": "tosca.datatypes.Credential"
+              }
+            }
+          },
+          "hostvars": {
+            "title": "hostvars",
+            "description": "Passed to ansible as host vars See https://docs.ansible.com/ansible/latest/user_guide/intro_inventory.html#connecting-to-hosts-behavioral-inventory-parameters\n",
+            "type": "object"
+          }
+        }
+      },
+      "extends": [
+        "unfurl.relationships.ConnectsTo.Ansible",
+        "tosca.relationships.ConnectsTo",
+        "tosca.relationships.Root"
+      ]
+    },
+    "unfurl.relationships.ConnectsTo.GoogleCloudProject": {
+      "name": "unfurl.relationships.ConnectsTo.GoogleCloudProject",
+      "title": "GoogleCloudProject",
+      "description": "",
+      "inputsSchema": {
+        "type": "object",
+        "properties": {
+          "scopes": {
+            "title": "scopes",
+            "type": "array",
+            "items": {
+              "required": true,
+              "type": "string"
+            }
+          }
+        }
+      },
+      "extends": [
+        "unfurl.relationships.ConnectsTo.GoogleCloudProject",
+        "unfurl.relationships.ConnectsTo.CloudAccount",
+        "tosca.relationships.ConnectsTo",
+        "tosca.relationships.Root"
+      ]
+    },
+    "unfurl.relationships.ConnectsTo.AWSAccount": {
+      "name": "unfurl.relationships.ConnectsTo.AWSAccount",
+      "title": "AWSAccount",
+      "description": "",
+      "inputsSchema": {
+        "type": "object",
+        "properties": {
+          "endpoints": {
+            "title": "endpoints",
+            "description": "custom service endpoints",
+            "type": "object"
+          }
+        }
+      },
+      "extends": [
+        "unfurl.relationships.ConnectsTo.AWSAccount",
+        "unfurl.relationships.ConnectsTo.CloudAccount",
+        "tosca.relationships.ConnectsTo",
+        "tosca.relationships.Root"
+      ]
+    },
+    "unfurl.relationships.ConnectsTo.Azure": {
+      "name": "unfurl.relationships.ConnectsTo.Azure",
+      "title": "Azure",
+      "description": "",
+      "inputsSchema": {
+        "type": "object",
+        "properties": {
+        }
+      },
+      "extends": [
+        "unfurl.relationships.ConnectsTo.Azure",
+        "unfurl.relationships.ConnectsTo.CloudAccount",
+        "tosca.relationships.ConnectsTo",
+        "tosca.relationships.Root"
+      ]
+    },
+    "unfurl.relationships.ConnectsTo.Packet": {
+      "name": "unfurl.relationships.ConnectsTo.Packet",
+      "title": "Packet",
+      "description": "",
+      "inputsSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "title": "project",
+            "required": true,
+            "description": "UUID to packet project",
+            "type": "string"
+          }
+        }
+      },
+      "extends": [
+        "unfurl.relationships.ConnectsTo.Packet",
+        "unfurl.relationships.ConnectsTo.CloudAccount",
+        "tosca.relationships.ConnectsTo",
+        "tosca.relationships.Root"
+      ]
+    },
+    "unfurl.relationships.ConnectsTo.OpenStack": {
+      "name": "unfurl.relationships.ConnectsTo.OpenStack",
+      "title": "OpenStack",
+      "description": "",
+      "inputsSchema": {
+        "type": "object",
+        "properties": {
+        }
+      },
+      "extends": [
+        "unfurl.relationships.ConnectsTo.OpenStack",
+        "unfurl.relationships.ConnectsTo.CloudAccount",
+        "tosca.relationships.ConnectsTo",
+        "tosca.relationships.Root"
+      ]
+    },
+    "unfurl.relationships.ConnectsTo.Rackspace": {
+      "name": "unfurl.relationships.ConnectsTo.Rackspace",
+      "title": "Rackspace",
+      "description": "",
+      "inputsSchema": {
+        "type": "object",
+        "properties": {
+        }
+      },
+      "extends": [
+        "unfurl.relationships.ConnectsTo.Rackspace",
+        "unfurl.relationships.ConnectsTo.OpenStack",
+        "unfurl.relationships.ConnectsTo.CloudAccount",
+        "tosca.relationships.ConnectsTo",
+        "tosca.relationships.Root"
+      ]
+    }
+  },
+  "DeploymentPath": {
+    "environments/gcp-2022-06-07t16-51-39/blueprints/baserow/cy-baserow-minimal-l44egpb8": {
+      "name": "environments/gcp-2022-06-07t16-51-39/blueprints/baserow/cy-baserow-minimal-l44egpb8",
+      "__typename": "DeploymentPath",
+      "environment": "gcp-2022-06-07t16-51-39",
+      "projectId": 101,
+      "pipelines": [
+        {
+          "id": 266,
+          "flags": {
+            "stuck": false,
+            "auto_devops": false,
+            "merge_request": false,
+            "yaml_errors": false,
+            "retryable": false,
+            "cancelable": true,
+            "failure_reason": false,
+            "detached_merge_request_pipeline": false,
+            "merge_request_pipeline": false,
+            "latest": true
+          },
+          "commit": {
+            "id": "36e95add7f1c7f3f7d4ffda217da13744f8dd7e9",
+            "short_id": "36e95add",
+            "created_at": "2022-06-07T16:53:52.000+00:00",
+            "parent_ids": [
+              "ae28c3af8e657b53bf6281a7efad8d3f2ba00557"
+            ],
+            "title": "Update deployment",
+            "message": "Update deployment",
+            "author_name": "user-2022-06-07T16-51-39",
+            "author_email": "user-2022-06-07t16-51-39@unfurl.cloud",
+            "authored_date": "2022-06-07T16:53:52.000+00:00",
+            "committer_name": "user-2022-06-07T16-51-39",
+            "committer_email": "user-2022-06-07t16-51-39@unfurl.cloud",
+            "committed_date": "2022-06-07T16:53:52.000+00:00",
+            "trailers": {
+            },
+            "web_url": "https://unfurl.cloud/user-2022-06-07T16-51-39/dashboard/-/commit/36e95add7f1c7f3f7d4ffda217da13744f8dd7e9",
+            "author": {
+              "id": 78,
+              "name": "user-2022-06-07T16-51-39",
+              "username": "user-2022-06-07T16-51-39",
+              "state": "active",
+              "avatar_url": "https://secure.gravatar.com/avatar/ed9a989705864ef11364a448f7676272?s=80&d=identicon",
+              "web_url": "https://unfurl.cloud/user-2022-06-07T16-51-39",
+              "show_status": false,
+              "path": "/user-2022-06-07T16-51-39"
+            },
+            "author_gravatar_url": "https://secure.gravatar.com/avatar/ed9a989705864ef11364a448f7676272?s=80&d=identicon",
+            "commit_url": "https://unfurl.cloud/user-2022-06-07T16-51-39/dashboard/-/commit/36e95add7f1c7f3f7d4ffda217da13744f8dd7e9",
+            "commit_path": "/user-2022-06-07T16-51-39/dashboard/-/commit/36e95add7f1c7f3f7d4ffda217da13744f8dd7e9"
+          },
+          "variables": {
+            "WORKFLOW": "deploy",
+            "DEPLOY_ENVIRONMENT": "gcp-2022-06-07t16-51-39",
+            "BLUEPRINT_PROJECT_URL": "https://unfurl.cloud/blueprints/baserow.git",
+            "DEPLOY_PATH": "environments/gcp-2022-06-07t16-51-39/blueprints/baserow/cy-baserow-minimal-l44egpb8",
+            "DEPLOYMENT": "cy-baserow-minimal-l44egpb8",
+            "DEPLOYMENT_BLUEPRINT": "gcp",
+            "UNFURL_LOGGING": "trace"
+          }
+        }
+      ]
+    }
+  }
+}
