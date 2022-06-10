@@ -22,6 +22,7 @@ from .util import UnfurlError, UnfurlTaskError, to_enum, change_cwd
 from .merge import merge_dicts
 from .runtime import NodeInstance, Operational, OperationalInstance
 from . import logs
+from .logs import end_collapsible, start_collapsible
 from .configurator import (
     TaskView,
     ConfiguratorResult,
@@ -791,22 +792,16 @@ class Job(ConfigChange):
             elif isinstance(taskRequest, TaskRequestGroup):
                 _task = self.apply_group(depth, taskRequest)
             else:
-                ci = os.environ.get("CI", False) # Running in a CI environment (eg GitLab CI)
-                if ci:
-                    # Start collapsible section
-                    # https://docs.gitlab.com/ee/ci/jobs/#expand-and-collapse-job-log-sections
-                    # The octal \033 is used instead of \e because python doesn't recognize \e as an escape sequence
-                    print(f"\033[0Ksection_start:{int(time.time())}:task_{hash(taskRequest)}[collapsed=true]\r\033[0KTask {taskRequest.target.name} ({taskRequest}")
+                start_collapsible(f"Task {taskRequest.target.name} ({taskRequest}", hash(taskRequest))
 
                 _task = self._run_operation(taskRequest, workflow, depth, meta={
                     "task_number": idx,
                     "task_count": len(taskRequests),
                     "logger": logging.getLogger(f"unfurljob.{idx}")
-                } if ci else {})
+                })
 
-                if ci:
-                    # End compressible section
-                    print(f"\033[0Ksection_end:{int(time.time())}:task_{hash(taskRequest)}\r\033[0K")
+            end_collapsible(hash(taskRequest))
+
             if not _task:
                 continue
             task = _task
@@ -1029,13 +1024,13 @@ class Job(ConfigChange):
             return None
 
         if meta_enabled:
-            meta_logger.info(json.dumps({"state": "starting_task", "task_number": task_number, "task_count": task_count}))
+            meta_logger.debug(json.dumps({"state": "starting_task", "task_number": task_number, "task_count": task_count}))
 
         logger.info("Running task %s", req)
         test, msg = self._entry_test(req, workflow)
         if not test:
             if meta_enabled:
-                meta_logger.info(json.dumps({"state": "skipped_task", "task_number": task_number, "task_count": task_count, "reason": msg}))
+                meta_logger.debug(json.dumps({"state": "skipped_task", "task_number": task_number, "task_count": task_count, "reason": msg}))
 
             logger.debug(
                 "skipping operation %s for instance %s with state %s and status %s: %s",
@@ -1092,7 +1087,7 @@ class Job(ConfigChange):
             #     req.startState,
             # )
             if meta_enabled:
-                meta_logger.info(json.dumps({
+                meta_logger.debug(json.dumps({
                     "state": "finished_task",
                     "task_number": task_number,
                     "task_count": task_count,

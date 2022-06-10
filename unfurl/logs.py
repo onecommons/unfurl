@@ -4,12 +4,12 @@ import logging.config
 from enum import IntEnum
 import os
 import tempfile
+import time
 from typing import Any, Dict, Tuple, Union
 from typing_extensions import NotRequired, TypedDict
-import click
 
-# import click
 import rich
+from rich.console import Console
 
 
 def truncate(s: str, max: int=1200) -> str:
@@ -74,7 +74,8 @@ class UnfurlLogger(logging.Logger):
 
 class JobLogHandler(logging.StreamHandler):
     def emit(self, record: logging.LogRecord) -> None:
-        rich.print(record.msg)
+        # hide output in terminals
+        rich.print(record.msg, end="\x1b[2K\r", flush=True)
 
 class StyleDict(TypedDict):
     bg: NotRequired[Union[str, Tuple[int, int, int]]]
@@ -97,7 +98,6 @@ class ColorHandler(logging.StreamHandler):
         message = truncate(self.format(record))
         level = Levels[record.levelname]
         try:
-            from rich.console import Console
             # Soft wrap prevents rich from breaking lines automatically (needed for emulated terminals, like gitlab CI)
             console = Console(soft_wrap=True, file=self.stream) 
             console.print(f"[bold] UNFURL [/bold]", end="")
@@ -132,6 +132,35 @@ class SensitiveFilter(logging.Filter):
     @staticmethod
     def redact(value: Union[sensitive, str, object]) -> Union[str, object]:
         return sensitive.redacted_str if isinstance(value, sensitive) else value
+
+
+def start_collapsible(name: str, section_id: Union[str, int], autoclose=True) -> bool:
+    """Starts a collapsible section in Gitlab CI. Only does it if the
+    environment variable CI is set (which is always set in most CI systems).
+
+    See: https://docs.gitlab.com/ee/ci/jobs/#expand-and-collapse-job-log-sections
+
+    Right now, this only does something in CI environments. We could use it to display visual
+    indicators for the beginning/end of section in normal terminals.
+
+    Returns:
+        bool: True if the collapsible section was started, False otherwise. This is equivalent
+        whether or not CI is set
+    """
+    ci = os.environ.get("CI", False) # Running in a CI environment (eg GitLab CI)
+    if ci:
+        # The octal \033 is used instead of \e because python doesn't recognize \e as an escape sequence
+        print(f"\033[0Ksection_start:{int(time.time())}:task_{section_id}[collapsed={'true' if autoclose else 'false'}]\r\033[0K{name}")
+    return ci
+
+def end_collapsible(section_id: Union[str, int]) -> None:
+    """Ends a collapsible section in Gitlab CI. See `start_collapsible`.
+    """
+    ci = os.environ.get("CI", False) # Running in a CI environment (eg GitLab CI)
+    if ci:
+        # The octal \033 is used instead of \e because python doesn't recognize \e as an escape sequence
+        print(f"\033[0Ksection_end:{int(time.time())}:task_{section_id}\r\033[0K")
+    return ci
 
 
 def initialize_logging() -> None:
