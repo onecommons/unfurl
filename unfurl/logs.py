@@ -138,8 +138,6 @@ def start_collapsible(name: str, section_id: Union[str, int], autoclose=True) ->
     """Starts a collapsible section in Gitlab CI. Only does it if the
     environment variable CI is set (which is always set in most CI systems).
 
-    See: https://docs.gitlab.com/ee/ci/jobs/#expand-and-collapse-job-log-sections
-
     Right now, this only does something in CI environments. We could use it to display visual
     indicators for the beginning/end of section in normal terminals.
 
