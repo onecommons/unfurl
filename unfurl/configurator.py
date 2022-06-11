@@ -394,7 +394,6 @@ class TaskView:
             assert self._attributeManager  # type: ignore
             assert self.target.root.attributeManager is self._attributeManager  # type: ignore
             ctx = RefContext(self.target, task=self)
-            self._attributeManager._context = ctx
             # deepcopy because ResultsMap might modify interior maps and lists
             inputs = copy.deepcopy(self.configSpec.inputs)
             relationship = isinstance(self.target, RelationshipInstance)
