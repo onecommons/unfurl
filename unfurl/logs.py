@@ -55,7 +55,7 @@ LOGGING = {
     },
     "loggers": {
         "git": {"level": logging.INFO, "handlers": ["console"]},
-        "unfurljob": {
+        "unfurl.job.meta": {
             "handlers": ["JobLogHandler"],
             "level": logging.INFO,
         }
@@ -96,6 +96,11 @@ class ColorHandler(logging.StreamHandler):
 
     def emit(self, record: logging.LogRecord) -> None:
         message = truncate(self.format(record))
+        # Hide meta job output because it seems to also be logged captured by
+        # the root logger.
+        if record.name.startswith('unfurl.job.meta'):
+            return
+        
         level = Levels[record.levelname]
         try:
             # Soft wrap prevents rich from breaking lines automatically (needed for emulated terminals, like gitlab CI)

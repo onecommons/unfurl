@@ -797,7 +797,7 @@ class Job(ConfigChange):
                 _task = self._run_operation(taskRequest, workflow, depth, meta={
                     "task_number": idx,
                     "task_count": len(taskRequests),
-                    "logger": logging.getLogger(f"unfurljob.{idx}")
+                    "logger": logging.getLogger(f"unfurl.job.meta.{idx}")
                 })
 
             end_collapsible(hash(taskRequest))
@@ -1024,13 +1024,13 @@ class Job(ConfigChange):
             return None
 
         if meta_enabled:
-            meta_logger.debug(json.dumps({"state": "starting_task", "task_number": task_number, "task_count": task_count}))
+            meta_logger.info(json.dumps({"state": "starting_task", "task_number": task_number, "task_count": task_count}))
 
         logger.info("Running task %s", req)
         test, msg = self._entry_test(req, workflow)
         if not test:
             if meta_enabled:
-                meta_logger.debug(json.dumps({"state": "skipped_task", "task_number": task_number, "task_count": task_count, "reason": msg}))
+                meta_logger.info(json.dumps({"state": "skipped_task", "task_number": task_number, "task_count": task_count, "reason": msg}))
 
             logger.debug(
                 "skipping operation %s for instance %s with state %s and status %s: %s",
@@ -1087,7 +1087,7 @@ class Job(ConfigChange):
             #     req.startState,
             # )
             if meta_enabled:
-                meta_logger.debug(json.dumps({
+                meta_logger.info(json.dumps({
                     "state": "finished_task",
                     "task_number": task_number,
                     "task_count": task_count,
