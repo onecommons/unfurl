@@ -4,7 +4,6 @@ from dataclasses import dataclass
 
 from octodns.manager import Manager
 from octodns.zone import Zone
-from octodns import yaml
 
 from ..configurator import Configurator, TaskView
 from ..projectpaths import WorkFolder
@@ -104,8 +103,7 @@ class DNSConfigurator(Configurator):
     @staticmethod
     def _write_zone_data(folder, zone, records):
         assert zone.endswith("."), f"{zone} name must end with '.'"
-        with open(folder.get_current_path(f"{zone}yaml"), "w") as f:
-            yaml.safe_dump(records, f)
+        folder.write_file(sort_dict(records), f"{zone}yaml")
 
     @staticmethod
     def _extract_properties_from(task) -> DnsProperties:
