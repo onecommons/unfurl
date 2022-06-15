@@ -5,7 +5,6 @@ from types import ModuleType
 from typing import IO, Dict, Generator, Iterable, List, Optional, Set, Tuple, Union, Iterator, TYPE_CHECKING, cast
 from typing_extensions import SupportsIndex
 import git
-import six
 import traceback
 import itertools
 import tempfile
@@ -131,14 +130,8 @@ def wrap_sensitive_value(obj: object) -> object:
     # we don't remember the vault and vault id associated with this value
     # so the value will be rekeyed with whichever vault is associated with the serializing yaml
     if isinstance(obj, bytes):
-        if six.PY3:
-            return sensitive_bytes(obj)
-        else:
-            try:
-                return sensitive_str(unicode(obj, "utf-8"))
-            except UnicodeDecodeError:
-                return sensitive_bytes(obj)
-    elif isinstance(obj, six.string_types):
+        return sensitive_bytes(obj)
+    elif isinstance(obj, str):
         return sensitive_str(obj)
     elif isinstance(obj, Mapping):
         return sensitive_dict(obj)
@@ -193,8 +186,6 @@ def to_yaml_text(val: object) -> Union[sensitive, ScalarString, FoldedScalarStri
     # convert or copy string (copy to deal with things like AnsibleUnsafeText)
     val = str(val)
     if "\n" in val:
-        if six.PY2 and isinstance(val, str):
-            val = val.decode("utf-8")
         return FoldedScalarString(val)
     return val
 
@@ -281,7 +272,7 @@ def lookup_class(kind: str, apiVersion: Optional[str]=None, default: Optional[st
 
 def to_enum(enum, value, default=None):  # type: ignore
     # from string: Status[name]; to string: status.name
-    if isinstance(value, six.string_types):
+    if isinstance(value, str):
         return enum[value]
     elif default is not None and not value:
         return default
@@ -309,15 +300,12 @@ def dump(obj: object, tp: IO[bytes], suffix: str="", yaml: Optional[ModuleType]=
     from .yamlloader import yaml as _yaml
 
     try:
-        if six.PY3:
-            textEncoding = (
-                "utf-8"
-                if encoding in [None, "yaml", "vault", "json", "env"]
-                else encoding
-            )
-            f = io.TextIOWrapper(tp, textEncoding)
-        else:
-            f = tp
+        textEncoding = (
+            "utf-8"
+            if encoding in [None, "yaml", "vault", "json", "env"]
+            else encoding
+        )
+        f = io.TextIOWrapper(tp, textEncoding)
         if suffix.endswith(".yml") or suffix.endswith(".yaml") or encoding == "yaml":
             (yaml or _yaml).dump(obj, f)
             return
@@ -325,18 +313,11 @@ def dump(obj: object, tp: IO[bytes], suffix: str="", yaml: Optional[ModuleType]=
             json.dump(obj, f, indent=2)  # str to bytes
             return
 
-        if six.PY3:
-            if isinstance(obj, str):
-                obj = codecs.encode(obj, encoding or "utf-8")
-            if isinstance(obj, bytes):
-                tp.write(obj)
-                return
-        else:
-            if isinstance(obj, unicode):
-                obj = codecs.encode(obj, encoding or "utf-8")
-            if isinstance(obj, str):
-                tp.write(obj)
-                return
+        if isinstance(obj, str):
+            obj = codecs.encode(obj, encoding or "utf-8")
+        if isinstance(obj, bytes):
+            tp.write(obj)
+            return
 
         if suffix.endswith(".env") or encoding == "env" and isinstance(obj, dict):
             tp.write(codecs.encode(to_dotenv(obj), "utf-8"))  # type: ignore
@@ -346,8 +327,7 @@ def dump(obj: object, tp: IO[bytes], suffix: str="", yaml: Optional[ModuleType]=
         if obj is not None:  # treat None as 0 byte file
             json.dump(obj, f, indent=2, sort_keys=True)
     finally:
-        if six.PY3:
-            f.detach()
+        f.detach()
 
 
 def _save_to_vault(path: str, obj: object, yaml: Optional[ModuleType]=None, encoding: Optional[str]=None, fd: Union[str, int]=None) -> bool:
