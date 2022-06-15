@@ -1410,28 +1410,35 @@ group_types:
         <span class="n">description</span><span class="p">:</span> <span class="nb">id</span> <span class="n">of</span> <span class="n">the</span> <span class="n">project</span>
         <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvVar</span>
         <span class="n">default</span><span class="p">:</span> <span class="p">{</span> <span class="n">get_env</span><span class="p">:</span> <span class="n">CLOUDSDK_CORE_PROJECT</span> <span class="p">}</span>
+        <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
       <span class="n">CLOUDSDK_COMPUTE_REGION</span><span class="p">:</span>
         <span class="n">description</span><span class="p">:</span> <span class="n">default</span> <span class="n">region</span> <span class="n">to</span> <span class="n">use</span>
         <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvVar</span>
         <span class="n">default</span><span class="p">:</span> <span class="p">{</span> <span class="n">get_env</span><span class="p">:</span> <span class="n">CLOUDSDK_COMPUTE_REGION</span> <span class="p">}</span>
+        <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
       <span class="n">CLOUDSDK_COMPUTE_ZONE</span><span class="p">:</span>
         <span class="n">description</span><span class="p">:</span> <span class="n">default</span> <span class="n">zone</span> <span class="n">to</span> <span class="n">use</span>
         <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvVar</span>
         <span class="n">default</span><span class="p">:</span> <span class="p">{</span> <span class="n">get_env</span><span class="p">:</span> <span class="n">CLOUDSDK_COMPUTE_ZONE</span> <span class="p">}</span>
+        <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
       <span class="n">GOOGLE_APPLICATION_CREDENTIALS</span><span class="p">:</span>
         <span class="n">description</span><span class="p">:</span> <span class="s2">&quot;Path to file containing service account private keys in JSON format&quot;</span>
         <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvVar</span>
         <span class="n">default</span><span class="p">:</span> <span class="p">{</span> <span class="n">get_env</span><span class="p">:</span> <span class="n">GOOGLE_APPLICATION_CREDENTIALS</span> <span class="p">}</span>
+        <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
 
       <span class="c1"># other authentication options:</span>
       <span class="n">GOOGLE_OAUTH_ACCESS_TOKEN</span><span class="p">:</span>
         <span class="n">description</span><span class="p">:</span> <span class="n">A</span> <span class="n">temporary</span> <span class="n">OAuth</span> <span class="mf">2.0</span> <span class="n">access</span> <span class="n">token</span> <span class="n">obtained</span> <span class="kn">from</span> <span class="nn">the</span> <span class="n">Google</span> <span class="n">Authorization</span> <span class="n">server</span>
         <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvVar</span>
         <span class="n">default</span><span class="p">:</span> <span class="p">{</span> <span class="n">get_env</span><span class="p">:</span> <span class="n">GOOGLE_OAUTH_ACCESS_TOKEN</span> <span class="p">}</span>
+        <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
+
       <span class="n">GCP_SERVICE_ACCOUNT_CONTENTS</span><span class="p">:</span>
         <span class="n">description</span><span class="p">:</span> <span class="s2">&quot;Content of file containing service account private keys&quot;</span>
         <span class="nb">type</span><span class="p">:</span> <span class="n">tosca</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">json</span>
         <span class="n">default</span><span class="p">:</span> <span class="p">{</span> <span class="n">get_env</span><span class="p">:</span> <span class="n">GCP_SERVICE_ACCOUNT_CONTENTS</span> <span class="p">}</span>
+        <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
         <span class="n">metadata</span><span class="p">:</span>
           <span class="n">sensitive</span><span class="p">:</span> <span class="n">true</span>
         <span class="c1"># some of the keys in the credential json:</span>
@@ -1444,6 +1451,7 @@ group_types:
         <span class="n">constraints</span><span class="p">:</span>
           <span class="o">-</span> <span class="n">valid_values</span><span class="p">:</span> <span class="p">[</span><span class="n">application</span><span class="p">,</span> <span class="n">machineaccount</span><span class="p">,</span> <span class="n">serviceaccount</span><span class="p">]</span>
         <span class="n">default</span><span class="p">:</span> <span class="p">{</span> <span class="n">get_env</span><span class="p">:</span> <span class="p">[</span><span class="n">GCP_AUTH_KIND</span><span class="p">,</span> <span class="s2">&quot;serviceaccount&quot;</span><span class="p">]</span> <span class="p">}</span>
+        <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
       <span class="n">scopes</span><span class="p">:</span>
         <span class="nb">type</span><span class="p">:</span> <span class="nb">list</span>
         <span class="n">entry_schema</span><span class="p">:</span>
@@ -1461,6 +1469,7 @@ group_types:
         <span class="n">description</span><span class="p">:</span> <span class="s2">&quot;The default region to use, e.g. us-west-1, us-west-2, etc.&quot;</span>
         <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvVar</span>
         <span class="n">default</span><span class="p">:</span> <span class="p">{</span> <span class="n">get_env</span><span class="p">:</span> <span class="n">AWS_DEFAULT_REGION</span> <span class="p">}</span>
+        <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
       <span class="n">AWS_ACCESS_KEY_ID</span><span class="p">:</span>
         <span class="n">description</span><span class="p">:</span> <span class="s2">&quot;The access key for your AWS account&quot;</span>
         <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvVar</span>
