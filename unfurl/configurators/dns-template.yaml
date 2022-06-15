@@ -27,7 +27,8 @@ node_types:
       title: DNS Zone
     properties:
       name:
-        description: DNS name of the zone (end with .)
+        description: DNS name of the zone
+        title: Name
         type: string
       provider:
         description: OctoDNS provider configuration
@@ -52,6 +53,7 @@ node_types:
         metadata:
           user_settable: true
         type: boolean
+        title: Testing
         description: Is this DNS zone being used for testing? (If set, Let's Encrypt staging will be used.)
         default: true
     attributes:
