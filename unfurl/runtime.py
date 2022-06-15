@@ -333,6 +333,7 @@ class _ChildResources(Mapping):
 class EntityInstance(OperationalInstance, ResourceRef):
     attributeManager = None
     created = None
+    protected = None
     shadow = None
     imports = None
     envRules = None

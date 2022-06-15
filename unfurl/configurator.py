@@ -794,6 +794,11 @@ class TaskView:
                 existingResource.state = operational.state  # type: ignore
             updated = True
 
+        protected = resourceSpec.get("protected")
+        if protected is not None:
+            existingResource.protected = bool(protected)
+            updated = True
+
         attributes = resourceSpec.get("attributes")
         if attributes:
             for key, value in attributes.items():

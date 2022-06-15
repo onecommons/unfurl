@@ -132,7 +132,8 @@
             "instances": { "$ref": "#/definitions/instances" },
             "capabilities": { "$ref": "#/definitions/instances" },
             "requirements": { "$ref": "#/definitions/instances" },
-            "imported": { "type": "string" }
+            "imported": { "type": "string" },
+            "protected": { "type": "boolean" }
           }
         },
         { "$ref": "#/definitions/status" }

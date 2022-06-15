@@ -1214,6 +1214,7 @@ def to_graphql_resource(instance, manifest, db, relationships):
       attributes: [Input!]
       computedProperties: [Input!]
       connections: [Requirement!]
+      protected: Boolean
     }
     """
     # XXX url
@@ -1235,7 +1236,7 @@ def to_graphql_resource(instance, manifest, db, relationships):
         if len(visibilities) == 1 and "hidden" in visibilities:
             # non-visible visibilities override hidden
             resource["visibility"] = "hidden"
-
+    resource["protected"] = instance.protected
     resource["attributes"] = add_attributes(instance)
     resource["computedProperties"] = add_computed_properties(instance)
 

@@ -636,7 +636,8 @@ class YamlManifest(ReadOnlyManifest):
         save_status(resource, status)
         if resource.created is not None:
             status["created"] = resource.created
-
+        if resource.protected is not None:
+            status["protected"] = resource.protected
         return (resource.name, status)
 
     def save_requirement(self, resource):
