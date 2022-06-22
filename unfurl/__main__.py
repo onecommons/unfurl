@@ -970,7 +970,7 @@ def get_commit_message(committer):
     help="Don't add files for committing (user must add using git)",
 )
 def commit(ctx, project_or_ensemble_path, message, skip_add, no_edit, **options):
-    """Commit any outstanding changes to the given project or ensemble."""
+    """Commit any changes to the given project or ensemble."""
     options.update(ctx.obj)
     localEnv = LocalEnv(
         project_or_ensemble_path, options.get("home"), can_be_empty=True
@@ -1051,7 +1051,7 @@ def export(ctx, project_or_ensemble_path, format, **options):
 @click.option("--query", help="Run the given expression")
 @click.option("--trace", default=0, help="Set the query's trace level")
 def status(ctx, ensemble, **options):
-    """ "Show the status of deployed resources in the given ensemble."""
+    """Show the status of deployed resources in the given ensemble."""
     options.update(ctx.obj)
     localEnv = LocalEnv(ensemble, options.get("home"))
     manifest = localEnv.get_manifest()
@@ -1065,6 +1065,14 @@ def status(ctx, ensemble, **options):
         click.echo("query: " + query)
         click.echo(result)
 
+@cli.command()
+@click.pass_context
+@click.argument("ensemble", default=".", type=click.Path(exists=False))
+def validate(ctx, ensemble, **options):
+    """Validate the given ensemble."""
+    options.update(ctx.obj)
+    localEnv = LocalEnv(ensemble, options.get("home"))
+    localEnv.get_manifest()
 
 @cli.command()
 @click.pass_context
