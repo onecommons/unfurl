@@ -102,9 +102,9 @@ def represent_sensitive_bytes(dumper, data):
 
 def _construct_vault(constructor, node, tag):
     value = constructor.construct_scalar(node)
+    if os.getenv("UNFURL_VAULT_SKIP_DECRYPT"):
+        return sensitive_str.redacted_str
     if not constructor.vault.secrets:
-        if os.getenv("UNFURL_VAULT_SKIP_DECRYPT"):
-            return sensitive_str.redacted_str
         raise ConstructorError(
             context=None,
             context_mark=None,
