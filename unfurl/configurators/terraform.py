@@ -96,10 +96,10 @@ module "main" {
 def generate_main(relpath, tfvars, outputs):
     # if tfvars are hcl:
     # XXX check if outputs are sensitive
+    sensitive = True
     if isinstance(tfvars, six.string_types):
         output = ""
         for name in outputs:
-            sensitive = False
             if sensitive:
                 sensitive_str = "sensitive=true\n"
             else:
@@ -114,7 +114,6 @@ def generate_main(relpath, tfvars, outputs):
         if outputs:
             output = root["output"] = {}
             for name in outputs:
-                sensitive = False
                 output[name] = dict(value=f"${{module.main.{name}}}", sensitive=sensitive)
         return "main.tmp.tf.json", root
 
