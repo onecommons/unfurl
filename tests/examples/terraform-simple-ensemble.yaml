@@ -14,9 +14,9 @@ spec:
           interfaces:
             defaults:
               outputs:
-                  test_output:
+                test_output:
               inputs:
-                main: {get_env: terraform_dir}
+                main: { get_env: terraform_dir }
                 tfvars: |
                   tag = "test2"
 
@@ -26,9 +26,9 @@ spec:
           interfaces:
             defaults:
               outputs:
-                  test_output:
+                test_output:
               inputs:
-                main: {get_env: terraform_dir}
+                main: { get_env: terraform_dir }
                 tfvars:
                   tag: "test3"
 
@@ -46,6 +46,9 @@ spec:
 
                   variable "tag" {
                     type        = string
+                  }
+
+                  resource "null_resource" "null" {
                   }
 
                   output "tag" {
