@@ -24,8 +24,8 @@ spec:
                   provider:
                     aws:
                       endpoints:
-                        ec2: http://localhost:5000
-                        sts: http://localhost:5000
+                        ec2: http://localhost:5001
+                        sts: http://localhost:5001
                   output:
                     availability_zone:
                       value: "${aws_instance.example.availability_zone}"
