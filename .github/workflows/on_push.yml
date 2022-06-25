@@ -102,7 +102,7 @@ jobs:
             onecommons/unfurl
           tags: |
             type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', 'master') }}
-            type=raw,value=stable,enable=${{ steps.get_tag_name.outputs.release }}
+            type=raw,value=stable,enable=${{ steps.get_tag_name.outputs.release || 'false' }}
             type=raw,value=${{ steps.get_tag_name.outputs.tag }}
       - name: Build and push
         id: docker_build
