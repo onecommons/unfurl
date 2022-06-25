@@ -46,8 +46,8 @@ class MotoTest(unittest.TestCase):
             try:
                 url = "http://localhost:5000/moto-api"  # UI lives here
                 urllib.request.urlopen(url)
-            except:  # URLError
-                pass
+            except Exception as e:  # URLError
+                print(e)
             else:
                 return True
         return False
