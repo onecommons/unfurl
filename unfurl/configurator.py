@@ -362,7 +362,7 @@ class TaskView:
         self.reason = reason
         self.logger = logger
         self.cwd = os.path.abspath(self.target.base_dir)
-        self.rendered = None
+        self.rendered: Any = None
         self.dry_run = None
         # private:
         self._errors: List[UnfurlTaskError] = []  # UnfurlTaskError objects appends themselves to this list

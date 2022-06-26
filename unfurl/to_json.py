@@ -415,7 +415,7 @@ def node_type_to_graphql(spec, type_definition, types: dict):
     jsontype["inputsSchema"] = tosca_type_to_jsonschema(spec, (p[0] for p in propertydefs if p[1]), None)
     jsontype["computedPropertiesSchema"] = tosca_type_to_jsonschema(spec, (p[0] for p in propertydefs if not p[1]), None)
 
-    extends = []
+    extends: list[str] = []
     # add ancestors classes to extends
     _get_extends(spec, type_definition, extends, types)
     jsontype["extends"] = extends

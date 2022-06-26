@@ -33,7 +33,7 @@ from .support import Status
 from .util import filter_env, get_package_digest
 
 _latestJobs = []  # for testing
-_args = []  # for testing
+_args: list[str] = []  # for testing
 
 
 def option_group(*options):
@@ -127,8 +127,9 @@ def detect_log_level(loglevel: Optional[str], quiet: bool, verbose: int) -> Leve
     if quiet:
         effective_log_level = Levels.CRITICAL
     else:
-        if os.getenv("UNFURL_LOGGING"):
-            effective_log_level = Levels[os.getenv("UNFURL_LOGGING").upper()]
+        loglevel_env = os.getenv("UNFURL_LOGGING")
+        if loglevel_env:
+            effective_log_level = Levels[loglevel_env.upper()]
         else:
             levels = [Levels.INFO, Levels.VERBOSE, Levels.DEBUG, Levels.TRACE]
             effective_log_level = levels[min(verbose, 3)]

@@ -36,7 +36,7 @@ class PythonPackageCheckConfigurator(Configurator):
 
 
 class TemplateConfigurator(Configurator):
-    exclude_from_digest = ("resultTemplate", "done")
+    exclude_from_digest: tuple[str, ...] = ("resultTemplate", "done")
 
     def process_result_template(self, task, result):
         """

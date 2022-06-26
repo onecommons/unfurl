@@ -31,7 +31,7 @@ def __deepcopy__(self, memo):
 
 
 if CommentedMap.__deepcopy__ is not __deepcopy__:
-    CommentedMap.__deepcopy__ = __deepcopy__
+    CommentedMap.__deepcopy__ = __deepcopy__ # type: ignore
 
 
 def copy(src):
