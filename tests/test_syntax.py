@@ -108,6 +108,39 @@ spec:
         assert req_def == {
           'metadata': {'base': 'meta', 'title': 'derived host'},
           'relationship': {'type': 'tosca.relationships.DependsOn'},
-          'description': 'A derived compute instance', 
+          'description': 'A derived compute instance',
           'node': 'Derived'
         }
+
+class ToscaSyntaxTest(unittest.TestCase):
+
+    def test_bad_interface_on_type(self):
+        manifest = """
+apiVersion: unfurl/v1alpha1
+kind: Ensemble
+spec:
+  service_template:
+    node_types:
+      Base:
+        derived_from: tosca:Root
+        interfaces:
+          defaults:
+            resultTemplate:
+              wrongplace
+
+      Derived:
+        derived_from: Base
+        interfaces:
+          Standard:
+            create:
+
+    topology_template:
+      node_templates:
+        the_app: # type needs to be instantiated to trigger validation
+          type: Derived
+"""
+        with self.assertRaises(UnfurlError) as err:
+            YamlManifest(manifest)
+        self.assertIn(
+            'type "Base" contains unknown field "resultTemplate"', str(err.exception)
+        )

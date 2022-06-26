@@ -424,14 +424,13 @@ class ToscaSyntaxTest(unittest.TestCase):
                 test_node:
                   type: tosca.nodes.Root
                   interfaces:
-                    Standard:      # missing missing implementation - raises error:
+                    Standard:
+                      badop: # missing missing implementation - raises error:
         """
         with self.assertRaises(UnfurlValidationError) as err:
             YamlManifest(ensemble)
 
-        assert 'Missing value for "interfaces". Must contain one of:' in str(
-            err.exception
-        )
+        assert 'UnknownFieldError' in str(err.exception)
 
 
 class AbstractTemplateTest(unittest.TestCase):
