@@ -19,7 +19,7 @@ import subprocess
 import sys
 import traceback
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List
 
 import click
 
@@ -33,7 +33,7 @@ from .support import Status
 from .util import filter_env, get_package_digest
 
 _latestJobs = []  # for testing
-_args: list[str] = []  # for testing
+_args: List[str] = []  # for testing
 
 
 def option_group(*options):
