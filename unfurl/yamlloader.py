@@ -7,12 +7,8 @@ import json
 import os
 from typing import Union, Tuple, List
 import six
-from six.moves import urllib
-
-try:
-    from urlparse import urljoin  # Python2
-except ImportError:
-    from urllib.parse import urljoin  # Python3
+import urllib
+from urllib.parse import urljoin, urlsplit
 pathname2url = urllib.request.pathname2url
 from jsonschema import RefResolver
 
@@ -102,9 +98,9 @@ def represent_sensitive_bytes(dumper, data):
 
 def _construct_vault(constructor, node, tag):
     value = constructor.construct_scalar(node)
+    if os.getenv("UNFURL_VAULT_SKIP_DECRYPT"):
+        return sensitive_str.redacted_str
     if not constructor.vault.secrets:
-        if os.getenv("UNFURL_VAULT_SKIP_DECRYPT"):
-            return sensitive_str.redacted_str
         raise ConstructorError(
             context=None,
             context_mark=None,
@@ -408,12 +404,24 @@ class YamlConfig:
             raise UnfurlError(msg, True)
 
     def load_yaml(self, path, baseDir=None, warnWhenNotFound=False):
-        path, sep, fragment = path.partition("#")
-        path = os.path.abspath(os.path.join(baseDir or self.get_base_dir(), path))
-        if warnWhenNotFound and not os.path.isfile(path):
-            return path, None
-        logger.trace("attempting to load YAML file: %s", path)
-        with open(path, "r") as f:
+        url = urlsplit(path)
+        if url.scheme.startswith('http') and url.netloc: # looks like an absolute url
+            fragment = url.fragment
+            try:
+              f = urllib.request.urlopen(path)
+            except urllib.error.URLError:
+              if warnWhenNotFound:
+                return path, None
+              raise
+        else:
+            path, sep, fragment = path.partition("#")
+            path = os.path.abspath(os.path.join(baseDir or self.get_base_dir(), path))
+            if warnWhenNotFound and not os.path.isfile(path):
+                return path, None
+            logger.trace("attempting to load YAML file: %s", path)
+            f = open(path, "r")
+
+        with f:
             config = self.yaml.load(f)
         if fragment and config:
             return path, _refResolver.resolve_fragment(config, fragment)
@@ -538,6 +546,7 @@ class YamlConfig:
             value = None
             key = templatePath
 
+        # key = substitute_env(key, inputs) # XXX cmdline inputs?
         if key in self._cachedDocIncludes:
             path, template = self._cachedDocIncludes[key]
             baseDir = os.path.dirname(path)

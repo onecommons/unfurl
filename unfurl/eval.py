@@ -124,7 +124,7 @@ class RefContext:
         self,
         currentResource: "NodeInstance",
         vars: Optional[dict]=None,
-        wantList: bool=False,
+        wantList: Optional[Union[bool, str]]=False,
         resolveExternal: bool=False,
         trace: Optional[int]=None,
         strict: bool=_defaultStrictness,
@@ -145,6 +145,7 @@ class RefContext:
         self.templar = currentResource.templar
         self.referenced = _Tracker()
         self.task = task
+        self.kw: Mapping[str, Any] = {}
 
     @property
     def strict(self):
@@ -157,7 +158,7 @@ class RefContext:
         self,
         resource: Optional["NodeInstance"]=None,
         vars: dict=None,
-        wantList: bool=None,
+        wantList: Optional[Union[bool, str]]=None,
         trace:  int=0,
         strict: bool=None
         ) -> "RefContext":
@@ -186,7 +187,7 @@ class RefContext:
     def trace(self, *msg: Any) -> None:
         if self._trace:
             log = logger.info if self._trace == 2 else logger.trace
-            log(f"{' '.join(str(a) for a in msg)} (ctx: {self._lastResource})")
+            log(f"{' '.join(str(a) for a in msg)} (ctx: {self._lastResource})") # type: ignore
 
     def add_external_reference(self, external: ExternalValue) -> Result:
         result = Result(external)
@@ -199,7 +200,7 @@ class RefContext:
     def add_result_reference(self, ref: str, result: Result) -> None:
         self.referenced.add_result_reference(ref, result)
 
-    def resolve_var(self, key: str) -> Optional[Union[Results, ResultsList, List[Result], ResultsMap]]:
+    def resolve_var(self, key: str) -> Any: # Result asserts resolved is not a Result
         return self._resolve_var(key[1:]).resolved
 
     def _resolve_var(self, key: str) -> Result:
@@ -561,7 +562,7 @@ def eval_ref(val: Union[Mapping, str], ctx: RefContext, top: bool=False) -> Muta
             func = _Funcs.get(key)
             if func:
                 args = val[key]
-                ctx.kw = val  # type: ignore
+                ctx.kw = val
                 ctx.currentFunc = key  # type: ignore
                 if "var" in val:
                     unexpected: Union[bool, str] = "var"

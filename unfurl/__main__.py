@@ -19,7 +19,7 @@ import subprocess
 import sys
 import traceback
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List
 
 import click
 import rich
@@ -34,7 +34,7 @@ from .support import Status
 from .util import filter_env, get_package_digest
 
 _latestJobs = []  # for testing
-_args = []  # for testing
+_args: List[str] = []  # for testing
 
 
 def option_group(*options):
@@ -128,8 +128,9 @@ def detect_log_level(loglevel: Optional[str], quiet: bool, verbose: int) -> Leve
     if quiet:
         effective_log_level = Levels.CRITICAL
     else:
-        if os.getenv("UNFURL_LOGGING"):
-            effective_log_level = Levels[os.getenv("UNFURL_LOGGING").upper()]
+        loglevel_env = os.getenv("UNFURL_LOGGING")
+        if loglevel_env:
+            effective_log_level = Levels[loglevel_env.upper()]
         else:
             levels = [Levels.INFO, Levels.VERBOSE, Levels.DEBUG, Levels.TRACE]
             effective_log_level = levels[min(verbose, 3)]
@@ -449,7 +450,10 @@ def _print_summary(job, options):
             jsonSummary["result"] = result
         else:
             click.echo("query: " + query)
-            click.echo(result)
+            if result is None:
+                click.echo("No results found")
+            else:
+                click.echo(result)
     if jsonSummary is not None:
         click.echo(json.dumps(jsonSummary, indent=2))
 
@@ -894,6 +898,8 @@ def runtime(ctx, project_folder, init=False, update=False, **options):
     "--use-deployment-blueprint",
     help="Use this deployment blueprint.",
 )
+@click.option('--var', nargs=2, type=click.Tuple([str, str]), multiple=True,
+    help="name/value pair to pass to skeleton (multiple times ok).")
 def clone(ctx, source, dest, **options):
     """Create a new ensemble or project from a service template or an existing ensemble or project.
 
@@ -988,7 +994,7 @@ def get_commit_message(committer):
     help="Don't add files for committing (user must add using git)",
 )
 def commit(ctx, project_or_ensemble_path, message, skip_add, no_edit, **options):
-    """Commit any outstanding changes to the given project or ensemble."""
+    """Commit any changes to the given project or ensemble."""
     options.update(ctx.obj)
     localEnv = LocalEnv(
         project_or_ensemble_path, options.get("home"), can_be_empty=True
@@ -1069,7 +1075,7 @@ def export(ctx, project_or_ensemble_path, format, **options):
 @click.option("--query", help="Run the given expression")
 @click.option("--trace", default=0, help="Set the query's trace level")
 def status(ctx, ensemble, **options):
-    """ "Show the status of deployed resources in the given ensemble."""
+    """Show the status of deployed resources in the given ensemble."""
     options.update(ctx.obj)
     localEnv = LocalEnv(ensemble, options.get("home"))
     manifest = localEnv.get_manifest()
@@ -1081,8 +1087,19 @@ def status(ctx, ensemble, **options):
         trace = options.get("trace")
         result = eval_for_func(query, RefContext(manifest.rootResource, trace=trace))
         click.echo("query: " + query)
-        click.echo(result)
+        if result is None:
+            click.echo("No results found")
+        else:
+            click.echo(result)
 
+@cli.command()
+@click.pass_context
+@click.argument("ensemble", default=".", type=click.Path(exists=False))
+def validate(ctx, ensemble, **options):
+    """Validate the given ensemble."""
+    options.update(ctx.obj)
+    localEnv = LocalEnv(ensemble, options.get("home"))
+    localEnv.get_manifest()
 
 @cli.command()
 @click.pass_context

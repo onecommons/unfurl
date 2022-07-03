@@ -3,7 +3,8 @@ import json
 from unfurl.yamlmanifest import YamlManifest
 from unfurl.job import Runner, JobOptions, Status
 from unfurl.configurators import TemplateConfigurator
-from .utils import lifecycle, Step
+from .utils import lifecycle, isolated_lifecycle, Step
+from pathlib import Path
 
 manifestContent = """\
   apiVersion: unfurl/v1alpha1
@@ -391,16 +392,24 @@ manifestNoOpContent = """\
             type: tosca.nodes.Root
   """
 
-STEPS = (
-    Step("check", Status.absent),
-    Step("deploy", Status.ok, changed=0),
-    Step("check", Status.ok, changed=0),
-    Step("deploy", Status.ok, changed=0),
-    Step("undeploy", Status.absent, changed=0),
-    Step("check", Status.absent, changed=0),
-)
-
-
 def test_noop():
+    STEPS = (
+        Step("check", Status.absent),
+        Step("deploy", Status.ok, changed=0),
+        Step("check", Status.ok, changed=0),
+        Step("deploy", Status.ok, changed=0),
+        Step("undeploy", Status.absent, changed=0),
+        Step("check", Status.absent, changed=0),
+    )
     manifest = YamlManifest(manifestNoOpContent)
     list(lifecycle(manifest, STEPS))
+
+def test_protected():
+    STEPS = (
+        Step("deploy", Status.ok, changed=1),
+        Step("undeploy", Status.ok, changed=0), # doesn't delete
+        Step("check", Status.ok, changed=0),
+    )
+    path = Path(__file__).parent / "examples" / "protected-ensemble.yaml"
+    jobs = isolated_lifecycle(str(path), STEPS)
+    list(jobs)

@@ -94,12 +94,14 @@ module "main" {
 
 
 def generate_main(relpath, tfvars, outputs):
+    # XXX until we can check if an output is sensitive
+    # we always need to set them all to sensitive to avoid a terraform error
+    # when the referenced output is sensitive
+    sensitive = True
     # if tfvars are hcl:
-    # XXX check if outputs are sensitive
     if isinstance(tfvars, six.string_types):
         output = ""
         for name in outputs:
-            sensitive = False
             if sensitive:
                 sensitive_str = "sensitive=true\n"
             else:
@@ -114,7 +116,6 @@ def generate_main(relpath, tfvars, outputs):
         if outputs:
             output = root["output"] = {}
             for name in outputs:
-                sensitive = False
                 output[name] = dict(value=f"${{module.main.{name}}}", sensitive=sensitive)
         return "main.tmp.tf.json", root
 
@@ -405,12 +406,22 @@ class TerraformConfigurator(ShellConfigurator):
         # process the result
         status = None
         success = self._handle_result(task, result, cwd.cwd, (0, 2))
+        # plan -detailed-exitcode: 2 - Succeeded, but there is a diff
+        needs_changes = False
         if result.returncode == 2:
-            # plan -detailed-exitcode: 2 - Succeeded, but there is a diff
-            success = True
-            if task.configSpec.operation == "check":
+            success = True # command succeeded despite non-zero return code
+            # we check for "Plan:" in the output because sensitive outputs will always be marked as changed
+            # so to know if changes are really needed we also look for a message like: Plan: 1 to add, 0 to change, 0 to destroy.
+            needs_changes = "Plan:" in result.stdout
+            if task.configSpec.operation != "check":
+                # changes were applied so set to OK
+                status = Status.ok
+
+        if success and task.configSpec.operation == "check":
+            if needs_changes: # treat as missing
                 status = Status.absent
-            else:
+            elif task.target.status in [Status.pending, Status.unknown]:
+                # no changes needed so set to known state
                 status = Status.ok
 
         if not task.dry_run and task.configSpec.operation != "check":

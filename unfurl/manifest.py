@@ -339,6 +339,8 @@ class Manifest(AttributeManager):
         instance = ctor(name, attributes, parent, template, operational)
         if "created" in status:
             instance.created = status["created"]
+        if "protected" in status:
+            instance.protected = status["protected"]
         if imported:
             self.imports.set_shadow(importName, instance)
         properties = status.get("properties")

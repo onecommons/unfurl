@@ -13,10 +13,12 @@ import os.path
 import six
 import re
 import ast
+from typing import cast
 from enum import IntEnum
 from .eval import RefContext, set_eval_func, Ref, map_value
 from .result import (
     Results,
+    ResultsList,
     ResultsMap,
     Result,
     ExternalValue,
@@ -487,7 +489,7 @@ def has_env(arg, ctx):
 set_eval_func("has_env", has_env, True)
 
 
-def get_env(args, ctx):
+def get_env(args, ctx: RefContext):
     """
     Return the value of the given environment variable name.
     If NAME is not present in the environment, return the given default value if supplied or return None.
@@ -513,7 +515,7 @@ def get_env(args, ctx):
 set_eval_func("get_env", get_env, True)
 
 
-def to_env(args, ctx):
+def to_env(args, ctx: RefContext):
     env = None
     if ctx.task:
         env = ctx.task.get_environment(False)
@@ -535,7 +537,7 @@ _toscaKeywordsToExpr = {
 }
 
 
-def get_attribute(args, ctx):
+def get_attribute(args, ctx: RefContext):
     args = map_value(args, ctx)
     entity_name = args.pop(0)
     candidate_name = args.pop(0)
@@ -559,7 +561,7 @@ def get_attribute(args, ctx):
 set_eval_func("get_attribute", get_attribute, True)
 
 
-def get_nodes_of_type(type_name, ctx):
+def get_nodes_of_type(type_name, ctx: RefContext):
     return [
         r
         for r in ctx.currentResource.root.get_self_and_descendents()
@@ -571,7 +573,7 @@ def get_nodes_of_type(type_name, ctx):
 set_eval_func("get_nodes_of_type", get_nodes_of_type, True)
 
 
-def get_artifact(ctx, entity_name, artifact_name, location=None, remove=None):
+def get_artifact(ctx: RefContext, entity_name, artifact_name, location=None, remove=None):
     """
     Returns either an URL or local path to the artifact
     See section "4.8.1 get_artifact" in TOSCA 1.3 (p. 189)
@@ -583,7 +585,7 @@ def get_artifact(ctx, entity_name, artifact_name, location=None, remove=None):
     """
     ctx = ctx.copy(ctx._lastResource)
     query = _toscaKeywordsToExpr.get(entity_name, "::" + entity_name)
-    instances = ctx.query(query, wantList=True)
+    instances = cast(ResultsList, ctx.query(query, wantList=True))
 
     if not instances:
         ctx.trace("entity_name not found", entity_name)
@@ -629,7 +631,7 @@ def get_artifact(ctx, entity_name, artifact_name, location=None, remove=None):
 set_eval_func("get_artifact", lambda args, ctx: get_artifact(ctx, *args), True)
 
 
-def get_import(arg, ctx):
+def get_import(arg: RefContext, ctx):
     """
     Returns the external resource associated with the named import
     """

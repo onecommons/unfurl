@@ -108,6 +108,67 @@ spec:
         assert req_def == {
           'metadata': {'base': 'meta', 'title': 'derived host'},
           'relationship': {'type': 'tosca.relationships.DependsOn'},
-          'description': 'A derived compute instance', 
+          'description': 'A derived compute instance',
           'node': 'Derived'
         }
+
+class ToscaSyntaxTest(unittest.TestCase):
+
+    def test_bad_interface_on_type(self):
+        manifest = """
+apiVersion: unfurl/v1alpha1
+kind: Ensemble
+spec:
+  service_template:
+    node_types:
+      Base:
+        derived_from: tosca:Root
+        interfaces:
+          defaults:
+            resultTemplate:
+              wrongplace
+
+      Derived:
+        derived_from: Base
+        interfaces:
+          Standard:
+            create:
+
+    topology_template:
+      node_templates:
+        the_app: # type needs to be instantiated to trigger validation
+          type: Derived
+"""
+        with self.assertRaises(UnfurlError) as err:
+            YamlManifest(manifest)
+        self.assertIn(
+            'type "Base" contains unknown field "resultTemplate"', str(err.exception)
+        )
+
+    def test_property_default_null(self):
+        manifest = """
+apiVersion: unfurl/v1alpha1
+kind: Ensemble
+spec:
+  instances:
+    the_app:
+      template: the_app
+  service_template:
+    node_types:
+      Base:
+        derived_from: tosca:Root
+        properties:
+          null_default:
+            type: string
+            default: null
+
+    topology_template:
+      node_templates:
+        the_app:
+          type: Base
+"""
+        ensemble = YamlManifest(manifest)
+        root = ensemble.get_root_resource()
+        the_app = root.find_instance("the_app")
+        assert the_app
+        assert the_app.attributes["null_default"] is None

@@ -273,28 +273,35 @@ relationship_types:
         description: id of the project
         type: unfurl.datatypes.EnvVar
         default: { get_env: CLOUDSDK_CORE_PROJECT }
+        required: false
       CLOUDSDK_COMPUTE_REGION:
         description: default region to use
         type: unfurl.datatypes.EnvVar
         default: { get_env: CLOUDSDK_COMPUTE_REGION }
+        required: false
       CLOUDSDK_COMPUTE_ZONE:
         description: default zone to use
         type: unfurl.datatypes.EnvVar
         default: { get_env: CLOUDSDK_COMPUTE_ZONE }
+        required: false
       GOOGLE_APPLICATION_CREDENTIALS:
         description: "Path to file containing service account private keys in JSON format"
         type: unfurl.datatypes.EnvVar
         default: { get_env: GOOGLE_APPLICATION_CREDENTIALS }
+        required: false
 
       # other authentication options:
       GOOGLE_OAUTH_ACCESS_TOKEN:
         description: A temporary OAuth 2.0 access token obtained from the Google Authorization server
         type: unfurl.datatypes.EnvVar
         default: { get_env: GOOGLE_OAUTH_ACCESS_TOKEN }
+        required: false
+
       GCP_SERVICE_ACCOUNT_CONTENTS:
         description: "Content of file containing service account private keys"
         type: tosca.datatypes.json
         default: { get_env: GCP_SERVICE_ACCOUNT_CONTENTS }
+        required: false
         metadata:
           sensitive: true
         # some of the keys in the credential json:
@@ -307,6 +314,7 @@ relationship_types:
         constraints:
           - valid_values: [application, machineaccount, serviceaccount]
         default: { get_env: [GCP_AUTH_KIND, "serviceaccount"] }
+        required: false
       scopes:
         type: list
         entry_schema:
@@ -324,6 +332,7 @@ relationship_types:
         description: "The default region to use, e.g. us-west-1, us-west-2, etc."
         type: unfurl.datatypes.EnvVar
         default: { get_env: AWS_DEFAULT_REGION }
+        required: false
       AWS_ACCESS_KEY_ID:
         description: "The access key for your AWS account"
         type: unfurl.datatypes.EnvVar

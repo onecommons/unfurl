@@ -29,8 +29,8 @@ class MotoTest(unittest.TestCase):
               properties:
                   AWS_DEFAULT_REGION: us-east-1
                   endpoints:
-                      ec2: http://localhost:5000
-                      sts: http://localhost:5000
+                      ec2: http://localhost:5001
+                      sts: http://localhost:5001
 """
 
     def setUp(self):
@@ -38,16 +38,16 @@ class MotoTest(unittest.TestCase):
 
         from moto.server import main
 
-        self.p = Process(target=main, args=([],))
+        self.p = Process(target=main, args=(["-p5001"],))
         self.p.start()
 
         for n in range(5):
             time.sleep(0.2)
             try:
-                url = "http://localhost:5000/moto-api"  # UI lives here
+                url = "http://localhost:5001/moto-api"  # UI lives here
                 urllib.request.urlopen(url)
-            except:  # URLError
-                pass
+            except Exception as e:  # URLError
+                print(e)
             else:
                 return True
         return False

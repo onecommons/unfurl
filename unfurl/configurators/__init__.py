@@ -6,6 +6,7 @@ from ..util import register_short_names
 from ..support import Status
 from ..planrequests import set_default_command
 import importlib
+from typing import Tuple
 
 # need to define these now because these configurators are lazily imported
 # and so won't register themselves through AutoRegisterClass
@@ -36,7 +37,7 @@ class PythonPackageCheckConfigurator(Configurator):
 
 
 class TemplateConfigurator(Configurator):
-    exclude_from_digest = ("resultTemplate", "done")
+    exclude_from_digest: Tuple[str, ...] = ("resultTemplate", "done")
 
     def process_result_template(self, task, result):
         """

@@ -19,6 +19,7 @@ from .result import ResourceRef, ChangeAware
 
 from .support import AttributeManager, Defaults, Status, Priority, NodeState, Templar
 from .tosca import (
+    EntitySpec,
     CapabilitySpec,
     RelationshipSpec,
     NodeSpec,
@@ -166,7 +167,7 @@ class Operational(ChangeAware):
         return False
 
     @staticmethod
-    def aggregate_status(statuses: Union[Tuple["Operational"], List["Operational"]], seen) -> Optional[Status]:
+    def aggregate_status(statuses: Iterable["Operational"], seen) -> Optional[Status]:
         """
         Returns: ok, degraded, pending or None
 
@@ -333,10 +334,13 @@ class _ChildResources(Mapping):
 class EntityInstance(OperationalInstance, ResourceRef):
     attributeManager = None
     created = None
+    protected = None
     shadow = None
     imports = None
     envRules = None
     _baseDir = ""
+    templateType = EntitySpec
+
 
     def __init__(
         self, name="", attributes=None, parent=None, template=None, status=Status.ok
@@ -364,7 +368,7 @@ class EntityInstance(OperationalInstance, ResourceRef):
 
         return Ref(expr).resolve(RefContext(self, vars=vars), wantList)
 
-    def local_status():
+    def local_status(): # type: ignore
         doc = "The working_dir property."
 
         def fget(self):
@@ -380,7 +384,7 @@ class EntityInstance(OperationalInstance, ResourceRef):
 
         return locals()
 
-    local_status = property(**local_status())
+    local_status = property(**local_status()) # type: ignore
 
     def get_operational_dependencies(self):
         if self.parent and self.parent is not self.root:
@@ -475,6 +479,82 @@ class EntityInstance(OperationalInstance, ResourceRef):
         return f"{self.__class__}('{self.name}')"
 
 
+class HasInstancesInstance(EntityInstance):
+    parentRelation = "instances"
+
+    def __init__(
+        self, name="", attributes=None, parent=None, template=None, status=None
+    ):
+        if parent:
+            # only node instances have unique names
+            if parent.root.find_resource(name):
+                raise UnfurlError(
+                    f'can not create node instance "{name}", its name is already in use'
+                )
+
+        self.instances = []
+        EntityInstance.__init__(self, name, attributes, parent, template, status)
+        if self.root is self:
+            self._all = _ChildResources(self)
+            self._templar = Templar(DataLoader())
+
+    @property
+    def key(self):
+        return f"::{self.name}"
+
+    def get_self_and_descendents(self):
+        "Recursive descendent including self"
+        yield self
+        for r in self.instances:
+            for descendent in r.get_self_and_descendents():
+                yield descendent
+
+    @property
+    def descendents(self):
+        return list(self.get_self_and_descendents())
+
+    # XXX use find_instance instead and remove find_resource
+    def find_resource(self, resourceid):
+        if self.name == resourceid:
+            return self
+        for r in self.instances:
+            child = r.find_resource(resourceid)
+            if child:
+                return child
+        return None
+
+    find_instance = find_resource
+
+    def find_instance_or_external(self, resourceid):
+        instance = self.find_instance(resourceid)
+        if instance:
+            return instance
+        if self.imports:
+            return self.imports.find_import(resourceid)
+        return None
+
+    def get_requirements(self, match):
+        if match is None:
+            return self.requirements
+        if isinstance(match, six.string_types):
+            return [r for r in self.requirements if r.template.name == match]
+        elif isinstance(match, NodeInstance):
+            return [r for r in self.requirements if r.target == match]
+        elif isinstance(match, CapabilityInstance):
+            return [r for r in self.requirements if r.parent == match]
+        elif isinstance(match, ArtifactInstance):
+            return []
+        else:
+            raise UnfurlError(f'invalid match for get_requirements: "{match}"')
+
+    def get_operational_dependents(self, seen=None):
+        if seen is None:
+            seen = set()
+        for instance in self.instances:
+            if id(instance) not in seen:
+                seen.add(id(instance))
+                yield instance
+
 # both have occurrences
 # only need to configure capabilities as required by a relationship
 class CapabilityInstance(EntityInstance):
@@ -553,7 +633,7 @@ class RelationshipInstance(EntityInstance):
 
 class ArtifactInstance(EntityInstance):
     parentRelation = "_artifacts"
-    templateType = ArtifactSpec
+    templateType = ArtifactSpec # type: ignore # XXX type error doesn't make sense
 
     def __init__(
         self, name="", attributes=None, parent=None, template=None, status=None
@@ -587,9 +667,8 @@ class ArtifactInstance(EntityInstance):
             yield d
 
 
-class NodeInstance(EntityInstance):
+class NodeInstance(HasInstancesInstance):
     templateType = NodeSpec
-    parentRelation = "instances"
 
     def __init__(
         self, name="", attributes=None, parent=None, template=None, status=None
@@ -606,12 +685,7 @@ class NodeInstance(EntityInstance):
         self._requirements = []
         self._artifacts = []
         self._named_artifacts = None
-        self.instances = []
-        EntityInstance.__init__(self, name, attributes, parent, template, status)
-
-        if self.root is self:
-            self._all = _ChildResources(self)
-            self._templar = Templar(DataLoader())
+        HasInstancesInstance.__init__(self, name, attributes, parent, template, status)
 
         self._interfaces = {}
         # preload
@@ -656,20 +730,6 @@ class NodeInstance(EntityInstance):
                     self._requirements.append(relInstance)
 
         return self._requirements
-
-    def get_requirements(self, match):
-        if match is None:
-            return self.requirements
-        if isinstance(match, six.string_types):
-            return [r for r in self.requirements if r.template.name == match]
-        elif isinstance(match, NodeInstance):
-            return [r for r in self.requirements if r.target == match]
-        elif isinstance(match, CapabilityInstance):
-            return [r for r in self.requirements if r.parent == match]
-        elif isinstance(match, ArtifactInstance):
-            return []
-        else:
-            raise UnfurlError(f'invalid match for get_requirements: "{match}"')
 
     @property
     def capabilities(self):
@@ -793,20 +853,16 @@ class NodeInstance(EntityInstance):
                 else:
                     raise
 
-    @property
-    def key(self):
-        return f"::{self.name}"
-
     def get_operational_dependencies(self):
-        for dep in super().get_operational_dependencies():
-            yield dep
+        yield from super().get_operational_dependencies()
 
         for instance in self.requirements:
             if instance is not self.parent:
                 yield instance
 
-    def get_operational_dependents(self):
-        seen = set()
+    def get_operational_dependents(self, seen=None):
+        if seen is None:
+            seen = set()
         for cap in self.capabilities:
             for rel in cap.relationships:
                 dep = rel.source
@@ -814,41 +870,7 @@ class NodeInstance(EntityInstance):
                     seen.add(id(dep))
                     yield dep
 
-        for instance in self.instances:
-            if id(instance) not in seen:
-                seen.add(id(instance))
-                yield instance
-
-    def get_self_and_descendents(self):
-        "Recursive descendent including self"
-        yield self
-        for r in self.instances:
-            for descendent in r.get_self_and_descendents():
-                yield descendent
-
-    @property
-    def descendents(self):
-        return list(self.get_self_and_descendents())
-
-    # XXX use find_instance instead and remove find_resource
-    def find_resource(self, resourceid):
-        if self.name == resourceid:
-            return self
-        for r in self.instances:
-            child = r.find_resource(resourceid)
-            if child:
-                return child
-        return None
-
-    find_instance = find_resource
-
-    def find_instance_or_external(self, resourceid):
-        instance = self.find_resource(resourceid)
-        if instance:
-            return instance
-        if self.imports:
-            return self.imports.find_import(resourceid)
-        return None
+        yield from super().get_operational_dependents(seen)
 
     def add_interface(self, klass, name=None):
         if not isinstance(klass, six.string_types):
@@ -879,14 +901,12 @@ class NodeInstance(EntityInstance):
         return f"NodeInstance('{self.name}')"
 
 
-class TopologyInstance(NodeInstance):
+class TopologyInstance(HasInstancesInstance):
     templateType = TopologySpec
 
     def __init__(self, template, status=None):
         attributes = dict(inputs=template.inputs, outputs=template.outputs)
-        NodeInstance.__init__(
-            self, "root", attributes, template=template, status=status
-        )
+        HasInstancesInstance.__init__(self, "root", attributes, None, template, status)
 
         self._relationships = None
         self._tmpDir = None

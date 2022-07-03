@@ -1,0 +1,20 @@
+apiVersion: unfurl/v1alpha1
+kind: Ensemble
+spec:
+  service_template:
+    node_types:
+      test.nodes.simple:
+        interfaces:
+          defaults:
+            implementation: unfurl.configurators.TemplateConfigurator
+          Standard:
+            configure:
+              inputs:
+                resultTemplate:
+                  protected: true
+            delete:
+
+    topology_template:
+      node_templates:
+        protectedNode:
+          type: test.nodes.simple

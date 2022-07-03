@@ -298,6 +298,8 @@ class Plan:
                 skip = "creation and deletion is managed by another instance"
             elif "protected" in resource.template.directives:
                 skip = 'instance with "protected" directive'
+            elif resource.protected:
+                skip = "protected instance"
             elif "virtual" in resource.template.directives:
                 skip = 'instance with "virtual" directive'
             elif resource.status in [Status.absent, Status.pending]:

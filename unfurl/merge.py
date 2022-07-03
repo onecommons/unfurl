@@ -31,7 +31,7 @@ def __deepcopy__(self, memo):
 
 
 if CommentedMap.__deepcopy__ is not __deepcopy__:
-    CommentedMap.__deepcopy__ = __deepcopy__
+    CommentedMap.__deepcopy__ = __deepcopy__ # type: ignore
 
 
 def copy(src):
@@ -219,7 +219,11 @@ def get_template(doc, key, value, path, cls, includes=None):
             templatePath = key.pointer
 
     try:
-        if value != "raw" and isinstance(
+        if isinstance(
+            template, list
+        ) and value == "maplist":
+            template = { var["key"] : var["value"] for var in template }
+        elif value != "raw" and isinstance(
             template, Mapping
         ):  # raw means no further processing
 

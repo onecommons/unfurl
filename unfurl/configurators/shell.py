@@ -29,12 +29,10 @@ import sys
 import shlex
 import six
 import re
+from typing import Optional
 from click.termui import unstyle
 
-if os.name == "posix" and sys.version_info[0] < 3:
-    import subprocess32 as subprocess
-else:
-    import subprocess
+import subprocess
 # cf https://github.com/opsmop/opsmop/blob/master/opsmop/core/command.py
 
 
@@ -88,7 +86,7 @@ def clean_output(value: str) -> str:
 # XXX we should know if cmd if not os.access(implementation, os.X):
 class ShellConfigurator(TemplateConfigurator):
     exclude_from_digest = TemplateConfigurator.exclude_from_digest + ("cwd", "echo")
-    _default_cmd = None
+    _default_cmd: Optional[str] = None
 
     @staticmethod
     def _cmd(cmd, keeplines):

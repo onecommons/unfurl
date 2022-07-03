@@ -8,6 +8,7 @@ import os
 import os.path
 import shutil
 import sys
+import re
 from typing import Any
 import uuid
 import logging
@@ -17,7 +18,7 @@ from pathlib import Path
 from . import DefaultNames, __version__, get_home_config_path, is_version_unreleased
 from .localenv import LocalEnv, Project, LocalConfig
 from .repo import GitRepo, Repo, is_url_or_git_path, split_git_url, commit_secrets
-from .util import UnfurlError, get_random_password
+from .util import UnfurlError, get_random_password, substitute_env
 from .yamlloader import make_yaml, make_vault_lib
 
 _templatePath = os.path.join(os.path.abspath(os.path.dirname(__file__)), "templates")
@@ -599,6 +600,7 @@ class EnsembleBuilder:
         self.ensemble_name = ensemble_name
         self.mono = options.get("mono") or options.get("existing")
         self.home_path = get_home_config_path(options.get("home"))
+        self.skeleton_vars = dict((n,v) for n,v in options.get('var', []))
 
         self.source_project = None  # step 1
         self.source_path = None  # step 1 relative path in source_project
@@ -830,7 +832,7 @@ class EnsembleBuilder:
             if new_project:
                 # finishing creating the new project
                 # create local/unfurl.yaml in the new project
-                if _create_local_config(self.source_project, self.logger):
+                if _create_local_config(self.source_project, self.logger, self.skeleton_vars):
                     # reload project with the new local project config
                     self.dest_project = find_project(
                         self.source_project.projectRoot, self.home_path
@@ -974,11 +976,10 @@ def clone(source: str, dest: str, ensemble_name: str=DefaultNames.EnsembleDirect
     return builder.set_ensemble(isRemote, sourceProject, currentProject)
 
 
-def _create_local_config(clonedProject, logger):
+def _create_local_config(clonedProject, logger, vars):
     local_template = os.path.join(
         clonedProject.projectRoot, DefaultNames.LocalConfigTemplate
     )
-    PLACEHOLDER = "$generate_new_vault_password"
     if os.path.isfile(local_template):
         with open(local_template) as s:
             contents = s.read()
@@ -989,9 +990,10 @@ def _create_local_config(clonedProject, logger):
         dest = os.path.join(
             clonedProject.projectRoot, "local", DefaultNames.LocalConfig
         )
-        if PLACEHOLDER in contents:
-            contents = contents.replace(PLACEHOLDER, get_random_password())
-            _warn_about_new_password(dest)
+        # log warning if invoked
+        vars["generate_new_vault_password"] = lambda: _warn_about_new_password(dest) or get_random_password()
+        # replace ${var}
+        contents = substitute_env(contents, vars)
 
         _write_file(
             os.path.join(clonedProject.projectRoot, "local"),

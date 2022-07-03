@@ -415,7 +415,7 @@ def node_type_to_graphql(spec, type_definition, types: dict):
     jsontype["inputsSchema"] = tosca_type_to_jsonschema(spec, (p[0] for p in propertydefs if p[1]), None)
     jsontype["computedPropertiesSchema"] = tosca_type_to_jsonschema(spec, (p[0] for p in propertydefs if not p[1]), None)
 
-    extends = []
+    extends: List[str] = []
     # add ancestors classes to extends
     _get_extends(spec, type_definition, extends, types)
     jsontype["extends"] = extends
@@ -1214,6 +1214,7 @@ def to_graphql_resource(instance, manifest, db, relationships):
       attributes: [Input!]
       computedProperties: [Input!]
       connections: [Requirement!]
+      protected: Boolean
     }
     """
     # XXX url
@@ -1235,7 +1236,7 @@ def to_graphql_resource(instance, manifest, db, relationships):
         if len(visibilities) == 1 and "hidden" in visibilities:
             # non-visible visibilities override hidden
             resource["visibility"] = "hidden"
-
+    resource["protected"] = instance.protected
     resource["attributes"] = add_attributes(instance)
     resource["computedProperties"] = add_computed_properties(instance)
 
