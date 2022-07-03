@@ -550,6 +550,28 @@ class Generate:
             return False
 
 
+def substitute_env(contents, env=None):
+    """
+    Replace ${NAME} or ${NAME:default value} with the value of the environment variable $NAME
+    Use \${NAME} to ignore
+    """
+    if env is None:
+        env = os.environ
+
+    def replace(m):
+        if m.group(1): # \ found
+            return m.group(0)[len(m.group(1))-1 or 1:]
+        default_value = m.group(3)[1:] if m.group(3) else ""
+        for name in m.group(2).split("|"):
+            if name in env:
+                value = env[name]
+                if callable(value):
+                    return value()
+                return value
+        return default_value
+    return re.sub(r"(\\+)?\$\{([\w|]+)(\:.+?)?\}", replace, contents)
+
+
 def _env_var_value(val):
     if isinstance(val, bool):
         return val and "true" or ""

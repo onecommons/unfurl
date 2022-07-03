@@ -6,7 +6,7 @@ import pickle
 from unfurl.result import ResultsList, ResultsMap, serialize_value, ChangeRecord, Result
 from unfurl.eval import Ref, map_value, RefContext, set_eval_func, ExternalValue
 from unfurl.support import apply_template, TopologyMap
-from unfurl.util import sensitive_str
+from unfurl.util import sensitive_str, substitute_env
 from unfurl.runtime import NodeInstance
 from ruamel.yaml.comments import CommentedMap
 
@@ -529,3 +529,23 @@ QUU: <<REDACTED>>
         new_path = "/foo/bin:"+path
         assert os.environ['PATH'] == new_path
         assert env == {'PATH': new_path}
+
+def pairs(iterable):
+    i = iter(iterable)
+    try:
+        while True:
+            yield next(i), next(i)
+    except StopIteration:
+        pass
+
+def test_env_sub():
+    env = dict(baz="env", alt="env2")
+    tests = [
+      "${baz} ${bar:default value}", "env default value",
+      "foo${baz|missing}${bar:default value}", "fooenvdefault value",
+      r"foo\${baz}${bar:default value}", "foo${baz}default value",
+      r"foo\\${baz}${bar:default value}", r"foo\${baz}default value",
+      "${missing|baz} ${missing|missing2:default value}", "env default value",
+    ]
+    for test, expected in pairs(tests):
+        assert expected == substitute_env(test, env), test
