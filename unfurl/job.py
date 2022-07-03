@@ -792,15 +792,7 @@ class Job(ConfigChange):
             elif isinstance(taskRequest, TaskRequestGroup):
                 _task = self.apply_group(depth, taskRequest)
             else:
-                start_collapsible(f"Task {taskRequest.target.name} ({taskRequest}", hash(taskRequest))
-
-                _task = self._run_operation(taskRequest, workflow, depth, meta={
-                    "task_number": idx,
-                    "task_count": len(taskRequests),
-                    "logger": logging.getLogger(f"unfurl.job.meta.{idx}")
-                })
-
-            end_collapsible(hash(taskRequest))
+                _task = self._run_operation(taskRequest, workflow, depth)
 
             if not _task:
                 continue
@@ -1003,15 +995,7 @@ class Job(ConfigChange):
                 return False, "instance already entered state"
         return True, "passed"
 
-    def _run_operation(self, req: TaskRequest, workflow: str, depth: int, meta: Mapping={}) -> Optional[ConfigTask]:
-        meta_enabled =  (meta.keys() & {"task_count", "task_number", "logger"}) == {"task_count", "task_number", "logger"}
-        meta_logger = None
-        if meta_enabled:
-            meta_logger = meta["logger"]
-            task_number = meta["task_number"]
-            task_count = meta["task_count"]
-
-
+    def _run_operation(self, req: TaskRequest, workflow: str, depth: int) -> Optional[ConfigTask]:
         if isinstance(req, SetStateRequest):
             logger.debug("Setting state with %s", req)
             self._set_state(req)
@@ -1023,17 +1007,10 @@ class Job(ConfigChange):
         if req.error:
             return None
 
-        if meta_enabled:
-            meta_logger.info(json.dumps({"state": "starting_task", "task_number": task_number, "task_count": task_count}))
-
-        logger.info("Running task %s", req)
         test, msg = self._entry_test(req, workflow)
         if not test:
-            if meta_enabled:
-                meta_logger.info(json.dumps({"state": "skipped_task", "task_number": task_number, "task_count": task_count, "reason": msg}))
-
-            logger.debug(
-                "skipping operation %s for instance %s with state %s and status %s: %s",
+            logger.info(
+                'Skipping operation "%s" on instance "%s" with state "%s" and status "%s": %s',
                 req.configSpec.operation,
                 req.target.name,
                 req.target.state,
@@ -1046,6 +1023,9 @@ class Job(ConfigChange):
             req.configSpec, req.target, reason=req.reason
         )
         if task:
+            start_collapsible(f"Task {req.target.name} ({req}", hash(req), True)
+            logger.info("Running task %s", req)
+
             resource = req.target
             startingStatus = resource._localStatus
             if req.startState is not None:
@@ -1086,23 +1066,14 @@ class Job(ConfigChange):
             #     task.target.state,
             #     req.startState,
             # )
-            if meta_enabled:
-                meta_logger.info(json.dumps({
-                    "state": "finished_task",
-                    "task_number": task_number,
-                    "task_count": task_count,
-                    "success": task.result.success,
-                    "target_status": task.target.status.name, 
-                    "target_state": task.target.state and task.target.state.name or "",
-                }))
-
             logger.info(
-                "finished taskrequest %s: %s %s %s",
+                "Finished taskrequest %s: %s %s %s",
                 task,
                 "success" if task.result.success else "failed",  # type: ignore
                 task.target.status.name,
                 task.target.state and task.target.state.name or "",  # type: ignore
             )
+            end_collapsible(hash(req))
 
         return task
 

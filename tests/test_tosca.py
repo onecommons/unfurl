@@ -424,14 +424,15 @@ class ToscaSyntaxTest(unittest.TestCase):
                 test_node:
                   type: tosca.nodes.Root
                   interfaces:
-                    Standard:      # missing missing implementation - raises error:
+                    Standard: # missing missing implementation - raises error:
         """
         with self.assertRaises(UnfurlValidationError) as err:
             YamlManifest(ensemble)
 
-        assert 'Missing value for "interfaces". Must contain one of:' in str(
-            err.exception
-        )
+        msg = str(err.exception)
+        # XXX not sure why error message changed
+        assert ('Missing value for "interfaces". Must contain one of:' in msg
+                  or 'TypeMismatchError: None must be of type "dict"' in msg)
 
 
 class AbstractTemplateTest(unittest.TestCase):

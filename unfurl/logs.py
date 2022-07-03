@@ -100,11 +100,11 @@ class ColorHandler(logging.StreamHandler):
         # the root logger.
         if record.name.startswith('unfurl.job.meta'):
             return
-        
+
         level = Levels[record.levelname]
         try:
             # Soft wrap prevents rich from breaking lines automatically (needed for emulated terminals, like gitlab CI)
-            console = Console(soft_wrap=True, file=self.stream) 
+            console = Console(soft_wrap=True, file=self.stream)
             console.print(f"[bold] UNFURL [/bold]", end="")
             console.print(f"[{self.RICH_STYLE_LEVEL[level]}] {level.name} [/]", end="")
             console.print(f" {message}")
@@ -139,7 +139,7 @@ class SensitiveFilter(logging.Filter):
         return sensitive.redacted_str if isinstance(value, sensitive) else value
 
 
-def start_collapsible(name: str, section_id: Union[str, int], autoclose=True) -> bool:
+def start_collapsible(name: str, section_id: Union[str, int], autoclose) -> bool:
     """Starts a collapsible section in Gitlab CI. Only does it if the
     environment variable CI is set (which is always set in most CI systems).
 
