@@ -1051,13 +1051,14 @@ def _get_unfurl_requirement_url(spec):
         return url + ref + "#egg=unfurl"
 
 
-def init_engine(projectDir, runtime):
+def init_engine(projectDir, runtime, update):
     runtime = runtime or "venv:"
     kind, sep, rest = runtime.partition(":")
     if kind == "venv":
         pipfileLocation, sep, unfurlLocation = rest.partition(":")
         return create_venv(
-            projectDir, pipfileLocation, _get_unfurl_requirement_url(unfurlLocation)
+            projectDir, pipfileLocation,
+            _get_unfurl_requirement_url(unfurlLocation), update
         )
     # XXX else kind == 'docker':
     return "unrecognized runtime uri"
@@ -1101,8 +1102,27 @@ def _add_unfurl_to_venv(projectdir):
     _write_file(sitePackageDir, "unfurl.egg-link", base)
     return ""
 
+def pipfile_template_dir(pythonPath):
+    from pipenv.utils import python_version
+    versionStr = python_version(pythonPath)
+    assert versionStr, versionStr
+    version = versionStr.rpartition(".")[0]  # 3.8.1 => 3.8
+    # version = subprocess.run([pythonPath, "-V"]).stdout.decode()[
+    #     7:10
+    # ]  # e.g. Python 3.8.1 => 3.8
+    return os.path.join(
+        _templatePath, "python" + version
+    )  # e.g. templates/python3.8
 
-def create_venv(projectDir, pipfileLocation, unfurlLocation):
+def copy_pipfiles(pipfileLocation, projectDir):
+    # copy Pipfiles to project root
+    if os.path.abspath(projectDir) != os.path.abspath(pipfileLocation):
+        for filename in ["Pipfile", "Pipfile.lock"]:
+            path = os.path.join(pipfileLocation, filename)
+            if os.path.isfile(path):
+                shutil.copy(path, projectDir)
+
+def create_venv(projectDir, pipfileLocation, unfurlLocation, update):
     """Create a virtual python environment for the given project."""
 
     os.environ["PIPENV_IGNORE_VIRTUALENVS"] = "1"
@@ -1120,31 +1140,15 @@ def create_venv(projectDir, pipfileLocation, unfurlLocation):
         # need to set env vars and change current dir before importing pipenv
         from pipenv import environments
         from pipenv.core import do_install
-        from pipenv.utils import python_version
         from pipenv.project import Project as PipEnvProject
 
         pythonPath = os.environ["PIPENV_PYTHON"]
         assert pythonPath, pythonPath
         if not pipfileLocation:
-            versionStr = python_version(pythonPath)
-            assert versionStr, versionStr
-            version = versionStr.rpartition(".")[0]  # 3.8.1 => 3.8
-            # version = subprocess.run([pythonPath, "-V"]).stdout.decode()[
-            #     7:10
-            # ]  # e.g. Python 3.8.1 => 3.8
-            pipfileLocation = os.path.join(
-                _templatePath, "python" + version
-            )  # e.g. templates/python3.8
-
+            pipfileLocation = pipfile_template_dir(pythonPath)
         if not os.path.isdir(pipfileLocation):
             return f'Pipfile location is not a valid directory: "{pipfileLocation}"'
-
-        # copy Pipfiles to project root
-        if os.path.abspath(projectDir) != os.path.abspath(pipfileLocation):
-            for filename in ["Pipfile", "Pipfile.lock"]:
-                path = os.path.join(pipfileLocation, filename)
-                if os.path.isfile(path):
-                    shutil.copy(path, projectDir)
+        copy_pipfiles(pipfileLocation, projectDir)
 
         kw = dict(python=pythonPath, extra_index_url=[])
         pipenv_project = PipEnvProject()
