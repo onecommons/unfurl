@@ -448,7 +448,10 @@ def _print_summary(job, options):
             jsonSummary["result"] = result
         else:
             click.echo("query: " + query)
-            click.echo(result)
+            if result is None:
+                click.echo("No results found")
+            else:
+                click.echo(result)
     if jsonSummary is not None:
         click.echo(json.dumps(jsonSummary, indent=2))
 
@@ -877,6 +880,8 @@ def runtime(ctx, project_folder, init=False, **options):
     "--use-deployment-blueprint",
     help="Use this deployment blueprint.",
 )
+@click.option('--var', nargs=2, type=click.Tuple([str, str]), multiple=True,
+    help="name/value pair to pass to skeleton (multiple times ok).")
 def clone(ctx, source, dest, **options):
     """Create a new ensemble or project from a service template or an existing ensemble or project.
 
@@ -1064,7 +1069,10 @@ def status(ctx, ensemble, **options):
         trace = options.get("trace")
         result = eval_for_func(query, RefContext(manifest.rootResource, trace=trace))
         click.echo("query: " + query)
-        click.echo(result)
+        if result is None:
+            click.echo("No results found")
+        else:
+            click.echo(result)
 
 @cli.command()
 @click.pass_context
