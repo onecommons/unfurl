@@ -1051,14 +1051,14 @@ def _get_unfurl_requirement_url(spec):
         return url + ref + "#egg=unfurl"
 
 
-def init_engine(projectDir, runtime, update):
+def init_engine(projectDir, runtime):
     runtime = runtime or "venv:"
     kind, sep, rest = runtime.partition(":")
     if kind == "venv":
         pipfileLocation, sep, unfurlLocation = rest.partition(":")
         return create_venv(
             projectDir, pipfileLocation,
-            _get_unfurl_requirement_url(unfurlLocation), update
+            _get_unfurl_requirement_url(unfurlLocation)
         )
     # XXX else kind == 'docker':
     return "unrecognized runtime uri"
@@ -1122,7 +1122,7 @@ def copy_pipfiles(pipfileLocation, projectDir):
             if os.path.isfile(path):
                 shutil.copy(path, projectDir)
 
-def create_venv(projectDir, pipfileLocation, unfurlLocation, update):
+def create_venv(projectDir, pipfileLocation, unfurlLocation):
     """Create a virtual python environment for the given project."""
 
     os.environ["PIPENV_IGNORE_VIRTUALENVS"] = "1"

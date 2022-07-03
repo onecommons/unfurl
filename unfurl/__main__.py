@@ -817,6 +817,7 @@ def runtime(ctx, project_folder, init=False, update=False, **options):
     runtime_ = options.get("runtime") or "venv:"
     if not init:
         try:
+            # XXX if --runtime is set venv_location likely is wrong
             venv_location, local_env = _get_runtime(options, project_folder)
         except:
             # if the current path isn't a folder
@@ -835,7 +836,7 @@ def runtime(ctx, project_folder, init=False, update=False, **options):
             return
 
     if init:
-        error = initmod.init_engine(project_path, runtime_, update)
+        error = initmod.init_engine(project_path, runtime_)
     else: # update
         venv_path = Path(venv_location[len('venv:'):])
         env = _venv(venv_path, None)
