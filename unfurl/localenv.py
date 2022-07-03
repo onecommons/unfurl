@@ -361,12 +361,20 @@ class Project:
             context or {}, localContext, replaceKeys=LocalConfig.replaceKeys
         )
 
-    def get_vault_password(self, contextName: Optional[str]=None, vaultId: str="default") -> Optional[str]:
-        secret = os.getenv(f"UNFURL_VAULT_{vaultId.upper()}_PASSWORD")
+    @staticmethod
+    def _check_vault_env_var(context, vaultId, default=None):
+        env_var = f"UNFURL_VAULT_{vaultId.upper()}_PASSWORD"
+        secret = os.getenv(env_var, default)
         if secret:
             return secret
+        return context.get("variables", {}).get(env_var, default)
+
+    def get_vault_password(self, contextName: Optional[str]=None, vaultId: str="default") -> Optional[str]:
         context = self.get_context(contextName)  # type: ignore
-        secrets = context.get("secrets", {}).get(f"vault_secrets")
+        secret = self._check_vault_env_var(context, vaultId)
+        if secret:
+            return secret
+        secrets = context.get("secrets", {}).get("vault_secrets")
         if secrets:
             return secrets.get(vaultId)
         return None
@@ -374,11 +382,11 @@ class Project:
     def get_vault_passwords(self, contextName: Optional[str]=None) -> Iterable[Tuple[str, Union[str, bytes]]]:
         # we want to support multiple vault ids
         context = self.get_context(contextName)  # type: ignore
-        secrets = context.get("secrets", {}).get(f"vault_secrets")
+        secrets = context.get("secrets", {}).get("vault_secrets")
         if not secrets:
             return
         for vaultId, password in secrets.items():
-            password = os.getenv(f"UNFURL_VAULT_{vaultId.upper()}_PASSWORD", password)
+            password = self._check_vault_env_var(context, vaultId, password)
             if password:
                 yield vaultId, password
 
