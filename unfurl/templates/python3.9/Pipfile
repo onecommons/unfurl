@@ -35,6 +35,7 @@ Jinja2 = "==2.11.3"
 itsdangerous = "==2.0.1"
 MarkupSafe = "==2.0.1"
 typing-extensions = "==4.1.1"
+rich = "==12.4.4"  # MIT
 
 [dev-packages]
 

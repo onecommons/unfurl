@@ -8,11 +8,13 @@ Each task tracks and records its modifications to the system's state
 
 import collections
 from datetime import datetime
+import time
 import types
 import itertools
 import os
 import json
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple, Union, cast, TYPE_CHECKING
+
 
 from .support import Status, Priority, Defaults, AttributeManager, Reason, NodeState
 from .result import ResourceRef, serialize_value, ChangeRecord
@@ -20,6 +22,7 @@ from .util import UnfurlError, UnfurlTaskError, to_enum, change_cwd
 from .merge import merge_dicts
 from .runtime import NodeInstance, Operational, OperationalInstance
 from . import logs
+from .logs import end_collapsible, start_collapsible
 from .configurator import (
     TaskView,
     ConfiguratorResult,
@@ -476,10 +479,19 @@ class ConfigTask(ConfigChange, TaskView):
         if asJson:
             return summary
         else:
+            color = {
+                Status.unknown: "grey",
+                Status.ok: "green",
+                Status.degraded: "yellow",
+                Status.error: "red",
+                Status.pending: "yellow",
+                Status.absent: "red",
+            }[self.target_status]
+
             return (
-                "{operation} on instance {rname} (type {type}, status {targetStatus}) "
+                "{operation} on instance {rname} (type {type}, status [{color}]{targetStatus}[/{color}]) "
                 + "using configurator {cname}, priority: {priority}, reason: {reason}"
-            ).format(cname=cname, rname=rname, **summary)
+            ).format(cname=cname, rname=rname, color=color, **summary)
 
     def __repr__(self):
         return f"ConfigTask({self.target}:{self.name})"
@@ -766,7 +778,7 @@ class Job(ConfigChange):
         else:
             workflow = None
 
-        for taskRequest in taskRequests:
+        for idx, taskRequest in enumerate(taskRequests):
             # if parent is set, stop processing requests once one fails
             if parent and failed:
                 logger.debug(
@@ -781,6 +793,7 @@ class Job(ConfigChange):
                 _task = self.apply_group(depth, taskRequest)
             else:
                 _task = self._run_operation(taskRequest, workflow, depth)
+
             if not _task:
                 continue
             task = _task
@@ -994,11 +1007,10 @@ class Job(ConfigChange):
         if req.error:
             return None
 
-        logger.info("Running task %s", req)
         test, msg = self._entry_test(req, workflow)
         if not test:
-            logger.debug(
-                "skipping operation %s for instance %s with state %s and status %s: %s",
+            logger.info(
+                'Skipping operation "%s" on instance "%s" with state "%s" and status "%s": %s',
                 req.configSpec.operation,
                 req.target.name,
                 req.target.state,
@@ -1011,6 +1023,9 @@ class Job(ConfigChange):
             req.configSpec, req.target, reason=req.reason
         )
         if task:
+            start_collapsible(f"Task {req.target.name} ({req}", hash(req), True)
+            logger.info("Running task %s", req)
+
             resource = req.target
             startingStatus = resource._localStatus
             if req.startState is not None:
@@ -1052,12 +1067,13 @@ class Job(ConfigChange):
             #     req.startState,
             # )
             logger.info(
-                "finished taskrequest %s: %s %s %s",
+                "Finished taskrequest %s: %s %s %s",
                 task,
                 "success" if task.result.success else "failed",  # type: ignore
                 task.target.status.name,
                 task.target.state and task.target.state.name or "",  # type: ignore
             )
+            end_collapsible(hash(req))
 
         return task
 

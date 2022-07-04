@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Optional, List
 
 import click
+import rich
 
 from . import DefaultNames, __version__, get_home_config_path, is_version_unreleased
 from . import init as initmod
@@ -433,7 +434,8 @@ def _print_summary(job, options):
     jsonSummary = {}
     summary = options.get("output")
     if summary == "text" and not job.jobOptions.planOnly:
-        click.echo(job.summary())
+        console = rich.console.Console(soft_wrap=True)
+        console.print(job.summary())
     elif summary == "json":
         if job.jobOptions.planOnly:
             jsonSummary = job._json_plan_summary()
@@ -804,38 +806,54 @@ def home(ctx, init=False, render=False, replace=False, **options):
 @cli.command(short_help="Print or manage the project's runtime")
 @click.pass_context
 @click.option("--init", default=False, is_flag=True, help="Create a new runtime")
+@click.option("--update", default=False, is_flag=True, help="Update Python requirements to match this instance of Unfurl.")
 @click.argument(
     "project_folder",
     type=click.Path(exists=False),
     default=".",
 )
-def runtime(ctx, project_folder, init=False, **options):
+def runtime(ctx, project_folder, init=False, update=False, **options):
     """If no options are set, display the runtime currently used by the project. To create
     a new runtime in the project root use --init and the global --runtime option.
     """
     options.update(ctx.obj)
     project_path = os.path.abspath(project_folder)
+    runtime_ = options.get("runtime") or "venv:"
     if not init:
-        # just display the current runtime
         try:
-            runtime_, local_env = _get_runtime(options, project_folder)
+            # XXX if --runtime is set venv_location likely is wrong
+            venv_location, local_env = _get_runtime(options, project_folder)
         except:
             # if the current path isn't a folder
             if project_folder == ".":
-                runtime_, local_env = _get_runtime(
+                venv_location, local_env = _get_runtime(
                     options, get_home_config_path(options.get("home"))
                 )
             else:
                 raise
-        click.echo(f"\nCurrent runtime: {runtime_}")
-        return
+        if venv_location:
+            # venv_location will be "venv:project/path/.venv" or None
+            project_path = os.path.dirname(venv_location[len('venv:'):])
+        if not update:
+            # just display the current runtime
+            click.echo(f"\nCurrent runtime: {venv_location}")
+            return
 
-    runtime_ = options.get("runtime") or "venv:"
-    error = initmod.init_engine(project_path, runtime_)
+    if init:
+        error = initmod.init_engine(project_path, runtime_)
+    else: # update
+        venv_path = Path(venv_location[len('venv:'):])
+        env = _venv(venv_path, None)
+        import importlib.metadata
+        packages = [req for req in importlib.metadata.requires('unfurl') if 'extra ==' not in req]
+        error = subprocess.run(["pipenv", "install"] + packages, env=env).returncode
+
     if not error:
-        click.echo(f'Created runtime "{runtime_}" in "{project_path}"')
+        action = "Updated" if update else "Created"
+        click.echo(f'{action} runtime "{runtime_}" in "{project_path}"')
     else:
-        click.echo(f'Failed to create runtime "{runtime_}": {error}')
+        action = "update" if update else "create"
+        click.echo(f'Failed to {action} runtime "{runtime_}": {error}')
 
 
 @cli.command(short_help="Clone a project, ensemble or service template")
