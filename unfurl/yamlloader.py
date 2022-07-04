@@ -187,7 +187,6 @@ def make_vault_lib_ex(secrets: List[Tuple[str, Union[str, bytes]]]):
 
 _refResolver = RefResolver("", None)
 
-
 class ImportResolver(toscaparser.imports.ImportResolver):
     def __init__(self, manifest, ignoreFileNotFound=False, expand=False):
         self.manifest = manifest
@@ -515,7 +514,7 @@ class YamlConfig:
     def load_include(
         self, templatePath, warnWhenNotFound=False, expanded=None, check=False
     ):
-        if check:
+        if check and isinstance(check, bool):
             if self.loadHook:
                 return self.loadHook(
                     self,
@@ -546,7 +545,17 @@ class YamlConfig:
             value = None
             key = templatePath
 
-        # key = substitute_env(key, inputs) # XXX cmdline inputs?
+        if self.loadHook:
+            # give loadHook change to transform key
+            key = self.loadHook(
+                    self,
+                    templatePath,
+                    self.baseDirs[-1],
+                    warnWhenNotFound,
+                    expanded,
+                    key,
+                )
+
         if key in self._cachedDocIncludes:
             path, template = self._cachedDocIncludes[key]
             baseDir = os.path.dirname(path)

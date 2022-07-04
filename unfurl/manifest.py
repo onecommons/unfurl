@@ -509,6 +509,8 @@ class Manifest(AttributeManager):
             artifactTpl = dict(file=templatePath)
 
         if check:
+            if isinstance(check, str):
+                return check
             if not inlineRepository and "repository" in artifactTpl:
                 reponame = artifactTpl["repository"]
                 if reponame in ["spec", "self", "unfurl"]:  # builtin

@@ -17,7 +17,7 @@ from six import Iterator
 from unfurl.runtime import NodeInstance
 
 from .repo import GitRepo, Repo, split_git_url, RepoView, normalize_git_url_hard
-from .util import UnfurlError
+from .util import UnfurlError, substitute_env
 from .merge import merge_dicts
 from .yamlloader import YamlConfig, make_vault_lib_ex, make_yaml
 from . import DefaultNames, get_home_config_path
@@ -653,6 +653,34 @@ class LocalConfig:
             self.config.config["ensembles"] = self.ensembles
             self.config.save()
         return lock
+
+
+    def load_yaml_include(
+        self,
+        yamlConfig,
+        templatePath,
+        baseDir,
+        warnWhenNotFound=False,
+        expanded=None,
+        action=False,
+    ):
+        """
+        This is called while the YAML config is being loaded.
+        Returns (url or fullpath, parsed yaml)
+        """
+        if action:
+            if isinstance(action, str):
+                vars = {}
+                # check expanded
+                #  ('environments', 'defaults', 'variables')
+                return substitute_env(action, vars)
+            return True # validate
+
+        if isinstance(templatePath, dict):
+            key = templatePath["file"]
+        else:
+            key = templatePath
+        return yamlConfig.load_yaml(key, baseDir, warnWhenNotFound)
 
 
 class LocalEnv:
