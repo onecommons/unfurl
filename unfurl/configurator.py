@@ -399,6 +399,8 @@ class TaskView:
             relationship = isinstance(self.target, RelationshipInstance)
             if relationship:
                 target = self.target.target  # type: ignore  # checked with isinstance above
+                if not target:
+                    target = self.target.root
             else:
                 target = self.target
             HOST = (target.parent or target).attributes
@@ -420,7 +422,8 @@ class TaskView:
                 or {},
             )
             if relationship:
-                vars["SOURCE"] = self.target.source.attributes  # type: ignore
+                if self.target.source:
+                    vars["SOURCE"] = self.target.source.attributes  # type: ignore
                 vars["TARGET"] = target.attributes
             # expose inputs lazily to allow self-referencee
             ctx.vars = vars
@@ -458,6 +461,8 @@ class TaskView:
         """
         seen: Dict[int, Any] = {}
         for parent in self.target.ancestors:
+            if not isinstance(parent, NodeInstance):
+                continue
             if parent is self.target.root:
                 break
             if self.operation_host:
