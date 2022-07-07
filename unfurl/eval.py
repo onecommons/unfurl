@@ -175,6 +175,7 @@ class RefContext:
         ):
             copy._lastResource = self._lastResource
         if vars:
+            copy.vars = copy.vars.copy()
             copy.vars.update(vars)
         if wantList is not None:
             copy.wantList = wantList
