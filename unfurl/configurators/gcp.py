@@ -26,15 +26,21 @@ class CheckGooglCloudConnectionConfigurator(Configurator):
         if not os.getenv("GOOGLE_OAUTH_ACCESS_TOKEN"):
             try:
                 credentials, project_id = google.auth.default()
+                assert credentials
+                if project_id:
+                    task.logger.verbose('validated google auth using default project: "%s"', project_id)
+                else:
+                    task.logger.verbose("validated google auth")
                 if project_id and not os.getenv("CLOUDSDK_CORE_PROJECT"):
                     os.environ["CLOUDSDK_CORE_PROJECT"] = project_id
             except google.auth.exceptions.DefaultCredentialsError:
-                task.logger.error("unable to connect")
+                task.logger.error("unable to authenticate with Google Cloud")
                 status = Status.error
         elif not os.getenv("GOOGLE_APPLICATION_CREDENTIALS"):
             # GOOGLE_OAUTH_ACCESS_TOKEN is set but GOOGLE_APPLICATION_CREDENTIALS isn't
             # create an unfurl service account for the connection if template for that exists
             if task.target.template.spec.get_template('unfurl_service_account'):
+                task.logger.verbose("Creating a Google Cloud service account for Unfurl.")
                 jobrequest, errors = task.update_instances(
                     dict(name='unfurl_service_account', template='unfurl_service_account'))
                 job = yield jobrequest
