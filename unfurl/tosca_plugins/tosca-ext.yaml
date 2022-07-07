@@ -320,6 +320,14 @@ relationship_types:
         entry_schema:
           type: string
         required: false
+    interfaces:
+      Install:
+        check: 
+          implementation:
+            className: unfurl.configurators.gcp.CheckGooglCloudConnectionConfigurator
+            # XXX defined in artifacts.yaml
+            # dependencies:
+            #   - google-auth
 
   unfurl.relationships.ConnectsTo.AWSAccount:
     derived_from: unfurl.relationships.ConnectsTo.CloudAccount
