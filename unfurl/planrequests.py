@@ -16,7 +16,7 @@ from .util import (
     to_enum
 )
 from .result import serialize_value
-from .support import Defaults, NodeState
+from .support import Defaults, NodeState, Priority
 import logging
 
 logger = logging.getLogger("unfurl")
@@ -152,6 +152,11 @@ class PlanRequest:
 
     def get_operation_artifacts(self):
         return []
+
+    def include_in_plan(self):
+        if self.task and self.task.priority == Priority.critical:
+            return True  # XXX hackish, just used for primary_provider 
+        return self.target.template.required
 
 
 class TaskRequest(PlanRequest):
@@ -535,7 +540,7 @@ def _reevaluate_not_required(not_required, render_requests):
     # keep rendering if a not_required template was referenced and is now required
     new_not_required = []
     for (parent, request) in not_required:
-        if request.target.template.required:
+        if request.include_in_plan():
             render_requests.append( (parent, request) )
         else:
             new_not_required.append( (parent, request) )
@@ -555,7 +560,7 @@ def do_render_requests(job, requests):
         parent, request = render_requests.popleft()
         # we dont require default templates that aren't referenced
         # (but skip this check if the job already specified specific instances)
-        required = job.workflow != "deploy" or job.is_filtered() or request.target.template.required
+        required = job.workflow != "deploy" or job.is_filtered() or request.include_in_plan()
         if not required:
             not_required.append( (parent, request) )
         else:

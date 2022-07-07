@@ -625,7 +625,7 @@ class Job(ConfigChange):
         # if there were circular dependencies or errors then notReady won't be empty
         if notReady:
             for parent, req in get_render_requests(notReady):
-                if self.workflow == "deploy" and not req.target.template.required:  # type: ignore # we don't want to run these
+                if self.workflow == "deploy" and not req.include_in_plan():  # type: ignore # we don't want to run these
                     continue
                 message = f"can't fulfill {req.target.name}: never ran {req.future_dependencies}"
                 logger.info(message)
@@ -1193,7 +1193,7 @@ class Job(ConfigChange):
             if isGroup and not request.children:
                 continue  # don't include in the plan
             if request.target is not target:
-                if workflow == "deploy" and not request.target.template.required:
+                if workflow == "deploy" and not request.include_in_plan():
                     continue
                 # target changed, add it to the parent's list
                 # switch to the "plan" member of the new target
@@ -1300,7 +1300,7 @@ class Job(ConfigChange):
                 if isGroup and not request.children:  # type: ignore
                     continue
                 if not self.is_filtered() and self.workflow == "deploy":  # type: ignore
-                    if not request.target.template.required:
+                    if not request.include_in_plan():
                         logger.trace('excluding "%s" from plan: not required', request.target.name)
                         continue
                 if isinstance(request, JobRequest):
