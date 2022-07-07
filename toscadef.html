@@ -1457,6 +1457,14 @@ group_types:
         <span class="n">entry_schema</span><span class="p">:</span>
           <span class="nb">type</span><span class="p">:</span> <span class="n">string</span>
         <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
+    <span class="n">interfaces</span><span class="p">:</span>
+      <span class="n">Install</span><span class="p">:</span>
+        <span class="n">check</span><span class="p">:</span> 
+          <span class="n">implementation</span><span class="p">:</span>
+            <span class="n">className</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">configurators</span><span class="o">.</span><span class="n">gcp</span><span class="o">.</span><span class="n">CheckGooglCloudConnectionConfigurator</span>
+            <span class="c1"># XXX defined in artifacts.yaml</span>
+            <span class="c1"># dependencies:</span>
+            <span class="c1">#   - google-auth</span>
 
   <span class="n">unfurl</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">ConnectsTo</span><span class="o">.</span><span class="n">AWSAccount</span><span class="p">:</span>
     <span class="n">derived_from</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">ConnectsTo</span><span class="o">.</span><span class="n">CloudAccount</span>
