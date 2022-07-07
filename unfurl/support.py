@@ -519,9 +519,13 @@ def to_env(args, ctx: RefContext):
     env = None
     if ctx.task:
         env = ctx.task.get_environment(False)
-    result = filter_env(map_value(args, ctx), env, addOnly=True)
+    args = map_value(args, ctx)
+    result = filter_env(args, env, addOnly=True)
     if ctx.kw.get('update_os_environ'):
         os.environ.update(result)
+        for key, value in args.items():
+            if value is None and key in os.environ:
+                del os.environ[key]
     return result
 
 
