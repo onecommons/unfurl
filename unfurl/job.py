@@ -54,6 +54,9 @@ if TYPE_CHECKING:
 
 logger = cast(logs.UnfurlLogger, logging.getLogger("unfurl"))
 
+class JobAborted(UnfurlError):
+    pass
+
 class ConfigChange(OperationalInstance, ChangeRecord):
     """
     Represents a configuration change made to the system.
@@ -667,6 +670,9 @@ class Job(ConfigChange):
                 try:
                     display.verbosity = jobOptions.verbose  # type: ignore
                     self._run((ready, notReady, errors))
+                except JobAborted as e:
+                    self.local_status = Status.error  # type: ignore
+                    logger.error("Aborting job: %s", e)
                 except Exception:
                     self.local_status = Status.error  # type: ignore
                     self.unexpectedAbort = UnfurlError(
@@ -807,6 +813,9 @@ class Job(ConfigChange):
                         successStatus = True
             else:
                 failed = True
+            if task.priority == Priority.critical:
+                if failed or task.result.status == Status.error:
+                    raise JobAborted(f"Critical task failed: {task.name} for {task.target.name}")
         return task, successStatus  # type: ignore
 
     def run_job_request(self, jobRequest: JobRequest) -> "Job":
