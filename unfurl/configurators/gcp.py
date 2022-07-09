@@ -45,5 +45,9 @@ class CheckGooglCloudConnectionConfigurator(Configurator):
                     dict(name='unfurl_service_account', template='unfurl_service_account'))
                 job = yield jobrequest
                 status = job.status
+        else:
+            # both present, give GOOGLE_APPLICATION_CREDENTIALS priority
+            del os.environ["GOOGLE_OAUTH_ACCESS_TOKEN"]
+
         yield task.done(True, status=status)
 
