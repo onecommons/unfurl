@@ -65,10 +65,12 @@ def option_group(*options):
     is_flag=True,
     help="Only output errors to the stdout",
 )
-@click.option("--logfile",
-  default=None,
-  envvar="UNFURL_LOGFILE",
-  help="Log messages to file (at DEBUG level)")
+@click.option(
+    "--logfile",
+    default=None,
+    envvar="UNFURL_LOGFILE",
+    help="Log messages to file (at DEBUG level)",
+)
 @click.option(
     "--tmp",
     envvar="UNFURL_TMPDIR",
@@ -121,8 +123,12 @@ def cli(
             msg = f"{sys.executable} -m pip install -U 'git+https://github.com/onecommons/unfurl.git#egg=unfurl'"
         else:
             msg = f"{sys.executable} -m pip install -U unfurl=={version_check}"
-        logging.error("Use --no-version-check to ignore or run this command to upgrade: \n %s", msg)
+        logging.error(
+            "Use --no-version-check to ignore or run this command to upgrade: \n %s",
+            msg,
+        )
         raise click.Abort()
+
 
 def detect_log_level(loglevel: Optional[str], quiet: bool, verbose: int) -> Levels:
     if quiet:
@@ -377,9 +383,7 @@ class DockerCmd:
         cmd.extend(self.env_vars_to_args())
         cmd.extend(self.default_volumes())
         cmd.extend(self.docker_args)
-        cmd.extend(
-            [self.image, "unfurl", "--no-runtime"]
-        )
+        cmd.extend([self.image, "unfurl", "--no-runtime"])
         return cmd
 
     def env_vars_to_args(self) -> list:
@@ -416,7 +420,7 @@ def _run_remote(runtime, options, localEnv):
         print(f"TESTING: running remote with _args {_args}")
 
     if options.get("no_version_check"):
-        cmdLine.remove('--no-version-check')
+        cmdLine.remove("--no-version-check")
         version_check = []
     else:
         version_check = ["--version-check", __version__(True)]
@@ -487,7 +491,7 @@ def _stop_logging(job, options, verbose, tmplogfile):
 
 def _run_local(ensemble, options):
     logger = logging.getLogger("unfurl")
-    logger.verbose('Running command: %s', sys.argv[1:])
+    logger.verbose("Running command: %s", sys.argv[1:])
     verbose = options.get("verbose", 0)
     tmplogfile = options["logfile"]
     job, rendered, proceed = start_job(ensemble, options)
@@ -806,7 +810,12 @@ def home(ctx, init=False, render=False, replace=False, **options):
 @cli.command(short_help="Print or manage the project's runtime")
 @click.pass_context
 @click.option("--init", default=False, is_flag=True, help="Create a new runtime")
-@click.option("--update", default=False, is_flag=True, help="Update Python requirements to match this instance of Unfurl.")
+@click.option(
+    "--update",
+    default=False,
+    is_flag=True,
+    help="Update Python requirements to match this instance of Unfurl.",
+)
 @click.argument(
     "project_folder",
     type=click.Path(exists=False),
@@ -833,7 +842,7 @@ def runtime(ctx, project_folder, init=False, update=False, **options):
                 raise
         if venv_location:
             # venv_location will be "venv:project/path/.venv" or None
-            project_path = os.path.dirname(venv_location[len('venv:'):])
+            project_path = os.path.dirname(venv_location[len("venv:") :])
         if not update:
             # just display the current runtime
             click.echo(f"\nCurrent runtime: {venv_location}")
@@ -841,11 +850,16 @@ def runtime(ctx, project_folder, init=False, update=False, **options):
 
     if init:
         error = initmod.init_engine(project_path, runtime_)
-    else: # update
-        venv_path = Path(venv_location[len('venv:'):])
+    else:  # update
+        venv_path = Path(venv_location[len("venv:") :])
         env = _venv(venv_path, None)
         import importlib.metadata
-        packages = [req for req in importlib.metadata.requires('unfurl') if 'extra ==' not in req]
+
+        packages = [
+            req
+            for req in importlib.metadata.requires("unfurl")
+            if "extra ==" not in req
+        ]
         error = subprocess.run(["pipenv", "install"] + packages, env=env).returncode
 
     if not error:
@@ -898,8 +912,13 @@ def runtime(ctx, project_folder, init=False, update=False, **options):
     "--use-deployment-blueprint",
     help="Use this deployment blueprint.",
 )
-@click.option('--var', nargs=2, type=click.Tuple([str, str]), multiple=True,
-    help="name/value pair to pass to skeleton (multiple times ok).")
+@click.option(
+    "--var",
+    nargs=2,
+    type=click.Tuple([str, str]),
+    multiple=True,
+    help="name/value pair to pass to skeleton (multiple times ok).",
+)
 def clone(ctx, source, dest, **options):
     """Create a new ensemble or project from a service template or an existing ensemble or project.
 
@@ -1061,12 +1080,16 @@ def export(ctx, project_or_ensemble_path, format, **options):
     from . import to_json
 
     options.update(ctx.obj)
-    localEnv = LocalEnv(project_or_ensemble_path, options.get("home"), override_context=options.get("use_environment"))
+    localEnv = LocalEnv(
+        project_or_ensemble_path,
+        options.get("home"),
+        override_context=options.get("use_environment"),
+    )
     exporter = getattr(to_json, "to_" + format)
     jsonSummary = exporter(localEnv)
     click.echo(json.dumps(jsonSummary, indent=2))
     logger = logging.getLogger("unfurl")
-    logger.info('Export complete.')
+    logger.info("Export complete.")
 
 
 @cli.command()
@@ -1092,6 +1115,7 @@ def status(ctx, ensemble, **options):
         else:
             click.echo(result)
 
+
 @cli.command()
 @click.pass_context
 @click.argument("ensemble", default=".", type=click.Path(exists=False))
@@ -1100,6 +1124,7 @@ def validate(ctx, ensemble, **options):
     options.update(ctx.obj)
     localEnv = LocalEnv(ensemble, options.get("home"))
     localEnv.get_manifest()
+
 
 @cli.command()
 @click.pass_context

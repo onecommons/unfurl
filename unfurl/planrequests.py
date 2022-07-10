@@ -13,7 +13,7 @@ from .util import (
     find_schema_errors,
     UnfurlError,
     UnfurlTaskError,
-    to_enum
+    to_enum,
 )
 from .result import serialize_value
 from .support import Defaults, NodeState, Priority
@@ -155,7 +155,7 @@ class PlanRequest:
 
     def include_in_plan(self):
         if self.task and self.task.priority == Priority.critical:
-            return True  # XXX hackish, just used for primary_provider 
+            return True  # XXX hackish, just used for primary_provider
         return self.target.template.required
 
 
@@ -509,7 +509,8 @@ def _render_request(job, parent, req, requests):
             "%s:%s can not render yet, depends on %s",
             task.target.name,
             req.configSpec.operation,
-            str(deps), exc_info=error_info
+            str(deps),
+            exc_info=error_info,
         )
         # rollback changes:
         task._errors = []
@@ -520,7 +521,7 @@ def _render_request(job, parent, req, requests):
     elif error:
         task.fail_work_folders()
         task._inputs = None
-        task.logger.warning("Configurator render failed",  exc_info=error_info)
+        task.logger.warning("Configurator render failed", exc_info=error_info)
         task._attributeManager.attributes = {}  # rollback changes
     else:
         task.logger.trace(f"committing changes from rendering task {task.target}")
@@ -541,9 +542,9 @@ def _reevaluate_not_required(not_required, render_requests):
     new_not_required = []
     for (parent, request) in not_required:
         if request.include_in_plan():
-            render_requests.append( (parent, request) )
+            render_requests.append((parent, request))
         else:
-            new_not_required.append( (parent, request) )
+            new_not_required.append((parent, request))
     return new_not_required
 
 
@@ -560,9 +561,11 @@ def do_render_requests(job, requests):
         parent, request = render_requests.popleft()
         # we dont require default templates that aren't referenced
         # (but skip this check if the job already specified specific instances)
-        required = job.workflow != "deploy" or job.is_filtered() or request.include_in_plan()
+        required = (
+            job.workflow != "deploy" or job.is_filtered() or request.include_in_plan()
+        )
         if not required:
-            not_required.append( (parent, request) )
+            not_required.append((parent, request))
         else:
             deps, error = _render_request(job, parent, request, flattened_requests)
             if error:
@@ -674,6 +677,7 @@ def create_instance_from_spec(_manifest, target, rname, resourceSpec):
     # note: if resourceSpec[parent] is set it overrides the parent keyword
     return _manifest.create_node_instance(rname, resourceSpec, parent=parent)
 
+
 def _maybe_mock(iDef, template):
     if not os.getenv("UNFURL_MOCK_DEPLOY"):
         return iDef
@@ -684,8 +688,9 @@ def _maybe_mock(iDef, template):
     if not isinstance(iDef.implementation, dict):
         # it's a string naming an artifact
         iDef.implementation = dict(primary=iDef.implementation)
-    iDef.implementation['className'] = "unfurl.configurator.MockConfigurator"
+    iDef.implementation["className"] = "unfurl.configurator.MockConfigurator"
     return iDef
+
 
 def create_task_request(
     jobOptions,
@@ -791,7 +796,9 @@ def _set_config_spec_args(kw, target, base_dir):
     artifact = kw["primary"]
     className = kw.get("className")
     if not className and not artifact:  # malformed implementation
-        logger.warning("no artifact or className set on operation for %s: %s", target.name, kw)
+        logger.warning(
+            "no artifact or className set on operation for %s: %s", target.name, kw
+        )
         return None
     guessing = False
     if not className:
@@ -829,7 +836,12 @@ def _set_config_spec_args(kw, target, base_dir):
 
 def _get_config_spec_args_from_implementation(iDef, inputs, target, operation_host):
     implementation = iDef.implementation
-    kw = dict(inputs=inputs, outputs=iDef.outputs, operation_host=operation_host, entry_state=iDef.entry_state)
+    kw = dict(
+        inputs=inputs,
+        outputs=iDef.outputs,
+        operation_host=operation_host,
+        entry_state=iDef.entry_state,
+    )
     configSpecArgs = ConfigurationSpec.getDefaults()
     artifactTpl = None
     dependencies = None

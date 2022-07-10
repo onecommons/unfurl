@@ -45,10 +45,12 @@ def _get_records(attrs):
     records = {name(key).strip(): value for key, value in records.items()}
     return records
 
+
 def _get_zone(zone):
-  if zone.endswith("."):
-    return zone
-  return zone + '.'
+    if zone.endswith("."):
+        return zone
+    return zone + "."
+
 
 class DNSConfigurator(Configurator):
     """A configurator for managing a DNS zone using OctoDNS.

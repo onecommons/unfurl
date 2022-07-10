@@ -13,9 +13,11 @@ from ruamel.yaml.comments import CommentedMap
 
 logger = logging.getLogger("unfurl")
 
+
 def is_git_worktree(path, gitDir=".git"):
     # NB: if work tree is a submodule .git will be a file that looks like "gitdir: ./relative/path"
     return os.path.exists(os.path.join(path, gitDir))
+
 
 def normalize_git_url(url, hard=0):
     if url.startswith("git-local://"):  # truncate url after commit digest
@@ -36,7 +38,7 @@ def normalize_git_url(url, hard=0):
         else:
             netloc = host
         if hard == 2:
-            path = parts.path.rstrip('.git')
+            path = parts.path.rstrip(".git")
         else:
             path = parts.path
         return parts._replace(netloc=netloc, path=path).geturl()
@@ -535,9 +537,21 @@ class GitRepo(Repo):
                 cmd.append("--ff-only")
             code, out, err = self.run_cmd(cmd)
             if code:
-                logger.info("attempt to pull latest from %s into %s failed: %s %s", self.url, self.working_dir, out, err)
+                logger.info(
+                    "attempt to pull latest from %s into %s failed: %s %s",
+                    self.url,
+                    self.working_dir,
+                    out,
+                    err,
+                )
             else:
-                logger.verbose("pull latest from %s into %s: %s %s", self.url, self.working_dir, out, err)
+                logger.verbose(
+                    "pull latest from %s into %s: %s %s",
+                    self.url,
+                    self.working_dir,
+                    out,
+                    err,
+                )
             return not code
         else:
             return False

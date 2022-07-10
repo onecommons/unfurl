@@ -91,7 +91,9 @@ class Manifest(AttributeManager):
         if more_spec:
             # don't merge individual templates
             toscaDef = merge_dicts(
-                toscaDef, more_spec, replaceKeys=['node_templates', 'relationship_templates']
+                toscaDef,
+                more_spec,
+                replaceKeys=["node_templates", "relationship_templates"],
             )
         if not isinstance(toscaDef, CommentedMap):
             toscaDef = CommentedMap(toscaDef.items())
@@ -327,7 +329,9 @@ class Manifest(AttributeManager):
                 changerecord = self._get_last_change(operational)
                 template = self.load_template(templateName, changerecord)
         if template is None:
-            raise UnfurlError(f"missing template definition for '{templateName}' while instantiating instance '{name}'")
+            raise UnfurlError(
+                f"missing template definition for '{templateName}' while instantiating instance '{name}'"
+            )
         # logger.debug("creating instance for template %s: %s", templateName, template)
 
         # omit keys that match <<REDACTED>> so can we use the computed property
@@ -504,7 +508,7 @@ class Manifest(AttributeManager):
                 # replace spec with just its name
                 artifactTpl["repository"] = reponame
 
-                inlineRepository = {reponame: dict(url=repo.get('url'))}
+                inlineRepository = {reponame: dict(url=repo.get("url"))}
         else:
             artifactTpl = dict(file=templatePath)
 

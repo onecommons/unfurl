@@ -116,7 +116,9 @@ def generate_main(relpath, tfvars, outputs):
         if outputs:
             output = root["output"] = {}
             for name in outputs:
-                output[name] = dict(value=f"${{module.main.{name}}}", sensitive=sensitive)
+                output[name] = dict(
+                    value=f"${{module.main.{name}}}", sensitive=sensitive
+                )
         return "main.tmp.tf.json", root
 
 
@@ -159,7 +161,9 @@ class TerraformConfigurator(ShellConfigurator):
         ]
         # folder is "tasks" WorkFolder
         cwd = folder.cwd
-        lock_file = task.set_work_folder(Folders.artifacts).permanent_path(".terraform.lock.hcl", False)
+        lock_file = task.set_work_folder(Folders.artifacts).permanent_path(
+            ".terraform.lock.hcl", False
+        )
         if os.path.exists(lock_file):
             folder.copy_from(lock_file)
 
@@ -275,7 +279,9 @@ class TerraformConfigurator(ShellConfigurator):
         return None
 
     def _get_workfolder_name(self, task):
-        return task.inputs.get("stateLocation") or Folders.artifacts # XXX global option for secrets
+        return (
+            task.inputs.get("stateLocation") or Folders.artifacts
+        )  # XXX global option for secrets
 
     def _prepare_state(self, task, cwd):
         # the terraform state file is associate with the current instance
@@ -284,19 +290,17 @@ class TerraformConfigurator(ShellConfigurator):
         folderName = self._get_workfolder_name(task)
         if folderName == "remote":  # don't use local state file
             return ""
-        yamlPath = task.set_work_folder(folderName).permanent_path("terraform.tfstate.yaml", False)
+        yamlPath = task.set_work_folder(folderName).permanent_path(
+            "terraform.tfstate.yaml", False
+        )
         if os.path.exists(yamlPath):
-            task.logger.debug(
-                "Found existing terraform.tfstate file at %s", yamlPath
-            )
+            task.logger.debug("Found existing terraform.tfstate file at %s", yamlPath)
             # if exists in home, load and write out state file as json
             with open(yamlPath, "r") as f:
                 state = task._manifest.yaml.load(f.read())
             cwd.write_file(state, "terraform.tfstate")
         else:
-            task.logger.debug(
-                "Couldn't find terraform.tfstate file at %s", yamlPath
-            )
+            task.logger.debug("Couldn't find terraform.tfstate file at %s", yamlPath)
         return "terraform.tfstate"
 
     def _get_plan_path(self, task, cwd):
@@ -409,7 +413,7 @@ class TerraformConfigurator(ShellConfigurator):
         # plan -detailed-exitcode: 2 - Succeeded, but there is a diff
         needs_changes = False
         if result.returncode == 2:
-            success = True # command succeeded despite non-zero return code
+            success = True  # command succeeded despite non-zero return code
             # we check for "Plan:" in the output because sensitive outputs will always be marked as changed
             # so to know if changes are really needed we also look for a message like: Plan: 1 to add, 0 to change, 0 to destroy.
             needs_changes = "Plan:" in result.stdout
@@ -418,7 +422,7 @@ class TerraformConfigurator(ShellConfigurator):
                 status = Status.ok
 
         if success and task.configSpec.operation == "check":
-            if needs_changes: # treat as missing
+            if needs_changes:  # treat as missing
                 status = Status.absent
             elif task.target.status in [Status.pending, Status.unknown]:
                 # no changes needed so set to known state
@@ -460,13 +464,14 @@ class TerraformConfigurator(ShellConfigurator):
             or "Destroying..." in result.stdout
         )
         yield self.done(
-                task,
-                success=success,
-                modified=modified,
-                status=status,
-                result=result.__dict__,
-                outputs=outputs,
-            )
+            task,
+            success=success,
+            modified=modified,
+            status=status,
+            result=result.__dict__,
+            outputs=outputs,
+        )
+
 
 # XXX implement discover:
 # terraform import -allow-missing-config {type.name}

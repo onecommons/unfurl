@@ -319,10 +319,14 @@ class YamlManifest(ReadOnlyManifest):
             manifest.get("spec", {}).get("deployment_blueprints") or {}
         )
         if deployment_blueprint:
-            self._add_deployment_blueprint_template(deployment_blueprints, deployment_blueprint, more_spec)
+            self._add_deployment_blueprint_template(
+                deployment_blueprints, deployment_blueprint, more_spec
+            )
             logger.info('Using deployment blueprint "%s"', deployment_blueprint)
         elif deployment_blueprints:
-            logger.warning("This ensemble contains deployment blueprints but none were specified for use.")
+            logger.warning(
+                "This ensemble contains deployment blueprints but none were specified for use."
+            )
         if self.context.get("instances"):
             # add context instances to spec instances
             self._load_resource_templates(
@@ -368,7 +372,9 @@ class YamlManifest(ReadOnlyManifest):
         self._configure_root(rootResource)
         self._ready(rootResource)
 
-    def _add_deployment_blueprint_template(self, deployment_blueprints, deployment_blueprint, more_spec):
+    def _add_deployment_blueprint_template(
+        self, deployment_blueprints, deployment_blueprint, more_spec
+    ):
         if deployment_blueprint not in deployment_blueprints:
             raise UnfurlError(
                 f"Can not find requested deployment blueprint: '{deployment_blueprint}' is missing from the ensemble."
@@ -379,10 +385,14 @@ class YamlManifest(ReadOnlyManifest):
         if resourceTemplates is not None:
             # resourceTemplates and ResourceTemplate keys exist when imported from json
             resource_templates = {}
-            local_resource_templates = deployment_blueprint_tpl.get("ResourceTemplate") or {}
+            local_resource_templates = (
+                deployment_blueprint_tpl.get("ResourceTemplate") or {}
+            )
             for template_name in resourceTemplates:
                 if template_name in local_resource_templates:
-                    resource_templates[template_name] = local_resource_templates[template_name]
+                    resource_templates[template_name] = local_resource_templates[
+                        template_name
+                    ]
 
         if resource_templates:
             node_templates = more_spec["topology_template"]["node_templates"]
@@ -666,8 +676,10 @@ class YamlManifest(ReadOnlyManifest):
 
     def save_resource(self, resource, discovered):
         # XXX checkstatus break unit tests so skip mostly
-        checkstatus = (resource.template.type == "unfurl.nodes.LocalRepository"
-                        or "default" in resource.template.directives)
+        checkstatus = (
+            resource.template.type == "unfurl.nodes.LocalRepository"
+            or "default" in resource.template.directives
+        )
         ret = self._save_entity_if_instantiated(resource, checkstatus)
         if not ret:
             return ret

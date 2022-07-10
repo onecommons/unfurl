@@ -93,6 +93,7 @@ def create_default_topology():
     )
     return ToscaTemplate(yaml_dict_tpl=tpl)
 
+
 def _patch(node, patchsrc, quote=False, tpl=None):
     if tpl is None:
         tpl = node.toscaEntityTemplate.entity_tpl
@@ -106,6 +107,7 @@ def _patch(node, patchsrc, quote=False, tpl=None):
     patched = patch_dict(tpl, patch, True)
     logger.trace("patched node %s: now %s", node.name, patched)
     return patched
+
 
 class ToscaSpec:
     InstallerType = "unfurl.nodes.Installer"
@@ -149,8 +151,10 @@ class ToscaSpec:
                 for prop, value in req.get_nodefilter_properties():
                     # annotate the target's properties
                     target = req.relationship and req.relationship.target
-                    if target and isinstance(value, dict) and 'eval' in value:
-                        value.setdefault('vars', {})['SOURCE'] = dict(eval="::"+nodespec.name)
+                    if target and isinstance(value, dict) and "eval" in value:
+                        value.setdefault("vars", {})["SOURCE"] = dict(
+                            eval="::" + nodespec.name
+                        )
                         patch = dict(properties={prop: value})
                         _patch(target, patch, quote=True)
                         patched = True
@@ -159,7 +163,9 @@ class ToscaSpec:
                     target = req.relationship and req.relationship.target
                     if target:
                         matching_target_req = target.requirements.get(name)
-                        _patch(nodespec, value, tpl=matching_target_req.entity_tpl[name])
+                        _patch(
+                            nodespec, value, tpl=matching_target_req.entity_tpl[name]
+                        )
                         patched = True
 
         return patched
@@ -193,8 +199,8 @@ class ToscaSpec:
     def _parse_template(self, path, inputs, toscaDef, resolver):
         # need to set a path for the import loader
         mode = os.getenv("UNFURL_VALIDATION_MODE")
-        ToscaTemplate.strict = False # XXX default to True
-        additionalProperties = True # XXX default to False
+        ToscaTemplate.strict = False  # XXX default to True
+        additionalProperties = True  # XXX default to False
         if mode is not None:
             additionalProperties = "additionalProperties" in mode
             additionalProperties = "noextraprops" not in mode
@@ -207,14 +213,14 @@ class ToscaSpec:
             import_resolver=resolver,
             verify=False,  # we display the error messages ourselves so we don't need to verify here
         )
-        ExceptionCollector.collecting = True # don't stop collecting validation errors
-        ExceptionCollector.near = ' while instantiating the spec'
+        ExceptionCollector.collecting = True  # don't stop collecting validation errors
+        ExceptionCollector.near = " while instantiating the spec"
         self.nodeTemplates = {}
         self.installers = {}
         self.relationshipTemplates = {}
         for template in self.template.nodetemplates:
             if not template.type_definition:
-                continue # invalidate template
+                continue  # invalidate template
             nodeTemplate = NodeSpec(template, self)
             if template.is_derived_from(self.InstallerType):
                 self.installers[template.name] = nodeTemplate
@@ -228,7 +234,9 @@ class ToscaSpec:
         self.topology = TopologySpec(self, inputs)
         substitution_mappings = self.template.topology_template.substitution_mappings
         if substitution_mappings and substitution_mappings.node:
-            self.substitution_template = self.nodeTemplates.get(substitution_mappings.node)
+            self.substitution_template = self.nodeTemplates.get(
+                substitution_mappings.node
+            )
         else:
             self.substitution_template = None
         self.load_workflows()
@@ -265,7 +273,6 @@ class ToscaSpec:
         annotated = self.enforce_filters()
         return matches or modified_imports or annotated
 
-
     def __init__(
         self, toscaDef, spec=None, path=None, resolver=None, skip_validation=False
     ):
@@ -292,7 +299,11 @@ class ToscaSpec:
             try:
                 self._parse_template(path, inputs, toscaDef, resolver)
             except:
-                if not ExceptionCollector.exceptionsCaught() or not self.template or not self.topology:
+                if (
+                    not ExceptionCollector.exceptionsCaught()
+                    or not self.template
+                    or not self.topology
+                ):
                     raise  # unexpected error
 
             # copy errors because self._patch() might clear them
@@ -301,7 +312,7 @@ class ToscaSpec:
             if patched:
                 # overlay and evaluate_imports modifies tosaDef in-place, try reparsing it
                 self._parse_template(path, inputs, toscaDef, resolver)
-            else: # restore previously errors
+            else:  # restore previously errors
                 ExceptionCollector.exceptions[:0] = errorsSoFar
 
             if ExceptionCollector.exceptionsCaught():
@@ -606,7 +617,9 @@ class EntitySpec(ResourceRef):
             )
 
         self.type = toscaNodeTemplate.type
-        self._isReferencedBy = [] # this is referenced by another template or via property traversal
+        self._isReferencedBy = (
+            []
+        )  # this is referenced by another template or via property traversal
         # nodes have both properties and attributes
         # as do capability properties and relationships
         # but only property values are declared
@@ -793,10 +806,11 @@ class EntitySpec(ResourceRef):
                 if self.spec.substitution_template is root:
                     # if don't require if a root is the substitution_mappings
                     return True
-            elif 'default' not in root.directives:
+            elif "default" not in root.directives:
                 # if don't require if this only has defaults templates as a root
                 return True
         return False
+
 
 def _get_roots(node, seen=None):
     # node can reference each other's properties, so we need to handle circular references
@@ -805,8 +819,9 @@ def _get_roots(node, seen=None):
     yield node
     for parent in node._isReferencedBy:
         if parent.name not in seen:
-            seen.add( node.name )
+            seen.add(node.name)
             yield from _get_roots(parent, seen)
+
 
 class NodeSpec(EntitySpec):
     # has attributes: tosca_id, tosca_name, state, (3.4.1 Node States p.61)
@@ -939,9 +954,15 @@ class NodeSpec(EntitySpec):
                 relSpec.toscaEntityTemplate.source.name
                 == reqSpec.parentNode.toscaEntityTemplate.name
             ):
-                assert not reqSpec.relationship or reqSpec.relationship is relSpec, (reqSpec.relationship, relSpec)
+                assert not reqSpec.relationship or reqSpec.relationship is relSpec, (
+                    reqSpec.relationship,
+                    relSpec,
+                )
                 reqSpec.relationship = relSpec
-                assert not relSpec.requirement or relSpec.requirement is reqSpec, (relSpec.requirement, reqSpec)
+                assert not relSpec.requirement or relSpec.requirement is reqSpec, (
+                    relSpec.requirement,
+                    reqSpec,
+                )
                 if not relSpec.requirement:
                     relSpec.requirement = reqSpec
                 break
@@ -1073,20 +1094,22 @@ class RequirementSpec:
 
     def get_nodefilter_properties(self):
         # XXX should merge type_tpl with entity_tpl
-        return get_nodefilters(self.type_tpl, 'properties')
+        return get_nodefilters(self.type_tpl, "properties")
 
     def get_nodefilter_requirements(self):
         # XXX should merge type_tpl with entity_tpl
         return get_nodefilters(self.type_tpl, "requirements")
 
+
 def get_nodefilters(entity_tpl, key):
     if not isinstance(entity_tpl, dict):
         return
-    nodefilter = entity_tpl.get('node_filter')
+    nodefilter = entity_tpl.get("node_filter")
     if nodefilter and key in nodefilter:
         for filter in nodefilter[key]:
             name, value = next(iter(filter.items()))
             yield name, value
+
 
 class CapabilitySpec(EntitySpec):
     def __init__(self, parent=None, capability=None):

@@ -42,8 +42,8 @@ logger = cast(UnfurlLogger, logging.getLogger("unfurl.eval"))
 def map_value(
     value: Any,
     resourceOrCxt: Union["RefContext", "NodeInstance"],
-    applyTemplates: bool=True
-    ) -> Optional[Union[ResultsList, Result, List[Result]]]:
+    applyTemplates: bool = True,
+) -> Optional[Union[ResultsList, Result, List[Result]]]:
     if not isinstance(resourceOrCxt, RefContext):
         resourceOrCxt = RefContext(resourceOrCxt)
     return _map_value(value, resourceOrCxt, False, applyTemplates)
@@ -123,12 +123,12 @@ class RefContext:
     def __init__(
         self,
         currentResource: "NodeInstance",
-        vars: Optional[dict]=None,
-        wantList: Optional[Union[bool, str]]=False,
-        resolveExternal: bool=False,
-        trace: Optional[int]=None,
-        strict: bool=_defaultStrictness,
-        task: "TaskView"=None,
+        vars: Optional[dict] = None,
+        wantList: Optional[Union[bool, str]] = False,
+        resolveExternal: bool = False,
+        trace: Optional[int] = None,
+        strict: bool = _defaultStrictness,
+        task: "TaskView" = None,
     ) -> None:
         self.vars = vars or {}
         # the original context:
@@ -150,18 +150,18 @@ class RefContext:
     @property
     def strict(self):
         if self.task:
-           return not self.task._rendering
+            return not self.task._rendering
         else:
             return self._strict
 
     def copy(
         self,
-        resource: Optional["NodeInstance"]=None,
-        vars: dict=None,
-        wantList: Optional[Union[bool, str]]=None,
-        trace:  int=0,
-        strict: bool=None
-        ) -> "RefContext":
+        resource: Optional["NodeInstance"] = None,
+        vars: dict = None,
+        wantList: Optional[Union[bool, str]] = None,
+        trace: int = 0,
+        strict: bool = None,
+    ) -> "RefContext":
         copy = RefContext(
             resource or self.currentResource,
             self.vars,
@@ -188,7 +188,7 @@ class RefContext:
     def trace(self, *msg: Any) -> None:
         if self._trace:
             log = logger.info if self._trace == 2 else logger.trace
-            log(f"{' '.join(str(a) for a in msg)} (ctx: {self._lastResource})") # type: ignore
+            log(f"{' '.join(str(a) for a in msg)} (ctx: {self._lastResource})")  # type: ignore
 
     def add_external_reference(self, external: ExternalValue) -> Result:
         result = Result(external)
@@ -201,7 +201,7 @@ class RefContext:
     def add_result_reference(self, ref: str, result: Result) -> None:
         self.referenced.add_result_reference(ref, result)
 
-    def resolve_var(self, key: str) -> Any: # Result asserts resolved is not a Result
+    def resolve_var(self, key: str) -> Any:  # Result asserts resolved is not a Result
         return self._resolve_var(key[1:]).resolved
 
     def _resolve_var(self, key: str) -> Result:
@@ -216,7 +216,9 @@ class RefContext:
             self.vars[key] = val
             return val
 
-    def resolve_reference(self, key: str) -> Union[Results, ResultsList, List[Result], ResultsMap]:
+    def resolve_reference(
+        self, key: str
+    ) -> Union[Results, ResultsList, List[Result], ResultsMap]:
         val = self._resolve_var(key)
         self.add_result_reference(key, val)
         assert not isinstance(val.resolved, Result)
@@ -225,8 +227,8 @@ class RefContext:
     def query(
         self,
         expr: Mapping,
-        vars: Optional[dict]=None,
-        wantList: Union[bool, str]=False
+        vars: Optional[dict] = None,
+        wantList: Union[bool, str] = False,
     ) -> Optional[Union[ResultsList, Result, List[Result]]]:
         return Ref(expr, vars).resolve(self, wantList)
 
@@ -293,7 +295,9 @@ class Expr:
 class Ref:
     """A Ref objects describes a path to metadata associated with a resource."""
 
-    def __init__(self, exp: Union[str, Mapping], vars: dict=None, trace: Optional[int]=None) -> None:
+    def __init__(
+        self, exp: Union[str, Mapping], vars: dict = None, trace: Optional[int] = None
+    ) -> None:
         self.vars = {"true": True, "false": False, "null": None}
 
         self.foreach = None
@@ -314,8 +318,8 @@ class Ref:
     def resolve(
         self,
         ctx: RefContext,
-        wantList: Union[bool, str]=True,
-        strict: bool=_defaultStrictness
+        wantList: Union[bool, str] = True,
+        strict: bool = _defaultStrictness,
     ) -> Optional[Union[ResultsList, Result, List[Result]]]:
         """
         If wantList=True (default) returns a ResultList of matches
@@ -330,8 +334,8 @@ class Ref:
         if base_dir:
             ctx.base_dir = base_dir
         # $start is set in eval_ref but the user use that to override currentResource
-        if 'start' in self.vars:
-            ctx.currentResource = ctx.resolve_var('$start')
+        if "start" in self.vars:
+            ctx.currentResource = ctx.resolve_var("$start")
         ctx.trace(
             f"Ref.resolve(wantList={wantList}) start strict {ctx.strict}",
             self.source,
@@ -360,7 +364,9 @@ class Ref:
                 else:
                     return list(results)
 
-    def resolve_one(self, ctx: RefContext, strict: bool=_defaultStrictness) -> Optional[Union[ResultsList, Result, List[Result]]]:
+    def resolve_one(
+        self, ctx: RefContext, strict: bool = _defaultStrictness
+    ) -> Optional[Union[ResultsList, Result, List[Result]]]:
         """
         If no match return None
         If more than one match return a list of matches
@@ -544,11 +550,16 @@ def set_eval_func(name, val, topLevel=False):
     if topLevel:
         _FuncsTop.append(name)
 
+
 if sys.version_info >= (3, 9):
     MutableSequence_Result = MutableSequence[Result]
 else:
     MutableSequence_Result = MutableSequence
-def eval_ref(val: Union[Mapping, str], ctx: RefContext, top: bool=False) -> MutableSequence_Result:
+
+
+def eval_ref(
+    val: Union[Mapping, str], ctx: RefContext, top: bool = False
+) -> MutableSequence_Result:
     "val is assumed to be an expression, evaluate and return a list of Result"
     from .support import is_template, apply_template
 

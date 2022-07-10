@@ -1,4 +1,3 @@
-
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
 """
@@ -36,7 +35,7 @@ from .util import (
     load_module,
     load_class,
     sensitive,
-    filter_env
+    filter_env,
 )
 from .merge import intersect_dict, merge_dicts
 from unfurl.projectpaths import get_path
@@ -262,13 +261,14 @@ unsafe_proxy._wrap_sequence = _wrap_sequence
 
 
 class UnfurlUndefined(ChainableUndefined):
-     def __getattr__(self, name):
-          if name == '__UNSAFE__':
-              # AnsibleUndefined should never be assumed to be unsafe
-              # This prevents ``hasattr(val, '__UNSAFE__')`` from evaluating to ``True``
-              raise AttributeError(name)
-          # Return original Undefined object to preserve the first failure context
-          return self
+    def __getattr__(self, name):
+        if name == "__UNSAFE__":
+            # AnsibleUndefined should never be assumed to be unsafe
+            # This prevents ``hasattr(val, '__UNSAFE__')`` from evaluating to ``True``
+            raise AttributeError(name)
+        # Return original Undefined object to preserve the first failure context
+        return self
+
 
 def apply_template(value, ctx, overrides=None):
     if not isinstance(value, six.string_types):
@@ -307,7 +307,7 @@ def apply_template(value, ctx, overrides=None):
 
     vars = _VarTrackerDict(__unfurl=ctx, __python_executable=sys.executable)
     if hasattr(ctx.currentResource, "attributes"):
-        vars['SELF'] = ctx.currentResource.attributes
+        vars["SELF"] = ctx.currentResource.attributes
     vars.update(ctx.vars)
     vars.ctx = ctx
 
@@ -338,7 +338,7 @@ def apply_template(value, ctx, overrides=None):
                 logger.warning(value[2:100] + "... see debug log for full report")
                 logger.debug(value, exc_info=True)
                 if ctx.task:
-                    ctx.task._errors.append( UnfurlTaskError(ctx.task, msg) )
+                    ctx.task._errors.append(UnfurlTaskError(ctx.task, msg))
         else:
             if value != oldvalue:
                 ctx.trace("successfully processed template:", value)
@@ -521,7 +521,7 @@ def to_env(args, ctx: RefContext):
         env = ctx.task.get_environment(False)
     args = map_value(args, ctx)
     result = filter_env(args, env, addOnly=True)
-    if ctx.kw.get('update_os_environ'):
+    if ctx.kw.get("update_os_environ"):
         os.environ.update(result)
         for key, value in args.items():
             if value is None and key in os.environ:
@@ -577,7 +577,9 @@ def get_nodes_of_type(type_name, ctx: RefContext):
 set_eval_func("get_nodes_of_type", get_nodes_of_type, True)
 
 
-def get_artifact(ctx: RefContext, entity_name, artifact_name, location=None, remove=None):
+def get_artifact(
+    ctx: RefContext, entity_name, artifact_name, location=None, remove=None
+):
     """
     Returns either an URL or local path to the artifact
     See section "4.8.1 get_artifact" in TOSCA 1.3 (p. 189)
@@ -925,7 +927,10 @@ class AttributeManager:
 
     def mark_referenced_templates(self, template):
         for (resource, attr) in self.attributes.values():
-            if resource.template is not template and template not in resource.template._isReferencedBy:
+            if (
+                resource.template is not template
+                and template not in resource.template._isReferencedBy
+            ):
                 resource.template._isReferencedBy.append(template)
 
     def _get_context(self, resource):
@@ -952,7 +957,7 @@ class AttributeManager:
                 _attributes = ChainMap(copy.deepcopy(resource._attributes))
             ctx = self._get_context(resource)
             mode = os.getenv("UNFURL_VALIDATION_MODE")
-            validate = False # XXX
+            validate = False  # XXX
             if mode is not None:
                 validate = "propcheck" in mode
             attributes = ResultsMap(_attributes, ctx, validate=validate)

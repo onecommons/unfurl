@@ -33,6 +33,7 @@ from typing import Optional
 from click.termui import unstyle
 
 import subprocess
+
 # cf https://github.com/opsmop/opsmop/blob/master/opsmop/core/command.py
 
 

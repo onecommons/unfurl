@@ -8,7 +8,17 @@ Each instance have a status; attributes that describe its state; and a TOSCA tem
 which describes its capabilities, relationships and available interfaces for configuring and interacting with it.
 """
 from datetime import datetime
-from typing import Any, Dict, Iterable, List, Optional, Tuple, Union, TYPE_CHECKING, cast
+from typing import (
+    Any,
+    Dict,
+    Iterable,
+    List,
+    Optional,
+    Tuple,
+    Union,
+    TYPE_CHECKING,
+    cast,
+)
 import six
 from collections.abc import Mapping
 
@@ -113,7 +123,9 @@ class Operational(ChangeAware):
             # return error, pending, or absent
             return status
 
-        dependentStatus = self.aggregate_status(self.get_operational_dependencies(), seen)
+        dependentStatus = self.aggregate_status(
+            self.get_operational_dependencies(), seen
+        )
         if self.is_computed():
             # if local_status is a no op (status purely determined by dependents) set to ok
             status = Status.ok
@@ -127,7 +139,7 @@ class Operational(ChangeAware):
 
     @property
     def status(self) -> Status:
-        return self._status( {id(self):self} )
+        return self._status({id(self): self})
 
     @property
     def required(self) -> bool:
@@ -193,7 +205,9 @@ class Operational(ChangeAware):
             if status.priority == Priority.ignore:
                 continue
             if id(status) in seen:
-                logger.verbose(f'Circular operational dependency when checking status {status} in {seen}')
+                logger.verbose(
+                    f"Circular operational dependency when checking status {status} in {seen}"
+                )
                 continue
             seen[id(status)] = status
             _status = status._status(seen)
@@ -218,12 +232,12 @@ class OperationalInstance(Operational):
 
     def __init__(
         self,
-        status: Optional[Union["OperationalInstance", int, str]]=None,
-        priority: Optional[Union[int, str, Priority]]=None,
-        manualOveride: Optional[Union["OperationalInstance", int, str]]=None,
-        lastStateChange: Optional[datetime]=None,
-        lastConfigChange: Optional[datetime]=None,
-        state: NodeState=None,
+        status: Optional[Union["OperationalInstance", int, str]] = None,
+        priority: Optional[Union[int, str, Priority]] = None,
+        manualOveride: Optional[Union["OperationalInstance", int, str]] = None,
+        lastStateChange: Optional[datetime] = None,
+        lastConfigChange: Optional[datetime] = None,
+        state: NodeState = None,
     ) -> None:
         if isinstance(status, OperationalInstance):
             self._localStatus: Optional[Status] = status._localStatus
@@ -341,7 +355,6 @@ class EntityInstance(OperationalInstance, ResourceRef):
     _baseDir = ""
     templateType = EntitySpec
 
-
     def __init__(
         self, name="", attributes=None, parent=None, template=None, status=Status.ok
     ):
@@ -368,7 +381,7 @@ class EntityInstance(OperationalInstance, ResourceRef):
 
         return Ref(expr).resolve(RefContext(self, vars=vars), wantList)
 
-    def local_status(): # type: ignore
+    def local_status():  # type: ignore
         doc = "The working_dir property."
 
         def fget(self):
@@ -384,7 +397,7 @@ class EntityInstance(OperationalInstance, ResourceRef):
 
         return locals()
 
-    local_status = property(**local_status()) # type: ignore
+    local_status = property(**local_status())  # type: ignore
 
     def get_operational_dependencies(self):
         if self.parent and self.parent is not self.root:
@@ -394,7 +407,7 @@ class EntityInstance(OperationalInstance, ResourceRef):
             yield d
 
     def is_computed(self):
-      return self.template.aggregate_only()
+        return self.template.aggregate_only()
 
     @property
     def key(self):
@@ -555,6 +568,7 @@ class HasInstancesInstance(EntityInstance):
                 seen.add(id(instance))
                 yield instance
 
+
 # both have occurrences
 # only need to configure capabilities as required by a relationship
 class CapabilityInstance(EntityInstance):
@@ -633,7 +647,7 @@ class RelationshipInstance(EntityInstance):
 
 class ArtifactInstance(EntityInstance):
     parentRelation = "_artifacts"
-    templateType = ArtifactSpec # type: ignore # XXX type error doesn't make sense
+    templateType = ArtifactSpec  # type: ignore # XXX type error doesn't make sense
 
     def __init__(
         self, name="", attributes=None, parent=None, template=None, status=None
@@ -803,13 +817,15 @@ class NodeInstance(HasInstancesInstance):
         for cap in self.capabilities:
             for rel in cap.relationships:
                 if rel.source:
-                      if rel.template.is_compatible_type("unfurl.relationships.Configures"):
-                          yield rel.source
-                      yield from rel.source._configured_by()
+                    if rel.template.is_compatible_type(
+                        "unfurl.relationships.Configures"
+                    ):
+                        yield rel.source
+                    yield from rel.source._configured_by()
 
     @property
     def configured_by(self):
-      return list(self._configured_by())
+        return list(self._configured_by())
 
     @property
     def targets(self):
