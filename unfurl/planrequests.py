@@ -523,10 +523,11 @@ def _render_request(job, parent, req, requests):
         task._inputs = None
         task.logger.warning("Configurator render failed", exc_info=error_info)
         task._attributeManager.attributes = {}  # rollback changes
+        return None, error
     else:
         task.logger.trace(f"committing changes from rendering task {task.target}")
         task.commit_changes()
-    return deps, error
+        return None, None
 
 
 def _add_to_req_list(reqs, parent, request):
@@ -570,7 +571,7 @@ def do_render_requests(job, requests):
             deps, error = _render_request(job, parent, request, flattened_requests)
             if error:
                 errors.append(error)
-            if deps:
+            elif deps:
                 # remove parent from ready if added it there
                 if parent and ready and ready[-1] is parent:
                     ready.pop()

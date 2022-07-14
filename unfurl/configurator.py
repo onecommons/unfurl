@@ -966,9 +966,13 @@ class TaskView:
     def get_work_folder(self, location: Optional[str] = None) -> WorkFolder:
         # return self.job.getFolder(self, location)
         if location is None:
+            if not self._workFolders:
+                raise UnfurlTaskError(self, f"No task folder was set.")
             # XXX error if there is more than one?
             return next(iter(self._workFolders.values()))
         else:
+            if location not in self._workFolders:
+                raise UnfurlTaskError(self, f'missing "{location}" task folder')
             return self._workFolders[location]
 
     def discard_work_folders(self) -> None:
