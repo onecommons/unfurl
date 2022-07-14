@@ -1459,7 +1459,7 @@ group_types:
         <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
     <span class="n">interfaces</span><span class="p">:</span>
       <span class="n">Install</span><span class="p">:</span>
-        <span class="n">check</span><span class="p">:</span> 
+        <span class="n">check</span><span class="p">:</span>
           <span class="n">implementation</span><span class="p">:</span>
             <span class="n">className</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">configurators</span><span class="o">.</span><span class="n">gcp</span><span class="o">.</span><span class="n">CheckGooglCloudConnectionConfigurator</span>
             <span class="c1"># XXX defined in artifacts.yaml</span>
@@ -1482,10 +1482,12 @@ group_types:
         <span class="n">description</span><span class="p">:</span> <span class="s2">&quot;The access key for your AWS account&quot;</span>
         <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvVar</span>
         <span class="n">default</span><span class="p">:</span> <span class="p">{</span> <span class="n">get_env</span><span class="p">:</span> <span class="n">AWS_ACCESS_KEY_ID</span> <span class="p">}</span>
+        <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
       <span class="n">AWS_SECRET_ACCESS_KEY</span><span class="p">:</span>
         <span class="n">description</span><span class="p">:</span> <span class="s2">&quot;The secret key for your AWS account.&quot;</span>
         <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvVar</span>
         <span class="n">default</span><span class="p">:</span> <span class="p">{</span> <span class="n">get_env</span><span class="p">:</span> <span class="n">AWS_SECRET_ACCESS_KEY</span> <span class="p">}</span>
+        <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
         <span class="n">metadata</span><span class="p">:</span>
           <span class="n">sensitive</span><span class="p">:</span> <span class="n">true</span>
       <span class="c1"># other authentication options:</span>
@@ -1493,17 +1495,21 @@ group_types:
         <span class="n">description</span><span class="p">:</span> <span class="s2">&quot;The session key for your AWS account.&quot;</span>
         <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvVar</span>
         <span class="n">default</span><span class="p">:</span> <span class="p">{</span> <span class="n">get_env</span><span class="p">:</span> <span class="n">AWS_SESSION_TOKEN</span> <span class="p">}</span>
+        <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
         <span class="n">metadata</span><span class="p">:</span>
           <span class="n">sensitive</span><span class="p">:</span> <span class="n">true</span>
       <span class="n">AWS_PROFILE</span><span class="p">:</span>
         <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvVar</span>
         <span class="n">default</span><span class="p">:</span> <span class="p">{</span> <span class="n">get_env</span><span class="p">:</span> <span class="n">AWS_PROFILE</span> <span class="p">}</span>
+        <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
       <span class="n">AWS_SHARED_CREDENTIALS_FILE</span><span class="p">:</span>
         <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvVar</span>
         <span class="n">default</span><span class="p">:</span> <span class="p">{</span> <span class="n">get_env</span><span class="p">:</span> <span class="n">AWS_SHARED_CREDENTIALS_FILE</span> <span class="p">}</span>
+        <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
       <span class="n">AWS_CONFIG_FILE</span><span class="p">:</span>
         <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvVar</span>
         <span class="n">default</span><span class="p">:</span> <span class="p">{</span> <span class="n">get_env</span><span class="p">:</span> <span class="n">AWS_CONFIG_FILE</span> <span class="p">}</span>
+        <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
     <span class="c1"># see https://boto3.amazonaws.com/v1/documentation/api/latest/guide/configuration.html#using-environment-variables</span>
     <span class="c1"># for more environment variables</span>
 
@@ -1519,10 +1525,12 @@ group_types:
         <span class="n">description</span><span class="p">:</span> <span class="s2">&quot;The access key for Spaces object storage.&quot;</span>
         <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvVar</span>
         <span class="n">default</span><span class="p">:</span> <span class="p">{</span> <span class="n">get_env</span><span class="p">:</span> <span class="n">SPACES_ACCESS_KEY_ID</span> <span class="p">}</span>
+        <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
       <span class="n">SPACES_SECRET_ACCESS_KEY</span><span class="p">:</span>
         <span class="n">description</span><span class="p">:</span> <span class="s2">&quot;The secret key for Spaces object storage.&quot;</span>
         <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvVar</span>
         <span class="n">default</span><span class="p">:</span> <span class="p">{</span> <span class="n">get_env</span><span class="p">:</span> <span class="n">SPACES_SECRET_ACCESS_KEY</span> <span class="p">}</span>
+        <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
         <span class="n">metadata</span><span class="p">:</span>
           <span class="n">sensitive</span><span class="p">:</span> <span class="n">true</span>
       <span class="n">default_region</span><span class="p">:</span>
@@ -1540,6 +1548,7 @@ group_types:
       <span class="n">AZURE_TENANT</span><span class="p">:</span>
         <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvVar</span>
         <span class="n">default</span><span class="p">:</span> <span class="p">{</span> <span class="n">get_env</span><span class="p">:</span> <span class="n">AZURE_TENANT</span> <span class="p">}</span>
+        <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
       <span class="n">AZURE_SUBSCRIPTION_ID</span><span class="p">:</span>
         <span class="n">description</span><span class="p">:</span> <span class="k">for</span> <span class="n">authentication</span> <span class="k">with</span> <span class="n">service</span> <span class="n">principal</span>
         <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvVar</span>
@@ -1554,16 +1563,19 @@ group_types:
         <span class="n">description</span><span class="p">:</span> <span class="k">for</span> <span class="n">authentication</span> <span class="k">with</span> <span class="n">Active</span> <span class="n">Directory</span>
         <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvVar</span>
         <span class="n">default</span><span class="p">:</span> <span class="p">{</span> <span class="n">get_env</span><span class="p">:</span> <span class="n">AZURE_AD_USER</span> <span class="p">}</span>
+        <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
       <span class="n">AZURE_PASSWORD</span><span class="p">:</span>
         <span class="n">description</span><span class="p">:</span> <span class="k">for</span> <span class="n">authentication</span> <span class="k">with</span> <span class="n">Active</span> <span class="n">Directory</span>
         <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvVar</span>
         <span class="n">default</span><span class="p">:</span> <span class="p">{</span> <span class="n">get_env</span><span class="p">:</span> <span class="n">AZURE_PASSWORD</span> <span class="p">}</span>
+        <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
         <span class="n">metadata</span><span class="p">:</span>
           <span class="n">sensitive</span><span class="p">:</span> <span class="n">true</span>
       <span class="n">AZURE_ADFS_AUTHORITY_URL</span><span class="p">:</span>
         <span class="n">description</span><span class="p">:</span> <span class="nb">set</span> <span class="k">if</span> <span class="n">you</span> <span class="n">have</span> <span class="n">your</span> <span class="n">own</span> <span class="n">ADFS</span> <span class="n">authority</span>
         <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvVar</span>
         <span class="n">default</span><span class="p">:</span> <span class="p">{</span> <span class="n">get_env</span><span class="p">:</span> <span class="n">AZURE_ADFS_AUTHORITY_URL</span> <span class="p">}</span>
+        <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
 
   <span class="n">unfurl</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">ConnectsTo</span><span class="o">.</span><span class="n">Packet</span><span class="p">:</span>
     <span class="n">derived_from</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">ConnectsTo</span><span class="o">.</span><span class="n">CloudAccount</span>
