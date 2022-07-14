@@ -363,7 +363,8 @@ def is_computed(p):  # p: Property | PropertyDef
 
 
 def _is_get_env_or_secret(value):
-    return isinstance(value, dict) and ("get_env" in value or "secret" in value)
+    return isinstance(value, dict) and (
+      "get_env" in value or "secret" in value or "_generate" in value)
 
 
 def attribute_value_to_json(p, value):
