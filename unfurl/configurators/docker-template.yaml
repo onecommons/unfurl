@@ -29,6 +29,7 @@ data_types:
         required: false
       ports:
         # https://docs.docker.com/compose/compose-file/compose-file-v3/#ports
+        description: Expose ports
         type: list
         entry_schema:
           type: string
@@ -39,6 +40,7 @@ data_types:
         required: false
       expose:
         # https://docs.docker.com/compose/compose-file/compose-file-v3/#expose
+        descripton: Expose ports without publishing them to the host machine - they’ll only be accessible to linked services. Only the internal port can be specified.
         type: list
         entry_schema:
           type: string

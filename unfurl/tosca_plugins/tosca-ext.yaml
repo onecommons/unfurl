@@ -322,7 +322,7 @@ relationship_types:
         required: false
     interfaces:
       Install:
-        check: 
+        check:
           implementation:
             className: unfurl.configurators.gcp.CheckGooglCloudConnectionConfigurator
             # XXX defined in artifacts.yaml
@@ -345,10 +345,12 @@ relationship_types:
         description: "The access key for your AWS account"
         type: unfurl.datatypes.EnvVar
         default: { get_env: AWS_ACCESS_KEY_ID }
+        required: false
       AWS_SECRET_ACCESS_KEY:
         description: "The secret key for your AWS account."
         type: unfurl.datatypes.EnvVar
         default: { get_env: AWS_SECRET_ACCESS_KEY }
+        required: false
         metadata:
           sensitive: true
       # other authentication options:
@@ -356,17 +358,21 @@ relationship_types:
         description: "The session key for your AWS account."
         type: unfurl.datatypes.EnvVar
         default: { get_env: AWS_SESSION_TOKEN }
+        required: false
         metadata:
           sensitive: true
       AWS_PROFILE:
         type: unfurl.datatypes.EnvVar
         default: { get_env: AWS_PROFILE }
+        required: false
       AWS_SHARED_CREDENTIALS_FILE:
         type: unfurl.datatypes.EnvVar
         default: { get_env: AWS_SHARED_CREDENTIALS_FILE }
+        required: false
       AWS_CONFIG_FILE:
         type: unfurl.datatypes.EnvVar
         default: { get_env: AWS_CONFIG_FILE }
+        required: false
     # see https://boto3.amazonaws.com/v1/documentation/api/latest/guide/configuration.html#using-environment-variables
     # for more environment variables
 
@@ -382,10 +388,12 @@ relationship_types:
         description: "The access key for Spaces object storage."
         type: unfurl.datatypes.EnvVar
         default: { get_env: SPACES_ACCESS_KEY_ID }
+        required: false
       SPACES_SECRET_ACCESS_KEY:
         description: "The secret key for Spaces object storage."
         type: unfurl.datatypes.EnvVar
         default: { get_env: SPACES_SECRET_ACCESS_KEY }
+        required: false
         metadata:
           sensitive: true
       default_region:
@@ -403,6 +411,7 @@ relationship_types:
       AZURE_TENANT:
         type: unfurl.datatypes.EnvVar
         default: { get_env: AZURE_TENANT }
+        required: false
       AZURE_SUBSCRIPTION_ID:
         description: for authentication with service principal
         type: unfurl.datatypes.EnvVar
@@ -417,16 +426,19 @@ relationship_types:
         description: for authentication with Active Directory
         type: unfurl.datatypes.EnvVar
         default: { get_env: AZURE_AD_USER }
+        required: false
       AZURE_PASSWORD:
         description: for authentication with Active Directory
         type: unfurl.datatypes.EnvVar
         default: { get_env: AZURE_PASSWORD }
+        required: false
         metadata:
           sensitive: true
       AZURE_ADFS_AUTHORITY_URL:
         description: set if you have your own ADFS authority
         type: unfurl.datatypes.EnvVar
         default: { get_env: AZURE_ADFS_AUTHORITY_URL }
+        required: false
 
   unfurl.relationships.ConnectsTo.Packet:
     derived_from: unfurl.relationships.ConnectsTo.CloudAccount
