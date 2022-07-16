@@ -287,6 +287,9 @@ def requirement_to_graphql(spec, req_dict):
         reqobj["min"] = 1
         reqobj["max"] = 1
 
+    if reqobj["max"] == 0:
+        return None
+
     reqobj["match"] = None
     nodetype = req.get("node")
     if nodetype:
