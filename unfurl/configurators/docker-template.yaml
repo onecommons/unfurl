@@ -72,6 +72,28 @@ node_types:
       container:
         type: unfurl.datatypes.DockerContainer
         required: false
+      container_image:
+        type: string
+        default:
+          eval:
+            if: .artifacts::image
+            then:
+              get_artifact: [SELF, image]
+            else:
+              eval: container::image
+      registry_url:
+        type: string
+        default: "{{ '.artifacts::image::.repository::url' | eval }}"
+        required: false
+      registry_user:
+        type: string
+        default: "{{ '.artifacts::image::.repository::credential::user' | eval }}"
+        required: false
+      registry_password:
+        type: string
+        default: "{{ '.artifacts::image::.repository::credential::token' | eval }}"
+        required: false
+
     interfaces:
       defaults:
         implementation:
@@ -85,22 +107,16 @@ node_types:
               template: |
                 #jinja2: variable_start_string: '<%', variable_end_string: '%>'
                 {% filter from_yaml %}
-                {%if '.artifacts::image' | eval %}
-                - set_fact:
-                    image_path: "{{  {'get_artifact': ['SELF', 'image']} | eval }}"
-                    registry_url: "{{ '.artifacts::image::.repository::url' | eval }}"
-                    registry_user: "{{ '.artifacts::image::.repository::credential::user' | eval }}"
-                    registry_password: "{{ '.artifacts::image::.repository::credential::token' | eval }}"
+                {%if 'registry_user' | eval %}
                 - docker_login:
                      # https://docs.ansible.com/ansible/latest/modules/docker_login_module.html#docker-login-module
                      # https://github.com/ansible/ansible/blob/stable-2.8/lib/ansible/modules/cloud/docker/docker_login.py
-                     username: "{{ registry_user }}"
-                     password: "{{ registry_password }}"
-                     registry_url: "{{ registry_url }}"
-                  when: registry_user|bool
+                     username: "<% SELF.registry_user %>"
+                     password: "<% SELF.registry_password %>"
+                     registry_url: "<% SELF.registry_url %>"
                 {% else %}
                 - set_fact:
-                    image_path: "{{ SELF.container.image }}"
+                    image_path: "<% SELF.container_image %>"
                 {% endif %}
                 - community.docker.docker_container:
                     # https://docs.ansible.com/ansible/latest/collections/community/docker/docker_container_module.html#ansible-collections-community-docker-docker-container-module
