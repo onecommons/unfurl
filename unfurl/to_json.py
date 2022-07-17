@@ -125,6 +125,7 @@ VALUE_TYPES.update(
 
 
 def tosca_type_to_jsonschema(spec, propdefs, toscatype):
+    propdefs = [p for p in propdefs if is_property_user_visible(p)]
     jsonschema = dict(
         type="object",
         properties={p.name: tosca_schema_to_jsonschema(p, spec) for p in propdefs},

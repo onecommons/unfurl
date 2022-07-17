@@ -29,18 +29,20 @@ data_types:
         required: false
       ports:
         # https://docs.docker.com/compose/compose-file/compose-file-v3/#ports
-        description: Expose ports
+        description: Ports to expose (format: 80:8080)
         type: list
         entry_schema:
           type: string
         required: false
       user:
         type: string
-        description: "<UID>[:<GID>] Overrides the user used to run the container process. Default is that set by image (i.e. Dockerfile USER), if not set, root."
+        description: "User used to run the container process. format: <UID>[:<GID>]"
+        # Overrides the user used to run the container process. Default is that set by image (i.e. Dockerfile USER), if not set, root."
         required: false
       expose:
         # https://docs.docker.com/compose/compose-file/compose-file-v3/#expose
-        descripton: Expose ports without publishing them to the host machine - they’ll only be accessible to linked services. Only the internal port can be specified.
+        descripton: Expose ports without publishing them to the host machine
+        # - they’ll only be accessible to linked services. Only the internal port can be specified.
         type: list
         entry_schema:
           type: string
