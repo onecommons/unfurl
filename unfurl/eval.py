@@ -15,13 +15,14 @@ eval_ref() given expression (string or dictionary) return list of Result
 Expr.resolve() given expression string, return list of Result
 Results._map_value same as map_value but with lazily evaluation
 """
-from typing import Any, Dict, List, Optional, Union, cast, TYPE_CHECKING
+from typing import Any, Dict, List, Tuple, Optional, Union, cast, TYPE_CHECKING
 import six
 import re
 import operator
 import sys
 import collections
-from collections.abc import Mapping, MutableSequence
+from collections.abc import Mapping, MutableSequence, Iterable
+
 from ruamel.yaml.comments import CommentedMap
 
 from unfurl.logs import UnfurlLogger
@@ -122,7 +123,7 @@ class RefContext:
 
     def __init__(
         self,
-        currentResource: "NodeInstance",
+        currentResource: "ResourceRef",
         vars: Optional[dict] = None,
         wantList: Optional[Union[bool, str]] = False,
         resolveExternal: bool = False,
@@ -133,6 +134,7 @@ class RefContext:
         self.vars = vars or {}
         # the original context:
         self.currentResource = currentResource
+        assert isinstance(currentResource, ResourceRef)
         # the last resource encountered while evaluating:
         self._lastResource = currentResource
         # current segment is the final segment:
@@ -156,12 +158,16 @@ class RefContext:
 
     def copy(
         self,
-        resource: Optional["NodeInstance"] = None,
+        resource: Optional["ResourceRef"] = None,
         vars: dict = None,
         wantList: Optional[Union[bool, str]] = None,
         trace: int = 0,
         strict: bool = None,
     ) -> "RefContext":
+        if not isinstance(resource or self.currentResource, ResourceRef) and isinstance(
+            self._lastResource, ResourceRef
+        ):
+            resource = self._lastResource
         copy = RefContext(
             resource or self.currentResource,
             self.vars,
@@ -170,10 +176,6 @@ class RefContext:
             max(self._trace, trace),
             self._strict if strict is None else strict,
         )
-        if not isinstance(copy.currentResource, ResourceRef) and isinstance(
-            self._lastResource, ResourceRef
-        ):
-            copy._lastResource = self._lastResource
         if vars:
             copy.vars = copy.vars.copy()
             copy.vars.update(vars)
@@ -456,10 +458,11 @@ def validate_schema_func(arg, ctx):
     return validate_schema(args[0], args[1])
 
 
-def _for_each(foreach, results, ctx):
-    if isinstance(foreach, six.string_types):
-        keyExp = None
-        valExp = foreach
+def _for_each(foreach: Union[Mapping[str, Any], str], 
+              results: Iterable[Tuple[Any, Any]], ctx: RefContext) -> List[Result]:
+    if isinstance(foreach, str):
+        keyExp: Union[Mapping, str, None] = None
+        valExp: Union[Mapping, str, None] = foreach
     else:
         keyExp = foreach.get("key")
         valExp = foreach.get("value")
@@ -474,6 +477,8 @@ def _for_each(foreach, results, ctx):
 
     def make_items():
         for i, (k, v) in enumerate(results):
+            # XXX stop setting any kind of value to currentResource
+            # assert isinstance(v, ResourceRef)
             ictx.currentResource = v
             ictx.vars["collection"] = results
             ictx.vars["index"] = i
@@ -510,12 +515,11 @@ def _for_each(foreach, results, ctx):
         return list(make_items())
 
 
-def for_each(foreach, results, ctx):
-    # results will be list of Result
+def for_each(foreach: Union[Mapping, str], results: Iterable, ctx: RefContext) -> List[Result]:
     return _for_each(foreach, enumerate(r.external or r.resolved for r in results), ctx)
 
 
-def for_each_func(foreach, ctx):
+def for_each_func(foreach: Union[Mapping, str], ctx: RefContext):
     results = ctx.currentResource
     if results:
         if isinstance(results, Mapping):

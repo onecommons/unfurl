@@ -182,6 +182,13 @@ class EvalTest(unittest.TestCase):
         result2 = Ref(test1).resolve(RefContext(resource))
         self.assertEqual([expected], result2)
 
+        test2 = {
+          "eval": ".::b",
+          "foreach": {"eval": "$item"}
+        }
+        result3 = Ref(test2).resolve_one(RefContext(resource, trace=0))
+        assert result3 == [1, 2, 3]
+
     def test_serializeValues(self):
         resource = self._getTestResource()
         src = {"a": ["b", resource]}
@@ -240,6 +247,9 @@ class EvalTest(unittest.TestCase):
         )
         assert val == {"key": {"a": "b"}}
         # actually {'key': Results({'a': Result('b', None, ())})}
+
+        assert type(apply_template(" {{ {} }} ", RefContext(resource, vars))) == dict
+        assert apply_template('{{ {} }}{{"\n "}}', RefContext(resource, vars)) == '{}\n '
 
     def test_templateFunc(self):
         query = {
