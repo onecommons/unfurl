@@ -15,14 +15,14 @@ eval_ref() given expression (string or dictionary) return list of Result
 Expr.resolve() given expression string, return list of Result
 Results._map_value same as map_value but with lazily evaluation
 """
-from typing import Any, Dict, List, Tuple, Optional, Union, cast, TYPE_CHECKING
+from typing import Any, Dict, List, Tuple, Optional, Union, Iterable, cast, TYPE_CHECKING
+from typing import Mapping as MappingType
 import six
 import re
 import operator
 import sys
 import collections
-from collections.abc import Mapping, MutableSequence, Iterable
-
+from collections.abc import Mapping, MutableSequence
 from ruamel.yaml.comments import CommentedMap
 
 from unfurl.logs import UnfurlLogger
@@ -147,7 +147,7 @@ class RefContext:
         self.templar = currentResource.templar
         self.referenced = _Tracker()
         self.task = task
-        self.kw: Mapping[str, Any] = {}
+        self.kw: MappingType[str, Any] = {}
 
     @property
     def strict(self):
@@ -458,7 +458,7 @@ def validate_schema_func(arg, ctx):
     return validate_schema(args[0], args[1])
 
 
-def _for_each(foreach: Union[Mapping[str, Any], str], 
+def _for_each(foreach: Union[MappingType[str, Any], str],
               results: Iterable[Tuple[Any, Any]], ctx: RefContext) -> List[Result]:
     if isinstance(foreach, str):
         keyExp: Union[Mapping, str, None] = None
