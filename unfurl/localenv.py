@@ -42,7 +42,7 @@ class Project:
     one or more ensemble.yaml files which maybe optionally organized into one or more git repositories.
     """
 
-    def __init__(self, path: str, homeProject: Optional["Project"]=None):
+    def __init__(self, path: str, homeProject: Optional["Project"] = None):
         assert isinstance(path, six.string_types), path
         self.projectRoot = os.path.abspath(os.path.dirname(path))
         if os.path.exists(path):
@@ -128,7 +128,7 @@ class Project:
             return path
 
     @staticmethod
-    def find_path(testPath: str, stopPath: Optional[str]=None) -> Optional[str]:
+    def find_path(testPath: str, stopPath: Optional[str] = None) -> Optional[str]:
         """
         Walk parents looking for unfurl.yaml
         """
@@ -219,7 +219,9 @@ class Project:
             counter += 1
         return os.path.join(self.projectRoot, name)
 
-    def find_git_repo(self, repoURL: str, revision: Optional[str]=None) -> Optional[GitRepo]:
+    def find_git_repo(
+        self, repoURL: str, revision: Optional[str] = None
+    ) -> Optional[GitRepo]:
         candidate = None
         for dir, repository in self.workingDirs.items():
             repo = repository.repo
@@ -227,7 +229,9 @@ class Project:
                 initialCommit = urlparse(repoURL).netloc.partition(":")[0]
                 match = initialCommit == repo.get_initial_revision()
             else:
-                match = normalize_git_url_hard(repoURL) == normalize_git_url_hard(repo.url)
+                match = normalize_git_url_hard(repoURL) == normalize_git_url_hard(
+                    repo.url
+                )
             if match:
                 if revision:
                     if repo.revision == repo.resolve_rev_spec(revision):
@@ -237,9 +241,8 @@ class Project:
                     return repo
         return candidate
 
-    def find_path_in_repos(self,
-        path: str,
-        importLoader: Optional[Any]=None
+    def find_path_in_repos(
+        self, path: str, importLoader: Optional[Any] = None
     ) -> Tuple[Optional[GitRepo], Optional[str], Optional[str], Optional[bool]]:
         """If the given path is part of the working directory of a git repository
         return that repository and a path relative to it"""
@@ -260,7 +263,7 @@ class Project:
             #         candidate = (repo, filePath, revision, bare)
         return candidate or None, None, None, None
 
-    def create_working_dir(self, gitUrl: str, ref: Optional[str]=None) -> GitRepo:
+    def create_working_dir(self, gitUrl: str, ref: Optional[str] = None) -> GitRepo:
         localRepoPath = self._create_path_for_git_repo(gitUrl)
         repo = Repo.create_working_dir(gitUrl, localRepoPath, ref)
         # add to workingDirs
@@ -286,16 +289,16 @@ class Project:
         self.workingDirs[localRepoPath] = RepoView(dict(name="", url=gitUrl), newRepo)
         return newRepo
 
-    def find_or_create_working_dir(self, repoURL: str, revision: Optional[str]=None) -> Optional[GitRepo]:
+    def find_or_create_working_dir(
+        self, repoURL: str, revision: Optional[str] = None
+    ) -> Optional[GitRepo]:
         repo = self.find_git_repo(repoURL, revision)
         if not repo:
             repo = self.create_working_dir(repoURL, revision)
         return repo
 
-    def get_manifest_path(self,
-        localEnv: "LocalEnv",
-        manifestPath: str,
-        can_be_empty: bool
+    def get_manifest_path(
+        self, localEnv: "LocalEnv", manifestPath: str, can_be_empty: bool
     ) -> Tuple[Optional["Project"], str, str]:
         if manifestPath:
             # at this point a named manifest
@@ -347,7 +350,9 @@ class Project:
             )
         self.contexts = contexts
 
-    def get_context(self, contextName: Optional[str], context: Optional[dict]=None) -> dict:
+    def get_context(
+        self, contextName: Optional[str], context: Optional[dict] = None
+    ) -> dict:
         # merge the named context with defaults and the given context
         localContext = self.contexts.get("defaults") or {}
         if contextName and contextName != "defaults" and self.contexts.get(contextName):
@@ -369,7 +374,9 @@ class Project:
             return secret
         return context.get("variables", {}).get(env_var, default)
 
-    def get_vault_password(self, contextName: Optional[str]=None, vaultId: str="default") -> Optional[str]:
+    def get_vault_password(
+        self, contextName: Optional[str] = None, vaultId: str = "default"
+    ) -> Optional[str]:
         context = self.get_context(contextName)  # type: ignore
         secret = self._check_vault_env_var(context, vaultId)
         if secret:
@@ -379,7 +386,9 @@ class Project:
             return secrets.get(vaultId)
         return None
 
-    def get_vault_passwords(self, contextName: Optional[str]=None) -> Iterable[Tuple[str, Union[str, bytes]]]:
+    def get_vault_passwords(
+        self, contextName: Optional[str] = None
+    ) -> Iterable[Tuple[str, Union[str, bytes]]]:
         # we want to support multiple vault ids
         context = self.get_context(contextName)  # type: ignore
         secrets = context.get("secrets", {}).get("vault_secrets")
@@ -390,7 +399,7 @@ class Project:
             if password:
                 yield vaultId, password
 
-    def make_vault_lib(self, contextName: Optional[str]=None) -> Optional[VaultLib]:
+    def make_vault_lib(self, contextName: Optional[str] = None) -> Optional[VaultLib]:
         secrets = list(self.get_vault_passwords(contextName))
         if secrets:
             return make_vault_lib_ex(secrets)
@@ -444,7 +453,9 @@ class Project:
             % (default_project, context_name)
         )
 
-    def get_managed_project(self, location: dict, localEnv: "LocalEnv") -> Optional["Project"]:
+    def get_managed_project(
+        self, location: dict, localEnv: "LocalEnv"
+    ) -> Optional["Project"]:
         project_tpl = self.localConfig.projects[location["managedBy"]]
         path = self.localConfig.find_repository_path(project_tpl)
         externalProject = None
@@ -463,7 +474,12 @@ class Project:
         return None
 
     def register_ensemble(
-        self, manifestPath: str, *, project: "Project"=None, managedBy: Optional["Project"]=None, context: Optional[str]=None
+        self,
+        manifestPath: str,
+        *,
+        project: "Project" = None,
+        managedBy: Optional["Project"] = None,
+        context: Optional[str] = None,
     ) -> None:
         relPath = (project if project else self).get_relative_path(manifestPath)
         props = dict(file=relPath)
@@ -486,9 +502,13 @@ class Project:
             self.localConfig.config.config["ensembles"] = self.localConfig.ensembles
             self.localConfig.config.save()
 
-    def register_project(self, project, for_context=None, changed=False, save_project=True):
+    def register_project(
+        self, project, for_context=None, changed=False, save_project=True
+    ):
         self.localConfig.register_project(project, for_context, changed, save_project)
-        self.workingDirs[project.project_repoview.working_dir] = project.project_repoview
+        self.workingDirs[
+            project.project_repoview.working_dir
+        ] = project.project_repoview
 
 
 class LocalConfig:
@@ -595,7 +615,9 @@ class LocalConfig:
 
         return name
 
-    def register_project(self, project, for_context=None, changed=False, save_project=True):
+    def register_project(
+        self, project, for_context=None, changed=False, save_project=True
+    ):
         """
         Register an external project with current project.
         If the external project's repository is only local (without a remote origin repository) then save it in the local config if it exists.
@@ -692,7 +714,9 @@ class LocalEnv:
     project = None
     parent = None
 
-    def _find_external_project(self, manifestPath: str, project:  Project) -> Tuple[Optional[Project], Optional[str]]:
+    def _find_external_project(
+        self, manifestPath: str, project: Project
+    ) -> Tuple[Optional[Project], Optional[str]]:
         # We're pointing directly at a manifest path, check if it is might be part of an external project
         context_name = None
         location = project.find_ensemble_by_path(manifestPath)
@@ -753,12 +777,12 @@ class LocalEnv:
 
     def __init__(
         self,
-        manifestPath: str=None,
-        homePath: Optional[str]=None,
-        parent: Optional["LocalEnv"]=None,
-        project: Optional[Project]=None,
-        can_be_empty: bool=False,
-        override_context: Optional[str]=None,
+        manifestPath: str = None,
+        homePath: Optional[str] = None,
+        parent: Optional["LocalEnv"] = None,
+        project: Optional[Project] = None,
+        can_be_empty: bool = False,
+        override_context: Optional[str] = None,
     ) -> None:
         """
         If manifestPath is None find the first unfurl.yaml or ensemble.yaml
@@ -808,10 +832,14 @@ class LocalEnv:
             or LocalConfig()
         )
         if override_context and override_context != "defaults":
-            assert override_context == self.manifest_context_name, self.manifest_context_name
+            assert (
+                override_context == self.manifest_context_name
+            ), self.manifest_context_name
             project = self.project or self.homeProject
             if not project or self.manifest_context_name not in project.contexts:
-                raise UnfurlError(f'No environment named "{self.manifest_context_name}" found.')
+                raise UnfurlError(
+                    f'No environment named "{self.manifest_context_name}" found.'
+                )
 
     def _get_home_project(self) -> Optional[Project]:
         homeProject = None
@@ -831,16 +859,15 @@ class LocalEnv:
                     self.logger.info('Using home project at: "%s"', self.homeConfigPath)
         return homeProject
 
-    def get_vault_password(self, vaultId: str="default") -> Optional[str]:
+    def get_vault_password(self, vaultId: str = "default") -> Optional[str]:
         # used by __main__.vaultclient
         project = self.project or self.homeProject
         if project:
             return project.get_vault_password(self.manifest_context_name, vaultId)
         return None
 
-    def get_manifest(self,
-        path: Optional[str]=None,
-        skip_validation: bool=False
+    def get_manifest(
+        self, path: Optional[str] = None, skip_validation: bool = False
     ) -> "YamlManifest":
         from .yamlmanifest import YamlManifest
 
@@ -889,9 +916,8 @@ class LocalEnv:
         else:
             return None
 
-    def _get_external_localenv(self,
-        location: dict,
-        currentProject: Optional[Project]=None
+    def _get_external_localenv(
+        self, location: dict, currentProject: Optional[Project] = None
     ) -> Optional["LocalEnv"]:
         # currentProject because this method might be called before self.project was set
         assert "project" in location
@@ -927,7 +953,9 @@ class LocalEnv:
             os.path.join(projectRoot, location.get("file") or ""), parent=self
         )
 
-    def _find_given_manifest_or_project(self, manifestPath: str) -> Tuple[Optional[str], Optional[Project]]:
+    def _find_given_manifest_or_project(
+        self, manifestPath: str
+    ) -> Tuple[Optional[str], Optional[Project]]:
         if not os.path.exists(manifestPath):
             return None, None
         if os.path.isdir(manifestPath):
@@ -974,7 +1002,9 @@ class LocalEnv:
         else:
             return repos
 
-    def _search_for_manifest_or_project(self, dir: str) -> Tuple[str, Optional[Project]]:
+    def _search_for_manifest_or_project(
+        self, dir: str
+    ) -> Tuple[str, Optional[Project]]:
         current = os.path.abspath(dir)
         while current and current != os.sep:
             test = os.path.join(current, DefaultNames.LocalConfig)
@@ -1003,7 +1033,7 @@ class LocalEnv:
             return self.get_project(path, self.homeProject)
         return None
 
-    def get_context(self, context: Optional[dict]=None) -> dict:
+    def get_context(self, context: Optional[dict] = None) -> dict:
         """
         Return a new context that merges the given context with the local context.
         """
@@ -1033,7 +1063,9 @@ class LocalEnv:
             spec,
         )
 
-    def find_git_repo(self, repoURL: str, revision: Optional[str]=None) -> Optional[GitRepo]:
+    def find_git_repo(
+        self, repoURL: str, revision: Optional[str] = None
+    ) -> Optional[GitRepo]:
         project = self.project or self.homeProject
         count = 0
         while project:
@@ -1063,14 +1095,17 @@ class LocalEnv:
             )
         return repo
 
-    def find_or_create_working_dir(self,
+    def find_or_create_working_dir(
+        self,
         repoURL: str,
-        revision: Optional[str]=None,
-        basepath: Optional[str]=None
+        revision: Optional[str] = None,
+        basepath: Optional[str] = None,
     ) -> Tuple[Optional[GitRepo], Optional[str], Optional[bool]]:
         repo = self.find_git_repo(repoURL, revision)
         if repo:
-            logger.debug("Using existing repository at %s for %s", repo.working_dir, repoURL)
+            logger.debug(
+                "Using existing repository at %s for %s", repo.working_dir, repoURL
+            )
             if not repo.is_dirty():
                 repo.pull(revision=revision)
 
@@ -1087,9 +1122,8 @@ class LocalEnv:
         else:
             return repo, repo.revision, False
 
-    def find_path_in_repos(self,
-        path: str,
-        importLoader: Optional[Any]=None
+    def find_path_in_repos(
+        self, path: str, importLoader: Optional[Any] = None
     ) -> Tuple[Optional[GitRepo], Optional[str], Optional[str], Optional[bool]]:
         """If the given path is part of the working directory of a git repository
         return that repository and a path relative to it"""
@@ -1155,10 +1189,14 @@ class LocalEnv:
             project = self.project or self.homeProject
             count = 0
             while project:
-                paths += Project.get_asdf_paths(project.projectRoot, asdfDataDir, self.toolVersions)
+                paths += Project.get_asdf_paths(
+                    project.projectRoot, asdfDataDir, self.toolVersions
+                )
                 count += 1
                 assert count < 4
                 project = project.parentProject
             if os.getenv("HOME"):
-                paths += Project.get_asdf_paths(os.getenv("HOME"), asdfDataDir, self.toolVersions)
+                paths += Project.get_asdf_paths(
+                    os.getenv("HOME"), asdfDataDir, self.toolVersions
+                )
         return paths

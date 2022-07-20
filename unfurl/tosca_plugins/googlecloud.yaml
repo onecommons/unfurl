@@ -142,6 +142,9 @@ node_types:
       download_location:
         type: string
         default: secrets
+      filepath:
+        type: string
+        default: "{{ SELF.filename | abspath(SELF.download_location) }}"
     interfaces:
       Standard:
         create:
@@ -154,7 +157,7 @@ node_types:
                   type: string
           inputs:
             command: >
-              gcloud iam service-accounts keys create "{{ SELF.filename | abspath(SELF.download_location) }}"
+              gcloud iam service-accounts keys create "{{ SELF.filepath }}"
                --iam-account "{{SELF.account_id}}" --user-output-enabled false
 
   #  https://cloud.google.com/resource-manager/

@@ -13,7 +13,18 @@ import types
 import itertools
 import os
 import json
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple, Union, cast, TYPE_CHECKING
+from typing import (
+    Any,
+    Dict,
+    Iterable,
+    List,
+    Mapping,
+    Optional,
+    Tuple,
+    Union,
+    cast,
+    TYPE_CHECKING,
+)
 
 
 from .support import Status, Priority, Defaults, AttributeManager, Reason, NodeState
@@ -54,6 +65,11 @@ if TYPE_CHECKING:
 
 logger = cast(logs.UnfurlLogger, logging.getLogger("unfurl"))
 
+
+class JobAborted(UnfurlError):
+    pass
+
+
 class ConfigChange(OperationalInstance, ChangeRecord):
     """
     Represents a configuration change made to the system.
@@ -66,11 +82,11 @@ class ConfigChange(OperationalInstance, ChangeRecord):
 
     def __init__(
         self,
-        parentJob: Optional["Job"]=None,
-        startTime: Optional[datetime]=None,
-        status: Optional[Union[OperationalInstance, int, str]]=None,
-        previousId: Optional[str]=None,
-        **kw: Any
+        parentJob: Optional["Job"] = None,
+        startTime: Optional[datetime] = None,
+        status: Optional[Union[OperationalInstance, int, str]] = None,
+        previousId: Optional[str] = None,
+        **kw: Any,
     ) -> None:
         OperationalInstance.__init__(self, status, **kw)
         if parentJob:  # use the parent's job id and startTime
@@ -433,7 +449,7 @@ class ConfigTask(ConfigChange, TaskView):
             missing, reason = _dependency_check(self)
             # don't check if this operation does depend on the operational dependencies being live
             if not missing and self.configSpec.entry_state > NodeState.initial:
-                missing, reason =_dependency_check(self.target)
+                missing, reason = _dependency_check(self.target)
         return missing, reason
 
     @property
@@ -521,7 +537,7 @@ class Job(ConfigChange):
         manifest: "YamlManifest",
         rootResource: NodeInstance,
         jobOptions: JobOptions,
-        previousId: Optional[str]=None
+        previousId: Optional[str] = None,
     ) -> None:
         assert isinstance(jobOptions, JobOptions)
         self.__dict__.update(jobOptions.__dict__)
@@ -551,12 +567,17 @@ class Job(ConfigChange):
     def is_filtered(self) -> bool:
         return self.instance or self.instances or self.template  # type: ignore
 
-    def run_query(self, query: Union[str, Mapping], trace: int=0) -> list:
+    def run_query(self, query: Union[str, Mapping], trace: int = 0) -> list:
         from .eval import eval_for_func, RefContext
 
         return eval_for_func(query, RefContext(self.rootResource, trace=trace))
 
-    def create_task(self, configSpec: ConfiguratorResult, target: NodeInstance, reason: Optional[str]=None) -> ConfigTask:
+    def create_task(
+        self,
+        configSpec: ConfiguratorResult,
+        target: NodeInstance,
+        reason: Optional[str] = None,
+    ) -> ConfigTask:
         task = ConfigTask(self, configSpec, target, reason=reason)
         try:
             task.inputs
@@ -566,8 +587,11 @@ class Job(ConfigChange):
         return task
 
     def validate_job_options(self) -> None:
-        if self.jobOptions.instance and not self.rootResource.find_resource(  # type: ignore  # mypy doesn't like the way JobOptions is defined
-            self.jobOptions.instance  # type: ignore
+        if (
+            self.jobOptions.instance
+            and not self.rootResource.find_resource(  # type: ignore  # mypy doesn't like the way JobOptions is defined
+                self.jobOptions.instance  # type: ignore
+            )
         ):
             logger.warning(
                 'selected instance not found: "%s"', self.jobOptions.instance  # type: ignore
@@ -594,7 +618,9 @@ class Job(ConfigChange):
         ready, notReady, errors = do_render_requests(self, ready)
         return ready, notReady, errors
 
-    def _run(self, rendered_requests: Optional[Tuple[list, list, list]]=None) -> ResourceRef:
+    def _run(
+        self, rendered_requests: Optional[Tuple[list, list, list]] = None
+    ) -> ResourceRef:
         if rendered_requests:
             ready, notReady, errors = rendered_requests
         else:
@@ -622,7 +648,7 @@ class Job(ConfigChange):
         # if there were circular dependencies or errors then notReady won't be empty
         if notReady:
             for parent, req in get_render_requests(notReady):
-                if self.workflow == "deploy" and not req.target.template.required:  # type: ignore # we don't want to run these
+                if self.workflow == "deploy" and not req.include_in_plan():  # type: ignore # we don't want to run these
                     continue
                 message = f"can't fulfill {req.target.name}: never ran {req.future_dependencies}"
                 logger.info(message)
@@ -667,6 +693,9 @@ class Job(ConfigChange):
                 try:
                     display.verbosity = jobOptions.verbose  # type: ignore
                     self._run((ready, notReady, errors))
+                except JobAborted as e:
+                    self.local_status = Status.error  # type: ignore
+                    logger.error("Aborting job: %s", e)
                 except Exception:
                     self.local_status = Status.error  # type: ignore
                     self.unexpectedAbort = UnfurlError(
@@ -707,7 +736,10 @@ class Job(ConfigChange):
         if not WorkflowPlan:
             raise UnfurlError(f"unknown workflow: {joboptions.workflow}")  # type: ignore
 
-        rmtree(os.path.join(self.rootResource.base_dir, Folders.Planned))
+        if not self.parentJob:
+            # don't do this when running a nested job
+            # (planned was already removed and new tasks have already been rendered there)
+            rmtree(os.path.join(self.rootResource.base_dir, Folders.Planned))
         plan = WorkflowPlan(self.rootResource, self.manifest.tosca, joboptions)
         plan_requests = list(plan.execute_plan())
 
@@ -767,8 +799,8 @@ class Job(ConfigChange):
     def apply(
         self,
         taskRequests: List[Union[JobRequest, TaskRequestGroup]],
-        depth: int=0,
-        parent: "TaskRequestGroup"=None
+        depth: int = 0,
+        parent: "TaskRequestGroup" = None,
     ) -> Tuple[ConfigTask, bool]:
         failed = False
         task: Optional[ConfigTask] = None
@@ -807,6 +839,11 @@ class Job(ConfigChange):
                         successStatus = True
             else:
                 failed = True
+            if task.priority == Priority.critical:
+                if failed or task.result.status == Status.error:
+                    raise JobAborted(
+                        f"Critical task failed: {task.name} for {task.target.name}"
+                    )
         return task, successStatus  # type: ignore
 
     def run_job_request(self, jobRequest: JobRequest) -> "Job":
@@ -995,7 +1032,9 @@ class Job(ConfigChange):
                 return False, "instance already entered state"
         return True, "passed"
 
-    def _run_operation(self, req: TaskRequest, workflow: str, depth: int) -> Optional[ConfigTask]:
+    def _run_operation(
+        self, req: TaskRequest, workflow: str, depth: int
+    ) -> Optional[ConfigTask]:
         if isinstance(req, SetStateRequest):
             logger.debug("Setting state with %s", req)
             self._set_state(req)
@@ -1077,7 +1116,7 @@ class Job(ConfigChange):
 
         return task
 
-    def run_task(self, task: ConfigTask, depth: int=0) -> ConfigTask:
+    def run_task(self, task: ConfigTask, depth: int = 0) -> ConfigTask:
         """
         During each task run:
         * Notification of metadata changes that reflect changes made to resources
@@ -1142,7 +1181,9 @@ class Job(ConfigChange):
     ### Reporting methods
     ###########################################################################
     @staticmethod
-    def _job_request_summary(requests: List[JobRequest], manifest: Optional["YamlManifest"]) -> Iterable[dict]:
+    def _job_request_summary(
+        requests: List[JobRequest], manifest: Optional["YamlManifest"]
+    ) -> Iterable[dict]:
         for request in requests:
             # XXX better reporting
             node = dict(instance=request.name)
@@ -1155,7 +1196,9 @@ class Job(ConfigChange):
             yield node
 
     @staticmethod
-    def _switch_target(target: NodeInstance, old_summary_list: List[dict]) -> List[dict]:
+    def _switch_target(
+        target: NodeInstance, old_summary_list: List[dict]
+    ) -> List[dict]:
         new_summary_list: List[dict] = []
         node = dict(
             instance=target.name,
@@ -1173,7 +1216,7 @@ class Job(ConfigChange):
         target: NodeInstance,
         parent_summary_list: List[dict],
         include_rendered: bool,
-        workflow: str
+        workflow: str,
     ) -> None:
         summary_list = parent_summary_list
         for request in requests:
@@ -1184,7 +1227,7 @@ class Job(ConfigChange):
             if isGroup and not request.children:
                 continue  # don't include in the plan
             if request.target is not target:
-                if workflow == "deploy" and not request.target.template.required:
+                if workflow == "deploy" and not request.include_in_plan():
                     continue
                 # target changed, add it to the parent's list
                 # switch to the "plan" member of the new target
@@ -1203,7 +1246,9 @@ class Job(ConfigChange):
             else:
                 summary_list.append(request._summary_dict(include_rendered))
 
-    def _json_plan_summary(self, pretty: bool=False, include_rendered: bool=True) -> Union[str, list]:
+    def _json_plan_summary(
+        self, pretty: bool = False, include_rendered: bool = True
+    ) -> Union[str, list]:
         """
         Return a list of items that look like:
 
@@ -1228,7 +1273,9 @@ class Job(ConfigChange):
         else:
             return json.dumps(summary, indent=2)
 
-    def json_summary(self, pretty: bool=False, external: bool=False) -> Union[str, Dict[str, Any]]:
+    def json_summary(
+        self, pretty: bool = False, external: bool = False
+    ) -> Union[str, Dict[str, Any]]:
         job = dict(id=self.changeId, status=self.status.name)
         job.update(self.stats())  # type: ignore
         if not self.startTime:  # skip if startTime was explicitly set
@@ -1248,7 +1295,7 @@ class Job(ConfigChange):
             return json.dumps(summary, indent=2)
         return summary
 
-    def stats(self, asMessage: bool=False) -> Union[Dict[str, int], str]:
+    def stats(self, asMessage: bool = False) -> Union[Dict[str, int], str]:
         tasks = self.workDone.values()
         key = lambda t: t._localStatus or Status.unknown
         tasks = sorted(tasks, key=key)  # type: ignore
@@ -1268,7 +1315,7 @@ class Job(ConfigChange):
     def _plan_summary(
         self,
         plan_requests: List[TaskRequest],
-        external_requests: Iterable[Tuple[Any, Any]]
+        external_requests: Iterable[Tuple[Any, Any]],
     ) -> Tuple[str, int]:
         """
         Node "site" (status, state, created):
@@ -1283,7 +1330,7 @@ class Job(ConfigChange):
         def _summary(
             requests: List[Union[JobRequest, TaskRequest, TaskRequestGroup]],
             target: Optional[NodeInstance],
-            indent: int
+            indent: int,
         ) -> None:
             nonlocal count
             for request in requests:
@@ -1291,8 +1338,11 @@ class Job(ConfigChange):
                 if isGroup and not request.children:  # type: ignore
                     continue
                 if not self.is_filtered() and self.workflow == "deploy":  # type: ignore
-                    if not request.target.template.required:
-                        logger.trace('excluding "%s" from plan: not required', request.target.name)
+                    if not request.include_in_plan():
+                        logger.trace(
+                            'excluding "%s" from plan: not required',
+                            request.target.name,
+                        )
                         continue
                 if isinstance(request, JobRequest):
                     count += 1
@@ -1430,7 +1480,9 @@ def _render(job):
 
 def start_job(manifestPath=None, _opts=None):
     _opts = _opts or {}
-    localEnv = LocalEnv(manifestPath, _opts.get("home"), override_context=_opts.get("use_environment"))
+    localEnv = LocalEnv(
+        manifestPath, _opts.get("home"), override_context=_opts.get("use_environment")
+    )
     opts = JobOptions(**_opts)
     path = localEnv.manifestPath
     if not opts.planOnly:
@@ -1455,7 +1507,7 @@ def start_job(manifestPath=None, _opts=None):
     return job, rendered, count and not errors
 
 
-def run_job(manifestPath: Optional[str]=None, _opts: Optional[dict]=None) -> Job:
+def run_job(manifestPath: Optional[str] = None, _opts: Optional[dict] = None) -> Job:
     """
     Loads the given Ensemble and creates and runs a job.
 

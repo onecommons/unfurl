@@ -1,6 +1,17 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
-from typing import TYPE_CHECKING, Any, Dict, Generator, List, Optional, Tuple, Union, ValuesView, cast
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Dict,
+    Generator,
+    List,
+    Optional,
+    Tuple,
+    Union,
+    ValuesView,
+    cast,
+)
 from typing_extensions import TypedDict
 import six
 from collections.abc import Mapping, MutableSequence
@@ -8,6 +19,7 @@ import os
 import copy
 
 from unfurl.logs import UnfurlLogger
+
 if TYPE_CHECKING:
     from unfurl.manifest import Manifest
     from unfurl.job import ConfigTask
@@ -33,7 +45,7 @@ from .util import (
     to_enum,
     wrap_sensitive_value,
     sensitive,
-    truncate_str
+    truncate_str,
 )
 from . import merge
 from .eval import Ref, map_value, RefContext
@@ -54,6 +66,7 @@ import logging
 # Tell mypy the logger is of type UnfurlLogger
 logger = cast(UnfurlLogger, logging.getLogger("unfurl.task"))
 
+
 class ConfiguratorResult:
     """
     Modified indicates whether the underlying state of configuration,
@@ -66,11 +79,11 @@ class ConfiguratorResult:
         self,
         success: bool,
         modified: Optional[bool],
-        status: Optional[Status]=None,
-        configChanged: bool=None,
-        result: object=None,
-        outputs: Optional[dict]=None,
-        exception: Optional[UnfurlTaskError]=None,
+        status: Optional[Status] = None,
+        configChanged: bool = None,
+        result: object = None,
+        outputs: Optional[dict] = None,
+        exception: Optional[UnfurlTaskError] = None,
     ) -> None:
         self.modified = modified
         self.status = to_enum(Status, status)
@@ -299,7 +312,7 @@ class Configurator:
                 "digests didn't match for %s with %s: old %s, new %s",
                 task.target.name,
                 _parameters,
-                changeset.digestValue, # type: ignore
+                changeset.digestValue,  # type: ignore
                 newDigest,
             )
         return mismatch
@@ -311,6 +324,7 @@ class MockConfigurator(Configurator):
 
     def can_dry_run(self, task: "TaskView") -> bool:
         return True
+
 
 class _ConnectionsMap(dict):
     def by_type(self) -> ValuesView:
@@ -349,12 +363,13 @@ class TaskView:
         verbose (int): Verbosity level set for this job (-1 error, 0 normal, 1 verbose, 2 debug)
     """
 
-    def __init__(self,
+    def __init__(
+        self,
         manifest: "Manifest",
         configSpec: ConfigurationSpec,
         target: NodeInstance,
-        reason: Optional[str]=None,
-        dependencies: Optional[List["Dependency"]]=None
+        reason: Optional[str] = None,
+        dependencies: Optional[List["Dependency"]] = None,
     ) -> None:
         # public:
         self.configSpec = configSpec
@@ -365,7 +380,9 @@ class TaskView:
         self.rendered: Any = None
         self.dry_run = None
         # private:
-        self._errors: List[UnfurlTaskError] = []  # UnfurlTaskError objects appends themselves to this list
+        self._errors: List[
+            UnfurlTaskError
+        ] = []  # UnfurlTaskError objects appends themselves to this list
         self._inputs: Optional[ResultsMap] = None
         self._environ = None
         self._manifest = manifest
@@ -399,6 +416,8 @@ class TaskView:
             relationship = isinstance(self.target, RelationshipInstance)
             if relationship:
                 target = self.target.target  # type: ignore  # checked with isinstance above
+                if not target:
+                    target = self.target.root
             else:
                 target = self.target
             HOST = (target.parent or target).attributes
@@ -420,7 +439,8 @@ class TaskView:
                 or {},
             )
             if relationship:
-                vars["SOURCE"] = self.target.source.attributes  # type: ignore
+                if self.target.source:
+                    vars["SOURCE"] = self.target.source.attributes  # type: ignore
                 vars["TARGET"] = target.attributes
             # expose inputs lazily to allow self-referencee
             ctx.vars = vars
@@ -437,7 +457,9 @@ class TaskView:
         return self.inputs.context.vars
 
     @staticmethod
-    def _get_connection(source: NodeInstance, target: Optional[NodeInstance], seen: dict) -> None:
+    def _get_connection(
+        source: NodeInstance, target: Optional[NodeInstance], seen: dict
+    ) -> None:
         """
         Find the requirements on source that match the target
         If source is root, requirements will be the connections that are the default_for the target.
@@ -458,6 +480,8 @@ class TaskView:
         """
         seen: Dict[int, Any] = {}
         for parent in self.target.ancestors:
+            if not isinstance(parent, NodeInstance):
+                continue
             if parent is self.target.root:
                 break
             if self.operation_host:
@@ -563,7 +587,9 @@ class TaskView:
             cwd=self.cwd,
         )
 
-    def find_connection(self, target: NodeInstance, relation: str="tosca.relationships.ConnectsTo") -> Any:
+    def find_connection(
+        self, target: NodeInstance, relation: str = "tosca.relationships.ConnectsTo"
+    ) -> Any:
         connection = self.query(
             f"$OPERATION_HOST::.requirements::*[.type={relation}][.target=$target]",
             vars=dict(target=target),
@@ -603,12 +629,14 @@ class TaskView:
 
     def done(
         self,
-        success: Optional[bool]=None,
-        modified: Optional[bool]=None,
-        status: Optional[Status]=None,
-        result: Optional[Union[dict, str]]=None,
-        outputs: Optional[dict]=None,  # so the docstring says dict, but ConfiguratorResult
-        captureException: Optional[object]=None,
+        success: Optional[bool] = None,
+        modified: Optional[bool] = None,
+        status: Optional[Status] = None,
+        result: Optional[Union[dict, str]] = None,
+        outputs: Optional[
+            dict
+        ] = None,  # so the docstring says dict, but ConfiguratorResult
+        captureException: Optional[object] = None,
     ) -> ConfiguratorResult:
         """:py:meth:`unfurl.configurator.Configurator.run` should call this method and yield its return value before terminating.
 
@@ -657,14 +685,14 @@ class TaskView:
     def query(
         self,
         query: str,
-        dependency: bool=False,
-        name: Optional[str]=None,
-        required: bool=False,
-        wantList: bool=False,
-        resolveExternal: bool=True,
-        strict: bool=True,
-        vars: Optional[dict]=None,
-        throw: bool=False,
+        dependency: bool = False,
+        name: Optional[str] = None,
+        required: bool = False,
+        wantList: bool = False,
+        resolveExternal: bool = True,
+        strict: bool = True,
+        vars: Optional[dict] = None,
+        throw: bool = False,
     ) -> Optional[Ref]:
         # XXX pass resolveExternal to context?
         try:
@@ -688,12 +716,12 @@ class TaskView:
     def add_dependency(
         self,
         expr: Union[str, Mapping],
-        expected: Optional[Union[list, ResultsList, Result]]=None,
-        schema: Optional[Mapping]=None,
-        name: Optional[str]=None,
-        required: bool=True,
-        wantList: bool=False,
-        target: Optional[NodeInstance]=None,
+        expected: Optional[Union[list, ResultsList, Result]] = None,
+        schema: Optional[Mapping] = None,
+        name: Optional[str] = None,
+        required: bool = True,
+        wantList: bool = False,
+        target: Optional[NodeInstance] = None,
     ) -> "Dependency":
         getter = getattr(expr, "as_ref", None)
         if getter:
@@ -727,11 +755,11 @@ class TaskView:
 
     def create_sub_task(
         self,
-        operation: Optional[str]=None,
-        resource: Optional[NodeInstance]=None,
-        inputs: Optional[dict]=None,
-        persist: bool=False,
-        required: Optional[bool]=None
+        operation: Optional[str] = None,
+        resource: Optional[NodeInstance] = None,
+        inputs: Optional[dict] = None,
+        persist: bool = False,
+        required: Optional[bool] = None,
     ) -> Optional[TaskRequest]:
         """Create a subtask that will be executed if yielded by :py:meth:`unfurl.configurator.Configurator.run`
 
@@ -778,7 +806,9 @@ class TaskView:
         # otherwise operation should be a ConfigurationSpec
         return TaskRequest(operation, resource, "subtask", persist, required)
 
-    def _update_instance(self, existingResource: NodeInstance, resourceSpec: Mapping) -> bool:
+    def _update_instance(
+        self, existingResource: NodeInstance, resourceSpec: Mapping
+    ) -> bool:
         from .manifest import Manifest
 
         updated = False
@@ -807,13 +837,13 @@ class TaskView:
                     "setting attribute %s on %s with %s",
                     key,
                     existingResource.name,
-                    truncate_str(value)
+                    truncate_str(value),
                 )
             updated = True
         return updated
 
-    def _parse_instances_tpl(self,
-        instances: Union[str, Mapping, MutableSequence]
+    def _parse_instances_tpl(
+        self, instances: Union[str, Mapping, MutableSequence]
     ) -> Union[Tuple[None, UnfurlTaskError], Tuple[MutableSequence, None]]:
         if isinstance(instances, six.string_types):
             try:
@@ -834,7 +864,9 @@ class TaskView:
 
     # # XXX how can we explicitly associate relations with target resources etc.?
     # # through capability attributes and dependencies/relationship attributes
-    def update_instances(self, instances: Union[str, List]) -> Union[Tuple[JobRequest, List], Tuple[None, List]]:
+    def update_instances(
+        self, instances: Union[str, List]
+    ) -> Union[Tuple[JobRequest, List], Tuple[None, List]]:
         """Notify Unfurl of new or changes to instances made while the configurator was running.
 
         Operational status indicates if the instance currently exists or not.
@@ -916,7 +948,9 @@ class TaskView:
             return jobRequest, errors
         return None, errors
 
-    def set_work_folder(self, location: str="operation", preserve: Optional[bool]=None) -> WorkFolder:
+    def set_work_folder(
+        self, location: str = "operation", preserve: Optional[bool] = None
+    ) -> WorkFolder:
         if location in self._workFolders:
             return self._workFolders[location]
         if preserve is None:
@@ -929,12 +963,16 @@ class TaskView:
         #     self, location, preserve
         # )
 
-    def get_work_folder(self, location: Optional[str]=None) -> WorkFolder:
+    def get_work_folder(self, location: Optional[str] = None) -> WorkFolder:
         # return self.job.getFolder(self, location)
         if location is None:
+            if not self._workFolders:
+                raise UnfurlTaskError(self, f"No task folder was set.")
             # XXX error if there is more than one?
             return next(iter(self._workFolders.values()))
         else:
+            if location not in self._workFolders:
+                raise UnfurlTaskError(self, f'missing "{location}" task folder')
             return self._workFolders[location]
 
     def discard_work_folders(self) -> None:
@@ -968,12 +1006,12 @@ class Dependency(Operational):
     def __init__(
         self,
         expr: Union[str, dict],
-        expected: Optional[Union[ResultsList, list, Result, None]]=None,
-        schema: Optional[Mapping]=None,
-        name: Optional[str]=None,
-        required: bool=False,
-        wantList: bool=False,
-        target: Optional[NodeInstance]=None,
+        expected: Optional[Union[ResultsList, list, Result, None]] = None,
+        schema: Optional[Mapping] = None,
+        name: Optional[str] = None,
+        required: bool = False,
+        wantList: bool = False,
+        target: Optional[NodeInstance] = None,
     ) -> None:
         """
         if schema is not None, validate the result using schema
@@ -992,7 +1030,11 @@ class Dependency(Operational):
 
     @property
     def local_status(self) -> Status:
-        if self.target and self.target is not self.target.root and not self.target.is_computed():
+        if (
+            self.target
+            and self.target is not self.target.root
+            and not self.target.is_computed()
+        ):
             # (only care about local status of instances with live attribute, not their full operational status)
             # (reduces circular dependencies)
             return self.target.local_status  # type: ignore  # mypy has trouble with @property calls
@@ -1014,7 +1056,10 @@ class Dependency(Operational):
             self.expected = result
 
     @staticmethod
-    def has_value_changed(value: Union[Results, Mapping, MutableSequence, tuple, ChangeAware, Any], changeset: ChangeRecord) -> bool:
+    def has_value_changed(
+        value: Union[Results, Mapping, MutableSequence, tuple, ChangeAware, Any],
+        changeset: ChangeRecord,
+    ) -> bool:
         if isinstance(value, Results):
             return Dependency.has_value_changed(value._attributes, changeset)
         elif isinstance(value, Mapping):

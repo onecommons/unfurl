@@ -14,7 +14,7 @@ from unfurl import logs
 logs.initialize_logging()
 
 
-def __version__(release: bool=False) -> str:
+def __version__(release: bool = False) -> str:
     # a function because this is expensive
     if release:  # appends .devNNN
         return pbr.version.VersionInfo(__name__).release_string()
@@ -22,13 +22,13 @@ def __version__(release: bool=False) -> str:
         return pbr.version.VersionInfo(__name__).version_string()
 
 
-def version_tuple(v: Union[None, str]=None) -> tuple:
+def version_tuple(v: Union[None, str] = None) -> tuple:
     if v is None:
         v = __version__(True)
     return tuple(int(x.lstrip("dev") or 0) for x in v.split("."))
 
 
-def is_version_unreleased(v: Union[None, str]=None) -> bool:
+def is_version_unreleased(v: Union[None, str] = None) -> bool:
     return len(version_tuple(v)) > 3
 
 
@@ -101,12 +101,13 @@ else:
     # Display is a singleton which we can't subclass so monkey patch instead
     _super_display = ansible.utils.display.Display.display
 
-    def _display(self: ansible.utils.display.Display.display,
+    def _display(
+        self: ansible.utils.display.Display.display,
         msg: str,
-        color: Union[None, str]=None, 
-        stderr: bool=False, 
-        screen_only: bool=False, 
-        log_only: bool=True
+        color: Union[None, str] = None,
+        stderr: bool = False,
+        screen_only: bool = False,
+        log_only: bool = True,
     ) -> Union[None, ansible.utils.display.Display]:
         if screen_only:
             return None

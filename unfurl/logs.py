@@ -12,7 +12,7 @@ import rich
 from rich.console import Console
 
 
-def truncate(s: str, max: int=1200) -> str:
+def truncate(s: str, max: int = 1200) -> str:
     if not s:
         return ""
     if len(s) > max:
@@ -51,14 +51,14 @@ LOGGING = {
             "class": "unfurl.logs.JobLogHandler",
             "level": logging.INFO,
             "filters": ["sensitive"],
-        }
+        },
     },
     "loggers": {
         "git": {"level": logging.INFO, "handlers": ["console"]},
         "unfurl.job.meta": {
             "handlers": ["JobLogHandler"],
             "level": logging.INFO,
-        }
+        },
     },
     "root": {"level": Levels.TRACE, "handlers": ["console"]},
 }
@@ -76,6 +76,7 @@ class JobLogHandler(logging.StreamHandler):
     def emit(self, record: logging.LogRecord) -> None:
         # hide output in terminals
         rich.print(record.msg, end="\x1b[2K\r", flush=True)
+
 
 class StyleDict(TypedDict):
     bg: NotRequired[Union[str, Tuple[int, int, int]]]
@@ -98,7 +99,7 @@ class ColorHandler(logging.StreamHandler):
         message = truncate(self.format(record))
         # Hide meta job output because it seems to also be logged captured by
         # the root logger.
-        if record.name.startswith('unfurl.job.meta'):
+        if record.name.startswith("unfurl.job.meta"):
             return
 
         level = Levels[record.levelname]
@@ -150,16 +151,18 @@ def start_collapsible(name: str, section_id: Union[str, int], autoclose) -> bool
         bool: True if the collapsible section was started, False otherwise. This is equivalent
         whether or not CI is set
     """
-    ci = os.environ.get("CI", False) # Running in a CI environment (eg GitLab CI)
+    ci = os.environ.get("CI", False)  # Running in a CI environment (eg GitLab CI)
     if ci:
         # The octal \033 is used instead of \e because python doesn't recognize \e as an escape sequence
-        print(f"\033[0Ksection_start:{int(time.time())}:task_{section_id}[collapsed={'true' if autoclose else 'false'}]\r\033[0K{name}")
+        print(
+            f"\033[0Ksection_start:{int(time.time())}:task_{section_id}[collapsed={'true' if autoclose else 'false'}]\r\033[0K{name}"
+        )
     return ci
 
+
 def end_collapsible(section_id: Union[str, int]) -> None:
-    """Ends a collapsible section in Gitlab CI. See `start_collapsible`.
-    """
-    ci = os.environ.get("CI", False) # Running in a CI environment (eg GitLab CI)
+    """Ends a collapsible section in Gitlab CI. See `start_collapsible`."""
+    ci = os.environ.get("CI", False)  # Running in a CI environment (eg GitLab CI)
     if ci:
         # The octal \033 is used instead of \e because python doesn't recognize \e as an escape sequence
         print(f"\033[0Ksection_end:{int(time.time())}:task_{section_id}\r\033[0K")

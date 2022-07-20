@@ -2,7 +2,20 @@
 # SPDX-License-Identifier: MIT
 import sys
 from types import ModuleType
-from typing import IO, Dict, Generator, Iterable, List, Optional, Set, Tuple, Union, Iterator, TYPE_CHECKING, cast
+from typing import (
+    IO,
+    Dict,
+    Generator,
+    Iterable,
+    List,
+    Optional,
+    Set,
+    Tuple,
+    Union,
+    Iterator,
+    TYPE_CHECKING,
+    cast,
+)
 from typing_extensions import SupportsIndex
 import git
 import traceback
@@ -70,6 +83,7 @@ except ImportError:
 
 _basepath = os.path.abspath(os.path.dirname(__file__))
 
+
 def get_package_digest() -> Union[git.Repo, str, object]:
     from git import Repo
 
@@ -85,7 +99,9 @@ def get_package_digest() -> Union[git.Repo, str, object]:
 
 
 class UnfurlError(Exception):
-    def __init__(self, message: object, saveStack: bool=False, log: bool=False) -> None:
+    def __init__(
+        self, message: object, saveStack: bool = False, log: bool = False
+    ) -> None:
         if saveStack:
             (etype, value, traceback) = sys.exc_info()
             if value:
@@ -102,13 +118,18 @@ class UnfurlError(Exception):
 
 
 class UnfurlValidationError(UnfurlError):
-    def __init__(self, message: object, errors: Optional[List[Exception]]=None, log: bool=False) -> None:
+    def __init__(
+        self,
+        message: object,
+        errors: Optional[List[Exception]] = None,
+        log: bool = False,
+    ) -> None:
         super().__init__(message, log=log)
         self.errors = errors or []
 
 
 class UnfurlTaskError(UnfurlError):
-    def __init__(self, task: "TaskView", message: object, log: int=logging.ERROR):
+    def __init__(self, task: "TaskView", message: object, log: int = logging.ERROR):
         task = cast("ConfigTask", task)
         message = f"{task.changeId} on {task.target.name} {task.name}: {message}"
         super().__init__(message, True, False)
@@ -120,7 +141,13 @@ class UnfurlTaskError(UnfurlError):
 
 
 class UnfurlAddingResourceError(UnfurlTaskError):
-    def __init__(self, task: "TaskView", resourceSpec: Mapping, name: str, log: int=logging.DEBUG) -> None:
+    def __init__(
+        self,
+        task: "TaskView",
+        resourceSpec: Mapping,
+        name: str,
+        log: int = logging.DEBUG,
+    ) -> None:
         message = f"error updating resource {name}"
         super().__init__(task, message, log)
         self.resourceSpec = resourceSpec
@@ -180,7 +207,9 @@ class sensitive_list(list, sensitive):
     """Transparent wrapper class to mark a list as sensitive"""
 
 
-def to_yaml_text(val: object) -> Union[sensitive, ScalarString, FoldedScalarString, str]:
+def to_yaml_text(
+    val: object,
+) -> Union[sensitive, ScalarString, FoldedScalarString, str]:
     if isinstance(val, (ScalarString, sensitive)):
         return val
     # convert or copy string (copy to deal with things like AnsibleUnsafeText)
@@ -190,7 +219,9 @@ def to_yaml_text(val: object) -> Union[sensitive, ScalarString, FoldedScalarStri
     return val
 
 
-def assert_form(src: object, types: Union[type, Tuple[type, ...]]=Mapping, test: bool=True) -> object:
+def assert_form(
+    src: object, types: Union[type, Tuple[type, ...]] = Mapping, test: bool = True
+) -> object:
     if not isinstance(src, types) or not test:
         raise UnfurlError(f"Malformed definition: {src}")
     return src
@@ -204,7 +235,9 @@ def register_short_names(shortNames: Union[Mapping, Iterable]) -> None:
     _shortNameRegistry.update(shortNames)
 
 
-def register_class(className: str, factory: object, short_name: str=None, replace: bool=True) -> None:
+def register_class(
+    className: str, factory: object, short_name: str = None, replace: bool = True
+) -> None:
     if short_name:
         _shortNameRegistry[short_name] = className
     if not replace and className in _ClassRegistry:
@@ -213,7 +246,7 @@ def register_class(className: str, factory: object, short_name: str=None, replac
     _ClassRegistry[className] = factory
 
 
-def load_module(path: str, full_name: str=None) -> ModuleType:
+def load_module(path: str, full_name: str = None) -> ModuleType:
     if full_name is None:
         full_name = re.sub(r"\W", "_", path)  # generate a name from the path
     if full_name in sys.modules:
@@ -238,7 +271,7 @@ def load_module(path: str, full_name: str=None) -> ModuleType:
     return module
 
 
-def load_class(klass: str, defaultModule: str="__main__") -> object:
+def load_class(klass: str, defaultModule: str = "__main__") -> object:
     import importlib
 
     prefix, sep, suffix = klass.rpartition(".")
@@ -252,8 +285,11 @@ _shortNameRegistry = {}
 def check_class_registry(kind: str) -> bool:
     return kind in _ClassRegistry or kind in _shortNameRegistry
 
+
 # XXX: can't infer arg "default"'s type for now
-def lookup_class(kind: str, apiVersion: Optional[str]=None, default: Optional[str]=None) -> object:
+def lookup_class(
+    kind: str, apiVersion: Optional[str] = None, default: Optional[str] = None
+) -> object:
     if kind in _ClassRegistry:
         return _ClassRegistry[kind]
     elif kind in _shortNameRegistry:
@@ -296,14 +332,18 @@ def to_dotenv(env: dict) -> str:
     return "\n".join(keys)
 
 
-def dump(obj: object, tp: IO[bytes], suffix: str="", yaml: Optional[ModuleType]=None, encoding: Optional[str]=None) -> None:
+def dump(
+    obj: object,
+    tp: IO[bytes],
+    suffix: str = "",
+    yaml: Optional[ModuleType] = None,
+    encoding: Optional[str] = None,
+) -> None:
     from .yamlloader import yaml as _yaml
 
     try:
         textEncoding = (
-            "utf-8"
-            if encoding in [None, "yaml", "vault", "json", "env"]
-            else encoding
+            "utf-8" if encoding in [None, "yaml", "vault", "json", "env"] else encoding
         )
         f = io.TextIOWrapper(tp, textEncoding)
         if suffix.endswith(".yml") or suffix.endswith(".yaml") or encoding == "yaml":
@@ -330,7 +370,13 @@ def dump(obj: object, tp: IO[bytes], suffix: str="", yaml: Optional[ModuleType]=
         f.detach()
 
 
-def _save_to_vault(path: str, obj: object, yaml: Optional[ModuleType]=None, encoding: Optional[str]=None, fd: Union[str, int]=None) -> bool:
+def _save_to_vault(
+    path: str,
+    obj: object,
+    yaml: Optional[ModuleType] = None,
+    encoding: Optional[str] = None,
+    fd: Union[str, int] = None,
+) -> bool:
     vaultExt = path.endswith(".vault")
     if vaultExt or encoding == "vault":
         assert yaml and yaml.representer.vault and yaml.representer.vault.secrets
@@ -347,7 +393,12 @@ def _save_to_vault(path: str, obj: object, yaml: Optional[ModuleType]=None, enco
     return False
 
 
-def save_to_file(path: str, obj: object, yaml: Optional[ModuleType]=None, encoding: Optional[str]=None) -> None:
+def save_to_file(
+    path: str,
+    obj: object,
+    yaml: Optional[ModuleType] = None,
+    encoding: Optional[str] = None,
+) -> None:
     dir = os.path.dirname(path)
     if dir and not os.path.isdir(dir):
         os.makedirs(dir)
@@ -356,13 +407,14 @@ def save_to_file(path: str, obj: object, yaml: Optional[ModuleType]=None, encodi
             dump(obj, f, path, yaml, encoding)
 
 
-def save_to_tempfile(obj: object,
-        suffix: str="",
-        delete: bool=True,
-        dir: Optional[str]=None,
-        yaml: Optional[ModuleType]=None,
-        encoding: Optional[str]=None
-    ) -> tempfile._TemporaryFileWrapper:
+def save_to_tempfile(
+    obj: object,
+    suffix: str = "",
+    delete: bool = True,
+    dir: Optional[str] = None,
+    yaml: Optional[ModuleType] = None,
+    encoding: Optional[str] = None,
+) -> tempfile._TemporaryFileWrapper:
     tp = tempfile.NamedTemporaryFile(
         "w+b",
         suffix=suffix or "",
@@ -380,7 +432,7 @@ def save_to_tempfile(obj: object,
     return tp
 
 
-def make_temp_dir(delete: bool=True, prefix: str="unfurl") -> str:
+def make_temp_dir(delete: bool = True, prefix: str = "unfurl") -> str:
     tempDir = tempfile.mkdtemp(prefix, dir=os.environ.get("UNFURL_TMPDIR"))
     if delete:
         atexit.register(lambda: os.path.isdir(tempDir) and shutil.rmtree(tempDir))  # type: ignore
@@ -397,11 +449,13 @@ def get_base_dir(path: str) -> str:
     else:
         return os.path.normpath(os.path.dirname(path))
 
+
 def truncate_str(v: str) -> str:
     s = str(v)
     if len(s) > 1000:
         return f"{s[:494]} [{len(s) - 1000} omitted...]  {s[-494:]}"
     return v
+
 
 def get_random_password(count=12, prefix="uv", extra=None):
     srandom = random.SystemRandom()
@@ -412,6 +466,7 @@ def get_random_password(count=12, prefix="uv", extra=None):
     return prefix + "".join(
         srandom.choice(source if i else start) for i in range(count)
     )
+
 
 @contextmanager
 def change_cwd(new_path: str, log: UnfurlLogger = None) -> Iterator:
@@ -443,7 +498,12 @@ def extend_with_default(validator_class: Draft7Validator) -> None:
     """
     validate_properties = validator_class.VALIDATORS["properties"]
 
-    def set_defaults(validator: Draft7Validator, properties: Mapping, instance: Draft7Validator, schema: Mapping) -> Union[Generator, Draft7Validator]:
+    def set_defaults(
+        validator: Draft7Validator,
+        properties: Mapping,
+        instance: Draft7Validator,
+        schema: Mapping,
+    ) -> Union[Generator, Draft7Validator]:
         if not validator.is_type(instance, "object"):
             return
 
@@ -463,11 +523,15 @@ DefaultValidatingLatestDraftValidator = (
 )
 
 
-def validate_schema(obj: Mapping, schema: Mapping, baseUri: Optional[str]=None) -> bool:
+def validate_schema(
+    obj: Mapping, schema: Mapping, baseUri: Optional[str] = None
+) -> bool:
     return not find_schema_errors(obj, schema)
 
 
-def find_schema_errors(obj: Mapping, schema: Mapping, baseUri: Optional[str]=None) -> Optional[Tuple[str, List[object]]]:
+def find_schema_errors(
+    obj: Mapping, schema: Mapping, baseUri: Optional[str] = None
+) -> Optional[Tuple[str, List[object]]]:
     # XXX2 have option that includes definitions from manifest's schema
     if baseUri is not None:
         resolver = RefResolver(base_uri=baseUri, referrer=schema)
@@ -559,8 +623,8 @@ def substitute_env(contents, env=None):
         env = os.environ
 
     def replace(m):
-        if m.group(1): # \ found
-            return m.group(0)[len(m.group(1))-1 or 1:]
+        if m.group(1):  # \ found
+            return m.group(0)[len(m.group(1)) - 1 or 1 :]
         default_value = m.group(3)[1:] if m.group(3) else ""
         for name in m.group(2).split("|"):
             if name in env:
@@ -569,6 +633,7 @@ def substitute_env(contents, env=None):
                     return value()
                 return value
         return default_value
+
     return re.sub(r"(\\+)?\$\{([\w|]+)(\:.+?)?\}", replace, contents)
 
 
@@ -581,7 +646,11 @@ def _env_var_value(val):
         return str(val)
 
 
-def filter_env(rules: Mapping, env: Optional[Union[Dict, "os._Environ[str]"]]=None, addOnly: Optional[bool]=False) -> Dict[str, str]:
+def filter_env(
+    rules: Mapping,
+    env: Optional[Union[Dict, "os._Environ[str]"]] = None,
+    addOnly: Optional[bool] = False,
+) -> Dict[str, str]:
     """
     Applies the given list of rules to a dictionary of environment variables and returns a new dictionary.
 
@@ -668,7 +737,7 @@ required_envvars = [
     "UNFURL_MOCK_DEPLOY",
     "UNFURL_LOGFILE",
     "UNFURL_VAULT_SKIP_DECRYPT",
-    "UNFURL_VALIDATION_MODE"
+    "UNFURL_VALIDATION_MODE",
 ]
 # hack for sphinx ext documentedlist
 _sphinx_envvars = [(i,) for i in required_envvars]

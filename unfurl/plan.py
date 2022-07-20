@@ -63,6 +63,7 @@ class Plan:
         self.workflow = jobOptions.workflow
         self.root = root
         self.tosca = toscaSpec
+        self._checked_connection_task = False
         assert self.tosca
         if jobOptions.template:
             filterTemplate = self.tosca.get_template(jobOptions.template)
@@ -329,6 +330,16 @@ class Plan:
             return self.execute_default_install_op(workflow, resource, reason, inputs)
         return None
 
+    def _get_connection_task(self, taskRequest):
+        if not self._checked_connection_task:
+            self._checked_connection_task = True
+            if self.tosca.topology.primary_provider:
+                for rel in self.root.requirements:
+                    if rel.name == "primary_provider":
+                        yield from self.execute_default_install_op("check", rel)
+                        return
+                assert False, self.root.requirements
+
     def _generate_configurations(self, resource, reason, workflow=None):
         workflow = workflow or self.workflow
         # check if this workflow has been delegated to one explicitly declared
@@ -345,6 +356,7 @@ class Plan:
             group = None
         for taskRequest in configGenerator:
             if taskRequest:
+                yield from self._get_connection_task(taskRequest)
                 if group and not isinstance(taskRequest, JobRequest):
                     group.children.append(taskRequest)
                 else:
@@ -469,7 +481,9 @@ class Plan:
         opts = self.jobOptions
         templates = self._get_templates()
 
-        logger.verbose("checking for tasks for templates %s", [t.name for t in templates])
+        logger.verbose(
+            "checking for tasks for templates %s", [t.name for t in templates]
+        )
         visited = set()
         for template in templates:
             found = False

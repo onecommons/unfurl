@@ -148,11 +148,11 @@ class ChangeRecord:
 
     def __init__(
         self,
-        jobId: Optional[str]=None,
-        startTime: Optional[datetime]=None,
-        taskId: int=0,
-        previousId: Optional[str]=None,
-        parse: Optional[str]=None
+        jobId: Optional[str] = None,
+        startTime: Optional[datetime] = None,
+        taskId: int = 0,
+        previousId: Optional[str] = None,
+        parse: Optional[str] = None,
     ):
         if parse:
             self.parse(parse)
@@ -166,7 +166,7 @@ class ChangeRecord:
             else:
                 self.changeId = self.make_change_id(self.startTime, taskId, previousId)
 
-    def set_start_time(self, startTime: Optional[datetime]=None) -> None:
+    def set_start_time(self, startTime: Optional[datetime] = None) -> None:
         if not startTime:
             self.startTime = datetime.utcnow()
         elif isinstance(startTime, datetime):
@@ -216,7 +216,12 @@ class ChangeRecord:
         return re.match("^A[A-Za-z0-9]{11}$", test)
 
     @classmethod
-    def make_change_id(cls, timestamp: Optional[datetime]=None, taskid: int=0, previousId: Optional[str]=None) -> str:
+    def make_change_id(
+        cls,
+        timestamp: Optional[datetime] = None,
+        taskid: int = 0,
+        previousId: Optional[str] = None,
+    ) -> str:
         b62 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
         if not timestamp:
             timestamp = datetime.utcnow()
@@ -266,7 +271,7 @@ class ChangeRecord:
         terms = [changeId] + ["{}={}".format(k, v) for k, v in attributes.items()]
         return "\t".join(terms) + "\n"
 
-    def log(self, attributes: Optional[dict]=None) -> str:
+    def log(self, attributes: Optional[dict] = None) -> str:
         r"changeid\tkey=value\tkey=value"
         default = {
             k: getattr(self, k)
@@ -574,8 +579,8 @@ class Results(ABC):
             if value is None:
                 # required attributes might be null depending on the state of the resource
                 if propDef.required and key not in resource.template.attributeDefs:
-                  msg = f'Property "{key}" on "{resource.template.name}" cannot be null.'
-                  raise ValidationError(message=msg)
+                    msg = f'Property "{key}" on "{resource.template.name}" cannot be null.'
+                    raise ValidationError(message=msg)
             else:
                 propDef._validate(value)
         except Exception as err:

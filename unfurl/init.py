@@ -600,7 +600,7 @@ class EnsembleBuilder:
         self.ensemble_name = ensemble_name
         self.mono = options.get("mono") or options.get("existing")
         self.home_path = get_home_config_path(options.get("home"))
-        self.skeleton_vars = dict((n,v) for n,v in options.get('var', []))
+        self.skeleton_vars = dict((n, v) for n, v in options.get("var", []))
 
         self.source_project = None  # step 1
         self.source_path = None  # step 1 relative path in source_project
@@ -638,7 +638,9 @@ class EnsembleBuilder:
             source_path, self.source_project, self.options.get("want_init")
         )
         if self.options.get("use_deployment_blueprint"):
-            self.templateVars['deployment_blueprint'] = self.options['use_deployment_blueprint']
+            self.templateVars["deployment_blueprint"] = self.options[
+                "use_deployment_blueprint"
+            ]
         (self.environment, self.shared_repo) = _get_context_and_shared_repo(
             self.dest_project, self.options
         )
@@ -735,7 +737,9 @@ class EnsembleBuilder:
             # we found a template file to clone
             templateVars["inputs"] = self._get_inputs_template()
             localEnv, manifest = self._create_ensemble_from_template(
-                destProject, destDir, manifestName,
+                destProject,
+                destDir,
+                manifestName,
             )
         else:
             # look for an ensemble at the given path or use the source project's default
@@ -832,7 +836,9 @@ class EnsembleBuilder:
             if new_project:
                 # finishing creating the new project
                 # create local/unfurl.yaml in the new project
-                if _create_local_config(self.source_project, self.logger, self.skeleton_vars):
+                if _create_local_config(
+                    self.source_project, self.logger, self.skeleton_vars
+                ):
                     # reload project with the new local project config
                     self.dest_project = find_project(
                         self.source_project.projectRoot, self.home_path
@@ -905,7 +911,12 @@ class EnsembleBuilder:
         return f'Created new ensemble at "{os.path.abspath(destDir)}"'
 
 
-def clone(source: str, dest: str, ensemble_name: str=DefaultNames.EnsembleDirectory, **options: Any) -> str:
+def clone(
+    source: str,
+    dest: str,
+    ensemble_name: str = DefaultNames.EnsembleDirectory,
+    **options: Any,
+) -> str:
     """
     Clone the ``source`` ensemble to ``dest``. If ``dest`` isn't in a project, create one.
     ``source`` can point to an ensemble_template, a service_template, an existing ensemble
@@ -991,7 +1002,9 @@ def _create_local_config(clonedProject, logger, vars):
             clonedProject.projectRoot, "local", DefaultNames.LocalConfig
         )
         # log warning if invoked
-        vars["generate_new_vault_password"] = lambda: _warn_about_new_password(dest) or get_random_password()
+        vars["generate_new_vault_password"] = (
+            lambda: _warn_about_new_password(dest) or get_random_password()
+        )
         # replace ${var}
         contents = substitute_env(contents, vars)
 
@@ -1059,8 +1072,7 @@ def init_engine(projectDir, runtime):
     if kind == "venv":
         pipfileLocation, sep, unfurlLocation = rest.partition(":")
         return create_venv(
-            projectDir, pipfileLocation,
-            _get_unfurl_requirement_url(unfurlLocation)
+            projectDir, pipfileLocation, _get_unfurl_requirement_url(unfurlLocation)
         )
     # XXX else kind == 'docker':
     return "unrecognized runtime uri"
@@ -1104,17 +1116,18 @@ def _add_unfurl_to_venv(projectdir):
     _write_file(sitePackageDir, "unfurl.egg-link", base)
     return ""
 
+
 def pipfile_template_dir(pythonPath):
     from pipenv.utils import python_version
+
     versionStr = python_version(pythonPath)
     assert versionStr, versionStr
     version = versionStr.rpartition(".")[0]  # 3.8.1 => 3.8
     # version = subprocess.run([pythonPath, "-V"]).stdout.decode()[
     #     7:10
     # ]  # e.g. Python 3.8.1 => 3.8
-    return os.path.join(
-        _templatePath, "python" + version
-    )  # e.g. templates/python3.8
+    return os.path.join(_templatePath, "python" + version)  # e.g. templates/python3.8
+
 
 def copy_pipfiles(pipfileLocation, projectDir):
     # copy Pipfiles to project root
@@ -1123,6 +1136,7 @@ def copy_pipfiles(pipfileLocation, projectDir):
             path = os.path.join(pipfileLocation, filename)
             if os.path.isfile(path):
                 shutil.copy(path, projectDir)
+
 
 def create_venv(projectDir, pipfileLocation, unfurlLocation):
     """Create a virtual python environment for the given project."""

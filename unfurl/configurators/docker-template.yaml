@@ -13,6 +13,9 @@ data_types:
         entry_schema:
           type: string
         default: {}
+        metadata:
+          user_settable: true
+          tab_title: Environment Variables
       container_name: # name
         type: string
         required: false
@@ -29,16 +32,20 @@ data_types:
         required: false
       ports:
         # https://docs.docker.com/compose/compose-file/compose-file-v3/#ports
+        description: "Ports to expose (format: 80:8080)"
         type: list
         entry_schema:
           type: string
         required: false
       user:
         type: string
-        description: "<UID>[:<GID>] Overrides the user used to run the container process. Default is that set by image (i.e. Dockerfile USER), if not set, root."
+        description: "User used to run the container process. format: <UID>[:<GID>]"
+        # Overrides the user used to run the container process. Default is that set by image (i.e. Dockerfile USER), if not set, root."
         required: false
       expose:
         # https://docs.docker.com/compose/compose-file/compose-file-v3/#expose
+        description: Expose ports without publishing them to the host machine
+        # - they’ll only be accessible to linked services. Only the internal port can be specified.
         type: list
         entry_schema:
           type: string
@@ -47,6 +54,18 @@ data_types:
         type: list
         entry_schema:
           type: string
+        required: false
+      privileged:
+        type: boolean
+        required: false
+      pull_policy:
+        type: string
+        constraints:
+          - valid_values: [always, never, missing, build]
+        required: false
+      network_mode:
+        description: Use the same values as the docker client --network parameter ("bridge", "host", "none")
+        type: string
         required: false
 
 node_types:
@@ -70,6 +89,28 @@ node_types:
       container:
         type: unfurl.datatypes.DockerContainer
         required: false
+      container_image:
+        type: string
+        default:
+          eval:
+            if: .artifacts::image
+            then:
+              get_artifact: [SELF, image]
+            else:
+              eval: container::image
+      registry_url:
+        type: string
+        default: "{{ '.artifacts::image::.repository::url' | eval }}"
+        required: false
+      registry_user:
+        type: string
+        default: "{{ '.artifacts::image::.repository::credential::user' | eval }}"
+        required: false
+      registry_password:
+        type: string
+        default: "{{ '.artifacts::image::.repository::credential::token' | eval }}"
+        required: false
+
     interfaces:
       defaults:
         implementation:
@@ -83,22 +124,16 @@ node_types:
               template: |
                 #jinja2: variable_start_string: '<%', variable_end_string: '%>'
                 {% filter from_yaml %}
-                {%if '.artifacts::image' | eval %}
-                - set_fact:
-                    image_path: "{{  {'get_artifact': ['SELF', 'image']} | eval }}"
-                    registry_url: "{{ '.artifacts::image::.repository::url' | eval }}"
-                    registry_user: "{{ '.artifacts::image::.repository::credential::user' | eval }}"
-                    registry_password: "{{ '.artifacts::image::.repository::credential::token' | eval }}"
+                {%if 'registry_user' | eval %}
                 - docker_login:
                      # https://docs.ansible.com/ansible/latest/modules/docker_login_module.html#docker-login-module
                      # https://github.com/ansible/ansible/blob/stable-2.8/lib/ansible/modules/cloud/docker/docker_login.py
-                     username: "{{ registry_user }}"
-                     password: "{{ registry_password }}"
-                     registry_url: "{{ registry_url }}"
-                  when: registry_user|bool
+                     username: "<% SELF.registry_user %>"
+                     password: "<% SELF.registry_password %>"
+                     registry_url: "<% SELF.registry_url %>"
                 {% else %}
                 - set_fact:
-                    image_path: "{{ SELF.container.image }}"
+                    image_path: "<% SELF.container_image %>"
                 {% endif %}
                 - community.docker.docker_container:
                     # https://docs.ansible.com/ansible/latest/collections/community/docker/docker_container_module.html#ansible-collections-community-docker-docker-container-module
@@ -107,10 +142,13 @@ node_types:
                     image: "{{ image_path }}" # Repository path and tag
                     state: "<%  inputs.state %>"
                     {%if SELF.container is defined %}
+                    {%if SELF.container.pull_policy is defined %}                    
+                    pull: <% SELF.container.pull_policy == "always" %>
+                    {%endif%}
                     # filter out env vars set to none
                     env: <% SELF.container.environment | map_value | dict2items | rejectattr("value", "none") | list | items2dict | to_json %>
                     # merge container dict after stripping out "container_name" and "environment" keys
-                    <<: <% SELF.container | map_value | dict2items | rejectattr("key", "equalto" , "container_name") | rejectattr("key", "equalto" , "environment") | list | items2dict | to_json %>
+                    <<: <% SELF.container | map_value | dict2items | rejectattr("key", "equalto" , "container_name") | rejectattr("key", "equalto" , "environment") | rejectattr("key", "equalto" , "pull_policy") | list | items2dict | to_json %>
                     {%endif%}
                     <<: <% inputs.configuration | default({}) | map_value | to_json %>
                     # XXX :
@@ -169,10 +207,10 @@ node_types:
   #           # https://docs.ansible.com/ansible/latest/collections/community/docker/docker_compose_module.html#ansible-collections-community-docker-docker-compose-module
   #           tasks:
   #             - community.docker.docker_compose:
-  #                 files: # overrides docker-compose.yml
-  #                 project_src: looks for docker-compose.yml or files
-  #                 # project_name and definition are mutually exclusive with project_src and files.
-  #                  project_name:
+  #                 files: # List of Compose file names relative to project_src
+  #                 project_src: # Path to a directory containing a docker-compose.yml or docker-compose.yaml file.
+  #                 project_name: SELF.container.name# If not provided, the project name is taken from the basename of project_src.
+  #                 # definition are mutually exclusive with project_src and files.
   #                 definition:
   #                   version: "3.3"
   #                   services:

@@ -9,6 +9,7 @@ from typing import Union, Tuple, List
 import six
 import urllib
 from urllib.parse import urljoin, urlsplit
+
 pathname2url = urllib.request.pathname2url
 from jsonschema import RefResolver
 
@@ -404,14 +405,14 @@ class YamlConfig:
 
     def load_yaml(self, path, baseDir=None, warnWhenNotFound=False):
         url = urlsplit(path)
-        if url.scheme.startswith('http') and url.netloc: # looks like an absolute url
+        if url.scheme.startswith("http") and url.netloc:  # looks like an absolute url
             fragment = url.fragment
             try:
-              f = urllib.request.urlopen(path)
+                f = urllib.request.urlopen(path)
             except urllib.error.URLError:
-              if warnWhenNotFound:
-                return path, None
-              raise
+                if warnWhenNotFound:
+                    return path, None
+                raise
         else:
             path, sep, fragment = path.partition("#")
             path = os.path.abspath(os.path.join(baseDir or self.get_base_dir(), path))
@@ -540,7 +541,7 @@ class YamlConfig:
             key = templatePath["file"]
             when = templatePath.get("when")
             if when and not os.getenv(when):
-                return value, None, ''
+                return value, None, ""
         else:
             value = None
             key = templatePath
