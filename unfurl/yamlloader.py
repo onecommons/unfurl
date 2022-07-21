@@ -9,6 +9,9 @@ from typing import Union, Tuple, List
 import six
 import urllib
 from urllib.parse import urljoin, urlsplit
+import ssl
+import certifi
+
 
 pathname2url = urllib.request.pathname2url
 from jsonschema import RefResolver
@@ -186,6 +189,10 @@ def make_vault_lib_ex(secrets: List[Tuple[str, Union[str, bytes]]]):
     return VaultLib(secrets=vault_secrets)
 
 
+def urlopen(url):
+    return urllib.request.urlopen(url, context=ssl.create_default_context(cafile=certifi.where()))
+
+
 _refResolver = RefResolver("", None)
 
 class ImportResolver(toscaparser.imports.ImportResolver):
@@ -290,7 +297,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                         else:
                             f = codecs.open(path, encoding="utf-8", errors="strict")
                     else:
-                        f = urllib.request.urlopen(path)
+                        f = urlopen(path)
                 except urllib.error.URLError as e:
                     if hasattr(e, "reason"):
                         msg = _(
@@ -408,7 +415,7 @@ class YamlConfig:
         if url.scheme.startswith("http") and url.netloc:  # looks like an absolute url
             fragment = url.fragment
             try:
-                f = urllib.request.urlopen(path)
+                f = urlopen(path)
             except urllib.error.URLError:
                 if warnWhenNotFound:
                     return path, None
