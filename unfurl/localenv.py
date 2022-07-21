@@ -1116,9 +1116,9 @@ class LocalEnv:
             return None, None, None
 
         if revision:
-            # bare if HEAD isn't at the requested revision
-            bare = repo.revision != repo.resolve_rev_spec(revision)
-            return repo, repo.revision, bare
+            if repo.revision != repo.resolve_rev_spec(revision):
+                repo.checkout(revision)
+            return repo, repo.revision, False
         else:
             return repo, repo.revision, False
 

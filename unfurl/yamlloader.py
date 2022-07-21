@@ -252,12 +252,13 @@ class ImportResolver(toscaparser.imports.ImportResolver):
             isFile = True
             if bare:
                 # XXX support empty filePath or when filePath is a directory -- need to checkout the tree
-                if (
-                    not filePath
-                    or repo.repo.rev_parse(revision + ":" + filePath).type != "blob"
-                ):
+                if not filePath:
                     raise UnfurlError(
-                        f"can't retrieve local repository for '{path}' with revision '{revision}'"
+                        f"local repository for '{path}' can not checkout revision '{revision}'"
+                    )
+                elif repo.repo.rev_parse(revision + ":" + filePath).type != "blob":
+                    raise UnfurlError(
+                        f"can't retrieve '{filePath}' with revision '{revision}' from local repository for '{path}'"
                     )
                 importLoader.stream = six.StringIO(repo.show(filePath, revision))
                 path = os.path.join(filePath, file_name or "")
