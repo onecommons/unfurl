@@ -563,8 +563,10 @@ class Results(ABC):
             else:
                 result = Result(resolved)
             result.original = _Get
+            if isinstance(resolved, MutableSequence) and resolved:
+                assert not isinstance(resolved[0], Result), resolved[0]
             if self.validate:
-                self._validate(key, result.resolved)
+                self._validate(key, resolved)
             self._attributes[key] = result
             assert not isinstance(resolved, Result), val
             return result
