@@ -343,6 +343,7 @@ class Ref:
             self.source,
         )
         results = eval_ref(self.source, ctx, True)
+        assert isinstance(results, list)
         ctx.trace(f"Ref.resolve(wantList={wantList}) evalRef", self.source, results)
         if results and self.foreach:
             results = for_each(self.foreach, results, ctx)
@@ -515,7 +516,9 @@ def _for_each(foreach: Union[MappingType[str, Any], str],
         return list(make_items())
 
 
-def for_each(foreach: Union[Mapping, str], results: Iterable, ctx: RefContext) -> List[Result]:
+def for_each(foreach: Union[Mapping, str], results: list, ctx: RefContext) -> List[Result]:
+    if len(results) == 1 and isinstance(results[0].resolved, MutableSequence):
+        return _for_each(foreach, enumerate(results[0].resolved), ctx) # hack!
     return _for_each(foreach, enumerate(r.external or r.resolved for r in results), ctx)
 
 

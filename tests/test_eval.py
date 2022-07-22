@@ -184,10 +184,10 @@ class EvalTest(unittest.TestCase):
 
         test2 = {
           "eval": ".::b",
-          "foreach": {"eval": "$item"}
+          "foreach": "{{ item * 2 }}"
         }
         result3 = Ref(test2).resolve_one(RefContext(resource, trace=0))
-        assert result3 == [1, 2, 3]
+        assert result3 == [2, 4, 6]
 
     def test_serializeValues(self):
         resource = self._getTestResource()
