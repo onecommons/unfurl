@@ -32,7 +32,6 @@ import os.path
 from jsonschema import Draft7Validator, validators, RefResolver
 import jsonschema.exceptions
 from ruamel.yaml.scalarstring import ScalarString, FoldedScalarString
-from ansible.parsing.yaml.objects import AnsibleVaultEncryptedUnicode
 from ansible.parsing.vault import VaultEditor
 from ansible.module_utils._text import to_text, to_bytes, to_native  # BSD licensed
 from ansible.utils.unsafe_proxy import AnsibleUnsafeText, AnsibleUnsafeBytes, wrap_var
@@ -43,6 +42,7 @@ from contextlib import contextmanager
 from logging import Logger
 import string
 import random
+from .logs import is_sensitive
 
 try:
     from shutil import which
@@ -166,19 +166,6 @@ def wrap_sensitive_value(obj: object) -> object:
         return sensitive_list(obj)
     else:
         return obj
-
-
-def is_sensitive(obj: object) -> bool:
-    test = getattr(obj, "__sensitive__", None)
-    if test:
-        return test()
-    if isinstance(obj, AnsibleVaultEncryptedUnicode):
-        return True
-    elif isinstance(obj, Mapping):
-        return any(is_sensitive(i) for i in obj.values())
-    elif isinstance(obj, MutableSequence):
-        return any(is_sensitive(i) for i in obj)
-    return False
 
 
 # also mark AnsibleUnsafe so wrap_var doesn't strip out sensitive status

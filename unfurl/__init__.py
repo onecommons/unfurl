@@ -7,7 +7,7 @@ from typing import Dict, Union
 
 import pbr.version
 
-from unfurl import logs
+from . import logs
 
 
 # We need to initialize logging before any logger is created

@@ -12,6 +12,7 @@ from unfurl.localenv import LocalEnv
 from unfurl.logs import Levels, SensitiveFilter
 from unfurl.util import sensitive_str
 from unfurl import logs
+from ruamel.yaml.comments import CommentedMap
 
 
 def test_format_of_job_file_log():
@@ -146,3 +147,11 @@ class TestColorHandler:
             log.error("I caught an error: %s", e, exc_info=True)
 
         assert "Traceback (most recent call last):" in caplog.text
+
+def test_redaction(caplog):
+    logger = logging.getLogger("unfurl")
+    logger.info("should be redacted %s", sensitive_str("password"))
+    assert "password" not in caplog.text
+    logger.info("should be redacted %s", CommentedMap(key=CommentedMap(nested=sensitive_str("password"))))
+    assert "key" in caplog.text
+    assert "password" not in caplog.text

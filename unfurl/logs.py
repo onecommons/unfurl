@@ -11,6 +11,11 @@ from typing_extensions import NotRequired, TypedDict
 import rich
 from rich.console import Console
 
+try:
+    from ansible.parsing.yaml.objects import AnsibleVaultEncryptedUnicode
+except ImportError:
+    AnsibleVaultEncryptedUnicode = None
+
 
 def truncate(s: str, max: int = 1200) -> str:
     if not s:
@@ -124,6 +129,18 @@ class sensitive:
         return True
 
 
+def is_sensitive(obj: object) -> bool:
+    test = getattr(obj, "__sensitive__", None)
+    if test:
+        return test()
+    if AnsibleVaultEncryptedUnicode and isinstance(obj, AnsibleVaultEncryptedUnicode):
+        return True
+    elif isinstance(obj, collections.abc.Mapping):
+        return any(is_sensitive(i) for i in obj.values())
+    elif isinstance(obj, collections.abc.MutableSequence):
+        return any(is_sensitive(i) for i in obj)
+    return False
+
 class SensitiveFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         if isinstance(record.args, collections.abc.Mapping):
@@ -137,7 +154,7 @@ class SensitiveFilter(logging.Filter):
 
     @staticmethod
     def redact(value: Union[sensitive, str, object]) -> Union[str, object]:
-        return sensitive.redacted_str if isinstance(value, sensitive) else value
+        return sensitive.redacted_str if is_sensitive(value) else value
 
 
 def start_collapsible(name: str, section_id: Union[str, int], autoclose) -> bool:
