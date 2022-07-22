@@ -1012,11 +1012,17 @@ def get_commit_message(committer):
     is_flag=True,
     help="Don't add files for committing (user must add using git)",
 )
+@click.option(
+    "--use-environment",
+    default=None,
+    help="Use this environment.",
+)
 def commit(ctx, project_or_ensemble_path, message, skip_add, no_edit, **options):
     """Commit any changes to the given project or ensemble."""
     options.update(ctx.obj)
     localEnv = LocalEnv(
-        project_or_ensemble_path, options.get("home"), can_be_empty=True
+        project_or_ensemble_path, options.get("home"), can_be_empty=True,
+        override_context=options.get("use_environment")
     )
     if localEnv.manifestPath:
         committer = localEnv.get_manifest()
@@ -1045,11 +1051,17 @@ def commit(ctx, project_or_ensemble_path, message, skip_add, no_edit, **options)
     is_flag=True,
     help="Only show repositories with uncommitted changes",
 )
+@click.option(
+    "--use-environment",
+    default=None,
+    help="Use this environment.",
+)
 def git_status(ctx, project_or_ensemble_path, dirty, **options):
     "Show the git status for paths relevant to the given project or ensemble."
     options.update(ctx.obj)
     localEnv = LocalEnv(
-        project_or_ensemble_path, options.get("home"), can_be_empty=True
+        project_or_ensemble_path, options.get("home"), can_be_empty=True,
+        override_context=options.get("use_environment")
     )
     if localEnv.manifestPath:
         committer = localEnv.get_manifest()
@@ -1097,10 +1109,15 @@ def export(ctx, project_or_ensemble_path, format, **options):
 @click.argument("ensemble", default=".", type=click.Path(exists=False))
 @click.option("--query", help="Run the given expression")
 @click.option("--trace", default=0, help="Set the query's trace level")
+@click.option(
+    "--use-environment",
+    default=None,
+    help="Use this environment.",
+)
 def status(ctx, ensemble, **options):
     """Show the status of deployed resources in the given ensemble."""
     options.update(ctx.obj)
-    localEnv = LocalEnv(ensemble, options.get("home"))
+    localEnv = LocalEnv(ensemble, options.get("home"), override_context=options.get("use_environment"))
     manifest = localEnv.get_manifest()
     click.echo(manifest.status_summary())
     query = options.get("query")
