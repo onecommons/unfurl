@@ -218,6 +218,8 @@ class TerraformConfigurator(ShellConfigurator):
                 )
         else:
             main = task.inputs.get_copy("main")
+        if task._errors:
+            main = None  # assume render failed
         if isinstance(main, six.string_types):
             if "\n" in main:
                 # assume its HCL and not a path
@@ -269,6 +271,8 @@ class TerraformConfigurator(ShellConfigurator):
         # XXX .tfvars can be sensitive
         # we need to output the plan and convert it to json to see which variables are marked sensitive
         tfvars = task.inputs.get_copy("tfvars")
+        if task._errors:
+            return None  # assume render failed
         if tfvars:
             if isinstance(tfvars, six.string_types):
                 # assume the contents of a tfvars file
