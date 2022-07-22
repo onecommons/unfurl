@@ -8,7 +8,7 @@ from collections.abc import Mapping, MutableSequence, Sequence
 
 from ruamel.yaml.comments import CommentedMap, CommentedBase
 
-from .util import UnfurlError, wrap_sensitive_value, save_to_tempfile
+from .util import UnfurlError
 
 
 def _mapCtor(self):
@@ -200,16 +200,6 @@ def _json_pointer_validate(pointer):
     return None
 
 
-def _maplist(template):
-    for var in template:
-        value = var["value"]
-        if var.get('variable_type') == 'file':
-            value = save_to_tempfile(value, var["key"]).name
-        elif var.get('masked'):
-            value = wrap_sensitive_value(value)
-        yield var["key"], value
-
-
 def get_template(doc, key, value, path, cls, includes=None):
     template = doc
     templatePath = None
@@ -229,11 +219,7 @@ def get_template(doc, key, value, path, cls, includes=None):
             templatePath = key.pointer
 
     try:
-        if isinstance(
-            template, list
-        ) and value == "maplist":
-            template = dict(_maplist(template))
-        elif value != "raw" and isinstance(
+        if value != "raw" and isinstance(
             template, Mapping
         ):  # raw means no further processing
 

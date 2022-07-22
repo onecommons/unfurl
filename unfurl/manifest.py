@@ -4,6 +4,7 @@ from collections.abc import Mapping
 import os.path
 import hashlib
 import json
+from typing import Tuple, Any
 from ruamel.yaml.comments import CommentedMap
 from .tosca import ToscaSpec, TOSCA_VERSION, ArtifactSpec
 
@@ -537,6 +538,7 @@ class Manifest(AttributeManager):
             tpl=tpl,
             resolver=resolver,
         )
+        # returns path, doc
         return loader._load_import_template(None, artifact.as_import_spec())
 
     def get_import_resolver(self, ignoreFileNotFound=False, expand=False):

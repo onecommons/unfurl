@@ -415,6 +415,7 @@ class YamlConfig:
         url = urlsplit(path)
         if url.scheme.startswith("http") and url.netloc:  # looks like an absolute url
             fragment = url.fragment
+            logger.trace("attempting to load YAML url: %s", path)
             try:
                 f = urlopen(path)
             except urllib.error.URLError:

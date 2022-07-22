@@ -1,4 +1,11 @@
 [
-  { "key": "UNFURL_VAULT_DEFAULT_PASSWORD", "value": "password" },
-  { "key": "A_VAR", "value": "true" }
+  {
+    "key": "UNFURL_VAULT_DEFAULT_PASSWORD",
+    "value": "password",
+    "masked": true
+  },
+  {
+    "key": "A_VAR",
+    "value": "true"
+  }
 ]

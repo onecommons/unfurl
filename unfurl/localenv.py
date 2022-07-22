@@ -9,7 +9,7 @@ By convention, the "home" project defines a localhost instance and adds it to it
 """
 import os
 import os.path
-from typing import Any, Iterable, List, Optional, Tuple, Union, TYPE_CHECKING
+from typing import Any, Iterable, List, Optional, OrderedDict, Tuple, Union, TYPE_CHECKING
 
 from ansible.parsing.vault import VaultLib
 import six
@@ -17,11 +17,12 @@ from six import Iterator
 from unfurl.runtime import NodeInstance
 
 from .repo import GitRepo, Repo, split_git_url, RepoView, normalize_git_url_hard
-from .util import UnfurlError, substitute_env
+from .util import UnfurlError, substitute_env, wrap_sensitive_value, save_to_tempfile, is_sensitive
 from .merge import merge_dicts
 from .yamlloader import YamlConfig, make_vault_lib_ex, make_yaml
 from . import DefaultNames, get_home_config_path
 from six.moves.urllib.parse import urlparse
+from ruamel.yaml.comments import CommentedMap
 from toscaparser.repositories import Repository
 
 if TYPE_CHECKING:
@@ -42,11 +43,11 @@ class Project:
     one or more ensemble.yaml files which maybe optionally organized into one or more git repositories.
     """
 
-    def __init__(self, path: str, homeProject: Optional["Project"] = None):
+    def __init__(self, path: str, homeProject: Optional["Project"] = None, overrides: Optional[dict] = None):
         assert isinstance(path, six.string_types), path
         self.projectRoot = os.path.abspath(os.path.dirname(path))
         if os.path.exists(path):
-            self.localConfig = LocalConfig(path)
+            self.localConfig = LocalConfig(path, overrides=overrides)
         else:
             self.localConfig = LocalConfig()
         self._set_repos()
@@ -528,10 +529,12 @@ class LocalConfig:
         "repositories",
     ]
 
-    def __init__(self, path=None, validate=True):
+    def __init__(self, path=None, validate=True, overrides: Optional[dict] = None):
         defaultConfig = {"apiVersion": "unfurl/v1alpha1", "kind": "Project"}
+        self.overrides = overrides
         self.config = YamlConfig(
-            defaultConfig, path, validate, os.path.join(_basepath, "unfurl-schema.json")
+            defaultConfig, path, validate,
+            os.path.join(_basepath, "unfurl-schema.json"), self.load_yaml_include
         )
         self.ensembles = self.config.expanded.get("ensembles") or []
         self.projects = self.config.expanded.get("projects") or {}
@@ -676,7 +679,6 @@ class LocalConfig:
             self.config.save()
         return lock
 
-
     def load_yaml_include(
         self,
         yamlConfig,
@@ -690,19 +692,49 @@ class LocalConfig:
         This is called while the YAML config is being loaded.
         Returns (url or fullpath, parsed yaml)
         """
+        vars = self.overrides or {}
+        # XXX
+        # if ENVIRONMENT not in vars:
+        #    expanded.get("ensembles") or []
+        #    find_ensemble_by_path(vars.get("manifest_path")) or get_default_manifest_tpl
         if action:
             if isinstance(action, str):
-                vars = {}
-                # check expanded
+                # XXX check expanded?
                 #  ('environments', 'defaults', 'variables')
                 return substitute_env(action, vars)
-            return True # validate
+            return True  # validate
 
         if isinstance(templatePath, dict):
             key = templatePath["file"]
+            merge = templatePath.get("merge")
         else:
             key = templatePath
-        return yamlConfig.load_yaml(key, baseDir, warnWhenNotFound)
+            merge = None
+        if "${ENVIRONMENT" in key and "ENVIRONMENT" not in self.overrides:
+            # don't load remote includes for LocalEnv that don't specify an environment
+            # XXX (hackish way to avoid loads for transitory LocalEnv objects)
+            return key, None
+
+        key = substitute_env(key, vars)
+        includekey, template = yamlConfig.load_yaml(key, baseDir, warnWhenNotFound)
+        if merge == "maplist" and template is not None:
+            template = CommentedMap(_maplist(template, vars.get("ENVIRONMENT")))
+            logger.debug("retrieved remote environment vars: %s", template)
+        return includekey, template
+
+
+def _maplist(template, environment_scope=None):
+    for var in template:
+        scope = var.get("environment_scope", "*")
+        if scope != "*" and scope != environment_scope:
+            # match or if environment_scope is None skip any != *
+            continue
+        value = var["value"]
+        if var.get('variable_type') == 'file':
+            value = save_to_tempfile(value, var["key"]).name
+        elif var.get('masked'):
+            value = wrap_sensitive_value(value)
+        yield var["key"], value
 
 
 class LocalEnv:
@@ -797,6 +829,9 @@ class LocalEnv:
         logger = logging.getLogger("unfurl")
         self.logger = logger
         self.manifest_context_name = None
+        self.overrides = {}
+        if override_context:
+            self.overrides['ENVIRONMENT'] = override_context
 
         if parent:
             self.parent = parent
@@ -905,7 +940,7 @@ class LocalEnv:
         path = Project.normalize_path(path)
         project = self._projects.get(path)
         if not project:
-            project = Project(path, homeProject)
+            project = Project(path, homeProject, self.overrides)
             self._projects[path] = project
         return project
 
