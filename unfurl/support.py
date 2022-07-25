@@ -440,9 +440,19 @@ set_eval_func("lookup", lookup_func)
 
 
 def get_input(arg, ctx):
+    if isinstance(arg, list):
+        name = arg[0]
+        default = arg[1]
+        has_default = True
+    else:
+        name = arg
+        has_default = False
+
     try:
-        return ctx.currentResource.root.attributes["inputs"][arg]
+        return ctx.currentResource.root.attributes["inputs"][name]
     except KeyError:
+        if has_default:
+            return map_value(default, ctx)
         raise UnfurlError(f"undefined input '{arg}'")
 
 
@@ -530,6 +540,51 @@ def to_env(args, ctx: RefContext):
 
 
 set_eval_func("to_env", to_env)
+
+
+def to_label(arg, extra='', max=63, lower=False, replace=''):
+    if isinstance(arg, Mapping):
+        return {to_label(n, extra, max, lower, replace) : to_label(v, extra, max, lower, replace) 
+                for n,v in arg.items() if v is not None}
+    elif isinstance(arg, str):
+        val = re.sub(f"[^\\w{extra}]", replace, arg)
+        if lower:
+            val = val.lower()
+        return val[:max]
+
+def to_dns_label(arg):
+    """
+    The maximum length of each label is 63 characters, and a full domain name can have a maximum of 253 characters.
+    Alphanumeric characters and hyphens can be used in labels, but a domain name must not commence or end with a hyphen.
+    """
+    return to_label(arg, extra='-', replace='--')
+
+set_eval_func(
+    "to_dns_label",
+    lambda arg, ctx: to_dns_label(map_value(arg, ctx)),
+)
+
+def to_kubernetes_label(arg):
+    """
+    See https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/#syntax-and-character-set
+    """
+    return to_label(arg, extra='_.-', replace='__')
+
+set_eval_func(
+    "to_kubernetes_label",
+    lambda arg, ctx: to_dns_label(map_value(arg, ctx)),
+)
+
+def to_googlecloud_label(arg):
+    """
+    See https://cloud.google.com/resource-manager/docs/creating-managing-labels#requirements
+    """
+    return to_label(arg, extra='_-', lower=True, replace='__')
+
+set_eval_func(
+    "to_googlecloud_label",
+    lambda arg, ctx: to_googlecloud_label(map_value(arg, ctx)),
+)
 
 _toscaKeywordsToExpr = {
     "SELF": ".",

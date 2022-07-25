@@ -540,6 +540,21 @@ QUU: <<REDACTED>>
         assert os.environ['PATH'] == new_path
         assert env == {'PATH': new_path}
 
+    def test_labels(self):
+        import six
+        from unfurl.yamlloader import make_yaml
+        src = """
+          eval:
+            to_googlecloud_label:
+              Url: https://foo-bar.com
+              Missing: null
+          """
+        yaml = make_yaml()
+        expr = yaml.load(six.StringIO(src))
+        ctx = RefContext(self._getTestResource())
+        labels = map_value(expr, ctx)
+        assert labels == {'url': "https______foo-bar__com"}
+
 def pairs(iterable):
     i = iter(iterable)
     try:
@@ -559,3 +574,5 @@ def test_env_sub():
     ]
     for test, expected in pairs(tests):
         assert expected == substitute_env(test, env), test
+
+    

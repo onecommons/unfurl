@@ -624,13 +624,17 @@ def substitute_env(contents, env=None):
     return re.sub(r"(\\+)?\$\{([\w|]+)(\:.+?)?\}", replace, contents)
 
 
-def _env_var_value(val):
+def _env_var_value(val, sub=None):
     if isinstance(val, bool):
         return val and "true" or ""
-    elif is_sensitive(val):
-        return wrap_sensitive_value(str(val))
+    sensitive = is_sensitive(val)
+    val = str(val)
+    if sub is not None:
+        val = substitute_env(val, sub)
+    if sensitive:
+        return wrap_sensitive_value(val)
     else:
-        return str(val)
+        return val
 
 
 def filter_env(
