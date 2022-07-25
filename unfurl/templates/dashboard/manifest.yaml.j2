@@ -14,10 +14,22 @@ environment:
   deployment_blueprint: {{ deployment_blueprint }}
 {%- endif %}
 spec:
-{%- if inputs | default("") %}
   inputs:
-    {{ inputs | indent }}
-{%- endif %}
+    {{ inputs | default("") | indent }}
+    tags:
+      to_env: # filters out empty vars
+        project:
+          get_env: CI_PROJECT_PATH_SLUG
+        job:
+          get_env: CI_JOB_ID
+        commit:
+          get_env: CI_COMMIT_SHORT_SHA # 8 characters
+        ensemble:
+          get_env: DEPLOY_PATH
+        environment:
+          get_env: DEPLOY_ENVIRONMENT
+        unfurlcloud:
+          get_env: CI_SERVER_HOST
   deployment_blueprints:
     +?include: deployment.json#/DeploymentTemplate
   service_template:
