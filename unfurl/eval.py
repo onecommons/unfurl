@@ -303,13 +303,15 @@ class Ref:
         self.vars = {"true": True, "false": False, "null": None}
 
         self.foreach = None
+        self.select = None
         trace = RefContext.DefaultTraceLevel if trace is None else trace
         self.trace = trace
         if isinstance(exp, Mapping):
             keys = list(exp)
             if keys and keys[0] not in _FuncsTop:
                 self.vars.update(exp.get("vars", {}))
-                self.foreach = exp.get("foreach", exp.get("select"))
+                self.foreach = exp.get("foreach")
+                self.select = exp.get("select")
                 self.trace = exp.get("trace", trace)
                 exp = exp.get("eval", exp.get("ref", exp))
 
@@ -345,12 +347,18 @@ class Ref:
         results = eval_ref(self.source, ctx, True)
         assert isinstance(results, list)
         ctx.trace(f"Ref.resolve(wantList={wantList}) evalRef", self.source, results)
-        if results and self.foreach:
-            results = for_each(self.foreach, results, ctx)
+        if results and (self.foreach or self.select):
+            results = for_each(self.foreach or self.select, results, ctx)
         assert not isinstance(results, ResultsList), results
         results = ResultsList(results, ctx)
         ctx.add_ref_reference(self, results)
         ctx.trace(f"Ref.resolve(wantList={wantList}) results", self.source, results)
+        if self.foreach:
+            # foreach always returns a list
+            if wantList == "result":
+                return Result(results)
+            else:
+                return results
         if wantList and not wantList == "result":
             return results
         else:

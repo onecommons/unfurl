@@ -48,6 +48,7 @@ class EvalTest(unittest.TestCase):
             ],
             "e": {"a1": {"b1": "v1"}, "a2": {"b2": "v2"}},
             "f": {"a": 1, "b": {"ref": ".::f::a"}},
+            "empty_list": []
         }
         if more:
             resourceDef.update(more)
@@ -165,7 +166,7 @@ class EvalTest(unittest.TestCase):
 
     def test_forEach(self):
         resource = self._getTestResource()
-        test1 = {"ref": ".", "foreach": {"value": {"content": {"ref": "b"}}}}
+        test1 = {"ref": ".", "select": {"value": {"content": {"ref": "b"}}}}
         expected0 = {"content": [1, 2, 3]}
         result0 = Ref(test1).resolve_one(RefContext(resource, trace=0))
         self.assertEqual(expected0, result0)
@@ -175,7 +176,7 @@ class EvalTest(unittest.TestCase):
         # add 'key' to make result a dict
         # test that template strings work
         # XXX fragile: key is base64 of __str__ of NodeInstance
-        test1["foreach"]["key"] = "{{ item | ref | b64encode}}"
+        test1["select"]["key"] = "{{ item | ref | b64encode}}"
         result1 = Ref(test1).resolve_one(RefContext(resource))
         expected = {"Tm9kZUluc3RhbmNlKCd0ZXN0Jyk=": expected0}
         self.assertEqual(expected, result1, result1)
@@ -188,6 +189,20 @@ class EvalTest(unittest.TestCase):
         }
         result3 = Ref(test2).resolve_one(RefContext(resource, trace=0))
         assert result3 == [2, 4, 6]
+
+        test3 = {
+          "eval": "a",
+          "foreach": "$item"
+        }
+        result4 = Ref(test3).resolve_one(RefContext(resource, trace=0))
+        assert result4 == ["test"]
+
+        test4 = {
+          "eval": "empty_list",
+          "foreach": "$item"
+        }
+        result5 = Ref(test4).resolve_one(RefContext(resource, trace=0))
+        assert result5 == []
 
     def test_serializeValues(self):
         resource = self._getTestResource()

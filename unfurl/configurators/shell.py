@@ -14,7 +14,7 @@ inputs:
    eval:
     file:
       ./handleResult.tpl
-   foreach: contents # get the file contents
+   select: contents # get the file contents
 """
 
 

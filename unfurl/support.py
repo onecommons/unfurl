@@ -801,7 +801,7 @@ class SecretResource(ExternalResource):
 
 # shortcuts for local and secret
 def shortcut(arg, ctx):
-    return Ref(dict(ref=dict(external=ctx.currentFunc), foreach=arg)).resolve(
+    return Ref(dict(ref=dict(external=ctx.currentFunc), select=arg)).resolve(
         ctx, wantList="result"
     )
 
