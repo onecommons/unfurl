@@ -3,6 +3,7 @@
 from collections.abc import Mapping, MutableSequence, MutableMapping
 from abc import ABC, abstractmethod
 from datetime import datetime, timedelta
+import logging
 from typing import Match, Optional
 import six
 import hashlib
@@ -586,9 +587,10 @@ class Results(ABC):
             else:
                 propDef._validate(value)
         except Exception as err:
-            msg = f'Error while evaluating "{key}" on "{resource.name}": {err}'
+            msg = f'Validation failure while evaluating "{key}" on "{resource.name}": {err}'
             if self.context.task:
-                UnfurlTaskError(self.context.task, msg)
+                log_level = logging.ERROR if self.context.strict else logging.DEBUG
+                UnfurlTaskError(self.context.task, msg, log_level)
             elif self.context.strict:
                 raise UnfurlError(msg, True)
             else:
