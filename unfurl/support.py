@@ -1011,10 +1011,10 @@ class AttributeManager:
             else:
                 _attributes = ChainMap(copy.deepcopy(resource._attributes))
             ctx = self._get_context(resource)
+            validate = True
             mode = os.getenv("UNFURL_VALIDATION_MODE")
-            validate = False  # XXX
-            if mode is not None:
-                validate = "propcheck" in mode
+            if mode is not None and "nopropcheck" in mode:
+                validate = False
             attributes = ResultsMap(_attributes, ctx, validate=validate)
             self.attributes[resource.key] = (resource, attributes)
             return attributes

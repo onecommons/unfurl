@@ -161,6 +161,7 @@ spec:
           null_default:
             type: string
             default: null
+            required: false
 
     topology_template:
       node_templates:
