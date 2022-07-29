@@ -11,6 +11,7 @@ from .eval import Ref, RefContext, map_value
 from .result import ResourceRef, ResultsList
 from .merge import patch_dict, merge_dicts
 from .logs import get_console_log_level
+from .support import is_template
 from toscaparser.tosca_template import ToscaTemplate
 from toscaparser.entity_template import EntityTemplate
 from toscaparser.properties import Property
@@ -46,7 +47,7 @@ toscaIsFunction = functions.is_function
 
 
 def is_function(function):
-    return toscaIsFunction(function) or Ref.is_ref(function)
+    return toscaIsFunction(function) or Ref.is_ref(function) or is_template(function)
 
 
 functions.is_function = is_function
