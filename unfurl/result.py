@@ -611,7 +611,7 @@ class Results(ABC):
             if resolved != value:
                 if self.validate:
                     self._validate(key, value)
-                # exisiting value changed
+                # existing value changed
                 result = self._attributes[key]
                 if result.original is _Get:
                     # we haven't saved the original value yet

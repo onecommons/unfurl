@@ -798,6 +798,9 @@ class EntitySpec(ResourceRef):
         # no implementations found
         return True
 
+    def validate(self):
+        pass # raise UnfurlValidationError
+
     @property
     def required(self):
         # if this template is required by another template
@@ -980,6 +983,12 @@ class NodeSpec(EntitySpec):
     @property
     def directives(self):
         return self.toscaEntityTemplate.directives
+
+    def validate(self):
+        super().validate()
+        missing = self.toscaEntityTemplate.missing_requirements
+        if missing:
+            raise UnfurlValidationError(f"Node template {self.name} is missing requirements: {','.join(missing)}")
 
 
 class RelationshipSpec(EntitySpec):

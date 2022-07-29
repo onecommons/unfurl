@@ -543,6 +543,7 @@ def _reevaluate_not_required(not_required, render_requests):
     new_not_required = []
     for (parent, request) in not_required:
         if request.include_in_plan():
+            request.target.template.validate()
             render_requests.append((parent, request))
         else:
             new_not_required.append((parent, request))
@@ -568,6 +569,7 @@ def do_render_requests(job, requests):
         if not required:
             not_required.append((parent, request))
         else:
+            request.target.template.validate()
             deps, error = _render_request(job, parent, request, flattened_requests)
             if error:
                 errors.append(error)
