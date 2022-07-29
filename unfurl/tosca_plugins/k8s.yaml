@@ -119,6 +119,7 @@ relationship_types:
           Path to an existing Kubernetes config file. If not provided, and no other connection
           options are provided, and the KUBECONFIG environment variable is not set, the default location will be used (~/.kube/config.json).
         default: { get_env: KUBECONFIG }
+        required: false
       context:
         type: string
         description: >
