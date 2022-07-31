@@ -38,9 +38,9 @@ artifact_types:
           # asdf.sh requires bash
           shell: '{{ "bash" | which }}'
           resultTemplate:
-            # update the process's PATH to the tool is available right away
+            # update the current process' PATH so that the the tool is available right away
             to_env:
-              ^PATH: '{{ lookup("env", "ASDF_DATA_DIR") }}/installs/{{ SELF.plugin}}/{{SELF.version}}/bin }}'
+              ^PATH: '{{ lookup("env", "ASDF_DATA_DIR") }}/installs/{{ SELF.file}}/{{SELF.version}}/bin }}'
             update_os_environ: true
       Standard:
         configure:
