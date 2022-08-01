@@ -186,7 +186,7 @@ class WorkFolder:
         ctx = self.task.inputs.context
         path = self.get_current_path(name)
         assert os.path.isabs(path), path
-        if self.location == Folders.artifacts:
+        if self.location == Folders.artifacts or encoding == "vault":
             yaml = None  # default yaml will encrypt if configured
         else:
             # don't encrypt files that arent' being commited to the repo
@@ -358,14 +358,20 @@ class File(ExternalValue):
 
 def _file_func(arg, ctx):
     kw = map_value(ctx.kw, ctx)
+    writing = "contents" in kw
+    encoding = map_value(kw.get("encoding"), ctx)
+    if writing and encoding != "vault":
+        yaml = cleartext_yaml
+    else:
+        yaml = ctx.currentResource.root.attributeManager.yaml
     file = File(
         map_value(arg, ctx),
         map_value(kw.get("dir", ctx.currentResource.base_dir), ctx),
         ctx.templar and ctx.templar._loader,
-        ctx.currentResource.root.attributeManager.yaml,
-        map_value(kw.get("encoding"), ctx),
+        yaml,
+        encoding,
     )
-    if "contents" in kw:
+    if writing:
         file.write(map_value(kw["contents"], ctx))
     return file
 
@@ -409,7 +415,9 @@ set_eval_func(
     lambda arg, ctx: TempFile(
         map_value(map_value(arg, ctx), ctx),  # XXX
         ctx.kw.get("suffix"),
-        ctx.currentResource.root.attributeManager.yaml,
+        ctx.currentResource.root.attributeManager.yaml
+        if ctx.kw.get("encoding") == "vault"
+        else cleartext_yaml,
         ctx.kw.get("encoding"),
     ),
 )
