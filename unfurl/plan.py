@@ -225,9 +225,14 @@ class Plan:
             or self.jobOptions.force
             or (resource.status == Status.error and initialState)
         ):
-            yield from self._run_operation(
-                NodeState.creating, "Standard.create", resource, reason, inputs
+            req = create_task_request(
+                self.jobOptions, "Standard.create", resource, reason, inputs, NodeState.creating
             )
+            if req:
+                yield req
+            else:
+                # no create operation defined, run configure instead
+                initialState = True
 
         if (
             initialState
