@@ -60,6 +60,7 @@ from .planrequests import (
     find_operation_host,
     create_instance_from_spec,
 )
+from .tosca import find_env_vars
 
 import logging
 
@@ -506,9 +507,8 @@ class TaskView:
         respectively and the operation's implementation will probably need both those set when it executes.
         """
         env = {}
-        t = lambda datatype: datatype.type == "unfurl.datatypes.EnvVar"
-        for rel in self._get_connections().by_type():  # only one per connection type
-            env.update(rel.merge_props(t, True))
+        for rel in self.connections.by_type():  # only one per connection type
+            env.update(rel.merge_props(find_env_vars, True))
 
         return env
 

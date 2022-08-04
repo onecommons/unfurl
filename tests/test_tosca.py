@@ -9,6 +9,7 @@ from unfurl.projectpaths import _get_base_dir
 from unfurl.configurator import Configurator
 from unfurl.util import sensitive_str, API_VERSION, UnfurlValidationError
 from unfurl.yamlloader import make_vault_lib
+from unfurl.tosca import find_env_vars
 import six
 from click.testing import CliRunner
 import json
@@ -57,6 +58,9 @@ spec:
             type: string
             metadata:
               sensitive: true
+              env_vars:
+                - ADDRESS
+                - PRIVATE_ADDRESS
           ports:
             type: list
             entry_schema:
@@ -189,11 +193,10 @@ class ToscaSyntaxTest(unittest.TestCase):
         ):
             assert testSensitive.template.propertyDefs[name].schema["type"] == toscaType
 
-        def t(datatype):
-            return datatype.type == "unfurl.datatypes.EnvVar"
-
-        envvars = set(testSensitive.template.find_props(testSensitive.attributes, t))
-        self.assertEqual(envvars, set([("TEST_VAR", "foo"), ("VAR1", "more")]))
+        envvars = set(find_env_vars(testSensitive.template.find_props(testSensitive.attributes)))
+        self.assertEqual(envvars, set([
+            ("TEST_VAR", "foo"), ("VAR1", "more"), 
+            ('ADDRESS', '10.0.0.1'), ('PRIVATE_ADDRESS', '10.0.0.1')]))
         outputIp = job.get_outputs()["server_ip"]
         self.assertEqual(outputIp, "10.0.0.1")
         assert isinstance(outputIp, sensitive_str), type(outputIp)

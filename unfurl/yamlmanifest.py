@@ -20,7 +20,7 @@ from .support import ResourceChanges, Defaults, Imports, Status
 from .localenv import LocalEnv
 from .lock import Lock
 from .manifest import Manifest
-from .tosca import ArtifactSpec
+from .tosca import ArtifactSpec, find_env_vars
 from .runtime import TopologyInstance
 from .eval import map_value
 from .planrequests import create_instance_from_spec
@@ -457,7 +457,7 @@ class YamlManifest(ReadOnlyManifest):
                 env = os.environ.copy()
             for rel in root.requirements:
                 t = lambda datatype: datatype.type == "unfurl.datatypes.EnvVar"
-                env.update(rel.merge_props(t, True))
+                env.update(rel.merge_props(find_env_vars, True))
             intersect_dict(os.environ, env)  # remove keys not in env
             os.environ.update(env)
             paths = self.localEnv and self.localEnv.get_paths()

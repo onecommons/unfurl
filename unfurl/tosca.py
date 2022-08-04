@@ -552,52 +552,63 @@ class ToscaSpec:
                 self.relationshipTemplates[template.name] = relTemplate
 
 
-def find_props(attributes, propertyDefs, matchfn):
+def find_env_vars(props_iter):
+    for propdef, value in props_iter:
+        datatype = propdef.entity
+        if datatype.type == "unfurl.datatypes.EnvVar":
+            yield propdef.name, value
+        elif (
+            datatype.type == "map"
+            and propdef.entry_schema_entity
+            and propdef.entry_schema_entity.type == "unfurl.datatypes.EnvVar"
+        ):
+            for key in value:
+                yield key, value[key]
+        else:
+            metadata = propdef.schema.get("metadata", {})
+            if metadata.get("env_vars"):
+                for name in metadata["env_vars"]:
+                    yield name, value
+
+
+def find_props(attributes, propertyDefs, flatten=False):
     if not attributes:
         return
     for propdef in propertyDefs.values():
         if propdef.name not in attributes:
             continue
-        match = matchfn(propdef.entry_schema_entity or propdef.entity)
-        if not propdef.entry_schema and not propdef.entity.properties:
-            # it's a simple value type
-            if match:
-                yield propdef.name, attributes[propdef.name]
-            continue
-
-        if not propdef.entry_schema:
+        if propdef.entity.properties:
             # it's complex datatype
             value = attributes[propdef.name]
-            if match:
-                yield propdef.name, value
-            elif value:
+            if value:
                 # descend into its properties
-                for name, v in find_props(value, propdef.entity.properties, matchfn):
-                    yield name, v
-            continue
-
-        properties = propdef.entry_schema_entity.properties
-        if not match and not properties:
-            # entries are simple value types and didn't match
-            continue
-
-        value = attributes[propdef.name]
-        if not value:
-            continue
-        if propdef.type == "map":
-            for key, val in value.items():
-                if match:
-                    yield key, val
-                elif properties:
-                    for name, v in find_props(val, properties, matchfn):
-                        yield name, v
-        elif propdef.type == "list":
-            for val in value:
-                if match:
-                    yield None, val
-                elif properties:
-                    for name, v in find_props(val, properties, matchfn):
-                        yield name, v
+                yield from find_props(value, propdef.entity.properties, flatten)
+            else:
+                yield propdef, value
+        elif not flatten or not propdef.entry_schema:
+            yield propdef, attributes[propdef.name]
+        else:
+            # its a list or map
+            assert propdef.entry_schema
+            properties = propdef.entry_schema_entity.properties
+            value = attributes[propdef.name]
+            if not value:
+                yield propdef, value
+                continue
+            if propdef.type == "map":
+                for key, val in value.items():
+                    if properties:
+                        # descend into its properties
+                        yield from find_props(val, properties, flatten)
+                    else:
+                        yield propdef, (key, val)
+            elif propdef.type == "list":
+                for val in value:
+                    if properties:
+                        # descend into its properties
+                        yield from find_props(val, properties, flatten)
+                    else:
+                        yield propdef, val
 
 
 # represents a node, capability or relationship
@@ -774,9 +785,8 @@ class EntitySpec(ResourceRef):
     def directives(self):
         return []
 
-    def find_props(self, attributes, matchfn):
-        for name, val in find_props(attributes, self.propertyDefs, matchfn):
-            yield name, val
+    def find_props(self, attributes):
+        yield from find_props(attributes, self.propertyDefs)
 
     @property
     def base_dir(self):
@@ -798,7 +808,7 @@ class EntitySpec(ResourceRef):
         return True
 
     def validate(self):
-        pass # raise UnfurlValidationError
+        pass  # raise UnfurlValidationError
 
     @property
     def required(self):
@@ -987,7 +997,9 @@ class NodeSpec(EntitySpec):
         super().validate()
         missing = self.toscaEntityTemplate.missing_requirements
         if missing:
-            raise UnfurlValidationError(f"Node template {self.name} is missing requirements: {','.join(missing)}")
+            raise UnfurlValidationError(
+                f"Node template {self.name} is missing requirements: {','.join(missing)}"
+            )
 
 
 class RelationshipSpec(EntitySpec):

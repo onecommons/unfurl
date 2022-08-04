@@ -630,13 +630,13 @@ class RelationshipInstance(EntityInstance):
     def merge_props(self, matchfn, delete_if_none=False):
         env = {}
         capability = self.parent
-        for name, val in capability.template.find_props(capability.attributes, matchfn):
+        for name, val in matchfn(capability.template.find_props(capability.attributes)):
             if val is None:
                 if delete_if_none:
                     env.pop(name, None)
             else:
                 env[name] = val
-        for name, val in self.template.find_props(self.attributes, matchfn):
+        for name, val in matchfn(self.template.find_props(self.attributes)):
             if val is None:
                 if delete_if_none:
                     env.pop(name, None)
