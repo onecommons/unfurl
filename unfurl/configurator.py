@@ -386,6 +386,7 @@ class TaskView:
         ] = []  # UnfurlTaskError objects appends themselves to this list
         self._inputs: Optional[ResultsMap] = None
         self._environ = None
+        self._connections = None
         self._manifest = manifest
         self.messages: List[object] = []
         self._addedResources: List[NodeInstance] = []
@@ -426,7 +427,7 @@ class TaskView:
             vars = dict(
                 inputs=inputs,
                 task=self.get_settings(),
-                connections=self._get_connections(),
+                connections=self.connections,
                 TOPOLOGY=dict(
                     inputs=target.root._attributes["inputs"],
                     outputs=target.root._attributes["outputs"],
@@ -456,6 +457,12 @@ class TaskView:
         A dictionary of the same variables that are available to expressions when evaluating inputs.
         """
         return self.inputs.context.vars
+
+    @property
+    def connections(self) -> _ConnectionsMap:
+        if self._connections is None:
+            self._connections = self._get_connections()
+        return self._connections
 
     @staticmethod
     def _get_connection(
