@@ -9,7 +9,7 @@ When a task is being evaluated the following variables are available as an `expr
 Instances are represented as a dictionary containing its properties and attributes and its `special keys`.
 
   :inputs: A dictionary containing the inputs passed to the task's operation.
-  :connections: See `connections` below.
+  :connections: See :std:ref:`Connections` below.
   :SELF: The current task's target instance.
   :HOST: The host of SELF.
   :ORCHESTRATOR: The instance Unfurl is running on (``localhost``)
@@ -45,7 +45,7 @@ doesn't need to be explicitly referenced in the ``requirements`` section of a no
 must be, but instead is applied to any target node that matches the relationship type's specification.
 
 Because credentials likely are specific to the user or machine running Unfurl
-you can define them with the ``localhost`` ensemble in :ref:`.unfurl_home<configure>` and by default they will be imported into the current ensemble. This can be explicitly specified when importing an external ensemble using the `connections` key as described in the `external ensembles` section.
+you can define them with the ``localhost`` ensemble in :ref:`.unfurl_home<configure>` and by default they will be imported into the current ensemble. This can be explicitly specified when importing an external ensemble using the :std:ref:`connections` key as described in the `external ensembles` section.
 
 As described in `Getting Started`, the ``localhost`` ensemble provides several connection relationship templates for connecting to the the most common cloud providers.
 
