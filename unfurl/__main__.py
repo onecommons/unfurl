@@ -1186,6 +1186,17 @@ def help(ctx, cmd=""):
     else:
         raise click.UsageError(f"no help found for unknown command '{cmd}'", ctx=ctx)
 
+@cli.command()
+@click.pass_context
+@click.argument("project_or_ensemble_path", default=".", type=click.Path(exists=True))
+@click.option("--port", default=8081, help="Port to listen on")
+@click.option("--address", default="localhost", help="Host to listen on")
+@click.option("--secret", envvar="UNFURL_SERVE_SECRET", help="Secret required to access the server")
+def serve(ctx, port, address, secret, project_or_ensemble_path, **options):
+    options.update(ctx.obj)
+    from .server import serve
+    serve(address, port, secret, project_or_ensemble_path, options)
+
 
 def main():
     obj = {"standalone_mode": False}

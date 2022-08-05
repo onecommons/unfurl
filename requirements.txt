@@ -15,3 +15,5 @@ itsdangerous==2.0.1 # newer version broken with moto (using old flask)
 MarkupSafe==2.0.1 # newer version broken with jinja2
 jinja2==2.11.3
 typing_extensions==4.1.1 # last version that support Python 3.6
+flask==2.2.1 # BSD 3-clause
+flask-caching==2.0.1 # BSD 3-clause
