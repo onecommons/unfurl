@@ -331,8 +331,10 @@ class _ConnectionsMap(dict):
     def by_type(self) -> ValuesView:
         # return unique connection by type
         # reverse so nearest relationships replace less specific ones that have matching names
+        # XXX why is rel sometimes a Result?
         by_type = {  # the list() is for Python 3.7
-            rel.type: rel for rel in reversed(list(self.values()))
+            rel.resolved.type if isinstance(rel, Result) else rel.type: rel
+            for rel in reversed(list(self.values()))
         }
         return by_type.values()
 
@@ -340,6 +342,7 @@ class _ConnectionsMap(dict):
         # the more specific connections are inserted first so this should find
         # the most relevant connection of the given type
         for value in self.values():
+              # XXX why is value sometimes a Result?
             if isinstance(value, Result):
                 value = value.resolved
             if (
@@ -386,7 +389,6 @@ class TaskView:
         ] = []  # UnfurlTaskError objects appends themselves to this list
         self._inputs: Optional[ResultsMap] = None
         self._environ = None
-        self._connections = None
         self._manifest = manifest
         self.messages: List[object] = []
         self._addedResources: List[NodeInstance] = []
@@ -427,7 +429,7 @@ class TaskView:
             vars = dict(
                 inputs=inputs,
                 task=self.get_settings(),
-                connections=self.connections,
+                connections=self._get_connections(),
                 TOPOLOGY=dict(
                     inputs=target.root._attributes["inputs"],
                     outputs=target.root._attributes["outputs"],
@@ -460,9 +462,7 @@ class TaskView:
 
     @property
     def connections(self) -> _ConnectionsMap:
-        if self._connections is None:
-            self._connections = self._get_connections()
-        return self._connections
+        return self.inputs.context.vars["connections"]
 
     @staticmethod
     def _get_connection(
