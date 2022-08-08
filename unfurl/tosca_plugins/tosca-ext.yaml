@@ -383,24 +383,30 @@ relationship_types:
         type: unfurl.datatypes.EnvVar
         default: { get_env: DIGITALOCEAN_TOKEN }
         metadata:
+          user_settable: true
           sensitive: true
       SPACES_ACCESS_KEY_ID:
         description: "The access key for Spaces object storage."
         type: unfurl.datatypes.EnvVar
         default: { get_env: SPACES_ACCESS_KEY_ID }
         required: false
+        metadata:
+          user_settable: true
       SPACES_SECRET_ACCESS_KEY:
         description: "The secret key for Spaces object storage."
         type: unfurl.datatypes.EnvVar
         default: { get_env: SPACES_SECRET_ACCESS_KEY }
         required: false
         metadata:
+          user_settable: true
           sensitive: true
       default_region:
         type: string
         title: Default Region
         default: nyc1
         description: "The default region to use, e.g. fra1, nyc2, etc."
+        metadata:
+          user_settable: true
 
   unfurl.relationships.ConnectsTo.Azure:
     derived_from: unfurl.relationships.ConnectsTo.CloudAccount
