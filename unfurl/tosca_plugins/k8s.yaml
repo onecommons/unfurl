@@ -35,6 +35,11 @@ node_types:
     properties:
       definition:
         type: any
+        description: Inline resource definition (string or map)
+        required: false
+      src:
+        type: string
+        description: File path to resource definition
         required: false
     attributes:
       apiResource:
@@ -73,6 +78,11 @@ node_types:
       - host:
           node: unfurl.nodes.K8sNamespace
           relationship: tosca.relationships.HostedOn
+    properties:
+      name:
+        type: string
+        default:
+          eval: .name
     attributes:
       namespace:
         type: string
@@ -97,7 +107,7 @@ capability_types:
     derived_from: tosca.capabilities.Endpoint.Admin
     description: >
       Capability to connect to a K8sCluster. See unfurl.relationships.ConnectsTo.K8sCluster
-      for the semantics of its "secure" and "credential" properties.
+      for the semantics of its "insecure" and "credential" properties.
     properties:
       protocol:
         type: string
@@ -113,6 +123,10 @@ relationship_types:
     derived_from: tosca.relationships.ConnectsTo
     valid_target_types: [unfurl.capabilities.Endpoint.K8sCluster]
     properties:
+      name:
+        title: Cluster name
+        type: string
+        required: false
       KUBECONFIG:
         type: unfurl.datatypes.EnvVar
         description: >
@@ -125,11 +139,41 @@ relationship_types:
         description: >
           The name of a context found in the config file. If not set the current-context will be used.
         required: false
-      secure:
+        metadata:
+          user_settable: false
+          env_vars:
+            - KUBE_CTX
+      cluster_ca_certificate:
+        type: string
+        title: CA certificate
+        metadata:
+          sensitive: true
+          user_settable: true
+          env_vars:
+          - KUBE_CLUSTER_CA_CERT_DATA
+        description: >
+            PEM-encoded root certificates bundle for TLS authentication
+        default: { get_env: KUBE_CLUSTER_CA_CERT_DATA }
+        required: false
+      insecure:
         type: boolean
         description: >
-          If false, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
-        default: true
+          If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+        metadata:
+          user_settable: true
+          env_vars:
+          - KUBE_INSECURE
+        default: false
+      token:
+        type: unfurl.datatypes.EnvVar
+        title: Authentication Token
+        metadata:
+          sensitive: true
+          user_settable: true
+          env_vars:
+          - KUBE_TOKEN
+        description: Token of your service account.
+        required: false
       credential:
         description: >
           token_type is either "api_key" or "password" (default is "password")
@@ -142,15 +186,21 @@ relationship_types:
         metadata:
           sensitive: true
       namespace:
-        description: The namespace scope to use, if needed
+        description: The default namespace scope to use
         required: false
         type: string
       api_server:
+        title: Kubernetes Cluster API Base URL
         description: The address and port of the Kubernetes API server
         required: false
         type: string
         default:
           eval: .target::api_server
+        metadata:
+          sensitive: true
+          user_settable: true
+          env_vars:
+          - KUBE_HOST
       as:
         description: Username to impersonate for the operation
         required: false

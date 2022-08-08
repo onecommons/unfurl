@@ -5,6 +5,7 @@ import codecs
 import re
 from ..configurator import Configurator, Status
 from ..runtime import RelationshipInstance
+from ..util import save_to_tempfile
 from .ansible import AnsibleConfigurator
 import json
 from ansible_collections.kubernetes.core.plugins.module_utils.common import (
@@ -13,8 +14,9 @@ from ansible_collections.kubernetes.core.plugins.module_utils.common import (
 
 
 def _get_connection_config(instance, cluster):
-    # see https://docs.ansible.com/ansible/latest/modules/k8s_module.html#k8s-module
+    # https://docs.ansible.com/ansible/latest/collections/kubernetes/core/k8s_module.html
     #  for connection settings
+    # https://github.com/ansible-collections/kubernetes.core/blob/7f7008fecc9e5d16340e9b0bff510b7cde2f2cfd/plugins/connection/kubectl.py
     if not instance:
         return {}
     connect = {}
@@ -48,7 +50,6 @@ def _get_connection_config(instance, cluster):
     map1 = {
         "KUBECONFIG": "kubeconfig",
         "context": "context",
-        "secure": "verify_ssl",
         "namespace": "namespace",
     }
     # relationship overrides capability
@@ -57,6 +58,8 @@ def _get_connection_config(instance, cluster):
             if key in attributes:
                 connection[value] = attributes[key]
 
+        if "insecure" in attributes:
+            connection["verify_ssl"] = not not attributes["insecure"]
         credential = attributes.get("credential")
         if credential:
             if credential.get("token_type") in ["api_key", "password"]:
@@ -67,6 +70,15 @@ def _get_connection_config(instance, cluster):
                 # ["ssl_ca_cert", "cert_file", "key_file"]
                 connection.update(credential["keys"])
 
+        if attributes.get("token"):
+            connection["api_key"] = attributes["token"]
+
+        if "ssl_ca_cert" not in connection and attributes.get(
+            "cluster_ca_certificate"
+        ):
+            connection["ssl_ca_cert"] = save_to_tempfile(
+                attributes["cluster_ca_certificate"], ".crt"
+            ).name
     return connection
 
 
@@ -116,8 +128,6 @@ class ResourceConfigurator(AnsibleConfigurator):
     def dry_run(self, task):
         # XXX don't use print()
         print("generating playbook")
-        # print(self.findPlaybook(task))
-        # print(self.findPlaybook(task))
         print(json.dumps(self.find_playbook(task), indent=4))
         yield task.done(True)
 
