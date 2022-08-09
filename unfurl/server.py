@@ -6,7 +6,8 @@ from unfurl.localenv import LocalEnv
 
 
 flaskConfig = {
-    "CACHE_TYPE": "simple", # Use in-memory caching, see https://flask-caching.readthedocs.io/en/latest/#built-in-cache-backends for more options
+    # Use in-memory caching, see https://flask-caching.readthedocs.io/en/latest/#built-in-cache-backends for more options
+    "CACHE_TYPE": "simple", 
 }
 unfurlConfig = {}
 
@@ -25,11 +26,12 @@ def hook():
     if secret is None: # No secret specified, no authentication required
         return
 
-    qs_secret = request.args.get("secret")
-    header_secret = request.headers.get('Authorization')
+    qs_secret = request.args.get("secret") # Get secret from query string
+    header_secret = request.headers.get('Authorization') # Get secret from Authorization header
     if header_secret is not None:
         try:
-            header_secret.split(' ')[1]
+            # Remove "Bearer " from header
+            header_secret = header_secret.split(' ')[1]
         except IndexError: # Quick sanity check to make sure the header is formatted correctly
             return jsonify({
                 "code": "BAD_REQUEST",
@@ -93,5 +95,4 @@ def serve(
     unfurlConfig["secret"] = secret
     unfurlConfig["options"] = options
     unfurlConfig["ensemble_path"] = project_or_ensemble_path
-
     app.run(host=host, port=port)
