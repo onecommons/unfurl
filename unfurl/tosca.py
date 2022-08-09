@@ -6,7 +6,7 @@ TOSCA implementation
 import functools
 import copy
 from .tosca_plugins import TOSCA_VERSION
-from .util import UnfurlError, UnfurlValidationError, get_base_dir, check_class_registry
+from .util import UnfurlError, UnfurlValidationError, get_base_dir, check_class_registry, env_var_value
 from .eval import Ref, RefContext, map_value
 from .result import ResourceRef, ResultsList
 from .merge import patch_dict, merge_dicts
@@ -555,20 +555,23 @@ class ToscaSpec:
 def find_env_vars(props_iter):
     for propdef, value in props_iter:
         datatype = propdef.entity
+        if value is None:
+            continue
         if datatype.type == "unfurl.datatypes.EnvVar":
-            yield propdef.name, value
+            yield propdef.name, env_var_value(value)
         elif (
             datatype.type == "map"
             and propdef.entry_schema_entity
             and propdef.entry_schema_entity.type == "unfurl.datatypes.EnvVar"
         ):
-            for key in value:
-                yield key, value[key]
+            for key, item in value.items():
+                if item is not None:
+                    yield key, env_var_value(item)
         else:
             metadata = propdef.schema.get("metadata", {})
             if metadata.get("env_vars"):
                 for name in metadata["env_vars"]:
-                    yield name, value
+                    yield name, env_var_value(value)
 
 
 def find_props(attributes, propertyDefs, flatten=False):

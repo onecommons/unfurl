@@ -624,7 +624,7 @@ def substitute_env(contents, env=None):
     return re.sub(r"(\\+)?\$\{([\w|]+)(\:.+?)?\}", replace, contents)
 
 
-def _env_var_value(val, sub=None):
+def env_var_value(val, sub=None):
     if isinstance(val, bool):
         return val and "true" or ""
     sensitive = is_sensitive(val)
@@ -698,9 +698,9 @@ def filter_env(
                         match = {k: (val + os.pathsep + v) for k, v in match.items()}
                     start.update(match)
                 elif val is not None:  # name isn't in existing, use default is set
-                    start[name] = _env_var_value(val)
+                    start[name] = env_var_value(val)
         elif val is not None:  # don't set if val is None
-            start[name] = _env_var_value(val)
+            start[name] = env_var_value(val)
     return start
 
 
