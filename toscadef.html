@@ -1520,24 +1520,30 @@ group_types:
         <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvVar</span>
         <span class="n">default</span><span class="p">:</span> <span class="p">{</span> <span class="n">get_env</span><span class="p">:</span> <span class="n">DIGITALOCEAN_TOKEN</span> <span class="p">}</span>
         <span class="n">metadata</span><span class="p">:</span>
+          <span class="n">user_settable</span><span class="p">:</span> <span class="n">true</span>
           <span class="n">sensitive</span><span class="p">:</span> <span class="n">true</span>
       <span class="n">SPACES_ACCESS_KEY_ID</span><span class="p">:</span>
         <span class="n">description</span><span class="p">:</span> <span class="s2">&quot;The access key for Spaces object storage.&quot;</span>
         <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvVar</span>
         <span class="n">default</span><span class="p">:</span> <span class="p">{</span> <span class="n">get_env</span><span class="p">:</span> <span class="n">SPACES_ACCESS_KEY_ID</span> <span class="p">}</span>
         <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
+        <span class="n">metadata</span><span class="p">:</span>
+          <span class="n">user_settable</span><span class="p">:</span> <span class="n">true</span>
       <span class="n">SPACES_SECRET_ACCESS_KEY</span><span class="p">:</span>
         <span class="n">description</span><span class="p">:</span> <span class="s2">&quot;The secret key for Spaces object storage.&quot;</span>
         <span class="nb">type</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">EnvVar</span>
         <span class="n">default</span><span class="p">:</span> <span class="p">{</span> <span class="n">get_env</span><span class="p">:</span> <span class="n">SPACES_SECRET_ACCESS_KEY</span> <span class="p">}</span>
         <span class="n">required</span><span class="p">:</span> <span class="n">false</span>
         <span class="n">metadata</span><span class="p">:</span>
+          <span class="n">user_settable</span><span class="p">:</span> <span class="n">true</span>
           <span class="n">sensitive</span><span class="p">:</span> <span class="n">true</span>
       <span class="n">default_region</span><span class="p">:</span>
         <span class="nb">type</span><span class="p">:</span> <span class="n">string</span>
         <span class="n">title</span><span class="p">:</span> <span class="n">Default</span> <span class="n">Region</span>
         <span class="n">default</span><span class="p">:</span> <span class="n">nyc1</span>
         <span class="n">description</span><span class="p">:</span> <span class="s2">&quot;The default region to use, e.g. fra1, nyc2, etc.&quot;</span>
+        <span class="n">metadata</span><span class="p">:</span>
+          <span class="n">user_settable</span><span class="p">:</span> <span class="n">true</span>
 
   <span class="n">unfurl</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">ConnectsTo</span><span class="o">.</span><span class="n">Azure</span><span class="p">:</span>
     <span class="n">derived_from</span><span class="p">:</span> <span class="n">unfurl</span><span class="o">.</span><span class="n">relationships</span><span class="o">.</span><span class="n">ConnectsTo</span><span class="o">.</span><span class="n">CloudAccount</span>
