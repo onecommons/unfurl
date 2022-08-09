@@ -625,6 +625,8 @@ def substitute_env(contents, env=None):
 
 
 def env_var_value(val, sub=None):
+    if val is None:
+        return None
     if isinstance(val, bool):
         return val and "true" or ""
     sensitive = is_sensitive(val)

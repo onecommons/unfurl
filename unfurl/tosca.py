@@ -555,8 +555,6 @@ class ToscaSpec:
 def find_env_vars(props_iter):
     for propdef, value in props_iter:
         datatype = propdef.entity
-        if value is None:
-            continue
         if datatype.type == "unfurl.datatypes.EnvVar":
             yield propdef.name, env_var_value(value)
         elif (
@@ -564,8 +562,8 @@ def find_env_vars(props_iter):
             and propdef.entry_schema_entity
             and propdef.entry_schema_entity.type == "unfurl.datatypes.EnvVar"
         ):
-            for key, item in value.items():
-                if item is not None:
+            if value:
+                for key, item in value.items():
                     yield key, env_var_value(item)
         else:
             metadata = propdef.schema.get("metadata", {})
