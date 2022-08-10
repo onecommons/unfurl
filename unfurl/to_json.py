@@ -13,6 +13,7 @@ Output a normalized json representation of a TOSCA service template for machine 
 import re
 import os
 import sys
+import itertools
 from typing import Any, Dict, List, Optional, Union, cast, TYPE_CHECKING
 from collections import Counter
 from toscaparser.properties import Property
@@ -150,6 +151,18 @@ def get_valuetype(dt, metadata):
     while dt.value_type not in VALUE_TYPES:
         dt = dt.parent_type()
     return _get_valuetype_schema(dt.value_Type, metadata), schema
+
+
+def get_simple_valuetype(tosca_type, custom_defs):
+    if tosca_type in VALUE_TYPES:
+        return tosca_type
+    else:
+        dt = DataType(tosca_type, custom_defs)
+        if not dt.value_type:
+            return None  # its a complex data type
+        while dt.value_type not in VALUE_TYPES:
+            dt = dt.parent_type()
+        return dt.value_type
 
 
 def get_scalar_unit(value_type, metadata):
@@ -849,6 +862,34 @@ def _template_title(spec, default):
     return title, slug
 
 
+def _generate_env_names_from_type(reqname, type_definition, custom_defs):
+    for propdef in itertools.chain(type_definition.get_properties_def_objects(),
+                                   type_definition.get_attributes_def_objects()):
+        if propdef.name in ["tosca_id", "state", "tosca_name"]:
+            continue
+        simple_type = get_simple_valuetype(propdef.schema['type'], custom_defs)
+        if simple_type and VALUE_TYPES[simple_type].get("type") in ["string", "boolean", "number"]:
+            yield f"{reqname}_{propdef.name.upper()}"
+
+
+def _generate_env_names(spec, root_name):
+    primary = spec.nodeTemplates[root_name]
+    custom_defs = spec.template.topology_template.custom_defs
+    primary_type = primary.toscaEntityTemplate.type_definition
+    yield from _generate_env_names_from_type("APP", primary_type, custom_defs)
+    # primary.toscaEntityTemplate.type_definition
+    for req in primary_type.get_all_requirements():
+        # get the target type
+        req_json = requirement_to_graphql(spec, req)
+        if not req_json:
+            continue
+        name = req_json["name"]
+        target_type = req_json["resourceType"]
+        typedef = _make_typedef(target_type, custom_defs)
+        assert typedef, target_type
+        yield from _generate_env_names_from_type(name.upper(), typedef, custom_defs)
+
+
 def get_deployment_blueprints(manifest, blueprint, root_name, db):
     """
     The blueprint will include deployement blueprints that follows this syntax in the manifest:
@@ -878,6 +919,7 @@ def get_deployment_blueprints(manifest, blueprint, root_name, db):
       primary: ResourceTemplate!
       resourceTemplates: [ResourceTemplate!]
       cloud: ResourceType
+      environmentVariableNames: [String!]
     }
     """
     deployment_blueprints = (
@@ -905,6 +947,8 @@ def get_deployment_blueprints(manifest, blueprint, root_name, db):
         resourceTemplates = list(
             set(db["ResourceTemplate"]) | set(local_resource_templates)
         )
+        primary = tpl.get("primary") or root_name
+        env_vars = list(_generate_env_names(spec, primary))
         template.update(
             dict(
                 __typename="DeploymentTemplate",
@@ -913,9 +957,10 @@ def get_deployment_blueprints(manifest, blueprint, root_name, db):
                 name=name,
                 slug=slug,
                 blueprint=blueprint["name"],
-                primary=tpl.get("primary") or root_name,
+                primary=primary,
                 resourceTemplates=resourceTemplates,
                 ResourceTemplate=local_resource_templates,
+                environmentVariableNames=env_vars
             )
         )
         deployment_templates[name] = template
@@ -950,6 +995,7 @@ def get_blueprint_from_topology(manifest, db):
             )
     template["blueprint"] = blueprint["name"]
     template["primary"] = root_name
+    template["environmentVariableNames"] = list(_generate_env_names(spec, root_name))
     return blueprint, template
 
 

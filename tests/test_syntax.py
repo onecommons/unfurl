@@ -3,7 +3,7 @@ import json
 import os.path
 from unfurl.yamlmanifest import YamlManifest
 from unfurl.util import UnfurlError
-from unfurl.to_json import to_graphql
+from unfurl.to_json import to_deployment
 from unfurl.localenv import LocalEnv
 
 
@@ -14,11 +14,19 @@ def test_jsonexport():
     # loads yaml with with a json include
     local = LocalEnv(basepath + "include-json-ensemble.yaml")
     # verify to_graphql is working as expected
-    jsonExport = to_graphql(local)[0]
+    jsonExport = to_deployment(local)
     with open(basepath + "include-json.json") as f:
-        expected = json.load(f)["ResourceTemplate"]
-        # print(json.dumps(jsonExport["ResourceTemplate"], indent=2))
-        assert jsonExport["ResourceTemplate"] == expected
+        expected = json.load(f)
+        # print(json.dumps(jsonExport, indent=2))
+        assert jsonExport["ResourceTemplate"] == expected["ResourceTemplate"]
+        assert jsonExport["DeploymentTemplate"]["unnamed"]["environmentVariableNames"] == [
+                                                  "APP_IMAGE",
+                                                  "APP_DOMAIN",
+                                                  "HOST_CPUS",
+                                                  "HOST_MEMORY",
+                                                  "HOST_STORAGE"
+                                                ]
+ 
     # XXX verify that saving the manifest preserves the json include
 
 
