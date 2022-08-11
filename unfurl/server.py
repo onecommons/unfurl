@@ -6,12 +6,12 @@ import uvicorn
 from unfurl.localenv import LocalEnv
 
 
-flaskConfig = {
+flask_config = {
     # Use in-memory caching, see https://flask-caching.readthedocs.io/en/latest/#built-in-cache-backends for more options
     "CACHE_TYPE": "simple", 
 }
 app = Flask(__name__)
-app.config.from_mapping(flaskConfig)
+app.config.from_mapping(flask_config)
 cache = Cache(app)
 
 @app.before_request
@@ -52,23 +52,23 @@ def health():
 @app.route("/export")
 @cache.cached(query_string=True) # Ensure that the request cached includes the query string (the response differs between different formats)
 def export():
-    format = request.args.get("format", "deployment")
-    if format not in ["blueprint", "environments", "deployment"]:
+    requested_format = request.args.get("format", "deployment")
+    if requested_format not in ["blueprint", "environments", "deployment"]:
         return jsonify({
             "code": "BAD_REQUEST",
             "message": "Query parameter 'format' must be one of 'blueprint', 'environments' or 'deployment'"
         }), 400 # BAD_REQUEST
 
     from . import to_json
-    localEnv = LocalEnv(
+    local_env = LocalEnv(
         current_app.config["UNFURL_ENSEMBLE_PATH"],
         current_app.config["UNFURL_OPTIONS"].get("home"),
         override_context=current_app.config["UNFURL_OPTIONS"].get("use_environment"),
     )
-    exporter = getattr(to_json, "to_" + format)
-    jsonSummary = exporter(localEnv)
+    exporter = getattr(to_json, "to_" + requested_format)
+    json_summary = exporter(local_env)
 
-    return jsonify(jsonSummary)
+    return jsonify(json_summary)
 
 
 def serve(
