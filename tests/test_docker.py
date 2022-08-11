@@ -3,9 +3,10 @@ import os
 import pickle
 from unfurl.yamlmanifest import YamlManifest
 from unfurl.job import Runner, JobOptions
+from unfurl.support import Status
 import toscaparser.repositories
 from pathlib import Path
-from .utils import isolated_lifecycle, DEFAULT_STEPS
+from .utils import isolated_lifecycle, DEFAULT_STEPS, Step
 
 manifest = """
 apiVersion: unfurl/v1alpha1
@@ -22,7 +23,7 @@ spec:
            user: a_user
            token: a_password
     topology_template:
-      node_templates:
+      node_templates:      
         container1:
           type: unfurl.nodes.Container.Application.Docker
           properties:
@@ -38,6 +39,7 @@ spec:
                   command: ["echo", "hello"]
                   detach:  no
                   output_logs: yes
+
         test1:
           type: tosca.nodes.Root
           artifacts:
@@ -150,6 +152,17 @@ class DockerTest(unittest.TestCase):
         registry = tasks[0].result.outputs.get("registry")
         assert registry and isinstance(registry, toscaparser.repositories.Repository)
         assert not run1.unexpectedAbort, run1.unexpectedAbort.get_stack_trace()
+
+    def test_environment(self):
+        src_path = str(Path(__file__).parent / "examples" / "docker-ensemble.yaml")
+        jobs = list(
+            isolated_lifecycle(
+                src_path,
+                steps=[Step("plan", Status.ok)],
+            )
+        )
+        env = jobs[0].rootResource.find_instance("container1").attributes['container']['environment']
+        assert env == {'FOO': '1', 'BAR': '1', 'PASSWORD': 'test'}
 
     def test_lifecycle(self):
         src_path = str(Path(__file__).parent / "examples" / "docker-ensemble.yaml")

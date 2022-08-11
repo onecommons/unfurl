@@ -522,12 +522,13 @@ a_dict:
               QUU: # redacted when serialized into yaml
                 eval:
                   sensitive: "passw0rd"
+              SUB: "${FOO}"
           """
         yaml = make_yaml()
         expr = yaml.load(six.StringIO(src))
         ctx = RefContext(self._getTestResource())
         env = map_value(expr, ctx)
-        assert env == {'FOO': '1', 'BAR': '', 'BAZ': 'true', 'QUU': 'passw0rd'}
+        assert env == {'FOO': '1', 'BAR': '', 'BAZ': 'true', 'QUU': 'passw0rd', "SUB": "1"}
         out=six.StringIO()
         yaml.dump(serialize_value(env), out)
         assert out.getvalue() == '''\
@@ -535,6 +536,7 @@ FOO: '1'
 BAR: ''
 BAZ: 'true'
 QUU: <<REDACTED>>
+SUB: '1'
 '''
 
     def test_to_env_set_environ(self):

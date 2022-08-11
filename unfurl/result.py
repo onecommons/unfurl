@@ -21,6 +21,8 @@ from .util import (
 )
 from .logs import sensitive
 
+logger = logging.getLogger("unfurl")
+
 
 def _get_digest(value, kw):
     getter = getattr(value, "__digestable__", None)
@@ -78,7 +80,8 @@ def serialize_value(value, **kw):
 
 class ResourceRef(ABC):
 
-    parent = None  # parent must be defined by subclass
+    parent = None  # must be defined by subclass
+    template = None
 
     @abstractmethod
     def _resolve(self, key):
@@ -477,7 +480,7 @@ class Results(ABC):
     def resolve_all(self):
         ...
 
-    def __init__(self, serializedOriginal, resourceOrCxt, validate=False):
+    def __init__(self, serializedOriginal, resourceOrCxt, validate=False, defs=None):
         from .eval import RefContext
 
         assert not isinstance(serializedOriginal, Results), serializedOriginal
@@ -495,7 +498,12 @@ class Results(ABC):
             ctx.base_dir = newBaseDir
             ctx.trace("found baseDir", newBaseDir, "old", oldBaseDir)
         self.context = ctx
+        resource = ctx.currentResource
         self.validate = validate
+        if defs is None:
+            self.defs = resource.template and resource.template.propertyDefs or {}
+        else:
+            self.defs = defs
 
     def get_copy(self, key, default=None):
         # return a copy of value or default if not found
@@ -507,7 +515,7 @@ class Results(ABC):
             return default
 
     @staticmethod
-    def _map_value(val, context, applyTemplates=True):
+    def _map_value(val, context, applyTemplates=True, defs=None):
         "Recursively and lazily resolves any references in a value"
         from .eval import map_value, Ref
 
@@ -518,9 +526,13 @@ class Results(ABC):
         elif isinstance(val, sensitive):
             return val
         elif isinstance(val, Mapping):
-            return ResultsMap(val, context)
+            # already validated
+            # always explicitly set defs
+            return ResultsMap(val, context, False, defs or {})
         elif isinstance(val, list):
-            return ResultsList(val, context)
+            # already validated
+            # always explicitly set defs
+            return ResultsList(val, context, False, defs or {})
         else:
             # at this point, just evaluates templates in strings or returns val
             return map_value(val, context.copy(wantList="result"), applyTemplates)
@@ -556,12 +568,15 @@ class Results(ABC):
             else:
                 # lazily evaluate lists and dicts
                 self.context.trace("Results._mapValue", val)
-                resolved = self._map_value(val, self.context, self.applyTemplates)
+                defs = self.get_datatype_defs(key)
+                resolved = self._map_value(val, self.context, self.applyTemplates, defs)
             # will return a Result if val was an expression that was evaluated
             if isinstance(resolved, Result):
                 result = resolved
+                result.resolved = self._transform(key, result.resolved)
                 resolved = result.resolved
             else:
+                resolved = self._transform(key, resolved)
                 result = Result(resolved)
             result.original = _Get
             if isinstance(resolved, MutableSequence) and resolved:
@@ -572,12 +587,30 @@ class Results(ABC):
             assert not isinstance(resolved, Result), val
             return result
 
+    def get_datatype_defs(self, key):
+        property = self.defs.get(key)
+        if property:
+            return property.entity.properties
+        return None
+
+    def _transform(self, key, value):
+        from .eval import map_value
+
+        property = self.defs.get(key)
+        if property:
+            transform = property.schema.metadata.get("transform")
+            if transform:
+                logger.debug(
+                    "running transform on %s.%s", self.context.currentResource.name, key
+                )
+                return map_value(transform, self.context.copy(vars=dict(value=value)))
+        return value
+
     def _validate(self, key, value):
-        resource = self.context.currentResource
-        defs = resource.template and resource.template.propertyDefs or {}
-        propDef = defs.get(key)
+        propDef = self.defs.get(key)
         if not propDef:
             return
+        resource = self.context.currentResource
         try:
             if value is None:
                 # required attributes might be null depending on the state of the resource

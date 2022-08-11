@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     from unfurl.job import ConfigTask
 
 
-from .support import Status, ResourceChanges, Priority, TopologyMap
+from .support import Status, ResourceChanges, Priority, get_context_vars
 from .result import (
     ChangeRecord,
     ResultsList,
@@ -426,22 +426,18 @@ class TaskView:
                 target = self.target
             HOST = (target.parent or target).attributes
             ORCHESTRATOR = target.root.find_instance_or_external("localhost")
-            vars = dict(
+            vars = get_context_vars(target)
+            vars.update(dict(
                 inputs=inputs,
                 task=self.get_settings(),
                 connections=self._get_connections(),
-                TOPOLOGY=dict(
-                    inputs=target.root._attributes["inputs"],
-                    outputs=target.root._attributes["outputs"],
-                ),
-                NODES=TopologyMap(target.root),
                 SELF=self.target.attributes,
                 HOST=HOST,
                 ORCHESTRATOR=ORCHESTRATOR and ORCHESTRATOR.attributes or {},
                 OPERATION_HOST=self.operation_host
                 and self.operation_host.attributes
                 or {},
-            )
+            ))
             if relationship:
                 if self.target.source:
                     vars["SOURCE"] = self.target.source.attributes  # type: ignore
@@ -851,7 +847,7 @@ class TaskView:
 
     def _parse_instances_tpl(
         self, instances: Union[str, Mapping, MutableSequence]
-    ) -> Union[Tuple[None, UnfurlTaskError], Tuple[MutableSequence, None]]:
+    ) -> Tuple[Optional[List[Mapping]], Optional[UnfurlTaskError]]:
         if isinstance(instances, six.string_types):
             try:
                 instances = yaml.load(instances)
@@ -873,11 +869,13 @@ class TaskView:
     # # through capability attributes and dependencies/relationship attributes
     def update_instances(
         self, instances: Union[str, List]
-    ) -> Union[Tuple[JobRequest, List], Tuple[None, List]]:
+    ) -> Tuple[Optional[JobRequest], List[UnfurlTaskError]]:
         """Notify Unfurl of new or changes to instances made while the configurator was running.
 
         Operational status indicates if the instance currently exists or not.
         This will queue a new child job if needed.
+
+        To run the job based on the supplied spec immediately, yield the returned JobRequest.
 
         .. code-block:: YAML
 
@@ -896,9 +894,6 @@ class TaskView:
         Args:
           instances (list or str): Either a list or string that is parsed as YAML.
 
-        Returns:
-          :class:`JobRequest`: To run the job based on the supplied spec
-              immediately, yield the returned JobRequest.
         """
         instances, err = self._parse_instances_tpl(instances)  # type: ignore
         if err:
@@ -935,7 +930,7 @@ class TaskView:
                 # XXX
                 # if resource.required or resourceSpec.get("dependent"):
                 #    self.add_dependency(resource, required=resource.required)
-            except:
+            except Exception:
                 errors.append(
                     UnfurlAddingResourceError(self, originalResourceSpec, rname)
                 )
