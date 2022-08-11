@@ -1,5 +1,5 @@
 import click
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, current_app
 from flask_caching import Cache
 import uvicorn
 
@@ -10,8 +10,6 @@ flaskConfig = {
     # Use in-memory caching, see https://flask-caching.readthedocs.io/en/latest/#built-in-cache-backends for more options
     "CACHE_TYPE": "simple", 
 }
-unfurlConfig = {}
-
 app = Flask(__name__)
 app.config.from_mapping(flaskConfig)
 cache = Cache(app)
@@ -23,7 +21,7 @@ def hook():
     Secret can be in the secret query parameter (localhost:8080/health?secret=<secret>) or as an
     Authorization bearer token (Authorization=Bearer <secret>).
     """
-    secret = unfurlConfig["secret"]
+    secret = current_app.config["UNFURL_SECRET"]
     if secret is None: # No secret specified, no authentication required
         return
 
@@ -61,12 +59,11 @@ def export():
             "message": "Query parameter 'format' must be one of 'blueprint', 'environments' or 'deployment'"
         }), 400 # BAD_REQUEST
 
-    # TODO: Check cache
     from . import to_json
     localEnv = LocalEnv(
-        unfurlConfig["ensemble_path"],
-        unfurlConfig["options"].get("home"),
-        override_context=unfurlConfig["options"].get("use_environment"),
+        current_app.config["UNFURL_ENSEMBLE_PATH"],
+        current_app.config["UNFURL_OPTIONS"].get("home"),
+        override_context=current_app.config["UNFURL_OPTIONS"].get("use_environment"),
     )
     exporter = getattr(to_json, "to_" + format)
     jsonSummary = exporter(localEnv)
@@ -90,9 +87,9 @@ def serve(
         project_or_ensemble_path (click.Path): The path of the ensemble or project to base requests on
         options (dict): Additional options to pass to the server (as passed to the unfurl CLI)
     """
-    unfurlConfig["secret"] = secret
-    unfurlConfig["options"] = options
-    unfurlConfig["ensemble_path"] = project_or_ensemble_path
+    app.config["UNFURL_SECRET"] = secret
+    app.config["UNFURL_OPTIONS"] = options
+    app.config["UNFURL_ENSEMBLE_PATH"] = project_or_ensemble_path
 
     # Start one WSGI server
     uvicorn.run(app, host=host, port=port, interface="wsgi", log_level="info")
