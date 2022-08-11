@@ -1,6 +1,7 @@
 import click
 from flask import Flask, request, jsonify
 from flask_caching import Cache
+import uvicorn
 
 from unfurl.localenv import LocalEnv
 
@@ -89,10 +90,11 @@ def serve(
         project_or_ensemble_path (click.Path): The path of the ensemble or project to base requests on
         options (dict): Additional options to pass to the server (as passed to the unfurl CLI)
     """
-    # TODO: This is a not production server by any means.
-    # See https://github.com/pallets/flask/tree/main/docs/deploying for
-    # production deployment instructions.
     unfurlConfig["secret"] = secret
     unfurlConfig["options"] = options
     unfurlConfig["ensemble_path"] = project_or_ensemble_path
-    app.run(host=host, port=port)
+
+    # Start one WSGI server
+    uvicorn.run(app, host=host, port=port, interface="wsgi", log_level="info")
+
+    # app.run(host=host, port=port)
