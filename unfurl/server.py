@@ -1,10 +1,13 @@
+import os
+from urllib.parse import unquote
+
 import click
-from flask import Flask, request, jsonify, current_app
-from flask_caching import Cache
 import uvicorn
+from flask import Flask, current_app, jsonify, request
+from flask_caching import Cache
 
+from unfurl.repo import Repo
 from unfurl.localenv import LocalEnv
-
 
 flask_config = {
     # Use in-memory caching, see https://flask-caching.readthedocs.io/en/latest/#built-in-cache-backends for more options
@@ -58,10 +61,40 @@ def export():
             "code": "BAD_REQUEST",
             "message": "Query parameter 'format' must be one of 'blueprint', 'environments' or 'deployment'"
         }), 400 # BAD_REQUEST
+    
+    # Default to exporting the ensemble provided to the server on startup
+    path = current_app.config["UNFURL_ENSEMBLE_PATH"]
+
+    clone_root = current_app.config["UNFURL_CLONE_ROOT"]
+
+    # If asking for external repository
+    if request.args.get("url") is not None:
+        git_url = unquote(request.args.get("url")) # Unescape the URL
+        repo = LocalEnv(current_app.config["UNFURL_ENSEMBLE_PATH"], can_be_empty=True).find_git_repo(git_url)
+
+        # Repo doesn't exists, clone it
+        if not repo:
+            from . import init
+            init.clone(
+                git_url, 
+                clone_root + Repo.get_path_for_git_repo(git_url) + '/', 
+                empty=True,
+                var=(
+                    ['UNFURL_CLOUD_VARS_URL', request.args.get('cloud_vars_url')],
+                ),
+            )
+            repo = LocalEnv(clone_root + Repo.get_path_for_git_repo(git_url), can_be_empty=True).find_git_repo(git_url)
+
+        deployment_path = request.args.get("deployment_path")
+        if deployment_path:
+            path = os.path.join(repo.working_dir, deployment_path)
+        else:
+            path = repo.working_dir
+
 
     from . import to_json
     local_env = LocalEnv(
-        current_app.config["UNFURL_ENSEMBLE_PATH"],
+        path,
         current_app.config["UNFURL_OPTIONS"].get("home"),
         override_context=current_app.config["UNFURL_OPTIONS"].get("use_environment"),
     )
@@ -75,6 +108,7 @@ def serve(
     host: str,
     port: int,
     secret: str,
+    clone_root: str,
     project_or_ensemble_path: click.Path,
     options: dict,
 ):
@@ -84,11 +118,13 @@ def serve(
         host (str): Which host to bind to (0.0.0.0 will allow external connections)
         port (int): Port to listen to (defaults to 8080)
         secret (str): The secret to use to authenticate requests
+        clone_root (str): The root directory to clone all repositories into
         project_or_ensemble_path (click.Path): The path of the ensemble or project to base requests on
         options (dict): Additional options to pass to the server (as passed to the unfurl CLI)
     """
     app.config["UNFURL_SECRET"] = secret
     app.config["UNFURL_OPTIONS"] = options
+    app.config["UNFURL_CLONE_ROOT"] = clone_root
     app.config["UNFURL_ENSEMBLE_PATH"] = project_or_ensemble_path
 
     # Start one WSGI server
