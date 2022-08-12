@@ -38,7 +38,7 @@ class TestServer(unittest.TestCase):
                 f.write(manifest)
 
             # server.serve('localhost', 8081, 'secret', 'ensemble', {})
-            p = Process(target=server.serve, args=('localhost', 8081, 'secret', f'{tmpdir}', {}))
+            p = Process(target=server.serve, args=('localhost', 8081, 'secret', '.', f'{tmpdir}', {}))
             p.start()
             self.server_process = p
 
@@ -81,7 +81,7 @@ class TestServer(unittest.TestCase):
 
     def test_server_export(self):
         with self.runner.isolated_filesystem() as tmpdir:
-            p = Process(target=server.serve, args=('localhost', 8082, None, f'{tmpdir}', {"home": ''}))
+            p = Process(target=server.serve, args=('localhost', 8082, None, '.', f'{tmpdir}', {"home": ''}))
             p.start()
             for _ in range(5):
                 time.sleep(0.2)
