@@ -12,7 +12,18 @@ spec:
           user: a_user
           token: a_password
     topology_template:
+      substitution_mappings:
+        node: the_app
       node_templates:
+        the_app:
+          type: tosca:Root
+          metadata:
+            additionalProperties: true
+          properties:
+            password: test
+          requirements:
+            - host: container1
+
         container1:
           type: unfurl.nodes.Container.Application.Docker
           properties:
@@ -21,12 +32,15 @@ spec:
               image: busybox:latest
               environment:
                 FOO: "1"
+                BAR: "${FOO}"
+                PASSWORD: "${APP_PASSWORD}"
               ports:
                 - 80:80
           interfaces:
             Standard:
               inputs:
                 configuration:
+                  # need the sleep for lifecyle test to pass consistently
                   command: ["sleep", "300"]
                   detach: yes
                   output_logs: yes

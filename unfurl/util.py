@@ -624,7 +624,9 @@ def substitute_env(contents, env=None):
     return re.sub(r"(\\+)?\$\{([\w|]+)(\:.+?)?\}", replace, contents)
 
 
-def _env_var_value(val, sub=None):
+def env_var_value(val, sub=None):
+    if val is None:
+        return None
     if isinstance(val, bool):
         return val and "true" or ""
     sensitive = is_sensitive(val)
@@ -640,7 +642,8 @@ def _env_var_value(val, sub=None):
 def filter_env(
     rules: Mapping,
     env: Optional[Union[Dict, "os._Environ[str]"]] = None,
-    addOnly: Optional[bool] = False,
+    addOnly: bool = False,
+    sub: Optional[Mapping] = None,
 ) -> Dict[str, str]:
     """
     Applies the given list of rules to a dictionary of environment variables and returns a new dictionary.
@@ -668,6 +671,10 @@ def filter_env(
         start: Dict[str, str] = {}
     else:
         start = env.copy()
+    if sub is not None:
+        # include start so substitutions can refer to the new entries being defined
+        sub = ChainMap(start, sub)
+
     for name, val in rules.items():
         if name[:1] in "+-^":
             # add or remove from env
@@ -681,9 +688,7 @@ def filter_env(
                 source = start  # if remove, look in the current set, not original
             else:
                 source = env  # type: ignore
-            match = {
-                k: v for k, v in source.items() if fnmatch.fnmatchcase(k, name) ^ neg
-            }
+            match = {k for k in source if fnmatch.fnmatchcase(k, name) ^ neg}
             if remove:
                 [
                     start.pop(k, None)
@@ -695,12 +700,14 @@ def filter_env(
                 if match:
                     if prepend and val:
                         # treat as PATH-like and prepend val
-                        match = {k: (val + os.pathsep + v) for k, v in match.items()}
-                    start.update(match)
-                elif val is not None:  # name isn't in existing, use default is set
-                    start[name] = _env_var_value(val)
+                        update = {k: (val + os.pathsep + source[k]) for k in match}
+                    else:
+                        update = {k: source[k] for k in match}
+                    start.update(update)
+                elif val is not None:  # name isn't in existing, use default if set
+                    start[name] = env_var_value(val, sub)
         elif val is not None:  # don't set if val is None
-            start[name] = _env_var_value(val)
+            start[name] = env_var_value(val, sub)
     return start
 
 

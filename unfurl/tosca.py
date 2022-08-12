@@ -6,7 +6,13 @@ TOSCA implementation
 import functools
 import copy
 from .tosca_plugins import TOSCA_VERSION
-from .util import UnfurlError, UnfurlValidationError, get_base_dir, check_class_registry
+from .util import (
+    UnfurlError,
+    UnfurlValidationError,
+    get_base_dir,
+    check_class_registry,
+    env_var_value,
+)
 from .eval import Ref, RefContext, map_value
 from .result import ResourceRef, ResultsList
 from .merge import patch_dict, merge_dicts
@@ -24,6 +30,7 @@ from toscaparser.common.exception import ExceptionCollector
 import os
 import logging
 import re
+from typing import Dict
 
 from ruamel.yaml.comments import CommentedMap
 
@@ -113,6 +120,7 @@ def _patch(node, patchsrc, quote=False, tpl=None):
 class ToscaSpec:
     InstallerType = "unfurl.nodes.Installer"
     topology = None
+    substitution_template = None
 
     def evaluate_imports(self, toscaDef):
         if not toscaDef.get("imports"):
@@ -236,8 +244,6 @@ class ToscaSpec:
             self.substitution_template = self.nodeTemplates.get(
                 substitution_mappings.node
             )
-        else:
-            self.substitution_template = None
         self.load_workflows()
         self.groups = {
             g.name: GroupSpec(g, self) for g in self.template.topology_template.groups
@@ -556,19 +562,20 @@ def find_env_vars(props_iter):
     for propdef, value in props_iter:
         datatype = propdef.entity
         if datatype.type == "unfurl.datatypes.EnvVar":
-            yield propdef.name, value
+            yield propdef.name, env_var_value(value)
         elif (
             datatype.type == "map"
             and propdef.entry_schema_entity
             and propdef.entry_schema_entity.type == "unfurl.datatypes.EnvVar"
         ):
-            for key in value:
-                yield key, value[key]
+            if value:
+                for key, item in value.items():
+                    yield key, env_var_value(item)
         else:
             metadata = propdef.schema.get("metadata", {})
             if metadata.get("env_vars"):
                 for name in metadata["env_vars"]:
-                    yield name, value
+                    yield name, env_var_value(value)
 
 
 def find_props(attributes, propertyDefs, flatten=False):
@@ -812,14 +819,14 @@ class EntitySpec(ResourceRef):
 
     @property
     def required(self):
-        # if this template is required by another template
+        # check if this template is required by another template
         for root in _get_roots(self):
             if self.spec.substitution_template:
                 if self.spec.substitution_template is root:
-                    # if don't require if a root is the substitution_mappings
+                    # require if a root of this template is the substitution_template
                     return True
             elif "default" not in root.directives:
-                # if don't require if this only has defaults templates as a root
+                # otherwise require when there is a root that isn't a defaults template
                 return True
         return False
 

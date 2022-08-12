@@ -12,8 +12,9 @@ import os.path
 import six
 import re
 import ast
-from typing import cast
+from typing import cast, Dict
 from enum import IntEnum
+
 from .eval import RefContext, set_eval_func, Ref, map_value
 from .result import (
     Results,
@@ -36,6 +37,7 @@ from .util import (
     load_class,
     sensitive,
     filter_env,
+    env_var_value,
 )
 from .merge import intersect_dict, merge_dicts
 from unfurl.projectpaths import get_path
@@ -525,12 +527,59 @@ def get_env(args, ctx: RefContext):
 set_eval_func("get_env", get_env, True)
 
 
+def get_context_vars(resource):
+    root = resource.root
+    vars = dict(NODES=TopologyMap(root), TOPOLOGY={})
+    if "inputs" in root._attributes:
+        vars["TOPOLOGY"].update(
+            dict(
+                inputs=root._attributes["inputs"],
+                outputs=root._attributes["outputs"],
+            )
+        )
+    app_template = root.template.spec.substitution_template
+    if app_template:
+        vars["TOPOLOGY"]["app"] = root.find_instance(app_template.name)
+        for name, req in app_template.requirements.items():
+            if req.relationship and req.relationship.target:
+                vars["TOPOLOGY"][name] = root.find_instance(
+                    req.relationship.target.name
+                )
+    return vars
+
+
+class _EnvMapper(dict):
+    def __missing__(self, key):
+        objname, sep, prop = key.partition("_")
+        root = self.ctx.currentResource.root
+        app = root.template.spec.substitution_template
+        if app and objname and prop:
+            obj = None
+            if objname == "APP":
+                obj = app
+            else:
+                for name, req in app.requirements.items():
+                    if name.upper() == objname:
+                        if req.relationship and req.relationship.target:
+                            obj = req.relationship.target
+            if obj:
+                instance = root.find_instance(obj.name)
+                if instance:
+                    for key in instance.attributes:
+                        if key.upper() == prop:
+                            return env_var_value(instance.attributes[key], self)
+        raise KeyError(key)
+
+
 def to_env(args, ctx: RefContext):
     env = None
     if ctx.task:
         env = ctx.task.get_environment(False)
+    sub = _EnvMapper(env or {})
+    sub.ctx = ctx
+
     args = map_value(args, ctx)
-    result = filter_env(args, env, addOnly=True)
+    result = filter_env(args, env, True, sub)
     if ctx.kw.get("update_os_environ"):
         os.environ.update(result)
         for key, value in args.items():
@@ -542,44 +591,55 @@ def to_env(args, ctx: RefContext):
 set_eval_func("to_env", to_env)
 
 
-def to_label(arg, extra='', max=63, lower=False, replace=''):
+def to_label(arg, extra="", max=63, lower=False, replace=""):
     if isinstance(arg, Mapping):
-        return {to_label(n, extra, max, lower, replace) : to_label(v, extra, max, lower, replace) 
-                for n,v in arg.items() if v is not None}
+        return {
+            to_label(n, extra, max, lower, replace): to_label(
+                v, extra, max, lower, replace
+            )
+            for n, v in arg.items()
+            if v is not None
+        }
     elif isinstance(arg, str):
         val = re.sub(f"[^\\w{extra}]", replace, arg)
         if lower:
             val = val.lower()
         return val[:max]
 
+
 def to_dns_label(arg):
     """
     The maximum length of each label is 63 characters, and a full domain name can have a maximum of 253 characters.
     Alphanumeric characters and hyphens can be used in labels, but a domain name must not commence or end with a hyphen.
     """
-    return to_label(arg, extra='-', replace='--')
+    return to_label(arg, extra="-", replace="--")
+
 
 set_eval_func(
     "to_dns_label",
     lambda arg, ctx: to_dns_label(map_value(arg, ctx)),
 )
 
+
 def to_kubernetes_label(arg):
     """
     See https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/#syntax-and-character-set
     """
-    return to_label(arg, extra='_.-', replace='__')
+    return to_label(arg, extra="_.-", replace="__")
+
 
 set_eval_func(
     "to_kubernetes_label",
     lambda arg, ctx: to_dns_label(map_value(arg, ctx)),
 )
 
+
 def to_googlecloud_label(arg):
     """
     See https://cloud.google.com/resource-manager/docs/creating-managing-labels#requirements
     """
-    return to_label(arg, extra='_-', lower=True, replace='__')
+    return to_label(arg, extra="_-", lower=True, replace="__")
+
 
 set_eval_func(
     "to_googlecloud_label",
@@ -989,12 +1049,7 @@ class AttributeManager:
                 resource.template._isReferencedBy.append(template)
 
     def _get_context(self, resource):
-        vars = dict(NODES=TopologyMap(resource.root))
-        if "inputs" in resource.root._attributes:
-            vars["TOPOLOGY"] = dict(
-                inputs=resource.root._attributes["inputs"],
-                outputs=resource.root._attributes["outputs"],
-            )
+        vars = get_context_vars(resource)
         return RefContext(resource, vars, task=self.task)
 
     def get_attributes(self, resource):

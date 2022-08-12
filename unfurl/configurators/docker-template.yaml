@@ -16,6 +16,10 @@ data_types:
         metadata:
           user_settable: true
           tab_title: Environment Variables
+          transform:
+            eval:
+              to_env:
+                eval: $value
       container_name: # name
         type: string
         required: false

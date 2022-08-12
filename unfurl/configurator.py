@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     from unfurl.job import ConfigTask
 
 
-from .support import Status, ResourceChanges, Priority, TopologyMap
+from .support import Status, ResourceChanges, Priority, get_context_vars
 from .result import (
     ChangeRecord,
     ResultsList,
@@ -331,8 +331,10 @@ class _ConnectionsMap(dict):
     def by_type(self) -> ValuesView:
         # return unique connection by type
         # reverse so nearest relationships replace less specific ones that have matching names
+        # XXX why is rel sometimes a Result?
         by_type = {  # the list() is for Python 3.7
-            rel.type: rel for rel in reversed(list(self.values()))
+            rel.resolved.type if isinstance(rel, Result) else rel.type: rel
+            for rel in reversed(list(self.values()))
         }
         return by_type.values()
 
@@ -340,6 +342,7 @@ class _ConnectionsMap(dict):
         # the more specific connections are inserted first so this should find
         # the most relevant connection of the given type
         for value in self.values():
+              # XXX why is value sometimes a Result?
             if isinstance(value, Result):
                 value = value.resolved
             if (
@@ -386,7 +389,6 @@ class TaskView:
         ] = []  # UnfurlTaskError objects appends themselves to this list
         self._inputs: Optional[ResultsMap] = None
         self._environ = None
-        self._connections = None
         self._manifest = manifest
         self.messages: List[object] = []
         self._addedResources: List[NodeInstance] = []
@@ -424,22 +426,18 @@ class TaskView:
                 target = self.target
             HOST = (target.parent or target).attributes
             ORCHESTRATOR = target.root.find_instance_or_external("localhost")
-            vars = dict(
+            vars = get_context_vars(target)
+            vars.update(dict(
                 inputs=inputs,
                 task=self.get_settings(),
-                connections=self.connections,
-                TOPOLOGY=dict(
-                    inputs=target.root._attributes["inputs"],
-                    outputs=target.root._attributes["outputs"],
-                ),
-                NODES=TopologyMap(target.root),
+                connections=self._get_connections(),
                 SELF=self.target.attributes,
                 HOST=HOST,
                 ORCHESTRATOR=ORCHESTRATOR and ORCHESTRATOR.attributes or {},
                 OPERATION_HOST=self.operation_host
                 and self.operation_host.attributes
                 or {},
-            )
+            ))
             if relationship:
                 if self.target.source:
                     vars["SOURCE"] = self.target.source.attributes  # type: ignore
@@ -460,9 +458,7 @@ class TaskView:
 
     @property
     def connections(self) -> _ConnectionsMap:
-        if self._connections is None:
-            self._connections = self._get_connections()
-        return self._connections
+        return self.inputs.context.vars["connections"]
 
     @staticmethod
     def _get_connection(
@@ -851,7 +847,7 @@ class TaskView:
 
     def _parse_instances_tpl(
         self, instances: Union[str, Mapping, MutableSequence]
-    ) -> Union[Tuple[None, UnfurlTaskError], Tuple[MutableSequence, None]]:
+    ) -> Tuple[Optional[List[Mapping]], Optional[UnfurlTaskError]]:
         if isinstance(instances, six.string_types):
             try:
                 instances = yaml.load(instances)
@@ -873,11 +869,13 @@ class TaskView:
     # # through capability attributes and dependencies/relationship attributes
     def update_instances(
         self, instances: Union[str, List]
-    ) -> Union[Tuple[JobRequest, List], Tuple[None, List]]:
+    ) -> Tuple[Optional[JobRequest], List[UnfurlTaskError]]:
         """Notify Unfurl of new or changes to instances made while the configurator was running.
 
         Operational status indicates if the instance currently exists or not.
         This will queue a new child job if needed.
+
+        To run the job based on the supplied spec immediately, yield the returned JobRequest.
 
         .. code-block:: YAML
 
@@ -896,9 +894,6 @@ class TaskView:
         Args:
           instances (list or str): Either a list or string that is parsed as YAML.
 
-        Returns:
-          :class:`JobRequest`: To run the job based on the supplied spec
-              immediately, yield the returned JobRequest.
         """
         instances, err = self._parse_instances_tpl(instances)  # type: ignore
         if err:
@@ -935,7 +930,7 @@ class TaskView:
                 # XXX
                 # if resource.required or resourceSpec.get("dependent"):
                 #    self.add_dependency(resource, required=resource.required)
-            except:
+            except Exception:
                 errors.append(
                     UnfurlAddingResourceError(self, originalResourceSpec, rname)
                 )
