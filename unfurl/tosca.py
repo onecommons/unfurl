@@ -687,11 +687,6 @@ class EntitySpec(ResourceRef):
     def get_interfaces(self):
         return self.toscaEntityTemplate.interfaces
 
-    def get_interface_requirements(self):
-        return self.toscaEntityTemplate.type_definition.get_interface_requirements(
-            self.toscaEntityTemplate.entity_tpl
-        )
-
     @property
     def groups(self):
         if not self.spec:
@@ -792,6 +787,10 @@ class EntitySpec(ResourceRef):
     def directives(self):
         return []
 
+    @property
+    def tpl(self):
+        return self.toscaEntityTemplate.entity_tpl
+
     def find_props(self, attributes):
         yield from find_props(attributes, self.propertyDefs)
 
@@ -871,6 +870,11 @@ class NodeSpec(EntitySpec):
                 0
             ]
             return relationship
+
+    def get_interface_requirements(self):
+        return self.toscaEntityTemplate.type_definition.get_interface_requirements(
+            self.toscaEntityTemplate.entity_tpl
+        )
 
     @property
     def artifacts(self):
@@ -1262,6 +1266,10 @@ class TopologySpec(EntitySpec):
             if not matches:
                 raise KeyError(key)
             return matches
+
+    @property
+    def tpl(self):
+        return self.toscaEntityTemplate.tpl
 
 
 class Workflow:
