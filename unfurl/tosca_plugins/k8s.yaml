@@ -67,6 +67,8 @@ node_types:
     properties:
       name:
         type: string
+        constraints:
+          - pattern: "^[\\w-]+$"
         default: default
         metadata:
           # namespaces can't be renamed
@@ -107,16 +109,11 @@ capability_types:
     derived_from: tosca.capabilities.Endpoint.Admin
     description: >
       Capability to connect to a K8sCluster. See unfurl.relationships.ConnectsTo.K8sCluster
-      for the semantics of its "insecure" and "credential" properties.
+      for the semantics of the "credential" properties.
     properties:
       protocol:
         type: string
         default: https
-      secure:
-        type: boolean
-        description: >
-          If set to false, the server's certificate should not be checked for validity. This will make your HTTPS connections insecure.
-        required: false
 
 relationship_types:
   unfurl.relationships.ConnectsTo.K8sCluster:
@@ -163,7 +160,7 @@ relationship_types:
           user_settable: true
           env_vars:
           - KUBE_INSECURE
-        default: false
+        required: false
       token:
         type: unfurl.datatypes.EnvVar
         title: Authentication Token
@@ -211,3 +208,8 @@ relationship_types:
         type: list
         entry_schema:
           type: string
+    interfaces:
+      Install:
+        check:
+          implementation:
+            className: unfurl.configurators.k8s.ClusterConfigurator

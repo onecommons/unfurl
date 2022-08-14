@@ -49,7 +49,7 @@ from .util import (
 )
 from . import merge
 from .eval import Ref, map_value, RefContext
-from .runtime import NodeInstance, RelationshipInstance, Operational
+from .runtime import EntityInstance, NodeInstance, RelationshipInstance, Operational
 from .yamlloader import yaml
 from .projectpaths import WorkFolder, Folders
 from .planrequests import (
@@ -371,7 +371,7 @@ class TaskView:
         self,
         manifest: "Manifest",
         configSpec: ConfigurationSpec,
-        target: NodeInstance,
+        target: EntityInstance,
         reason: Optional[str] = None,
         dependencies: Optional[List["Dependency"]] = None,
     ) -> None:
@@ -592,7 +592,19 @@ class TaskView:
 
     def find_connection(
         self, target: NodeInstance, relation: str = "tosca.relationships.ConnectsTo"
-    ) -> Any:
+    ) -> RelationshipInstance:
+        """
+        Find a relationship that this task can use to connect to the given instance.
+        First look for relationship between the task's target instance and the given instance.
+        If none is found, see if there a default connection of the given type.
+
+        Args:
+            target (NodeInstance): The instance to connect to.
+            relation (str, optional): The relationship type. Defaults to "tosca.relationships.ConnectsTo".
+
+        Returns:
+            RelationshipInstance: The connection instance.
+        """
         connection = self.query(
             f"$OPERATION_HOST::.requirements::*[.type={relation}][.target=$target]",
             vars=dict(target=target),
