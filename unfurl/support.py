@@ -23,6 +23,7 @@ from .result import (
     Result,
     ExternalValue,
     serialize_value,
+    is_sensitive_schema,
 )
 from .util import (
     ChainMap,
@@ -990,14 +991,6 @@ class TopologyMap(dict):
         return len(tuple(self.resource.get_self_and_descendents()))
 
 
-def _is_sensitive_schema(defs, key, value):
-    defSchema = (key in defs and defs[key].schema) or {}
-    defMeta = defSchema.get("metadata", {})
-    # attribute marked as sensitive and value isn't a secret so mark value as sensitive
-    # but externalvalues are ok since they don't reveal much
-    return defMeta.get("sensitive") and not value.external
-
-
 class AttributeManager:
     """
     Tracks changes made to Resources
@@ -1083,8 +1076,10 @@ class AttributeManager:
     #   #   resource._localStatus = old
 
     @staticmethod
-    def _save_sensitive(defs, key, value, instance):
-        sensitive = _is_sensitive_schema(defs, key, value)
+    def _save_sensitive(defs, key, value):
+        # attribute marked as sensitive and value isn't a secret so mark value as sensitive
+        # but externalvalues are ok since they don't reveal much
+        sensitive = is_sensitive_schema(defs, key) and not value.external
         if sensitive:
             savedValue = wrap_sensitive_value(value.resolved)
         else:
@@ -1139,7 +1134,7 @@ class AttributeManager:
                     _attributes[key] = value
                 else:
                     changed, isLive = self._check_attribute(specd, key, value, resource)
-                    savedValue = self._save_sensitive(defs, key, value, resource)
+                    savedValue = self._save_sensitive(defs, key, value)
                     is_sensitive = isinstance(savedValue, sensitive)
                     # save the Result not savedValue because we need the ExternalValue
                     live[key] = (isLive, savedValue if is_sensitive else value)

@@ -39,10 +39,8 @@ import warnings
 import codecs
 import io
 from contextlib import contextmanager
-from logging import Logger
 import string
 import random
-from .logs import is_sensitive
 
 try:
     from shutil import which
@@ -63,7 +61,7 @@ try:
     imp = None
 except ImportError:
     import imp  # type: ignore
-from .logs import UnfurlLogger, sensitive
+from .logs import UnfurlLogger, sensitive, is_sensitive
 import logging
 
 # Used for python typing, prevents circular imports
@@ -153,10 +151,12 @@ class UnfurlAddingResourceError(UnfurlTaskError):
         self.resourceSpec = resourceSpec
 
 
-def wrap_sensitive_value(obj: object) -> object:
+def wrap_sensitive_value(obj: object) -> sensitive:
     # we don't remember the vault and vault id associated with this value
     # so the value will be rekeyed with whichever vault is associated with the serializing yaml
-    if isinstance(obj, bytes):
+    if isinstance(obj, sensitive):
+        return obj
+    elif isinstance(obj, bytes):
         return sensitive_bytes(obj)
     elif isinstance(obj, str):
         return sensitive_str(obj)

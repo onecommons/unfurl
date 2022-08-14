@@ -73,6 +73,12 @@ spec:
               type: unfurl.datatypes.EnvVar
           access_token:
             type: tosca.datatypes.Credential
+          ip_addresses:
+            type: map
+            default:
+              private:
+                  eval: private_address
+            
           event_object: # 5.3.2.2 Examples p.194
             type: tosca.datatypes.json
             constraints:
@@ -101,7 +107,8 @@ spec:
         server_ip:
           description: The private IP address of the provisioned server.
           value: { get_attribute: [ testSensitive, private_address ] }
-          # equivalent to {eval: "::testSensitive::private_address"}
+        server_ip_again:        
+          value: {eval: "::testSensitive::ip_addresses::private"}
 
       node_templates:
         testSensitive:
@@ -233,6 +240,11 @@ class ToscaSyntaxTest(unittest.TestCase):
         outputIp, job = self._runInputAndOutputs(manifest)
         vaultString = "server_ip: !vault |\n      $ANSIBLE_VAULT;1.1;AES256"
         assert vaultString in job.out.getvalue(), job.out.getvalue()
+        vaultString2 = "server_ip_again: !vault |\n      $ANSIBLE_VAULT;1.1;AES256"
+        assert vaultString2 in job.out.getvalue(), job.out.getvalue()
+
+        vaultString3 = "private: !vault |"
+        assert vaultString3 in job.out.getvalue(), job.out.getvalue()
 
         from unfurl.yamlloader import cleartext_yaml
 
