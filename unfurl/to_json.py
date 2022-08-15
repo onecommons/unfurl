@@ -373,6 +373,14 @@ def is_computed(p):  # p: Property | PropertyDef
     )
 
 
+def always_export(p):
+    if isinstance(p.schema, Schema):
+        metadata = p.schema.metadata
+    else:
+        metadata = p.schema.get("metadata") or {}
+    return metadata.get("export")
+
+
 # def property_value_to_json(p, value):
 #     if is_computed(p):
 #         return None
@@ -636,6 +644,7 @@ def nodetemplate_to_json(nodetemplate, spec, types):
       type: ResourceType!
       visibility: String
       directives: [String!]
+      imported: String
 
       description: string
 
@@ -667,6 +676,8 @@ def nodetemplate_to_json(nodetemplate, spec, types):
         description=nodetemplate.entity_tpl.get("description") or "",
         directives=nodetemplate.directives,
     )
+    if nodetemplate.entity_tpl.get("imports"):
+        json["imported"] = nodetemplate.entity_tpl["imported"]
 
     jsonnodetype = types[nodetemplate.type]
     json["properties"] = list(template_properties_to_json(nodetemplate))
@@ -1276,10 +1287,16 @@ def add_attributes(instance):
                 attrs.append(dict(name=p.name, value=attribute_value_to_json(p, value)))
     # add leftover attribute defs that have a default value
     for prop in attributeDefs.values():
-        if prop.default is not None and not is_computed(prop):
-            attrs.append(
-                dict(name=prop.name, value=attribute_value_to_json(prop, prop.default))
-            )
+        if prop.default is not None:
+            if always_export(prop):
+                # evaluate computed property now
+                attrs.append(
+                    dict(name=prop.name, value=attribute_value_to_json(prop, instance.attributes[prop.name]))
+                )
+            elif not is_computed(prop):
+                attrs.append(
+                    dict(name=prop.name, value=attribute_value_to_json(prop, prop.default))
+                )
     return attrs
 
 
@@ -1287,8 +1304,9 @@ def add_computed_properties(instance):
     attrs = []
     _attributes = instance._attributes or {}
     # instance._properties should already be serialized
-    if instance._properties:
-        for name, value in instance._properties.items():
+    _properties = instance._properties or {}
+    if _properties:
+        for name, value in _properties.items():
             if name in _attributes:  # shadowed, don't include both
                 continue
             p = instance.template.propertyDefs.get(name)
@@ -1306,6 +1324,15 @@ def add_computed_properties(instance):
                 else:
                     value = attribute_value_to_json(p, value)
                 attrs.append(dict(name=p.name, value=value))
+
+    for prop in instance.template.propertyDefs.values():
+        if prop.default is not None and prop.name not in instance._properties:
+            if always_export(prop):
+                # evaluate computed property now
+                attrs.append(
+                    dict(name=prop.name, value=attribute_value_to_json(prop, instance.attributes[prop.name]))
+                )
+
     return attrs
 
 
