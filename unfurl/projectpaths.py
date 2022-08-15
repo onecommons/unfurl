@@ -425,6 +425,7 @@ set_eval_func(
 
 class FilePath(ExternalValue):
     def __init__(self, abspath, base_dir="", rel_to=""):
+        abspath = str(abspath) # in case is a pathlib.Path
         super().__init__("path", os.path.normpath(abspath))
         self.path = abspath[len(base_dir) + 1 :]
         self.rel_to = rel_to

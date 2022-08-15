@@ -629,6 +629,7 @@ class Results(ABC):
                     raise ValidationError(message=msg)
             else:
                 propDef._validate(value)
+            self.context.trace(f'Validated {key}" on "{resource.name}')
         except Exception as err:
             msg = f'Validation failure while evaluating "{key}" on "{resource.name}": {err}'
             if self.context.task:

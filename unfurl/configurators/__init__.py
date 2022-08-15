@@ -13,7 +13,7 @@ from typing import Tuple
 register_short_names(
     {
         name: f"unfurl.configurators.{name.lower()}.{name}Configurator"
-        for name in "Ansible Shell Supervisor Terraform DNS".split()
+        for name in "Ansible Shell Supervisor Terraform DNS Kompose".split()
     }
 )
 
