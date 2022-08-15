@@ -6,6 +6,7 @@ import json
 import subprocess
 from shutil import which
 import pytest
+import time
 
 from unfurl.job import JobOptions, Runner
 from unfurl.runtime import Status
@@ -155,6 +156,11 @@ def test_kompose():
                 if resource["kind"] == "Pod":
                     pod_name = resource["metadata"]["name"]
                     logs = _get_pod_logs(task, pod_name)
+                    count = 0
+                    while not logs and count < 10:
+                          count += 1
+                          time.sleep(5)
+                          logs = _get_pod_logs(task, pod_name)
                     assert b"FOO=bar" in logs
                     assert b"APP_SERVICE_PORT=8001" in logs
 
