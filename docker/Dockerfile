@@ -30,10 +30,11 @@ RUN echo "Installing Terraform" && \
     "https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-sdk-${GCLOUD_VERSION}-linux-x86.tar.gz" && \
     tar -zxf /google-cloud-sdk.tar.gz && \
     rm -f /google-cloud-sdk.tar.gz \
+    \
     echo "Installing Kompose" && \
-    wget -q0 /usr/local/bin/kompose \
+    wget -qO /usr/local/bin/kompose \
     "https://github.com/kubernetes/kompose/releases/download/${KOMPOSE_VERSION}/kompose-linux-amd64" && \
-    chmod +x /kompose
+    chmod +x /usr/local/bin/kompose
 
 COPY . /unfurl
 
