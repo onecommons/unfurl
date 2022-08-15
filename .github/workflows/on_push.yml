@@ -39,6 +39,11 @@ jobs:
         uses: azure/setup-kubectl@v1
         with:
           version: ${{ env.KUBECTL_VERSION }}
+      - name: Setup kompose
+        run: |
+          wget https://github.com/kubernetes/kompose/releases/download/${KOMPOSE_VERSION}/kompose-linux-amd64
+          chmod +x kompose-linux-amd64
+          sudo mv kompose-linux-amd64 /usr/local/bin/kompose
       - name: Setup k3d
         run: |
           wget https://github.com/rancher/k3d/releases/download/"${{ env.K3D_VERSION }}"/k3d-linux-amd64
