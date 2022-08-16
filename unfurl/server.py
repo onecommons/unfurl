@@ -39,29 +39,15 @@ def hook():
             # Remove "Bearer " from header
             header_secret = header_secret.split(" ")[1]
         except IndexError:  # Quick sanity check to make sure the header is formatted correctly
-            return (
-                jsonify(
-                    {
-                        "code": "BAD_REQUEST",
-                        "message": "The Authorization header must be in the format 'Bearer <secret>'",
-                    }
-                ),
-                400,
-            )  # BAD_REQUEST
+            return create_error_response("BAD_REQUEST", "The Authorization header must be in the format 'Bearer <secret>'")
+            
 
     if secret not in [
         qs_secret,
         header_secret,
     ]:  # No valid secret found in headers or qs
-        return (
-            jsonify(
-                {
-                    "code": "UNAUTHORIZED",
-                    "message": "Please pass the secret as a query parameter or as an Authorization bearer token",
-                }
-            ),
-            401,
-        )  # Unauthorized
+        return create_error_response("UNAUTHORIZED", "Please pass the secret as a query parameter or as an Authorization bearer token")
+        
 
 
 @app.route("/health")
@@ -76,15 +62,8 @@ def health():
 def export():
     requested_format = request.args.get("format", "deployment")
     if requested_format not in ["blueprint", "environments", "deployment"]:
-        return (
-            jsonify(
-                {
-                    "code": "BAD_REQUEST",
-                    "message": "Query parameter 'format' must be one of 'blueprint', 'environments' or 'deployment'",
-                }
-            ),
-            400,
-        )  # BAD_REQUEST
+        return create_error_response("BAD_REQUEST", "Query parameter 'format' must be one of 'blueprint', 'environments' or 'deployment'")
+        
 
     # Default to exporting the ensemble provided to the server on startup
     path = current_app.config["UNFURL_ENSEMBLE_PATH"]
@@ -143,27 +122,24 @@ def export():
         # Sort of a hack to get the specific error since it only raises an "UnfurlError"
         # Will break if the error message changes or if the Exception class changes
         if "No environment named" in error_message:
-            return (
-                jsonify(
-                    {
-                        "code": "BAD_REQUEST",
-                        "message": f"No environment named '{deployment_enviroment}' found in the repository",
-                    }
-                ),
-                400,
-            )  # BAD_REQUEST
+            return create_error_response("BAD_REQUEST", f"No environment named '{deployment_enviroment}' found in the repository")
         else:
-            return (
-                jsonify(
-                    {"code": "INTERNAL_ERROR", "message": "An internal error occurred"}
-                ),
-                500,
-            )
+            return create_error_response("INTERNAL_ERROR", "An internal error occurred")
 
     exporter = getattr(to_json, "to_" + requested_format)
     json_summary = exporter(local_env)
 
     return jsonify(json_summary)
+
+def create_error_response(code, message):
+    http_code = 400 # Default to BAD_REQUEST
+    if code == "BAD_REQUEST":
+        http_code = 400
+    elif code == "UNAUTHORIZED":
+        http_code = 401
+    elif code == "INTERNAL_ERROR":
+        http_code = 500
+    return jsonify({"code": code, "message": message}), http_code
 
 
 def serve(

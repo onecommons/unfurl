@@ -161,14 +161,11 @@ class TestServer(unittest.TestCase):
             run_cmd(
                 self.runner,
                 [
-                    "--home",
-                    "",
+                    "--home", "",
                     "clone",
                     "--empty",
                     "https://gitlab.com/onecommons/project-templates/dashboard",
-                    "--var",
-                    "UNFURL_CLOUD_VARS_URL",
-                    env_var_url,
+                    "--var", "UNFURL_CLOUD_VARS_URL", env_var_url,
                 ],
             )
 
