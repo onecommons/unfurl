@@ -1327,7 +1327,7 @@ def add_computed_properties(instance):
 
     for prop in instance.template.propertyDefs.values():
         if prop.default is not None and prop.name not in instance._properties:
-            if always_export(prop):
+            if always_export(prop) and prop.name not in instance.template.attributeDefs:
                 # evaluate computed property now
                 attrs.append(
                     dict(name=prop.name, value=attribute_value_to_json(prop, instance.attributes[prop.name]))

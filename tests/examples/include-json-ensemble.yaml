@@ -26,6 +26,13 @@ spec:
     image: {get_env: CI_REGISTRY_IMAGE}
     domain: foo.com
 
+  instances:
+    foo.com:
+      template: foo.com-zone
+
+    # the_app:
+    #   template: the_app
+
   service_template:
     imports:
     - repository: unfurl
@@ -81,6 +88,12 @@ spec:
         description: DNS provider for domain name configuration
         metadata:
           badge: DNS
+        attributes:
+          console_url:
+            type: string
+            default: https://console.dns.com?zone={{ TOPOLOGY.inputs.domain }}
+            metadata:
+              export: true
 
       Mail:
         derived_from: Base

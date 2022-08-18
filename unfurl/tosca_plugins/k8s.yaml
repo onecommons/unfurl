@@ -131,6 +131,8 @@ relationship_types:
           options are provided, and the KUBECONFIG environment variable is not set, the default location will be used (~/.kube/config.json).
         default: { get_env: KUBECONFIG }
         required: false
+        metadata:
+          user_settable: false
       context:
         type: string
         description: >
@@ -182,6 +184,7 @@ relationship_types:
         required: false
         metadata:
           sensitive: true
+          user_settable: false
       namespace:
         description: The default namespace scope to use
         required: false
@@ -202,12 +205,16 @@ relationship_types:
         description: Username to impersonate for the operation
         required: false
         type: string
+        metadata:
+          user_settable: false
       as-group:
         description: Groups to impersonate for the operation
         required: false
         type: list
         entry_schema:
           type: string
+        metadata:
+          user_settable: false
     interfaces:
       Install:
         check:

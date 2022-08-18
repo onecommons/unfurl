@@ -19,14 +19,22 @@ def test_jsonexport():
         expected = json.load(f)
         # print(json.dumps(jsonExport, indent=2))
         assert jsonExport["ResourceTemplate"] == expected["ResourceTemplate"]
+        # test environmentVariableNames export
         assert jsonExport["DeploymentTemplate"]["unnamed"]["environmentVariableNames"] == [
                                                   "APP_IMAGE",
                                                   "APP_DOMAIN",
                                                   "HOST_CPUS",
                                                   "HOST_MEMORY",
-                                                  "HOST_STORAGE"
+                                                  "HOST_STORAGE",
+                                                  "RESOLVER_CONSOLE_URL"
                                                 ]
- 
+        resource = jsonExport["Resource"]["foo.com"]
+        assert resource
+        # test explicit "export" metadata
+        assert resource["attributes"][0]["name"] == "console_url"
+        # make sure console_url doesn't also appear here:
+        assert not resource["computedProperties"]
+
     # XXX verify that saving the manifest preserves the json include
 
 

@@ -28,7 +28,7 @@ node_types:
     properties:
       name:
         description: DNS name of the zone
-        title: Name
+        title: Domain Name
         type: string
       provider:
         description: OctoDNS provider configuration

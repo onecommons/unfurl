@@ -1074,7 +1074,7 @@ class Job(ConfigChange):
             self.run_task(task, depth)
 
             # if # task succeeded but didn't update nodestate
-            if task.result.success and resource.state == startingState:  # type: ignore
+            if task.result and task.result.success and resource.state == startingState:  # type: ignore
                 if req.startState is not None:
                     # advance the state if a startState was set in the TaskRequest
                     resource.state = NodeState(req.startState + 1)
@@ -1108,7 +1108,7 @@ class Job(ConfigChange):
             logger.info(
                 "Finished taskrequest %s: %s %s %s",
                 task,
-                "success" if task.result.success else "failed",  # type: ignore
+                "success" if task.result and task.result.success else "failed",  # type: ignore
                 task.target.status.name,
                 task.target.state and task.target.state.name or "",  # type: ignore
             )
