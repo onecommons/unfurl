@@ -142,6 +142,7 @@ class TestServer(unittest.TestCase):
                 assert res.json() == json.loads(exported.output)
 
             p.terminate()
+            p.join()
 
     def test_server_export_remote(self):
         httpd, env_var_url = start_envvar_server(8011)
@@ -192,6 +193,9 @@ class TestServer(unittest.TestCase):
                 output = exported.output
                 cleaned_output = output[max(output.find("{"), 0) :]
                 assert res.json() == json.loads(cleaned_output)
+            
+            p.terminate()
+            p.join()
 
         if httpd:
             httpd.socket.close()
