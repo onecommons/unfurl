@@ -1,3 +1,4 @@
+import logging
 import os
 from urllib.parse import unquote
 
@@ -9,6 +10,8 @@ from flask_caching import Cache
 from unfurl.localenv import LocalEnv
 from unfurl.repo import Repo
 from unfurl.util import UnfurlError
+
+logger = logging.getLogger("unfurl")
 
 flask_config = {
     # Use in-memory caching, see https://flask-caching.readthedocs.io/en/latest/#built-in-cache-backends for more options
@@ -81,7 +84,7 @@ def export():
         if not repo:
             from . import init
 
-            init.clone(
+            result = init.clone(
                 git_url,
                 clone_root + Repo.get_path_for_git_repo(git_url) + "/",
                 empty=True,
@@ -92,10 +95,15 @@ def export():
                     ],
                 ),
             )
+            logging.info(result)
+
             repo = LocalEnv(
                 clone_root + "/" + Repo.get_path_for_git_repo(git_url),
                 can_be_empty=True,
             ).find_git_repo(git_url)
+
+            if repo is None:
+                return create_error_response("INTERNAL_ERROR", "Could not find repository")
 
         deployment_path = request.args.get("deployment_path")
         if deployment_path:
