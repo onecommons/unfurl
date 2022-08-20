@@ -1192,10 +1192,11 @@ def help(ctx, cmd=""):
 @click.option("--port", default=8081, help="Port to listen on")
 @click.option("--address", default="localhost", help="Host to listen on")
 @click.option("--secret", envvar="UNFURL_SERVE_SECRET", help="Secret required to access the server")
-def serve(ctx, port, address, secret, project_or_ensemble_path, **options):
+@click.option("--clone-root", default=".", help="Where to clone all repositories", type=click.Path(exists=True))
+def serve(ctx, port, address, secret, clone_root, project_or_ensemble_path, **options):
     options.update(ctx.obj)
     from .server import serve
-    serve(address, port, secret, project_or_ensemble_path, options)
+    serve(address, port, secret, clone_root, project_or_ensemble_path, options)
 
 
 def main():
