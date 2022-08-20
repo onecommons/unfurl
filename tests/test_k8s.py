@@ -157,12 +157,14 @@ def test_kompose():
                     pod_name = resource["metadata"]["name"]
                     logs = _get_pod_logs(task, pod_name)
                     count = 0
-                    while not logs and count < 10:
-                          count += 1
-                          time.sleep(5)
-                          logs = _get_pod_logs(task, pod_name)
-                    assert b"FOO=bar" in logs
-                    assert b"APP_SERVICE_PORT=8001" in logs
+                    while not logs:
+                        time.sleep(5)
+                        logs = _get_pod_logs(task, pod_name)
+                        if count > 5:
+                            assert False, f"timeout trying to get logs for {pod_name}"
+                        count += 1
+                    assert b"FOO=bar" in logs, logs
+                    assert b"APP_SERVICE_PORT=8001" in logs, logs
 
 
 BASE = """

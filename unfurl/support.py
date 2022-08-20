@@ -805,10 +805,8 @@ class ContainerImage(ExternalValue):
     def __digestable__(self, options):
         if self.digest:
             return self.digest
-        elif self.source_digest:
-            return self.source_digest
         else:
-            return self.get()
+            return (self.source_digest, self.get())
 
 
 set_eval_func(
@@ -855,7 +853,7 @@ def _get_container_image_from_repository(entity, artifact_name):
         hostname = urlsplit(attr["registry_url"]).netloc
     username = attr.get("username")
     password = attr.get("password")
-    source_digest = attr.get("ref")
+    source_digest = attr.get("revision")
     return ContainerImage(name, tag, digest, hostname, username, password, source_digest)
 
 
