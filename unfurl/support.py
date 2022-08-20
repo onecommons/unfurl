@@ -12,8 +12,10 @@ import os.path
 import six
 import re
 import ast
-from typing import cast, Dict
+from typing import cast, Dict, Optional
 from enum import IntEnum
+from urllib.parse import urlsplit
+
 
 from .eval import RefContext, set_eval_func, Ref, map_value
 from .result import (
@@ -46,7 +48,7 @@ import ansible.template
 from ansible.parsing.dataloader import DataLoader
 from ansible.utils import unsafe_proxy
 from ansible.utils.unsafe_proxy import wrap_var, AnsibleUnsafeText, AnsibleUnsafeBytes
-from jinja2.runtime import ChainableUndefined
+from jinja2.runtime import DebugUndefined, make_logging_undefined
 from toscaparser.elements.portspectype import PortSpec
 
 import logging
@@ -263,7 +265,7 @@ def _wrap_sequence(v):
 unsafe_proxy._wrap_sequence = _wrap_sequence
 
 
-class UnfurlUndefined(ChainableUndefined):
+class UnfurlUndefined(DebugUndefined):
     def __getattr__(self, name):
         if name == "__UNSAFE__":
             # AnsibleUndefined should never be assumed to be unsafe
@@ -272,6 +274,11 @@ class UnfurlUndefined(ChainableUndefined):
         # Return original Undefined object to preserve the first failure context
         return self
 
+    # see ChainableUndefined
+    def __html__(self) -> str:
+        return str(self)
+
+    __getitem__ = __getattr__  # type: ignore
 
 def apply_template(value, ctx, overrides=None):
     if not isinstance(value, six.string_types):
@@ -281,6 +288,8 @@ def apply_template(value, ctx, overrides=None):
         else:
             return f"<<{msg}>>"
     value = value.strip()
+    if ctx.task:
+        logger = ctx.task.logger
 
     # implementation notes:
     #   see https://github.com/ansible/ansible/test/units/template/test_templar.py
@@ -306,7 +315,7 @@ def apply_template(value, ctx, overrides=None):
     # templar.environment.lstrip_blocks = False
     fail_on_undefined = ctx.strict
     if not fail_on_undefined:
-        templar.environment.undefined = UnfurlUndefined
+        templar.environment.undefined = make_logging_undefined(logger, UnfurlUndefined)
 
     vars = _VarTrackerDict(__unfurl=ctx, __python_executable=sys.executable)
     if hasattr(ctx.currentResource, "attributes"):
@@ -692,56 +701,200 @@ def get_nodes_of_type(type_name, ctx: RefContext):
 
 set_eval_func("get_nodes_of_type", get_nodes_of_type, True)
 
+class ContainerImage(ExternalValue):
+    """
+    Represents a container image.
+    get() returns name of the image, which may be qualified
+    with the registry url, repository name, tag, or digest
+
+    All of the following are valid:
+
+    "name"
+    "repository/name"
+    "name:tag"
+    "repository/name:tag"
+    "registry.docker.io/repository/name
+    "registry.example.com:8080/repository/name:tag"
+    "registry-1.docker.io/repository/name@sha256:digest"
+    """
+    # https://docs.docker.com/engine/reference/commandline/tag/
+    # An image name is made up of slash-separated name components, 
+    # optionally prefixed by a registry hostname. The hostname must comply with standard DNS rules, 
+    # but may not contain underscores. If a hostname is present, it may optionally be followed by 
+    # a port number in the format :8080. If not present, the command uses Docker’s public registry 
+    # located at registry-1.docker.io by default. Name components may contain lowercase letters, digits 
+    # and separators. A separator is defined as a period, one or two underscores, or one or more dashes. 
+    # A name component may not start or end with a separator.
+    # A tag name must be valid ASCII and may contain lowercase and uppercase letters, digits, underscores, periods and dashes. 
+    # # A tag name may not start with a period or a dash and may contain a maximum of 128 characters.
+
+    def __init__(self, name: str, tag=None, digest=None,
+                 registry_host=None, username=None, password=None, source_digest=None):
+        self.name = name
+        self.tag = tag
+        self.digest = digest
+        self.registry_host = registry_host
+        self.username = username
+        self.password = password
+        self.source_digest = source_digest
+        super().__init__("container_image", self.get())
+
+    # XXX
+    # def resolve_key(self, name=None, currentResource=None):
+    #     # hostname: registry-1.docker.io, name, tag, digest
+
+    def get(self) -> str:      
+        if self.registry_host:
+            name = f"{self.registry_host}/{self.name}"
+        else:
+            name = self.name
+
+        if self.tag:
+            return f"{name}:{self.tag}"
+        if self.digest:
+            if "@" == self.digest[0]:
+                return name + self.digest
+            else:
+                return f"{name}@sha256:{self.digest}"
+        return name
+
+    @staticmethod
+    def split(artifact_name):
+        if not artifact_name:
+            return None, None, None, None
+        hostname = None
+        namespace, sep, name = artifact_name.partition('/')
+        if sep and (':' in namespace or artifact_name.count('/') > 1):
+            # heuristic because name can look like a hostname
+            hostname = namespace
+        else:
+            name = artifact_name
+
+        tag = None
+        name, sep, digest = name.partition('@')
+        if not sep:
+            digest = None
+            name, sep, qualifier = artifact_name.partition(':')
+            if sep:
+                tag = qualifier
+        return name, tag, digest, hostname
+
+    @staticmethod
+    def make(artifact_name):
+        return ContainerImage(*ContainerImage.split(artifact_name))
+
+    @staticmethod
+    def resolve_name(base_name: str, artifact_name: str):
+        if not base_name:
+            return artifact_name
+        # support more qualified name such as image name or tag 
+        name, sep, qualifier = artifact_name.partition('@')
+        if not sep:
+            name, sep, qualifier = artifact_name.partition(':')
+        
+        # if beginning of name overlaps with end of self.name discard it
+        segs, new_segs = base_name.split('/'), name.split('/')
+        while segs[-len(new_segs):] == new_segs:
+            new_segs.pop(0)
+        if new_segs:
+            name = base_name + '/' + '/'.join(new_segs)
+        else:
+            name = base_name
+        return name + sep + qualifier
+
+    def __digestable__(self, options):
+        if self.digest:
+            return self.digest
+        elif self.source_digest:
+            return self.source_digest
+        else:
+            return self.get()
+
+
+set_eval_func(
+    "container_image",
+    lambda arg, ctx: ContainerImage.make(map_value(arg, ctx))
+)
+
+
+def _get_instances_from_keyname(ctx, entity_name):
+    ctx = ctx.copy(ctx._lastResource)
+    query = _toscaKeywordsToExpr.get(entity_name, "::" + entity_name)
+    instances = cast(ResultsList, ctx.query(query, wantList=True))
+    if instances:
+        return instances
+    else:
+        ctx.trace("entity_name not found", entity_name)
+        return None
+
+
+def _find_artifact(instances, artifact_name) -> "Optional[ArtifactSpec]":
+    for instance in instances:
+        # XXX implement instance.artifacts
+        artifact = instance.template.artifacts.get(artifact_name)
+        if artifact:
+            return artifact
+    return None
+
+
+def _get_container_image_from_repository(entity, artifact_name):
+    # aka get_artifact_as_value
+    name, tag, digest, hostname = ContainerImage.split(artifact_name)
+    attr = entity.attributes
+
+    repository_id = attr.get("repository_id")
+    if repository_id and name:
+        name = ContainerImage.resolve_name(repository_id, name)
+    else:
+        name = repository_id or name
+
+    tag = tag or attr.get("repository_tag")
+
+    hostname = None
+    if attr.get("registry_url"):
+        hostname = urlsplit(attr["registry_url"]).netloc
+    username = attr.get("username")
+    password = attr.get("password")
+    source_digest = attr.get("ref")
+    return ContainerImage(name, tag, digest, hostname, username, password, source_digest)
+
 
 def get_artifact(
-    ctx: RefContext, entity_name, artifact_name, location=None, remove=None
+    ctx: RefContext, entity, artifact_name, location=None, remove=None
 ):
     """
     Returns either an URL or local path to the artifact
     See section "4.8.1 get_artifact" in TOSCA 1.3 (p. 189)
 
-    If the artifact is a Docker image, return the image name in the form of
+    If the artifact is a container image, return the image name in the form of
     "registry/repository/name:tag" or "registry/repository/name@sha256:digest"
 
     If entity_name or artifact_name is not found return None.
     """
-    ctx = ctx.copy(ctx._lastResource)
-    query = _toscaKeywordsToExpr.get(entity_name, "::" + entity_name)
-    instances = cast(ResultsList, ctx.query(query, wantList=True))
-
-    if not instances:
-        ctx.trace("entity_name not found", entity_name)
-        return None
+    from .runtime import NodeInstance, ArtifactInstance
+    if not entity:
+        return ContainerImage.make(artifact_name)  # XXX assume its a container image
+    if isinstance(entity, ArtifactInstance):
+        return entity.template.as_value()
+    if isinstance(entity, str):
+        instances = _get_instances_from_keyname(ctx, entity)
+    elif isinstance(entity, NodeInstance):
+        if entity.template.is_compatible_type("unfurl.nodes.Repository"):
+            # XXX retrieve method from template definition
+            return _get_container_image_from_repository(entity, artifact_name)
+        else:
+            instances = [entity]
     else:
-        for instance in instances:
-            # XXX implement instance.artifacts
-            artifact = instance.template.artifacts.get(artifact_name)
-            if artifact:
-                break
+        return None
+
+    if instances:
+        artifact = _find_artifact(instances, artifact_name)
+        if artifact:
+            return artifact.as_value()
         else:
             ctx.trace("artifact not found", artifact_name)
-            return None
-
-    artifactDef = artifact.toscaEntityTemplate
-    if artifactDef.is_derived_from("tosca.artifacts.Deployment.Image.Container.Docker"):
-        # if artifact is an image in a registry return image path and location isn't specified
-        if artifactDef.checksum:
-            name = (
-                artifactDef.file
-                + "@"
-                + artifactDef.checksum_algorithm
-                + ":"
-                + artifactDef.checksum
-            )
-        elif "tag" in artifact.properties:
-            name = artifactDef.file + ":" + artifact.properties["tag"]
-        else:
-            name = artifactDef.file
-        if artifact.repository:
-            return artifact.repository.hostname + "/" + name
-        return name
-    raise UnfurlError("get_artifact not implemented")
-    # XXX
+    return None
+    # XXX TOSCA 1.3 stuff:
     # if not location:
     #     #if  deploy_path # update artifact instance
     #     return artifact.getUrl()
@@ -750,7 +903,7 @@ def get_artifact(
     #     # if location == 'LOCAL_FILE':
 
 
-set_eval_func("get_artifact", lambda args, ctx: get_artifact(ctx, *args), True)
+set_eval_func("get_artifact", lambda args, ctx: get_artifact(ctx, *(map_value(args, ctx))), True)
 
 
 def get_import(arg: RefContext, ctx):

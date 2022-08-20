@@ -3,7 +3,7 @@ import os
 import pickle
 from unfurl.yamlmanifest import YamlManifest
 from unfurl.job import Runner, JobOptions
-from unfurl.support import Status
+from unfurl.support import Status, ContainerImage
 import toscaparser.repositories
 from pathlib import Path
 from .utils import isolated_lifecycle, DEFAULT_STEPS, Step
@@ -23,7 +23,7 @@ spec:
            user: a_user
            token: a_password
     topology_template:
-      node_templates:      
+      node_templates:
         container1:
           type: unfurl.nodes.Container.Application.Docker
           properties:
@@ -73,6 +73,14 @@ spec:
                           when: registry and registry.credential
 """
 
+def test_container_image():
+    args = ContainerImage.split("busybox:latest")
+    assert args == ('busybox', 'latest', None, None)
+    image = ContainerImage.make("busybox:latest")
+    assert isinstance(image, ContainerImage)
+    assert image == "busybox:latest"
+    assert ContainerImage.resolve_name("onecommons/unfurl", "unfurl:45245628") == "onecommons/unfurl:45245628"
+
 
 @unittest.skipIf("docker" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
 class DockerTest(unittest.TestCase):
@@ -115,6 +123,8 @@ class DockerTest(unittest.TestCase):
         assert not run1.unexpectedAbort, run1.unexpectedAbort.get_stack_trace()
         assert tasks[0].target.status.name == "ok", tasks[0].target.status
         assert tasks[1].target.status.name == "ok", tasks[1].target.status
+
+        assert "::container1::container_image" in run1.manifest.manifest.config["changes"][1]["digestKeys"]
 
         run2 = runner.run(JobOptions(workflow="undeploy", template="container1"))
         # stop op shouldn't be called, just delete
