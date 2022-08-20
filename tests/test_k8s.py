@@ -118,6 +118,9 @@ def _get_pod_logs(task, name):
     cmd = ["kubectl"] + args + ["logs", name]
     return subprocess.run(cmd, capture_output=True).stdout
 
+def _pod_log_test(logs):
+    return logs and b"FOO=bar" in logs and b"APP_SERVICE_PORT=8001" in logs
+
 
 STEPS = (
     Step("deploy", Status.ok, changed=-1),  # check that some changes were made
@@ -157,14 +160,12 @@ def test_kompose():
                     pod_name = resource["metadata"]["name"]
                     logs = _get_pod_logs(task, pod_name)
                     count = 0
-                    while not logs:
+                    while not _pod_log_test(logs):
                         time.sleep(5)
                         logs = _get_pod_logs(task, pod_name)
                         if count > 5:
-                            assert False, f"timeout trying to get logs for {pod_name}"
+                            assert False, f"timeout trying waiting read logs for {pod_name}, got: {logs}"
                         count += 1
-                    assert b"FOO=bar" in logs, logs
-                    assert b"APP_SERVICE_PORT=8001" in logs, logs
 
 
 BASE = """

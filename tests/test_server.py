@@ -54,12 +54,12 @@ def start_envvar_server(port):
         httpd = HTTPServer(server_address, handler)
     except:  # address might still be in use
         httpd = None
-        return
+        return None, None
     t = threading.Thread(name="http_thread", target=httpd.serve_forever)
     t.daemon = True
     t.start()
 
-    env_var_url = "http://localhost:8011/envlist.json"
+    env_var_url = f"http://localhost:{port}/envlist.json"
     # make sure this works
     f = urllib.request.urlopen(env_var_url)
     f.close()
@@ -146,6 +146,9 @@ class TestServer(unittest.TestCase):
 
     def test_server_export_remote(self):
         httpd, env_var_url = start_envvar_server(8011)
+        if httpd is None:
+            httpd, env_var_url = start_envvar_server(8012)
+
         with self.runner.isolated_filesystem():
             init_project(
                 self.runner,

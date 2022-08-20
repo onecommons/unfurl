@@ -48,7 +48,8 @@ def test_clone(caplog):
         )
         assert result.exit_code == 0, result
 
-        # UNFURL_VAULT_DEFAULT_PASSWORD should be added to environment variables and vault password should be set to "password"
+        # http://localhost:8011/envlist.json should have been included into the variables section in local/unfurl.yaml
+        # so UNFURL_VAULT_DEFAULT_PASSWORD is added to environment variables and vault password should be set to "password"
         assert "Vault password found, configuring vault ids: ['default']" in caplog.text
         assert "password" in result.output.splitlines()[-1] # cli query result
 
