@@ -139,7 +139,6 @@ relationship_types:
           The name of a context found in the config file. If not set the current-context will be used.
         required: false
         metadata:
-          user_settable: false
           env_vars:
             - KUBE_CTX
       cluster_ca_certificate:
@@ -148,6 +147,7 @@ relationship_types:
         metadata:
           sensitive: true
           user_settable: true
+          input_type: textarea
           env_vars:
           - KUBE_CLUSTER_CA_CERT_DATA
         description: >
