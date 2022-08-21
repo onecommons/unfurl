@@ -121,6 +121,8 @@ class DelegateConfigurator(Configurator):
         return task.rendered
 
     def should_run(self, task):
+        if "when" in task.inputs and not task.inputs["when"]:
+            return False
         task.rendered = task.create_sub_task(
             task.inputs.get("operation"),
             task.inputs.get("target"),
