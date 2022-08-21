@@ -692,33 +692,36 @@ class LocalConfig:
         This is called while the YAML config is being loaded.
         Returns (url or fullpath, parsed yaml)
         """
-        vars = self.overrides or {}
+        url_vars = self.overrides or {}
         # XXX
-        # if ENVIRONMENT not in vars:
+        # if ENVIRONMENT not in url_vars:
         #    expanded.get("ensembles") or []
-        #    find_ensemble_by_path(vars.get("manifest_path")) or get_default_manifest_tpl
-        if action:
-            if isinstance(action, str):
-                # XXX check expanded?
-                #  ('environments', 'defaults', 'variables')
-                return substitute_env(action, vars)
-            return True  # validate
-
+        #    find_ensemble_by_path(url_vars.get("manifest_path")) or get_default_manifest_tpl
         if isinstance(templatePath, dict):
             key = templatePath["file"]
             merge = templatePath.get("merge")
         else:
             key = templatePath
             merge = None
-        if "${ENVIRONMENT" in key and "ENVIRONMENT" not in self.overrides:
+
+        if action:
+            if isinstance(action, str):
+                # XXX check expanded?
+                #  ('environments', 'defaults', 'variables')
+                return substitute_env(action, url_vars)
+            # check:
+            return True
+
+        if "${ENVIRONMENT" in key and "ENVIRONMENT" not in url_vars:
             # don't load remote includes for LocalEnv that don't specify an environment
             # XXX (hackish way to avoid loads for transitory LocalEnv objects)
+            logger.trace("skipping retrieving url with ENVIRONMENT: %s", key)
             return key, None
 
-        key = substitute_env(key, vars)
+        key = substitute_env(key, url_vars)
         includekey, template = yamlConfig.load_yaml(key, baseDir, warnWhenNotFound)
         if merge == "maplist" and template is not None:
-            template = CommentedMap(_maplist(template, vars.get("ENVIRONMENT")))
+            template = CommentedMap(_maplist(template, url_vars.get("ENVIRONMENT")))
             logger.debug("retrieved remote environment vars: %s", template)
         return includekey, template
 

@@ -538,8 +538,12 @@ class Manifest(AttributeManager):
             tpl=tpl,
             resolver=resolver,
         )
-        # returns path, doc
-        return loader._load_import_template(None, artifact.as_import_spec())
+        path, doc = loader._load_import_template(None, artifact.as_import_spec())
+        if doc is None:
+            logger.warning(
+                f"document include {templatePath} does not exist (base: {baseDir})"
+            )
+        return path, doc
 
     def get_import_resolver(self, ignoreFileNotFound=False, expand=False):
         return ImportResolver(self, ignoreFileNotFound, expand)

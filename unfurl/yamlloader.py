@@ -420,12 +420,18 @@ class YamlConfig:
                 f = urlopen(path)
             except urllib.error.URLError:
                 if warnWhenNotFound:
+                    logger.warning(
+                        f"document include {path} could not be retreived"
+                    )
                     return path, None
                 raise
         else:
             path, sep, fragment = path.partition("#")
             path = os.path.abspath(os.path.join(baseDir or self.get_base_dir(), path))
             if warnWhenNotFound and not os.path.isfile(path):
+                logger.warning(
+                    f"document include {path} does not exist (base: {baseDir})"
+                )
                 return path, None
             logger.trace("attempting to load YAML file: %s", path)
             f = open(path, "r")
@@ -448,7 +454,7 @@ class YamlConfig:
     def dump(self, out=sys.stdout):
         try:
             self.yaml.dump(self.config, out)
-        except:
+        except Exception:
             raise UnfurlError(f"Error saving {self.path}", True)
 
     def save(self):
@@ -516,7 +522,7 @@ class YamlConfig:
         output = six.StringIO()
         try:
             self.yaml.dump(template, output)
-        except:
+        except Exception:
             raise UnfurlError(f"Error saving include {path}", True)
         with open(path, "w") as f:
             f.write(output.getvalue())
@@ -525,6 +531,7 @@ class YamlConfig:
         self, templatePath, warnWhenNotFound=False, expanded=None, check=False
     ):
         if check and isinstance(check, bool):
+            # called merge.has_template
             if self.loadHook:
                 return self.loadHook(
                     self,
@@ -580,17 +587,18 @@ class YamlConfig:
                 )
             else:
                 path, template = self.load_yaml(key, baseDir, warnWhenNotFound)
-            newBaseDir = os.path.dirname(path)
+
             if template is None:
-                if warnWhenNotFound:
-                    logger.warning(
-                        f"document include {templatePath} does not exist (base: {baseDir})"
-                    )
-                return value, template, newBaseDir
-            elif isinstance(template, CommentedMap):
+                return value, template, baseDir
+
+            if path.startswith("http"):  # its an url, don't change baseDir
+                newBaseDir = baseDir
+            else:
+                newBaseDir = os.path.dirname(path)
+            if isinstance(template, CommentedMap):
                 template.base_dir = newBaseDir
             _cache_anchors(self.config._anchorCache, template)
-        except:
+        except Exception:
             raise UnfurlError(
                 f"unable to load document include: {templatePath} (base: {baseDir})",
                 True,
