@@ -373,13 +373,16 @@ As described above, this is the default if no configurator is specified.</p>
 <blockquote>
 <div><dl class="field-list simple">
 <dt class="field-odd">operation</dt>
-<dd class="field-odd"><p>(<em>required</em>) The operation to delegate to.</p>
+<dd class="field-odd"><p>(<em>required</em>) The operation to delegate to, e.g. <code class="docutils literal notranslate"><span class="pre">Standard.configure</span></code></p>
 </dd>
 <dt class="field-even">target</dt>
 <dd class="field-even"><p>The name of the instance to delegate to. If omitted the current target will be used.</p>
 </dd>
 <dt class="field-odd">inputs</dt>
 <dd class="field-odd"><p>Inputs to pass to the operation. If omitted the current inputs will be used.</p>
+</dd>
+<dt class="field-even">when</dt>
+<dd class="field-even"><p>If set, only perform the delegated operation if its value evaluates to true.</p>
 </dd>
 </dl>
 </div></blockquote>
