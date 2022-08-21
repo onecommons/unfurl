@@ -55,7 +55,7 @@ node_types:
         type: boolean
         title: Testing
         description: Is this DNS zone being used for testing? (If set, Let's Encrypt staging will be used.)
-        default: true
+        default: false
     attributes:
       zone:
         description: The records found in the zone
