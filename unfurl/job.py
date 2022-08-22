@@ -618,6 +618,13 @@ class Job(ConfigChange):
         ready, notReady, errors = do_render_requests(self, ready)
         return ready, notReady, errors
 
+    @staticmethod
+    def _yield_serious_errors(errors):
+        for e in errors:
+            task = getattr(e, "task", None)  # if UnfurlTaskError
+            if not task or task.priority >= Priority.required:
+                yield e
+
     def _run(
         self, rendered_requests: Optional[Tuple[list, list, list]] = None
     ) -> ResourceRef:
@@ -628,8 +635,9 @@ class Job(ConfigChange):
 
         self.workDone = collections.OrderedDict()
 
-        if errors:
-            logger.error("Aborting job: there were errors during rendering: %s", errors)
+        serious_errors = list(self._yield_serious_errors(errors))
+        if serious_errors:
+            logger.error("Aborting job: there were errors during rendering: %s", serious_errors)
             return self.rootResource
 
         # XXX update_plan(ready, unfulfilled) # try to reorder so we can add to ready
