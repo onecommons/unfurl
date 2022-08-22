@@ -204,6 +204,21 @@ class EvalTest(unittest.TestCase):
         result5 = Ref(test4).resolve_one(RefContext(resource, trace=0))
         assert result5 == []
 
+        test5 = {
+            "eval": {"portspec": "80:81"},
+            "select": "source"
+        }
+        result6 = Ref(test5).resolve_one(RefContext(resource, trace=0))
+        assert result6 == 80
+
+        test6= {
+            "eval": {"portspec": "80:81"},
+            "select": "target"
+        }
+        result7 = Ref(test6).resolve_one(RefContext(resource, trace=0))
+        assert result7 == 81
+
+
     def test_serializeValues(self):
         resource = self._getTestResource()
         src = {"a": ["b", resource]}
