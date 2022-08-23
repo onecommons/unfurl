@@ -850,7 +850,9 @@ def _get_container_image_from_repository(entity, artifact_name):
 
     hostname = None
     if attr.get("registry_url"):
-        hostname = urlsplit(attr["registry_url"]).netloc
+        hostname = attr["registry_url"]
+        if '//' in hostname:
+            hostname = urlsplit(attr["registry_url"]).netloc
     username = attr.get("username")
     password = attr.get("password")
     source_digest = attr.get("revision")
