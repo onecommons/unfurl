@@ -121,8 +121,6 @@ class DelegateConfigurator(Configurator):
         return task.rendered
 
     def should_run(self, task):
-        if "when" in task.inputs and not task.inputs["when"]:
-            return False
         task.rendered = task.create_sub_task(
             task.inputs.get("operation"),
             task.inputs.get("target"),
@@ -135,8 +133,13 @@ class DelegateConfigurator(Configurator):
             return False
 
     def run(self, task):
-        subtaskRequest = task.rendered
-        assert subtaskRequest
-        # note: this will call canRun() and if needed canDryRun() on subtask but not shouldRun()
-        subtask = yield subtaskRequest
-        yield subtask.result
+        if "when" in task.inputs and not task.inputs["when"]:
+            # check this here instead of should_run() so that we still create and the task
+            # really just a hack so we save the digest in the job log for future reconfigure operations
+            yield task.done(True, modified=False)
+        else:
+            subtaskRequest = task.rendered
+            assert subtaskRequest
+            # note: this will call canRun() and if needed canDryRun() on subtask but not shouldRun()
+            subtask = yield subtaskRequest
+            yield subtask.result

@@ -939,10 +939,9 @@ class YamlManifest(ReadOnlyManifest):
             f.write(job.log(attrs))
 
             for change in changes:
-                if "readyState" in change:
-                    status = change["readyState"].get("effective") or change["readyState"].get("local")
-                else:
-                    status = "pending" # never ran (skipped)
+                if "readyState" not in change:
+                    continue  # never ran (skipped)
+                status = change["readyState"].get("effective") or change["readyState"].get("local")
                 attrs = dict(
                     previousId=change.get("previousId", ""),
                     status=status,
