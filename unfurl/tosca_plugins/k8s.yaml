@@ -197,7 +197,6 @@ relationship_types:
         default:
           eval: .target::api_server
         metadata:
-          sensitive: true
           user_settable: true
           env_vars:
           - KUBE_HOST

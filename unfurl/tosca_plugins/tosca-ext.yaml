@@ -165,6 +165,8 @@ node_types:
           node: unfurl.nodes.AWSAccount
           relationship: unfurl.relationships.ConnectsTo.AWSAccount
           occurrences: [0, 1] # make optional so we aren't forced to always explicitly declare this
+          metadata:
+            visibility: hidden
 
   unfurl.nodes.AzureAccount:
     derived_from: unfurl.nodes.CloudAccount
@@ -176,6 +178,8 @@ node_types:
           node: unfurl.nodes.AzureAccount
           relationship: unfurl.relationships.ConnectsTo.Azure
           occurrences: [0, 1] # make optional so we aren't forced to always explicitly declare this
+          metadata:
+            visibility: hidden
 
 data_types:
   unfurl.datatypes.EnvVar:

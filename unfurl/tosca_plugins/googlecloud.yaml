@@ -18,6 +18,8 @@ node_types:
           node: unfurl.nodes.GoogleCloudProject
           relationship: unfurl.relationships.ConnectsTo.GoogleCloudProject
           occurrences: [0, 1] # make optional so we aren't forced to always explicitly declare this
+          metadata:
+            visibility: hidden          
 
   unfurl.nodes.GoogleCloudProject:
     derived_from: unfurl.nodes.CloudAccount

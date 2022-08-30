@@ -848,7 +848,6 @@ def _get_container_image_from_repository(entity, artifact_name):
 
     tag = tag or attr.get("repository_tag")
 
-    hostname = None
     if attr.get("registry_url"):
         hostname = attr["registry_url"]
         if '//' in hostname:

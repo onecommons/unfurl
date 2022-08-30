@@ -60,6 +60,8 @@ node_types:
       zone:
         description: The records found in the zone
         type: map
+        metadata: # XXX
+          visibility: hidden
       managed_records:
         title: "Managed Records"
         description: The records in the zone that are managed by this instance
