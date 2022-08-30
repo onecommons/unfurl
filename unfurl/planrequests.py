@@ -454,6 +454,8 @@ def _prepare_request(job, req, errors):
                 req.target.status,
                 msg,
             )
+            # we want to track and save skipped tasks
+            job.add_work(task)
     except Exception:
         proceed = False
         # note: failed rendering may be re-tried later if it has dependencies

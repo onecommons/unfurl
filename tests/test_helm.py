@@ -27,34 +27,10 @@ class HelmTest(unittest.TestCase):
         server_address = ("", 8010)
         directory = os.path.dirname(__file__)
         try:
-            if sys.version_info[0] >= 3:
-                from http.server import HTTPServer, SimpleHTTPRequestHandler
+            from http.server import HTTPServer, SimpleHTTPRequestHandler
 
-                handler = partial(SimpleHTTPRequestHandler, directory=directory)
-                self.httpd = HTTPServer(server_address, handler)
-            else:  # for python 2.7
-                import urllib
-
-                import SocketServer
-                from SimpleHTTPServer import SimpleHTTPRequestHandler
-
-                class RootedHTTPRequestHandler(SimpleHTTPRequestHandler):
-                    def translate_path(self, path):
-                        path = os.path.normpath(urllib.unquote(path))
-                        words = path.split("/")
-                        words = filter(None, words)
-                        path = directory
-                        for word in words:
-                            drive, word = os.path.splitdrive(word)
-                            head, word = os.path.split(word)
-                            if word in (os.curdir, os.pardir):
-                                continue
-                            path = os.path.join(path, word)
-                        return path
-
-                self.httpd = SocketServer.TCPServer(
-                    server_address, RootedHTTPRequestHandler
-                )
+            handler = partial(SimpleHTTPRequestHandler, directory=directory)
+            self.httpd = HTTPServer(server_address, handler)
         except:  # address might still be in use
             self.httpd = None
             return
@@ -85,23 +61,17 @@ class HelmTest(unittest.TestCase):
         # print(run1.jsonSummary(True))
         # print(run1._jsonPlanSummary(True))
 
-        if sys.version_info[0] < 3:
-            return  # task order not guaranteed in python 2.7
-        self.assertEqual(
-            summary,
-            {
-                "job": {
+        self.assertEqual(summary["job"], {
                     "id": "A01110000000",
                     "status": "ok",
-                    "total": 4,
+                    "total": 9,
                     "ok": 4,
                     "error": 0,
                     "unknown": 0,
-                    "skipped": 0,
+                    "skipped": 5,
                     "changed": 4,
-                },
-                "outputs": {},
-                "tasks": [
+                    })
+        self.assertEqual([t for t in summary["tasks"] if t["status"]], [
                     {
                         "status": "ok",
                         "target": "stable_repo",
@@ -154,10 +124,8 @@ class HelmTest(unittest.TestCase):
                         "priority": "required",
                         "reason": "subtask: for add: Standard.configure",
                     },
-                ],
-            },
-        )
-        assert all(task["targetStatus"] == "ok" for task in summary["tasks"]), summary[
+                ])
+        assert all(task.get("targetStatus") == "ok" for task in summary["tasks"]), summary[
             "tasks"
         ]
         # runner.manifest.dump()
@@ -191,8 +159,8 @@ class HelmTest(unittest.TestCase):
             # print(runner.manifest.statusSummary())
             # print(run.jsonSummary(True))
             summary = run.json_summary()
-            self.assertEqual(
-                {
+            tasks = summary.pop("tasks")
+            self.assertEqual(summary, {
                     "external_jobs": [
                         {
                             "ensemble": summary["external_jobs"][0]["ensemble"],
@@ -240,71 +208,71 @@ class HelmTest(unittest.TestCase):
                     "job": {
                         "id": "A01120000000",
                         "status": "ok",
-                        "total": 4,
+                        "total": 9,
                         "ok": 4,
                         "error": 0,
                         "unknown": 0,
-                        "skipped": 0,
+                        "skipped": 5,
                         "changed": 4,
                     },
-                    "outputs": {},
-                    "tasks": [
-                        {
-                            "status": "ok",
-                            "target": "stable_repo",
-                            "operation": "check",
-                            "template": "stable_repo",
-                            "type": "unfurl.nodes.HelmRepository",
-                            "targetStatus": "ok",
-                            "targetState": "started",
-                            "changed": True,
-                            "configurator": "unfurl.configurators.shell.ShellConfigurator",
-                            "priority": "required",
-                            "reason": "check",
-                        },
-                        {
-                            "status": "ok",
-                            "target": "k8sNamespace",
-                            "operation": "check",
-                            "template": "k8sNamespace",
-                            "type": "unfurl.nodes.K8sNamespace",
-                            "targetStatus": "ok",
-                            "targetState": "started",
-                            "changed": True,
-                            "configurator": "unfurl.configurators.k8s.ResourceConfigurator",
-                            "priority": "required",
-                            "reason": "check",
-                        },
-                        {
-                            "status": "ok",
-                            "target": "mysql_release",
-                            "operation": "check",
-                            "template": "mysql_release",
-                            "type": "unfurl.nodes.HelmRelease",
-                            "targetStatus": "ok",
-                            "targetState": "started",
-                            "changed": True,
-                            "configurator": "unfurl.configurators.DelegateConfigurator",
-                            "priority": "required",
-                            "reason": "check",
-                        },
-                        {
-                            "status": "ok",
-                            "target": "mysql_release",
-                            "operation": "execute",
-                            "template": "mysql_release",
-                            "type": "unfurl.nodes.HelmRelease",
-                            "targetStatus": "ok",
-                            "targetState": None,
-                            "changed": True,
-                            "configurator": "unfurl.configurators.shell.ShellConfigurator",
-                            "priority": "required",
-                            "reason": "subtask: for check: Install.check",
-                        },
-                    ],
-                },
-                summary,
-            )
+                    "outputs": {}
+            })
+            self.assertEqual([t for t in tasks if t["status"]],
+                [
+                    {
+                        "status": "ok",
+                        "target": "stable_repo",
+                        "operation": "check",
+                        "template": "stable_repo",
+                        "type": "unfurl.nodes.HelmRepository",
+                        "targetStatus": "ok",
+                        "targetState": "started",
+                        "changed": True,
+                        "configurator": "unfurl.configurators.shell.ShellConfigurator",
+                        "priority": "required",
+                        "reason": "check",
+                    },
+                    {
+                        "status": "ok",
+                        "target": "k8sNamespace",
+                        "operation": "check",
+                        "template": "k8sNamespace",
+                        "type": "unfurl.nodes.K8sNamespace",
+                        "targetStatus": "ok",
+                        "targetState": "started",
+                        "changed": True,
+                        "configurator": "unfurl.configurators.k8s.ResourceConfigurator",
+                        "priority": "required",
+                        "reason": "check",
+                    },
+                    {
+                        "status": "ok",
+                        "target": "mysql_release",
+                        "operation": "check",
+                        "template": "mysql_release",
+                        "type": "unfurl.nodes.HelmRelease",
+                        "targetStatus": "ok",
+                        "targetState": "started",
+                        "changed": True,
+                        "configurator": "unfurl.configurators.DelegateConfigurator",
+                        "priority": "required",
+                        "reason": "check",
+                    },
+                    {
+                        "status": "ok",
+                        "target": "mysql_release",
+                        "operation": "execute",
+                        "template": "mysql_release",
+                        "type": "unfurl.nodes.HelmRelease",
+                        "targetStatus": "ok",
+                        "targetState": None,
+                        "changed": True,
+                        "configurator": "unfurl.configurators.shell.ShellConfigurator",
+                        "priority": "required",
+                        "reason": "subtask: for check: Install.check",
+                    },
+                ], tasks)
+
             # reuse the same runner because the manifest's status has been updated
             run2 = runner.run(
                 JobOptions(workflow="undeploy", startTime=3, destroyunmanaged=True)

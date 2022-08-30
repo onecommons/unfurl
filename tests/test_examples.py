@@ -65,21 +65,24 @@ class RunTest(unittest.TestCase):
         job = runner.run(JobOptions(add=True, out=output, startTime=1))
         assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
         # print(manifest.statusSummary())
-        self.assertEqual(
-            job.json_summary(),
+        summary = job.json_summary()
+        tasks = summary.pop("tasks")
+        self.assertEqual(summary,
             {
                 "job": {
                     "id": "A01110000000",
                     "status": "ok",
-                    "total": 5,
+                    "total": 10,
                     "ok": 5,
                     "error": 0,
                     "unknown": 0,
-                    "skipped": 0,
+                    "skipped": 5,
                     "changed": 5,
                 },
                 "outputs": {},
-                "tasks": [
+            })
+        self.assertEqual([t for t in tasks if t["status"]],
+        [
                     {
                         "status": "ok",
                         "target": "stagingCluster",
@@ -145,9 +148,7 @@ class RunTest(unittest.TestCase):
                         "priority": "required",
                         "reason": "step:helm",
                     },
-                ],
-            },
-        )
+                ])
         # manifest shouldn't have changed
         # print("1", output.getvalue())
         baseDir = __file__ + "/../examples/"

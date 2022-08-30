@@ -13,7 +13,7 @@ from click.testing import CliRunner
 from unfurl.__main__ import cli, _latestJobs
 from unfurl.job import Runner, JobOptions, Job
 from unfurl.manifest import Manifest
-from unfurl.support import Status
+from unfurl.support import Status, Priority
 
 
 class MotoTest(unittest.TestCase):
@@ -104,9 +104,10 @@ def _check_job(job, i, step):
             ), f"{step_str} unexpected {summary}"
 
     for task in job.workDone.values():
-        assert (
-            task.target.status == step.target_status
-        ), f"Step: {step_str}, status: {task.target.status.name} should be {step.target_status.name} for {task.target.name}"
+        if task.status is not None and task.priority > Priority.ignore:
+            assert (
+                task.target.status == step.target_status
+            ), f"Step: {step_str}, status: {task.target.status.name} should be {step.target_status.name} for {task.target.name}"
     job.step = step
     return job
 

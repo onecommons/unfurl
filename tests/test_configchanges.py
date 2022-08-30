@@ -218,11 +218,11 @@ class ConfigChangeTest(unittest.TestCase):
                 {
                     "id": "A01110GC0000",
                     "status": "ok",
-                    "total": 0,
+                    "total": 1,
                     "ok": 0,
                     "error": 0,
                     "unknown": 0,
-                    "skipped": 0,
+                    "skipped": 1,
                     "changed": 0,
                 },
                 summary["job"],
@@ -378,7 +378,8 @@ def test_topology_input_change():
 
         # no changes, nothing to do
         result, job, summary = run_job_cmd(cli_runner, starttime=2)
-        assert summary["job"]["total"] == 0
+        assert summary["job"]["skipped"] == 1
+        assert summary["job"]["total"] == 1
         assert summary["outputs"]["test_output"] == "default"
 
         # add input and run again
@@ -399,5 +400,6 @@ def test_topology_input_change():
 
         # no changes, nothing to do
         result, job, summary = run_job_cmd(cli_runner, starttime=5)
-        assert summary["job"]["total"] == 0
+        assert summary["job"]["skipped"] == 1
+        assert summary["job"]["total"] == 1
         assert summary["outputs"]["test_output"] == input_value

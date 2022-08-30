@@ -478,8 +478,9 @@ class ConfigTask(ConfigChange, TaskView):
         else:
             configurator = self.configSpec.className
 
+        status = None if self.status is None else self.status.name
         summary = dict(
-            status=self.status.name,
+            status=status,
             target=self.target.name,
             operation=self.configSpec.operation,
             template=self.target.template.name,
@@ -559,7 +560,8 @@ class Job(ConfigChange):
         # XXX3 this isn't right, root job might have too many and child job might not have enough
         # plus dynamic configurations probably shouldn't be included if yielded by a configurator
         for task in self.workDone.values():
-            yield task
+            if task.status is not None and task.priority > Priority.ignore:
+                yield task
 
     def get_outputs(self) -> Any:
         return self.rootResource.attributes["outputs"]  # type: ignore
@@ -995,7 +997,8 @@ class Job(ConfigChange):
         """
         resource = req.target
         logger.trace(
-            "checking operation entry test: current state %s start state %s op %s workflow %s",
+            "checking operation entry test on %s: current state %s start state %s op %s workflow %s",
+            resource.key,
             resource.state,
             req.startState,
             req.configSpec.operation,

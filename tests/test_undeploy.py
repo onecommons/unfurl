@@ -111,16 +111,16 @@ class UndeployTest(unittest.TestCase):
             {
                 "id": "A01110000000",
                 "status": "ok",
-                "total": 7,
+                "total": 8,
                 "ok": 7,
                 "error": 0,
                 "unknown": 0,
-                "skipped": 0,
+                "skipped": 1,
                 "changed": 6,
             },
             summary["job"],
         )
-        targets = [t["target"] for t in summary["tasks"]]
+        targets = [t["target"] for t in summary["tasks"] if t["status"]]
         self.assertNotIn(
             "discovered",
             targets,
