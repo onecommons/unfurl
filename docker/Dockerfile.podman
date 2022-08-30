@@ -1,3 +1,4 @@
+# use tag param to reuse the just-built image in CI
 ARG  UNFURL_TAG=latest
 FROM onecommons/unfurl:${UNFURL_TAG}
 

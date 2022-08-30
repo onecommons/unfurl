@@ -73,7 +73,7 @@ jobs:
           name: DocumentationHTML
           path: .tox/docs/html/
 
-  deploy_dockerhub:
+  publish_dockerhub:
     needs: test
     if: github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
@@ -125,15 +125,12 @@ jobs:
             KOMPOSE_VERSION=${{ env.KOMPOSE_VERSION }}
           tags: ${{ steps.meta.outputs.tags }}
 
-  deploy_dockerhub_podman:
-    needs: deploy_dockerhub
+  publish_dockerhub_podman:
+    needs: publish_dockerhub
     if: github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     env:
       DOCKERHUB_USER: "ocbuilds"
-    # Map a step output to a job output
-    outputs:
-      release: ${{ steps.get_tag_name.outputs.release }}
     steps:
       - name: Login to DockerHub
         uses: docker/login-action@v1
@@ -179,8 +176,8 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
 
   publish_pypi:
-    needs: deploy_dockerhub
-    if: needs.deploy_dockerhub.outputs.release
+    needs: publish_dockerhub
+    if: needs.publish_dockerhub.outputs.release
     runs-on: ubuntu-latest
     steps:
       - name: fetch repo
@@ -198,7 +195,7 @@ jobs:
           verbose: true
 
   docs:
-    needs: deploy_dockerhub
+    needs: publish_dockerhub
     if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/publish-docs'
     runs-on: ubuntu-latest
     steps:
