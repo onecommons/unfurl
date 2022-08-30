@@ -72,6 +72,7 @@ jobs:
         with:
           name: DocumentationHTML
           path: .tox/docs/html/
+
   deploy_dockerhub:
     needs: test
     if: github.ref == 'refs/heads/master'
@@ -87,7 +88,7 @@ jobs:
         with:
           username: ${{ env.DOCKERHUB_USER }}
           password: ${{ secrets.DOCKER_HUB }}
-      - name: fetch repo
+      - name: Fetch repo
         uses: actions/checkout@v2
         with:
           submodules: recursive
@@ -123,7 +124,61 @@ jobs:
             GCLOUD_VERSION=${{ env.GCLOUD_VERSION }}
             KOMPOSE_VERSION=${{ env.KOMPOSE_VERSION }}
           tags: ${{ steps.meta.outputs.tags }}
-  publish:
+
+  deploy_dockerhub_podman:
+    needs: deploy_dockerhub
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    env:
+      DOCKERHUB_USER: "ocbuilds"
+    # Map a step output to a job output
+    outputs:
+      release: ${{ steps.get_tag_name.outputs.release }}
+    steps:
+      - name: Login to DockerHub
+        uses: docker/login-action@v1
+        with:
+          username: ${{ env.DOCKERHUB_USER }}
+          password: ${{ secrets.DOCKER_HUB }}
+      - name: fetch repo
+        uses: actions/checkout@v2
+        with:
+          submodules: recursive
+          fetch-depth: 0
+      - name: Get the tag name or abbreviated commit digest
+        id: get_tag_name
+        run: |
+          label=$(git describe --contains --always)
+          echo "::set-output name=tag::"${label%^0}
+          if [[ $label =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,4}.0$ ]]; then
+              echo ::set-output name=release::true
+          fi
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v4
+        with:
+          images: |
+            onecommons/unfurl
+          tags: |
+            type=raw,value=latest-podman,enable=${{ github.ref == format('refs/heads/{0}', 'master') }}
+            type=raw,value=stable-podman,enable=${{ steps.get_tag_name.outputs.release || 'false' }}
+            type=raw,value=${{ steps.get_tag_name.outputs.tag }}-podman
+      - name: Build and push
+        id: docker_build
+        uses: docker/build-push-action@v2
+        with:
+          context: ./
+          file: ./docker/Dockerfile.podman
+          push: true
+          build-args: |
+            HELM_VERSION=${{ env.HELM_VERSION }}
+            TERRAFORM_VERSION=${{ env.TERRAFORM_VERSION }}
+            GCLOUD_VERSION=${{ env.GCLOUD_VERSION }}
+            KOMPOSE_VERSION=${{ env.KOMPOSE_VERSION }}
+            UNFURL_TAG=${{ steps.get_tag_name.outputs.tag }}
+          tags: ${{ steps.meta.outputs.tags }}
+
+  publish_pypi:
     needs: deploy_dockerhub
     if: needs.deploy_dockerhub.outputs.release
     runs-on: ubuntu-latest
@@ -141,6 +196,7 @@ jobs:
           user: __token__
           password: ${{ secrets.PYPI }}
           verbose: true
+
   docs:
     needs: deploy_dockerhub
     if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/publish-docs'
