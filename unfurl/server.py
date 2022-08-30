@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 from urllib.parse import unquote
@@ -138,6 +139,69 @@ def export():
     json_summary = exporter(local_env)
 
     return jsonify(json_summary)
+
+
+@app.route("/update_deployment", methods=["POST"])
+def update_deployment():
+    body = request.json
+    # Repository URL
+    project_path = body.get("projectPath")
+    # File path
+    path = body.get("path")
+    # Patch
+    patch = body.get("patch")
+
+    # Project is external
+    if project_path.startswith('http') or project_path.startswith('git'):
+        clone_root = current_app.config["UNFURL_CLONE_ROOT"]
+        git_url = project_path
+        from . import init
+        clone_location = (clone_root + "/" + Repo.get_path_for_git_repo(git_url)).lstrip('./')
+
+        result = init.clone(
+            git_url,
+            clone_location + "/",
+        )
+        logging.info(result)
+
+        repo = LocalEnv(
+            clone_location,
+            can_be_empty=True,
+        ).find_git_repo(git_url)
+
+        if repo is None:
+            return create_error_response("INTERNAL_ERROR", "Could not find repository")
+        
+        target = json.loads(repo.show(path, "HEAD"))
+
+        for patch_inner in patch:
+            typename = patch_inner.get("type")
+            deleted = patch_inner.get("deleted")
+            target_inner = target
+            if typename != "*":
+                if not target_inner.get(typename):
+                    target_inner[typename] = {}
+                target_inner = target_inner[typename]
+            if deleted:
+                if deleted == "*":
+                    if typename == "*":
+                        for key in target:
+                            del target[key]
+                    else:
+                        del target[typename]
+                else:
+                    del target[typename][deleted]
+                continue
+            target_inner[patch_inner['name']] = patch_inner
+
+        with open(f"{clone_location}/{path}", "w") as f:
+            f.write(json.dumps(target, indent=2))
+        
+        repo.add_all(clone_location)
+        repo.commit_files([f"{clone_location}/{path}"], f"Update deployment")
+
+    return "OK"
+
 
 def create_error_response(code, message):
     http_code = 400 # Default to BAD_REQUEST
