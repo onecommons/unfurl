@@ -9,7 +9,8 @@ from flask import Flask, current_app, jsonify, request
 from flask_caching import Cache
 
 from unfurl.localenv import LocalEnv
-from unfurl.repo import Repo
+from git import Repo
+from unfurl.repo import GitRepo
 from unfurl.util import UnfurlError
 
 logger = logging.getLogger("unfurl")
@@ -173,32 +174,41 @@ def update_deployment():
             return create_error_response("INTERNAL_ERROR", "Could not find repository")
         
         target = json.loads(repo.show(path, "HEAD"))
+    
+    else:
+        clone_location = project_path
+        repo = Repo.init(clone_location)
+        if repo is None:
+            return create_error_response("INTERNAL_ERROR", "Could not find repository")
+        repo = GitRepo(repo)
+        target = json.loads(
+            repo.show(path, "HEAD")
+        )
 
-        for patch_inner in patch:
-            typename = patch_inner.get("type")
-            deleted = patch_inner.get("deleted")
-            target_inner = target
-            if typename != "*":
-                if not target_inner.get(typename):
-                    target_inner[typename] = {}
-                target_inner = target_inner[typename]
-            if deleted:
-                if deleted == "*":
-                    if typename == "*":
-                        for key in target:
-                            del target[key]
-                    else:
-                        del target[typename]
+    for patch_inner in patch:
+        typename = patch_inner.get("__typename")
+        deleted = patch_inner.get("__deleted")
+        target_inner = target
+        if typename != "*":
+            if not target_inner.get(typename):
+                target_inner[typename] = {}
+            target_inner = target_inner[typename]
+        if deleted:
+            if deleted == "*":
+                if typename == "*":
+                    target = {}
                 else:
-                    del target[typename][deleted]
-                continue
-            target_inner[patch_inner['name']] = patch_inner
+                    del target[typename]
+            else:
+                del target[typename][deleted]
+            continue
+        target_inner[patch_inner['name']] = patch_inner
 
-        with open(f"{clone_location}/{path}", "w") as f:
-            f.write(json.dumps(target, indent=2))
-        
-        repo.add_all(clone_location)
-        repo.commit_files([f"{clone_location}/{path}"], f"Update deployment")
+    with open(f"{clone_location}/{path}", "w") as f:
+        f.write(json.dumps(target, indent=2))
+    
+    repo.add_all(clone_location)
+    repo.commit_files([f"{clone_location}/{path}"], f"Update deployment")
 
     return "OK"
 
