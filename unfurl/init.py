@@ -511,7 +511,7 @@ def _looks_like(path, name):
     return None
 
 
-def _get_ensemble_paths(sourcePath, sourceProject, want_init):
+def _get_ensemble_paths(sourcePath, sourceProject, want_init, use_environment):
     """
     Returns either a pointer to the ensemble to clone
     or a dict of variables to pass to an ensemble template to create a new one
@@ -534,7 +534,7 @@ def _get_ensemble_paths(sourcePath, sourceProject, want_init):
     isServiceTemplate = sourcePath.endswith(DefaultNames.ServiceTemplate)
     if not want_init and not isServiceTemplate:
         try:
-            localEnv = LocalEnv(relPath, project=sourceProject)
+            localEnv = LocalEnv(relPath, project=sourceProject, override_context=use_environment)
             sourceDir = sourceProject.get_relative_path(
                 os.path.dirname(localEnv.manifestPath)
             )
@@ -635,7 +635,8 @@ class EnsembleBuilder:
         # source is a path into the project relative to the current directory
         source_path = os.path.join(self.source_project.projectRoot, self.source_path)
         self.templateVars = _get_ensemble_paths(
-            source_path, self.source_project, self.options.get("want_init")
+            source_path, self.source_project,
+            self.options.get("want_init"), self.options.get("use_environment"),
         )
         if self.options.get("use_deployment_blueprint"):
             self.templateVars["deployment_blueprint"] = self.options[
@@ -693,8 +694,8 @@ class EnsembleBuilder:
             self.templateVars,
             self.options.get("skeleton"),
         )
-        localEnv = LocalEnv(manifestPath, project=project)
-        manifest = yamlmanifest.ReadOnlyManifest(localEnv=localEnv)
+        localEnv = LocalEnv(manifestPath, project=project, override_context=self.options.get("use_environment"))
+        manifest = yamlmanifest.ReadOnlyManifest(localEnv=localEnv, vault=localEnv.get_vault())
         return localEnv, manifest
 
     def create_new_ensemble(self):
@@ -860,7 +861,7 @@ class EnsembleBuilder:
             relDestDir = self.ensemble_name
         self.dest_path = relDestDir
 
-    def set_existing_ensemble(self, sourceProject):
+    def has_existing_ensemble(self, sourceProject):
         from unfurl import yamlmanifest
 
         if self.source_project is not sourceProject and not self.shared_repo:
@@ -868,10 +869,8 @@ class EnsembleBuilder:
                 Path(self.dest_project.projectRoot) / self.dest_path
             ):
                 # the ensemble is already part of the source project repository or a submodule
-                localEnv = self.templateVars["localEnv"]
-                self.manifest = yamlmanifest.ReadOnlyManifest(localEnv=localEnv)
-                return self.manifest
-        return None
+                return True
+        return False
 
     def set_source(self, sourceProject):
         self.source_project = sourceProject
@@ -883,7 +882,7 @@ class EnsembleBuilder:
     def set_ensemble(self, isRemote, existingSourceProject, existingDestProject):
         sourceWasCloned = self.source_project is not existingSourceProject
         destIsNew = not existingDestProject
-        if destIsNew and self.set_existing_ensemble(existingSourceProject):
+        if destIsNew and self.has_existing_ensemble(existingSourceProject):
             # if dest_project is new (we just cloned it)
             # check if we cloned the ensemble already
             # if so we done, we don't need to create a new one

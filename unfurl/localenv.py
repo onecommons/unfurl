@@ -904,6 +904,24 @@ class LocalEnv:
             return project.get_vault_password(self.manifest_context_name, vaultId)
         return None
 
+    def get_vault(self):
+        project = self.project or self.homeProject
+        if project:
+            vault = project.make_vault_lib(self.manifest_context_name)
+            if vault:
+                self.logger.info(
+                    "Vault password found, configuring vault ids: %s",
+                    [s[0] for s in vault.secrets],
+                )
+        else:
+            vault = None
+        if not vault:
+            msg = "No vault password found"
+            if self.manifest_context_name:
+                msg += f" for environment {self.manifest_context_name}"
+            self.logger.debug(msg)
+        return vault
+
     def get_manifest(
         self, path: Optional[str] = None, skip_validation: bool = False
     ) -> "YamlManifest":
@@ -918,21 +936,7 @@ class LocalEnv:
             manifest = self._manifests.get(self.manifestPath)
             if not manifest:
                 # should load vault ids from context
-                project = self.project or self.homeProject
-                if project:
-                    vault = project.make_vault_lib(self.manifest_context_name)
-                    if vault:
-                        self.logger.info(
-                            "Vault password found, configuring vault ids: %s",
-                            [s[0] for s in vault.secrets],
-                        )
-                else:
-                    vault = None
-                if not vault:
-                    msg = "No vault password found"
-                    if self.manifest_context_name:
-                        msg += f" for environment {self.manifest_context_name}"
-                    self.logger.debug(msg)
+                vault = self.get_vault()
                 manifest = YamlManifest(
                     localEnv=self, vault=vault, skip_validation=skip_validation
                 )
