@@ -7,14 +7,10 @@ import urllib.request
 from functools import partial
 from multiprocessing import Process
 
-from functools import partial
-from multiprocessing import Process
-
 import requests
 from click.testing import CliRunner
 from unfurl import server
 
-from tests.utils import init_project, run_cmd
 from tests.utils import init_project, run_cmd
 
 manifest = """
@@ -35,37 +31,40 @@ spec:
 
 # Very minimal deployment
 deployment = """
-{
-    "ResourceTemplate": {
-        "container_service": {
+{{
+    "ResourceTemplate": {{
+        "container_service": {{
             "properties": [
-                {
-                    "value": {
-                        "environment": {
-                            "VAR": "{}"
-                        },
-                    }
-                }
+                {{
+                    "value": {{
+                        "environment": {{
+                            "VAR": "{0}"
+                        }}
+                    }}
+                }}
             ]
-        }
-    }
-}
+        }}
+    }}
+}}
 """
 
 patch = """
-[{
-        "name": "container_service",
+[{{
+    "name": "container_service",
     "type": "unfurl.nodes.ContainerService",
     "title": "container_service",
     "description": "",
     "directives": [],
-    "properties": [{
+    "properties": [{{
         "name": "container",
-        "value": {
-        "environment": { "VAR": "{value}" }
-        }
-    }],
-}]
+        "value": {{
+            "image": "",
+            "environment": {{ "VAR": "{0}" }}
+        }}
+    }}],
+    "__typename": "ResourceTemplate",
+    "computedProperties": []
+}}]
 """
 
 def start_server_process(proc, port):
@@ -251,6 +250,8 @@ class TestServer(unittest.TestCase):
             os.makedirs("dashboard/deployments/dev")
             with open ("dashboard/deployments/dev/deployment.json", "w") as f:
                 f.write(initial_deployment)
+            run_cmd(self.runner, ["--home", "", "git", "add", "."])
+            run_cmd(self.runner, ["--home", "", "git", "commit", "-m", "add deployment"])
 
             p = Process(
                 target=server.serve,
@@ -261,9 +262,9 @@ class TestServer(unittest.TestCase):
             target_patch = patch.format("target")
             res = requests.post(
                 "http://localhost:8082/update_deployment",
-                data={
-                    "projectPath": "dashboard",
-                    "path": "deployments/dev",
+                json={
+                    "projectPath": ".",
+                    "path": "dashboard/deployments/dev/deployment.json",
                     "patch": json.loads(target_patch),
                 }
             )
@@ -272,7 +273,6 @@ class TestServer(unittest.TestCase):
 
             with open ("dashboard/deployments/dev/deployment.json", "r") as f:
                 data = json.load(f)
-                print(data)
                 assert (data['ResourceTemplate']
                             ['container_service']
                             ['properties'][0]
@@ -284,9 +284,6 @@ class TestServer(unittest.TestCase):
 
             p.terminate()
             p.join()
-
-        if httpd:
-            httpd.socket.close()
 
     def tearDown(self) -> None:
         self.server_process.terminate()   # Gracefully shutdown the server (SIGTERM)

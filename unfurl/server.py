@@ -8,8 +8,8 @@ import uvicorn
 from flask import Flask, current_app, jsonify, request
 from flask_caching import Cache
 
-from unfurl.localenv import LocalEnv
 from git import Repo
+from unfurl.localenv import LocalEnv
 from unfurl.repo import GitRepo
 from unfurl.util import UnfurlError
 
@@ -231,7 +231,6 @@ def serve(
     port: int,
     secret: str,
     clone_root: str,
-    clone_root: str,
     project_or_ensemble_path: click.Path,
     options: dict,
 ):
@@ -242,13 +241,11 @@ def serve(
         port (int): Port to listen to (defaults to 8080)
         secret (str): The secret to use to authenticate requests
         clone_root (str): The root directory to clone all repositories into
-        clone_root (str): The root directory to clone all repositories into
         project_or_ensemble_path (click.Path): The path of the ensemble or project to base requests on
         options (dict): Additional options to pass to the server (as passed to the unfurl CLI)
     """
     app.config["UNFURL_SECRET"] = secret
     app.config["UNFURL_OPTIONS"] = options
-    app.config["UNFURL_CLONE_ROOT"] = clone_root
     app.config["UNFURL_CLONE_ROOT"] = clone_root
     app.config["UNFURL_ENSEMBLE_PATH"] = project_or_ensemble_path
 
