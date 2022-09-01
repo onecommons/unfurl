@@ -250,7 +250,7 @@ class TestServer(unittest.TestCase):
             os.makedirs("dashboard/deployments/dev")
             with open ("dashboard/deployments/dev/deployment.json", "w") as f:
                 f.write(initial_deployment)
-            run_cmd(self.runner, ["--home", "", "git", "add", "."])
+            run_cmd(self.runner, ["--home", "", "git", "add", "dashboard/deployments/dev/deployment.json"])
             run_cmd(self.runner, ["--home", "", "git", "commit", "-m", "add deployment"])
 
             p = Process(
