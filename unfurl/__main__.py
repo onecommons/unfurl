@@ -1080,14 +1080,19 @@ def git_status(ctx, project_or_ensemble_path, dirty, **options):
 @click.option(
     "--format",
     default="deployment",
-    type=click.Choice(["blueprint", "environments", "deployment"]),
+    type=click.Choice(["blueprint", "environments", "deployment", "deployments"]),
 )
 @click.option(
     "--use-environment",
     default=None,
     help="Export using this environment.",
 )
-def export(ctx, project_or_ensemble_path, format, **options):
+@click.option(
+    "--file",
+    default=None,
+    help="Write json export to this file instead of the console.",
+)
+def export(ctx, project_or_ensemble_path, format, file, **options):
     """Export ensemble in a simplified json format."""
     from . import to_json
 
@@ -1098,8 +1103,13 @@ def export(ctx, project_or_ensemble_path, format, **options):
         override_context=options.get("use_environment"),
     )
     exporter = getattr(to_json, "to_" + format)
-    jsonSummary = exporter(localEnv)
-    click.echo(json.dumps(jsonSummary, indent=2))
+    jsonSummary = exporter(localEnv, file)
+    output = json.dumps(jsonSummary, indent=2)
+    if file:
+        with open(file, "w") as f:
+            f.write(output)
+    else:
+        click.echo(output)
     logger = logging.getLogger("unfurl")
     logger.info("Export complete.")
 

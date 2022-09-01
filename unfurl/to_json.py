@@ -14,6 +14,7 @@ import re
 import os
 import sys
 import itertools
+import json
 from typing import Any, Dict, List, Optional, Union, cast, TYPE_CHECKING
 from collections import Counter
 from toscaparser.properties import Property
@@ -1125,7 +1126,7 @@ def add_graphql_deployment(manifest, db, dtemplate):
     return deployment
 
 
-def to_blueprint(localEnv):
+def to_blueprint(localEnv, existing=None):
     db, manifest, env, env_types = to_graphql(localEnv)
     blueprint, root_name = to_graphql_blueprint(manifest.tosca, db)
     deployment_blueprints = get_deployment_blueprints(
@@ -1138,7 +1139,7 @@ def to_blueprint(localEnv):
 
 
 # NB! to_deployment is the default export format used by __main__.export (but you won't find that via grep)
-def to_deployment(localEnv):
+def to_deployment(localEnv, existing=None):
     db, manifest, env, env_types = to_graphql(localEnv)
     blueprint, dtemplate = get_blueprint_from_topology(manifest, db)
     db["DeploymentTemplate"] = {dtemplate["name"]: dtemplate}
@@ -1203,7 +1204,7 @@ def map_nodefilter(filters, jsonprops):
             schema.update(map_constraints(schema["type"], constraints, schema))
 
 
-def to_environments(localEnv):
+def to_environments(localEnv, existing=None):
     """
       Map environments in unfurl.yaml to DeploymentEnvironments
       Map registered ensembles to deployments just with path reference to the ensemble's json
@@ -1233,6 +1234,11 @@ def to_environments(localEnv):
     """
 
     # XXX one manifest and blueprint per environment
+    if existing:
+        with open(existing) as f:
+            db = json.load(f)
+    else:
+        db = {}
     environments = {}
     all_connection_types = {}
     blueprintdb = None
@@ -1249,7 +1255,6 @@ def to_environments(localEnv):
         environments[name] = env
         all_connection_types.update(env_types)
 
-    db = {}
     db["DeploymentEnvironment"] = environments
     if blueprintdb:
         if blueprintdb.get("repositories", {}).get("types"):
@@ -1261,6 +1266,28 @@ def to_environments(localEnv):
         # XXX is it safe to only include types with "connect" implementations?
         all_connection_types.update(blueprintdb["ResourceType"])
     db["ResourceType"] = all_connection_types
+    return db
+
+
+def to_deployments(localEnv, existing=None):
+    if existing:
+        with open(existing) as f:
+            db = json.load(f)
+    else:
+        db = {}
+    deployment_paths = db.setdefault("DeploymentPath", {})
+    for ensemble_info in localEnv.project.localConfig.ensembles:
+        if "environment" in ensemble_info and "project" not in ensemble_info:
+            # exclude external ensembles
+            path = os.path.dirname(ensemble_info["file"])
+            if path in deployment_paths:
+                continue  # don't overwrite
+            deployment_paths[path] = {
+                "__typename": "DeploymentPath",
+                "project_id": None,
+                "pipelines": [],
+                "environment": ensemble_info["environment"],
+            }
     return db
 
 
