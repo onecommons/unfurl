@@ -7,10 +7,14 @@ import urllib.request
 from functools import partial
 from multiprocessing import Process
 
+from functools import partial
+from multiprocessing import Process
+
 import requests
 from click.testing import CliRunner
 from unfurl import server
 
+from tests.utils import init_project, run_cmd
 from tests.utils import init_project, run_cmd
 
 manifest = """
@@ -148,7 +152,7 @@ class TestServer(unittest.TestCase):
         assert res.status_code == 401
         assert res.json()["code"] == "UNAUTHORIZED"
 
-    def test_server_export_local(self):
+    def test_server_export_local_local(self):
         with self.runner.isolated_filesystem() as tmpdir:
             p = Process(
                 target=server.serve,
@@ -281,8 +285,10 @@ class TestServer(unittest.TestCase):
             p.terminate()
             p.join()
 
+        if httpd:
+            httpd.socket.close()
 
     def tearDown(self) -> None:
-        self.server_process.terminate()  # Gracefully shutdown the server (SIGTERM)
-        self.server_process.join()  # Wait for the server to terminate
+        self.server_process.terminate()   # Gracefully shutdown the server (SIGTERM)
+        self.server_process.join()   # Wait for the server to terminate
         return super().tearDown()

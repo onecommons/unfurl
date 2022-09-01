@@ -23,7 +23,7 @@ data_types:
       container_name: # name
         type: string
         required: false
-      image: # required
+      image:
         type: string
         required: false
       command: # list or string
@@ -101,7 +101,9 @@ node_types:
             then:
               get_artifact: [SELF, image]
             else:
-              eval: container::image
+              eval: 
+                container_image:
+                  eval: container::image
       registry_url:
         type: string
         default: "{{ '.artifacts::image::.repository::url' | eval }}"
@@ -135,10 +137,9 @@ node_types:
                      username: "<% SELF.registry_user %>"
                      password: "<% SELF.registry_password %>"
                      registry_url: "<% SELF.registry_url %>"
-                {% else %}
+                {% endif %}
                 - set_fact:
                     image_path: "<% SELF.container_image %>"
-                {% endif %}
                 - community.docker.docker_container:
                     # https://docs.ansible.com/ansible/latest/collections/community/docker/docker_container_module.html#ansible-collections-community-docker-docker-container-module
                     # https://github.com/ansible/ansible/blob/stable-2.8/lib/ansible/modules/cloud/docker/docker_container.py
@@ -171,6 +172,9 @@ node_types:
                           {% elif status == 'exited' or status == 'dead' %}absent
                           {% elif status == 'running' %}ok
                           {%else%}pending{%endif%}
+            # attributes: # XXX 
+            #   container_image.digest:  outputs.container.Image
+            #   e.g. sha256:a5ab4ab35b15731c675a531b85ec15c8dd50e36b22d96bcceeca37d016537c8e
       Install:
         operations:
           check:

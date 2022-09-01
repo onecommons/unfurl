@@ -11,14 +11,15 @@ environments:
     connections:
       # declare the primary_provider as a connection to a DigitalOcean account:
       primary_provider:
-        type: unfurl.relationships.ConnectsTo.DOAccount
+        type: unfurl.relationships.ConnectsTo.DigitalOcean
         #  properties:
-        #   DIGITALOCEAN_DEFAULT_REGION: us-east-1
+        #   default_region: nyc1
         #   you should declare sensitive properties like this following in secrets/secrets.yaml or local/unfurl.yaml or define them as environment variables:
-        #   DIGITALOCEAN_ACCESS_TOKEN:
-        #   DIGITALOCEAN_PRIVATE_KEY:
+        #   DIGITALOCEAN_TOKEN:
+        #   SPACES_ACCESS_KEY_ID:
+        #   SPACES_SECRET_ACCESS_KEY:
         #  For more properties see https://docs.unfurl.run/toscadef.html#unfurl-types
 
         # Alternatively, if you have already declared the connection in UNFURL_HOME you can rename the existing connection by
         # setting "primary_provider" to the name of the inherited connection, for example:
-        # primary_provider: do
+        # primary_provider: digitalocean

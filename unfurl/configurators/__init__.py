@@ -13,7 +13,7 @@ from typing import Tuple
 register_short_names(
     {
         name: f"unfurl.configurators.{name.lower()}.{name}Configurator"
-        for name in "Ansible Shell Supervisor Terraform DNS".split()
+        for name in "Ansible Shell Supervisor Terraform DNS Kompose".split()
     }
 )
 
@@ -133,8 +133,13 @@ class DelegateConfigurator(Configurator):
             return False
 
     def run(self, task):
-        subtaskRequest = task.rendered
-        assert subtaskRequest
-        # note: this will call canRun() and if needed canDryRun() on subtask but not shouldRun()
-        subtask = yield subtaskRequest
-        yield subtask.result
+        if "when" in task.inputs and not task.inputs["when"]:
+            # check this here instead of should_run() so that we still create and the task
+            # really just a hack so we save the digest in the job log for future reconfigure operations
+            yield task.done(True, modified=False)
+        else:
+            subtaskRequest = task.rendered
+            assert subtaskRequest
+            # note: this will call canRun() and if needed canDryRun() on subtask but not shouldRun()
+            subtask = yield subtaskRequest
+            yield subtask.result

@@ -86,7 +86,7 @@ class Lock:
         artifactName = "image"
         artifact = instance.artifacts.get(artifactName)
         if artifact:
-            docker_container = task.outputs and task.outputs.get("docker_container")
+            docker_container = task.outputs and task.outputs.get("container")
             if docker_container and "Image" in docker_container:
                 spec = dict(
                     instance=instance.name,

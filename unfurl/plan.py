@@ -1,6 +1,7 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
 import six
+
 from .runtime import NodeInstance
 from .util import UnfurlError
 from .result import ChangeRecord
@@ -16,16 +17,24 @@ from .planrequests import (
     find_parent_resource,
     find_resources_from_template_name,
 )
-from .tosca import find_standard_interface
+from .tosca import find_standard_interface, EntitySpec
 
 import logging
 
 logger = logging.getLogger("unfurl")
 
 
-def is_external_template_compatible(external, template):
+def is_external_template_compatible(import_name: str, external: EntitySpec, template: EntitySpec):
     # for now, require template names to match
-    if external.name == template.name:
+    imported = external.tpl.get("imported")
+    if imported:
+        i_name, sep, t_name = imported.partition(":")
+        if i_name != import_name:
+            return False
+    else:
+        t_name = template.name
+ 
+    if external.name == t_name:
         if not external.is_compatible_type(template.type):
             raise UnfurlError(
                 f'external template "{template.name}" not compatible with local template'
@@ -82,7 +91,7 @@ class Plan:
             # XXX if external is a Relationship and template isn't, get it's target template
             #  if no target, create with status == unknown
 
-            if match(external.template, template):
+            if match(name, external.template, template):
                 if external.shadow and external.root is self.root:
                     # shadowed instance already created
                     return external
@@ -94,22 +103,22 @@ class Plan:
         # look in the topologies where were are importing everything
         for name, root in searchAll:
             for external in root.get_self_and_descendents():
-                if match(external.template, template):
+                if match(name, external.template, template):
                     return self.create_shadow_instance(external, name)
 
         return None
 
-    def create_shadow_instance(self, external, importName):
-        if self.root.imports[importName].resource is external:
-            name = importName
+    def create_shadow_instance(self, external, import_name):
+        if self.root.imports[import_name].resource is external:
+            name = import_name  # only one resource
         else:
-            name = importName + ":" + external.name
+            name = import_name + ":" + external.name
 
         if external.parent and external.parent.parent:
             # assumes one-to-one correspondence instance and template
             parent = self.find_shadow_instance(external.parent.template)
             if not parent:  # parent wasn't in imports, add it now
-                parent = self.create_shadow_instance(external.parent, importName)
+                parent = self.create_shadow_instance(external.parent, import_name)
         else:
             parent = self.root
 

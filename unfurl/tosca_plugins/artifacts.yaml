@@ -95,7 +95,7 @@ node_types:
           configure:
             inputs:
               resultTemplate: |
-                {%if outputs | default("") %}
+                {%if outputs | default({}) %}
                 # merge all outputs into attributes
                 attributes:
                   <<: {{ outputs | mapValue | to_json }}

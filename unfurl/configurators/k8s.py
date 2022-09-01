@@ -3,7 +3,8 @@
 from __future__ import absolute_import
 import codecs
 import re
-from ..configurator import Configurator, Status
+from ..configurator import Configurator
+from ..support import Status, Priority
 from ..runtime import RelationshipInstance
 from ..util import save_to_tempfile
 from .ansible import AnsibleConfigurator
@@ -13,27 +14,25 @@ from ansible_collections.kubernetes.core.plugins.module_utils.common import (
 )
 
 
-def _get_connection_config(instance, cluster):
+def _get_connection_config(instance):
+    # Given an endpoint capability or a connection relationship, return a dictionary of connection settings.
     # https://docs.ansible.com/ansible/latest/collections/kubernetes/core/k8s_module.html
     #  for connection settings
     # https://github.com/ansible-collections/kubernetes.core/blob/7f7008fecc9e5d16340e9b0bff510b7cde2f2cfd/plugins/connection/kubectl.py
     if not instance:
         return {}
-    connect = {}
+    connection = {}
     if isinstance(instance, RelationshipInstance):
         connect = instance.attributes
-        # note: endpoint will be root if instance is a default connection
+        # the parent of a relationship will be the capability it connects to
+        # or root if relationship is a default connection
         if instance.parent is not instance.root:
             endpoint = instance.parent.attributes
         else:
             endpoint = {}
-    else:
+    else: # assume it's an endpoint capability
         endpoint = instance.attributes
-
-    connection = {}
-    # cluster only:
-    if cluster.attributes.get("api_server"):
-        connection["host"] = "https://" + cluster.attributes["api_server"]
+        connect = {}
 
     # endpoint capability only
     protocol = endpoint.get("protocol")
@@ -50,7 +49,6 @@ def _get_connection_config(instance, cluster):
     map1 = {
         "KUBECONFIG": "kubeconfig",
         "context": "context",
-        "namespace": "namespace",
     }
     # relationship overrides capability
     for attributes in [endpoint, connect]:
@@ -59,7 +57,8 @@ def _get_connection_config(instance, cluster):
                 connection[value] = attributes[key]
 
         if "insecure" in attributes:
-            connection["verify_ssl"] = not not attributes["insecure"]
+            connection["verify_ssl"] = not attributes["insecure"]
+
         credential = attributes.get("credential")
         if credential:
             if credential.get("token_type") in ["api_key", "password"]:
@@ -82,11 +81,80 @@ def _get_connection_config(instance, cluster):
     return connection
 
 
-def _get_connection(task, cluster):
-    instance = task.find_connection(
-        cluster, relation="unfurl.relationships.ConnectsTo.K8sCluster"
+CONNECTION_OPTIONS = {
+    "namespace": "-n",
+    "kubeconfig": "--kubeconfig",
+    "context": "--context",
+    "kubectl_host": "--server",
+    "username": "--username",
+    "password": "--password",
+    "client_cert": "--client-certificate",
+    "client_key": "--client-key",
+    "ssl_ca_cert": "--certificate-authority",
+    "api_key": "--token",
+}
+
+
+def _get_connection(task) -> dict:
+    # get the cluster that the target resource is hosted on
+    cluster = task.query("[.type=unfurl.nodes.K8sCluster]")
+    relation = "unfurl.relationships.ConnectsTo.K8sCluster"
+    if cluster:
+        instance = task.find_connection(cluster, relation)
+    else:
+        relationships = task.target.get_default_relationships(relation)
+        if relationships:
+            instance = relationships[0]
+        else:
+            instance = None
+    if instance:
+        config = _get_connection_config(instance)
+    else:
+        config = {}
+
+    # check if we are in a namespace
+    namespace = task.query("[.type=unfurl.nodes.K8sNamespace]")
+    if namespace:
+        config["namespace"] = namespace.attributes["name"]
+    return config
+
+
+def get_kubectl_args(task):
+    connection = _get_connection(task)
+    options = []
+    for key, value in connection.items():
+        if value and key in CONNECTION_OPTIONS:
+            options.append(CONNECTION_OPTIONS[key])
+            options.append(value)
+    if "verify_ssl" in connection and not connection["verify_ssl"]:
+        options.append("--insecure-skip-tls-verify")
+    return options
+
+
+def base64encode(val: str):
+    # base64 adds trailing \n so strip it out
+    return codecs.encode(val.encode(), "base64").decode().strip()
+
+
+def make_pull_secret(name, hostname, username, password):
+    data = dict(
+        auths={
+            hostname: dict(
+                username=username,
+                password=password,
+                auth=base64encode(f"{username}:{password}"),
+            )
+        }
     )
-    return _get_connection_config(instance, cluster)
+    return f"""
+    apiVersion: v1
+    kind: Secret
+    metadata:
+      name: { name }
+    type: kubernetes.io/dockerconfigjson
+    data:
+      .dockerconfigjson: {base64encode(json.dumps(data))}
+    """
 
 
 class ClusterConfigurator(Configurator):
@@ -103,12 +171,33 @@ class ClusterConfigurator(Configurator):
             return "Configurator can't perform this operation (only supports check and discover)"
         return True
 
+    def should_run(self, task):
+        if isinstance(task.target, RelationshipInstance):
+            return Priority.critical  # abort if unable to connect to the cluster
+        else:
+            return Priority.required
+
     def run(self, task):
         cluster = task.target
-        connectionConfig = _get_connection(task, cluster)
+        # the endpoint on the cluster will have connection info
+        instances = cluster.get_capabilities("endpoint")
+        if not instances:
+            # no endpoint, look for a default connection for this cluster
+            instances = cluster.get_default_relationships("unfurl.relationships.ConnectsTo.K8sCluster")
+        if instances:
+            connectionConfig = _get_connection_config(instances[0])
+        else:
+            connectionConfig = {}
+
+        if cluster.attributes.get("api_server"):
+            # api_server was set before, don't let it change --
+            # if the connection has a different host, its pointing at a different cluster
+            connectionConfig["host"] = "https://" + cluster.attributes["api_server"]
+
         try:
+            # try connect and save the resolved host
             cluster.attributes["api_server"] = self._get_host(connectionConfig)
-        except:
+        except Exception:
             yield task.done(
                 False,
                 captureException="error while trying to establish connection to cluster",
@@ -131,23 +220,12 @@ class ResourceConfigurator(AnsibleConfigurator):
         print(json.dumps(self.find_playbook(task), indent=4))
         yield task.done(True)
 
-    def _get_connection(self, task):
-        # get the cluster that the target resource is hosted on
-        cluster = task.query("[.type=unfurl.nodes.K8sCluster]")
-        if not cluster:
-            return {}
-        return _get_connection(task, cluster)
-
     def make_secret(self, data):
-        # base64 adds trailing \n so strip it out
         return dict(
             type="Opaque",
             apiVersion="v1",
             kind="Secret",
-            data={
-                k: codecs.encode(str(v).encode(), "base64").decode().strip()
-                for k, v in data.items()
-            },
+            data={k: base64encode(str(v)) for k, v in data.items()},
         )
 
     def get_definition(self, task):
@@ -159,10 +237,11 @@ class ResourceConfigurator(AnsibleConfigurator):
         else:
             definition = task.target.attributes.get_copy("apiResource") or {}
 
-        if not definition and task.target.template.is_compatible_type(
-            "unfurl.nodes.K8sSecretResource"
+        if (
+            task.target.template.is_compatible_type("unfurl.nodes.K8sSecretResource")
+            and "data" in task.target.attributes
         ):
-            return self.make_secret(task.target.attributes.get("data", {}))
+            return self.make_secret(task.target.attributes["data"])
         else:
             # XXX if definition is string: parse
             # get copy so subsequent modifications dont affect the definition
@@ -189,16 +268,19 @@ class ResourceConfigurator(AnsibleConfigurator):
         self.update_metadata(definition, task)
         delete = task.configSpec.operation in ["Standard.delete", "delete"]
         state = "absent" if delete else "present"
-        connectionConfig = self._get_connection(task)
+        connectionConfig = _get_connection(task)
         moduleSpec = dict(state=state, **connectionConfig)
-        if task.configSpec.operation in ["check", "discover"]:
+        if task.target.attributes.get("src"):
+            # XXX set FilePath
+            moduleSpec["src"] = task.target.attributes["src"]
+        elif task.configSpec.operation in ["check", "discover"]:
             moduleSpec["kind"] = definition.get("kind", "")
             moduleSpec["name"] = definition["metadata"]["name"]
             if "namespace" in definition["metadata"]:
                 moduleSpec["namespace"] = definition["metadata"]["namespace"]
         else:
             moduleSpec["resource_definition"] = definition
-        return [{"community.kubernetes.k8s": moduleSpec}]
+        return [{"kubernetes.core.k8s": moduleSpec}]
 
     def process_result(self, task, result):
         # overrides super.processResult
@@ -218,8 +300,9 @@ class ResourceConfigurator(AnsibleConfigurator):
                     Failed=Status.error,
                     Unknown=Status.unknown,
                 )
-                status = resource.get("status", {}).get("phase", "Unknown")
-                result.status = states.get(status, Status.unknown)
+                if "phase" in resource.get("status", {}):
+                    status = resource["status"].get("phase", "Unknown")
+                    result.status = states.get(status, Status.unknown)
         return result
 
     def get_result_keys(self, task, results):

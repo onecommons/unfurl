@@ -5,7 +5,8 @@ env:
   TERRAFORM_VERSION: 1.1.4 # see tosca_plugins/artifacts.yaml
   HELM_VERSION: 3.7.1 # see configurators/helm-template.yaml
   GCLOUD_VERSION: 368.0.0 # see tosca_plugins/artifacts.yaml
-  KUBECTL_VERSION: v1.21.2
+  KOMPOSE_VERSION: v1.26.1
+  KUBECTL_VERSION: v1.24.2
   K3D_VERSION: v4.4.6
 jobs:
   test:
@@ -38,6 +39,11 @@ jobs:
         uses: azure/setup-kubectl@v1
         with:
           version: ${{ env.KUBECTL_VERSION }}
+      - name: Setup kompose
+        run: |
+          wget https://github.com/kubernetes/kompose/releases/download/${KOMPOSE_VERSION}/kompose-linux-amd64
+          chmod +x kompose-linux-amd64
+          sudo mv kompose-linux-amd64 /usr/local/bin/kompose
       - name: Setup k3d
         run: |
           wget https://github.com/rancher/k3d/releases/download/"${{ env.K3D_VERSION }}"/k3d-linux-amd64
@@ -115,6 +121,7 @@ jobs:
             HELM_VERSION=${{ env.HELM_VERSION }}
             TERRAFORM_VERSION=${{ env.TERRAFORM_VERSION }}
             GCLOUD_VERSION=${{ env.GCLOUD_VERSION }}
+            KOMPOSE_VERSION=${{ env.KOMPOSE_VERSION }}
           tags: ${{ steps.meta.outputs.tags }}
   publish:
     needs: deploy_dockerhub

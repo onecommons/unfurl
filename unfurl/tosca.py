@@ -14,10 +14,10 @@ from .util import (
     env_var_value,
 )
 from .eval import Ref, RefContext, map_value
-from .result import ResourceRef, ResultsList
+from .result import ExternalValue, ResourceRef, ResultsList
 from .merge import patch_dict, merge_dicts
 from .logs import get_console_log_level
-from .support import is_template
+from .support import is_template, ContainerImage
 from toscaparser.tosca_template import ToscaTemplate
 from toscaparser.entity_template import EntityTemplate
 from toscaparser.properties import Property
@@ -30,7 +30,7 @@ from toscaparser.common.exception import ExceptionCollector
 import os
 import logging
 import re
-from typing import Dict
+from typing import Dict, Optional
 
 from ruamel.yaml.comments import CommentedMap
 
@@ -687,11 +687,6 @@ class EntitySpec(ResourceRef):
     def get_interfaces(self):
         return self.toscaEntityTemplate.interfaces
 
-    def get_interface_requirements(self):
-        return self.toscaEntityTemplate.type_definition.get_interface_requirements(
-            self.toscaEntityTemplate.entity_tpl
-        )
-
     @property
     def groups(self):
         if not self.spec:
@@ -792,6 +787,10 @@ class EntitySpec(ResourceRef):
     def directives(self):
         return []
 
+    @property
+    def tpl(self):
+        return self.toscaEntityTemplate.entity_tpl
+
     def find_props(self, attributes):
         yield from find_props(attributes, self.propertyDefs)
 
@@ -871,6 +870,11 @@ class NodeSpec(EntitySpec):
                 0
             ]
             return relationship
+
+    def get_interface_requirements(self):
+        return self.toscaEntityTemplate.type_definition.get_interface_requirements(
+            self.toscaEntityTemplate.entity_tpl
+        )
 
     @property
     def artifacts(self):
@@ -1263,6 +1267,10 @@ class TopologySpec(EntitySpec):
                 raise KeyError(key)
             return matches
 
+    @property
+    def tpl(self):
+        return self.toscaEntityTemplate.tpl
+
 
 class Workflow:
     def __init__(self, workflow):
@@ -1377,6 +1385,21 @@ class ArtifactSpec(EntitySpec):
 
     def as_import_spec(self):
         return dict(file=self.file, repository=self.toscaEntityTemplate.repository)
+
+    def as_value(self) -> Optional[ExternalValue]:
+        if self.is_compatible_type("tosca.artifacts.Deployment.Image.Container.Docker"):
+            artifactDef = self.toscaEntityTemplate
+            assert not artifactDef.checksum or artifactDef.checksum_algorithm == 256
+            kw = dict(tag=self.properties.get("tag"), digest=artifactDef.checksum)
+            if self.repository:
+                kw["registry_host"] = self.repository.hostname
+                if self.repository.credential:
+                    kw["username"] = self.repository.credential.get("user")
+                    kw["password"] = self.repository.credential.get("token")
+            return ContainerImage(artifactDef.file, **kw)
+        # XXX return File or FilePath
+        return None
+
 
 
 class GroupSpec(EntitySpec):

@@ -28,7 +28,7 @@ node_types:
     properties:
       name:
         description: DNS name of the zone
-        title: Name
+        title: Domain Name
         type: string
       provider:
         description: OctoDNS provider configuration
@@ -55,11 +55,13 @@ node_types:
         type: boolean
         title: Testing
         description: Is this DNS zone being used for testing? (If set, Let's Encrypt staging will be used.)
-        default: true
+        default: false
     attributes:
       zone:
         description: The records found in the zone
         type: map
+        metadata: # XXX
+          visibility: hidden
       managed_records:
         title: "Managed Records"
         description: The records in the zone that are managed by this instance

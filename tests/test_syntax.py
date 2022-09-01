@@ -5,6 +5,7 @@ from unfurl.yamlmanifest import YamlManifest
 from unfurl.util import UnfurlError
 from unfurl.to_json import to_deployment
 from unfurl.localenv import LocalEnv
+from unfurl.planrequests import _find_implementation
 
 
 def test_jsonexport():
@@ -19,14 +20,22 @@ def test_jsonexport():
         expected = json.load(f)
         # print(json.dumps(jsonExport, indent=2))
         assert jsonExport["ResourceTemplate"] == expected["ResourceTemplate"]
+        # test environmentVariableNames export
         assert jsonExport["DeploymentTemplate"]["unnamed"]["environmentVariableNames"] == [
                                                   "APP_IMAGE",
                                                   "APP_DOMAIN",
                                                   "HOST_CPUS",
                                                   "HOST_MEMORY",
-                                                  "HOST_STORAGE"
+                                                  "HOST_STORAGE",
+                                                  "RESOLVER_CONSOLE_URL"
                                                 ]
- 
+        resource = jsonExport["Resource"]["foo.com"]
+        assert resource
+        # test explicit "export" metadata
+        assert resource["attributes"][0]["name"] == "console_url"
+        # make sure console_url doesn't also appear here:
+        assert not resource["computedProperties"]
+
     # XXX verify that saving the manifest preserves the json include
 
 
@@ -84,6 +93,11 @@ spec:
     node_types:
       Base:
         derived_from: tosca:Root
+        interfaces:
+          Standard:
+            operations:
+              create:
+              configure:
         requirements:
         - host:
             metadata:
@@ -95,6 +109,10 @@ spec:
 
       Derived:
         derived_from: Base
+        interfaces:
+          Standard:
+            operations:
+              create:
         requirements:
         - host:
             metadata:
@@ -111,8 +129,10 @@ spec:
               node: the_app
 """
         manifest = YamlManifest(manifest)
-        req_def = manifest.tosca.nodeTemplates[
-          'the_app'].toscaEntityTemplate.type_definition.requirement_definitions['host']
+        app_template = manifest.tosca.nodeTemplates['the_app']
+        req_def = app_template.toscaEntityTemplate.type_definition.requirement_definitions['host']
+        assert _find_implementation("Standard", "configure", app_template)
+        
         assert req_def == {
           'metadata': {'base': 'meta', 'title': 'derived host'},
           'relationship': {'type': 'tosca.relationships.DependsOn'},

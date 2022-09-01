@@ -7,6 +7,7 @@ from moto import mock_route53
 from unfurl.job import JobOptions, Runner
 from unfurl.support import Status
 from unfurl.yamlmanifest import YamlManifest
+from unfurl.logs import sensitive
 
 from .utils import lifecycle, DEFAULT_STEPS, Step
 
@@ -29,6 +30,7 @@ class TestOctoDnsConfigurator:
             "2.3.4.5",
             "2.3.4.6",
         ]
+        assert isinstance(node._properties['provider'], sensitive)
 
     @mock_route53
     def test_relationships(self):
@@ -146,10 +148,21 @@ spec:
       - repository: unfurl
         file: configurators/dns-template.yaml
 
+    node_types:
+      Route53DNSZone:
+        derived_from: unfurl.nodes.DNSZone
+        properties:
+          provider:
+            type: map
+            metadata:
+              computed: true
+            default:
+              class: octodns.provider.route53.Route53Provider
+
     topology_template:
       node_templates:
         test_node:
-          type: unfurl.nodes.DNSZone
+          type: Route53DNSZone
           properties:
             name: test-domain.com.
             exclusive: false

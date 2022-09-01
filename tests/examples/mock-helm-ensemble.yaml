@@ -103,6 +103,9 @@ spec:
           flags:
             type: map
             required: false
+        operations:
+          subtaskOperation:
+          execute:
 
     topology_template:
       workflows:

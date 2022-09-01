@@ -157,9 +157,10 @@ The ``delegate`` configurator will delegate the current operation to the specifi
 Inputs
 ------
 
-  :operation:  (*required*) The operation to delegate to.
+  :operation:  (*required*) The operation to delegate to, e.g. ``Standard.configure``
   :target: The name of the instance to delegate to. If omitted the current target will be used.
   :inputs: Inputs to pass to the operation. If omitted the current inputs will be used.
+  :when: If set, only perform the delegated operation if its value evaluates to true.
 
 
 .. _shell:

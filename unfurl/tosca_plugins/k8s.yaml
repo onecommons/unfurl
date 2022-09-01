@@ -67,6 +67,8 @@ node_types:
     properties:
       name:
         type: string
+        constraints:
+          - pattern: "^[\\w-]+$"
         default: default
         metadata:
           # namespaces can't be renamed
@@ -107,16 +109,11 @@ capability_types:
     derived_from: tosca.capabilities.Endpoint.Admin
     description: >
       Capability to connect to a K8sCluster. See unfurl.relationships.ConnectsTo.K8sCluster
-      for the semantics of its "insecure" and "credential" properties.
+      for the semantics of the "credential" properties.
     properties:
       protocol:
         type: string
         default: https
-      secure:
-        type: boolean
-        description: >
-          If set to false, the server's certificate should not be checked for validity. This will make your HTTPS connections insecure.
-        required: false
 
 relationship_types:
   unfurl.relationships.ConnectsTo.K8sCluster:
@@ -134,13 +131,14 @@ relationship_types:
           options are provided, and the KUBECONFIG environment variable is not set, the default location will be used (~/.kube/config.json).
         default: { get_env: KUBECONFIG }
         required: false
+        metadata:
+          user_settable: false
       context:
         type: string
         description: >
           The name of a context found in the config file. If not set the current-context will be used.
         required: false
         metadata:
-          user_settable: false
           env_vars:
             - KUBE_CTX
       cluster_ca_certificate:
@@ -149,6 +147,7 @@ relationship_types:
         metadata:
           sensitive: true
           user_settable: true
+          input_type: textarea
           env_vars:
           - KUBE_CLUSTER_CA_CERT_DATA
         description: >
@@ -163,7 +162,7 @@ relationship_types:
           user_settable: true
           env_vars:
           - KUBE_INSECURE
-        default: false
+        required: false
       token:
         type: unfurl.datatypes.EnvVar
         title: Authentication Token
@@ -185,6 +184,7 @@ relationship_types:
         required: false
         metadata:
           sensitive: true
+          user_settable: false
       namespace:
         description: The default namespace scope to use
         required: false
@@ -197,7 +197,6 @@ relationship_types:
         default:
           eval: .target::api_server
         metadata:
-          sensitive: true
           user_settable: true
           env_vars:
           - KUBE_HOST
@@ -205,9 +204,18 @@ relationship_types:
         description: Username to impersonate for the operation
         required: false
         type: string
+        metadata:
+          user_settable: false
       as-group:
         description: Groups to impersonate for the operation
         required: false
         type: list
         entry_schema:
           type: string
+        metadata:
+          user_settable: false
+    interfaces:
+      Install:
+        check:
+          implementation:
+            className: unfurl.configurators.k8s.ClusterConfigurator

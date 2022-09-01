@@ -478,8 +478,9 @@ class ConfigTask(ConfigChange, TaskView):
         else:
             configurator = self.configSpec.className
 
+        status = None if self.status is None else self.status.name
         summary = dict(
-            status=self.status.name,
+            status=status,
             target=self.target.name,
             operation=self.configSpec.operation,
             template=self.target.template.name,
@@ -559,7 +560,8 @@ class Job(ConfigChange):
         # XXX3 this isn't right, root job might have too many and child job might not have enough
         # plus dynamic configurations probably shouldn't be included if yielded by a configurator
         for task in self.workDone.values():
-            yield task
+            if task.status is not None and task.priority > Priority.ignore:
+                yield task
 
     def get_outputs(self) -> Any:
         return self.rootResource.attributes["outputs"]  # type: ignore
@@ -618,6 +620,13 @@ class Job(ConfigChange):
         ready, notReady, errors = do_render_requests(self, ready)
         return ready, notReady, errors
 
+    @staticmethod
+    def _yield_serious_errors(errors):
+        for e in errors:
+            task = getattr(e, "task", None)  # if UnfurlTaskError
+            if not task or task.priority >= Priority.required:
+                yield e
+
     def _run(
         self, rendered_requests: Optional[Tuple[list, list, list]] = None
     ) -> ResourceRef:
@@ -628,8 +637,9 @@ class Job(ConfigChange):
 
         self.workDone = collections.OrderedDict()
 
-        if errors:
-            logger.error("Aborting job: there were errors during rendering: %s", errors)
+        serious_errors = list(self._yield_serious_errors(errors))
+        if serious_errors:
+            logger.error("Aborting job: there were errors during rendering: %s", serious_errors)
             return self.rootResource
 
         # XXX update_plan(ready, unfulfilled) # try to reorder so we can add to ready
@@ -987,7 +997,8 @@ class Job(ConfigChange):
         """
         resource = req.target
         logger.trace(
-            "checking operation entry test: current state %s start state %s op %s workflow %s",
+            "checking operation entry test on %s: current state %s start state %s op %s workflow %s",
+            resource.key,
             resource.state,
             req.startState,
             req.configSpec.operation,
@@ -1074,7 +1085,7 @@ class Job(ConfigChange):
             self.run_task(task, depth)
 
             # if # task succeeded but didn't update nodestate
-            if task.result.success and resource.state == startingState:  # type: ignore
+            if task.result and task.result.success and resource.state == startingState:  # type: ignore
                 if req.startState is not None:
                     # advance the state if a startState was set in the TaskRequest
                     resource.state = NodeState(req.startState + 1)
@@ -1108,7 +1119,7 @@ class Job(ConfigChange):
             logger.info(
                 "Finished taskrequest %s: %s %s %s",
                 task,
-                "success" if task.result.success else "failed",  # type: ignore
+                "success" if task.result and task.result.success else "failed",  # type: ignore
                 task.target.status.name,
                 task.target.state and task.target.state.name or "",  # type: ignore
             )
@@ -1500,7 +1511,7 @@ def start_job(manifestPath=None, _opts=None):
 
     job = _plan(manifest, opts)
     rendered, count = _render(job)
-    errors = rendered[2]
+    errors = list(job._yield_serious_errors(rendered[2]))
     if errors:
         logger.error("Aborting job: there were errors during rendering: %s", errors)
         job.local_status = Status.error  # type: ignore

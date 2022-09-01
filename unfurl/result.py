@@ -18,6 +18,7 @@ from .util import (
     sensitive_dict,
     sensitive_list,
     dump,
+    wrap_sensitive_value
 )
 from .logs import sensitive
 
@@ -458,6 +459,11 @@ class Result(ChangeAware):
     def __repr__(self):
         return "Result(%r, %r, %r)" % (self.resolved, self.external, self.select)
 
+def is_sensitive_schema(defs, key):
+    defSchema = (key in defs and defs[key].schema) or {}
+    defMeta = defSchema.get("metadata", {})
+    return defMeta.get("sensitive")
+
 
 class Results(ABC):
     """
@@ -581,8 +587,12 @@ class Results(ABC):
             result.original = _Get
             if isinstance(resolved, MutableSequence) and resolved:
                 assert not isinstance(resolved[0], Result), resolved[0]
+
             if self.validate:
                 self._validate(key, resolved)
+            if self.defs and is_sensitive_schema(self.defs, key):
+                result.resolved = wrap_sensitive_value(resolved)
+
             self._attributes[key] = result
             assert not isinstance(resolved, Result), val
             return result
@@ -619,6 +629,7 @@ class Results(ABC):
                     raise ValidationError(message=msg)
             else:
                 propDef._validate(value)
+            self.context.trace(f'Validated {key}" on "{resource.name}')
         except Exception as err:
             msg = f'Validation failure while evaluating "{key}" on "{resource.name}": {err}'
             if self.context.task:
