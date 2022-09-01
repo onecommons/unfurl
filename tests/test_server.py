@@ -9,9 +9,11 @@ from multiprocessing import Process
 
 import requests
 from click.testing import CliRunner
+from git import Repo
 from unfurl import server
 
 from tests.utils import init_project, run_cmd
+from unfurl.repo import GitRepo
 
 manifest = """
 apiVersion: unfurl/v1alpha1
@@ -250,8 +252,11 @@ class TestServer(unittest.TestCase):
             os.makedirs("dashboard/deployments/dev")
             with open ("dashboard/deployments/dev/deployment.json", "w") as f:
                 f.write(initial_deployment)
-            run_cmd(self.runner, ["--home", "", "git", "add", "dashboard/deployments/dev/deployment.json"])
-            run_cmd(self.runner, ["--home", "", "git", "commit", "-m", "add deployment"])
+
+            repo = Repo.init('.')
+            repo = GitRepo(repo)
+            repo.add_all()
+            repo.commit_files(["dashboard/deployments/dev/deployment.json"],"Add deployment")
 
             p = Process(
                 target=server.serve,
