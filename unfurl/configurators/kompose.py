@@ -9,22 +9,27 @@
           configure:
             implementation: Kompose
             inputs:
-              # files that aren't docker-compose files are converted to configmaps
-              files: "{{ SELF.files }}"
-              # XXX env: "{{ SELF.env }}" currently only container.environment is supported
               # generates a docker-compose file for conversion
               container: "{{ SELF.container }}"
+              image: "{{ SELF.container_image }}" # overrides the container image
+              files:
+                # files that aren't named docker-compose.yaml are converted to configmaps
+                "docker-compose.yaml": # overrides "container" and "image"
+                    services:
+                      app:
+                        image: app:latest
+                "filename.txt": contents
               registry_url: "{{ SELF.registry_url }}"
               # if set, create a pull secret:
               registry_user: "{{ SELF.registry_user }}"
               registry_password: "{{ SELF.registry_password }}"
+              # XXX
+              # env: "{{ SELF.env }}" # currently only container.environment is supported
 """
 
 from .shell import ShellConfigurator
 from .k8s import make_pull_secret
 from ..projectpaths import get_path, FilePath, Folders
-import json
-import codecs
 import os
 from pathlib import Path
 from ..util import UnfurlTaskError
@@ -51,7 +56,22 @@ class KomposeConfigurator(ShellConfigurator):
     _default_cmd = "kompose"
     _default_dryrun_arg = "--dry-run='client'"
     _output_dir = 'out'
-    
+
+    def _validate(self, task, compose):
+        services = isinstance(compose, dict) and compose.get("services")
+        if not services:
+            raise UnfurlTaskError(
+                  task,
+                  f'docker-compose.yaml is invalid: "{compose}"',
+                  )
+        service = list(services.values())[0]
+        if not isinstance(service, dict) or not service.get("image"):
+            raise UnfurlTaskError(
+              task,
+              f'docker-compose.yaml does not specify a container image: "{compose}"',
+            )
+        return True
+
     # inputs: files, env
     def render(self, task):
         """
@@ -59,12 +79,15 @@ class KomposeConfigurator(ShellConfigurator):
         2. Render the kubernetes resources using kompose
         3. create docker-registy pull secret
         """
-        if task.inputs.get("container"):
-            compose = render_compose(task.inputs.get_copy("container"))
-        else:  # XXX
-            compose = load_yaml(task.inputs["files"]["docker-compose.yaml"])
+        if task.inputs.get("files") and task.inputs["files"].get("docker-compose.yaml"):
+            compose = task.inputs["files"]["docker-compose.yaml"]
 
-        if "version" not in compose: 
+        else:
+            compose = render_compose(task.inputs.get_copy("container") or {}, task.inputs.get("image"))
+
+        self._validate(task, compose)
+
+        if "version" not in compose:
             # kompose fails without this
             compose["version"] = '3'
 
@@ -92,7 +115,7 @@ class KomposeConfigurator(ShellConfigurator):
             cwd.write_file(pull_secret, f"{self._output_dir}/{pull_secret_name}-secret.yaml")
             labels["kompose.image-pull-secret"] = pull_secret_name
 
-        # map files to configmap 
+        # map files to configmap
         # XXX
         # env-file creates configmap - it'd be nice if these could be secrets instead:
         # replace configMapKeyRef with secretKeyRef
@@ -108,13 +131,15 @@ class KomposeConfigurator(ShellConfigurator):
         else:
             cwd.apply()
 
+    # XXX if updating should either update or delete previously created resources
+    # XXX deleting should child resources
     def run(self, task):
         assert task.configSpec.operation in ["configure", "create"]
         cwd = task.get_work_folder(Folders.artifacts)
         assert not cwd.pending_state
         out_path = cwd.get_current_path(self._output_dir)
         files = os.listdir(out_path)
-        # add each file as a Unfurl k8s resource so unfurl can manage them (in particular, delete them) 
+        # add each file as a Unfurl k8s resource so unfurl can manage them (in particular, delete them)
         task.logger.verbose("Creating Kubernetes resources from these files: %s", ", ".join(files))
         jobRequest, errors = task.update_instances([
           dict(
