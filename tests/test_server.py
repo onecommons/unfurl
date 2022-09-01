@@ -29,6 +29,40 @@ spec:
         url: git-local://0ebc2d5b5204bd6592286dbb28f0c641fc2ac5c2:/.
 """
 
+# Very minimal deployment
+deployment = """
+{
+    "ResourceTemplate": {
+        "container_service": {
+            "properties": [
+                {
+                    "value": {
+                        "environment": {
+                            "VAR": "{}"
+                        },
+                    }
+                }
+            ]
+        }
+    }
+}
+"""
+
+patch = """
+[{
+        "name": "container_service",
+    "type": "unfurl.nodes.ContainerService",
+    "title": "container_service",
+    "description": "",
+    "directives": [],
+    "properties": [{
+        "name": "container",
+        "value": {
+        "environment": { "VAR": "{value}" }
+        }
+    }],
+}]
+"""
 
 def start_server_process(proc, port):
     proc.start()
@@ -199,6 +233,54 @@ class TestServer(unittest.TestCase):
 
         if httpd:
             httpd.socket.close()
+
+    def test_server_update_deployment(self):
+        with self.runner.isolated_filesystem():
+            init_project(
+                self.runner,
+                args=["init", "--mono"],
+                env=dict(UNFURL_HOME=""),
+            )
+
+            initial_deployment = deployment.format("initial")
+            # Create a mock deployment
+            os.makedirs("dashboard/deployments/dev")
+            with open ("dashboard/deployments/dev/deployment.json", "w") as f:
+                f.write(initial_deployment)
+
+            p = Process(
+                target=server.serve,
+                args=("localhost", 8082, None, ".", ".", {"home": ""}),
+            )
+            assert start_server_process(p, 8082)
+
+            target_patch = patch.format("target")
+            res = requests.post(
+                "http://localhost:8082/update_deployment",
+                data={
+                    "projectPath": "dashboard",
+                    "path": "deployments/dev",
+                    "patch": json.loads(target_patch),
+                }
+            )
+
+            assert res.status_code == 200
+
+            with open ("dashboard/deployments/dev/deployment.json", "r") as f:
+                data = json.load(f)
+                print(data)
+                assert (data['ResourceTemplate']
+                            ['container_service']
+                            ['properties'][0]
+                            ['value']
+                            ['environment']
+                            ['VAR']
+                        ) == "target"   
+
+
+            p.terminate()
+            p.join()
+
 
     def tearDown(self) -> None:
         self.server_process.terminate()  # Gracefully shutdown the server (SIGTERM)
