@@ -297,7 +297,7 @@ class OperationalInstance(Operational):
         doc = "The priority property."
 
         def fget(self: "OperationalInstance") -> Optional[Priority]:
-            return Defaults.shouldRun if self._priority is None else self._priority
+            return self._priority
 
         def fset(self: "OperationalInstance", value: Priority) -> None:
             self._priority = value

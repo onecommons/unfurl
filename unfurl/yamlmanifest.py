@@ -102,7 +102,7 @@ def save_status(operational, status=None):
         readyState["effective"] = operational.status.name
     if operational.state is not None:
         readyState["state"] = operational.state.name
-    if operational.priority:  # and operational.priority != Defaults.shouldRun:
+    if operational.priority is not None:
         status["priority"] = operational.priority.name
     status["readyState"] = readyState
 

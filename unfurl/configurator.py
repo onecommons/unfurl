@@ -933,11 +933,16 @@ class TaskView:
                 if existingResource:
                     updated = self._update_instance(existingResource, resourceSpec)
                     if updated:
-                        self.logger.info("updating instances %s", existingResource.name)
+                        self.logger.info("updating dynamic instance %s", existingResource.name)
+                    else:
+                        self.logger.debug("no change to dynamic instance %s", existingResource.name)
                 else:
                     newResource = create_instance_from_spec(
                         self._manifest, self.target, rname, resourceSpec
                     )
+                    if "priority" not in resourceSpec:
+                        # set priority so this resource isn't ignored even if no one if referencing it
+                        newResource.priority = Priority.required
 
                 # XXX
                 # if resource.required or resourceSpec.get("dependent"):
