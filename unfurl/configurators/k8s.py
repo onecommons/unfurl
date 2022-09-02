@@ -3,6 +3,7 @@
 from __future__ import absolute_import
 import codecs
 import re
+from base64 import b64encode
 from ..configurator import Configurator
 from ..support import Status, Priority
 from ..runtime import RelationshipInstance
@@ -30,7 +31,7 @@ def _get_connection_config(instance):
             endpoint = instance.parent.attributes
         else:
             endpoint = {}
-    else: # assume it's an endpoint capability
+    else:  # assume it's an endpoint capability
         endpoint = instance.attributes
         connect = {}
 
@@ -38,17 +39,24 @@ def _get_connection_config(instance):
     protocol = endpoint.get("protocol")
     ip_address = endpoint.get("ip_address")
     port = endpoint.get("port")
-    if ip_address and port:
-        connection["host"] = f"{protocol}://{ip_address}:{port}"
+    if ip_address:
+        if port:
+            connection["host"] = f"{protocol}://{ip_address}:{port}"
+        else:
+            connection["host"] = f"{protocol}://{ip_address}"
 
     # connection only:
     api_server = connect.get("api_server")
     if api_server:
-        connection["host"] = f"https://{api_server}"
+        if '//' in api_server:
+            connection["host"] = api_server
+        else:
+            connection["host"] = f"https://{api_server}"
 
     map1 = {
         "KUBECONFIG": "kubeconfig",
         "context": "context",
+        "namespace": "namespace",
     }
     # relationship overrides capability
     for attributes in [endpoint, connect]:
@@ -57,7 +65,7 @@ def _get_connection_config(instance):
                 connection[value] = attributes[key]
 
         if "insecure" in attributes:
-            connection["verify_ssl"] = not attributes["insecure"]
+            connection["validate_certs"] = not attributes["insecure"]
 
         credential = attributes.get("credential")
         if credential:
@@ -66,16 +74,16 @@ def _get_connection_config(instance):
             if "user" in credential:
                 connection["username"] = credential["user"]
             if "keys" in credential:
-                # ["ssl_ca_cert", "cert_file", "key_file"]
+                # ["ca_cert", "cert_file", "key_file"]
                 connection.update(credential["keys"])
 
         if attributes.get("token"):
             connection["api_key"] = attributes["token"]
 
-        if "ssl_ca_cert" not in connection and attributes.get(
+        if "ca_cert" not in connection and attributes.get(
             "cluster_ca_certificate"
         ):
-            connection["ssl_ca_cert"] = save_to_tempfile(
+            connection["ca_cert"] = save_to_tempfile(
                 attributes["cluster_ca_certificate"], ".crt"
             ).name
     return connection
@@ -90,7 +98,7 @@ CONNECTION_OPTIONS = {
     "password": "--password",
     "client_cert": "--client-certificate",
     "client_key": "--client-key",
-    "ssl_ca_cert": "--certificate-authority",
+    "ca_cert": "--certificate-authority",
     "api_key": "--token",
 }
 
@@ -126,23 +134,18 @@ def get_kubectl_args(task):
         if value and key in CONNECTION_OPTIONS:
             options.append(CONNECTION_OPTIONS[key])
             options.append(value)
-    if "verify_ssl" in connection and not connection["verify_ssl"]:
+    if "validate_certs" in connection and not connection["validate_certs"]:
         options.append("--insecure-skip-tls-verify")
     return options
 
 
-def base64encode(val: str):
-    # base64 adds trailing \n so strip it out
-    return codecs.encode(val.encode(), "base64").decode().strip()
-
-
-def make_pull_secret(name, hostname, username, password):
+def make_pull_secret(name, hostname, username, password) -> str:
     data = dict(
         auths={
             hostname: dict(
                 username=username,
                 password=password,
-                auth=base64encode(f"{username}:{password}"),
+                auth=b64encode(f"{username}:{password}".encode()).decode(),
             )
         }
     )
@@ -153,7 +156,7 @@ def make_pull_secret(name, hostname, username, password):
       name: { name }
     type: kubernetes.io/dockerconfigjson
     data:
-      .dockerconfigjson: {base64encode(json.dumps(data))}
+      .dockerconfigjson: {b64encode(json.dumps(data).encode()).decode()}
     """
 
 
@@ -170,12 +173,6 @@ class ClusterConfigurator(Configurator):
         if task.configSpec.operation not in ["check", "discover"]:
             return "Configurator can't perform this operation (only supports check and discover)"
         return True
-
-    def should_run(self, task):
-        if isinstance(task.target, RelationshipInstance):
-            return Priority.critical  # abort if unable to connect to the cluster
-        else:
-            return Priority.required
 
     def run(self, task):
         cluster = task.target
@@ -199,11 +196,32 @@ class ClusterConfigurator(Configurator):
             cluster.attributes["api_server"] = self._get_host(connectionConfig)
         except Exception:
             yield task.done(
-                False,
+                False, False,
                 captureException="error while trying to establish connection to cluster",
             )
         else:
             # we aren't modifying this cluster but we do want to assert that its ok
+            yield task.done(True, False, Status.ok)
+
+class ConnectionConfigurator(ClusterConfigurator):
+    def should_run(self, task):
+        return Priority.critical  # abort if unable to connect to the cluster
+
+    def run(self, task):
+        connection = task.target
+        assert isinstance(connection, RelationshipInstance)
+        connectionConfig = _get_connection_config(connection)
+        try:
+            # try connect and save the resolved host
+            task.logger.debug(connectionConfig)
+            connection.attributes["api_server"] = self._get_host(connectionConfig)
+        except Exception:
+            yield task.done(
+                False, False,
+                captureException="error while trying to establish connection to cluster",
+            )
+        else:
+            # we aren't modifying this connection but we do want to assert that its ok
             yield task.done(True, False, Status.ok)
 
 
@@ -225,7 +243,7 @@ class ResourceConfigurator(AnsibleConfigurator):
             type="Opaque",
             apiVersion="v1",
             kind="Secret",
-            data={k: base64encode(str(v)) for k, v in data.items()},
+            data={k: b64encode(str(v).encode()).decode() for k, v in data.items()},
         )
 
     def get_definition(self, task):

@@ -178,7 +178,7 @@ relationship_types:
           token_type is either "api_key" or "password" (default is "password")
           Its "keys" map can have the following values:
           "cert_file": Path to a cert file for the certificate authority
-          "ssl_ca_cert": Path to a client certificate file for TLS
+          "ca_cert": Path to a client certificate file for TLS
           "key_file": Path to a client key file for TLS
         type: tosca.datatypes.Credential
         required: false
@@ -218,4 +218,4 @@ relationship_types:
       Install:
         check:
           implementation:
-            className: unfurl.configurators.k8s.ClusterConfigurator
+            className: unfurl.configurators.k8s.ConnectionConfigurator

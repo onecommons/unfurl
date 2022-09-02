@@ -1077,7 +1077,9 @@ class RelationshipSpec(EntitySpec):
         if not defaultFor:
             return False
         nodeTemplate = capability.parentNode.toscaEntityTemplate
-
+        if defaultFor == self.toscaEntityTemplate.ANY and capability.name == "feature":
+            # XXX get_matching_capabilities() buggy in this case
+            return True  # optimization
         if (
             defaultFor == self.toscaEntityTemplate.ANY
             or defaultFor == nodeTemplate.name
