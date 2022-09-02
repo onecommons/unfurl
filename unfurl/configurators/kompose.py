@@ -13,8 +13,8 @@
               container: "{{ SELF.container }}"
               image: "{{ SELF.container_image }}" # overrides the container image
               files:
-                # files that aren't named docker-compose.yaml are converted to configmaps
-                "docker-compose.yaml": # overrides "container" and "image"
+                # files that aren't named docker-compose.yml are converted to configmaps
+                "docker-compose.yml": # overrides "container" and "image"
                     services:
                       app:
                         image: app:latest
@@ -34,18 +34,21 @@ import os
 from pathlib import Path
 from ..util import UnfurlTaskError
 
-def _get_service(compose: dict, service_name: str=None):
+
+def _get_service(compose: dict, service_name: str = None):
     if service_name:
         return compose["services"][service_name]
     else:
         return list(compose["services"].values())[0]
 
+
 def _add_labels(service: dict, labels: dict):
     service.setdefault("labels", {}).update(labels)
 
+
 def render_compose(container: dict, image="", service_name="app"):
-    service = dict(restart="unless-stopped")
-    service.update(container)
+    service = dict(restart="always")
+    service.update({k:v for k, v in container.items() if v is not None})
     if image:
         service["image"] = image
     return dict(services={
@@ -55,20 +58,20 @@ def render_compose(container: dict, image="", service_name="app"):
 class KomposeConfigurator(ShellConfigurator):
     _default_cmd = "kompose"
     _default_dryrun_arg = "--dry-run='client'"
-    _output_dir = 'out'
+    _output_dir = 'kompose'
 
     def _validate(self, task, compose):
         services = isinstance(compose, dict) and compose.get("services")
         if not services:
             raise UnfurlTaskError(
                   task,
-                  f'docker-compose.yaml is invalid: "{compose}"',
+                  f'docker-compose.yml is invalid: "{compose}"',
                   )
         service = list(services.values())[0]
         if not isinstance(service, dict) or not service.get("image"):
             raise UnfurlTaskError(
               task,
-              f'docker-compose.yaml does not specify a container image: "{compose}"',
+              f'docker-compose.yml does not specify a container image: "{compose}"',
             )
         return True
 
@@ -79,8 +82,8 @@ class KomposeConfigurator(ShellConfigurator):
         2. Render the kubernetes resources using kompose
         3. create docker-registy pull secret
         """
-        if task.inputs.get("files") and task.inputs["files"].get("docker-compose.yaml"):
-            compose = task.inputs["files"]["docker-compose.yaml"]
+        if task.inputs.get("files") and task.inputs["files"].get("docker-compose.yml"):
+            compose = task.inputs["files"]["docker-compose.yml"]
 
         else:
             compose = render_compose(task.inputs.get_copy("container") or {}, task.inputs.get("image"))
@@ -103,8 +106,8 @@ class KomposeConfigurator(ShellConfigurator):
 
         # create the output directory:
         output_dir = cwd.get_current_path(self._output_dir)
-        os.makedirs(output_dir)
-        assert os.path.isdir(output_dir), output_dir
+        if not os.path.isdir(output_dir):
+            os.makedirs(output_dir)
 
         registry_password = task.inputs.get("registry_password")
         if registry_password:
@@ -112,7 +115,7 @@ class KomposeConfigurator(ShellConfigurator):
             registry_url = task.inputs.get("registry_url")
             registry_user = task.inputs.get("registry_user")
             pull_secret = make_pull_secret(pull_secret_name, registry_url, registry_user, registry_password)
-            cwd.write_file(pull_secret, f"{self._output_dir}/{pull_secret_name}-secret.yaml")
+            cwd.write_file(pull_secret, f"{self._output_dir}/{pull_secret_name}-secret.yaml", encoding='utf-8')
             labels["kompose.image-pull-secret"] = pull_secret_name
 
         # map files to configmap
@@ -124,10 +127,11 @@ class KomposeConfigurator(ShellConfigurator):
         # kompose.volume.type	: configMap
         _add_labels(service, labels)
         task_folder = task.set_work_folder(Folders.tasks)
-        task_folder.write_file(compose, "docker-compose.yaml")
+        task.logger.debug("writing docker-compose:\n %s", compose)
+        task_folder.write_file(compose, "docker-compose.yml")
         result = self.run_process(cmd + ["convert", "-o", output_dir], cwd=task_folder.cwd)
         if not self._handle_result(task, result, task_folder.cwd):
-            raise UnfurlTaskError(self, "kompose failed")
+            raise UnfurlTaskError(task, "kompose failed")
         else:
             cwd.apply()
 
