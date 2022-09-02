@@ -133,7 +133,8 @@
             "capabilities": { "$ref": "#/definitions/instances" },
             "requirements": { "$ref": "#/definitions/instances" },
             "imported": { "type": "string" },
-            "protected": { "type": "boolean" }
+            "protected": { "type": "boolean" },
+            "created": { "anyOf": [{ "type": "boolean" }, { "type": "string" }] }
           }
         },
         { "$ref": "#/definitions/status" }
