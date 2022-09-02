@@ -93,7 +93,7 @@ def start_envvar_server(port):
         httpd = HTTPServer(server_address, handler)
     except:  # address might still be in use
         httpd = None
-        return
+        return None, None
     t = threading.Thread(name="http_thread", target=httpd.serve_forever)
     t.daemon = True
     t.start()
@@ -185,6 +185,8 @@ class TestServer(unittest.TestCase):
 
     def test_server_export_remote(self):
         httpd, env_var_url = start_envvar_server(8011)
+        if httpd is None:
+            httpd, env_var_url = start_envvar_server(8012)
         with self.runner.isolated_filesystem():
             init_project(
                 self.runner,
