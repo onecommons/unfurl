@@ -191,7 +191,7 @@ def tosca_schema_to_jsonschema(p, spec):
         schema["title"] = toscaSchema.title or p.name
     if toscaSchema.default is not None and not is_value_computed(toscaSchema.default):
         schema["default"] = toscaSchema.default
-    if toscaSchema.required:
+    elif toscaSchema.required:
         schema["required"] = True
     if toscaSchema.description:
         schema["description"] = toscaSchema.description
