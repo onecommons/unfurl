@@ -153,7 +153,7 @@ class TestServer(unittest.TestCase):
         assert res.status_code == 401
         assert res.json()["code"] == "UNAUTHORIZED"
 
-    def test_server_export_local_local(self):
+    def test_server_export_local(self):
         with self.runner.isolated_filesystem() as tmpdir:
             p = Process(
                 target=server.serve,

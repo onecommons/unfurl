@@ -14,7 +14,6 @@ from unfurl.repo import GitRepo
 from unfurl.util import UnfurlError
 
 logger = logging.getLogger("unfurl")
-logger = logging.getLogger("unfurl")
 
 flask_config = {
     # Use in-memory caching, see https://flask-caching.readthedocs.io/en/latest/#built-in-cache-backends for more options
