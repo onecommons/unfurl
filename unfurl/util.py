@@ -333,10 +333,11 @@ def dump(
             "utf-8" if encoding in [None, "yaml", "vault", "json", "env"] else encoding
         )
         f = io.TextIOWrapper(tp, textEncoding)
-        if suffix.endswith(".yml") or suffix.endswith(".yaml") or encoding == "yaml":
+        explicit = encoding is not None
+        if encoding == "yaml" or (not explicit and (suffix.endswith(".yml") or suffix.endswith(".yaml"))):
             (yaml or _yaml).dump(obj, f)
             return
-        elif suffix.endswith(".json") or encoding == "json":
+        elif encoding == "json" or (not explicit and suffix.endswith(".json")):
             json.dump(obj, f, indent=2)  # str to bytes
             return
 
@@ -346,7 +347,7 @@ def dump(
             tp.write(obj)
             return
 
-        if suffix.endswith(".env") or encoding == "env" and isinstance(obj, dict):
+        if (suffix.endswith(".env") or encoding == "env") and isinstance(obj, dict):
             tp.write(codecs.encode(to_dotenv(obj), "utf-8"))  # type: ignore
             return
 
@@ -371,7 +372,7 @@ def _save_to_vault(
         vault = VaultEditor(vaultlib)
         f = io.BytesIO()
         vpath = path[: -len(".vault")] if vaultExt else path
-        dump(obj, f, vpath, yaml, encoding)
+        dump(obj, f, vpath, yaml, None if encoding == "vault" else encoding)
         # the first vaultid is the most specific to the current project so encrypt with that one
         vault_id, secret = vaultlib.secrets[0]
         b_vaulttext = vaultlib.encrypt(f.getvalue(), secret=secret, vault_id=vault_id)
