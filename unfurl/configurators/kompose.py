@@ -23,6 +23,8 @@
               # if set, create a pull secret:
               registry_user: "{{ SELF.registry_user }}"
               registry_password: "{{ SELF.registry_password }}"
+              # if set, creates ingress record:
+              expose: true # or "foobar.example.com"
               # XXX
               # env: "{{ SELF.env }}" # currently only container.environment is supported
 """
@@ -67,13 +69,14 @@ class KomposeConfigurator(ShellConfigurator):
                   task,
                   f'docker-compose.yml is invalid: "{compose}"',
                   )
-        service = list(services.values())[0]
+        service_name = list(services)[0]
+        service = services[service_name]
         if not isinstance(service, dict) or not service.get("image"):
             raise UnfurlTaskError(
-              task,
-              f'docker-compose.yml does not specify a container image: "{compose}"',
+                task,
+                f'docker-compose.yml does not specify a container image: "{compose}"',
             )
-        return True
+        return service_name
 
     # inputs: files, env
     def render(self, task):
@@ -88,7 +91,7 @@ class KomposeConfigurator(ShellConfigurator):
         else:
             compose = render_compose(task.inputs.get_copy("container") or {}, task.inputs.get("image"))
 
-        self._validate(task, compose)
+        service_name = self._validate(task, compose)
 
         if "version" not in compose:
             # kompose fails without this
@@ -111,12 +114,17 @@ class KomposeConfigurator(ShellConfigurator):
 
         registry_password = task.inputs.get("registry_password")
         if registry_password:
-            pull_secret_name = "docker_cred"
+            pull_secret_name = f"{service_name}-registry-secret"
             registry_url = task.inputs.get("registry_url")
             registry_user = task.inputs.get("registry_user")
             pull_secret = make_pull_secret(pull_secret_name, registry_url, registry_user, registry_password)
-            cwd.write_file(pull_secret, f"{self._output_dir}/{pull_secret_name}-secret.yaml", encoding='utf-8')
+            cwd.write_file(pull_secret, f"{self._output_dir}/{pull_secret_name}.yaml", encoding='utf-8')
             labels["kompose.image-pull-secret"] = pull_secret_name
+        expose = task.inputs.get("expose")
+        if expose:
+            labels["kompose.service.expose"] = expose
+        # XXX  (unreleased) kompose.service.expose.ingress-class-name see https://github.com/kubernetes/kompose/pull/1486
+        _add_labels(service, labels)
 
         # map files to configmap
         # XXX
@@ -125,7 +133,6 @@ class KomposeConfigurator(ShellConfigurator):
         # replace configmap kind with secret, add type: Opaque
         # https://github.com/kubernetes/kompose/pull/1216
         # kompose.volume.type	: configMap
-        _add_labels(service, labels)
         task_folder = task.set_work_folder(Folders.tasks)
         task.logger.debug("writing docker-compose:\n %s", compose)
         task_folder.write_file(compose, "docker-compose.yml")
@@ -136,7 +143,7 @@ class KomposeConfigurator(ShellConfigurator):
             cwd.apply()
 
     # XXX if updating should either update or delete previously created resources
-    # XXX deleting should child resources
+    # XXX add a delete operation that deletes child resources
     def run(self, task):
         assert task.configSpec.operation in ["configure", "create"]
         cwd = task.get_work_folder(Folders.artifacts)
@@ -149,7 +156,7 @@ class KomposeConfigurator(ShellConfigurator):
           dict(
               name=Path(filename).stem,
               parent="SELF",  # so the host namespace is honored
-              template=dict(type="unfurl.nodes.K8sRawResource", 
+              template=dict(type="unfurl.nodes.K8sRawResource", wait=True,
                             properties=dict(src=str(Path(out_path) / filename)))
           )
           for filename in files
