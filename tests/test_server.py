@@ -69,6 +69,13 @@ patch = """
 }}]
 """
 
+delete_patch = """
+[{
+    "__typename": "ResourceTemplate",
+    "__deleted": "container_service"
+}]
+"""
+
 def start_server_process(proc, port):
     proc.start()
     for _ in range(5):
@@ -121,6 +128,31 @@ class TestServer(unittest.TestCase):
             )
             self.server_process = p
             assert start_server_process(p, 8081)
+
+    def set_up_deployment(self, deployment):
+        init_project(
+            self.runner,
+            args=["init", "--mono"],
+            env=dict(UNFURL_HOME=""),
+        )
+
+        # Create a mock deployment
+        os.makedirs("dashboard/deployments/dev")
+        with open ("dashboard/deployments/dev/deployment.json", "w") as f:
+            f.write(deployment)
+
+        repo = Repo.init('.')
+        repo = GitRepo(repo)
+        repo.add_all()
+        repo.commit_files(["dashboard/deployments/dev/deployment.json"], "Add deployment")
+
+        p = Process(
+            target=server.serve,
+            args=("localhost", 8082, None, ".", ".", {"home": ""}),
+        )
+        assert start_server_process(p, 8082)
+
+        return p
 
     def test_server_health(self):
         res = requests.get("http://localhost:8081/health", params={"secret": "secret"})
@@ -243,28 +275,8 @@ class TestServer(unittest.TestCase):
 
     def test_server_update_deployment(self):
         with self.runner.isolated_filesystem():
-            init_project(
-                self.runner,
-                args=["init", "--mono"],
-                env=dict(UNFURL_HOME=""),
-            )
-
             initial_deployment = deployment.format("initial")
-            # Create a mock deployment
-            os.makedirs("dashboard/deployments/dev")
-            with open ("dashboard/deployments/dev/deployment.json", "w") as f:
-                f.write(initial_deployment)
-
-            repo = Repo.init('.')
-            repo = GitRepo(repo)
-            repo.add_all()
-            repo.commit_files(["dashboard/deployments/dev/deployment.json"],"Add deployment")
-
-            p = Process(
-                target=server.serve,
-                args=("localhost", 8082, None, ".", ".", {"home": ""}),
-            )
-            assert start_server_process(p, 8082)
+            p = self.set_up_deployment(initial_deployment)
 
             target_patch = patch.format("target")
             res = requests.post(
@@ -288,6 +300,31 @@ class TestServer(unittest.TestCase):
                             ['VAR']
                         ) == "target"   
 
+
+            p.terminate()
+            p.join()
+
+    def test_server_update_deployment_delete(self):
+        with self.runner.isolated_filesystem():
+            initial_deployment = deployment.format("initial")
+            p = self.set_up_deployment(initial_deployment)
+
+            res = requests.post(
+                "http://localhost:8082/update_deployment",
+                json={
+                    "projectPath": ".",
+                    "path": "dashboard/deployments/dev/deployment.json",
+                    "patch": json.loads(delete_patch),
+                }
+            )
+            
+            assert res.status_code == 200
+
+            with open ("dashboard/deployments/dev/deployment.json", "r") as f:
+                data = json.load(f)
+                assert data == {
+                    "ResourceTemplate": {}
+                }
 
             p.terminate()
             p.join()
