@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 from urllib.parse import unquote
@@ -7,8 +8,9 @@ import uvicorn
 from flask import Flask, current_app, jsonify, request
 from flask_caching import Cache
 
+from git import Repo
 from unfurl.localenv import LocalEnv
-from unfurl.repo import Repo
+from unfurl.repo import GitRepo
 from unfurl.util import UnfurlError
 
 logger = logging.getLogger("unfurl")
@@ -22,6 +24,7 @@ app.config.from_mapping(flask_config)
 cache = Cache(app)
 
 
+
 @app.before_request
 def hook():
     """
@@ -30,7 +33,7 @@ def hook():
     Authorization bearer token (Authorization=Bearer <secret>).
     """
     secret = current_app.config["UNFURL_SECRET"]
-    if secret is None:  # No secret specified, no authentication required
+    if secret is None:   # No secret specified, no authentication required
         return
 
     qs_secret = request.args.get("secret")  # Get secret from query string
@@ -138,6 +141,83 @@ def export():
     json_summary = exporter(local_env)
 
     return jsonify(json_summary)
+
+
+@app.route("/update_deployment", methods=["POST"])
+def update_deployment():
+    body = request.json
+    # Repository URL
+    project_path = body.get("projectPath")
+    # File path
+    path = body.get("path")
+    # Patch
+    patch = body.get("patch")
+
+    commit_msg = body.get("commit_msg", "Update deployment")
+
+    # Project is external
+    if project_path.startswith('http') or project_path.startswith('git'):
+        repo = LocalEnv(
+            current_app.config["UNFURL_ENSEMBLE_PATH"], can_be_empty=True
+        ).find_git_repo(project_path)
+        
+        # Repo doesn't exists, clone it
+        if repo is None:
+            clone_root = current_app.config["UNFURL_CLONE_ROOT"]
+            git_url = project_path
+            from . import init
+            clone_location = (clone_root + "/" + Repo.get_path_for_git_repo(git_url)).lstrip('./')
+
+            result = init.clone(
+                git_url,
+                clone_location + "/",
+            )
+            logging.info(result)
+
+            repo = LocalEnv(
+                clone_location,
+                can_be_empty=True,
+            ).find_git_repo(git_url)
+
+            if repo is None:
+                return create_error_response("INTERNAL_ERROR", "Could not find repository")
+    
+    else:
+        clone_location = project_path
+        repo = Repo.init(clone_location)
+        if repo is None:
+            return create_error_response("INTERNAL_ERROR", "Could not find repository")
+        repo = GitRepo(repo)
+
+    target = json.loads(repo.show(path, "HEAD"))
+
+    for patch_inner in patch:
+        typename = patch_inner.get("__typename")
+        deleted = patch_inner.get("__deleted")
+        target_inner = target
+        if typename != "*":
+            if not target_inner.get(typename):
+                target_inner[typename] = {}
+            target_inner = target_inner[typename]
+        if deleted:
+            if deleted == "*":
+                if typename == "*":
+                    target = {}
+                else:
+                    del target[typename]
+            else:
+                del target[typename][deleted]
+            continue
+        target_inner[patch_inner['name']] = patch_inner
+
+    with open(f"{clone_location}/{path}", "w") as f:
+        f.write(json.dumps(target, indent=2))
+    
+    repo.add_all(clone_location)
+    repo.commit_files([f"{clone_location}/{path}"], commit_msg)
+
+    return "OK"
+
 
 def create_error_response(code, message):
     http_code = 400 # Default to BAD_REQUEST
