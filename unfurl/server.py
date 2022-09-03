@@ -159,7 +159,7 @@ def update_deployment():
     if project_path.startswith('http') or project_path.startswith('git'):
         repo = LocalEnv(
             current_app.config["UNFURL_ENSEMBLE_PATH"], can_be_empty=True
-        ).find_git_repo(git_url)
+        ).find_git_repo(project_path)
         
         # Repo doesn't exists, clone it
         if repo is None:
@@ -181,8 +181,6 @@ def update_deployment():
 
             if repo is None:
                 return create_error_response("INTERNAL_ERROR", "Could not find repository")
-            
-            target = json.loads(repo.show(path, "HEAD"))
     
     else:
         clone_location = project_path
@@ -190,9 +188,8 @@ def update_deployment():
         if repo is None:
             return create_error_response("INTERNAL_ERROR", "Could not find repository")
         repo = GitRepo(repo)
-        target = json.loads(
-            repo.show(path, "HEAD")
-        )
+
+    target = json.loads(repo.show(path, "HEAD"))
 
     for patch_inner in patch:
         typename = patch_inner.get("__typename")
