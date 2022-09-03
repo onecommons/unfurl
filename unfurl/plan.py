@@ -247,6 +247,7 @@ class Plan:
             initialState
             or resource.state < NodeState.configured
             or (self.jobOptions.force and resource.state != NodeState.started)
+            or resource.status == Status.error
         ):
             yield from self._execute_default_configure(resource, reason, inputs)
 
