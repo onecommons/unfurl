@@ -158,6 +158,9 @@ class PlanRequest:
             return True  # XXX hackish, just used for primary_provider
         if self.target.priority is not None:
             return self.target.priority >= Priority.required
+        if self.target.created:
+            #  if already created then always include the resource
+            return True
         return self.target.template.required
 
 
