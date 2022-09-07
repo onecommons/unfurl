@@ -465,14 +465,12 @@ class Project:
             if externalProject:
                 externalProject._set_parent_project(self)
                 return externalProject
-        if not externalProject:
             localEnv.logger.warning(
                 'Could not find the project "%s" which manages "%s"',
                 location["managedBy"],
                 path,
             )
-            return self
-        return None
+        return self
 
     def register_ensemble(
         self,
