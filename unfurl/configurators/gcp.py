@@ -3,7 +3,7 @@ from ..configurator import Configurator
 from ..support import Status, Priority
 
 
-class CheckGooglCloudConnectionConfigurator(Configurator):
+class CheckGoogleCloudConnectionConfigurator(Configurator):
     def can_dry_run(self, task):
         # ok because this will also be called on the subtask
         return True

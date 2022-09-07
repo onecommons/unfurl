@@ -254,7 +254,7 @@ def test_validate_connection():
       "targetStatus": "error",
       "targetState": "error",
       "changed": True,
-      "configurator": "unfurl.configurators.gcp.CheckGooglCloudConnectionConfigurator",
+      "configurator": "unfurl.configurators.gcp.CheckGoogleCloudConnectionConfigurator",
       "priority": "critical",
       "reason": "check"
     }

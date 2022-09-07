@@ -328,7 +328,7 @@ relationship_types:
       Install:
         check:
           implementation:
-            className: unfurl.configurators.gcp.CheckGooglCloudConnectionConfigurator
+            className: unfurl.configurators.gcp.CheckGoogleCloudConnectionConfigurator
             # XXX defined in artifacts.yaml
             # dependencies:
             #   - google-auth
