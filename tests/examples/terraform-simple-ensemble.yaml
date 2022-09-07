@@ -19,6 +19,9 @@ spec:
                 main: { get_env: terraform_dir }
                 tfvars: |
                   tag = "test2"
+            Standard:
+              operations:
+                configure:
 
         terraform-node-json:
           type: unfurl.nodes.Installer.Terraform
@@ -31,6 +34,9 @@ spec:
                 main: { get_env: terraform_dir }
                 tfvars:
                   tag: "test3"
+            Standard:
+              operations:
+                configure:
 
         example:
           type: unfurl.nodes.Installer.Terraform
@@ -54,3 +60,7 @@ spec:
                   output "tag" {
                     value = "Hello, ${var.tag}!"
                   }
+            Standard:
+              operations:
+                configure:
+

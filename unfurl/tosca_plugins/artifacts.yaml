@@ -89,18 +89,15 @@ node_types:
           className: unfurl.configurators.terraform.TerraformConfigurator
         inputs:
           main: { get_property: [SELF, main] }
+          resultTemplate: |
+            {%if outputs | default({}) %}
+            # merge all outputs into attributes
+            attributes:
+              <<: {{ outputs | mapValue | to_json }}
+            {% endif %}
       Standard:
         operations:
           delete:
-          configure:
-            inputs:
-              resultTemplate: |
-                {%if outputs | default({}) %}
-                # merge all outputs into attributes
-                attributes:
-                  <<: {{ outputs | mapValue | to_json }}
-                {% endif %}
-
       Install:
         operations:
           check:
