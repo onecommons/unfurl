@@ -156,8 +156,12 @@ class KomposeConfigurator(ShellConfigurator):
           dict(
               name=Path(filename).stem,
               parent="SELF",  # so the host namespace is honored
-              template=dict(type="unfurl.nodes.K8sRawResource", wait=True,
-                            properties=dict(src=str(Path(out_path) / filename)))
+              template=dict(type="unfurl.nodes.K8sRawResource",
+                            properties=dict(src=str(Path(out_path) / filename),
+                            interfaces=dict(
+                                defaults=dict(inputs={"configuration": dict(wait=True)})
+                            ),
+                          ))
           )
           for filename in files
         ])

@@ -298,6 +298,9 @@ class ResourceConfigurator(AnsibleConfigurator):
                 moduleSpec["namespace"] = definition["metadata"]["namespace"]
         else:
             moduleSpec["resource_definition"] = definition
+        extra_configuration = task.inputs.get("configuration")
+        if extra_configuration:
+            moduleSpec.update(extra_configuration)
         return [{"kubernetes.core.k8s": moduleSpec}]
 
     def process_result(self, task, result):
