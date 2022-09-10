@@ -537,9 +537,9 @@ def get_env(args, ctx: RefContext):
 set_eval_func("get_env", get_env, True)
 
 
-def get_context_vars(resource):
+def set_context_vars(vars, resource):
     root = resource.root
-    vars = dict(NODES=TopologyMap(root), TOPOLOGY={})
+    vars.update(dict(NODES=TopologyMap(root), TOPOLOGY={}))
     if "inputs" in root._attributes:
         vars["TOPOLOGY"].update(
             dict(
@@ -549,12 +549,14 @@ def get_context_vars(resource):
         )
     app_template = root.template.spec.substitution_template
     if app_template:
-        vars["TOPOLOGY"]["app"] = root.find_instance(app_template.name)
+        app = root.find_instance(app_template.name)
+        if app:
+            vars["TOPOLOGY"]["app"] = app.attributes
         for name, req in app_template.requirements.items():
             if req.relationship and req.relationship.target:
-                vars["TOPOLOGY"][name] = root.find_instance(
-                    req.relationship.target.name
-                )
+                target = root.find_instance(req.relationship.target.name)
+                if target:
+                    vars["TOPOLOGY"][name] = target.attributes
     return vars
 
 
@@ -1163,6 +1165,7 @@ class AttributeManager:
         self.statuses = {}
         self._yaml = yaml  # hack to safely expose the yaml context
         self.task = task
+        self._context_vars = None
 
     @property
     def yaml(self):
@@ -1194,8 +1197,10 @@ class AttributeManager:
                 resource.template._isReferencedBy.append(template)
 
     def _get_context(self, resource):
-        vars = get_context_vars(resource)
-        return RefContext(resource, vars, task=self.task)
+        if self._context_vars is None:
+            self._context_vars = {}
+            set_context_vars(self._context_vars, resource)
+        return RefContext(resource, self._context_vars, task=self.task)
 
     def get_attributes(self, resource):
         if resource.key not in self.attributes:

@@ -10,11 +10,14 @@ dsl_definitions:
       +HELM_KUBECONTEXT:
           eval: $connections::K8sCluster::context
       +HELM_KUBETOKEN:
-          eval: $connections::K8sCluster::credential::token
+          eval: $connections::K8sCluster::token
       +HELM_KUBEAPISERVER:
-          eval: $connections::K8sCluster::api_server
+          eval:
+            if: $connections::K8sCluster::api_server
+            then: "{{$connections::K8sCluster::protocol}}://{{ $connections::K8sCluster::api_server }}"
+            else: null
       +HELM_KUBECAFILE:
-          eval: $connections::K8sCluster::credential::keys::cert_file
+          eval: $connections::K8sCluster::cluster_ca_certificate
       +HELM_NAMESPACE:
           eval: $connections::K8sCluster::namespace
       +HELM_KUBEASGROUPS:

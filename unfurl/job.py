@@ -840,7 +840,7 @@ class Job(ConfigChange):
                 continue
             task = _task
 
-            if task.result.success:  # type: ignore
+            if task.result and task.result.success:  # type: ignore
                 if parent and task.target is parent.target:
                     # if the task explicitly set the status use that
                     if task.result.status is not None:  # type: ignore

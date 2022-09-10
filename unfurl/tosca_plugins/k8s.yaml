@@ -51,9 +51,14 @@ node_types:
           eval: .name
     interfaces:
       Standard:
-        configure: unfurl.configurators.k8s.ResourceConfigurator
-        delete: unfurl.configurators.k8s.ResourceConfigurator
+        # requirements:
+        #  - unfurl.relationships.ConnectsTo.K8sCluster
+        operations:
+          configure: unfurl.configurators.k8s.ResourceConfigurator
+          delete: unfurl.configurators.k8s.ResourceConfigurator
       Install:
+        # requirements:
+        #  - unfurl.relationships.ConnectsTo.K8sCluster
         operations:
           check: unfurl.configurators.k8s.ResourceConfigurator
           discover: unfurl.configurators.k8s.ResourceConfigurator
@@ -200,6 +205,9 @@ relationship_types:
           user_settable: true
           env_vars:
           - KUBE_HOST
+      protocol:
+        type: string
+        default: https
       as:
         description: Username to impersonate for the operation
         required: false

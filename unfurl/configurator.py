@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     from unfurl.job import ConfigTask
 
 
-from .support import Status, ResourceChanges, Priority, get_context_vars
+from .support import Status, ResourceChanges, Priority, set_context_vars
 from .result import (
     ChangeRecord,
     ResultsList,
@@ -426,8 +426,7 @@ class TaskView:
                 target = self.target
             HOST = (target.parent or target).attributes
             ORCHESTRATOR = target.root.find_instance_or_external("localhost")
-            vars = get_context_vars(target)
-            vars.update(dict(
+            vars = dict(
                 inputs=inputs,
                 task=self.get_settings(),
                 connections=self._get_connections(),
@@ -437,7 +436,8 @@ class TaskView:
                 OPERATION_HOST=self.operation_host
                 and self.operation_host.attributes
                 or {},
-            ))
+            )
+            set_context_vars(vars, target)
             if relationship:
                 if self.target.source:
                     vars["SOURCE"] = self.target.source.attributes  # type: ignore
