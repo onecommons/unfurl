@@ -14,7 +14,7 @@ dsl_definitions:
       +HELM_KUBEAPISERVER:
           eval:
             if: $connections::K8sCluster::api_server
-            then: "{{$connections::K8sCluster::protocol}}://{{ $connections::K8sCluster::api_server }}"
+            then: "{{ '$connections::K8sCluster::protocol' | eval }}://{{ '$connections::K8sCluster::api_server' | eval }}"
             else: null
       +HELM_KUBECAFILE:
           eval: $connections::K8sCluster::cluster_ca_certificate

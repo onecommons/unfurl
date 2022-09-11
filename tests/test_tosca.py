@@ -360,7 +360,7 @@ class ToscaSyntaxTest(unittest.TestCase):
                     "instance": "defaultNamespace",
                     "status": "Status.ok",
                     "state": "NodeState.started",
-                    "managed": None,
+                    "managed": False,  # set to false because "default" namespace already exists
                     "plan": [
                         {"operation": "check", "reason": "check"},
                         {

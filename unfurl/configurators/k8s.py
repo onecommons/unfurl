@@ -1,7 +1,6 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
 from __future__ import absolute_import
-import codecs
 import re
 from base64 import b64encode
 from ..configurator import Configurator
@@ -9,6 +8,7 @@ from ..support import Status, Priority
 from ..runtime import RelationshipInstance
 from ..util import save_to_tempfile
 from .ansible import AnsibleConfigurator
+from ..yamlloader import yaml
 import json
 from ansible_collections.kubernetes.core.plugins.module_utils.common import (
     K8sAnsibleMixin,
@@ -57,6 +57,8 @@ def _get_connection_config(instance):
         "KUBECONFIG": "kubeconfig",
         "context": "context",
         "namespace": "namespace",
+        "as": "impersonate_user",
+        "as-group": "impersonate_groups",
     }
     # relationship overrides capability
     for attributes in [endpoint, connect]:
@@ -100,6 +102,7 @@ CONNECTION_OPTIONS = {
     "client_key": "--client-key",
     "ca_cert": "--certificate-authority",
     "api_key": "--token",
+    "as": "--as",
 }
 
 
@@ -136,6 +139,10 @@ def get_kubectl_args(task):
             options.append(value)
     if "validate_certs" in connection and not connection["validate_certs"]:
         options.append("--insecure-skip-tls-verify")
+    groups = connection.get("as-group") or []
+    for group in groups:
+        options.append("--as-group")
+        options.append(group)
     return options
 
 
@@ -203,6 +210,7 @@ class ClusterConfigurator(Configurator):
             # we aren't modifying this cluster but we do want to assert that its ok
             yield task.done(True, False, Status.ok)
 
+
 class ConnectionConfigurator(ClusterConfigurator):
     def should_run(self, task):
         return Priority.critical  # abort if unable to connect to the cluster
@@ -250,8 +258,12 @@ class ResourceConfigurator(AnsibleConfigurator):
         if task.target.template.is_compatible_type("unfurl.nodes.K8sNamespace"):
             return dict(apiVersion="v1", kind="Namespace")
 
+        # get copy so subsequent modifications don't affect the definition
         if "definition" in task.target.attributes:
             definition = task.target.attributes.get_copy("definition") or {}
+        if "src" in task.target.attributes:
+            with open(task.target.attributes['src']) as f:
+                definition = f.read()
         else:
             definition = task.target.attributes.get_copy("apiResource") or {}
 
@@ -261,8 +273,8 @@ class ResourceConfigurator(AnsibleConfigurator):
         ):
             return self.make_secret(task.target.attributes["data"])
         else:
-            # XXX if definition is string: parse
-            # get copy so subsequent modifications dont affect the definition
+            if isinstance(definition, str):
+                definition = yaml.load(definition)
             return definition
 
     def update_metadata(self, definition, task):
@@ -281,31 +293,60 @@ class ResourceConfigurator(AnsibleConfigurator):
         else:
             md["name"] = name
 
+    def _make_check(self, connectionConfig, definition, extra_configuration):
+        moduleSpec = connectionConfig.copy()
+        moduleSpec["kind"] = definition.get("kind", "")
+        moduleSpec["name"] = definition["metadata"]["name"]
+        if "namespace" in definition["metadata"]:
+            moduleSpec["namespace"] = definition["metadata"]["namespace"]
+        if extra_configuration:
+            moduleSpec.update(extra_configuration)
+        return [{"kubernetes.core.k8s_info": moduleSpec}]
+
     def find_playbook(self, task):
+        # this is called by AnsibleConfigurator.get_playbook()
         definition = self.get_definition(task)
         self.update_metadata(definition, task)
+        connectionConfig = _get_connection(task)
+        extra_configuration = task.inputs.get("configuration")
+
+        if task.configSpec.operation in ["check", "discover"]:
+            return self._make_check(connectionConfig, definition, extra_configuration)
+
         delete = task.configSpec.operation in ["Standard.delete", "delete"]
         state = "absent" if delete else "present"
-        connectionConfig = _get_connection(task)
         moduleSpec = dict(state=state, **connectionConfig)
         if task.target.attributes.get("src"):
             # XXX set FilePath
             moduleSpec["src"] = task.target.attributes["src"]
-        elif task.configSpec.operation in ["check", "discover"]:
-            moduleSpec["kind"] = definition.get("kind", "")
-            moduleSpec["name"] = definition["metadata"]["name"]
-            if "namespace" in definition["metadata"]:
-                moduleSpec["namespace"] = definition["metadata"]["namespace"]
         else:
             moduleSpec["resource_definition"] = definition
-        extra_configuration = task.inputs.get("configuration")
+
         if extra_configuration:
             moduleSpec.update(extra_configuration)
-        return [{"kubernetes.core.k8s": moduleSpec}]
+
+        playbook = [{"kubernetes.core.k8s": moduleSpec}]
+        if definition and (task.target.created is None and task.target.status in
+                           [Status.pending, Status.unknown]):
+            # we don't want delete resources that already exist (especially namespaces!)
+            # so the first time we try to create the resource check for its exists first
+            task.logger.trace("adding k8s resource existence check for %s", task.target.name)
+            return self._make_check(connectionConfig, definition, extra_configuration) + playbook
+        else:
+            return playbook
 
     def process_result(self, task, result):
         # overrides super.processResult
-        resource = result.result.get("result")
+        resource_result = result.result.get("result")
+        resources = result.result.get("resources")
+        if resources:  # this is set when we have a k8s_info playbook task
+            resource = resources[0]
+            task.logger.error("found existing k8s resource for %s", task.target.name)
+            if task.target.created is None:
+                # already existed so set this as not created by us
+                task.target.created = False
+        else:
+            resource = resource_result
         task.target.attributes["apiResource"] = resource
         if resource:
             data = resource.get("kind") == "Secret" and resource.get("data")
@@ -328,4 +369,4 @@ class ResourceConfigurator(AnsibleConfigurator):
 
     def get_result_keys(self, task, results):
         # save first time even if it hasn't changed
-        return ["result"]  # also "method", "diff", invocation
+        return ["resources", "result"]  # also "method", "diff", invocation
