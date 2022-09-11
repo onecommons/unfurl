@@ -879,6 +879,10 @@ capability_types:
 # as defined within the TOSCA Simple Profile specification.
 ##########################################################################
 interface_types:
+  tosca.interfaces.Root:
+    description: &gt;
+      The TOSCA root Interface Type all other TOSCA Interface types derive from
+  
   tosca.interfaces.node.lifecycle.Standard:
     create:
       description: Standard lifecycle create operation.
