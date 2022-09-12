@@ -7,8 +7,6 @@ import shlex
 import sys
 import os
 import os.path
-
-from .eval import RefContext
 from .util import (
     lookup_class,
     load_module,
@@ -141,7 +139,6 @@ class PlanRequest:
     error = None
     future_dependencies = ()
     task = None
-    render_errors = None
 
     def __init__(self, target):
         self.target = target
@@ -165,15 +162,6 @@ class PlanRequest:
             #  if already created then always include the resource
             return True
         return self.target.template.required
-
-    def has_unfulfilled_refs(self, check):
-        if not self.render_errors:
-            return False
-        for error in self.render_errors:
-            dep = getattr(error, "dependency", None)
-            if dep and (not check or not dep.validate()):
-                return True
-        return False
 
 
 class TaskRequest(PlanRequest):
@@ -441,7 +429,7 @@ def set_fulfilled(requests, completed):
     # as is future_dependencies
     ready, notReady = [], []
     for req in requests:
-        if req.update_future_dependencies(completed) or req.has_unfulfilled_refs(True):
+        if req.update_future_dependencies(completed):
             notReady.append(req)
         else:  # list is now empty so request is ready
             ready.append(req)
@@ -507,7 +495,6 @@ def _render_request(job, parent, req, requests):
         error = UnfurlTaskError(task, "Configurator render failed", False)
     if task._errors:
         # we turned off strictness so templating errors got saved here instead
-        req.render_errors = task._errors
         error = task._errors[0]
         task._errors = []
     task._rendering = False
@@ -523,8 +510,7 @@ def _render_request(job, parent, req, requests):
         # a future request may change the value of these attributes
         deps = list(_get_deps(parent, req, liveDependencies, requests))
 
-    dependent_refs = req.has_unfulfilled_refs(False)
-    if deps or dependent_refs:
+    if deps:
         req.future_dependencies = deps
         task.logger.debug(
             "%s:%s can not render yet, depends on %s",
@@ -538,7 +524,7 @@ def _render_request(job, parent, req, requests):
         task._inputs = None
         task._attributeManager.attributes = {}
         task.discard_work_folders()
-        return deps or dependent_refs, None
+        return deps, None
     elif error:
         task.fail_work_folders()
         task._inputs = None

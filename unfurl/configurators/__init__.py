@@ -134,9 +134,8 @@ class DelegateConfigurator(Configurator):
 
     def run(self, task):
         if "when" in task.inputs and not task.inputs["when"]:
-            # check this here instead of should_run() so that we always create and run the task
-            # (really just a hack so we save the digest in the job log for future reconfigure operations)
-            task.logger.debug("skipping subtask: 'when' input evaluated to false: %s", task.configSpec.inputs['when'])
+            # check this here instead of should_run() so that we still create and the task
+            # really just a hack so we save the digest in the job log for future reconfigure operations
             yield task.done(True, modified=False)
         else:
             subtaskRequest = task.rendered

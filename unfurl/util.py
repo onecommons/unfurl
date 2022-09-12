@@ -127,14 +127,13 @@ class UnfurlValidationError(UnfurlError):
 
 
 class UnfurlTaskError(UnfurlError):
-    def __init__(self, task: "TaskView", message: object, log: int = logging.ERROR, dependency = None):
+    def __init__(self, task: "TaskView", message: object, log: int = logging.ERROR):
         task = cast("ConfigTask", task)
         message = f"{task.changeId} on {task.target.name} {task.name}: {message}"
         super().__init__(message, True, False)
         self.task = task
         task._errors.append(self)
         self.severity = log
-        self.dependency = dependency  # what caused the error
         if log:
             task.logger.log(log, message, exc_info=True)
 

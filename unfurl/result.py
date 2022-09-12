@@ -459,7 +459,6 @@ class Result(ChangeAware):
     def __repr__(self):
         return "Result(%r, %r, %r)" % (self.resolved, self.external, self.select)
 
-
 def is_sensitive_schema(defs, key):
     defSchema = (key in defs and defs[key].schema) or {}
     defMeta = defSchema.get("metadata", {})
@@ -590,7 +589,7 @@ class Results(ABC):
                 assert not isinstance(resolved[0], Result), resolved[0]
 
             if self.validate:
-                self._validate(key, resolved, val)
+                self._validate(key, resolved)
             if self.defs and is_sensitive_schema(self.defs, key):
                 result.resolved = wrap_sensitive_value(resolved)
 
@@ -617,7 +616,7 @@ class Results(ABC):
                 return map_value(transform, self.context.copy(vars=dict(value=value)))
         return value
 
-    def _validate(self, key, value, src=None):
+    def _validate(self, key, value):
         propDef = self.defs.get(key)
         if not propDef:
             return
@@ -634,14 +633,8 @@ class Results(ABC):
         except Exception as err:
             msg = f'Validation failure while evaluating "{key}" on "{resource.name}": {err}'
             if self.context.task:
-                from .eval import Ref
-                from .configurator import Dependency
-
-                if Ref.is_ref(src):
-                    dep = Dependency(src, target=self.context.currentResource, schema=propDef)
-                else:
-                    dep = None
-                UnfurlTaskError(self.context.task, msg, dependency=dep)
+                log_level = logging.ERROR if self.context.strict else logging.DEBUG
+                UnfurlTaskError(self.context.task, msg, log_level)
             elif self.context.strict:
                 raise UnfurlError(msg, True)
             else:
