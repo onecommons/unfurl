@@ -14,10 +14,14 @@ dsl_definitions:
       +HELM_KUBEAPISERVER:
           eval:
             if: $connections::K8sCluster::api_server
-            then: "{{ '$connections::K8sCluster::protocol' | eval }}://{{ '$connections::K8sCluster::api_server' | eval }}"
+            then:
+              if: "{{ '//' in '$connections::K8sCluster::api_server' | eval }}"
+              then: 
+                eval: $connections::K8sCluster::api_server
+              else: "{{ '$connections::K8sCluster::protocol' | eval }}://{{ '$connections::K8sCluster::api_server' | eval }}"
             else: null
       +HELM_KUBECAFILE:
-          eval: $connections::K8sCluster::cluster_ca_certificate
+          eval: $connections::K8sCluster::cluster_ca_certificate_file
       +HELM_NAMESPACE:
           eval: $connections::K8sCluster::namespace
       +HELM_KUBEASGROUPS:

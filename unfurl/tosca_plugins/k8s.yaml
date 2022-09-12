@@ -159,6 +159,18 @@ relationship_types:
             PEM-encoded root certificates bundle for TLS authentication
         default: { get_env: KUBE_CLUSTER_CA_CERT_DATA }
         required: false
+      cluster_ca_certificate_file:
+        type: string
+        default:
+          eval:
+            if: .::cluster_ca_certificate
+            then:
+              eval:
+                tempfile: 
+                  eval: .::cluster_ca_certificate
+                suffix: .crt
+            else: null
+        required: false
       insecure:
         type: boolean
         description: >

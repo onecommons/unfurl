@@ -51,7 +51,7 @@ def _get_connection_config(instance):
         if '//' in api_server:
             connection["host"] = api_server
         else:
-            connection["host"] = f"https://{api_server}"
+            connection["host"] = f"{connect['protocol']}://{api_server}"
 
     map1 = {
         "KUBECONFIG": "kubeconfig",
@@ -85,9 +85,7 @@ def _get_connection_config(instance):
         if "ca_cert" not in connection and attributes.get(
             "cluster_ca_certificate"
         ):
-            connection["ca_cert"] = save_to_tempfile(
-                attributes["cluster_ca_certificate"], ".crt"
-            ).name
+            connection["ca_cert"] = attributes['cluster_ca_certificate_file']
     return connection
 
 
