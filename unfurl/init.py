@@ -8,7 +8,7 @@ import os
 import os.path
 import shutil
 import sys
-import re
+import json
 from typing import Any
 import uuid
 import logging
@@ -648,7 +648,7 @@ class EnsembleBuilder:
 
     @staticmethod
     def _get_ensemble_dir(targetPath):
-        assert not os.path.isabs(targetPath)
+        assert not os.path.isabs(targetPath), targetPath
         if not targetPath or targetPath == ".":
             destDir, manifestName = (
                 DefaultNames.EnsembleDirectory,
@@ -763,6 +763,14 @@ class EnsembleBuilder:
             )
         else:
             destProject.register_ensemble(manifest.path, context=self.environment)
+        environments_json_path = os.path.join(destProject.projectRoot, 'environments.json')
+        if os.path.exists(environments_json_path):
+            # temp hack for unfurl.cloud integration
+            from .to_json import set_deploymentpaths
+            envjson = set_deploymentpaths(destProject, environments_json_path)
+            with open(environments_json_path, "w") as f:
+                f.write(json.dumps(envjson, indent=2))
+
         self.manifest = manifest
         return destDir
 
@@ -851,7 +859,7 @@ class EnsembleBuilder:
             relDestDir = self.dest_project.get_relative_path(dest)
             assert not relDestDir.startswith(".."), relDestDir
         else:
-            relDestDir = dest.lstrip(".")
+            relDestDir = dest.lstrip("./")
         if (
             self.ensemble_name
             and self.ensemble_name != DefaultNames.EnsembleDirectory
@@ -969,6 +977,7 @@ def clone(
             # dest is in the source project's repo
             # so don't need to clone, just need to create an ensemble
             builder.set_source(sourceProject)
+            dest = os.path.abspath(dest)
 
     assert builder.source_project
 

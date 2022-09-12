@@ -280,7 +280,7 @@ class ReadOnlyManifest(Manifest):
 def clone(localEnv, destPath):
     clone = ReadOnlyManifest(localEnv=localEnv)
     config = clone.manifest.config
-    for key in ["status", "changes", "lastJob"]:
+    for key in ["status", "changes", "lastJob", "lock"]:
         config.pop(key, None)
     if "metadata" in config:
         config["metadata"].pop("uri", None)

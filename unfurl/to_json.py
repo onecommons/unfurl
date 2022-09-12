@@ -1273,15 +1273,17 @@ def to_environments(localEnv, existing=None):
     db["ResourceType"] = all_connection_types
     return db
 
-
 def to_deployments(localEnv, existing=None):
+    return set_deploymentpaths(localEnv.project, existing)
+
+def set_deploymentpaths(project, existing=None):
     if existing:
         with open(existing) as f:
             db = json.load(f)
     else:
         db = {}
     deployment_paths = db.setdefault("DeploymentPath", {})
-    for ensemble_info in localEnv.project.localConfig.ensembles:
+    for ensemble_info in project.localConfig.ensembles:
         if "environment" in ensemble_info and "project" not in ensemble_info:
             # exclude external ensembles
             path = os.path.dirname(ensemble_info["file"])
@@ -1289,6 +1291,7 @@ def to_deployments(localEnv, existing=None):
                 continue  # don't overwrite
             deployment_paths[path] = {
                 "__typename": "DeploymentPath",
+                "name": path,
                 "project_id": None,
                 "pipelines": [],
                 "environment": ensemble_info["environment"],
