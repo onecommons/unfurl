@@ -12,11 +12,13 @@ Output a normalized json representation of a TOSCA service template for machine 
 """
 import re
 import os
+import os.path
 import sys
 import itertools
 import json
 from typing import Any, Dict, List, Optional, Union, cast, TYPE_CHECKING
 from collections import Counter
+from urllib.parse import urlparse
 from toscaparser.properties import Property
 from toscaparser.elements.constraints import Schema
 from toscaparser.elements.property_definition import PropertyDef
@@ -981,30 +983,33 @@ def get_deployment_blueprints(manifest, blueprint, root_name, db):
 
 def get_blueprint_from_topology(manifest, db):
     spec = manifest.tosca
-    title, slug = _template_title(spec, "unnamed")
+    title = os.getenv("DEPLOYMENT") or os.path.basename(os.path.dirname(manifest.path))
+    slug = slugify(title)
     # XXX cloud = spec.topology.primary_provider
     blueprint, root_name = to_graphql_blueprint(spec, db, [title])
     templates = get_deployment_blueprints(manifest, blueprint, root_name, db)
-    deployment_name = os.getenv("DEPLOYMENT")
-    if deployment_name and deployment_name in templates:
-        template = templates[deployment_name].copy()
-    else:
-        # just use the first one if present
-        for name, value in templates.items():
-            template = value.copy()
-            break
-        else:
-            # none exist, create one
-            template = dict(
-                __typename="DeploymentTemplate",
-                title=title,
-                name=slug,
-                slug=slug,
-                description=spec.template.description,
-                # names of ResourceTemplates
-                resourceTemplates=list(db["ResourceTemplate"]),
-                ResourceTemplate={},
-            )
+
+    template = {}
+    deployment_blueprint_name = manifest.context.get("deployment_blueprint")
+    if deployment_blueprint_name and deployment_blueprint_name in templates:
+        deployment_blueprint = templates[deployment_blueprint_name]
+        template = deployment_blueprint.copy()     
+
+    if "source" not in template:
+        # the deployment template created for this deployment will have a "source" key
+        # so if it doesn't (or one wasn't set) create a new one and set the current one as its "source"
+        template.update(dict(
+            __typename="DeploymentTemplate",
+            title=title,
+            name=slug,
+            slug=slug,
+            description=spec.template.description,
+            # names of ResourceTemplates
+            resourceTemplates=list(db["ResourceTemplate"]),
+            ResourceTemplate={},
+            source=deployment_blueprint_name,
+            projectPath=urlparse(manifest.repositories['spec'].url).path.lstrip('/').rstrip('.git')
+        ))
     template["blueprint"] = blueprint["name"]
     template["primary"] = root_name
     template["environmentVariableNames"] = list(_generate_env_names(spec, root_name))

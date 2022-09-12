@@ -18,17 +18,18 @@ def test_jsonexport():
     jsonExport = to_deployment(local)
     with open(basepath + "include-json.json") as f:
         expected = json.load(f)
-        # print(json.dumps(jsonExport, indent=2))
         assert jsonExport["ResourceTemplate"] == expected["ResourceTemplate"]
+        assert "examples" in jsonExport["DeploymentTemplate"], jsonExport["DeploymentTemplate"]
         # test environmentVariableNames export
-        assert jsonExport["DeploymentTemplate"]["unnamed"]["environmentVariableNames"] == [
+        deploymentTemplate = jsonExport["DeploymentTemplate"]["examples"]
+        assert deploymentTemplate["environmentVariableNames"] == [
                                                   "APP_IMAGE",
                                                   "APP_DOMAIN",
                                                   "HOST_CPUS",
                                                   "HOST_MEMORY",
                                                   "HOST_STORAGE",
                                                   "RESOLVER_CONSOLE_URL"
-                                                ]
+                                                  ]
         resource = jsonExport["Resource"]["foo.com"]
         assert resource
         # test explicit "export" metadata
