@@ -33,7 +33,7 @@ def normalize_git_url(url, hard=0):
         parts = urlparse(url)
         # remove password and .git
         user, sep, host = parts.netloc.rpartition("@")
-        if sep:
+        if sep and hard == 1:
             netloc = f"{user.partition(':')[0]}@{host}"
         else:
             netloc = host
@@ -47,7 +47,7 @@ def normalize_git_url(url, hard=0):
 
 def normalize_git_url_hard(url):
     # remove scheme, .git and fragment
-    return normalize_git_url(url, hard=1).rpartition("://")[2].partition("#")[0]
+    return normalize_git_url(url, hard=2).rpartition("://")[2].partition("#")[0]
 
 
 def is_url_or_git_path(url):
