@@ -55,6 +55,9 @@ class HelmTest(unittest.TestCase):
         query = ".::.requirements::[.name=host]::.target::name"
         res = mysql_release.query(query)
         assert res == "unfurl-helm-unittest"
+        
+        # runner.manifest.save_job(run1)
+        # print(run1.out.getvalue())
 
         summary = run1.json_summary()
         # print(run1.json_summary(True))
@@ -63,11 +66,11 @@ class HelmTest(unittest.TestCase):
         self.assertEqual(summary["job"], {
                     "id": "A01110000000",
                     "status": "ok",
-                    "total": 8,
+                    "total": 7,
                     "ok": 3,
                     "error": 0,
                     "unknown": 0,
-                    "skipped": 5,
+                    "skipped": 4,
                     "changed": 3,
                     })
         self.assertEqual([t for t in summary["tasks"] if t["status"]], [
@@ -194,11 +197,11 @@ class HelmTest(unittest.TestCase):
                     "job": {
                         "id": "A01120000000",
                         "status": "ok",
-                        "total": 8,
+                        "total": 7,
                         "ok": 3,
                         "error": 0,
                         "unknown": 0,
-                        "skipped": 5,
+                        "skipped": 4,
                         "changed": 3,
                     },
                     "outputs": {}

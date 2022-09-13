@@ -170,7 +170,7 @@ node_types:
                 {%if returncode == 0 %}
                 {% set json = stdout | from_json %}
                 {%for doc in json.manifest | from_yaml_all %}
-                  {%if doc.kind is defined %}
+                  {%if doc.kind is defined and doc.kind != 'Secret' %}
                   - name: {{doc.kind}}-{{doc.metadata.namespace | default('') }}-{{ doc.metadata.name }}
                     {%if doc.metadata.namespace is not defined %}
                     parent: HOST
