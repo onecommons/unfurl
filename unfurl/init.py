@@ -152,7 +152,7 @@ def write_ensemble_manifest(
         specDir = os.path.abspath(specDir)
     else:
         specDir = ""
-    vars = dict(specRepoUrl=specRepo.get_url_with_path(specDir))
+    vars = dict(specRepoUrl=specRepo.get_url_with_path(specDir, True))
     if extraVars:
         vars.update(extraVars)
     return write_template(destDir, manifestName, "manifest.yaml.j2", vars, templateDir)
@@ -301,7 +301,7 @@ def render_project(
 
     if ensembleRepo:
         extraVars = dict(
-            ensembleUri=ensembleRepo.get_url_with_path(ensemblePath),
+            ensembleUri=ensembleRepo.get_url_with_path(ensemblePath, True),
             # include the ensembleTemplate in the root of the specDir
             ensembleTemplate=names.EnsembleTemplate,
         )
