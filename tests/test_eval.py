@@ -6,7 +6,7 @@ import pickle
 from unfurl.result import ResultsList, ResultsMap, serialize_value, ChangeRecord, Result
 from unfurl.eval import Ref, map_value, RefContext, set_eval_func, ExternalValue
 from unfurl.support import apply_template, TopologyMap
-from unfurl.util import sensitive_str, substitute_env
+from unfurl.util import sensitive_str, substitute_env, sensitive_list
 from unfurl.runtime import NodeInstance
 from ruamel.yaml.comments import CommentedMap
 
@@ -280,6 +280,16 @@ class EvalTest(unittest.TestCase):
 
         assert type(apply_template(" {{ {} }} ", RefContext(resource, vars))) == dict
         assert apply_template('{{ {} }}{{"\n "}}', RefContext(resource, vars)) == '{}\n '
+
+        val = apply_template("{{ 'foo' | sensitive }}", RefContext(resource, trace=0))
+        assert isinstance(val, sensitive_str), type(val)
+
+        val = apply_template("{{ ['a', 'b' | sensitive] }}", RefContext(resource, trace=0))
+        assert isinstance(val[1], sensitive_str), type(val)
+
+        val = apply_template("{{ ['a', 'b'] | sensitive }}", RefContext(resource, trace=0))
+        assert isinstance(val, sensitive_list), type(val)
+
 
     def test_templateFunc(self):
         query = {
@@ -587,6 +597,7 @@ SUB: '1'
         labels = map_value(expr, ctx)
         assert labels == {'url': "https______foo-bar__com"}
 
+
 def pairs(iterable):
     i = iter(iterable)
     try:
@@ -606,5 +617,6 @@ def test_env_sub():
     ]
     for test, expected in pairs(tests):
         assert expected == substitute_env(test, env), test
+
 
     

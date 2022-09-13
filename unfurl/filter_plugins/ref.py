@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 from unfurl.eval import Ref, map_value
 from unfurl.projectpaths import _abspath, _getdir
-from unfurl.util import which
+from unfurl.util import which, wrap_sensitive_value
 from jinja2.filters import contextfilter
 
 # from ansible.errors import AnsibleError, AnsibleFilterError
@@ -56,4 +56,5 @@ class FilterModule:
             "abspath": abspath,
             "get_dir": get_dir,
             "which": which,
+            "sensitive": wrap_sensitive_value,
         }
