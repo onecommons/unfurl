@@ -205,7 +205,7 @@ node_types:
       Standard:
         operations:
           configure:
-            delegate: Helm.execute
+            invoke: Helm.execute
             inputs:
               helmcmd: '{{ "upgrade" if ".::.present" | eval else "install"}}'
           delete:
@@ -230,7 +230,7 @@ node_types:
       Install:
         operations:
           check:
-            delegate: Helm.execute
+            invoke: Helm.execute
             inputs:
               helmcmd: status
               dryrun: "--dry-run"
@@ -238,7 +238,7 @@ node_types:
               chart: ""
               chart_values: ""
           discover:
-            delegate: Helm.execute
+            invoke: Helm.execute
             inputs:
               helmcmd: list
               dryrun: "--dry-run"
