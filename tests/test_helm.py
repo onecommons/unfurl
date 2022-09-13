@@ -57,19 +57,18 @@ class HelmTest(unittest.TestCase):
         assert res == "unfurl-helm-unittest"
 
         summary = run1.json_summary()
-        # print(runner.manifest.statusSummary())
-        # print(run1.jsonSummary(True))
+        # print(run1.json_summary(True))
         # print(run1._jsonPlanSummary(True))
 
         self.assertEqual(summary["job"], {
                     "id": "A01110000000",
                     "status": "ok",
-                    "total": 9,
-                    "ok": 4,
+                    "total": 8,
+                    "ok": 3,
                     "error": 0,
                     "unknown": 0,
                     "skipped": 5,
-                    "changed": 4,
+                    "changed": 3,
                     })
         self.assertEqual([t for t in summary["tasks"] if t["status"]], [
                     {
@@ -107,22 +106,9 @@ class HelmTest(unittest.TestCase):
                         "targetStatus": "ok",
                         "targetState": "configured",
                         "changed": True,
-                        "configurator": "unfurl.configurators.DelegateConfigurator",
-                        "priority": "required",
-                        "reason": "add",
-                    },
-                    {
-                        "status": "ok",
-                        "target": "mysql_release",
-                        "operation": "execute",
-                        "template": "mysql_release",
-                        "type": "unfurl.nodes.HelmRelease",
-                        "targetStatus": "ok",
-                        "targetState": "configuring",
-                        "changed": True,
                         "configurator": "unfurl.configurators.shell.ShellConfigurator",
                         "priority": "required",
-                        "reason": "subtask: for add: Standard.configure",
+                        "reason": "add",
                     },
                 ])
         assert all(task.get("targetStatus") == "ok" for task in summary["tasks"]), summary[
@@ -157,7 +143,7 @@ class HelmTest(unittest.TestCase):
 
             # print("check")
             # print(runner.manifest.statusSummary())
-            # print(run.jsonSummary(True))
+            # print(run.json_summary(True))
             summary = run.json_summary()
             tasks = summary.pop("tasks")
             self.assertEqual(summary, {
@@ -208,12 +194,12 @@ class HelmTest(unittest.TestCase):
                     "job": {
                         "id": "A01120000000",
                         "status": "ok",
-                        "total": 9,
-                        "ok": 4,
+                        "total": 8,
+                        "ok": 3,
                         "error": 0,
                         "unknown": 0,
                         "skipped": 5,
-                        "changed": 4,
+                        "changed": 3,
                     },
                     "outputs": {}
             })
@@ -254,22 +240,9 @@ class HelmTest(unittest.TestCase):
                         "targetStatus": "ok",
                         "targetState": "started",
                         "changed": True,
-                        "configurator": "unfurl.configurators.DelegateConfigurator",
-                        "priority": "required",
-                        "reason": "check",
-                    },
-                    {
-                        "status": "ok",
-                        "target": "mysql_release",
-                        "operation": "execute",
-                        "template": "mysql_release",
-                        "type": "unfurl.nodes.HelmRelease",
-                        "targetStatus": "ok",
-                        "targetState": None,
-                        "changed": True,
                         "configurator": "unfurl.configurators.shell.ShellConfigurator",
                         "priority": "required",
-                        "reason": "subtask: for check: Install.check",
+                        "reason": "check",
                     },
                 ], tasks)
 

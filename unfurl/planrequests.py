@@ -723,6 +723,12 @@ def create_task_request(
             inputs = dict(iDef.inputs, **inputs)
         else:
             inputs = iDef.inputs or {}
+        if iDef.invoke:
+            # get the implementation from the operation specified with the "invoke" key
+            iinterface, sep, iaction = iDef.invoke.rpartition(".")
+            iDef = _find_implementation(iinterface, iaction, resource.template)
+            inputs = dict(iDef.inputs, **inputs)
+
         kw = _get_config_spec_args_from_implementation(
             iDef, inputs, resource, operation_host
         )

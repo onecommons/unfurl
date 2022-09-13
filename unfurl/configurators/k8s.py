@@ -339,7 +339,7 @@ class ResourceConfigurator(AnsibleConfigurator):
         resources = result.result.get("resources")
         if resources:  # this is set when we have a k8s_info playbook task
             resource = resources[0]
-            task.logger.error("found existing k8s resource for %s", task.target.name)
+            task.logger.verbose("found existing k8s resource for %s", task.target.name)
             if task.target.created is None:
                 # already existed so set this as not created by us
                 task.target.created = False
