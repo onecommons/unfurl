@@ -92,6 +92,7 @@ class KomposeConfigurator(ShellConfigurator):
             compose = render_compose(task.inputs.get_copy("container") or {}, task.inputs.get("image"))
 
         service_name = self._validate(task, compose)
+        task.target.attributes['name'] = service_name
 
         if "version" not in compose:
             # kompose fails without this
