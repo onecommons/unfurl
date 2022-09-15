@@ -13,6 +13,7 @@ data_types:
         entry_schema:
           type: string
         default: {}
+        required: false
         metadata:
           user_settable: true
           tab_title: Environment Variables

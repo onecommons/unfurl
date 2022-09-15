@@ -590,11 +590,11 @@ def to_env(args, ctx: RefContext):
     sub = _EnvMapper(env or {})
     sub.ctx = ctx
 
-    args = map_value(args, ctx)
-    result = filter_env(args, env, True, sub)
+    rules = map_value(args or {}, ctx)
+    result = filter_env(rules, env, True, sub)
     if ctx.kw.get("update_os_environ"):
         os.environ.update(result)
-        for key, value in args.items():
+        for key, value in rules.items():
             if value is None and key in os.environ:
                 del os.environ[key]
     return result
