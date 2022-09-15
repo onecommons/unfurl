@@ -9,6 +9,8 @@ from ..runtime import RelationshipInstance
 from ..util import save_to_tempfile
 from .ansible import AnsibleConfigurator
 from ..yamlloader import yaml
+from ..eval import set_eval_func, map_value
+import subprocess
 import json
 from ansible_collections.kubernetes.core.plugins.module_utils.common import (
     K8sAnsibleMixin,
@@ -144,6 +146,21 @@ def get_kubectl_args(task):
     return options
 
 
+def kubectl(cmd, ctx):
+    cmd = map_value(cmd, ctx)
+    args = get_kubectl_args(ctx.task)
+    if not isinstance(cmd, list):
+        cmd = cmd.split()
+    full_cmd = ["kubectl"] + args + cmd
+    if ctx.kw.get("execute"):
+        return subprocess.run(full_cmd, capture_output=True).stdout
+    else:
+        return full_cmd
+
+
+set_eval_func("kubectl", kubectl)
+
+
 def make_pull_secret(name, hostname, username, password) -> str:
     data = dict(
         auths={
@@ -259,7 +276,7 @@ class ResourceConfigurator(AnsibleConfigurator):
         # get copy so subsequent modifications don't affect the definition
         if "definition" in task.target.attributes:
             definition = task.target.attributes.get_copy("definition") or {}
-        if "src" in task.target.attributes:
+        elif "src" in task.target.attributes:
             with open(task.target.attributes['src']) as f:
                 definition = f.read()
         else:
