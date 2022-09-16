@@ -27,7 +27,7 @@ node_types:
       title: DNS Zone
     properties:
       name:
-        description: DNS name of the zone
+        description: Top level part of the DNS name (e.g. example.com)
         title: Domain Name
         type: string
       provider:
@@ -50,8 +50,6 @@ node_types:
         title: Default TTL
         default: 300
       testing:
-        metadata:
-          user_settable: true
         type: boolean
         title: Testing
         description: Is this DNS zone being used for testing? (If set, Let's Encrypt staging will be used.)
