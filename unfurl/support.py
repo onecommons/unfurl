@@ -703,6 +703,7 @@ def get_nodes_of_type(type_name, ctx: RefContext):
 
 set_eval_func("get_nodes_of_type", get_nodes_of_type, True)
 
+
 class ContainerImage(ExternalValue):
     """
     Represents a container image.
@@ -747,7 +748,7 @@ class ContainerImage(ExternalValue):
 
     def get(self) -> str:      
         if self.registry_host:
-            name = f"{self.registry_host}/{self.name}"
+            name = os.path.join(self.registry_host, self.name)
         else:
             name = self.name
 

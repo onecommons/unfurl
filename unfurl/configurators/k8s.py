@@ -6,7 +6,7 @@ from base64 import b64encode
 from ..configurator import Configurator
 from ..support import Status, Priority
 from ..runtime import RelationshipInstance
-from ..util import save_to_tempfile
+from ..util import save_to_tempfile, is_sensitive
 from .ansible import AnsibleConfigurator
 from ..yamlloader import yaml
 from ..eval import set_eval_func, map_value
@@ -236,7 +236,7 @@ class ConnectionConfigurator(ClusterConfigurator):
         connectionConfig = _get_connection_config(connection)
         try:
             # try connect and save the resolved host
-            task.logger.debug(connectionConfig)
+            # task.logger.debug(connectionConfig)
             connection.attributes["api_server"] = self._get_host(connectionConfig)
         except Exception:
             yield task.done(
