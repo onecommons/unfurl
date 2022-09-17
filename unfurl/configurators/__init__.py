@@ -103,7 +103,7 @@ class TemplateConfigurator(Configurator):
         done = task.inputs.get_copy("done", {})
         if "result" not in done:
             if not isinstance(runResult, dict):
-                done["result"] = {"run": runResult}
+                done["result"] = {"run": runResult, "outputs": done.get("outputs")}
             else:
                 done["result"] = runResult
         if self.process_result_template(task, done.get("result") or {}):

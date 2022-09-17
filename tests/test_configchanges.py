@@ -58,7 +58,7 @@ class SpecChangeConfigurator(Configurator):
         assert self.can_run(task)
         # access the property through task.vars to test that accesses are also tracked that way
         prop = task.vars["SELF"]["testProperty"]
-        yield task.done(True, result=prop)
+        yield task.done(True, outputs=dict(prop=prop))
 
 
 spec = """\
@@ -298,7 +298,7 @@ class ConfigChangeTest(unittest.TestCase):
             assert _latestJobs
             job = _latestJobs[-1]
             changes = job.manifest.manifest.config["changes"][0]
-            assert changes["result"] == "A"
+            assert changes["outputs"]["prop"] == "A"
             assert changes["digestKeys"] == "::node1::testProperty"
             assert changes["digestValue"] == "6dcd4ce23d88e2ee9568ba546c007c63d9131c1b"
 
@@ -355,7 +355,7 @@ class ConfigChangeTest(unittest.TestCase):
             )
             self.assertEqual("reconfigure", summary["tasks"][0]["reason"])
             changes = job.manifest.manifest.config["changes"][1]
-            assert changes["result"] == "B"
+            assert changes["outputs"]["prop"] == "B"
             assert changes["digestKeys"] == "::node1::testProperty"
             assert changes["digestValue"] == "ae4f281df5a5d0ff3cad6371f76d5c29b6d953ec"
 
