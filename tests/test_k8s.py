@@ -216,15 +216,6 @@ SECRET = """\
               data:
                 uri: "{{ lookup('env', 'TEST_SECRET') }}"
 
-        testConfigMap:
-          # add metadata, type: Opaque
-          # base64 values and omit data from status
-          type: unfurl.nodes.K8sSecretResource
-          requirements:
-            - host: k8sNamespace
-          properties:
-            definition:
-
 """
 
 MANIFEST1 = BASE % "octest" + SECRET

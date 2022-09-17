@@ -127,7 +127,7 @@ def save_result(value):
         return value
 
 
-def save_task(task):
+def save_task(task, skip_result=False):
     """
     Convert dictionary suitable for serializing as yaml
       or creating a Changeset.
@@ -165,7 +165,7 @@ def save_task(task):
     if task.result:
         if task.result.outputs:
             output["outputs"] = save_result(task.result.outputs)
-        if task.result.result:
+        if task.result.result and not skip_result:
             output["result"] = save_result(task.result.result)
     else:
         output["result"] = "skipped"
@@ -817,7 +817,9 @@ class YamlManifest(ReadOnlyManifest):
         jobRecord = self.save_job_record(job)
         if job.workDone:
             self.manifest.config["lastJob"] = jobRecord
-            changes = list(map(save_task, job.workDone.values()))
+            exclude_result = not self.changeLogPath
+            # don't save result.results into this yaml, it might contain sensitive data
+            changes = list(map(lambda t: save_task(t, exclude_result), job.workDone.values()))
             if self.changeLogPath:
                 self.manifest.config["jobsLog"] = self.changeLogPath
 
