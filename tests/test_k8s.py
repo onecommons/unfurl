@@ -115,11 +115,12 @@ def _get_resources(task):
 def _get_pod_logs(task, name):
     # verify resource start (and test get_kubectl_args)
     args = get_kubectl_args(task)
-    cmd = ["kubectl"] + args + ["logs", name]
-    return subprocess.run(cmd, capture_output=True).stdout
+    cmd = ["kubectl"] + args + ["logs", name, "--tail", "15"]
+    proc = subprocess.run(cmd, capture_output=True)
+    return proc.stdout, proc.stderr
 
 def _pod_log_test(logs):
-    return logs and b"FOO=bar" in logs and b"APP_SERVICE_PORT=8001" in logs
+    return logs and b"FOO=bar" in logs
 
 
 STEPS = (
@@ -154,17 +155,17 @@ def test_kompose():
             assert not resources, resources
         elif i == 0:
             assert STEPS[i].workflow == 'deploy'
-            assert len(resources) == 4
+            assert len(resources) == 4, resources
             for resource in resources:
                 if resource["kind"] == "Pod":
                     pod_name = resource["metadata"]["name"]
-                    logs = _get_pod_logs(task, pod_name)
+                    logs, stderr = _get_pod_logs(task, pod_name)
                     count = 0
                     while not _pod_log_test(logs):
                         time.sleep(5)
-                        logs = _get_pod_logs(task, pod_name)
+                        logs, stderr = _get_pod_logs(task, pod_name)
                         if count > 5:
-                            assert False, f"timeout trying waiting read logs for {pod_name}, got: {logs}"
+                            assert False, f"timeout trying waiting read logs for {pod_name}, got: {logs} {stderr}"
                         count += 1
 
 
@@ -214,6 +215,16 @@ SECRET = """\
               name: test-secret
               data:
                 uri: "{{ lookup('env', 'TEST_SECRET') }}"
+
+        testConfigMap:
+          # add metadata, type: Opaque
+          # base64 values and omit data from status
+          type: unfurl.nodes.K8sSecretResource
+          requirements:
+            - host: k8sNamespace
+          properties:
+            definition:
+
 """
 
 MANIFEST1 = BASE % "octest" + SECRET
@@ -225,7 +236,9 @@ KOMPOSE = """\
             container:
               image: busybox
               command:
-                - env
+                - bin/sh
+                - -c
+                - while true; do env; sleep 5; done
               ports:
                 - 8001:8001
               environment:
