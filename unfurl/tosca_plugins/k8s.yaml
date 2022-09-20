@@ -129,6 +129,10 @@ relationship_types:
         title: Cluster name
         type: string
         required: false
+        metadata:
+          env_vars:
+            - KUBE_CTX_CLUSTER
+        default: { get_env: KUBE_CTX_CLUSTER }    
       KUBECONFIG:
         type: unfurl.datatypes.EnvVar
         description: >
@@ -146,6 +150,7 @@ relationship_types:
         metadata:
           env_vars:
             - KUBE_CTX
+        default: { get_env: KUBE_CTX }
       cluster_ca_certificate:
         type: string
         title: CA certificate
@@ -180,6 +185,7 @@ relationship_types:
           env_vars:
           - KUBE_INSECURE
         required: false
+        default: { get_env: KUBE_INSECURE }
       token:
         type: unfurl.datatypes.EnvVar
         title: Authentication Token
@@ -190,6 +196,7 @@ relationship_types:
           - KUBE_TOKEN
         description: Token of your service account.
         required: false
+        default: { get_env: KUBE_TOKEN }
       credential:
         description: >
           token_type is either "api_key" or "password" (default is "password")
