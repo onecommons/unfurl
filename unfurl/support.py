@@ -539,9 +539,10 @@ set_eval_func("get_env", get_env, True)
 
 def set_context_vars(vars, resource):
     root = resource.root
-    vars.update(dict(NODES=TopologyMap(root), TOPOLOGY={}))
+    ROOT = {}
+    vars.update(dict(NODES=TopologyMap(root), ROOT=ROOT, TOPOLOGY=ROOT))
     if "inputs" in root._attributes:
-        vars["TOPOLOGY"].update(
+        ROOT.update(
             dict(
                 inputs=root._attributes["inputs"],
                 outputs=root._attributes["outputs"],
@@ -551,16 +552,19 @@ def set_context_vars(vars, resource):
     if app_template:
         app = root.find_instance(app_template.name)
         if app:
-            vars["TOPOLOGY"]["app"] = app.attributes
+            ROOT["app"] = app.attributes
         for name, req in app_template.requirements.items():
             if req.relationship and req.relationship.target:
                 target = root.find_instance(req.relationship.target.name)
                 if target:
-                    vars["TOPOLOGY"][name] = target.attributes
+                    ROOT[name] = target.attributes
     return vars
 
 
 class _EnvMapper(dict):
+    """Resolve environment variable name to instance properties via the root template's requirements.
+       Pattern should match _generate_env_names in to_json.py and set_context_vars above.
+    """
     def __missing__(self, key):
         objname, sep, prop = key.partition("_")
         root = self.ctx.currentResource.root
