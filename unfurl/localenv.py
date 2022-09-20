@@ -21,7 +21,7 @@ from .util import UnfurlError, substitute_env, wrap_sensitive_value, save_to_tem
 from .merge import merge_dicts
 from .yamlloader import YamlConfig, make_vault_lib_ex, make_yaml
 from . import DefaultNames, get_home_config_path
-from six.moves.urllib.parse import urlparse
+from urllib.parse import urlparse, urlunsplit, urlsplit
 from ruamel.yaml.comments import CommentedMap
 from toscaparser.repositories import Repository
 
@@ -220,10 +220,12 @@ class Project:
             counter += 1
         return os.path.join(self.projectRoot, name)
 
-    def find_git_repo(
+    def _find_git_repo(
         self, repoURL: str, revision: Optional[str] = None
-    ) -> Optional[GitRepo]:
+    ) -> Union[GitRepo, str]:
+        # if repo isn't found, return the repo url, possibly rewritten to include server credentials
         candidate = None
+        repourl_parts = urlsplit(repoURL)
         for dir, repository in self.workingDirs.items():
             repo = repository.repo
             if repoURL.startswith("git-local://"):
@@ -237,10 +239,24 @@ class Project:
                 if revision:
                     if repo.revision == repo.resolve_rev_spec(revision):
                         return repo
+                    # revisions don't match but we'll return it if we don't find a better candidate
                     candidate = repo
                 else:
                     return repo
-        return candidate
+            elif not repourl_parts.username:  # if url doesn't have credentials already
+                candidate_parts = urlsplit(repo.url)
+                if candidate_parts.password and candidate_parts.hostname == repourl_parts.hostname:
+                    # rewrite repoUrl to add credentials
+                    repoURL = urlunsplit(repourl_parts._replace(netloc=candidate_parts.netloc))
+        return candidate or repoURL
+
+    def find_git_repo(
+        self, repoURL: str, revision: Optional[str] = None
+    ) -> Optional[GitRepo]:
+        repo_or_url = self._find_git_repo(repoURL, revision)
+        if isinstance(repo_or_url, str):
+            return None
+        return repo_or_url
 
     def find_path_in_repos(
         self, path: str, importLoader: Optional[Any] = None
@@ -1103,9 +1119,9 @@ class LocalEnv:
             spec,
         )
 
-    def find_git_repo(
+    def _find_git_repo(
         self, repoURL: str, revision: Optional[str] = None
-    ) -> Optional[GitRepo]:
+    ) -> Union[GitRepo, str]:
         project = self.project or self.homeProject
         count = 0
         while project:
@@ -1114,11 +1130,21 @@ class LocalEnv:
                 project.projectRoot,
                 project.parentProject and project.parentProject.projectRoot,
             )
-            repo = project.find_git_repo(repoURL, revision)
-            if repo:
-                return repo
+            candidate = project._find_git_repo(repoURL, revision)
+            if isinstance(candidate, GitRepo):
+                return candidate
+            elif candidate != repoURL:
+                repoURL = candidate
             project = project.parentProject
-        return None
+        return repoURL
+
+    def find_git_repo(
+        self, repoURL: str, revision: Optional[str] = None
+    ) -> Optional[GitRepo]:
+        repo_or_url = self._find_git_repo(repoURL, revision)
+        if isinstance(repo_or_url, str):
+            return None
+        return repo_or_url
 
     def _create_working_dir(self, repoURL, revision, basepath):
         project = self.project or self.homeProject
@@ -1141,19 +1167,22 @@ class LocalEnv:
         revision: Optional[str] = None,
         basepath: Optional[str] = None,
     ) -> Tuple[Optional[GitRepo], Optional[str], Optional[bool]]:
-        repo = self.find_git_repo(repoURL, revision)
-        if repo:
+        repo = self._find_git_repo(repoURL, revision)
+        if isinstance(repo, GitRepo):
             logger.debug(
                 "Using existing repository at %s for %s", repo.working_dir, repoURL
             )
             if not repo.is_dirty():
                 repo.pull(revision=revision)
+        else:
+            assert isinstance(repo, str), repo # it's the repoUrl (possibly rewritten) at this point
+            # git-local repos must already exist locally
+            if repo.startswith("git-local://"):
+                return None, None, None
 
-        # git-local repos must already exist
-        if not repo and not repoURL.startswith("git-local://"):
-            repo = self._create_working_dir(repoURL, revision, basepath)
-        if not repo:
-            return None, None, None
+            repo = self._create_working_dir(repo, revision, basepath)
+            if not repo:
+                return None, None, None
 
         if revision:
             if repo.revision != repo.resolve_rev_spec(revision):
