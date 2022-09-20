@@ -283,7 +283,7 @@ spec:
                 f.write("invalid manifest")
 
             result = runner.invoke(cli, ["run"])
-            self.assertEqual(result.exit_code, 1, result)
+            self.assertEqual(result.exit_code, 64, result)
             # XXX log handler is writing to the CliRunner's output stream
             self.assertIn("Unable to create job", result.output.strip())
 

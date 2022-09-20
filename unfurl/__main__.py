@@ -183,7 +183,7 @@ readonlyJobControlOptions = option_group(
         "--jobexitcode",
         type=click.Choice(["error", "degraded", "never"]),
         default="never",
-        help="Set exit code to 1 if job status is not ok. (Default: never)",
+        help="Set exit code to 64 if job ends at given status. (Default: never)",
     ),
 )
 jobControlOptions = option_group(
@@ -517,15 +517,16 @@ def _run_local(ensemble, options):
 
 
 def _exit(job, options):
+    # https://tldp.org/LDP/abs/html/exitcodes.html
     if not job or (
         "jobexitcode" in options
         and options["jobexitcode"] != "never"
         and Status[options["jobexitcode"]] <= job.status
     ):
         if options.get("standalone_mode") is False:
-            return 1
+            return 64
         else:
-            sys.exit(1)
+            sys.exit(64)
     else:
         return 0
 
