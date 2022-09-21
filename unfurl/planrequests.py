@@ -646,7 +646,7 @@ def find_parent_template(source):
         # special case "host" so it can be declared without full set of relationship / capability types
         if rel.is_derived_from("tosca.relationships.HostedOn") or "host" in req:
             return rel.target
-        return None
+    return None
 
 
 def find_parent_resource(root, source):
