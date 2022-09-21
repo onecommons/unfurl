@@ -6,7 +6,7 @@ from base64 import b64encode
 from ..configurator import Configurator
 from ..support import Status, Priority
 from ..runtime import RelationshipInstance
-from ..util import save_to_tempfile, is_sensitive
+from ..util import wrap_sensitive_value, sensitive_dict
 from .ansible import AnsibleConfigurator
 from ..yamlloader import yaml
 from ..eval import set_eval_func, map_value
@@ -266,7 +266,7 @@ class ResourceConfigurator(AnsibleConfigurator):
             type="Opaque",
             apiVersion="v1",
             kind="Secret",
-            data={k: b64encode(str(v).encode()).decode() for k, v in data.items()},
+            data=sensitive_dict({k: b64encode(str(v).encode()).decode() for k, v in data.items()}),
         )
 
     def get_definition(self, task):
@@ -290,6 +290,8 @@ class ResourceConfigurator(AnsibleConfigurator):
         else:
             if isinstance(definition, str):
                 definition = yaml.load(definition)
+            if definition['kind'] == 'Secret' and 'data' in definition:
+                definition['data'] = wrap_sensitive_value(definition['data'])
             return definition
 
     def update_metadata(self, definition, task):
@@ -326,16 +328,12 @@ class ResourceConfigurator(AnsibleConfigurator):
         extra_configuration = task.inputs.get("configuration")
 
         if task.configSpec.operation in ["check", "discover"]:
-            return self._make_check(connectionConfig, definition, None)
+            return self._make_check(connectionConfig, definition, extra_configuration)
 
         delete = task.configSpec.operation in ["Standard.delete", "delete"]
         state = "absent" if delete else "present"
         moduleSpec = dict(state=state, **connectionConfig)
-        if task.target.attributes.get("src"):
-            # XXX set FilePath
-            moduleSpec["src"] = task.target.attributes["src"]
-        else:
-            moduleSpec["resource_definition"] = definition
+        moduleSpec["resource_definition"] = definition
 
         if extra_configuration:
             moduleSpec.update(extra_configuration)
