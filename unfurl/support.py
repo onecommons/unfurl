@@ -290,6 +290,9 @@ def apply_template(value, ctx, overrides=None):
     value = value.strip()
     if ctx.task:
         logger = ctx.task.logger
+    else:
+        logger = logging.getLogger("unfurl")
+
 
     # implementation notes:
     #   see https://github.com/ansible/ansible/test/units/template/test_templar.py
