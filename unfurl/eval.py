@@ -683,10 +683,8 @@ def lookup(result, key, context):
         return result
     except (KeyError, IndexError, TypeError, ValueError):
         if context._trace:
-            context.trace("lookup return None due to exception:")
             import traceback
-
-            traceback.print_exc()
+            context.trace(f"lookup of '{key}' returned None due to exception:\n", traceback.format_exc())
         return None
 
 

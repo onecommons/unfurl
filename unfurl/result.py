@@ -573,7 +573,7 @@ class Results(ABC):
                     resolved = map_value(val, self.context, self.applyTemplates)
             else:
                 # lazily evaluate lists and dicts
-                self.context.trace("Results._mapValue", val)
+                self.context.trace("Results._mapValue", key, val)
                 defs = self.get_datatype_defs(key)
                 resolved = self._map_value(val, self.context, self.applyTemplates, defs)
             # will return a Result if val was an expression that was evaluated

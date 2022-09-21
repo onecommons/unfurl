@@ -376,10 +376,10 @@ class EntityInstance(OperationalInstance, ResourceRef):
         self.attributes[key]  # force resolve
         return self.attributes._attributes[key]
 
-    def query(self, expr, vars=None, wantList=False):
+    def query(self, expr, vars=None, wantList=False, trace=None):
         from .eval import Ref, RefContext
 
-        return Ref(expr).resolve(RefContext(self, vars=vars), wantList)
+        return Ref(expr).resolve(RefContext(self, vars=vars, trace=trace), wantList)
 
     def local_status():  # type: ignore
         doc = "The working_dir property."

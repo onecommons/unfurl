@@ -37,6 +37,16 @@ def test_jsonexport():
         # make sure console_url doesn't also appear here:
         assert not resource["computedProperties"]
 
+    manifest = local.get_manifest()
+    # verify included json was parsed correctly
+    app_container = manifest.tosca.nodeTemplates.get("app_container")
+    assert app_container and len(app_container.relationships) == 2, app_container and [
+                                                r.source for r in app_container.relationships]
+
+    # assert app_container and len(app_container.instances) == 1, app_container and app_container.instances
+    assert app_container.relationships[0].source == manifest.tosca.nodeTemplates.get("the_app")
+
+
     # XXX verify that saving the manifest preserves the json include
 
 
