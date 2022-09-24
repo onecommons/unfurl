@@ -12,6 +12,7 @@ import os.path
 import six
 import re
 import ast
+import time
 from typing import cast, Dict, Optional
 from enum import IntEnum
 from urllib.parse import urlsplit
@@ -320,7 +321,7 @@ def apply_template(value, ctx, overrides=None):
     if not fail_on_undefined:
         templar.environment.undefined = make_logging_undefined(logger, UnfurlUndefined)
 
-    vars = _VarTrackerDict(__unfurl=ctx, __python_executable=sys.executable)
+    vars = _VarTrackerDict(__unfurl=ctx, __python_executable=sys.executable, __now=time.time())
     if hasattr(ctx.currentResource, "attributes"):
         vars["SELF"] = ctx.currentResource.attributes
     vars.update(ctx.vars)
