@@ -7,7 +7,7 @@ Extensions
 ^^^^^^^^^^^
 
 * add 'any' schema type for properties and attributes definitions
-* 'additionalProperties' field in type metadata
+* 'additionalProperties' field in type and template metadata
 * allow metadata field on inputs, outputs, artifacts, and repositories
 * add "sensitive" property and datatype metadata field
 * add "immutable" property metadata field
