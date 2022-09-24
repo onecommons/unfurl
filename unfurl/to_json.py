@@ -335,12 +335,16 @@ def _get_extends(spec, typedef, extends: list, types):
 
 
 def resource_visibility(spec, t):
+    metadata = t.entity_tpl.get("metadata")
+    if metadata:
+        if metadata.get("visibility"):
+            return metadata["visibility"]
+        if metadata.get("internal"):
+            return "hidden"
+
     if "default" in t.directives:
         # XXX: directives aren't preserved in export so
         # if default isn't omitted, it will lose its default directive if the export is included
-        return "hidden"
-    metadata = t.entity_tpl.get("metadata")
-    if metadata and metadata.get("internal"):
         return "hidden"
     if spec.discovered and t.name in spec.discovered:
         return "omit"
