@@ -867,7 +867,7 @@ class TaskView:
         if attributes:
             ctx = self.inputs.context.copy(existingResource)
             for key, value in attributes.items():
-                existingResource.attributes[key] = map_value(value, existingResource)
+                existingResource.attributes[key] = map_value(value, ctx)
                 self.logger.debug(
                     "setting attribute %s on %s with %s",
                     key,
