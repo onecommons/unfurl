@@ -5,6 +5,7 @@ from enum import IntEnum
 import os
 import tempfile
 import time
+import types
 from typing import Any, Dict, Tuple, Union
 from typing_extensions import NotRequired, TypedDict
 
@@ -131,7 +132,7 @@ class sensitive:
 
 def is_sensitive(obj: object) -> bool:
     test = getattr(obj, "__sensitive__", None)
-    if test:
+    if test and isinstance(test, types.MethodType):
         return test()
     if AnsibleVaultEncryptedUnicode and isinstance(obj, AnsibleVaultEncryptedUnicode):
         return True
