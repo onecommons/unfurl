@@ -432,6 +432,12 @@ class TerraformConfigurator(ShellConfigurator):
                 # no changes needed so set to known state
                 status = Status.ok
 
+        modified = (
+            "Modifying..." in result.stdout
+            or "Creating..." in result.stdout
+            or "Destroying..." in result.stdout
+        )
+
         if not task.dry_run and task.configSpec.operation != "check":
             outputs = {}
             current_path = cwd.cwd
@@ -454,6 +460,8 @@ class TerraformConfigurator(ShellConfigurator):
                 }
                 state.update(result.__dict__)
                 state["outputs"] = outputs  # replace outputs
+                state["success"] = success
+                state["modified"] = modified
                 errors = self.process_result_template(task, state)
                 if success:
                     success = not errors
@@ -462,11 +470,6 @@ class TerraformConfigurator(ShellConfigurator):
         else:
             outputs = None
 
-        modified = (
-            "Modifying..." in result.stdout
-            or "Creating..." in result.stdout
-            or "Destroying..." in result.stdout
-        )
         yield self.done(
             task,
             success=success,
