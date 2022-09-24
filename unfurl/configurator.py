@@ -865,6 +865,7 @@ class TaskView:
 
         attributes = resourceSpec.get("attributes")
         if attributes:
+            ctx = self.inputs.context.copy(existingResource)
             for key, value in attributes.items():
                 existingResource.attributes[key] = map_value(value, existingResource)
                 self.logger.debug(
