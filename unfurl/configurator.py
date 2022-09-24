@@ -642,6 +642,24 @@ class TaskView:
     #     outputs to share operation outputs so far
     #     """
 
+    def _set_outputs(self, outputs):
+        for key, value in outputs.items():
+            mapping = self.configSpec.outputs.get(key)
+            if mapping:
+                invalid = False
+                if isinstance(mapping, list):
+                    # XXX support more TOSCA mapping forms, e.g. to capabilities
+                    if len(mapping) == 2 and mapping[0] == "SELF":
+                        mapping = mapping[1]
+                    else:
+                        invalid = True
+                if not isinstance(mapping, str):
+                    invalid = True
+                if invalid:
+                    UnfurlTaskError(self, f"invalid or unsupported mapping for output '{key}': {mapping}")
+                else:
+                    self.target.attributes[mapping] = value
+
     def done(
         self,
         success: Optional[bool] = None,
@@ -690,7 +708,8 @@ class TaskView:
             exception: UnfurlTaskError
 
         kw = cast(kwType, kw)
-
+        if outputs:
+            self._set_outputs(outputs)
         return ConfiguratorResult(success, modified, status, **kw)
 
     # updates can be marked as dependencies (changes to dependencies changed) or required (error if changed)

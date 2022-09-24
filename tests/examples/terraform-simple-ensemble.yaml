@@ -42,6 +42,8 @@ spec:
           type: unfurl.nodes.Installer.Terraform
           interfaces:
             defaults:
+              outputs:
+                tag: tag
               inputs:
                 tfvars:
                   tag: test
