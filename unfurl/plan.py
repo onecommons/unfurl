@@ -369,13 +369,17 @@ class Plan:
             group = TaskRequestGroup(resource, workflow)
         else:
             group = None
+        task_found = False
         for taskRequest in configGenerator:
             if taskRequest:
+                task_found = True
                 yield from self._get_connection_task(taskRequest)
                 if group and not isinstance(taskRequest, JobRequest):
                     group.children.append(taskRequest)
                 else:
                     yield taskRequest
+        if not task_found:
+            logger.verbose(f'No operations for workflow "{workflow}" defined for instance "{resource.name}"')
         if group:
             yield group
 
@@ -622,12 +626,12 @@ class DeployPlan(Plan):
         else:  # this is newly created resource
             reason = Reason.add
 
+        installOp = None
         if instance.status == Status.unknown or instance.shadow:
             installOp = "check"
-        elif "discover" in instance.template.directives and not instance.operational:
-            installOp = "discover"
-        else:
-            installOp = None
+        elif "discover" in instance.template.directives:
+            if not instance.operational or reason == Reason.reconfigure:
+                installOp = "discover"
 
         if installOp:
             yield from self._generate_configurations(instance, installOp, installOp)
