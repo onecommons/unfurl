@@ -626,12 +626,12 @@ class DeployPlan(Plan):
         else:  # this is newly created resource
             reason = Reason.add
 
-        installOp = None
         if instance.status == Status.unknown or instance.shadow:
             installOp = "check"
-        elif "discover" in instance.template.directives:
-            if not instance.operational or reason == Reason.reconfigure:
-                installOp = "discover"
+        elif "discover" in instance.template.directives and not instance.operational:
+            installOp = "discover"
+        else:
+            installOp = None
 
         if installOp:
             yield from self._generate_configurations(instance, installOp, installOp)
@@ -641,12 +641,18 @@ class DeployPlan(Plan):
 
         if reason == Reason.reconfigure:
             # XXX generate configurations: may need to stop, start, etc.
+            if "discover" in instance.template.directives:
+                op = "Install.discover"
+                startState = None
+            else:
+                op = "Standard.configure"
+                startState = NodeState.configuring
             req = create_task_request(
                 self.jobOptions,
-                "Standard.configure",
+                op,
                 instance,
                 reason,
-                startState=NodeState.configuring,
+                startState=startState,
             )
             if req:
                 yield req
