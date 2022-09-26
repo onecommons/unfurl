@@ -166,6 +166,13 @@ class KomposeConfigurator(ShellConfigurator):
         return True
 
 
+def configure_resource(definition):
+    configuration = dict(wait=True)
+    if definition["kind"] == "Deployment":
+        configuration["wait_condition"] = {"status": "True", "type": "Progressing"}
+    return configuration
+
+
 def _load_resource_file(out_path, filename):
     with open(Path(out_path) / filename) as f:
         definition = f.read()
@@ -176,7 +183,7 @@ def _load_resource_file(out_path, filename):
         template=dict(type="unfurl.nodes.K8sRawResource",
                         properties=dict(definition=definition),
                         interfaces=dict(
-                            Standard=dict(inputs={"configuration": dict(wait=True)})
+                            Standard=dict(inputs={"configuration": configure_resource(definition)})
                         ),
                       )
     )
