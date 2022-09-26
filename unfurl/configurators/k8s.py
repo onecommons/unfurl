@@ -77,14 +77,15 @@ def _get_connection_config(instance):
                 connection[credential["token_type"]] = credential["token"]
             if "user" in credential:
                 connection["username"] = credential["user"]
-            if "keys" in credential:
+            if not attributes.get("insecure") and "keys" in credential:
                 # ["ca_cert", "cert_file", "key_file"]
                 connection.update(credential["keys"])
 
         if attributes.get("token"):
             connection["api_key"] = attributes["token"]
 
-        if "ca_cert" not in connection and attributes.get(
+        # K8sAnsibleMixin needs you to explicitly omit certs if you set insecure to true
+        if not attributes.get("insecure") and "ca_cert" not in connection and attributes.get(
             "cluster_ca_certificate"
         ):
             connection["ca_cert"] = attributes['cluster_ca_certificate_file']
@@ -123,10 +124,12 @@ def _get_connection(task) -> dict:
     else:
         config = {}
 
-    # check if we are in a namespace
+    # check if we are in a namespace, fall back to "default"
     namespace = task.query("[.type=unfurl.nodes.K8sNamespace]")
     if namespace:
         config["namespace"] = namespace.attributes["name"]
+    else:
+        config["namespace"] = "default"
     return config
 
 
@@ -236,7 +239,7 @@ class ConnectionConfigurator(ClusterConfigurator):
         connectionConfig = _get_connection_config(connection)
         try:
             # try connect and save the resolved host
-            # task.logger.debug(connectionConfig)
+            task.logger.debug("k8s connection configuration: %s", connectionConfig)
             connection.attributes["api_server"] = self._get_host(connectionConfig)
         except Exception:
             yield task.done(
