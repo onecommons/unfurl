@@ -1023,7 +1023,7 @@ def commit(ctx, project_or_ensemble_path, message, skip_add, no_edit, **options)
     options.update(ctx.obj)
     localEnv = LocalEnv(
         project_or_ensemble_path, options.get("home"), can_be_empty=True,
-        override_context=options.get("use_environment")
+        override_context=options.get("use_environment") or ""
     )
     if localEnv.manifestPath:
         committer = localEnv.get_manifest()
@@ -1062,7 +1062,7 @@ def git_status(ctx, project_or_ensemble_path, dirty, **options):
     options.update(ctx.obj)
     localEnv = LocalEnv(
         project_or_ensemble_path, options.get("home"), can_be_empty=True,
-        override_context=options.get("use_environment")
+        override_context=options.get("use_environment") or ""
     )
     if localEnv.manifestPath:
         committer = localEnv.get_manifest()
@@ -1101,7 +1101,7 @@ def export(ctx, project_or_ensemble_path, format, file, **options):
     localEnv = LocalEnv(
         project_or_ensemble_path,
         options.get("home"),
-        override_context=options.get("use_environment"),
+        override_context=options.get("use_environment") or "",
     )
     exporter = getattr(to_json, "to_" + format)
     jsonSummary = exporter(localEnv, file)
@@ -1128,7 +1128,7 @@ def export(ctx, project_or_ensemble_path, format, file, **options):
 def status(ctx, ensemble, **options):
     """Show the status of deployed resources in the given ensemble."""
     options.update(ctx.obj)
-    localEnv = LocalEnv(ensemble, options.get("home"), override_context=options.get("use_environment"))
+    localEnv = LocalEnv(ensemble, options.get("home"), override_context=options.get("use_environment") or "")
     manifest = localEnv.get_manifest()
     click.echo(manifest.status_summary())
     query = options.get("query")

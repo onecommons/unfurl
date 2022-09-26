@@ -46,8 +46,9 @@ class Project:
     def __init__(self, path: str, homeProject: Optional["Project"] = None, overrides: Optional[dict] = None):
         assert isinstance(path, six.string_types), path
         self.projectRoot = os.path.abspath(os.path.dirname(path))
+        self.overrides = overrides
         if os.path.exists(path):
-            self.localConfig = LocalConfig(path, overrides=overrides)
+            self.localConfig = LocalConfig(path, yaml_include_hook=self.load_yaml_include)
         else:
             self.localConfig = LocalConfig()
         self._set_repos()
@@ -422,13 +423,17 @@ class Project:
             return make_vault_lib_ex(secrets)
         return None
 
-    def find_ensemble_by_path(self, path: str) -> Optional[dict]:
+    @staticmethod
+    def _find_ensemble_by_path(ensembles, projectRoot, path: str) -> Optional[dict]:
         path = os.path.abspath(path)
-        for tpl in self.localConfig.ensembles:
+        for tpl in ensembles:
             file = tpl.get("file")
-            if file and os.path.normpath(os.path.join(self.projectRoot, file)) == path:
+            if file and os.path.normpath(os.path.join(projectRoot, file)) == path:
                 return tpl
         return None
+
+    def find_ensemble_by_path(self, path: str) -> Optional[dict]:
+        return self._find_ensemble_by_path(self.localConfig.ensembles, self.projectRoot, path)
 
     def find_ensemble_by_name(self, name: str) -> Optional[dict]:
         for tpl in self.localConfig.ensembles:
@@ -525,6 +530,58 @@ class Project:
             project.project_repoview.working_dir
         ] = project.project_repoview
 
+    def load_yaml_include(
+        self,
+        yamlConfig,
+        templatePath,
+        baseDir,
+        warnWhenNotFound=False,
+        expanded=None,
+        action=False,
+    ):
+        """
+        This is called while the YAML config is being loaded.
+        Returns (url or fullpath, parsed yaml)
+        """
+        url_vars = self.overrides or {}
+        if isinstance(templatePath, dict):
+            key = templatePath["file"]
+            merge = templatePath.get("merge")
+        else:
+            key = templatePath
+            merge = None
+
+        if action:
+            if isinstance(action, str):
+                # XXX check expanded?
+                #  ('environments', 'defaults', 'variables')
+                return substitute_env(action, url_vars)
+            # check:
+            return True
+
+        if "${ENVIRONMENT" in key and "ENVIRONMENT" not in url_vars:
+            # don't load remote includes for LocalEnv that don't specify an environment
+            # XXX (hackish way to avoid loads for transitory LocalEnv objects)
+            logger.trace("skipping retrieving url with ENVIRONMENT: %s", key)
+            return key, None
+
+        key = substitute_env(key, url_vars)
+        includekey, template = yamlConfig.load_yaml(key, baseDir, warnWhenNotFound)
+        if merge == "maplist" and template is not None:
+            environment = url_vars.get("ENVIRONMENT")
+            if not environment:
+                environment = expanded.get("default_environment")
+                ensembles = expanded.get("ensembles") or []
+                if "manifest_path" in url_vars:
+                    ensemble_tpl = self._find_ensemble_by_path(ensembles, self.projectRoot, url_vars["manifest_path"])
+                else:
+                    ensemble_tpl = LocalConfig._get_default_manifest_tpl(ensembles)
+                if ensemble_tpl:
+                    environment = ensemble_tpl.get("environment", environment)
+            template = CommentedMap(_maplist(template, environment))
+            logger.debug("retrieved remote environment vars: %s", template)
+        return includekey, template
+
 
 class LocalConfig:
     """
@@ -543,12 +600,11 @@ class LocalConfig:
         "repositories",
     ]
 
-    def __init__(self, path=None, validate=True, overrides: Optional[dict] = None):
+    def __init__(self, path=None, validate=True, yaml_include_hook=None):
         defaultConfig = {"apiVersion": "unfurl/v1alpha1", "kind": "Project"}
-        self.overrides = overrides
         self.config = YamlConfig(
             defaultConfig, path, validate,
-            os.path.join(_basepath, "unfurl-schema.json"), self.load_yaml_include
+            os.path.join(_basepath, "unfurl-schema.json"), yaml_include_hook
         )
         self.ensembles = self.config.expanded.get("ensembles") or []
         self.projects = self.config.expanded.get("projects") or {}
@@ -560,21 +616,18 @@ class LocalConfig:
         """
         return os.path.join(self.config.get_base_dir(), path)
 
-    def get_default_manifest_tpl(self):
-        """
-        ensembles:
-          default:
-            file:
-            project:
-            context
-        """
-        if len(self.ensembles) == 1:
-            return self.ensembles[0]
+    @staticmethod
+    def _get_default_manifest_tpl(ensembles):
+        if len(ensembles) == 1:
+            return ensembles[0]
         else:
-            for tpl in self.ensembles:
+            for tpl in ensembles:
                 if tpl.get("default"):
                     return tpl
         return None
+
+    def get_default_manifest_tpl(self):
+        return self._get_default_manifest_tpl(self.ensembles)
 
     def create_local_instance(self, localName, attributes):
         # local or secret
@@ -693,52 +746,6 @@ class LocalConfig:
             self.config.save()
         return lock
 
-    def load_yaml_include(
-        self,
-        yamlConfig,
-        templatePath,
-        baseDir,
-        warnWhenNotFound=False,
-        expanded=None,
-        action=False,
-    ):
-        """
-        This is called while the YAML config is being loaded.
-        Returns (url or fullpath, parsed yaml)
-        """
-        url_vars = self.overrides or {}
-        # XXX
-        # if ENVIRONMENT not in url_vars:
-        #    expanded.get("ensembles") or []
-        #    find_ensemble_by_path(url_vars.get("manifest_path")) or get_default_manifest_tpl
-        if isinstance(templatePath, dict):
-            key = templatePath["file"]
-            merge = templatePath.get("merge")
-        else:
-            key = templatePath
-            merge = None
-
-        if action:
-            if isinstance(action, str):
-                # XXX check expanded?
-                #  ('environments', 'defaults', 'variables')
-                return substitute_env(action, url_vars)
-            # check:
-            return True
-
-        if "${ENVIRONMENT" in key and "ENVIRONMENT" not in url_vars:
-            # don't load remote includes for LocalEnv that don't specify an environment
-            # XXX (hackish way to avoid loads for transitory LocalEnv objects)
-            logger.trace("skipping retrieving url with ENVIRONMENT: %s", key)
-            return key, None
-
-        key = substitute_env(key, url_vars)
-        includekey, template = yamlConfig.load_yaml(key, baseDir, warnWhenNotFound)
-        if merge == "maplist" and template is not None:
-            template = CommentedMap(_maplist(template, url_vars.get("ENVIRONMENT")))
-            logger.debug("retrieved remote environment vars: %s", template)
-        return includekey, template
-
 
 def _maplist(template, environment_scope=None):
     for var in template:
@@ -790,6 +797,8 @@ class LocalEnv:
         if foundManifestPath:
             self.manifestPath = foundManifestPath
             if not project:
+                # set this because the yaml loader needs access to this while the project is being instantiated
+                self.overrides["manifest_path"] = foundManifestPath
                 project = self.find_project(os.path.dirname(foundManifestPath))
         elif project:
             # the manifestPath was pointing to a project, not a manifest
@@ -847,7 +856,9 @@ class LocalEnv:
         self.logger = logger
         self.manifest_context_name = None
         self.overrides = {}
-        if override_context:
+        if override_context is not None:  
+            # aka the --use-environment option
+            # hackishly, "" is a valid option used by load_yaml_include
             self.overrides['ENVIRONMENT'] = override_context
 
         if parent:
