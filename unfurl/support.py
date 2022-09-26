@@ -937,7 +937,19 @@ _Import = collections.namedtuple("_Import", ["resource", "spec"])
 
 
 class Imports(collections.OrderedDict):
-    def find_import(self, name):
+
+    def find_import(self, qualified_name):
+        iName, sep, rName = qualified_name.partition(":")
+        localEnv = self.manifest.localEnv
+        if iName not in self and localEnv:
+            project = localEnv.project or localEnv.homeProject
+            tpl = project and project.find_ensemble_by_name(iName)
+            if tpl:
+                self.manifest.load_external_ensemble(iName, dict(manifest=tpl))
+                return self._find_import(qualified_name)
+        return None
+
+    def _find_import(self, name):
         if name in self:
             return self[name].resource
         iName, sep, rName = name.partition(":")

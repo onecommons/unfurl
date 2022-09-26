@@ -352,6 +352,7 @@ class YamlManifest(ReadOnlyManifest):
         self.lastJob = manifest.get("lastJob")
 
         self.imports = Imports()
+        self.imports.manifest = self
         self._importedManifests = {}
 
         if localEnv:
@@ -509,7 +510,8 @@ class YamlManifest(ReadOnlyManifest):
         """
         :manifest: artifact template (file and optional repository name)
         :instance: "*" or name # default is root
-        :schema: # expected schema for attributes
+        :schema: expected schema for attributes
+        :url: uri of manifest
         """
         # load the manifest for the imported resource
         location = value.get("manifest")
