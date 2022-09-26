@@ -1639,6 +1639,13 @@ return that repository and a path relative to it</p>
 </dd></dl>
 
 <dl class="py method">
+<dt class="sig sig-object py" id="unfurl.localenv.Project.load_yaml_include">
+<span class="sig-name descname"><span class="pre">load_yaml_include</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">yamlConfig</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">templatePath</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">baseDir</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">warnWhenNotFound</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">expanded</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">action</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.localenv.Project.load_yaml_include" title="Permalink to this definition"></a></dt>
+<dd><p>This is called while the YAML config is being loaded.
+Returns (url or fullpath, parsed yaml)</p>
+</dd></dl>
+
+<dl class="py method">
 <dt class="sig sig-object py" id="unfurl.localenv.Project.make_vault_lib">
 <span class="sig-name descname"><span class="pre">make_vault_lib</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">contextName</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Optional</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Optional</span><span class="p"><span class="pre">[</span></span><span class="pre">ansible.parsing.vault.VaultLib</span><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#unfurl.localenv.Project.make_vault_lib" title="Permalink to this definition"></a></dt>
 <dd><dl class="field-list simple">
