@@ -939,6 +939,9 @@ _Import = collections.namedtuple("_Import", ["resource", "spec"])
 class Imports(collections.OrderedDict):
 
     def find_import(self, qualified_name):
+        imported = self._find_import(qualified_name)
+        if imported:
+            return imported
         iName, sep, rName = qualified_name.partition(":")
         localEnv = self.manifest.localEnv
         if iName not in self and localEnv:
