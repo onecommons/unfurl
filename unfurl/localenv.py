@@ -598,6 +598,7 @@ class LocalConfig:
         "connections",
         "variables",
         "repositories",
+        "instances",
     ]
 
     def __init__(self, path=None, validate=True, yaml_include_hook=None):
