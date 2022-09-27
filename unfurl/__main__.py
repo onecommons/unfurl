@@ -272,7 +272,7 @@ def _get_runtime(options, ensemblePath):
     return runtime, localEnv
 
 
-def _run(ensemble, options, workflow=None):
+def _run(ensemble: str, options, workflow=None):
     if workflow:
         options["workflow"] = workflow
 
@@ -489,7 +489,7 @@ def _stop_logging(job, options, verbose, tmplogfile):
         click.echo("Done, full log written to " + log_path)
 
 
-def _run_local(ensemble, options):
+def _run_local(ensemble: str, options):
     logger = logging.getLogger("unfurl")
     logger.verbose("Running command: %s", sys.argv[1:])
     verbose = options.get("verbose", 0)
