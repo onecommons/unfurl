@@ -41,6 +41,8 @@ class TestOctoDnsConfigurator:
         assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
         node = job.rootResource.find_resource("test_zone")
         assert node
+        assert node.attributes["zone"]
+        assert node.attributes["zone"]["www"]
         assert node.attributes["zone"]["www"]["type"] == "A"
         assert node.attributes["zone"]["www"]["value"] == "10.10.10.1"
         assert node.attributes["managed_records"]["www"]["value"] == "10.10.10.1"

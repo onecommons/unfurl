@@ -10,7 +10,8 @@ from ..projectpaths import WorkFolder
 from ..support import Status
 
 from ..util import change_cwd
-from ..support import is_template, apply_template
+from ..eval import map_value
+from toscaparser.properties import Property
 
 # octodns installs natsort_keygen
 from natsort import natsort_keygen
@@ -39,11 +40,30 @@ class DnsProperties:
 
 
 def _get_records(attrs):
-    records = attrs.get_copy("records") or {}
-    ctx = attrs.context
-    name = lambda name: apply_template(name, ctx) if is_template(name, ctx) else name
-    records = {name(key).strip(): value for key, value in records.items()}
-    return records
+    # valid task error with a dependency for later evaluation
+    records = attrs.get("records") or {}
+    # sad hack:
+    raw_records = attrs.context.currentResource.template.properties.get("records") or {}
+    n_def = Property("", None, dict(type="string"))
+    v_def = Property("", None, dict(type="list"))
+
+    def _get_record(key):
+        # key can be an expression:
+        name = map_value(key, attrs.context)
+        if attrs.validate and not name:
+            attrs._validate(key, name, key, n_def)
+
+        record = records[key]  # validates DNSRecord datatype
+        # additional validation:
+        if attrs.validate and "value" in record and record["value"] is None:
+            attrs._validate("value", record["value"], raw_records[key]["value"], n_def)
+        if attrs.validate and "values" in record and record["values"] is None:
+            attrs._validate("values", record["value"], raw_records[key]["values"], v_def)
+
+        # value is a ResultsMap, make it a dict so we can serialize it as yaml
+        return name, map_value(record, attrs.context)
+
+    return dict(_get_record(key.strip()) for key in records)
 
 
 def _get_zone(zone):
@@ -85,6 +105,9 @@ class DNSConfigurator(Configurator):
         for cap in task.target.get_capabilities("resolve"):
             for rel in cap.relationships:
                 managed.update(_get_records(rel.attributes))
+        if task._errors:  # validation failed
+            return managed
+
         # set up for the syncing that happens in run()
         folder = task.set_work_folder()
         self._create_main_config_file(folder, properties)

@@ -20,6 +20,20 @@ decorators:
               zone:
                 eval: .source::zone
 
+data_types:
+  unfurl.datatypes.DNSRecord:
+    metadata:
+      additionalProperties: true
+    properties:
+      type:
+        type: string
+      value:
+        type: string
+        required: false
+      values:
+        type: list
+        required: false
+
 node_types:
   unfurl.nodes.DNSZone:
     derived_from: tosca.nodes.Root
@@ -38,6 +52,8 @@ node_types:
       records:
         description: DNS records to add to the zone
         type: map
+        entry_schema:
+          type: unfurl.datatypes.DNSRecord
         default: {}
         metadata: # XXX
           computed: true
@@ -102,3 +118,5 @@ relationship_types:
     properties:
       records:
         type: map
+        entry_schema:
+          type: unfurl.datatypes.DNSRecord
