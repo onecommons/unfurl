@@ -18,7 +18,7 @@ from collections.abc import Mapping, MutableSequence
 import os
 import copy
 
-from unfurl.logs import UnfurlLogger
+from unfurl.logs import UnfurlLogger, Levels
 
 if TYPE_CHECKING:
     from unfurl.manifest import Manifest
@@ -354,6 +354,27 @@ class _ConnectionsMap(dict):
         raise KeyError(key)
 
 
+class TaskLoggerAdapter(logging.LoggerAdapter):
+    def log(self, level, msg, *args, **kwargs):
+        """
+        Delegate a log call to the underlying logger, after adding
+        contextual information from this adapter instance.
+        """
+        if self.isEnabledFor(level):
+            if self.extra._rendering:
+                if level > Levels.INFO:
+                    msg = "[in speculative rendering mode (errors ok)] " + msg
+                    level = Levels.INFO
+            # XXX msg = f"Task {self.extra.target.name} {self.extra.name} {msg}"
+            self.logger.log(level, msg, *args, **kwargs)
+
+    def trace(self, msg: str, *args: object, **kwargs: Any) -> None:
+        self.log(Levels.TRACE.value, msg, *args, **kwargs)
+
+    def verbose(self, msg: str, *args: object, **kwargs: Any) -> None:
+        self.log(Levels.VERBOSE.value, msg, *args, **kwargs)
+
+
 class TaskView:
     """The interface presented to configurators.
 
@@ -379,7 +400,7 @@ class TaskView:
         self.configSpec = configSpec
         self.target = target
         self.reason = reason
-        self.logger = logger
+        self.logger = TaskLoggerAdapter(logger, self)
         self.cwd = os.path.abspath(self.target.base_dir)
         self.rendered: Any = None
         self.dry_run = None
