@@ -1115,6 +1115,20 @@ class Dependency(Operational):
             self.target = context._lastResource
             self.expected = result
 
+    def validate(self):
+        if not self.schema or not self.target:
+            return True
+        value = Ref(self.expr).resolve(RefContext(self.target, trace=2))
+        if isinstance(self.schema, dict):
+            return not validate_schema(value, self.schema)
+        else:  # ProperyDef
+            try:
+                self.schema._validate(value)
+            except Exception:
+                return False
+        return True
+
+
     @staticmethod
     def has_value_changed(
         value: Union[Results, Mapping, MutableSequence, tuple, ChangeAware, Any],

@@ -7,6 +7,8 @@ import shlex
 import sys
 import os
 import os.path
+
+from .eval import RefContext
 from .util import (
     lookup_class,
     load_module,
@@ -139,6 +141,7 @@ class PlanRequest:
     error = None
     future_dependencies = ()
     task = None
+    render_errors = None
 
     def __init__(self, target):
         self.target = target
@@ -163,6 +166,34 @@ class PlanRequest:
             return True
         return self.target.template.required
 
+    def has_unfulfilled_refs(self):
+        for dep in self.get_unfulfilled_refs():
+            return True
+        return False
+
+    def get_unfulfilled_refs(self):
+        if not self.render_errors:
+            return
+        for error in self.render_errors:
+            dep = getattr(error, "dependency", None)
+            if dep:
+                yield dep
+
+    def update_unfulfilled_errors(self):
+        self.render_errors = list(self._get_unfulfilled_errors())
+        return self.has_unfulfilled_refs()
+
+    def _get_unfulfilled_errors(self):
+        if not self.render_errors:
+            return
+        for error in self.render_errors:
+            dep = getattr(error, "dependency", None)
+            if not dep or not dep.validate():
+                yield error
+
+    @property
+    def not_ready(self):
+        return self.future_dependencies or self.has_unfulfilled_refs()
 
 class TaskRequest(PlanRequest):
     """
@@ -325,6 +356,15 @@ class TaskRequestGroup(PlanRequest):
             artifacts.extend(req.get_operation_artifacts())
         return artifacts
 
+    def get_unfulfilled_refs(self):
+        for req in self.children:
+            yield from req.get_unfulfilled_refs()
+
+    def update_unfulfilled_errors(self):
+        for req in self.children:
+            req.update_unfulfilled_errors()
+        return self.has_unfulfilled_refs()
+
     def __repr__(self):
         return f"TaskRequestGroup({self.target}:{self.workflow}:{self.children})"
 
@@ -429,7 +469,13 @@ def set_fulfilled(requests, completed):
     # as is future_dependencies
     ready, notReady = [], []
     for req in requests:
+        _not_ready = False
+        # always need to evaluate both:
         if req.update_future_dependencies(completed):
+            _not_ready = True
+        if req.update_unfulfilled_errors():
+            _not_ready = True
+        if _not_ready:
             notReady.append(req)
         else:  # list is now empty so request is ready
             ready.append(req)
@@ -495,6 +541,7 @@ def _render_request(job, parent, req, requests):
         error = UnfurlTaskError(task, "Configurator render failed", False)
     if task._errors:
         # we turned off strictness so templating errors got saved here instead
+        req.render_errors = task._errors
         error = task._errors[0]
         task._errors = []
     task._rendering = False
@@ -510,13 +557,14 @@ def _render_request(job, parent, req, requests):
         # a future request may change the value of these attributes
         deps = list(_get_deps(parent, req, liveDependencies, requests))
 
-    if deps:
+    dependent_refs = [dep.expr for dep in req.get_unfulfilled_refs()]
+    if deps or dependent_refs:
         req.future_dependencies = deps
         task.logger.debug(
             "%s:%s can not render yet, depends on %s",
             task.target.name,
             req.configSpec.operation,
-            str(deps),
+            deps or dependent_refs,
             exc_info=error_info,
         )
         # rollback changes:
@@ -524,7 +572,7 @@ def _render_request(job, parent, req, requests):
         task._inputs = None
         task._attributeManager.attributes = {}
         task.discard_work_folders()
-        return deps, None
+        return deps or dependent_refs, None
     elif error:
         task.fail_work_folders()
         task._inputs = None

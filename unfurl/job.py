@@ -647,6 +647,13 @@ class Job(ConfigChange):
             # XXX need to call self.run_external() here if update_plan() adds external job
             # create and run tasks for requests that have their dependencies fulfilled
             self.apply(ready)
+
+            # the jobRequestQueue will have jobs that were added dynamically by a configurator
+            # but were not yielding inside runTask
+            while self.jobRequestQueue:
+                jobRequest = self.jobRequestQueue[0]
+                self.run_job_request(jobRequest)
+
             # remove requests from notReady if they've had all their dependencies fulfilled
             ready, notReady = set_fulfilled(notReady, ready)
             logger.trace("ready %s; not ready %s", ready, notReady)
@@ -660,15 +667,10 @@ class Job(ConfigChange):
             for parent, req in get_render_requests(notReady):
                 if self.workflow == "deploy" and not req.include_in_plan():  # type: ignore # we don't want to run these
                     continue
-                message = f"can't fulfill {req.target.name}: never ran {req.future_dependencies}"
+                deps = req.future_dependencies + [dep.expr for dep in req.get_unfulfilled_refs()]
+                message = f"can't fulfill {req.target.name}: never ran {deps}"
                 logger.info(message)
                 req.task.finished(ConfiguratorResult(False, False, result=message))
-
-        # the jobRequestQueue will have jobs that were added dynamically by a configurator
-        # but were not yielding inside runTask
-        while self.jobRequestQueue:
-            jobRequest = self.jobRequestQueue[0]
-            self.run_job_request(jobRequest)
 
         # force outputs to be evaluated now and commit the changes
         # so any attributes that were evaluated computing the outputs are saved in the manifest.
@@ -1386,7 +1388,7 @@ class Job(ConfigChange):
                         if request.task._workFolders:
                             for wf in request.task._workFolders.values():
                                 output.append(" " * indent + f"   rendered at {wf.cwd}")
-                        if request.future_dependencies:
+                        if request.not_ready:
                             output.append(
                                 " " * indent + "   (render waiting for dependents)"
                             )

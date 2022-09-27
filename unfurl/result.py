@@ -459,10 +459,21 @@ class Result(ChangeAware):
     def __repr__(self):
         return "Result(%r, %r, %r)" % (self.resolved, self.external, self.select)
 
+
 def is_sensitive_schema(defs, key):
     defSchema = (key in defs and defs[key].schema) or {}
     defMeta = defSchema.get("metadata", {})
     return defMeta.get("sensitive")
+
+
+def _validation_error(src, context, prop_def, msg):
+    from .eval import Ref
+    from .configurator import Dependency
+    if Ref.is_ref(src):
+        dep = Dependency(src, target=context.currentResource, schema=prop_def)
+    else:
+        dep = None
+    UnfurlTaskError(context.task, msg, dependency=dep)
 
 
 class Results(ABC):
@@ -589,7 +600,7 @@ class Results(ABC):
                 assert not isinstance(resolved[0], Result), resolved[0]
 
             if self.validate:
-                self._validate(key, resolved)
+                self._validate(key, resolved, val)
             if self.defs and is_sensitive_schema(self.defs, key):
                 result.resolved = wrap_sensitive_value(resolved)
 
@@ -616,10 +627,10 @@ class Results(ABC):
                 return map_value(transform, self.context.copy(vars=dict(value=value)))
         return value
 
-    def _validate(self, key, value):
-        propDef = self.defs.get(key)
+    def _validate(self, key, value, src=None, propDef=None):
+        propDef = propDef or self.defs.get(key)
         if not propDef:
-            return
+            return True
         resource = self.context.currentResource
         try:
             if value is None:
@@ -629,16 +640,17 @@ class Results(ABC):
                     raise ValidationError(message=msg)
             else:
                 propDef._validate(value)
-            self.context.trace(f'Validated {key}" on "{resource.name}')
+            self.context.trace(f'Validated "{key}" on "{resource.name}')
         except Exception as err:
             msg = f'Validation failure while evaluating "{key}" on "{resource.name}": {err}'
             if self.context.task:
-                log_level = logging.ERROR if self.context.strict else logging.DEBUG
-                UnfurlTaskError(self.context.task, msg, log_level)
+                _validation_error(src, self.context, propDef, msg)
             elif self.context.strict:
                 raise UnfurlError(msg, True)
             else:
                 self.context.trace(msg)
+            return False
+        return True
 
     def _haskey(self, key):
         # can't use "in" operator for lists
