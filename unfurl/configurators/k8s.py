@@ -17,6 +17,44 @@ from ansible_collections.kubernetes.core.plugins.module_utils.common import (
 )
 
 
+def ingress_ready(ingress) -> bool:
+    return bool(
+        ingress.status
+        and ingress.status.loadBalancer
+        and ingress.status.loadBalancer.ingress
+        and ingress.status.loadBalancer.ingress
+        and ingress.status.loadBalancer.ingress[0].ip
+    )
+
+
+_super_wait = K8sAnsibleMixin.wait
+
+
+def wait(
+        self,
+        resource,
+        definition,
+        sleep,
+        timeout,
+        state="present",
+        condition=None,
+        label_selectors=None,
+    ):
+    kind = definition["kind"]
+    if state == "present" and kind == "Ingress":
+        predicate = ingress_ready
+        name = definition["metadata"]["name"]
+        namespace = definition["metadata"].get("namespace")
+        return self._wait_for(
+            resource, name, namespace, predicate, sleep, timeout, state, label_selectors
+        )
+    else:
+        return _super_wait(self, resource, definition, sleep, timeout, state, condition, label_selectors)
+
+
+K8sAnsibleMixin.wait = wait
+
+
 def _get_connection_config(instance):
     # Given an endpoint capability or a connection relationship, return a dictionary of connection settings.
     # https://docs.ansible.com/ansible/latest/collections/kubernetes/core/k8s_module.html
