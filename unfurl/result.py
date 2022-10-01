@@ -570,14 +570,15 @@ class Results(ABC):
 
     def _getresult(self, key):
         from .eval import map_value
-
         val = self._attributes[key]
         if isinstance(val, Result):
             # already resolved
+            self.context.trace("Results.get: already resolved", key, val)
             assert not isinstance(val.resolved, Result), val
             return val
         else:
             if self.doFullResolve:
+                self.context.trace("Results.doFullResolve", key, val)
                 if isinstance(val, Results):
                     resolved = val
                 else:  # evaluate records that aren't Results

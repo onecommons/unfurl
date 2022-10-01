@@ -1133,10 +1133,8 @@ def status(ctx, ensemble, **options):
     click.echo(manifest.status_summary())
     query = options.get("query")
     if query:
-        from .eval import eval_for_func, RefContext
-
         trace = options.get("trace")
-        result = eval_for_func(query, RefContext(manifest.rootResource, trace=trace))
+        result = manifest.rootResource.query(query, trace=trace)
         click.echo("query: " + query)
         if result is None:
             click.echo("No results found")

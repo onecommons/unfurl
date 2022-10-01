@@ -361,11 +361,13 @@ class TaskLoggerAdapter(logging.LoggerAdapter):
         contextual information from this adapter instance.
         """
         if self.isEnabledFor(level):
+            task_prefix = f"Task {self.extra.name} for {self.extra.target.name}"
             if self.extra._rendering:
-                if level > Levels.INFO:
-                    msg = "[in speculative rendering mode (errors ok)] " + msg
+                msg = task_prefix + "(in speculative rendering mode, errors ok): " + msg
+                if level >= Levels.INFO:
                     level = Levels.INFO
-            # XXX msg = f"Task {self.extra.target.name} {self.extra.name} {msg}"
+            else:
+                msg = task_prefix + ": " + msg
             self.logger.log(level, msg, *args, **kwargs)
 
     def trace(self, msg: str, *args: object, **kwargs: Any) -> None:
@@ -1118,7 +1120,7 @@ class Dependency(Operational):
     def validate(self):
         if not self.schema or not self.target:
             return True
-        value = Ref(self.expr).resolve(RefContext(self.target, trace=2))
+        value = Ref(self.expr).resolve(RefContext(self.target))
         if isinstance(self.schema, dict):
             return not validate_schema(value, self.schema)
         else:  # ProperyDef
