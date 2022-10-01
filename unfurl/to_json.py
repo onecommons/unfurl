@@ -38,6 +38,10 @@ from .util import to_enum
 from .support import Status, is_template
 
 
+def _print(*args):
+    print(*args, file=sys.stderr)
+
+
 numeric_constraints = {
     "greater_than": "exclusiveMinimum",
     "greater_or_equal": "minimum",
@@ -334,7 +338,7 @@ def _get_extends(spec, typedef, extends: list, types):
         _get_extends(spec, p, extends, types)
 
 
-def resource_visibility(spec, t):
+def template_visibility(spec, t, for_resource):
     metadata = t.entity_tpl.get("metadata")
     if metadata:
         if metadata.get("visibility"):
@@ -343,10 +347,10 @@ def resource_visibility(spec, t):
             return "hidden"
 
     if "default" in t.directives:
-        # XXX: directives aren't preserved in export so
-        # if default isn't omitted, it will lose its default directive if the export is included
         return "hidden"
-    if spec.discovered and t.name in spec.discovered:
+    if t.type == "unfurl.nodes.ArtifactInstaller":
+        return "omit"  # skip artifacts
+    if not for_resource and spec.discovered and t.name in spec.discovered:
         return "omit"
     return "inherit"
 
@@ -641,7 +645,7 @@ def template_properties_to_json(nodetemplate):
         yield dict(name=p.name, value=value)
 
 
-def nodetemplate_to_json(nodetemplate, spec, types):
+def nodetemplate_to_json(nodetemplate, spec, types, for_resource=False):
     """
     Returns json object as a ResourceTemplate:
 
@@ -683,13 +687,13 @@ def nodetemplate_to_json(nodetemplate, spec, types):
         description=nodetemplate.entity_tpl.get("description") or "",
         directives=nodetemplate.directives,
     )
-    if nodetemplate.entity_tpl.get("imports"):
+    if nodetemplate.entity_tpl.get("imported"):
         json["imported"] = nodetemplate.entity_tpl["imported"]
 
     jsonnodetype = types[nodetemplate.type]
     json["properties"] = list(template_properties_to_json(nodetemplate))
     json["dependencies"] = []
-    visibility = resource_visibility(spec, nodetemplate)
+    visibility = template_visibility(spec, nodetemplate, for_resource)
     if visibility != "inherit":
         json["visibility"] = visibility
 
@@ -873,7 +877,7 @@ def slugify(text):
 
 
 def _template_title(spec, default):
-    metadata = spec.template.tpl.get("metadata") or {}
+    metadata = spec.template.tpl.get("metadata") or spec.template.tpl
     name = metadata.get("template_name") or default
     slug = slugify(name)
     title = metadata.get("title") or name
@@ -1101,9 +1105,9 @@ def add_graphql_deployment(manifest, db, dtemplate):
     resources = [
         to_graphql_resource(instance, manifest, db, relationships)
         for instance in manifest.rootResource.get_self_and_descendents()
-        if instance is not manifest.rootResource and instance.template.name in templates
+        if instance is not manifest.rootResource
     ]
-    db["Resource"] = {r["name"]: r for r in resources}
+    db["Resource"] = {r["name"]: r for r in resources if r}
     deployment["resources"] = list(db["Resource"])
     primary_name = deployment["primary"] = dtemplate["primary"]
     deployment["deploymentTemplate"] = dtemplate["name"]
@@ -1392,7 +1396,17 @@ def to_graphql_resource(instance, manifest, db, relationships):
     """
     # XXX url
     template = db["ResourceTemplate"].get(instance.template.name)
-    assert template  # pre-condition
+    pending = not instance.status or instance.status == Status.pending
+    if not template:
+        if pending or "virtual" in instance.template.directives:
+            return None
+        template = nodetemplate_to_json(
+            instance.template.toscaEntityTemplate, manifest.tosca, db["ResourceType"], True
+        )
+        if template.get("visibility") == 'omit':
+            return None
+        db["ResourceTemplate"][instance.template.name] = template
+
     resource = dict(
         name=instance.name,
         title=template.get("title", instance.name),
@@ -1403,14 +1417,18 @@ def to_graphql_resource(instance, manifest, db, relationships):
     )
     if "visibility" in template and template["visibility"] != "inherit":
         resource["visibility"] = template["visibility"]
-    elif instance.template.name in relationships:
-        visibilities = set(
-            reqjson["constraint"].get("visibility", "inherit")
-            for reqjson in relationships[instance.template.name]
-        )
-        if len(visibilities) == 1 and "hidden" in visibilities:
-            # non-visible visibilities override hidden
-            resource["visibility"] = "hidden"
+    else:
+        if instance.template.name in relationships:
+            visibilities = set(
+                reqjson["constraint"].get("visibility", "inherit")
+                for reqjson in relationships[instance.template.name]
+            )
+            if len(visibilities) == 1 and "hidden" in visibilities:
+                # non-visible visibilities override hidden
+                resource["visibility"] = "hidden"
+        elif pending and not instance.template.aggregate_only():
+            # don't include resources that were never created because the template wasn't referenced
+            return None
     resource["protected"] = instance.protected
     resource["attributes"] = add_attributes(instance)
     resource["computedProperties"] = add_computed_properties(instance)
