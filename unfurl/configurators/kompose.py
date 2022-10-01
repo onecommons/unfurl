@@ -25,18 +25,20 @@
               registry_password: "{{ SELF.registry_password }}"
               # if set, creates ingress record:
               expose: true # or "foobar.example.com"
+              service_name: my_service # only applies if container is used
               # XXX
               # env: "{{ SELF.env }}" # currently only container.environment is supported
 """
 
 from .shell import ShellConfigurator
 from .k8s import make_pull_secret
-from ..projectpaths import FilePath, Folders
+from ..util import UnfurlTaskError
+from ..yamlloader import yaml
+from ..projectpaths import Folders
+from ..support import to_kubernetes_label
 import os
 import os.path
 from pathlib import Path
-from ..util import UnfurlTaskError
-from ..yamlloader import yaml
 
 
 def _get_service(compose: dict, service_name: str = None):
@@ -50,14 +52,17 @@ def _add_labels(service: dict, labels: dict):
     service.setdefault("labels", {}).update(labels)
 
 
-def render_compose(container: dict, image="", service_name="app"):
+def render_compose(container: dict, image="", service_name=None):
     service = dict(restart="always")
     service.update({k:v for k, v in container.items() if v is not None})
+    if not service_name:
+        service_name = container.get("container_name", "app")
     if image:
         service["image"] = image
     return dict(services={
-        service_name: service
+        to_kubernetes_label(service_name): service
     })
+
 
 class KomposeConfigurator(ShellConfigurator):
     _default_cmd = "kompose"
@@ -90,7 +95,8 @@ class KomposeConfigurator(ShellConfigurator):
         if task.inputs.get("files") and task.inputs["files"].get("docker-compose.yml"):
             compose = task.inputs["files"]["docker-compose.yml"]
         else:
-            compose = render_compose(task.inputs.get_copy("container") or {}, task.inputs.get("image"))
+            container = task.inputs.get_copy("container") or {}
+            compose = render_compose(container, task.inputs.get("image"), task.inputs.get("service_name"))
 
         service_name = self._validate(task, compose)
         # XXX can be more than one service
@@ -107,8 +113,8 @@ class KomposeConfigurator(ShellConfigurator):
         )
         if task.verbose:
             cmd.append('-v')
-        service = _get_service(compose)
-        labels = {"kompose.image-pull-policy": service.get("pull_policy", "Always").title()}
+        main_service = _get_service(compose)
+        labels = {"kompose.image-pull-policy": main_service.get("pull_policy", "Always").title()}
 
         # create the output directory:
         output_dir = cwd.get_current_path(self._output_dir)
@@ -127,15 +133,16 @@ class KomposeConfigurator(ShellConfigurator):
         if expose:
             labels["kompose.service.expose"] = expose
         # XXX  (unreleased) kompose.service.expose.ingress-class-name see https://github.com/kubernetes/kompose/pull/1486
-        _add_labels(service, labels)
+        _add_labels(main_service, labels)
 
         # map files to configmap
         # XXX
         # env-file creates configmap - it'd be nice if these could be secrets instead:
         # replace configMapKeyRef with secretKeyRef
         # replace configmap kind with secret, add type: Opaque
-        # https://github.com/kubernetes/kompose/pull/1216
         # kompose.volume.type	: configMap
+        # if there's a volume mapping that points to file use --volumes=configMap option,
+        # (see https://github.com/kubernetes/kompose/pull/1216)
         task.logger.debug("writing docker-compose:\n %s", compose)
         cwd.write_file(compose, "docker-compose.yml")
         result = self.run_process(cmd + ["convert", "-o", output_dir], cwd=cwd.cwd)
