@@ -36,6 +36,9 @@ from .tosca import is_function, get_nodefilters
 from .localenv import LocalEnv
 from .util import to_enum
 from .support import Status, is_template
+import logging
+
+logger = logging.getLogger("unfurl")
 
 
 def _print(*args):
@@ -696,6 +699,7 @@ def nodetemplate_to_json(nodetemplate, spec, types, for_resource=False):
     visibility = template_visibility(spec, nodetemplate, for_resource)
     if visibility != "inherit":
         json["visibility"] = visibility
+        logger.debug(f"setting visibility {visibility} on template {nodetemplate.name}")
 
     if not nodetemplate.type_definition.is_derived_from("tosca.nodes.Root"):
         return json
@@ -1379,6 +1383,15 @@ def add_computed_properties(instance):
     return attrs
 
 
+def is_resource_real(instance):
+    for resource_types in ["unfurl.nodes.CloudObject", "unfurl.nodes.K8sRawResource"]:
+        if instance.template.is_compatible_type(resource_types):
+            return True
+    if "id" in instance.attributes or "console_url" in instance.attributes:
+        return True
+    return False
+
+
 def to_graphql_resource(instance, manifest, db, relationships):
     """
     type Resource {
@@ -1415,6 +1428,7 @@ def to_graphql_resource(instance, manifest, db, relationships):
         status=instance.status,
         __typename="Resource",
     )
+
     if "visibility" in template and template["visibility"] != "inherit":
         resource["visibility"] = template["visibility"]
     else:
@@ -1423,12 +1437,18 @@ def to_graphql_resource(instance, manifest, db, relationships):
                 reqjson["constraint"].get("visibility", "inherit")
                 for reqjson in relationships[instance.template.name]
             )
+            # non-visible visibilities override hidden
             if len(visibilities) == 1 and "hidden" in visibilities:
-                # non-visible visibilities override hidden
-                resource["visibility"] = "hidden"
-        elif pending and not instance.template.aggregate_only():
-            # don't include resources that were never created because the template wasn't referenced
-            return None
+                # if the relationship was hidden only include the resource if its "real"
+                if not is_resource_real(instance):
+                    resource["visibility"] = "hidden"
+        else:
+            # this resource wasn't referenced, don't include if it wasn't part of the plan
+            # XXX: have a more accurate way to figure this out
+            if pending and not instance.template.aggregate_only():
+                return None
+    logger.debug(f"exporting resource {instance.name} with visibility {resource.get('visibility')}")
+
     resource["protected"] = instance.protected
     resource["attributes"] = add_attributes(instance)
     resource["computedProperties"] = add_computed_properties(instance)
