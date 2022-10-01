@@ -361,7 +361,11 @@ class TaskLoggerAdapter(logging.LoggerAdapter):
         contextual information from this adapter instance.
         """
         if self.isEnabledFor(level):
-            task_prefix = f"Task {self.extra.name} for {self.extra.target.name}"
+            # eg. Task for template-name: add using Standard.configure
+            # Task for testNode: configure (reason: missing)
+            task_prefix = f"Task for {self.extra.target.name}: {self.extra.configSpec.operation}"
+            if self.extra.reason:
+                task_prefix += f" (reason: {self.extra.reason})"
             if self.extra._rendering:
                 msg = task_prefix + "(in speculative rendering mode, errors ok): " + msg
                 if level >= Levels.INFO:
