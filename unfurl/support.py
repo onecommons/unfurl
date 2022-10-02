@@ -741,7 +741,7 @@ class ContainerImage(ExternalValue):
 
     def __init__(self, name: str, tag=None, digest=None,
                  registry_host=None, username=None, password=None, source_digest=None):
-        self.name = name
+        self.name = name.lstrip('/')
         self.tag = tag
         self.digest = digest
         self.registry_host = registry_host

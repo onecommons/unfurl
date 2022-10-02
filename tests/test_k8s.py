@@ -19,6 +19,11 @@ if not sys.warnoptions:
     # Ansible generates tons of ResourceWarnings
     warnings.simplefilter("ignore", ResourceWarning)
 
+TEST_NS = "octest"
+# XXX add test with invalid namespace name
+KOMPOSE_NS = "octest-kompose"
+# fyi: kubectl delete namespace octest
+
 @pytest.mark.skipif(
     "k8s" in os.getenv("UNFURL_TEST_SKIP", ""), reason="UNFURL_TEST_SKIP set"
 )
@@ -98,9 +103,6 @@ class TestK8s(unittest.TestCase):
             ],
         }
         assert len(results["tasks"]) == 2, results
-
-# XXX add test with invalid namespace name
-KOMPOSE_NS = "octest-kompose"
 
 
 def _get_resources(task):
@@ -218,7 +220,7 @@ SECRET = """\
 
 """
 
-MANIFEST1 = BASE % "octest" + SECRET
+MANIFEST1 = BASE % TEST_NS + SECRET
 
 KOMPOSE = """\
         DockerService1:

@@ -289,6 +289,25 @@ class ConnectionConfigurator(ClusterConfigurator):
             yield task.done(True, False, Status.ok)
 
 
+def mark_sensitive(task, resource):
+    data = resource.get("kind") == "Secret" and resource.get("data")
+    if data:
+        resource["data"] = {k: task.sensitive(v) for k, v in data.items()}
+
+    obj = resource
+    for key in "spec/template/spec".split("/"):
+        obj = obj.get(key)
+        if not obj:
+            break
+        if key == "spec":
+            for ckey in "containers", "initContainers", "ephemeralContainers":
+                containers = obj.get(ckey)
+                if containers:
+                    for container in containers:
+                        for env in container.get('env') or []:
+                            env['value'] = task.sensitive(env['value'])
+
+
 class ResourceConfigurator(AnsibleConfigurator):
     def get_generator(self, task):
         if task.dry_run:
@@ -404,9 +423,9 @@ class ResourceConfigurator(AnsibleConfigurator):
             resource = resource_result
         task.target.attributes["apiResource"] = resource
         if resource:
-            data = resource.get("kind") == "Secret" and resource.get("data")
-            if data:
-                resource["data"] = {k: task.sensitive(v) for k, v in data.items()}
+            # for now, mark all env values sensitive
+            # XXX only mark env values that were marked sensitive in the definition
+            mark_sensitive(task, resource)
             if task.configSpec.operation in ["check", "discover"]:
                 states = dict(
                     Active=Status.ok,
