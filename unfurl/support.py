@@ -13,7 +13,7 @@ import six
 import re
 import ast
 import time
-from typing import cast, Dict, Optional
+from typing import cast, Dict, Optional, Any
 from enum import IntEnum
 from urllib.parse import urlsplit
 
@@ -266,21 +266,6 @@ def _wrap_sequence(v):
 unsafe_proxy._wrap_sequence = _wrap_sequence
 
 
-class UnfurlUndefined(DebugUndefined):
-    def __getattr__(self, name):
-        if name == "__UNSAFE__":
-            # AnsibleUndefined should never be assumed to be unsafe
-            # This prevents ``hasattr(val, '__UNSAFE__')`` from evaluating to ``True``
-            raise AttributeError(name)
-        # Return original Undefined object to preserve the first failure context
-        return self
-
-    # see ChainableUndefined
-    def __html__(self) -> str:
-        return str(self)
-
-    __getitem__ = __getattr__  # type: ignore
-
 def apply_template(value, ctx, overrides=None):
     if not isinstance(value, six.string_types):
         msg = f"Error rendering template: source must be a string, not {type(value)}"
@@ -294,6 +279,45 @@ def apply_template(value, ctx, overrides=None):
     else:
         logger = logging.getLogger("unfurl")
 
+    # local class to bind with logger and ctx
+    class _UnfurlUndefined(DebugUndefined):
+        __slots__ = ()
+
+        def __getattr__(self, name):
+            if name == "__UNSAFE__":
+                # see AnsibleUndefined
+                # self should never be assumed to be unsafe
+                # This prevents ``hasattr(val, '__UNSAFE__')`` from evaluating to ``True``
+                raise AttributeError(name)
+            # Return original Undefined object to preserve the first failure context
+            return self  # see ChainableUndefined
+
+        __getitem__ = __getattr__  # type: ignore
+
+        def _log_message(self) -> None:
+            msg = "Template: %s", self._undefined_message
+            # XXX override _undefined_message: if self._undefined_obj is a Results then add its ctx._lastResource to the msg
+            #     see https://github.com/pallets/jinja/blob/7d72eb7fefb7dce065193967f31f805180508448/src/jinja2/runtime.py#L824
+            logger.warning(msg)
+            if ctx.task:  # already logged, so don't log
+                ctx.task._errors.append(UnfurlTaskError(ctx.task, msg, False))
+
+        # see LoggingUndefined:
+        def __str__(self) -> str:
+            self._log_message()
+            return super().__str__()  # type: ignore
+
+        def __iter__(self):
+            self._log_message()
+            return super().__iter__()  # type: ignore
+
+        def __bool__(self) -> bool:
+            self._log_message()
+            return super().__bool__()  # type: ignore
+
+        # see ChainableUndefined
+        def __html__(self) -> str:
+            return str(self)
 
     # implementation notes:
     #   see https://github.com/ansible/ansible/test/units/template/test_templar.py
@@ -319,7 +343,7 @@ def apply_template(value, ctx, overrides=None):
     # templar.environment.lstrip_blocks = False
     fail_on_undefined = ctx.strict
     if not fail_on_undefined:
-        templar.environment.undefined = make_logging_undefined(logger, UnfurlUndefined)
+        templar.environment.undefined = _UnfurlUndefined
 
     vars = _VarTrackerDict(__unfurl=ctx, __python_executable=sys.executable, __now=time.time())
     if hasattr(ctx.currentResource, "attributes"):
@@ -343,9 +367,14 @@ def apply_template(value, ctx, overrides=None):
             value = templar.template(value, fail_on_undefined=fail_on_undefined)
         except Exception as e:
             msg = str(e)
+            # XXX have _UnfurlUndefined throw an exception with the missing obj and key
             match = re.search(r"has no attribute '(\w+)'", msg)
             if match:
                 msg = f'missing attribute or key: "{match.group(1)}"'
+            else:
+                match = re.search(r"'(\w+)' is undefined", msg)
+                if match:
+                    msg = f'missing variable: "{match.group(1)}"'
             value = f"<<Error rendering template: {msg}>>"
             if ctx.strict:
                 logger.debug(value, exc_info=True)
