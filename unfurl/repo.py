@@ -102,11 +102,12 @@ class Repo:
         return None
 
     @staticmethod
-    def find_git_working_dirs(rootDir, gitDir=".git"):
+    def find_git_working_dirs(rootDir, include_root, gitDir=".git"):
         working_dirs = {}
         for root, dirs, files in os.walk(rootDir):
             if Repo.update_git_working_dirs(working_dirs, root, dirs, gitDir):
-                del dirs[:]  # don't visit sub directories
+                if not include_root or rootDir != root:
+                    del dirs[:]  # don't visit sub directories
         return working_dirs
 
     @staticmethod

@@ -94,7 +94,7 @@ class Project:
 
     def _set_repos(self) -> None:
         # abspath => RepoView:
-        self.workingDirs = Repo.find_git_working_dirs(self.projectRoot)
+        self.workingDirs = Repo.find_git_working_dirs(self.projectRoot, True)
         self._set_project_repoview()
 
         if self.project_repoview.repo:
@@ -1161,6 +1161,7 @@ class LocalEnv:
     def _create_working_dir(self, repoURL, revision, basepath):
         project = self.project or self.homeProject
         if not project:
+            logger.warning("Can not create clone repository, ensemble is not in an Unfurl project.")
             return None
         while project:
             if basepath is None or project.is_path_in_project(basepath):
