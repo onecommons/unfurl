@@ -831,9 +831,14 @@ class EnsembleBuilder:
         self.source_path = self.source_project.get_relative_path(targetDir)
         return self.source_project
 
+    def _needs_local_config(self, clonedProject):
+        return self.skeleton_vars and not os.path.exists(os.path.join(
+            clonedProject.projectRoot, "local", DefaultNames.LocalConfig
+        ))
+
     def set_dest_project_and_path(
         self, existingSourceProject, existingDestProject, dest
-    ):
+    ) -> bool:
         assert self.dest_project is None
         new_project = self.source_project is not existingSourceProject
         if existingDestProject:
@@ -843,17 +848,18 @@ class EnsembleBuilder:
             # otherwise set source_project as the dest_project
             self.dest_project = self.source_project
             if new_project:
-                # finishing creating the new project
-                # create local/unfurl.yaml in the new project
-                if _create_local_config(
-                    self.source_project, self.logger, self.skeleton_vars
-                ):
-                    # reload project with the new local project config
-                    self.dest_project = find_project(
-                        self.source_project.projectRoot, self.home_path
-                    )
                 # set "" as dest because we already "consumed" dest by cloning the project to that location
                 dest = ""
+
+        if new_project or self._needs_local_config(self.dest_project):
+            # create local/unfurl.yaml in the new project
+            if _create_local_config(
+                self.dest_project, self.logger, self.skeleton_vars
+            ):
+                # reload project with the new local project config
+                self.dest_project = find_project(
+                    self.dest_project.projectRoot, self.home_path
+                )
 
         if os.path.isabs(dest):
             relDestDir = self.dest_project.get_relative_path(dest)
@@ -868,6 +874,7 @@ class EnsembleBuilder:
         ):
             relDestDir = self.ensemble_name
         self.dest_path = relDestDir
+        return new_project
 
     def has_existing_ensemble(self, sourceProject):
         from unfurl import yamlmanifest
