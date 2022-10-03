@@ -46,7 +46,7 @@ class Project:
     def __init__(self, path: str, homeProject: Optional["Project"] = None, overrides: Optional[dict] = None):
         assert isinstance(path, six.string_types), path
         self.projectRoot = os.path.abspath(os.path.dirname(path))
-        self.overrides = overrides
+        self.overrides = overrides or {}
         if os.path.exists(path):
             self.localConfig = LocalConfig(path, yaml_include_hook=self.load_yaml_include)
         else:
@@ -543,7 +543,6 @@ class Project:
         This is called while the YAML config is being loaded.
         Returns (url or fullpath, parsed yaml)
         """
-        url_vars = self.overrides or {}
         if isinstance(templatePath, dict):
             key = templatePath["file"]
             merge = templatePath.get("merge")
@@ -551,6 +550,8 @@ class Project:
             key = templatePath
             merge = None
 
+        url_vars = os.environ.copy()
+        url_vars.update(self.overrides)
         if action:
             if isinstance(action, str):
                 # XXX check expanded?
@@ -559,7 +560,7 @@ class Project:
             # check:
             return True
 
-        if "${ENVIRONMENT" in key and "ENVIRONMENT" not in url_vars:
+        if merge == "maplist" and "ENVIRONMENT" not in self.overrides:
             # don't load remote includes for LocalEnv that don't specify an environment
             # XXX (hackish way to avoid loads for transitory LocalEnv objects)
             logger.trace("skipping retrieving url with ENVIRONMENT: %s", key)

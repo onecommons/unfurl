@@ -572,6 +572,8 @@ class YamlConfig:
                     expanded,
                     key,
                 )
+            if not key:
+                return value, None, ""
 
         if key in self._cachedDocIncludes:
             path, template = self._cachedDocIncludes[key]

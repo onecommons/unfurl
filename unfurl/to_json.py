@@ -1387,7 +1387,7 @@ def is_resource_real(instance):
     for resource_types in ["unfurl.nodes.CloudObject", "unfurl.nodes.K8sRawResource"]:
         if instance.template.is_compatible_type(resource_types):
             return True
-    if "id" in instance.attributes or "console_url" in instance.attributes:
+    if "id" in instance.attributes or "console_url" in instance.attributes or "url" in instance.attributes:
         return True
     return False
 
@@ -1437,7 +1437,7 @@ def to_graphql_resource(instance, manifest, db, relationships):
                 reqjson["constraint"].get("visibility", "inherit")
                 for reqjson in relationships[instance.template.name]
             )
-            # non-visible visibilities override hidden
+            # visible visibilities override hidden
             if len(visibilities) == 1 and "hidden" in visibilities:
                 # if the relationship was hidden only include the resource if its "real"
                 if not is_resource_real(instance):
