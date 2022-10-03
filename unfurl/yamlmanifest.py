@@ -531,7 +531,8 @@ class YamlManifest(ReadOnlyManifest):
             baseDir = getattr(location, "base_dir", self.get_base_dir())
             artifact = ArtifactSpec(location, path=baseDir, spec=self.tosca)
             path = artifact.get_path()
-            localEnv = LocalEnv(path, parent=self.localEnv)
+            localEnv = LocalEnv(path, parent=self.localEnv,
+                                override_context=location.get("environment", ""))
             if self.path and os.path.abspath(self.path) == os.path.abspath(
                 localEnv.manifestPath
             ):
