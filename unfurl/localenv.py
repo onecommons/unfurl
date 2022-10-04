@@ -554,8 +554,6 @@ class Project:
         url_vars.update(self.overrides)
         if action:
             if isinstance(action, str):
-                # XXX check expanded?
-                #  ('environments', 'defaults', 'variables')
                 return substitute_env(action, url_vars)
             # check:
             return True
@@ -566,6 +564,9 @@ class Project:
             logger.trace("skipping retrieving url with ENVIRONMENT: %s", key)
             return key, None
 
+        if not key:
+            return key, None
+        assert isinstance(key, str)
         key = substitute_env(key, url_vars)
         includekey, template = yamlConfig.load_yaml(key, baseDir, warnWhenNotFound)
         if merge == "maplist" and template is not None:

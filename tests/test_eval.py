@@ -606,14 +606,16 @@ def pairs(iterable):
     except StopIteration:
         pass
 
+
 def test_env_sub():
-    env = dict(baz="env", alt="env2")
+    env = dict(baz="env", alt="env2", bad=None)
     tests = [
       "${baz} ${bar:default value}", "env default value",
       "foo${baz|missing}${bar:default value}", "fooenvdefault value",
       r"foo\${baz}${bar:default value}", "foo${baz}default value",
       r"foo\\${baz}${bar:default value}", r"foo\${baz}default value",
       "${missing|baz} ${missing|missing2:default value}", "env default value",
+      "${bad}", ""
     ]
     for test, expected in pairs(tests):
         assert expected == substitute_env(test, env), test
