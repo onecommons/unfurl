@@ -327,11 +327,6 @@ class YamlManifest(ReadOnlyManifest):
             logger.warning(
                 "This ensemble contains deployment blueprints but none were specified for use."
             )
-        if self.context.get("instances"):
-            # add context instances to spec instances
-            self._load_resource_templates(
-                self.context["instances"], spec.setdefault("instances", {}), True
-            )
 
         self._set_spec(spec, more_spec, skip_validation)
         assert self.tosca
