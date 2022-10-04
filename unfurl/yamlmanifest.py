@@ -529,7 +529,10 @@ class YamlManifest(ReadOnlyManifest):
         else:
             # ensemble is in the same project
             baseDir = getattr(location, "base_dir", self.get_base_dir())
-            artifact = ArtifactSpec(location, path=baseDir, spec=self.tosca)
+            artifact_tpl = dict(file=location['file'])
+            if "repository" in location:
+                artifact_tpl = location["repository"]
+            artifact = ArtifactSpec(artifact_tpl, path=baseDir, spec=self.tosca)
             path = artifact.get_path()
             localEnv = LocalEnv(path, parent=self.localEnv,
                                 override_context=location.get("environment", ""))
