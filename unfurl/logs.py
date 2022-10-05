@@ -18,7 +18,7 @@ except ImportError:
     AnsibleVaultEncryptedUnicode = None
 
 
-def truncate(s: str, max: int = 1200) -> str:
+def truncate(s: str, max: int = 748) -> str:
     if not s:
         return ""
     if len(s) > max:
