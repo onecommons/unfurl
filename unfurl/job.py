@@ -669,8 +669,9 @@ class Job(ConfigChange):
                     continue
                 deps = req.future_dependencies + [dep.expr for dep in req.get_unfulfilled_refs()]
                 message = f"can't fulfill {req.target.name}: never ran {deps}"
-                logger.info(message)
+                req.task.logger.info(message)
                 req.task.finished(ConfiguratorResult(False, False, result=message))
+                self.add_work(req.task)
 
         # force outputs to be evaluated now and commit the changes
         # so any attributes that were evaluated computing the outputs are saved in the manifest.
