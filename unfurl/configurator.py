@@ -361,17 +361,17 @@ class TaskLoggerAdapter(logging.LoggerAdapter):
         contextual information from this adapter instance.
         """
         if self.isEnabledFor(level):
-            # Task for {resource name}: {operation} (reason: {resource})
+            # task for {resource name}: {operation} (reason: {resource})
             # e.g. Task for test-node: configure (reason: missing)
-            task_prefix = f"Task for {self.extra.target.name}: {self.extra.configSpec.operation}"
+            task_id = f"for {self.extra.target.name}: {self.extra.configSpec.operation}"
             if self.extra.reason:
-                task_prefix += f" (reason: {self.extra.reason})"
+                task_id += f" (reason: {self.extra.reason})"
             if self.extra._rendering:
-                msg = task_prefix + " (in speculative rendering mode, errors ok): " + msg
+                msg = f"Rendering task {task_id} (errors expected): {msg}"
                 if level >= Levels.INFO:
                     level = Levels.INFO
             else:
-                msg = task_prefix + ": " + msg
+                msg = f"Running task {task_id}: {msg}"
             self.logger.log(level, msg, *args, **kwargs)
 
     def trace(self, msg: str, *args: object, **kwargs: Any) -> None:

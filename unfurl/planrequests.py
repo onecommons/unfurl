@@ -190,10 +190,16 @@ class PlanRequest:
             dep = getattr(error, "dependency", None)
             if not dep or not dep.validate():
                 yield error
-
     @property
     def not_ready(self):
         return self.future_dependencies or self.has_unfulfilled_refs()
+
+    @property
+    def name(self):
+        return type(self).__name__
+
+    def __str__(self) -> str:
+        return f'Planned task {self.name} for "{self.target.name}"'
 
 class TaskRequest(PlanRequest):
     """
@@ -364,6 +370,12 @@ class TaskRequestGroup(PlanRequest):
         for req in self.children:
             req.update_unfulfilled_errors()
         return self.has_unfulfilled_refs()
+
+    def __str__(self) -> str:
+        if self.children:
+            return str(self.children)
+        else:
+            return f'Planned task {self.workflow} for "{self.target.name}"'
 
     def __repr__(self):
         return f"TaskRequestGroup({self.target}:{self.workflow}:{self.children})"
