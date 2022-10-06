@@ -470,6 +470,8 @@ class AbstractTemplateTest(unittest.TestCase):
                 operations:
                  check:
                    implementation: SetAttribute
+                 connect:
+                   implementation: SetAttribute
       instances:
         anInstance:
           template:
@@ -546,11 +548,11 @@ spec:
                 self.assertEqual(
                     [
                         {
-                            "operation": "check",
+                            "operation": "connect",
                             "configurator": "tests.test_tosca.SetAttributeConfigurator",
                             "changed": True,
                             "priority": "required",
-                            "reason": "check",
+                            "reason": "connect",
                             "status": "ok",
                             "target": "anInstance",
                             "targetStatus": "ok",

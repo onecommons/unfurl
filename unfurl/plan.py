@@ -123,7 +123,6 @@ class Plan:
     def create_shadow_instance(self, external, import_name, instance_name):
         # create a local instance that "shadows" the external one we imported
         name = import_name + ":" + external.name
-
         if external.parent and external.parent.parent:
             # assumes one-to-one correspondence instance and template
             parent = self.find_shadow_instance(external.parent.template)
@@ -132,6 +131,8 @@ class Plan:
                 parent = self.create_shadow_instance(external.parent, import_name, None)
         else:
             parent = self.root
+        logger.debug("creating local instance %s for external instance %s with parent %s", 
+                     instance_name or name, external.name, parent.name)
 
         shadowInstance = external.__class__(
             instance_name or name, external.attributes, parent, external.template, external
@@ -351,7 +352,7 @@ class Plan:
             return self.execute_default_deploy(resource, reason, inputs)
         elif workflow == "undeploy" or workflow == "stop":
             return self.execute_default_undeploy(resource, reason, inputs)
-        elif workflow == "check" or workflow == "discover":
+        elif workflow == "check" or workflow == "discover" or workflow == "connect":
             return self.execute_default_install_op(workflow, resource, reason, inputs)
         return None
 
@@ -636,7 +637,9 @@ class DeployPlan(Plan):
         else:  # this is newly created resource
             reason = Reason.add
 
-        if instance.status == Status.unknown or instance.shadow:
+        if instance.shadow:
+            installOp = "connect"
+        elif instance.status == Status.unknown:
             installOp = "check"
         elif "discover" in instance.template.directives and not instance.operational:
             installOp = "discover"

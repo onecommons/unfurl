@@ -716,7 +716,7 @@ def find_parent_resource(root, source):
     for parent in find_resources_from_template_name(root, parentTemplate.name):
         # XXX need to evaluate matches
         return parent
-    raise UnfurlError(f"could not find instance of template: {parentTemplate.name}")
+    raise UnfurlError(f"could not find parent instance {parentTemplate.name} for child {source.name}")
 
 
 def create_instance_from_spec(_manifest, target, rname, resourceSpec):
