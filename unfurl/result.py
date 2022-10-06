@@ -664,10 +664,12 @@ class Results(ABC):
         assert not isinstance(value, Result), (key, value)
         if self._haskey(key):
             resolved = self[key]
-            if resolved != value:
+            if resolved != value:  # the existing value changed
                 if self.validate:
                     self._validate(key, value)
-                # existing value changed
+                if self.defs and is_sensitive_schema(self.defs, key):
+                    value = wrap_sensitive_value(value)
+
                 result = self._attributes[key]
                 if result.original is _Get:
                     # we haven't saved the original value yet
@@ -676,6 +678,8 @@ class Results(ABC):
         else:
             if self.validate:
                 self._validate(key, value)
+            if self.defs and is_sensitive_schema(self.defs, key):
+                value = wrap_sensitive_value(value)
             self._attributes[key] = Result(value)
 
         # remove from deleted if it's there

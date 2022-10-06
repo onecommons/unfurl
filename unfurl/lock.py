@@ -65,7 +65,8 @@ class Lock:
         ensemble = self.ensemble
         ensembles = CommentedMap()
         for name, _import in ensemble.imports.items():
-            if ":" in name:  # skip imports that were added while creating shadow instances
+            # skip imports that were added while creating shadow instances
+            if ":" in name or not _import.spec:
                 continue
             root = _import.external_instance.root
             manifest = ensemble._importedManifests.get(id(root))

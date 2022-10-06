@@ -458,7 +458,7 @@ class YamlManifest(ReadOnlyManifest):
                 )
                 logger.debug("PATH set to %s", os.environ["PATH"])
 
-        # self.load_external_ensemble("localhost", tpl)
+        # self.load_external_ensemble("localhost", tpl) # declared in templates/home/unfurl.yaml.j2
         importsSpec = self.context.get("external", {})
         # note: external "localhost" is defined in UNFURL_HOME's context by convention
         for name, value in importsSpec.items():

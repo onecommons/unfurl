@@ -1265,7 +1265,7 @@ class AttributeManager:
     def get_attributes(self, resource):
         if resource.key not in self.attributes:
             if resource.shadow:
-                return self.get_attributes(resource.shadow)
+                return resource.shadow.attributes
 
             # deepcopy() because lazily created ResultMaps and ResultLists will mutate
             # the underlying nested structures when resolving values
