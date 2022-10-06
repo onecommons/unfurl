@@ -207,7 +207,7 @@ class DNSConfigurator(Configurator):
             yield task.done(success=True, modified=True, result="Mock OctoDNS synced")
         elif op in ["configure", "delete"]:
             yield self._run_octodns_sync(task)  # create or update zone
-        elif op == "check":
+        elif op == "check" or op == "connect":
             yield self._run_check(task)
         else:
             raise NotImplementedError(f"Operation '{op}' is not allowed")
