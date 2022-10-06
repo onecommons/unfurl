@@ -690,8 +690,8 @@ def nodetemplate_to_json(nodetemplate, spec, types, for_resource=False):
         description=nodetemplate.entity_tpl.get("description") or "",
         directives=nodetemplate.directives,
     )
-    if nodetemplate.entity_tpl.get("imported"):
-        json["imported"] = nodetemplate.entity_tpl["imported"]
+    if "imported" in nodetemplate.entity_tpl:
+        json["imported"] = nodetemplate.entity_tpl.get("imported")
 
     jsonnodetype = types[nodetemplate.type]
     json["properties"] = list(template_properties_to_json(nodetemplate))
@@ -1405,6 +1405,7 @@ def to_graphql_resource(instance, manifest, db, relationships):
       computedProperties: [Input!]
       connections: [Requirement!]
       protected: Boolean
+      imported: String
     }
     """
     # XXX url
@@ -1427,6 +1428,7 @@ def to_graphql_resource(instance, manifest, db, relationships):
         state=instance.state,
         status=instance.status,
         __typename="Resource",
+        imported=instance.imported
     )
 
     if "visibility" in template and template["visibility"] != "inherit":
@@ -1453,7 +1455,7 @@ def to_graphql_resource(instance, manifest, db, relationships):
     resource["attributes"] = add_attributes(instance)
     resource["computedProperties"] = add_computed_properties(instance)
 
-    if template["dependencies"]:
+    if template.get("dependencies"):
         requirements = {r["name"]: r.copy() for r in template["dependencies"]}
         # XXX there is a bug where this can't find instances sometimes:
         # so for now just copy match if it exists
