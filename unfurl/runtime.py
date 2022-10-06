@@ -466,6 +466,10 @@ class EntityInstance(OperationalInstance, ResourceRef):
             imports = self.root.imports
             if imports and self.imported in imports:
                 return imports[self.imported].external_instance
+            else:
+                raise UnfurlError(
+                    f'could not find imported instance "{self.imported}" for local instance "{self.name}"'
+                )
         return None
 
     def __eq__(self, other):

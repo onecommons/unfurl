@@ -499,7 +499,6 @@ class Results(ABC):
 
     def __init__(self, serializedOriginal, resourceOrCxt, validate=False, defs=None):
         from .eval import RefContext
-
         assert not isinstance(serializedOriginal, Results), serializedOriginal
         self._attributes = serializedOriginal
         self._deleted = {}

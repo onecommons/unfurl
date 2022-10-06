@@ -95,7 +95,7 @@ class Plan:
                 return external
             else:
                 import_name = imported.partition(":")[0]
-                return self.create_shadow_instance(external, import_name, template.name)
+                return self.create_shadow_instance(external, import_name, template)
 
         searchAll = []
         for name, record in self.root.imports.items():
@@ -107,7 +107,7 @@ class Plan:
                 if record.local_instance:
                     return record.local_instance
                 else:
-                    return self.create_shadow_instance(external, name, template.name)
+                    return self.create_shadow_instance(external, name, template)
             if record.spec.get("instance") in ["root", "*"]:
                 # add root instance
                 searchAll.append((name, record.external_instance))
@@ -116,27 +116,20 @@ class Plan:
         for name, root in searchAll:
             for external in root.get_self_and_descendents():
                 if match(name, external.template, template):
-                    return self.create_shadow_instance(external, name, template.name)
+                    return self.create_shadow_instance(external, name, template)
 
         return None
 
-    def create_shadow_instance(self, external, import_name, instance_name):
+    def create_shadow_instance(self, external, import_name, template):
         # create a local instance that "shadows" the external one we imported
         name = import_name + ":" + external.name
-        if external.parent and external.parent.parent:
-            # assumes one-to-one correspondence instance and template
-            parent = self.find_shadow_instance(external.parent.template)
-            if not parent:  # parent wasn't in imports, add it now
-                # to avoid name conflicts set the parent's name to the fully qualified name
-                parent = self.create_shadow_instance(external.parent, import_name, None)
-        else:
-            parent = self.root
-        logger.debug("creating local instance %s for external instance %s with parent %s", 
-                     instance_name or name, external.name, parent.name)
-
-        shadowInstance = external.__class__(
-            instance_name or name, external.attributes, parent, external.template, external
-        )
+        instance_name = template.name
+        # XXX import the parent too by creating a template and setting its name to name?
+        parent = self.root
+        logger.debug("creating local instance %s for external instance %s",
+                     instance_name or name, external.name)
+        # attributes can be empty because AttributeManager delegates to the imported shadow instance
+        shadowInstance = external.__class__(instance_name, {}, parent, template)
         shadowInstance.imported = name
         self.root.imports.set_shadow(name, shadowInstance, external)
         return shadowInstance

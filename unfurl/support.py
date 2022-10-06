@@ -1264,6 +1264,9 @@ class AttributeManager:
 
     def get_attributes(self, resource):
         if resource.key not in self.attributes:
+            if resource.shadow:
+                return self.get_attributes(resource.shadow)
+
             # deepcopy() because lazily created ResultMaps and ResultLists will mutate
             # the underlying nested structures when resolving values
             if resource.template:
@@ -1377,7 +1380,7 @@ class AttributeManager:
                 continue
             for key in foundSensitive:
                 if key in diff:
-                    diff[key] = resource._attributes[key]
+                    diff[key] = _attributes[key]
             changes[resource.key] = diff
 
         self.attributes = {}

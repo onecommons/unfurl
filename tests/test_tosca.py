@@ -14,10 +14,6 @@ import six
 from click.testing import CliRunner
 import json
 
-# python 2.7 needs these:
-from unfurl.configurators.shell import ShellConfigurator
-
-
 class SetAttributeConfigurator(Configurator):
     def run(self, task):
         from toscaparser.elements.portspectype import PortSpec
@@ -30,14 +26,13 @@ class SetAttributeConfigurator(Configurator):
                 ports[1]
             ).spec
             assert PortSpec(ports[2]).spec == "8000", PortSpec(ports[2]).spec
-
         task.target.attributes["private_address"] = "10.0.0.1"
         yield task.done(True, Status.ok)
 
 
 _manifestDoc = """
 apiVersion: unfurl/v1alpha1
-kind: Manifest
+kind: Ensemble
 environment:
   inputs: %s
 spec:
@@ -453,7 +448,7 @@ class AbstractTemplateTest(unittest.TestCase):
         foreign = (
             """
     apiVersion: %s
-    kind: Manifest
+    kind: Ensemble
     spec:
       service_template:
         node_types:
@@ -503,7 +498,7 @@ class AbstractTemplateTest(unittest.TestCase):
         mainManifest = (
             """
 apiVersion: %s
-kind: Manifest
+kind: Ensemble
 spec:
   service_template:
     imports:
@@ -575,7 +570,8 @@ spec:
                 vaultString2 = (
                     "private_address: !vault |\n          $ANSIBLE_VAULT;1.1;AES256"
                 )
-                assert vaultString2 in job.out.getvalue()
+                # modifications to imported instances are not saved:
+                assert vaultString2 not in job.out.getvalue()
 
                 # reload:
                 manifest2 = LocalEnv("manifest.yaml").get_manifest()
@@ -588,7 +584,8 @@ spec:
                 assert imported2.imported == "foreign:anInstance"
                 assert imported2.shadow
                 self.assertIs(imported2.root, manifest2.get_root_resource())
-                self.assertEqual(imported2.attributes["private_address"], "10.0.0.1")
+                # modifications to imported instances are not saved:
+                assert "private_address" not in imported2.attributes
                 self.assertIsNot(imported2.shadow.root, manifest2.get_root_resource())
         finally:
             if UNFURL_HOME is not None:
