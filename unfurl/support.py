@@ -962,12 +962,17 @@ def get_import(arg: RefContext, ctx):
 set_eval_func("external", get_import)
 
 
-_Import = collections.namedtuple("_Import", ["resource", "spec"])
+class _Import:
+    def __init__(self, external_instance: "EntityInstance", spec: dict, local_instance: Optional["EntityInstance"]=None):
+        self.external_instance = external_instance
+        self.spec = spec
+        self.local_instance = local_instance
 
 
 class Imports(collections.OrderedDict):
-
     def find_import(self, qualified_name):
+        # return a local shadow of the imported instance 
+        # or the imported instance itself if no local shadow exist (yet).
         imported = self._find_import(qualified_name)
         if imported:
             return imported
@@ -983,29 +988,31 @@ class Imports(collections.OrderedDict):
 
     def _find_import(self, name):
         if name in self:
-            return self[name].resource
+            # fully qualified name already added
+            return self[name].local_instance or self[name].external_instance
         iName, sep, rName = name.partition(":")
         if iName not in self:
             return None
-        imported = self[iName].resource.find_resource(rName or "root")
+        # do a unqualified look up to find the declared import
+        imported = self[iName].external_instance.root.find_resource(rName or "root")
         if imported:
-            # add for future reference
-            self[name] = imported  # see __setitem__
+            self.add_import(iName, imported)
         return imported
 
-    def set_shadow(self, key, instance):
-        instance.shadow = self[key].resource
-        self[key] = instance
-
-    def __setitem__(self, key, value):
-        if isinstance(value, tuple):
-            value = _Import(*value)
+    def set_shadow(self, key, local_instance, external_instance):
+        if key not in self:
+            record = self.add_import(key, external_instance)
         else:
-            if key in self:
-                value = self[key]._replace(resource=value)
-            else:
-                value = _Import(value, {})
-        return super().__setitem__(key, value)
+            record = self[key]
+
+        if record.local_instance:
+            raise UnfurlError(f"already imported {key}")
+        record.local_instance = local_instance
+        return record
+
+    def add_import(self, key, external_instance, spec=None):
+        self[key] = _Import(external_instance, spec or {})
+        return self[key]
 
 
 class ExternalResource(ExternalValue):
@@ -1015,7 +1022,7 @@ class ExternalResource(ExternalValue):
 
     def __init__(self, name, importSpec):
         super().__init__("external", name)
-        self.resource = importSpec.resource
+        self.resource = importSpec.external_instance
         self.schema = importSpec.spec.get("schema")
 
     def _validate(self, obj, schema, name):

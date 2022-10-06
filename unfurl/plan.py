@@ -85,50 +85,59 @@ class Plan:
             self.filterTemplate = None
 
     def find_shadow_instance(self, template, match=is_external_template_compatible):
+        imported = template.tpl.get("imported")
+        if imported:
+            external = self.root.imports.find_import(imported)
+            if not external:
+                return None
+            if external.shadow and external.root is self.root:
+                # shadowed instance already created
+                return external
+            else:
+                import_name = imported.partition(":")[0]
+                return self.create_shadow_instance(external, import_name, template.name)
+
         searchAll = []
-        for name, value in self.root.imports.items():
-            external = value.resource
+        for name, record in self.root.imports.items():
+            external = record.external_instance
             # XXX if external is a Relationship and template isn't, get it's target template
             #  if no target, create with status == unknown
 
             if match(name, external.template, template):
-                if external.shadow and external.root is self.root:
-                    # shadowed instance already created
-                    return external
+                if record.local_instance:
+                    return record.local_instance
                 else:
-                    return self.create_shadow_instance(external, name)
-            if value.spec.get("instance") == "*":
-                searchAll.append((name, value.resource))
+                    return self.create_shadow_instance(external, name, template.name)
+            if record.spec.get("instance") in ["root", "*"]:
+                # add root instance
+                searchAll.append((name, record.external_instance))
 
         # look in the topologies where were are importing everything
         for name, root in searchAll:
             for external in root.get_self_and_descendents():
                 if match(name, external.template, template):
-                    return self.create_shadow_instance(external, name)
+                    return self.create_shadow_instance(external, name, template.name)
 
         return None
 
-    def create_shadow_instance(self, external, import_name):
-        if self.root.imports[import_name].resource is external:
-            name = import_name  # only one resource
-        else:
-            name = import_name + ":" + external.name
+    def create_shadow_instance(self, external, import_name, instance_name):
+        # create a local instance that "shadows" the external one we imported
+        name = import_name + ":" + external.name
 
         if external.parent and external.parent.parent:
             # assumes one-to-one correspondence instance and template
             parent = self.find_shadow_instance(external.parent.template)
             if not parent:  # parent wasn't in imports, add it now
-                parent = self.create_shadow_instance(external.parent, import_name)
+                # to avoid name conflicts set the parent's name to the fully qualified name
+                parent = self.create_shadow_instance(external.parent, import_name, None)
         else:
             parent = self.root
 
         shadowInstance = external.__class__(
-            name, external.attributes, parent, external.template, external
+            instance_name or name, external.attributes, parent, external.template, external
         )
-
-        shadowInstance.shadow = external
-        # Imports.__setitem__ will add or update:
-        self.root.imports[name] = shadowInstance
+        shadowInstance.imported = name
+        self.root.imports.set_shadow(name, shadowInstance, external)
         return shadowInstance
 
     def find_resources_from_template(self, template):
@@ -136,9 +145,10 @@ class Plan:
             # XXX also match node_filter if present
             shadowInstance = self.find_shadow_instance(template)
             if shadowInstance:
+                logger.debug('found imported instance "%s"', shadowInstance.name)
                 yield shadowInstance
             else:
-                logger.info(
+                logger.warning(
                     "could not find external instance for template %s", template.name
                 )
             # XXX also yield newly created parents that needed to be checked?

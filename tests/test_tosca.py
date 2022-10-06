@@ -510,7 +510,7 @@ spec:
     topology_template:
       outputs:
         server_ip:
-          value: {eval: "::foreign:anInstance::private_address"}
+          value: {eval: "::anInstance::private_address"}
       node_templates:
         anInstance:
           type: test.nodes.AbstractTest
@@ -552,7 +552,7 @@ spec:
                             "priority": "required",
                             "reason": "check",
                             "status": "ok",
-                            "target": "foreign:anInstance",
+                            "target": "anInstance",
                             "targetStatus": "ok",
                             "targetState": None,  # "started",
                             "template": "anInstance",
@@ -579,10 +579,11 @@ spec:
                 manifest2 = LocalEnv("manifest.yaml").get_manifest()
                 assert manifest2.lastJob
                 # test that restored manifest create a shadow instance for the foreign instance
-                imported = manifest2.imports["foreign"].resource
+                imported = manifest2.imports["foreign"]
                 assert imported
                 imported2 = manifest2.imports.find_import("foreign:anInstance")
                 assert imported2
+                assert imported2.imported == "foreign:anInstance"
                 assert imported2.shadow
                 self.assertIs(imported2.root, manifest2.get_root_resource())
                 self.assertEqual(imported2.attributes["private_address"], "10.0.0.1")

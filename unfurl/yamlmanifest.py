@@ -16,7 +16,7 @@ from .util import UnfurlError, to_yaml_text, filter_env
 from .merge import patch_dict, intersect_dict
 from .yamlloader import YamlConfig, make_yaml
 from .result import serialize_value, ChangeRecord
-from .support import ResourceChanges, Defaults, Imports, Status
+from .support import ResourceChanges, Defaults, Status
 from .localenv import LocalEnv
 from .lock import Lock
 from .manifest import Manifest
@@ -346,15 +346,10 @@ class YamlManifest(ReadOnlyManifest):
 
         self.lastJob = manifest.get("lastJob")
 
-        self.imports = Imports()
-        self.imports.manifest = self
-        self._importedManifests = {}
-
         if localEnv:
             for name in ["locals", "secrets"]:
-                self.imports[name.rstrip("s")] = localEnv.get_local_instance(
-                    name, self.context
-                )
+                instance, local_spec = localEnv.get_local_instance(name, self.context)
+                self.imports.add_import(name.rstrip("s"), instance, local_spec)
 
         rootResource = self.create_topology_instance(status)
 
@@ -554,7 +549,7 @@ class YamlManifest(ReadOnlyManifest):
             raise UnfurlError(
                 f"Can not import external ensemble '{name}': instance '{rname}' not found"
             )
-        self.imports[name] = (resource, value)
+        self.imports.add_import(name, resource, value)
         self._importedManifests[id(root)] = importedManifest
 
     def load_changes(self, changes, changeLogPath):
@@ -641,9 +636,8 @@ class YamlManifest(ReadOnlyManifest):
         # save computed values for properties as they were observed
         if resource._properties:
             status["properties"] = resource._properties
-        if resource.shadow:
-            # name will be the same as the import name
-            status["imported"] = resource.name
+        if resource.imported:
+            status["imported"] = resource.imported
         save_status(resource, status)
         if resource.created is not None:
             status["created"] = resource.created

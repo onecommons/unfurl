@@ -995,6 +995,8 @@ class NodeSpec(EntitySpec):
 
     @property
     def abstract(self):
+        if self.tpl.get("imported"):
+            return "select"
         for name in ("select", "substitute"):
             if name in self.toscaEntityTemplate.directives:
                 return name

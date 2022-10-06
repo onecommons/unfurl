@@ -226,7 +226,7 @@ class RunTest(unittest.TestCase):
         simple = (
             """
     apiVersion: %s
-    kind: Manifest
+    kind: Ensemble
     spec:
       instances:
         anInstance:
@@ -271,7 +271,7 @@ class RunTest(unittest.TestCase):
     def test_template_inheritance(self):
         manifest = """
 apiVersion: unfurl/v1alpha1
-kind: Manifest
+kind: Ensemble
 configurators:
   step1:
     spec:
@@ -363,7 +363,7 @@ class FileTest(unittest.TestCase):
         simple = (
             """
     apiVersion: %s
-    kind: Manifest
+    kind: Ensemble
     spec:
       service_template:
         topology_template:
@@ -400,7 +400,7 @@ class FileTest(unittest.TestCase):
     def test_template_includes(self):
         template = """
 apiVersion: unfurl/v1alpha1
-kind: Manifest
+kind: Ensemble
 dsl:
   bar: &bar
     c: 4
@@ -416,7 +416,7 @@ status: {}
 
             instanceYaml = """
 apiVersion: unfurl/v1alpha1
-kind: Manifest
+kind: Ensemble
 dsl:
   foo: &foo
     d: 5
@@ -491,7 +491,7 @@ class ImportTest(unittest.TestCase):
         foreign = (
             """
     apiVersion: %s
-    kind: Manifest
+    kind: Ensemble
     spec:
      instances:
       foreign:
@@ -509,7 +509,7 @@ class ImportTest(unittest.TestCase):
             importer = (
                 """
 apiVersion: %s
-kind: Manifest
+kind: Ensemble
 environment:
  external:
   test:

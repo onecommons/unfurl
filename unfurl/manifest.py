@@ -8,7 +8,7 @@ from typing import Tuple, Any
 from ruamel.yaml.comments import CommentedMap
 from .tosca import ToscaSpec, TOSCA_VERSION, ArtifactSpec
 
-from .support import ResourceChanges, AttributeManager, Status, Priority, NodeState
+from .support import ResourceChanges, AttributeManager, Status, Priority, NodeState, Imports
 from .runtime import (
     OperationalInstance,
     NodeInstance,
@@ -51,6 +51,9 @@ class Manifest(AttributeManager):
         self.tosca = None
         self.specDigest = None
         self.repositories = {}
+        self.imports = Imports()
+        self.imports.manifest = self
+        self._importedManifests = {}
 
     def _set_spec(self, spec, more_spec=None, skip_validation=False):
         """
@@ -318,8 +321,6 @@ class Manifest(AttributeManager):
             imported = self.imports.find_import(importName)
             if not imported:
                 raise UnfurlError(f"missing import {importName}")
-            if imported.shadow:
-                raise UnfurlError(f"already imported {importName}")
             template = imported.template
         else:
             template = self.load_template(templateName)
@@ -347,7 +348,8 @@ class Manifest(AttributeManager):
         if "protected" in status:
             instance.protected = status["protected"]
         if imported:
-            self.imports.set_shadow(importName, instance)
+            instance.imported = importName
+            self.imports.set_shadow(importName, instance, imported)
         properties = status.get("properties")
         if isinstance(properties, dict):
             instance._properties = properties

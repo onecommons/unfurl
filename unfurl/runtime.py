@@ -205,7 +205,7 @@ class Operational(ChangeAware):
             if status.priority == Priority.ignore:
                 continue
             if id(status) in seen:
-                logger.verbose(
+                logger.debug(
                     f"Circular operational dependency when checking status {status} in {seen}"
                 )
                 continue
@@ -349,8 +349,8 @@ class EntityInstance(OperationalInstance, ResourceRef):
     attributeManager = None
     created = None
     protected = None
-    shadow = None
     imports = None
+    imported = None
     envRules = None
     _baseDir = ""
     templateType = EntitySpec
@@ -459,6 +459,14 @@ class EntityInstance(OperationalInstance, ResourceRef):
 
     def get_default_relationships(self, relation=None):
         return self.root.get_default_relationships(relation)
+
+    @property
+    def shadow(self):
+        if self.imported:
+            imports = self.root.imports
+            if imports and self.imported in imports:
+                return imports[self.imported].external_instance
+        return None
 
     def __eq__(self, other):
         if self is other:
