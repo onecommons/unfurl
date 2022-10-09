@@ -129,7 +129,7 @@ class Plan:
         logger.debug("creating local instance %s for external instance %s",
                      instance_name or name, external.name)
         # attributes can be empty because AttributeManager delegates to the imported shadow instance
-        shadowInstance = external.__class__(instance_name, {}, parent, template)
+        shadowInstance = external.__class__(instance_name, {}, parent, template, external.status)
         shadowInstance.imported = name
         self.root.imports.set_shadow(name, shadowInstance, external)
         return shadowInstance
@@ -620,11 +620,13 @@ class DeployPlan(Plan):
 
     def _generate_workflow_configurations(self, instance, oldTemplate):
         # if oldTemplate is not None this is an existing instance, so check if we should include
-        if oldTemplate:
+        if instance.shadow:
+            reason = "connect"
+        elif oldTemplate:
             reason = self.include_instance(oldTemplate, instance)
             if not reason:
                 logger.debug(
-                    "not including task for %s:%s", instance.name, oldTemplate.name
+                    "not including task for %s:%s (status: %s)", instance.name, oldTemplate.name, instance.status
                 )
                 return
         else:  # this is newly created resource
