@@ -67,7 +67,7 @@ def map_constraint(jsonType, constraint, schema):
         return value
     elif key == "pattern":
         return dict(pattern=value)
-    elif key == "equal":
+    elif key == "equal" or (key == "valid_values" and len(value) == 1):
         return dict(const=value)
     elif key == "valid_values":
         return dict(enum=value)
