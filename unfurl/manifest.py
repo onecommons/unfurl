@@ -321,10 +321,8 @@ class Manifest(AttributeManager):
             imported = self.imports.find_import(importName)
             if not imported:
                 raise UnfurlError(f"missing import {importName}")
-            template = imported.template
-        else:
-            template = self.load_template(templateName)
 
+        template = self.load_template(templateName)
         if template is None:
             # not defined in the current model any more, try to retrieve the old version
             if operational.last_config_change:

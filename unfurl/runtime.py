@@ -748,8 +748,6 @@ class NodeInstance(HasInstancesInstance):
                 if id(template.relationship) not in instantiated:
                     relInstance = self._find_relationship(template.relationship)
                     if not relInstance:
-                        if self.shadow: # imported instances usually are incomplete
-                            continue
                         raise UnfurlError(
                             f'can not find relation instance for requirement "{name}" on node "{self.name}"'
                         )
