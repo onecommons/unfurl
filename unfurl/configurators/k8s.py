@@ -13,47 +13,12 @@ from ..eval import set_eval_func, map_value
 import subprocess
 import json
 from ansible_collections.kubernetes.core.plugins.module_utils.common import (
-    K8sAnsibleMixin,
+    K8sAnsibleMixin
 )
 
-
-def ingress_ready(ingress) -> bool:
-    return bool(
-        ingress.status
-        and ingress.status.loadBalancer
-        and ingress.status.loadBalancer.ingress
-        and ingress.status.loadBalancer.ingress
-        and ingress.status.loadBalancer.ingress[0].ip
-    )
-
-
-_super_wait = K8sAnsibleMixin.wait
-
-
-def wait(
-        self,
-        resource,
-        definition,
-        sleep,
-        timeout,
-        state="present",
-        condition=None,
-        label_selectors=None,
-    ):
-    kind = definition["kind"]
-    if state == "present" and kind == "Ingress":
-        predicate = ingress_ready
-        name = definition["metadata"]["name"]
-        namespace = definition["metadata"].get("namespace")
-        return self._wait_for(
-            resource, name, namespace, predicate, sleep, timeout, state, label_selectors
-        )
-    else:
-        return _super_wait(self, resource, definition, sleep, timeout, state, condition, label_selectors)
-
-
-K8sAnsibleMixin.wait = wait
-
+# XXX need to define fail_json
+# class K8sAnsibleClient(K8sAnsibleMixin):
+  # def fail_json(msg):
 
 def _get_connection_config(instance):
     # Given an endpoint capability or a connection relationship, return a dictionary of connection settings.
@@ -386,6 +351,7 @@ class ResourceConfigurator(AnsibleConfigurator):
         self.update_metadata(definition, task)
         connectionConfig = _get_connection(task)
         extra_configuration = task.inputs.get("configuration")
+        extra_playbook = task.inputs.get("playbook")
 
         if task.configSpec.operation in ["check", "discover"]:
             return self._make_check(connectionConfig, definition, extra_configuration)
@@ -399,6 +365,8 @@ class ResourceConfigurator(AnsibleConfigurator):
             moduleSpec.update(extra_configuration)
 
         playbook = [{"kubernetes.core.k8s": moduleSpec}]
+        if extra_playbook:
+            playbook[0].update(extra_playbook)
         if definition and (task.target.created is None and task.target.status in
                            [Status.pending, Status.unknown]):
             # we don't want delete resources that already exist (especially namespaces!)
@@ -443,4 +411,4 @@ class ResourceConfigurator(AnsibleConfigurator):
 
     def get_result_keys(self, task, results):
         # save first time even if it hasn't changed
-        return ["resources", "result"]  # also "method", "diff", invocation
+        return ["resources", "result", "duration"]  # also "method", "diff", invocation

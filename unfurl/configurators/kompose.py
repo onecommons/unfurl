@@ -173,11 +173,18 @@ class KomposeConfigurator(ShellConfigurator):
         return True
 
 
-def configure_resource(definition):
+def configure_inputs(definition):
     configuration = dict(wait=True)
     if definition["kind"] == "Deployment":
         configuration["wait_condition"] = {"status": "True", "type": "Progressing"}
-    return configuration
+    inputs = {"configuration": configuration}
+    if definition["kind"] == "Ingress":
+        inputs["playbook"] = dict(
+            register="rs",
+            until='rs.result.status.loadBalancer.ingress is defined',
+            retries=10,
+            delay=5)
+    return inputs
 
 
 def _load_resource_file(task, out_path, filename):
@@ -191,7 +198,7 @@ def _load_resource_file(task, out_path, filename):
         template=dict(type="unfurl.nodes.K8sRawResource",
                         properties=dict(definition=definition),
                         interfaces=dict(
-                            Standard=dict(inputs={"configuration": configure_resource(definition)})
+                            Standard=dict(inputs=configure_inputs(definition))
                         ),
                       )
     )

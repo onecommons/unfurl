@@ -368,8 +368,8 @@ class TaskLoggerAdapter(logging.LoggerAdapter):
                 task_id += f" (reason: {self.extra.reason})"
             if self.extra._rendering:
                 msg = f"Rendering task {task_id} (errors expected): {msg}"
-                if level >= Levels.INFO:
-                    level = Levels.INFO
+                if level >= Levels.VERBOSE:
+                    level = Levels.VERBOSE
             else:
                 msg = f"Running task {task_id}: {msg}"
             self.logger.log(level, msg, *args, **kwargs)
