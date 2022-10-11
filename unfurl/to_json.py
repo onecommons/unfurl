@@ -18,6 +18,7 @@ import itertools
 import json
 from typing import Any, Dict, List, Optional, Union, cast, TYPE_CHECKING
 from collections import Counter
+from collections.abc import Mapping, MutableSequence
 from urllib.parse import urlparse
 from toscaparser.properties import Property
 from toscaparser.elements.constraints import Schema
@@ -31,7 +32,7 @@ from toscaparser.elements.scalarunit import get_scalarunit_class
 from toscaparser.elements.datatype import DataType
 from toscaparser.elements.portspectype import PortSpec
 from toscaparser.activities import ConditionClause
-from .logs import sensitive
+from .logs import sensitive, is_sensitive
 from .tosca import is_function, get_nodefilters
 from .localenv import LocalEnv
 from .util import to_enum
@@ -242,7 +243,7 @@ def tosca_schema_to_jsonschema(p, spec):
 
 def _requirement_visibility(spec, name, req):
     if name == "dependency":
-        return "omit"
+        return "omit" # skip base TOSCA relationship type that every node has
     node = req.get("node")
     metadata = req.get("metadata") or {}
     if metadata.get("visibility"):
@@ -400,6 +401,19 @@ def always_export(p):
 #         return None
 #     return attribute_value_to_json(p, value)
 
+def redact_if_sensitive(value):
+    if isinstance(value, Mapping):
+        return {
+            key: redact_if_sensitive(v)
+            for key, v in value.items()
+        }
+    elif isinstance(value, (MutableSequence, tuple)):
+        return [redact_if_sensitive(item) for item in value]
+    elif is_sensitive(value):
+        return sensitive.redacted_str
+    else:
+        return value
+
 
 def _is_get_env_or_secret(value):
     return isinstance(value, dict) and (
@@ -407,10 +421,11 @@ def _is_get_env_or_secret(value):
 
 
 def attribute_value_to_json(p, value):
-    if isinstance(value, sensitive) or p.schema.metadata.get("sensitive"):
+    if p.schema.metadata.get("sensitive"):
         if _is_get_env_or_secret(value):
             return value
         return sensitive.redacted_str
+
     if isinstance(value, PortSpec):
         return value.spec
     elif isinstance(value, dict) and p.type in [
@@ -423,7 +438,7 @@ def attribute_value_to_json(p, value):
         unit = p.schema.metadata.get("default_unit")
         if unit:  # convert to the default_unit
             return scalar_class(value).get_num_from_scalar_unit(unit)
-    return value
+    return redact_if_sensitive(value)
 
 
 # XXX outputs: only include "public" attributes?
@@ -719,7 +734,7 @@ def nodetemplate_to_json(nodetemplate, spec, types, for_resource=False):
     ExceptionCollector.start()
     for req in nodetemplate.all_requirements:
         name, req_dict = _get_req(req)
-        if name == "dependency":
+        if name == "dependency":  # skip base TOSCA relationship type that every node has
             continue
         reqDef, rel_template = nodetemplate._get_explicit_relationship(name, req_dict)
         reqconstraint = _find_requirement_constraint(jsonnodetype["requirements"], name)
@@ -1366,7 +1381,7 @@ def add_computed_properties(instance):
                     instance.template.toscaEntityTemplate.custom_def,
                 )
             if p.schema.get("metadata", {}).get("visibility") != "hidden":
-                if isinstance(value, sensitive) and _is_get_env_or_secret(p.value):
+                if is_sensitive(value) and _is_get_env_or_secret(p.value):
                     value = p.value
                 else:
                     value = attribute_value_to_json(p, value)
