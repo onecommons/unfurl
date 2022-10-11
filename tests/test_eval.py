@@ -24,7 +24,7 @@ class EvalTest(unittest.TestCase):
         cm.insert(1, "a", 1, comment="a comment")
         self.assertEqual(cm, {"a": 1, "b": 2})
 
-    def _getTestResource(self, more=None):
+    def _getTestResource(self, more=None, parent=None):
         resourceDef = {
             "name": "test",
             "a": {"ref": "name"},
@@ -52,7 +52,7 @@ class EvalTest(unittest.TestCase):
         }
         if more:
             resourceDef.update(more)
-        resource = NodeInstance("test", attributes=resourceDef)
+        resource = NodeInstance("test", resourceDef, parent)
         assert resource.attributes["x"] == resourceDef["x"]
         assert resource.attributes["a"] == "test"
         assert resource.attributes["s"] is resource
@@ -137,6 +137,17 @@ class EvalTest(unittest.TestCase):
                     "expr was: " + ref.source,
                 )
 
+    def test_last_resource(self):
+        parent = NodeInstance("parent")
+        self._getTestResource(parent=parent)
+        NodeInstance("another_child", parent=parent)
+        ref = Ref(".::.instances::x::c")
+        ctx = RefContext(parent, trace=0)
+        # index = ctx.referenced.start()
+        result = ref.resolve(ctx)
+        assert(ctx._lastResource.name) == "parent"
+        assert result == [5, 6]
+
     def test_funcs(self):
         resource = self._getTestResource()
         test1 = {"ref": ".name", "vars": {"a": None}}
@@ -217,7 +228,6 @@ class EvalTest(unittest.TestCase):
         }
         result7 = Ref(test6).resolve_one(RefContext(resource, trace=0))
         assert result7 == 81
-
 
     def test_serializeValues(self):
         resource = self._getTestResource()

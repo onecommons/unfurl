@@ -312,7 +312,6 @@ class Manifest(AttributeManager):
         return self.changeSets.get(jobId)
 
     def _create_entity_instance(self, ctor, name, status, parent):
-        operational = self.load_status(status)
         templateName = status.get("template", name)
 
         imported = None
@@ -322,6 +321,10 @@ class Manifest(AttributeManager):
             if not imported:
                 raise UnfurlError(f"missing import {importName}")
 
+        if imported:
+            operational = self.load_status(dict(readyState=imported.local_status))
+        else:
+            operational = self.load_status(status)
         template = self.load_template(templateName)
         if template is None:
             # not defined in the current model any more, try to retrieve the old version
