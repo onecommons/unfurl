@@ -35,7 +35,7 @@ from .k8s import make_pull_secret, mark_sensitive
 from ..util import UnfurlTaskError
 from ..yamlloader import yaml
 from ..projectpaths import Folders
-from ..support import to_kubernetes_label
+from ..support import to_kubernetes_label, ContainerImage
 import os
 import os.path
 from pathlib import Path
@@ -55,10 +55,12 @@ def _add_labels(service: dict, labels: dict):
 def render_compose(container: dict, image="", service_name=None):
     service = dict(restart="always")
     service.update({k:v for k, v in container.items() if v is not None})
-    if not service_name:
-        service_name = container.get("container_name", "app")
     if image:
         service["image"] = image
+    else:
+        image = service["image"]
+    if not service_name:
+        service_name = container.get("container_name", ContainerImage.split(image)[0])
     return dict(services={
         to_kubernetes_label(service_name): service
     })
