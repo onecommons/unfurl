@@ -135,6 +135,9 @@ class ResourceRef(ABC):
     def templar(self):
         return self.root._templar
 
+    @property
+    def readonly(self) -> bool:
+        return False
 
 class ChangeRecord:
     """
@@ -662,6 +665,8 @@ class Results(ABC):
 
     def __setitem__(self, key, value):
         assert not isinstance(value, Result), (key, value)
+        if self.context.currentResource.readonly:
+            raise UnfurlError("Attempting to set {key} on a readonly instance {self.context.currentResource}")
         if self._haskey(key):
             resolved = self[key]
             if resolved != value:  # the existing value changed
@@ -686,6 +691,9 @@ class Results(ABC):
         self._deleted.pop(key, None)
 
     def __delitem__(self, index):
+        if self.context.currentResource.readonly:
+            raise UnfurlError("Attempting to delete item {item} on a readonly instance {self.context.currentResource}")
+        self.context.currentResource.name
         val = self._attributes[index]
         self._deleted[index] = val
         del self._attributes[index]

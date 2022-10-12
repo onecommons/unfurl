@@ -472,6 +472,10 @@ class EntityInstance(OperationalInstance, ResourceRef):
                 )
         return None
 
+    @property
+    def readonly(self) -> bool:
+        return bool(self.imported) # imported instances are readonly
+
     def __eq__(self, other):
         if self is other:
             return True
