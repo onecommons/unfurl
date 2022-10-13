@@ -50,6 +50,14 @@ def default_livenessProbe(port):
         initialDelaySeconds=15,
         periodSeconds=20
     )
+# XXX it would be cleaner to replace the above with a healthcheck and liveness label in the compose yaml, e.g.:
+# labels:    
+#   kompose.service.healthcheck.liveness.tcp_port: PORT
+# healthcheck:
+#   interval: 10s
+#   timeout: 10s
+#   retries: 3
+#   start_period: 30s
 
 
 def _get_service(compose: dict, service_name: str = None):
@@ -205,17 +213,20 @@ def set_livenessProbe(resource, livenessProbe):
     return False
 
 
-def configure_inputs(definition):
+def configure_inputs(definition, timeout):
     configuration = dict(wait=True)
     if definition["kind"] == "Deployment":
         configuration["wait_condition"] = {"status": "True", "type": "Progressing"}
     inputs = {"configuration": configuration}
+    # two minutes: same as ansible k8s wait default
+    timeout = timeout or 120
+    delay = 10
     if definition["kind"] == "Ingress":
         inputs["playbook"] = dict(
             register="rs",
             until='rs.result.status.loadBalancer.ingress is defined',
-            retries=10,
-            delay=5)
+            retries= int(timeout / delay),
+            delay=delay)
     return inputs
 
 
@@ -235,7 +246,7 @@ def _load_resource_file(task, out_path, filename, livenessProbe):
         template=dict(type="unfurl.nodes.K8sRawResource",
                         properties=dict(definition=definition),
                         interfaces=dict(
-                            Standard=dict(inputs=configure_inputs(definition))
+                            Standard=dict(inputs=configure_inputs(definition, task.configSpec.timeout))
                         ),
                       )
     )
