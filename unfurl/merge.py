@@ -66,7 +66,7 @@ def make_map_with_base(doc, baseDir):
 
 # XXX?? because json keys are strings allow number keys to merge with lists
 # other values besides delete not supported because current code can leave those keys in final result
-mergeStrategyKey = "+%"  # supported values: "whiteout", "nullout"
+mergeStrategyKey = "+%"  # supported values: "whiteout", "nullout", "merge", "error"
 
 # b is the merge patch, a is original dict
 def merge_dicts(
@@ -124,11 +124,29 @@ def merge_dicts(
             if strategy == "nullout":
                 val = None
         elif isinstance(val, MutableSequence) and key in b:
-            bval = b[key]
+            bval = b[key][:] # XXX list ctor 
             if isinstance(bval, MutableSequence) and listStrategy == "append_unique":
                 # XXX allow more strategies beyond append
                 #     if appendlists == 'all' or key in appendlists:
-                cp[key] = bval + [item for item in val if item not in bval]
+                for i, item in enumerate(val):
+                    if isinstance(item, Mapping) and item.get(mergeStrategyKey) == "merge":
+                        if i >= len(bval):
+                            bval.append(item)
+                        else:
+                            bitem = bval[i]
+                            if isinstance(bitem, Mapping):
+                                bval[i] = merge_dicts(
+                                    bitem,
+                                    item,
+                                    defaultStrategy=childStrategy,
+                                    replaceKeys=replaceKeys,
+                                    listStrategy=listStrategy,
+                                )
+                            else:
+                                bval[i] = item
+                    elif item not in bval:
+                        bval.append(item)
+                cp[key] = bval
                 continue
         #     elif mergelists == 'all' or key in mergelists:
         #       newlist = []
@@ -381,7 +399,7 @@ def expand_dict(doc, path, includes, current, cls=dict):
             elif mergeKey.include and template is None:
                 continue  # include path not found
             else:
-                if len(current) > 1:  # XXX include merge directive keys in count
+                if 0: # len(current) > 1:  # XXX include merge directive keys in count
                     raise UnfurlError(
                         f"can not merge non-map value of type {type(template)}: {template}"
                     )
@@ -432,6 +450,7 @@ def expand_doc(doc, current=None, cls=dict):
     if not isinstance(doc, Mapping) or not isinstance(current, Mapping):
         raise UnfurlError(f"top level element {doc} is not a dict")
     expanded = expand_dict(doc, (), includes, current, cls)
+    assert isinstance(expanded, Mapping), expanded
     if hasattr(doc, "_anchorCache"):
         expanded._anchorCache = doc._anchorCache
     last = 0

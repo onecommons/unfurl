@@ -146,6 +146,19 @@ class ExpandDocTest(unittest.TestCase):
             """recursive include "['test4']" in "('test4',)" when including +../test4""",
         )
 
+    def test_listmerge(self):
+        a = {
+          "spec": [{"a": "a"}],
+        }
+        b = {
+          "spec": [{"+%": "merge", "b": "b"}]
+        }
+
+        expected = {
+            "spec": [{"a": "a", "b": "b"}]
+        }
+        expanded = merge_dicts(a, b)
+        assert expanded == expected
 
 class JobTest(unittest.TestCase):
     def test_lookupClass(self):
