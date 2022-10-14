@@ -124,10 +124,11 @@ def merge_dicts(
             if strategy == "nullout":
                 val = None
         elif isinstance(val, MutableSequence) and key in b:
-            bval = b[key][:] # XXX list ctor 
+            bval = b[key]
             if isinstance(bval, MutableSequence) and listStrategy == "append_unique":
                 # XXX allow more strategies beyond append
                 #     if appendlists == 'all' or key in appendlists:
+                bval = bval[:]
                 for i, item in enumerate(val):
                     if isinstance(item, Mapping) and item.get(mergeStrategyKey) == "merge":
                         if i >= len(bval):
@@ -399,7 +400,7 @@ def expand_dict(doc, path, includes, current, cls=dict):
             elif mergeKey.include and template is None:
                 continue  # include path not found
             else:
-                if 0: # len(current) > 1:  # XXX include merge directive keys in count
+                if len(current) > 1:  # XXX include merge directive keys in count
                     raise UnfurlError(
                         f"can not merge non-map value of type {type(template)}: {template}"
                     )

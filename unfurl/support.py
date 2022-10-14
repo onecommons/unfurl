@@ -679,7 +679,7 @@ def to_kubernetes_label(arg):
 
 set_eval_func(
     "to_kubernetes_label",
-    lambda arg, ctx: to_dns_label(map_value(arg, ctx)),
+    lambda arg, ctx: to_kubernetes_label(map_value(arg, ctx)),
 )
 
 
