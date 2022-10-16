@@ -44,6 +44,9 @@ import os.path
 from pathlib import Path
 
 
+TIMEOUT = 180  # default timeout in seconds (3 minutes)
+
+
 def default_livenessProbe(port):
     return dict(
         tcpSocket={"port": port},
@@ -73,7 +76,7 @@ def _add_labels(service: dict, labels: dict):
 
 def render_compose(container: dict, image="", service_name=None):
     service = dict(restart="always")
-    service.update({k:v for k, v in container.items() if v is not None})
+    service.update({k: v for k, v in container.items() if v is not None})
     if image:
         service["image"] = image
     else:
@@ -214,18 +217,17 @@ def set_livenessProbe(resource, livenessProbe):
 
 
 def configure_inputs(definition, timeout):
-    configuration = dict(wait=True)
+    timeout = timeout or TIMEOUT
+    delay = 10
+    configuration = dict(wait=True, wait_timeout=timeout)
     if definition["kind"] == "Deployment":
         configuration["wait_condition"] = {"status": "True", "type": "Progressing"}
     inputs = {"configuration": configuration}
-    # two minutes: same as ansible k8s wait default
-    timeout = timeout or 120
-    delay = 10
     if definition["kind"] == "Ingress":
         inputs["playbook"] = dict(
             register="rs",
             until='rs.result.status.loadBalancer.ingress is defined',
-            retries= int(timeout / delay),
+            retries=int(timeout / delay),
             delay=delay)
     return inputs
 
