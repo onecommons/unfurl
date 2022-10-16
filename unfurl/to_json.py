@@ -1147,6 +1147,8 @@ def add_graphql_deployment(manifest, db, dtemplate):
 
     url = manifest.rootResource.attributes["outputs"].get("url")
     primary_resource = db["Resource"].get(primary_name)
+    if primary_resource and primary_resource["title"] == primary_name:
+        primary_resource["title"] = deployment["title"]
     if url:
         deployment["url"] = url
     elif primary_resource and primary_resource.get("attributes"):
@@ -1460,10 +1462,13 @@ def to_graphql_resource(instance, manifest, db, relationships):
                 if not is_resource_real(instance):
                     resource["visibility"] = "hidden"
         else:
-            # this resource wasn't referenced, don't include if it wasn't part of the plan
-            # XXX: have a more accurate way to figure this out
-            if pending and not instance.template.aggregate_only():
-                return None
+            if pending:
+                if instance.template.aggregate_only():
+                    resource["status"] = Status.ok
+                else:
+                    # this resource wasn't referenced, don't include if it wasn't part of the plan
+                    # XXX: have a more accurate way to figure this out
+                    return None
     logger.debug(f"exporting resource {instance.name} with visibility {resource.get('visibility')}")
 
     resource["protected"] = instance.protected
