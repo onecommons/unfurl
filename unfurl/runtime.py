@@ -474,7 +474,16 @@ class EntityInstance(OperationalInstance, ResourceRef):
 
     @property
     def readonly(self) -> bool:
-        return bool(self.imported) # imported instances are readonly
+        return bool(self.imported)  # imported instances are readonly
+
+    def validate(self) -> None:
+        """
+        Raises UnfurlValidationError on failure.
+        """
+        if self.shadow:
+            self.shadow.validate()
+        elif self.template:
+            self.template.validate()
 
     def __eq__(self, other):
         if self is other:

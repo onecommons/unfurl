@@ -813,8 +813,11 @@ class EntitySpec(ResourceRef):
         # no implementations found
         return True
 
-    def validate(self):
-        pass  # raise UnfurlValidationError
+    def validate(self) -> None:
+        """
+        Raises UnfurlValidationError on failure.
+        """
+        pass
 
     @property
     def required(self):

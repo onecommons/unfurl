@@ -19,11 +19,13 @@ from .util import (
 )
 from .result import serialize_value
 from .support import Defaults, NodeState, Priority
+from .runtime import EntityInstance
 import logging
 
 logger = logging.getLogger("unfurl")
 
-# we want ConfigurationSpec to be standalone and easily serializable
+
+# we want ConfigurationSpec to be independent of our object model and easily serializable
 class ConfigurationSpec:
     @classmethod
     def getDefaults(cls):
@@ -143,7 +145,7 @@ class PlanRequest:
     task = None
     render_errors = None
 
-    def __init__(self, target):
+    def __init__(self, target: "EntityInstance"):
         self.target = target
 
     @property
@@ -610,7 +612,7 @@ def _reevaluate_not_required(not_required, render_requests):
     new_not_required = []
     for (parent, request) in not_required:
         if request.include_in_plan():
-            request.target.template.validate()
+            request.target.validate()
             render_requests.append((parent, request))
         else:
             new_not_required.append((parent, request))
@@ -636,7 +638,7 @@ def do_render_requests(job, requests):
         if not required:
             not_required.append((parent, request))
         else:
-            request.target.template.validate()
+            request.target.validate()
             deps, error = _render_request(job, parent, request, flattened_requests)
             if error:
                 errors.append(error)
