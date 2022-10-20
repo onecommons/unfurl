@@ -20,6 +20,7 @@ from typing import (
     List,
     Mapping,
     Optional,
+    Sequence,
     Tuple,
     Union,
     cast,
@@ -599,11 +600,11 @@ class Job(ConfigChange):
                 'selected instance not found: "%s"', self.jobOptions.instance  # type: ignore
             )
 
-    def render(self) -> Tuple[list, list, list]:
+    def render(self) -> Tuple[List[PlanRequest], List[PlanRequest], List[UnfurlError]]:
         if self.plan_requests is None:
-            ready = self.create_plan()
+            ready: Sequence[PlanRequest] = self.create_plan()
         else:
-            ready = self.plan_requests[:]
+            ready: Sequence[PlanRequest] = self.plan_requests[:]
 
         # run artifact job requests before render
         if self.external_requests:

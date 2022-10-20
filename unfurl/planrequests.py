@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 import collections
 import re
-from typing import Iterator, Optional, Tuple
+from typing import Iterator, List, Optional, Sequence, Tuple
 import six
 import shlex
 import sys
@@ -450,7 +450,7 @@ def find_operation_host(target, operation_host):
     return target.root.find_instance_or_external(operation_host)
 
 
-def get_render_requests(requests) -> Iterator[Tuple[Optional[TaskRequestGroup], PlanRequest]]:
+def get_render_requests(requests: Sequence[PlanRequest]) -> Iterator[Tuple[Optional[TaskRequestGroup], TaskRequest]]:
     # returns requests that can be rendered grouped by its top-most task group
     for req in requests:
         if isinstance(req, TaskRequestGroup):
@@ -458,9 +458,8 @@ def get_render_requests(requests) -> Iterator[Tuple[Optional[TaskRequestGroup], 
                 yield req, child  # yields root as parent
         elif isinstance(req, TaskRequest):
             yield None, req
-        elif isinstance(req, SetStateRequest):
-            yield None, req
-        else:
+        elif not isinstance(req, SetStateRequest):
+            # note: SetStateRequests don't render, only run
             assert not req, f"unexpected type of request: {req}"
 
 
@@ -499,7 +498,7 @@ def set_fulfilled(requests, completed):
     return ready, notReady
 
 
-def _prepare_request(job, req, errors):
+def _prepare_request(job, req: TaskRequest, errors):
     # req is a taskrequests, future_requests are (grouprequest, taskrequest) pairs
     if req.task:
         task = req.task
@@ -622,8 +621,10 @@ def _reevaluate_not_required(not_required, render_requests):
     return new_not_required
 
 
-def do_render_requests(job, requests):
-    ready, notReady, errors = [], [], []
+def do_render_requests(job, requests: Sequence[PlanRequest]) -> Tuple[List[PlanRequest], List[PlanRequest], list[UnfurlError]]:
+    ready: List[PlanRequest] = []
+    notReady: List[PlanRequest] = []
+    errors: List[UnfurlError] = []
     flattened_requests = list(
         (p, r)
         for (p, r) in get_render_requests(requests)
