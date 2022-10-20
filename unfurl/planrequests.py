@@ -621,7 +621,7 @@ def _reevaluate_not_required(not_required, render_requests):
     return new_not_required
 
 
-def do_render_requests(job, requests: Sequence[PlanRequest]) -> Tuple[List[PlanRequest], List[PlanRequest], list[UnfurlError]]:
+def do_render_requests(job, requests: Sequence[PlanRequest]) -> Tuple[List[PlanRequest], List[PlanRequest], List[UnfurlError]]:
     ready: List[PlanRequest] = []
     notReady: List[PlanRequest] = []
     errors: List[UnfurlError] = []
