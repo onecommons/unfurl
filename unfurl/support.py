@@ -770,7 +770,7 @@ class ContainerImage(ExternalValue):
 
     def __init__(self, name: str, tag=None, digest=None,
                  registry_host=None, username=None, password=None, source_digest=None):
-        self.name = name.lstrip('/')
+        self.name = name.lstrip('/').lower()
         self.tag = tag
         self.digest = digest
         self.registry_host = registry_host
@@ -817,7 +817,7 @@ class ContainerImage(ExternalValue):
             name, sep, qualifier = artifact_name.partition(':')
             if sep:
                 tag = qualifier
-        return name, tag, digest, hostname
+        return name.lower(), tag, digest, hostname
 
     @staticmethod
     def make(artifact_name):
@@ -840,7 +840,7 @@ class ContainerImage(ExternalValue):
             name = base_name + '/' + '/'.join(new_segs)
         else:
             name = base_name
-        return name + sep + qualifier
+        return name.lower() + sep + qualifier
 
     def __digestable__(self, options):
         if self.digest:
