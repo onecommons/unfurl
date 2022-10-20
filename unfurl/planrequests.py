@@ -2,13 +2,13 @@
 # SPDX-License-Identifier: MIT
 import collections
 import re
+from typing import Iterator, Optional, Tuple
 import six
 import shlex
 import sys
 import os
 import os.path
 
-from .eval import RefContext
 from .util import (
     lookup_class,
     load_module,
@@ -141,7 +141,7 @@ class ConfigurationSpec:
 
 class PlanRequest:
     error = None
-    future_dependencies = ()
+    future_dependencies: list = []
     task = None
     render_errors = None
 
@@ -168,7 +168,7 @@ class PlanRequest:
             return True
         return self.target.template.required
 
-    def has_unfulfilled_refs(self):
+    def has_unfulfilled_refs(self) -> bool:
         for dep in self.get_unfulfilled_refs():
             return True
         return False
@@ -202,6 +202,7 @@ class PlanRequest:
 
     def __str__(self) -> str:
         return f'Planned task {self.name} for "{self.target.name}"'
+
 
 class TaskRequest(PlanRequest):
     """
@@ -449,7 +450,7 @@ def find_operation_host(target, operation_host):
     return target.root.find_instance_or_external(operation_host)
 
 
-def get_render_requests(requests):
+def get_render_requests(requests) -> Iterator[Tuple[Optional[TaskRequestGroup], PlanRequest]]:
     # returns requests that can be rendered grouped by its top-most task group
     for req in requests:
         if isinstance(req, TaskRequestGroup):
@@ -457,7 +458,9 @@ def get_render_requests(requests):
                 yield req, child  # yields root as parent
         elif isinstance(req, TaskRequest):
             yield None, req
-        elif not isinstance(req, SetStateRequest):
+        elif isinstance(req, SetStateRequest):
+            yield None, req
+        else:
             assert not req, f"unexpected type of request: {req}"
 
 

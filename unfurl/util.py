@@ -8,6 +8,7 @@ from typing import (
     Generator,
     Iterable,
     List,
+    MutableMapping,
     Optional,
     Set,
     Tuple,
@@ -152,8 +153,9 @@ class UnfurlAddingResourceError(UnfurlTaskError):
         self.resourceSpec = resourceSpec
 
 
-def wrap_sensitive_value(obj: object) -> sensitive:
-    # we don't remember the vault and vault id associated with this value
+def wrap_sensitive_value(obj: object):
+    # convert to sensitive obj if possible or return the original object
+    # Note: we don't remember the vault and vault id associated with this value
     # so the value will be rekeyed with whichever vault is associated with the serializing yaml
     if isinstance(obj, sensitive):
         return obj
@@ -539,17 +541,15 @@ def find_schema_errors(
     return message, errors
 
 
-class ChainMap(Mapping):
+class ChainMap(MutableMapping):
     """
     Combine multiple mappings for sequential lookup.
     """
 
-    def __init__(self, *maps: List[object], **kw: Mapping) -> None:
+    def __init__(self, *maps: MutableMapping) -> None:
         self._maps = maps
-        self._track = kw.get("track")
-        self.accessed: Set[object] = set()
 
-    def split(self) -> Tuple[object, "ChainMap"]:
+    def split(self) -> Tuple[MutableMapping, "ChainMap"]:
         return self._maps[0], ChainMap(*self._maps[1:])
 
     def __getitem__(self, key: Union[SupportsIndex, slice]) -> object:
@@ -558,13 +558,13 @@ class ChainMap(Mapping):
                 return mapping[key]
             except KeyError:
                 pass
-            else:
-                if self._track is mapping:
-                    self.accessed.add(key)
         raise KeyError(key)
 
-    def __setitem__(self, key: SupportsIndex, value: object) -> None:
+    def __setitem__(self, key, value: object) -> None:
         self._maps[0][key] = value
+
+    def __delitem__(self, key) -> None:
+        del self._maps[0][key]
 
     def __iter__(self) -> Iterator:
         return iter(frozenset(itertools.chain(*self._maps)))
@@ -645,7 +645,7 @@ def filter_env(
     rules: Mapping,
     env: Optional[Union[Dict, "os._Environ[str]"]] = None,
     addOnly: bool = False,
-    sub: Optional[Mapping] = None,
+    sub: Optional[MutableMapping] = None,
 ) -> Dict[str, str]:
     """
     Applies the given list of rules to a dictionary of environment variables and returns a new dictionary.

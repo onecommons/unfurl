@@ -137,7 +137,7 @@ class Configurator:
     as an alternative to using the full name ("module.class") when setting the implementation on an operation.
     (Titlecase recommended)"""
 
-    exclude_from_digest = ()
+    exclude_from_digest: Tuple[str, ...] = ()
 
     @classmethod
     def set_config_spec_args(klass, kw: dict, target: None) -> dict:

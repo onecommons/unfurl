@@ -31,7 +31,7 @@ class PythonPackageCheckConfigurator(Configurator):
             status = Status.ok
         except ImportError:
             status = Status.absent
-        except:
+        except Exception:
             status = Status.error
         yield task.done(True, status=status)
 

@@ -208,7 +208,7 @@ class ConfigTask(ConfigChange, TaskView):
     def _status(self, seen):
         return self.local_status
 
-    def __priority():
+    def __priority():  # type: ignore
         doc = "The priority property."
 
         def fget(self):
@@ -665,7 +665,7 @@ class Job(ConfigChange):
         # if there were circular dependencies or errors then notReady won't be empty
         if notReady:
             for parent, req in get_render_requests(notReady):
-                if self.workflow == "deploy" and not req.include_in_plan():  # type: ignore # we don't want to run these
+                if self.workflow == "deploy" and not req.include_in_plan():  # we don't want to run these
                     continue
                 deps = req.future_dependencies + [dep.expr for dep in req.get_unfulfilled_refs()]
                 message = f"can't fulfill {req.target.name}: never ran {deps}"
