@@ -61,7 +61,7 @@ try:
     imp = None
 except ImportError:
     import imp  # type: ignore
-from .logs import UnfurlLogger, sensitive, is_sensitive
+from .logs import LogExtraLevels, sensitive, is_sensitive
 import logging
 
 # Used for python typing, prevents circular imports
@@ -458,7 +458,7 @@ def get_random_password(count=12, prefix="uv", extra=None):
 
 
 @contextmanager
-def change_cwd(new_path: str, log: UnfurlLogger = None) -> Iterator:
+def change_cwd(new_path: str, log: LogExtraLevels = None) -> Iterator:
     """Temporarily change current working directory"""
     old_path = os.getcwd()
     if new_path:

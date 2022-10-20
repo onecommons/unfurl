@@ -17,7 +17,7 @@ def _mapCtor(self):
     return CommentedMap
 
 
-CommentedMap.mapCtor = property(_mapCtor)
+CommentedMap.mapCtor = property(_mapCtor)  # type: ignore
 
 # we can't subclass CommentedMap so we need to monkey patch
 __base__deepcopy__ = CommentedMap.__deepcopy__
@@ -31,7 +31,7 @@ def __deepcopy__(self, memo):
 
 
 if CommentedMap.__deepcopy__ is not __deepcopy__:
-    CommentedMap.__deepcopy__ = __deepcopy__  # type: ignore
+    CommentedMap.__deepcopy__ = __deepcopy__   # type: ignore
 
 
 def copy(src):

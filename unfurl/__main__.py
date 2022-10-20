@@ -491,7 +491,7 @@ def _stop_logging(job, options, verbose, tmplogfile):
 
 def _run_local(ensemble: str, options):
     logger = logging.getLogger("unfurl")
-    logger.verbose("Running command: %s", sys.argv[1:])
+    logger.verbose("Running command: %s", sys.argv[1:])  # type: ignore
     verbose = options.get("verbose", 0)
     tmplogfile = options["logfile"]
     job, rendered, proceed = start_job(ensemble, options)

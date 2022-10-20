@@ -8,6 +8,7 @@ from octodns.zone import Zone
 from ..configurator import Configurator, TaskView
 from ..projectpaths import WorkFolder
 from ..support import Status
+from ..runtime import NodeInstance
 
 from ..util import change_cwd
 from ..eval import map_value
@@ -102,9 +103,10 @@ class DNSConfigurator(Configurator):
         """Create yaml config files which will be consumed by OctoDNS"""
         properties = self._extract_properties_from(task)
         managed = properties.records
-        for cap in task.target.get_capabilities("resolve"):
-            for rel in cap.relationships:
-                managed.update(_get_records(rel.attributes))
+        if isinstance(task.target, NodeInstance):
+            for cap in task.target.get_capabilities("resolve"):
+                for rel in cap.relationships:
+                    managed.update(_get_records(rel.attributes))
         if task._errors:  # validation failed
             return managed
 

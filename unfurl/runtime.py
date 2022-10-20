@@ -62,7 +62,7 @@ class Operational(ChangeAware):
         return Defaults.shouldRun
 
     @property
-    def local_status(self) -> Status:
+    def local_status(self) -> Optional[Status]:
         return Status.unknown
 
     @property
@@ -261,7 +261,7 @@ class OperationalInstance(Operational):
     def get_operational_dependencies(self) -> Iterable["Operational"]:
         return self.dependencies
 
-    def local_status() -> Dict[str, Any]:  # type: ignore
+    def __local_status():  # type: ignore
         doc = "The local_status property."
 
         def fget(self: "OperationalInstance") -> Optional[Status]:
@@ -275,9 +275,9 @@ class OperationalInstance(Operational):
 
         return locals()
 
-    local_status = property(**local_status())  # type: ignore
+    local_status: Optional[Status] = property(**__local_status())  # type: ignore
 
-    def manual_overide_status() -> Dict[str, Any]:  # type: ignore
+    def __manual_overide_status() -> Dict[str, Any]:  # type: ignore
         doc = "The manualOverideStatus property."
 
         def fget(self: "OperationalInstance") -> Optional[Status]:
@@ -286,28 +286,22 @@ class OperationalInstance(Operational):
         def fset(self: "OperationalInstance", value: Status) -> None:
             self._manualOverideStatus = value
 
-        def fdel(self: "OperationalInstance") -> None:
-            del self._manualOverideStatus
-
         return locals()
 
-    manual_overide_status = property(**manual_overide_status())  # type: ignore
+    manual_overide_status: Optional[Status] = property(**__manual_overide_status())  # type: ignore
 
-    def priority():  # type: ignore
+    def __priority():  # type: ignore
         doc = "The priority property."
 
         def fget(self: "OperationalInstance") -> Optional[Priority]:
             return self._priority
 
-        def fset(self: "OperationalInstance", value: Priority) -> None:
-            self._priority = value
-
-        def fdel(self: "OperationalInstance") -> None:
-            del self._priority
+        def fset(self: "OperationalInstance", value):  # type: ignore
+            self._priority = to_enum(Priority, value)
 
         return locals()
 
-    priority = property(**priority())  # type: ignore
+    priority: Optional[Priority] = property(**__priority())  # type: ignore
 
     @property
     def last_state_change(self) -> Optional[datetime]:
@@ -317,7 +311,7 @@ class OperationalInstance(Operational):
     def last_config_change(self) -> Optional[datetime]:
         return self._lastConfigChange
 
-    def state():  # type: ignore
+    def __state():  # type: ignore
         doc = "The state property."
 
         def fget(self: "OperationalInstance") -> Optional[NodeState]:
@@ -328,7 +322,7 @@ class OperationalInstance(Operational):
 
         return locals()
 
-    state = property(**state())  # type: ignore
+    state: Optional[NodeState] = property(**__state())  # type: ignore
 
 
 class _ChildResources(Mapping):
@@ -381,7 +375,7 @@ class EntityInstance(OperationalInstance, ResourceRef):
 
         return Ref(expr).resolve(RefContext(self, vars=vars, trace=trace), wantList)
 
-    def local_status():  # type: ignore
+    def __local_status():  # type: ignore
         doc = "The working_dir property."
 
         def fget(self):
@@ -397,7 +391,7 @@ class EntityInstance(OperationalInstance, ResourceRef):
 
         return locals()
 
-    local_status = property(**local_status())  # type: ignore
+    local_status: Optional[Status] = property(**__local_status())  # type: ignore
 
     def get_operational_dependencies(self):
         if self.parent and self.parent is not self.root:
@@ -788,7 +782,7 @@ class NodeInstance(HasInstancesInstance):
 
         return self._capabilities
 
-    def get_capabilities(self, name):
+    def get_capabilities(self, name) -> list:
         return [
             capability
             for capability in self.capabilities
@@ -800,16 +794,17 @@ class NodeInstance(HasInstancesInstance):
         # only include named artifacts
         if self._named_artifacts is None:
             self._named_artifacts = {}
-            instantiated = {a.name: a for a in self._artifacts}
-            for name, template in self.template.artifacts.items():
-                artifact = instantiated.get(name)
-                if not artifact:
-                    artifact = ArtifactInstance(
-                        template.name, parent=self, template=template
-                    )
-                    assert artifact in self._artifacts
+            if self.template:
+                instantiated = {a.name: a for a in self._artifacts}
+                for name, template in self.template.artifacts.items():
+                    artifact = instantiated.get(name)
+                    if not artifact:
+                        artifact = ArtifactInstance(
+                            template.name, parent=self, template=template
+                        )
+                        assert artifact in self._artifacts
 
-                self._named_artifacts[template.name] = artifact
+                    self._named_artifacts[template.name] = artifact
         return self._named_artifacts
 
     def _get_default_relationships(self, relation=None):

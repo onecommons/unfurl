@@ -851,6 +851,7 @@ class EnsembleBuilder:
                 # set "" as dest because we already "consumed" dest by cloning the project to that location
                 dest = ""
 
+        assert self.dest_project is not None
         if new_project or self._needs_local_config(self.dest_project):
             # create local/unfurl.yaml in the new project
             if _create_local_config(

@@ -208,7 +208,7 @@ class ConfigTask(ConfigChange, TaskView):
     def _status(self, seen):
         return self.local_status
 
-    def priority():
+    def __priority():
         doc = "The priority property."
 
         def fget(self):
@@ -225,7 +225,7 @@ class ConfigTask(ConfigChange, TaskView):
 
         return locals()
 
-    priority = property(**priority())
+    priority: Priority = property(**__priority())
 
     @property
     def configurator(self):

@@ -1,5 +1,6 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
+from typing import Optional
 import six
 
 from .runtime import NodeInstance
@@ -65,7 +66,7 @@ class Plan:
             discover=ReadOnlyPlan,
         ).get(workflow, WorkflowPlan)
 
-    interface = None
+    interface: Optional[str] = None
 
     def __init__(self, root, toscaSpec, jobOptions):
         self.jobOptions = jobOptions

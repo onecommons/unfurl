@@ -18,7 +18,7 @@ from collections.abc import Mapping, MutableSequence
 import os
 import copy
 
-from unfurl.logs import UnfurlLogger, Levels
+from unfurl.logs import UnfurlLogger, Levels, LogExtraLevels
 
 if TYPE_CHECKING:
     from unfurl.manifest import Manifest
@@ -354,7 +354,7 @@ class _ConnectionsMap(dict):
         raise KeyError(key)
 
 
-class TaskLoggerAdapter(logging.LoggerAdapter):
+class TaskLoggerAdapter(logging.LoggerAdapter, LogExtraLevels):
     def log(self, level, msg, *args, **kwargs):
         """
         Delegate a log call to the underlying logger, after adding
@@ -373,12 +373,6 @@ class TaskLoggerAdapter(logging.LoggerAdapter):
             else:
                 msg = f"Running task {task_id}: {msg}"
             self.logger.log(level, msg, *args, **kwargs)
-
-    def trace(self, msg: str, *args: object, **kwargs: Any) -> None:
-        self.log(Levels.TRACE.value, msg, *args, **kwargs)
-
-    def verbose(self, msg: str, *args: object, **kwargs: Any) -> None:
-        self.log(Levels.VERBOSE.value, msg, *args, **kwargs)
 
 
 class TaskView:
@@ -1095,7 +1089,7 @@ class Dependency(Operational):
         self.target = target
 
     @property
-    def local_status(self) -> Status:
+    def local_status(self) -> Optional[Status]:
         if (
             self.target
             and self.target is not self.target.root
@@ -1103,7 +1097,7 @@ class Dependency(Operational):
         ):
             # (only care about local status of instances with live attribute, not their full operational status)
             # (reduces circular dependencies)
-            return self.target.local_status  # type: ignore  # mypy has trouble with @property calls
+            return self.target.local_status
         else:  # the root has inputs which don't have operational status
             return Status.ok
 

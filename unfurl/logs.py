@@ -8,6 +8,7 @@ import time
 import types
 from typing import Any, Dict, Tuple, Union
 from typing_extensions import NotRequired, TypedDict
+from abc import ABC, abstractmethod
 
 import rich
 from rich.console import Console
@@ -70,12 +71,16 @@ LOGGING = {
 }
 
 
-class UnfurlLogger(logging.Logger):
+class LogExtraLevels:
     def trace(self, msg: str, *args: object, **kwargs: Any) -> None:
-        self.log(Levels.TRACE.value, msg, *args, **kwargs)
+        self.log(Levels.TRACE.value, msg, *args, **kwargs)  # type: ignore
 
     def verbose(self, msg: str, *args: object, **kwargs: Any) -> None:
-        self.log(Levels.VERBOSE.value, msg, *args, **kwargs)
+        self.log(Levels.VERBOSE.value, msg, *args, **kwargs) # type: ignore
+
+
+class UnfurlLogger(logging.Logger, LogExtraLevels):
+    pass
 
 
 class JobLogHandler(logging.StreamHandler):
@@ -142,6 +147,7 @@ def is_sensitive(obj: object) -> bool:
         return any(is_sensitive(i) for i in obj)
     return False
 
+
 class SensitiveFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         if isinstance(record.args, collections.abc.Mapping):
@@ -175,16 +181,16 @@ def start_collapsible(name: str, section_id: Union[str, int], autoclose) -> bool
         print(
             f"\033[0Ksection_start:{int(time.time())}:task_{section_id}[collapsed={'true' if autoclose else 'false'}]\r\033[0K{name}"
         )
-    return ci
+    return bool(ci)
 
 
-def end_collapsible(section_id: Union[str, int]) -> None:
+def end_collapsible(section_id: Union[str, int]) -> bool:
     """Ends a collapsible section in Gitlab CI. See `start_collapsible`."""
     ci = os.environ.get("CI", False)  # Running in a CI environment (eg GitLab CI)
     if ci:
         # The octal \033 is used instead of \e because python doesn't recognize \e as an escape sequence
         print(f"\033[0Ksection_end:{int(time.time())}:task_{section_id}\r\033[0K")
-    return ci
+    return bool(ci)
 
 
 def initialize_logging() -> None:
