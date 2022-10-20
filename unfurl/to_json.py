@@ -470,16 +470,18 @@ def node_type_to_graphql(spec, type_definition, types: dict):
         type_definition.type
     ] = jsontype  # set now to avoid circular reference via _get_extends
     metadata = type_definition.get_value("metadata")
+    inherited_metadata = type_definition.get_value("metadata", parent=True)
     visibility = "inherit"
+    if inherited_metadata:
+        if "badge" in inherited_metadata:
+            jsontype["badge"] = inherited_metadata["badge"]
+        if "icon" in inherited_metadata:
+            jsontype["icon"] = inherited_metadata["icon"]
+        if "details_url" in inherited_metadata:
+            jsontype["details_url"] = inherited_metadata["details_url"]
     if metadata:
-        if "badge" in metadata:
-            jsontype["badge"] = metadata["badge"]
-        if "icon" in metadata:
-            jsontype["icon"] = metadata["icon"]
         if "title" in metadata:
             jsontype["title"] = metadata["title"]
-        if "details_url" in metadata:
-            jsontype["details_url"] = metadata["details_url"]
         if metadata.get("internal"):
             visibility = "hidden"
     jsontype["visibility"] = visibility
