@@ -41,6 +41,8 @@ node_types:
         type: string
         description: File path to resource definition
         required: false
+        metadata:
+          user_settable: false
     attributes:
       apiResource:
         type: map
@@ -98,12 +100,14 @@ node_types:
   unfurl.nodes.K8sSecretResource:
     derived_from: unfurl.nodes.K8sResource
     properties:
+      definition:
+        metadata:  
+          # hide because this is computed from the "type" and "data" properties
+          user_settable: false      
+      type: 
+        type: string
+        default: Opaque
       data:
-        type: map
-        required: false
-        metadata:
-          sensitive: true
-      apiResource:
         type: map
         required: false
         metadata:

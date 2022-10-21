@@ -6,7 +6,7 @@ from base64 import b64encode
 from ..configurator import Configurator
 from ..support import Status, Priority
 from ..runtime import RelationshipInstance
-from ..util import wrap_sensitive_value, sensitive_dict
+from ..util import UnfurlTaskError, wrap_sensitive_value, sensitive_dict
 from .ansible import AnsibleConfigurator
 from ..yamlloader import yaml
 from ..eval import set_eval_func, map_value
@@ -286,9 +286,9 @@ class ResourceConfigurator(AnsibleConfigurator):
         print(json.dumps(self.find_playbook(task), indent=4))
         yield task.done(True)
 
-    def make_secret(self, data):
+    def make_secret(self, data, type="Opaque"):
         return dict(
-            type="Opaque",
+            type=type,
             apiVersion="v1",
             kind="Secret",
             data=sensitive_dict({k: b64encode(str(v).encode()).decode() for k, v in data.items()}),
@@ -311,11 +311,14 @@ class ResourceConfigurator(AnsibleConfigurator):
             task.target.template.is_compatible_type("unfurl.nodes.K8sSecretResource")
             and "data" in task.target.attributes
         ):
-            return self.make_secret(task.target.attributes["data"])
+            return self.make_secret(task.target.attributes["data"], task.target.attributes["type"])
         else:
             if isinstance(definition, str):
                 definition = yaml.load(definition)
-            if definition['kind'] == 'Secret' and 'data' in definition:
+            kind = definition.get('kind')
+            if not kind:
+                raise UnfurlTaskError(task, 'invalid Kubernetes resource definition, "kind" is missing')
+            if kind == 'Secret' and 'data' in definition:
                 definition['data'] = wrap_sensitive_value(definition['data'])
             return definition
 
