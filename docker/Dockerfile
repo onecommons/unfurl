@@ -29,12 +29,15 @@ RUN echo "Installing Terraform" && \
     wget -qO /google-cloud-sdk.tar.gz \
     "https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-sdk-${GCLOUD_VERSION}-linux-x86.tar.gz" && \
     tar -zxf /google-cloud-sdk.tar.gz && \
-    rm -f /google-cloud-sdk.tar.gz \
+    rm -f /google-cloud-sdk.tar.gz && \
     \
     echo "Installing Kompose" && \
     wget -qO /usr/local/bin/kompose \
     "https://github.com/kubernetes/kompose/releases/download/${KOMPOSE_VERSION}/kompose-linux-amd64" && \
-    chmod +x /usr/local/bin/kompose
+    chmod +x /usr/local/bin/kompose && \
+    \
+    echo "Installing Kubectl and GKE auth plugin" && \
+    gcloud components install --quiet kubectl gke-gcloud-auth-plugin
 
 COPY . /unfurl
 
