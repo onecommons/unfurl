@@ -987,7 +987,7 @@ def get_deployment_blueprints(manifest, blueprint, root_name, db):
 
         # XXX assert that db["ResourceTemplate"] has already has all the node_templates
         # names of ResourceTemplates:
-        resourceTemplates = list(
+        resourceTemplates = sorted(
             set(db["ResourceTemplate"]) | set(local_resource_templates)
         )
         primary = tpl.get("primary") or root_name
@@ -1034,7 +1034,7 @@ def get_blueprint_from_topology(manifest, db):
             slug=slug,
             description=spec.template.description,
             # names of ResourceTemplates
-            resourceTemplates=list(db["ResourceTemplate"]),
+            resourceTemplates=sorted(db["ResourceTemplate"]),
             ResourceTemplate={},
             source=deployment_blueprint_name,
             projectPath=urlparse(manifest.repositories['spec'].url).path.lstrip('/').rstrip('.git')
@@ -1304,8 +1304,10 @@ def to_environments(localEnv, existing=None):
     db["ResourceType"] = all_connection_types
     return db
 
+
 def to_deployments(localEnv, existing=None):
     return set_deploymentpaths(localEnv.project, existing)
+
 
 def set_deploymentpaths(project, existing=None):
     if existing:
