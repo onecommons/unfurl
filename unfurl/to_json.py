@@ -350,10 +350,10 @@ def template_visibility(spec, t, for_resource):
         if metadata.get("internal"):
             return "hidden"
 
-    if "default" in t.directives:
-        return "hidden"
     if t.type in ["unfurl.nodes.ArtifactInstaller", "unfurl.nodes.LocalRepository"]:
         return "omit"  # skip artifacts
+    if "default" in t.directives:
+        return "hidden"
     if not for_resource and spec.discovered and t.name in spec.discovered:
         return "omit"
     return "inherit"

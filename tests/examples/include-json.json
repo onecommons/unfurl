@@ -114,26 +114,14 @@
       "name": "atlas_service",
       "title": "atlas_service",
       "description": "",
-      "directives": [],
+      "directives": [
+      ],
       "properties": [
         {
           "name": "login",
           "value": "admin"
-        },
-        {
-          "name": "password",
-          "value": "<<REDACTED>>"
         }
       ],
-      "dependencies": []
-    },
-    "configurator-artifacts": {
-      "type": "unfurl.nodes.LocalRepository",
-      "name": "configurator-artifacts",
-      "title": "configurator-artifacts",
-      "description": "",
-      "directives": [],
-      "properties": [],
       "dependencies": []
     }
   },
