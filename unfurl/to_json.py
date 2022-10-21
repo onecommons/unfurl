@@ -736,7 +736,8 @@ def nodetemplate_to_json(nodetemplate, spec, types, for_resource=False):
     ExceptionCollector.start()
     for req in nodetemplate.all_requirements:
         name, req_dict = _get_req(req)
-        if name == "dependency":  # skip base TOSCA relationship type that every node has
+        if name in ["dependency", "installer"]:
+            # skip artifact requirements and the base TOSCA relationship type that every node has
             continue
         reqDef, rel_template = nodetemplate._get_explicit_relationship(name, req_dict)
         reqconstraint = _find_requirement_constraint(jsonnodetype["requirements"], name)
