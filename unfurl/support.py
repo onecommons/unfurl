@@ -625,7 +625,7 @@ def to_env(args, ctx: RefContext):
     if ctx.task:
         env = ctx.task.get_environment(False)
     sub = _EnvMapper(env or {})
-    sub.ctx = ctx
+    sub.ctx = ctx  # type: ignore
 
     rules = map_value(args or {}, ctx)
     result = filter_env(rules, env, True, sub)

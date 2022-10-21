@@ -35,7 +35,7 @@ from toscaparser.activities import ConditionClause
 from .logs import sensitive, is_sensitive
 from .tosca import is_function, get_nodefilters
 from .localenv import LocalEnv
-from .util import to_enum
+from .util import to_enum, UnfurlError
 from .support import Status, is_template
 import logging
 
@@ -352,7 +352,7 @@ def template_visibility(spec, t, for_resource):
 
     if "default" in t.directives:
         return "hidden"
-    if t.type == "unfurl.nodes.ArtifactInstaller":
+    if t.type in ["unfurl.nodes.ArtifactInstaller", "unfurl.nodes.LocalRepository"]:
         return "omit"  # skip artifacts
     if not for_resource and spec.discovered and t.name in spec.discovered:
         return "omit"
@@ -401,44 +401,53 @@ def always_export(p):
 #         return None
 #     return attribute_value_to_json(p, value)
 
-def redact_if_sensitive(value):
-    if isinstance(value, Mapping):
-        return {
-            key: redact_if_sensitive(v)
-            for key, v in value.items()
-        }
-    elif isinstance(value, (MutableSequence, tuple)):
-        return [redact_if_sensitive(item) for item in value]
-    elif is_sensitive(value):
-        return sensitive.redacted_str
-    else:
-        return value
-
-
 def _is_get_env_or_secret(value):
     return isinstance(value, dict) and (
       "get_env" in value or "secret" in value or "_generate" in value)
 
 
-def attribute_value_to_json(p, value):
-    if p.schema.metadata.get("sensitive"):
-        if _is_get_env_or_secret(value):
-            return value
-        return sensitive.redacted_str
+class PropertyVisitor:
+    redacted = False
+    user_settable = False
 
-    if isinstance(value, PortSpec):
-        return value.spec
-    elif isinstance(value, dict) and p.type in [
-        "tosca.datatypes.network.PortSpec",
-        "PortSpec",
-    ]:
-        return PortSpec.make(value).spec
-    scalar_class = get_scalarunit_class(p.type)
-    if scalar_class:
-        unit = p.schema.metadata.get("default_unit")
-        if unit:  # convert to the default_unit
-            return scalar_class(value).get_num_from_scalar_unit(unit)
-    return redact_if_sensitive(value)
+    def redact_if_sensitive(self, value):
+        if isinstance(value, Mapping):
+            return {
+                key: self.redact_if_sensitive(v)
+                for key, v in value.items()
+            }
+        elif isinstance(value, (MutableSequence, tuple)):
+            return [self.redact_if_sensitive(item) for item in value]
+        elif is_sensitive(value):
+            self.redacted = True
+            return sensitive.redacted_str
+        else:
+            return value
+
+    def attribute_value_to_json(self, p, value):
+        if p.schema.metadata.get("sensitive"):
+            if is_value_computed(value) or _is_get_env_or_secret(value):
+                return value
+            self.redacted = True
+            return sensitive.redacted_str
+
+        if isinstance(value, PortSpec):
+            return value.spec
+        elif isinstance(value, dict) and p.type in [
+            "tosca.datatypes.network.PortSpec",
+            "PortSpec",
+        ]:
+            return PortSpec.make(value).spec
+        scalar_class = get_scalarunit_class(p.type)
+        if scalar_class:
+            unit = p.schema.metadata.get("default_unit")
+            if unit:  # convert to the default_unit
+                return scalar_class(value).get_num_from_scalar_unit(unit)
+        return self.redact_if_sensitive(value)
+
+
+def attribute_value_to_json(p, value):
+    return PropertyVisitor().attribute_value_to_json(p, value)
 
 
 # XXX outputs: only include "public" attributes?
@@ -646,7 +655,7 @@ def _get_typedef(name: str, spec):
     return typedef
 
 
-def template_properties_to_json(nodetemplate):
+def template_properties_to_json(nodetemplate, visitor):
     # if they aren't only include ones with an explicity value
     for p in nodetemplate.get_properties_objects():
         computed = is_computed(p)
@@ -654,8 +663,11 @@ def template_properties_to_json(nodetemplate):
             # don't expose values that are expressions to the user
             value = None
         else:
-            value = attribute_value_to_json(p, p.value)
-        if not is_property_user_visible(p):
+            value = visitor.attribute_value_to_json(p, p.value)
+        user_visible = is_property_user_visible(p)
+        if user_visible:
+            visitor.user_settable = True
+        else:
             if p.value is None or p.value == p.default:
                 # assumed to not be set, just use the default value and skip
                 continue
@@ -711,7 +723,11 @@ def nodetemplate_to_json(nodetemplate, spec, types, for_resource=False):
         json["imported"] = nodetemplate.entity_tpl.get("imported")
 
     jsonnodetype = types[nodetemplate.type]
-    json["properties"] = list(template_properties_to_json(nodetemplate))
+    visitor = PropertyVisitor()
+    json["properties"] = list(template_properties_to_json(nodetemplate, visitor))
+    if visitor.redacted and "predefined" not in nodetemplate.directives:
+        json["directives"].append("predefined")
+        logger.warning("Adding 'predefined' directive to '%s' because it has redacted properties", nodetemplate.name)
     json["dependencies"] = []
     visibility = template_visibility(spec, nodetemplate, for_resource)
     if visibility != "inherit":
@@ -733,6 +749,7 @@ def nodetemplate_to_json(nodetemplate, spec, types, for_resource=False):
     # this is the same as on the type because of the bug where attribute set on a node_template are ignored
     # json["outputs"] = jsonnodetype["outputs"]
 
+    has_visible_dependency = False
     ExceptionCollector.start()
     for req in nodetemplate.all_requirements:
         name, req_dict = _get_req(req)
@@ -763,8 +780,17 @@ def nodetemplate_to_json(nodetemplate, spec, types, for_resource=False):
                 visibility = "hidden"
         if visibility:
             reqjson["constraint"] = dict(reqjson["constraint"], visibility=visibility)
+        if visibility != "hidden":
+            has_visible_dependency =  True
         json["dependencies"].append(reqjson)
 
+    if "predefined" in json["directives"] and json.get("visibility") not in ["hidden", "omit"]:
+        if visitor.user_settable:
+            raise UnfurlError(
+                f"Can't export template '{nodetemplate.name}' because it is both predefined and has settings the user can change.")
+        if has_visible_dependency:
+            raise UnfurlError(
+                f"Can't export template '{nodetemplate.name}' because it is both predefined and has requirements the user can change.")
     return json
 
 
