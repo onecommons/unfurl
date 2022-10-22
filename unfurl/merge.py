@@ -83,7 +83,8 @@ def merge_dicts(
 
     Similar to https://yaml.org/type/merge.html but does a recursive merge
     """
-    cls = getattr(b, "mapCtor", cls or b.__class__)
+    if cls is not dict:
+        cls = getattr(b, "mapCtor", cls or b.__class__)
     cp = cls()
     skip = []
     for key, val in a.items():
@@ -108,6 +109,7 @@ def merge_dicts(
                         cp[key] = merge_dicts(
                             bval,
                             val,
+                            cls,
                             defaultStrategy=childStrategy,
                             replaceKeys=replaceKeys,
                             listStrategy=listStrategy,
@@ -139,6 +141,7 @@ def merge_dicts(
                                 bval[i] = merge_dicts(
                                     bitem,
                                     item,
+                                    cls,
                                     defaultStrategy=childStrategy,
                                     replaceKeys=replaceKeys,
                                     listStrategy=listStrategy,
