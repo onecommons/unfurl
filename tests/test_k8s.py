@@ -1,4 +1,6 @@
 import os
+import os.path
+import re
 import sys
 import unittest
 import warnings
@@ -13,7 +15,8 @@ from unfurl.runtime import Status
 from unfurl.yamlmanifest import YamlManifest
 from unfurl.configurators.k8s import get_kubectl_args
 
-from .utils import lifecycle, Step
+from .utils import lifecycle, Step, init_project, run_job_cmd
+from click.testing import CliRunner
 
 if not sys.warnoptions:
     # Ansible generates tons of ResourceWarnings
@@ -160,6 +163,7 @@ def test_kompose():
             assert len(resources) == 4, resources
             for resource in resources:
                 if resource["kind"] == "Pod":
+                    assert resource["spec"]["containers"][0]["livenessProbe"]["tcpSocket"]["port"] == 8001
                     pod_name = resource["metadata"]["name"]
                     logs, stderr = _get_pod_logs(task, pod_name)
                     count = 0
@@ -246,6 +250,26 @@ KOMPOSE = """\
                   inputs:
                     container:
                       eval: .::container
+                    annotations:
+                      foo.com.mymetadata: "true"
+                    labels:
+                      # port and healthcheck will be added if missing
+                      kompose.service.healthcheck.liveness.tcp_port: null
+"""
+
+KOMPOSE_INGRESS = """\
+                    expose: foo.com # creates an ingress record
+                    ingress_extras:
+                      eval:
+                        template: |
+                          metadata:
+                            annotations:
+                              kubernetes.io/ingress.class: nginx
+                          spec:
+                            tls:
+                            - hosts:
+                                - foo.com
+                              secretName: {{ secret is defined or 'tls_secret' }}
 """
 
 # XXX
@@ -283,3 +307,35 @@ KOMPOSE2 = """\
 """
 
 KOMPOSE_MANIFEST = BASE % KOMPOSE_NS + KOMPOSE
+
+def test_kompose_ingress():
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        init_project(
+            runner,
+            args=["init", "--mono"],
+        )
+        with open("ensemble/ensemble.yaml", "w") as f:
+            f.write(KOMPOSE_MANIFEST + KOMPOSE_INGRESS)
+        # suppress logging
+        try:
+            old_env_level = os.environ.get("UNFURL_LOGGING")
+            result, job, summary = run_job_cmd(
+                runner,
+                ["--quiet", "deploy", "--dryrun"],
+                env={"UNFURL_LOGGING": "critical"},
+            )
+        finally:
+            if old_env_level:
+                os.environ["UNFURL_LOGGING"] = old_env_level
+        # print(job.manifest.status_summary())
+        # output = result.output.strip()
+        # print( output )
+        ingress_playbook = "ensemble/active/tasks/busybox-ingress/configure/playbook.yml"
+        assert os.path.exists(ingress_playbook)
+        with open(ingress_playbook) as f:
+            ingress = f.read().strip()
+            # print("ingress", ingress)
+            assert "foo.com.mymetadata:" in ingress
+            assert re.search(r"""annotations:\s+kubernetes.io/ingress.class: nginx""", ingress) is not None
+            assert re.search(r"""spec:\s+tls:""", ingress) is not None

@@ -281,9 +281,7 @@ class ResourceConfigurator(AnsibleConfigurator):
             return self.run(task)
 
     def dry_run(self, task):
-        # XXX don't use print()
-        print("generating playbook")
-        print(json.dumps(self.find_playbook(task), indent=4))
+        task.logger.info("dry run: generating playbook:\n%s", self.find_playbook(task))
         yield task.done(True)
 
     def make_secret(self, data, type="Opaque"):
