@@ -2,6 +2,23 @@
 # SPDX-License-Identifier: MIT
 tosca_definitions_version: tosca_simple_unfurl_1_0_0
 
+imports:
+  - repository: unfurl
+    file: tosca_plugins/artifacts.yaml
+
+topology_template:
+  node_templates:
+    kube-artifacts:
+      type: unfurl.nodes.LocalRepository
+      directives:
+        - default # we need this so that this node template is imported
+      artifacts:
+        helm:
+          type: artifact.AsdfTool
+          file: kubectl
+          properties:
+            version: 1.25.3
+
 node_types:
   unfurl.nodes.K8sCluster:
     derived_from: tosca.nodes.Root
