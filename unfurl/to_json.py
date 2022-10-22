@@ -784,7 +784,7 @@ def nodetemplate_to_json(nodetemplate, spec, types, for_resource=False):
             has_visible_dependency =  True
         json["dependencies"].append(reqjson)
 
-    if "predefined" in json["directives"] and json.get("visibility") not in ["hidden", "omit"]:
+    if not for_resource and "predefined" in json["directives"] and json.get("visibility") not in ["hidden", "omit"]:
         if visitor.user_settable:
             raise UnfurlError(
                 f"Can't export template '{nodetemplate.name}' because it is both predefined and has settings the user can change.")
