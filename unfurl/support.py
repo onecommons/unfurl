@@ -42,6 +42,7 @@ from .util import (
     sensitive,
     filter_env,
     env_var_value,
+    get_random_password,
 )
 from .merge import intersect_dict, merge_dicts
 from unfurl.projectpaths import get_path
@@ -739,6 +740,9 @@ def get_nodes_of_type(type_name, ctx: RefContext):
 
 
 set_eval_func("get_nodes_of_type", get_nodes_of_type, True)
+
+
+set_eval_func("_generate", lambda arg, ctx: get_random_password(10, ""), True)
 
 
 class ContainerImage(ExternalValue):

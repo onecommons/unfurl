@@ -371,6 +371,8 @@ def is_property_user_visible(p):
 def is_value_computed(value):
     if isinstance(value, list):
         return any(is_function(item) or is_template(item) for item in value)
+    if isinstance(value, dict) and "_generate" in value:  # special case for client
+        return False
     return is_function(value) or is_template(value)
 
 
@@ -402,8 +404,8 @@ def always_export(p):
 #     return attribute_value_to_json(p, value)
 
 def _is_get_env_or_secret(value):
-    return isinstance(value, dict) and (
-      "get_env" in value or "secret" in value or "_generate" in value)
+    if isinstance(value, dict):
+      return "get_env" in value or "secret" in value or "_generate" in value
 
 
 class PropertyVisitor:
