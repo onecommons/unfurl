@@ -167,8 +167,10 @@ class KomposeConfigurator(ShellConfigurator):
         task.logger.debug("writing docker-compose:\n %s", compose)
         cwd.write_file(compose, "docker-compose.yml")
         result = self.run_process(cmd + ["convert", "-o", output_dir], cwd=cwd.cwd)
+        ingress_extras = task.inputs.get_copy("ingress_extras")
         if not self._handle_result(task, result, cwd.cwd):
             raise UnfurlTaskError(task, "kompose convert failed")
+        return ingress_extras
 
     # XXX if updating should either update or delete previously created resources
     # XXX when updating compare resources, if nothing has yield the restart operation
@@ -180,7 +182,7 @@ class KomposeConfigurator(ShellConfigurator):
         files = os.listdir(out_path)
         # add each file as a Unfurl k8s resource so unfurl can manage them (in particular, delete them)
         task.logger.verbose("Creating Kubernetes resources from these files: %s", ", ".join(files))
-        ingress_extras = task.inputs.get_copy("ingress_extras")
+        ingress_extras = task.rendered
         jobRequest, errors = task.update_instances([
             _load_resource_file(task, out_path, filename, ingress_extras) for filename in files
         ])
