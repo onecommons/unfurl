@@ -519,12 +519,16 @@ class ToscaSpec:
                 )
 
         for name, impl in tpl.get("instances", {}).items():
-            if name not in node_templates and isinstance(impl, dict):
-                # add this as a template
-                if "template" not in impl:
-                    node_templates[name] = self.instance_to_template(impl.copy())
-                elif isinstance(impl["template"], dict):
-                    node_templates[name] = impl["template"]
+            if not isinstance(impl, dict):
+                continue
+            if name in node_templates:
+                if "default" not in node_templates[name].get('directives', []):
+                    continue  # allow default templates to be overridden
+            # add this as a template
+            if "template" not in impl:
+                node_templates[name] = self.instance_to_template(impl.copy())
+            elif isinstance(impl["template"], dict):
+                node_templates[name] = impl["template"]
 
         if "discovered" in tpl:
             # node templates added dynamically by configurators
