@@ -984,12 +984,12 @@ class NodeSpec(EntitySpec):
                 relSpec.toscaEntityTemplate.source.name
                 == reqSpec.parentNode.toscaEntityTemplate.name
             ):
-                assert not reqSpec.relationship or reqSpec.relationship is relSpec, (
+                assert not reqSpec.relationship or reqSpec.relationship.name == relSpec.name, (
                     reqSpec.relationship,
                     relSpec,
                 )
                 reqSpec.relationship = relSpec
-                assert not relSpec.requirement or relSpec.requirement is reqSpec, (
+                assert not relSpec.requirement or relSpec.requirement.name == reqSpec.name, (
                     relSpec.requirement,
                     reqSpec,
                 )
@@ -1122,7 +1122,7 @@ class RequirementSpec:
         # occurrences
 
     def __repr__(self):
-        return f"{self.__class__.__name__}('{self.name}')"
+        return f"{self.__class__.__name__}('{self.name}'):{self.entity_tpl}"
 
     @property
     def artifacts(self):
