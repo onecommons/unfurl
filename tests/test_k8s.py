@@ -240,6 +240,10 @@ KOMPOSE = """\
                 - 8001:8001
               environment:
                 FOO: bar
+            ingress_annotations:
+                kubernetes.io/ingress.class: nginx
+                kubernetes.io/ingress.provider: nginx
+                cert-manager.io/issuer: issuer
           requirements:
             - host: k8sNamespace
           interfaces:
@@ -263,8 +267,7 @@ KOMPOSE_INGRESS = """\
                       eval:
                         template: |
                           metadata:
-                            annotations:
-                              kubernetes.io/ingress.class: nginx
+                            annotations: {{ ".::ingress_annotations" | eval | map_value | to_json }}                         
                           spec:
                             tls:
                             - hosts:
@@ -337,5 +340,5 @@ def test_kompose_ingress():
             ingress = f.read().strip()
             # print("ingress", ingress)
             assert "foo.com.mymetadata:" in ingress
-            assert re.search(r"""annotations:\s+kubernetes.io/ingress.class: nginx""", ingress) is not None
-            assert re.search(r"""spec:\s+tls:""", ingress) is not None
+            assert re.search(r"""annotations:\s+kubernetes.io/ingress.class: nginx""", ingress) is not None, ingress
+            assert re.search(r"""spec:\s+tls:""", ingress) is not None, ingress

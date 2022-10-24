@@ -74,6 +74,18 @@ def render_compose(container: dict, image="", service_name=None):
     })
 
 
+def get_ingress_extras(task, ingress_extras):
+    if ingress_extras and isinstance(ingress_extras, str):
+        if ingress_extras.strip():
+            try: 
+                ingress_extras = yaml.load(ingress_extras)
+            except Exception:
+                raise UnfurlTaskError(task, f"error parsing ingress_extras:\n{ingress_extras}")
+        else:
+            return None
+    return ingress_extras
+
+
 class KomposeConfigurator(ShellConfigurator):
     _default_cmd = "kompose"
     _default_dryrun_arg = "--dry-run='client'"
@@ -164,10 +176,12 @@ class KomposeConfigurator(ShellConfigurator):
         # kompose.volume.type	: configMap
         # if there's a volume mapping that points to file use --volumes=configMap option,
         # (see https://github.com/kubernetes/kompose/pull/1216)
-        task.logger.debug("writing docker-compose:\n %s", compose)
+        task.logger.debug("writing docker-compose:\n%s", compose)
         cwd.write_file(compose, "docker-compose.yml")
         result = self.run_process(cmd + ["convert", "-o", output_dir], cwd=cwd.cwd)
-        ingress_extras = task.inputs.get_copy("ingress_extras")
+        ingress_extras = get_ingress_extras(task, task.inputs.get_copy("ingress_extras"))
+        if ingress_extras:
+            task.logger.debug("setting ingress_extras to:\n%s", ingress_extras)
         if not self._handle_result(task, result, cwd.cwd):
             raise UnfurlTaskError(task, "kompose convert failed")
         return ingress_extras
@@ -197,17 +211,6 @@ class KomposeConfigurator(ShellConfigurator):
         return True
 
 
-def set_ingress_extras(definition, ingress_extras):
-    if ingress_extras and isinstance(ingress_extras, str):
-        if ingress_extras.strip():
-            ingress_extras = yaml.load(ingress_extras.strip())
-        else:
-            ingress_extras = None
-    if ingress_extras:
-        return merge_dicts(definition, ingress_extras)
-    return definition
-
-
 def configure_inputs(definition, timeout):
     timeout = timeout or TIMEOUT
     delay = 10
@@ -228,8 +231,8 @@ def _load_resource_file(task, out_path, filename, ingress_extras):
     with open(Path(out_path) / filename) as f:
         definition = f.read()
     definition = yaml.load(definition)
-    if definition["kind"] == "Ingress":
-        definition = set_ingress_extras(definition, ingress_extras)
+    if definition["kind"] == "Ingress" and ingress_extras:
+        definition = merge_dicts(definition, ingress_extras)
     annotations = task.inputs.get('annotations')
     if annotations:
         definition.setdefault("metadata", {}).setdefault("annotations", {}).update(annotations)
