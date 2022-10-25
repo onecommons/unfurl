@@ -11,7 +11,7 @@ requests>=2.14.2 # Apache 2.0
 google-cloud-compute==1.3.2
 google-cloud-dns==0.34.0
 google-auth # Apache 2.0
-grpcio==1.47.0 # fix issue with m1 macs
+grpcio==1.50.0 # fix issue with m1 macs
 python-gitlab<=3.4.0
 # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 # NB: this need to stay in in sync with [extras] in setup.cfg

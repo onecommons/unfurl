@@ -14,7 +14,7 @@ import re
 import ast
 import time
 from typing import cast, Dict, Optional, Any
-from enum import IntEnum
+from enum import Enum
 from urllib.parse import urlsplit
 
 
@@ -58,7 +58,7 @@ import logging
 logger = logging.getLogger("unfurl")
 
 
-class Status(IntEnum):
+class Status(int, Enum):
     unknown = 0
     ok = 1
     degraded = 2
@@ -68,16 +68,26 @@ class Status(IntEnum):
 
 
 # see "3.4.1 Node States" p74
-NodeState = IntEnum(
-    "NodeState",
-    "initial creating created configuring configured starting started stopping stopped deleting deleted error",
-    module=__name__,
-)
+class NodeState(int, Enum):
+    initial = 1
+    creating = 2
+    created = 3
+    configuring = 4
+    configured = 5
+    starting = 6
+    started = 7
+    stopping = 8
+    stopped = 9
+    deleting = 10
+    deleted = 11
+    error = 12
 
-# ignore may must
-Priority = IntEnum(
-    "Priority", "ignore optional required critical", start=0, module=__name__
-)
+
+class Priority(int, Enum):
+  ignore = 0
+  optional = 1
+  required = 2
+  critical = 3
 
 
 class Reason:
