@@ -155,7 +155,7 @@
 <section id="deploy-infrastructure-from-simple-application-centric-descriptions">
 <h3>Deploy infrastructure from simple, application-centric descriptions<a class="headerlink" href="#deploy-infrastructure-from-simple-application-centric-descriptions" title="Permalink to this headline"></a></h3>
 <ul class="simple">
-<li><p>Model your cloud infrasture with <a class="reference external" href="https://www.oasis-open.org/committees/tc_home.php?wg_abbrev=tosca">OASIS TOSCA</a> (Topology and Orchestration Specification for Cloud Applications) standard YAML vocabulary.</p></li>
+<li><p>Model your cloud infrastructure with <a class="reference external" href="https://www.oasis-open.org/committees/tc_home.php?wg_abbrev=tosca">OASIS TOSCA</a> (Topology and Orchestration Specification for Cloud Applications) standard YAML vocabulary.</p></li>
 <li><p>Import reusable and adaptable components or build (and publish) your own.</p></li>
 <li><p>Easily declare dependencies to enable incremental deployment.</p></li>
 <li><p>Path-based query DSL to express dynamic relationships between resources and configurations</p></li>
@@ -226,18 +226,34 @@
 <section id="installation">
 <h1>Installation<a class="headerlink" href="#installation" title="Permalink to this headline"></a></h1>
 <p><code class="docutils literal notranslate"><span class="pre">unfurl</span></code> is available on <a class="reference external" href="https://pypi.org/project/unfurl/">PyPI</a>. You can install using <code class="docutils literal notranslate"><span class="pre">pip</span></code> (or <code class="docutils literal notranslate"><span class="pre">pip3</span></code>):</p>
-<p><code class="docutils literal notranslate"><span class="pre">pip</span> <span class="pre">install</span> <span class="pre">unfurl</span></code></p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pip</span> <span class="n">install</span> <span class="n">unfurl</span>
+</pre></div>
+</div>
 <p>By default <code class="docutils literal notranslate"><span class="pre">unfurl</span></code> creates a virtual Python environment to run in so it only installs the minimal requirements needed to run the command line. If you want to run it using your system Python install it with the “full” option:</p>
-<p><code class="docutils literal notranslate"><span class="pre">pip</span> <span class="pre">install</span> <span class="pre">unfurl[full]</span></code></p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pip</span> <span class="n">install</span> <span class="n">unfurl</span><span class="p">[</span><span class="n">full</span><span class="p">]</span>
+</pre></div>
+</div>
 <p>You can also install <code class="docutils literal notranslate"><span class="pre">unfurl</span></code> directly from this repository to get the latest code:</p>
-<p><code class="docutils literal notranslate"><span class="pre">pip3</span> <span class="pre">install</span> <span class="pre">&quot;git+https://github.com/onecommons/unfurl.git#egg=unfurl&quot;</span></code></p>
-<p>Alternatively, you can use the Unfurl container on docker.io at <code class="docutils literal notranslate"><span class="pre">onecommons/unfurl:latest</span></code></p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pip3</span> <span class="n">install</span> <span class="s2">&quot;git+https://github.com/onecommons/unfurl.git#egg=unfurl&quot;</span>
+</pre></div>
+</div>
+<p>Alternatively, you can use the <a class="reference external" href="https://hub.docker.com/r/onecommons/unfurl">Unfurl container on Docker Hub</a>:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>docker run --rm -it -v $(pwd):/data -w /data onecommons/unfurl:stable unfurl ...
+</pre></div>
+</div>
+<p>The <code class="docutils literal notranslate"><span class="pre">stable</span></code> tag matches the version published to PyPi; <code class="docutils literal notranslate"><span class="pre">latest</span></code> is the latest code from the repository.</p>
 <section id="requirements">
 <h2>Requirements<a class="headerlink" href="#requirements" title="Permalink to this headline"></a></h2>
-<p>Linux or MacOs</p>
-<p>Python (3.7, 3.8, 3.9 or 3.10); git</p>
-<p>Python 3.6 is not tested automatically but should work. However you should make sure you have the latest version of pip installed (<code class="docutils literal notranslate"><span class="pre">pip</span> <span class="pre">install</span> <span class="pre">-U</span> <span class="pre">pip</span></code>) and may need to have Rust installed for the <a class="reference external" href="https://github.com/pyca/cryptography/blob/main/docs/installation.rst">crytography library</a>.</p>
-<p>Optional: docker</p>
+<ul>
+<li><p>Linux or MacOS</p></li>
+<li><p>Git</p></li>
+<li><p>Python (3.7, 3.8, 3.9, 3.10 or 3.11)</p>
+<blockquote>
+<div><p>Python 3.6 is not tested automatically but should work. Make sure you have the latest version of pip installed (<code class="docutils literal notranslate"><span class="pre">pip</span> <span class="pre">install</span> <span class="pre">-U</span> <span class="pre">pip</span></code>), and may need Rust installed for the <a class="reference external" href="https://github.com/pyca/cryptography/blob/main/docs/installation.rst">cryptography library</a>.</p>
+</div></blockquote>
+</li>
+</ul>
+<p>Optional: Docker or Podman</p>
 </section>
 <section id="shell-autocomplete">
 <h2>Shell autocomplete<a class="headerlink" href="#shell-autocomplete" title="Permalink to this headline"></a></h2>
@@ -272,12 +288,18 @@
 </section>
 <section id="developing">
 <h2>Developing<a class="headerlink" href="#developing" title="Permalink to this headline"></a></h2>
-<p><code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">clone</span> <span class="pre">--recurse-submodules</span> <span class="pre">https://github.com/onecommons/unfurl</span></code></p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">git</span> <span class="n">clone</span> <span class="o">--</span><span class="n">recurse</span><span class="o">-</span><span class="n">submodules</span> <span class="n">https</span><span class="p">:</span><span class="o">//</span><span class="n">github</span><span class="o">.</span><span class="n">com</span><span class="o">/</span><span class="n">onecommons</span><span class="o">/</span><span class="n">unfurl</span>
+</pre></div>
+</div>
 <p>To build documentation: Run <code class="docutils literal notranslate"><span class="pre">tox</span> <span class="pre">-e</span> <span class="pre">docs</span></code>.</p>
 <p>To build a distribution package run:</p>
-<p><code class="docutils literal notranslate"><span class="pre">python</span> <span class="pre">setup.py</span> <span class="pre">sdist</span> <span class="pre">bdist_wheel</span></code></p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">python</span> <span class="n">setup</span><span class="o">.</span><span class="n">py</span> <span class="n">sdist</span> <span class="n">bdist_wheel</span>
+</pre></div>
+</div>
 <p>You can now install this package with pip, for example:</p>
-<p><code class="docutils literal notranslate"><span class="pre">pip</span> <span class="pre">install</span> <span class="pre">./dist/unfurl-0.2.2.dev3-py2.py3-none-any.whl</span></code></p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pip</span> <span class="n">install</span> <span class="o">./</span><span class="n">dist</span><span class="o">/</span><span class="n">unfurl</span><span class="o">-</span><span class="mf">0.2.2</span><span class="o">.</span><span class="n">dev3</span><span class="o">-</span><span class="n">py2</span><span class="o">.</span><span class="n">py3</span><span class="o">-</span><span class="n">none</span><span class="o">-</span><span class="nb">any</span><span class="o">.</span><span class="n">whl</span>
+</pre></div>
+</div>
 </section>
 <section id="running-unit-tests">
 <h2>Running unit tests<a class="headerlink" href="#running-unit-tests" title="Permalink to this headline"></a></h2>
