@@ -47,7 +47,7 @@ Simple, stand-alone CLI that can be used both in your local development environm
 
 ### Deploy infrastructure from simple, application-centric descriptions
 
-- Model your cloud infrasture with [OASIS TOSCA](https://www.oasis-open.org/committees/tc_home.php?wg_abbrev=tosca) (Topology and Orchestration Specification for Cloud Applications) standard YAML vocabulary.
+- Model your cloud infrastructure with [OASIS TOSCA](https://www.oasis-open.org/committees/tc_home.php?wg_abbrev=tosca) (Topology and Orchestration Specification for Cloud Applications) standard YAML vocabulary.
 - Import reusable and adaptable components or build (and publish) your own.
 - Easily declare dependencies to enable incremental deployment.
 - Path-based query DSL to express dynamic relationships between resources and configurations
@@ -91,7 +91,7 @@ Simple, stand-alone CLI that can be used both in your local development environm
 - Automatic encryption of files in `secrets` folders.
 - Sensitive content redacted in output and logs
 
-### “Day Two” Operations
+### "Day Two" Operations
 
 - Check, discover and repair commands
 - Define your own workflows for maintenance tasks like backup and restore.
@@ -100,27 +100,39 @@ Simple, stand-alone CLI that can be used both in your local development environm
 
 `unfurl` is available on [PyPI](https://pypi.org/project/unfurl/). You can install using `pip` (or `pip3`):
 
-`pip install unfurl`
+```
+pip install unfurl
+```
 
 By default `unfurl` creates a virtual Python environment to run in so it only installs the minimal requirements needed to run the command line. If you want to run it using your system Python install it with the "full" option:
 
-`pip install unfurl[full]`
+```
+pip install unfurl[full]
+```
 
 You can also install `unfurl` directly from this repository to get the latest code:
 
-`pip3 install "git+https://github.com/onecommons/unfurl.git#egg=unfurl"`
+```
+pip3 install "git+https://github.com/onecommons/unfurl.git#egg=unfurl"
+```
 
-Alternatively, you can use the Unfurl container on docker.io at `onecommons/unfurl:latest`
+Alternatively, you can use the [Unfurl container on Docker Hub](https://hub.docker.com/r/onecommons/unfurl):
+
+```
+docker run --rm -it -v $(pwd):/data -w /data onecommons/unfurl:stable unfurl ...
+```
+
+The `stable` tag matches the version published to PyPi; `latest` is the latest code from the repository.
 
 ## Requirements
 
-Linux or MacOs
+- Linux or MacOS
+- Git
+- Python (3.7, 3.8, 3.9, 3.10 or 3.11)
 
-Python (3.7, 3.8, 3.9, 3.10 or 3.11); git
+  > Python 3.6 is not tested automatically but should work. Make sure you have the latest version of pip installed (`pip install -U pip`), and may need Rust installed for the [cryptography library](https://github.com/pyca/cryptography/blob/main/docs/installation.rst).
 
-Python 3.6 is not tested automatically but should work. However you should make sure you have the latest version of pip installed (`pip install -U pip`) and may need to have Rust installed for the [crytography library](https://github.com/pyca/cryptography/blob/main/docs/installation.rst).
-
-Optional: docker or podman
+Optional: Docker or Podman
 
 ## Shell autocomplete
 
@@ -137,17 +149,23 @@ Use the table below to activate shell autocompletion for the `unfurl`:
 
 ## Developing
 
-`git clone --recurse-submodules https://github.com/onecommons/unfurl`
+```
+git clone --recurse-submodules https://github.com/onecommons/unfurl
+```
 
 To build documentation: Run `tox -e docs`.
 
 To build a distribution package run:
 
-`python setup.py sdist bdist_wheel`
+```
+python setup.py sdist bdist_wheel
+```
 
 You can now install this package with pip, for example:
 
-`pip install ./dist/unfurl-0.2.2.dev3-py2.py3-none-any.whl`
+```
+pip install ./dist/unfurl-0.2.2.dev3-py2.py3-none-any.whl
+```
 
 ## Running unit tests
 
