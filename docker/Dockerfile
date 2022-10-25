@@ -1,8 +1,8 @@
 FROM python:3.9.9-slim
 
 RUN apt-get -qq update && \
-    apt-get install -qq -y git curl unzip wget expect && \
-    rm -rf /var/lib/apt/lists/*
+    apt-get -qq install -y git curl unzip wget expect && \
+    apt-get -qq clean -y && rm -rf /var/lib/apt/lists/*
 
 ARG TERRAFORM_VERSION=1.1.4
 ARG HELM_VERSION=3.7.1
@@ -41,5 +41,5 @@ RUN echo "Installing Terraform" && \
 
 COPY . /unfurl
 
-RUN pip install /unfurl[full] && \
+RUN pip install --no-cache-dir /unfurl[full] && \
     rm -rf /unfurl

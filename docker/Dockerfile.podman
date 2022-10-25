@@ -1,0 +1,19 @@
+# use tag param to reuse the just-built image in CI
+ARG  UNFURL_TAG=latest
+FROM onecommons/unfurl:${UNFURL_TAG}
+
+RUN apt-get -qq update && \
+    apt-get -qq install -y --no-install-recommends podman buildah && \
+    apt-get -qq clean -y && rm -rf /var/lib/apt/lists/*
+
+# add alias script like podman-docker (which is not available in debian currently)
+RUN echo -e '#!/bin/sh\nexec /usr/bin/podman $@' > /usr/local/bin/docker && \
+    chmod +x /usr/local/bin/docker
+
+# add config to use host (outer container) namespaces and such
+# taken from https://github.com/containers/podman/tree/main/contrib/podmanimage
+ADD https://raw.githubusercontent.com/containers/libpod/master/contrib/podmanimage/stable/containers.conf \
+    /etc/containers/containers.conf
+
+# emulate docker behavior and pull from docker registry if no host given
+RUN echo 'unqualified-search-registries=["docker.io"]' > /etc/containers/registries.conf
