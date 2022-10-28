@@ -11,10 +11,11 @@ from typing import (
     Union,
     ValuesView,
     cast,
+    MutableSequence
 )
 from typing_extensions import TypedDict
 import six
-from collections.abc import Mapping, MutableSequence
+from collections.abc import Mapping
 import os
 import copy
 
@@ -400,7 +401,7 @@ class TaskView:
         self.configSpec = configSpec
         self.target = target
         self.reason = reason
-        self.logger = TaskLoggerAdapter(logger, self)
+        self.logger = TaskLoggerAdapter(logger, self) # type: ignore
         self.cwd = os.path.abspath(self.target.base_dir)
         self.rendered: Any = None
         self.dry_run = None
@@ -438,10 +439,12 @@ class TaskView:
             ctx = RefContext(self.target, task=self)
             # deepcopy because ResultsMap might modify interior maps and lists
             inputs = copy.deepcopy(self.configSpec.inputs)
-            relationship = isinstance(self.target, RelationshipInstance)
-            if relationship:
-                target = self.target.target  # type: ignore  # checked with isinstance above
-                if not target:
+            relationship = None
+            if isinstance(self.target, RelationshipInstance):
+                relationship = self.target
+                if self.target.target:
+                    target: EntityInstance = self.target.target
+                else:
                     target = self.target.root
             else:
                 target = self.target
@@ -460,8 +463,8 @@ class TaskView:
             )
             set_context_vars(vars, target)
             if relationship:
-                if self.target.source:
-                    vars["SOURCE"] = self.target.source.attributes  # type: ignore
+                if relationship.source:
+                    vars["SOURCE"] = relationship.source.attributes  # type: ignore
                 vars["TARGET"] = target.attributes
             # expose inputs lazily to allow self-referencee
             ctx.vars = vars
@@ -574,7 +577,7 @@ class TaskView:
 
         # add the variables required by TOSCA 1.3 spec
         targets: List[str] = []
-        if isinstance(self.target, RelationshipInstance):
+        if isinstance(self.target, RelationshipInstance) and self.target.capability and self.target.target:
             targets = [
                 c.tosca_id
                 for c in self.target.target.get_capabilities(
@@ -585,17 +588,16 @@ class TaskView:
                 dict(
                     TARGETS=",".join(targets),
                     TARGET=self.target.target.tosca_id,
-                    SOURCES=",".join(
-                        [
-                            r.tosca_id
-                            for r in self.target.source.get_requirements(
-                                self.target.requirement.template.name
-                            )
-                        ]
-                    ),
-                    SOURCE=self.target.source.tosca_id,
-                )
-            )
+                ))
+            if self.target.source:
+              SOURCES=",".join(
+                  [
+                      r.tosca_id
+                      for r in self.target.source.get_requirements(
+                          self.target.requirement.template.name
+                      )
+                  ])
+              SOURCE=self.target.source.tosca_id
         return env
 
     def get_settings(self) -> dict:
@@ -613,7 +615,7 @@ class TaskView:
 
     def find_connection(
         self, target: NodeInstance, relation: str = "tosca.relationships.ConnectsTo"
-    ) -> RelationshipInstance:
+    ) -> Optional[RelationshipInstance]:
         """
         Find a relationship that this task can use to connect to the given instance.
         First look for relationship between the task's target instance and the given instance.
@@ -624,7 +626,7 @@ class TaskView:
             relation (str, optional): The relationship type. Defaults to "tosca.relationships.ConnectsTo".
 
         Returns:
-            RelationshipInstance: The connection instance.
+            RelationshipInstance or None: The connection instance.
         """
         connection = self.query(
             f"$OPERATION_HOST::.requirements::*[.type={relation}][.target=$target]",
@@ -636,7 +638,10 @@ class TaskView:
             endpoints = target.get_default_relationships(relation)
             if endpoints:
                 connection = endpoints[0]
-        return connection
+        if connection:  # type: ignore
+            assert isinstance(connection, RelationshipInstance)
+            return connection
+        return None
 
     def sensitive(self, value: object) -> Union[sensitive, object]:
         """Mark the given value as sensitive. Sensitive values will be encrypted or redacted when outputed.
@@ -722,7 +727,7 @@ class TaskView:
 
         # Typechecking
         class kwTypeBase(TypedDict):
-            result: Optional[dict]
+            result: Optional[Union[dict, str]]
             outputs: Optional[dict]
 
         class kwType(kwTypeBase, total=False):
@@ -748,7 +753,7 @@ class TaskView:
         strict: bool = True,
         vars: Optional[dict] = None,
         throw: bool = False,
-    ) -> Optional[Ref]:
+    ) -> Union[ResultsList, Result, List[Result], None]:
         # XXX pass resolveExternal to context?
         try:
             result = Ref(query, vars=vars).resolve(
@@ -811,7 +816,7 @@ class TaskView:
     def create_sub_task(
         self,
         operation: Optional[str] = None,
-        resource: Optional[NodeInstance] = None,
+        resource: Optional[EntityInstance] = None,
         inputs: Optional[dict] = None,
         persist: bool = False,
         required: Optional[bool] = None,
@@ -862,7 +867,7 @@ class TaskView:
         return TaskRequest(operation, resource, "subtask", persist, required)
 
     def _update_instance(
-        self, existingResource: NodeInstance, resourceSpec: Mapping
+        self, existingResource: EntityInstance, resourceSpec: Mapping
     ) -> bool:
         from .manifest import Manifest
 
@@ -900,7 +905,7 @@ class TaskView:
 
     def _parse_instances_tpl(
         self, instances: Union[str, Mapping, MutableSequence]
-    ) -> Tuple[Optional[List[Mapping]], Optional[UnfurlTaskError]]:
+    ) -> Tuple[Optional[MutableSequence[Mapping]], Optional[UnfurlTaskError]]:
         if isinstance(instances, six.string_types):
             try:
                 instances = yaml.load(instances)
@@ -952,7 +957,7 @@ class TaskView:
         if err:
             return None, [err]
 
-        errors = []
+        errors: List[UnfurlTaskError] = []
         newResources = []
         newResourceSpecs = []
         for resourceSpec in instances:
@@ -1065,13 +1070,13 @@ class Dependency(Operational):
 
     def __init__(
         self,
-        expr: Union[str, dict],
+        expr: Union[str, Mapping],
         expected: Optional[Union[ResultsList, list, Result, None]] = None,
         schema: Optional[Mapping] = None,
         name: Optional[str] = None,
         required: bool = False,
         wantList: bool = False,
-        target: Optional[NodeInstance] = None,
+        target: Optional[EntityInstance] = None,
     ) -> None:
         """
         if schema is not None, validate the result using schema
@@ -1112,6 +1117,7 @@ class Dependency(Operational):
                 config.target, dict(val=self.expected, changeId=changeId)
             )
             result = Ref(self.expr).resolve(context, wantList=self.wantList)
+            assert isinstance(context._lastResource, EntityInstance)
             self.target = context._lastResource
             self.expected = result
 
@@ -1148,9 +1154,10 @@ class Dependency(Operational):
             return False
         return False  # assuming this is what is meant by the function
 
-    def has_changed(self, config: "ConfigTask") -> bool:
+    def has_changed(self, config: "ChangeRecord") -> bool:
         changeId = config.changeId
-        context = RefContext(config.target, dict(val=self.expected, changeId=changeId))
+        assert self.target
+        context = RefContext(self.target, dict(val=self.expected, changeId=changeId))
         result = Ref(self.expr).resolve_one(context)  # resolve(context, self.wantList)
 
         if self.schema:

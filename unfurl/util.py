@@ -4,6 +4,7 @@ import sys
 from types import ModuleType
 from typing import (
     IO,
+    Any,
     Dict,
     Generator,
     Iterable,
@@ -515,13 +516,13 @@ DefaultValidatingLatestDraftValidator = (
 
 
 def validate_schema(
-    obj: Mapping, schema: Mapping, baseUri: Optional[str] = None
+    obj: Any, schema: Mapping, baseUri: Optional[str] = None
 ) -> bool:
     return not find_schema_errors(obj, schema)
 
 
 def find_schema_errors(
-    obj: Mapping, schema: Mapping, baseUri: Optional[str] = None
+    obj: Any, schema: Mapping, baseUri: Optional[str] = None
 ) -> Optional[Tuple[str, List[object]]]:
     # XXX2 have option that includes definitions from manifest's schema
     if baseUri is not None:

@@ -979,7 +979,9 @@ set_eval_func("external", get_import)
 
 
 class _Import:
-    from .runtime import EntityInstance
+    if TYPE_CHECKING:
+        from .runtime import EntityInstance
+
     def __init__(self, external_instance: "EntityInstance", spec: dict, local_instance: Optional["EntityInstance"]=None):
         self.external_instance = external_instance
         self.spec = spec

@@ -342,7 +342,7 @@ class _ChildResources(Mapping):
 class EntityInstance(OperationalInstance, ResourceRef):
     attributeManager = None
     created = None
-    protected = None
+    protected: Optional[bool] = None
     imports = None
     imported = None
     envRules = None
@@ -636,12 +636,16 @@ class RelationshipInstance(EntityInstance):
     source = None
 
     @property
-    def target(self) -> Optional[NodeInstance]:
+    def target(self) -> Optional["NodeInstance"]:
         # parent is a capability, return it's parent (a Node)
         if self.parent:
             return self.parent.parent
         else: 
             return None
+
+    @property
+    def capability(self) -> Optional[CapabilityInstance]:
+        return self.parent
 
     @property
     def key(self) -> str:

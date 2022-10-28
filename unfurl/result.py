@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING, Any, Match, Optional
 import six
 import hashlib
 import re
-from tosca import EntitySpec
 from toscaparser.common.exception import ValidationError
 
 from .merge import diff_dicts

@@ -3,7 +3,7 @@
 from unfurl.eval import Ref, map_value
 from unfurl.projectpaths import _abspath, _getdir
 from unfurl.util import which, wrap_sensitive_value
-from jinja2.filters import contextfilter
+from jinja2.filters import contextfilter  # type: ignore
 
 # from ansible.errors import AnsibleError, AnsibleFilterError
 
