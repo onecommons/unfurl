@@ -893,7 +893,7 @@ class NodeInstance(HasInstancesInstance):
         yield from super().get_operational_dependencies()
 
         for instance in self.requirements:
-            if instance is not self.parent:
+            if instance.target is not self.parent:
                 yield instance
 
     def get_operational_dependents(self, seen=None):
