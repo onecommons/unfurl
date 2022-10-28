@@ -228,7 +228,7 @@ class RefContext:
 
     def query(
         self,
-        expr: Mapping,
+        expr: Union[str, Mapping],
         vars: Optional[dict] = None,
         wantList: Union[bool, str] = False,
     ) -> Optional[Union[ResultsList, Result, List[Result]]]:
@@ -347,8 +347,9 @@ class Ref:
         results = eval_ref(self.source, ctx, True)
         assert isinstance(results, list)
         ctx.trace(f"Ref.resolve(wantList={wantList}) evalRef", self.source, results)
-        if results and (self.foreach or self.select):
-            results = for_each(self.foreach or self.select, results, ctx)
+        select = self.foreach or self.select
+        if results and select:
+            results = for_each(select, results, ctx)
         assert not isinstance(results, ResultsList), results
         results = ResultsList(results, ctx)
         ctx.add_ref_reference(self, results)

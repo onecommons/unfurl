@@ -4,10 +4,11 @@ from collections.abc import Mapping, MutableSequence, MutableMapping
 from abc import ABC, abstractmethod
 from datetime import datetime, timedelta
 import logging
-from typing import Match, Optional
+from typing import TYPE_CHECKING, Any, Match, Optional
 import six
 import hashlib
 import re
+from tosca import EntitySpec
 from toscaparser.common.exception import ValidationError
 
 from .merge import diff_dicts
@@ -82,7 +83,9 @@ def serialize_value(value, **kw):
 class ResourceRef(ABC):
 
     parent = None  # must be defined by subclass
-    template = None
+    # note: really an EntitySpec but would cause cicular imports
+    template: Optional["ResourceRef"] = None
+    base_dir = ""
 
     @abstractmethod
     def _resolve(self, key):

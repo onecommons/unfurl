@@ -13,7 +13,7 @@ import six
 import re
 import ast
 import time
-from typing import cast, Dict, Optional, Any
+from typing import TYPE_CHECKING, cast, Dict, Optional, Any
 from enum import Enum
 from urllib.parse import urlsplit
 
@@ -639,6 +639,7 @@ def to_env(args, ctx: RefContext):
     sub.ctx = ctx  # type: ignore
 
     rules = map_value(args or {}, ctx)
+    assert isinstance(rules, Mapping)
     result = filter_env(rules, env, True, sub)
     if ctx.kw.get("update_os_environ"):
         os.environ.update(result)
@@ -879,7 +880,8 @@ def _get_instances_from_keyname(ctx, entity_name):
         ctx.trace("entity_name not found", entity_name)
         return None
 
-
+if TYPE_CHECKING:
+    from .tosca import ArtifactSpec
 def _find_artifact(instances, artifact_name) -> "Optional[ArtifactSpec]":
     for instance in instances:
         # XXX implement instance.artifacts
@@ -956,7 +958,7 @@ def get_artifact(
     #     # if location == 'LOCAL_FILE':
 
 
-set_eval_func("get_artifact", lambda args, ctx: get_artifact(ctx, *(map_value(args, ctx))), True)
+set_eval_func("get_artifact", lambda args, ctx: get_artifact(ctx, *(map_value(args, ctx))), True) # type: ignore
 
 
 def get_import(arg: RefContext, ctx):
@@ -977,6 +979,7 @@ set_eval_func("external", get_import)
 
 
 class _Import:
+    from .runtime import EntityInstance
     def __init__(self, external_instance: "EntityInstance", spec: dict, local_instance: Optional["EntityInstance"]=None):
         self.external_instance = external_instance
         self.spec = spec

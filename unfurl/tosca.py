@@ -906,7 +906,7 @@ class NodeSpec(EntitySpec):
                     yield p
 
     @property
-    def requirements(self):
+    def requirements(self) ->Dict[str, "RequirementSpec"]:
         if self._requirements is None:
             self._requirements = {}
             nodeTemplate = self.toscaEntityTemplate

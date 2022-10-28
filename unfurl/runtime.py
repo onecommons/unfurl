@@ -362,7 +362,8 @@ class EntityInstance(OperationalInstance, ResourceRef):
             p = getattr(parent, self.parentRelation)
             p.append(self)
 
-        self.template = template or self.templateType()
+        self.template: EntitySpec = template or self.templateType()
+        assert isinstance(self.template, self.templateType)
         self._properties = {}
 
     def _resolve(self, key):
@@ -595,12 +596,13 @@ class CapabilityInstance(EntityInstance):
     # 3.8.1 Capability assignment p. 114
     parentRelation = "_capabilities"
     templateType = CapabilitySpec
-    _relationships = None
+    _relationships: Optional[List["RelationshipInstance"]] = None
 
     @property
-    def relationships(self):
+    def relationships(self) -> List["RelationshipInstance"]:
         if self._relationships is None:
             self._relationships = []
+        assert isinstance(self.template, CapabilitySpec)
         if len(self._relationships) != len(self.template.relationships):
             # instantiate missing relationships (they are only added, never deleted)
             instantiated = {id(c.template) for c in self._relationships}
@@ -629,32 +631,38 @@ class RelationshipInstance(EntityInstance):
     # 3.8.2 Requirements assignment p. 115
     parentRelation = "_relationships"
     templateType = RelationshipSpec
+    if TYPE_CHECKING:
+        template  = templateType()
     source = None
 
     @property
-    def target(self):
+    def target(self) -> Optional[NodeInstance]:
         # parent is a capability, return it's parent (a Node)
-        return self.parent.parent if self.parent else None
+        if self.parent:
+            return self.parent.parent
+        else: 
+            return None
 
     @property
-    def key(self):
+    def key(self) -> str:
         # XXX implement something like _ChildResources to enable ::name instead of [.name=name]
         if self.source:
             return f"{self.source.key}::.requirements::[.name={self.name}]"
-        elif self.parent is self.root:  # it's a default relationship
+        elif not self.parent or self.parent is self.root:  # it's a default relationship
             return f"::.requirements::[.name={self.name}]"
-        else:  # capability is parent
+        elif self.parent:  # capability is parent
             return f"{self.parent.key}::.relationships::[.name={self.name}]"
 
-    def merge_props(self, matchfn, delete_if_none=False):
-        env = {}
+    def merge_props(self, matchfn, delete_if_none=False) -> Dict[str, str]:
+        env: Dict[str, str] = {}
         capability = self.parent
-        for name, val in matchfn(capability.template.find_props(capability.attributes)):
-            if val is None:
-                if delete_if_none:
-                    env.pop(name, None)
-            else:
-                env[name] = val
+        if capability:
+            for name, val in matchfn(capability.template.find_props(capability.attributes)):
+                if val is None:
+                    if delete_if_none:
+                        env.pop(name, None)
+                else:
+                    env[name] = val
         for name, val in matchfn(self.template.find_props(self.attributes)):
             if val is None:
                 if delete_if_none:
@@ -667,6 +675,8 @@ class RelationshipInstance(EntityInstance):
 class ArtifactInstance(EntityInstance):
     parentRelation = "_artifacts"
     templateType = ArtifactSpec  # type: ignore # XXX type error doesn't make sense
+    if TYPE_CHECKING:
+        template  = ArtifactSpec({})
 
     def __init__(
         self, name="", attributes=None, parent=None, template=None, status=None
@@ -702,6 +712,8 @@ class ArtifactInstance(EntityInstance):
 
 class NodeInstance(HasInstancesInstance):
     templateType = NodeSpec
+    if TYPE_CHECKING:
+        template = templateType()
 
     def __init__(
         self, name="", attributes=None, parent=None, template=None, status=None
@@ -725,7 +737,7 @@ class NodeInstance(HasInstancesInstance):
         self.get_interface("inherit")
         self.get_interface("default")
 
-    def _find_relationship(self, relationship):
+    def _find_relationship(self, relationship) -> Optional[RelationshipInstance]:
         """
         Find RelationshipInstance that has the give relationship template
         """
@@ -743,8 +755,8 @@ class NodeInstance(HasInstancesInstance):
         return None
 
     @property
-    def requirements(self):
-        # if self._requirements is None:
+    def requirements(self) -> List[RelationshipInstance]:
+        assert isinstance(self.template, NodeSpec)
         if len(self._requirements) != len(self.template.requirements):
             # instantiate missing relationships (they are only added, never deleted)
             instantiated = {id(r.template) for r in self._requirements}
@@ -765,7 +777,7 @@ class NodeInstance(HasInstancesInstance):
         return self._requirements
 
     @property
-    def capabilities(self):
+    def capabilities(self) -> List[CapabilityInstance]:
         if len(self._capabilities) != len(self.template.capabilities):
             # instantiate missing capabilities (they are only added, never deleted)
             instantiated = {id(c.template) for c in self._capabilities}
@@ -782,7 +794,7 @@ class NodeInstance(HasInstancesInstance):
 
         return self._capabilities
 
-    def get_capabilities(self, name) -> list:
+    def get_capabilities(self, name) -> List[CapabilityInstance]:
         return [
             capability
             for capability in self.capabilities
@@ -848,15 +860,16 @@ class NodeInstance(HasInstancesInstance):
         return list(self._configured_by())
 
     @property
-    def targets(self):
-        dep = {}
+    def targets(self) -> Dict[str, Union["NodeInstance", List["NodeInstance"]]]:
+        dep: Dict[str, Union[NodeInstance, List[NodeInstance]]] = {}
         for rel in self.requirements:
             if rel.target:
                 if rel.name in dep:
-                    if isinstance(dep[rel.name], list):
-                        dep[rel.name].append(rel.target)
+                    target = dep[rel.name]
+                    if isinstance(target, list):
+                        target.append(rel.target)
                     else:
-                        dep[rel.name] = [dep[rel.name], rel.target]
+                        dep[rel.name] = [target, rel.target]
                 else:
                     dep[rel.name] = rel.target
         return dep
@@ -955,7 +968,7 @@ class TopologyInstance(HasInstancesInstance):
             self._templar = Templar(loader)
 
     @property
-    def requirements(self):
+    def requirements(self) -> List[RelationshipInstance]:
         """
         The root node returns RelationshipInstances representing default relationship templates
         """
