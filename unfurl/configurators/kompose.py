@@ -69,18 +69,18 @@ def render_compose(container: dict, image="", service_name=None):
         image = service["image"]
     if not service_name:
         service_name = container.get("container_name", ContainerImage.split(image)[0])
-    return dict(services={
-        to_kubernetes_label(service_name): service
-    })
+    return dict(services={to_kubernetes_label(service_name): service})
 
 
 def get_ingress_extras(task, ingress_extras):
     if ingress_extras and isinstance(ingress_extras, str):
         if ingress_extras.strip():
-            try: 
+            try:
                 ingress_extras = yaml.load(ingress_extras)
             except Exception:
-                raise UnfurlTaskError(task, f"error parsing ingress_extras:\n{ingress_extras}")
+                raise UnfurlTaskError(
+                    task, f"error parsing ingress_extras:\n{ingress_extras}"
+                )
         else:
             return None
     return ingress_extras
@@ -89,15 +89,15 @@ def get_ingress_extras(task, ingress_extras):
 class KomposeConfigurator(ShellConfigurator):
     _default_cmd = "kompose"
     _default_dryrun_arg = "--dry-run='client'"
-    _output_dir = 'kompose'
+    _output_dir = "kompose"
 
     def _validate(self, task, compose):
         services = isinstance(compose, dict) and compose.get("services")
         if not services:
             raise UnfurlTaskError(
-                  task,
-                  f'docker-compose.yml is invalid: "{compose}"',
-                  )
+                task,
+                f'docker-compose.yml is invalid: "{compose}"',
+            )
         service_name = list(services)[0]
         service = services[service_name]
         if not isinstance(service, dict) or not service.get("image"):
@@ -118,14 +118,16 @@ class KomposeConfigurator(ShellConfigurator):
             compose = task.inputs["files"]["docker-compose.yml"]
         else:
             container = task.inputs.get_copy("container") or {}
-            compose = render_compose(container, task.inputs.get("image"), task.inputs.get("service_name"))
+            compose = render_compose(
+                container, task.inputs.get("image"), task.inputs.get("service_name")
+            )
 
         service_name = self._validate(task, compose)
         # XXX can be more than one service
-        task.target.attributes['name'] = service_name
+        task.target.attributes["name"] = service_name
         if "version" not in compose:
             # kompose fails without this
-            compose["version"] = '3.7'
+            compose["version"] = "3.7"
 
         # save in secrets folder cuz generated templates can include k8s secrets or sensitive env vars
         cwd = task.set_work_folder(Folders.tasks)
@@ -134,20 +136,25 @@ class KomposeConfigurator(ShellConfigurator):
             task.inputs.get("command", self._default_cmd), task.inputs.get("keeplines")
         )
         if task.verbose:
-            cmd.append('-v')
+            cmd.append("-v")
         main_service = _get_service(compose)
         labels = task.inputs.get("labels") or {}
         for key in list(labels):
-            if key.startswith("kompose.service.healthcheck.liveness"
-                              ) and "healthcheck" not in main_service:
+            if (
+                key.startswith("kompose.service.healthcheck.liveness")
+                and "healthcheck" not in main_service
+            ):
                 # add a default healthcheck
-                main_service["healthcheck"] = dict(interval="10s", timeout="10s", 
-                                                   retries=3, start_period="30s")
+                main_service["healthcheck"] = dict(
+                    interval="10s", timeout="10s", retries=3, start_period="30s"
+                )
             if key.endswith(".http_get_port") or key.endswith(".tcp_port"):
                 if labels[key] is None and main_service.get("ports"):
                     # port isn't specified, set the service's port
-                    labels[key] = PortSpec.make(main_service["ports"][0])['source']
-        labels["kompose.image-pull-policy"] = main_service.get("pull_policy", "Always").title()
+                    labels[key] = PortSpec.make(main_service["ports"][0])["source"]
+        labels["kompose.image-pull-policy"] = main_service.get(
+            "pull_policy", "Always"
+        ).title()
 
         # create the output directory:
         output_dir = cwd.get_current_path(self._output_dir)
@@ -159,8 +166,14 @@ class KomposeConfigurator(ShellConfigurator):
             pull_secret_name = f"{service_name}-registry-secret"
             registry_url = task.inputs.get("registry_url")
             registry_user = task.inputs.get("registry_user")
-            pull_secret = make_pull_secret(pull_secret_name, registry_url, registry_user, registry_password)
-            cwd.write_file(pull_secret, f"{self._output_dir}/{pull_secret_name}.yaml", encoding='utf-8')
+            pull_secret = make_pull_secret(
+                pull_secret_name, registry_url, registry_user, registry_password
+            )
+            cwd.write_file(
+                pull_secret,
+                f"{self._output_dir}/{pull_secret_name}.yaml",
+                encoding="utf-8",
+            )
             labels["kompose.image-pull-secret"] = pull_secret_name
         expose = task.inputs.get("expose")
         if expose:
@@ -179,7 +192,9 @@ class KomposeConfigurator(ShellConfigurator):
         task.logger.debug("writing docker-compose:\n%s", compose)
         cwd.write_file(compose, "docker-compose.yml")
         result = self.run_process(cmd + ["convert", "-o", output_dir], cwd=cwd.cwd)
-        ingress_extras = get_ingress_extras(task, task.inputs.get_copy("ingress_extras"))
+        ingress_extras = get_ingress_extras(
+            task, task.inputs.get_copy("ingress_extras")
+        )
         if ingress_extras:
             task.logger.debug("setting ingress_extras to:\n%s", ingress_extras)
         if not self._handle_result(task, result, cwd.cwd):
@@ -195,13 +210,20 @@ class KomposeConfigurator(ShellConfigurator):
         out_path = cwd.get_current_path(self._output_dir)
         files = os.listdir(out_path)
         # add each file as a Unfurl k8s resource so unfurl can manage them (in particular, delete them)
-        task.logger.verbose("Creating Kubernetes resources from these files: %s", ", ".join(files))
+        task.logger.verbose(
+            "Creating Kubernetes resources from these files: %s", ", ".join(files)
+        )
         ingress_extras = task.rendered
-        jobRequest, errors = task.update_instances([
-            _load_resource_file(task, out_path, filename, ingress_extras) for filename in files
-        ])
+        jobRequest, errors = task.update_instances(
+            [
+                _load_resource_file(task, out_path, filename, ingress_extras)
+                for filename in files
+            ]
+        )
         if errors:
-            task.logger.error("Errors while creating Kubernetes resources generated by Kompose")
+            task.logger.error(
+                "Errors while creating Kubernetes resources generated by Kompose"
+            )
         # XXX:
         # errors = self.process_result_template(task, result.__dict__)
         # success = not errors
@@ -221,9 +243,10 @@ def configure_inputs(definition, timeout):
     if definition["kind"] == "Ingress":
         inputs["playbook"] = dict(
             register="rs",
-            until='rs.result.status.loadBalancer.ingress is defined',
+            until="rs.result.status.loadBalancer.ingress is defined",
             retries=int(timeout / delay),
-            delay=delay)
+            delay=delay,
+        )
     return inputs
 
 
@@ -234,17 +257,22 @@ def _load_resource_file(task, out_path, filename, ingress_extras):
     assert isinstance(definition, dict)
     if definition["kind"] == "Ingress" and ingress_extras:
         definition = merge_dicts(definition, ingress_extras)
-    annotations = task.inputs.get('annotations')
+    annotations = task.inputs.get("annotations")
     if annotations:
-        definition.setdefault("metadata", {}).setdefault("annotations", {}).update(annotations)
+        definition.setdefault("metadata", {}).setdefault("annotations", {}).update(
+            annotations
+        )
     mark_sensitive(task, definition)
     return dict(
         name=Path(filename).stem,
         parent="SELF",  # so the host namespace is honored
-        template=dict(type="unfurl.nodes.K8sRawResource",
-                        properties=dict(definition=definition),
-                        interfaces=dict(
-                            Standard=dict(inputs=configure_inputs(definition, task.configSpec.timeout))
-                        ),
-                      )
+        template=dict(
+            type="unfurl.nodes.K8sRawResource",
+            properties=dict(definition=definition),
+            interfaces=dict(
+                Standard=dict(
+                    inputs=configure_inputs(definition, task.configSpec.timeout)
+                )
+            ),
+        ),
     )

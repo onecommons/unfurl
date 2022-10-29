@@ -192,6 +192,7 @@ class PlanRequest:
             dep = getattr(error, "dependency", None)
             if not dep or not dep.validate():
                 yield error
+
     @property
     def not_ready(self):
         return self.future_dependencies or self.has_unfulfilled_refs()
@@ -450,7 +451,9 @@ def find_operation_host(target, operation_host):
     return target.root.find_instance_or_external(operation_host)
 
 
-def get_render_requests(requests: Sequence[PlanRequest]) -> Iterator[Tuple[Optional[TaskRequestGroup], TaskRequest]]:
+def get_render_requests(
+    requests: Sequence[PlanRequest],
+) -> Iterator[Tuple[Optional[TaskRequestGroup], TaskRequest]]:
     # returns requests that can be rendered grouped by its top-most task group
     for req in requests:
         if isinstance(req, TaskRequestGroup):
@@ -621,7 +624,9 @@ def _reevaluate_not_required(not_required, render_requests):
     return new_not_required
 
 
-def do_render_requests(job, requests: Sequence[PlanRequest]) -> Tuple[List[PlanRequest], List[PlanRequest], List[UnfurlError]]:
+def do_render_requests(
+    job, requests: Sequence[PlanRequest]
+) -> Tuple[List[PlanRequest], List[PlanRequest], List[UnfurlError]]:
     ready: List[PlanRequest] = []
     notReady: List[PlanRequest] = []
     errors: List[UnfurlError] = []
@@ -722,7 +727,9 @@ def find_parent_resource(root, source):
     for parent in find_resources_from_template_name(root, parentTemplate.name):
         # XXX need to evaluate matches
         return parent
-    raise UnfurlError(f"could not find parent instance {parentTemplate.name} for child {source.name}")
+    raise UnfurlError(
+        f"could not find parent instance {parentTemplate.name} for child {source.name}"
+    )
 
 
 def create_instance_from_spec(_manifest, target, rname, resourceSpec):

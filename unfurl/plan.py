@@ -25,7 +25,9 @@ from .logs import getLogger
 logger = getLogger("unfurl")
 
 
-def is_external_template_compatible(import_name: str, external: EntitySpec, template: EntitySpec):
+def is_external_template_compatible(
+    import_name: str, external: EntitySpec, template: EntitySpec
+):
     # for now, require template names to match
     imported = external.tpl.get("imported")
     if imported:
@@ -34,7 +36,7 @@ def is_external_template_compatible(import_name: str, external: EntitySpec, temp
             return False
     else:
         t_name = template.name
- 
+
     if external.name == t_name:
         if not external.is_compatible_type(template.type):
             raise UnfurlError(
@@ -127,10 +129,15 @@ class Plan:
         instance_name = template.name
         # XXX import the parent too by creating a template and setting its name to name?
         parent = self.root
-        logger.debug("creating local instance %s for external instance %s",
-                     instance_name or name, external.name)
+        logger.debug(
+            "creating local instance %s for external instance %s",
+            instance_name or name,
+            external.name,
+        )
         # attributes can be empty because AttributeManager delegates to the imported shadow instance
-        shadowInstance = external.__class__(instance_name, {}, parent, template, external.status)
+        shadowInstance = external.__class__(
+            instance_name, {}, parent, template, external.status
+        )
         shadowInstance.imported = name
         self.root.imports.set_shadow(name, shadowInstance, external)
         return shadowInstance
@@ -240,7 +247,12 @@ class Plan:
             or (resource.status == Status.error and initialState)
         ):
             req = create_task_request(
-                self.jobOptions, "Standard.create", resource, reason, inputs, NodeState.creating
+                self.jobOptions,
+                "Standard.create",
+                resource,
+                reason,
+                inputs,
+                NodeState.creating,
             )
             if req:
                 yield req
@@ -384,7 +396,9 @@ class Plan:
                 else:
                     yield taskRequest
         if not task_found:
-            logger.verbose(f'No operations for workflow "{workflow}" defined for instance "{resource.name}"')
+            logger.verbose(
+                f'No operations for workflow "{workflow}" defined for instance "{resource.name}"'
+            )
         if group:
             yield group
 
@@ -627,7 +641,10 @@ class DeployPlan(Plan):
             reason = self.include_instance(oldTemplate, instance)
             if not reason:
                 logger.debug(
-                    "not including task for %s:%s (status: %s)", instance.name, oldTemplate.name, instance.status
+                    "not including task for %s:%s (status: %s)",
+                    instance.name,
+                    oldTemplate.name,
+                    instance.status,
                 )
                 return
         else:  # this is newly created resource

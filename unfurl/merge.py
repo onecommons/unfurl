@@ -31,7 +31,7 @@ def __deepcopy__(self, memo):
 
 
 if CommentedMap.__deepcopy__ is not __deepcopy__:
-    CommentedMap.__deepcopy__ = __deepcopy__   # type: ignore
+    CommentedMap.__deepcopy__ = __deepcopy__  # type: ignore
 
 
 def copy(src):
@@ -132,7 +132,10 @@ def merge_dicts(
                 #     if appendlists == 'all' or key in appendlists:
                 bval = bval[:]
                 for i, item in enumerate(val):
-                    if isinstance(item, Mapping) and item.get(mergeStrategyKey) == "merge":
+                    if (
+                        isinstance(item, Mapping)
+                        and item.get(mergeStrategyKey) == "merge"
+                    ):
                         if i >= len(bval):
                             bval.append(item)
                         else:

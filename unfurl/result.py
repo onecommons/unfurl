@@ -18,7 +18,7 @@ from .util import (
     sensitive_dict,
     sensitive_list,
     dump,
-    wrap_sensitive_value
+    wrap_sensitive_value,
 )
 from .logs import sensitive
 
@@ -140,6 +140,7 @@ class ResourceRef(ABC):
     @property
     def readonly(self) -> bool:
         return False
+
 
 class ChangeRecord:
     """
@@ -474,6 +475,7 @@ def is_sensitive_schema(defs, key):
 def _validation_error(src, context, prop_def, msg):
     from .eval import Ref
     from .configurator import Dependency
+
     if Ref.is_ref(src):
         dep = Dependency(src, target=context.currentResource, schema=prop_def)
     else:
@@ -504,6 +506,7 @@ class Results(ABC):
 
     def __init__(self, serializedOriginal, resourceOrCxt, validate=False, defs=None):
         from .eval import RefContext
+
         assert not isinstance(serializedOriginal, Results), serializedOriginal
         self._attributes = serializedOriginal
         self._deleted = {}
@@ -574,6 +577,7 @@ class Results(ABC):
 
     def _getresult(self, key):
         from .eval import map_value
+
         val = self._attributes[key]
         if isinstance(val, Result):
             # already resolved
@@ -668,7 +672,9 @@ class Results(ABC):
     def __setitem__(self, key, value):
         assert not isinstance(value, Result), (key, value)
         if self.context.currentResource.readonly:
-            raise UnfurlError("Attempting to set {key} on a readonly instance {self.context.currentResource}")
+            raise UnfurlError(
+                "Attempting to set {key} on a readonly instance {self.context.currentResource}"
+            )
         if self._haskey(key):
             resolved = self[key]
             if resolved != value:  # the existing value changed
@@ -694,7 +700,9 @@ class Results(ABC):
 
     def __delitem__(self, index):
         if self.context.currentResource.readonly:
-            raise UnfurlError("Attempting to delete item {item} on a readonly instance {self.context.currentResource}")
+            raise UnfurlError(
+                "Attempting to delete item {item} on a readonly instance {self.context.currentResource}"
+            )
         self.context.currentResource.name
         val = self._attributes[index]
         self._deleted[index] = val

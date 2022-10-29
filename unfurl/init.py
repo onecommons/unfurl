@@ -534,7 +534,9 @@ def _get_ensemble_paths(sourcePath, sourceProject, want_init, use_environment):
     isServiceTemplate = sourcePath.endswith(DefaultNames.ServiceTemplate)
     if not want_init and not isServiceTemplate:
         try:
-            localEnv = LocalEnv(relPath, project=sourceProject, override_context=use_environment)
+            localEnv = LocalEnv(
+                relPath, project=sourceProject, override_context=use_environment
+            )
             sourceDir = sourceProject.get_relative_path(
                 os.path.dirname(localEnv.manifestPath)
             )
@@ -635,8 +637,10 @@ class EnsembleBuilder:
         # source is a path into the project relative to the current directory
         source_path = os.path.join(self.source_project.projectRoot, self.source_path)
         self.templateVars = _get_ensemble_paths(
-            source_path, self.source_project,
-            self.options.get("want_init"), self.options.get("use_environment"),
+            source_path,
+            self.source_project,
+            self.options.get("want_init"),
+            self.options.get("use_environment"),
         )
         if self.options.get("use_deployment_blueprint"):
             self.templateVars["deployment_blueprint"] = self.options[
@@ -694,8 +698,14 @@ class EnsembleBuilder:
             self.templateVars,
             self.options.get("skeleton"),
         )
-        localEnv = LocalEnv(manifestPath, project=project, override_context=self.options.get("use_environment"))
-        manifest = yamlmanifest.ReadOnlyManifest(localEnv=localEnv, vault=localEnv.get_vault())
+        localEnv = LocalEnv(
+            manifestPath,
+            project=project,
+            override_context=self.options.get("use_environment"),
+        )
+        manifest = yamlmanifest.ReadOnlyManifest(
+            localEnv=localEnv, vault=localEnv.get_vault()
+        )
         return localEnv, manifest
 
     def create_new_ensemble(self):
@@ -763,10 +773,13 @@ class EnsembleBuilder:
             )
         else:
             destProject.register_ensemble(manifest.path, context=self.environment)
-        environments_json_path = os.path.join(destProject.projectRoot, 'environments.json')
+        environments_json_path = os.path.join(
+            destProject.projectRoot, "environments.json"
+        )
         if os.path.exists(environments_json_path):
             # temp hack for unfurl.cloud integration
             from .to_json import set_deploymentpaths
+
             envjson = set_deploymentpaths(destProject, environments_json_path)
             with open(environments_json_path, "w") as f:
                 f.write(json.dumps(envjson, indent=2))
@@ -832,9 +845,9 @@ class EnsembleBuilder:
         return self.source_project
 
     def _needs_local_config(self, clonedProject):
-        return self.skeleton_vars and not os.path.exists(os.path.join(
-            clonedProject.projectRoot, "local", DefaultNames.LocalConfig
-        ))
+        return self.skeleton_vars and not os.path.exists(
+            os.path.join(clonedProject.projectRoot, "local", DefaultNames.LocalConfig)
+        )
 
     def set_dest_project_and_path(
         self, existingSourceProject, existingDestProject, dest
@@ -854,9 +867,7 @@ class EnsembleBuilder:
         assert self.dest_project is not None
         if new_project or self._needs_local_config(self.dest_project):
             # create local/unfurl.yaml in the new project
-            if _create_local_config(
-                self.dest_project, self.logger, self.skeleton_vars
-            ):
+            if _create_local_config(self.dest_project, self.logger, self.skeleton_vars):
                 # reload project with the new local project config
                 self.dest_project = find_project(
                     self.dest_project.projectRoot, self.home_path

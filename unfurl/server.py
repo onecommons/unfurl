@@ -24,7 +24,6 @@ app.config.from_mapping(flask_config)
 cache = Cache(app)
 
 
-
 @app.before_request
 def hook():
     """
@@ -33,7 +32,7 @@ def hook():
     Authorization bearer token (Authorization=Bearer <secret>).
     """
     secret = current_app.config["UNFURL_SECRET"]
-    if secret is None:   # No secret specified, no authentication required
+    if secret is None:  # No secret specified, no authentication required
         return
 
     qs_secret = request.args.get("secret")  # Get secret from query string
@@ -45,15 +44,19 @@ def hook():
             # Remove "Bearer " from header
             header_secret = header_secret.split(" ")[1]
         except IndexError:  # Quick sanity check to make sure the header is formatted correctly
-            return create_error_response("BAD_REQUEST", "The Authorization header must be in the format 'Bearer <secret>'")
-            
+            return create_error_response(
+                "BAD_REQUEST",
+                "The Authorization header must be in the format 'Bearer <secret>'",
+            )
 
     if secret not in [
         qs_secret,
         header_secret,
     ]:  # No valid secret found in headers or qs
-        return create_error_response("UNAUTHORIZED", "Please pass the secret as a query parameter or as an Authorization bearer token")
-        
+        return create_error_response(
+            "UNAUTHORIZED",
+            "Please pass the secret as a query parameter or as an Authorization bearer token",
+        )
 
 
 @app.route("/health")
@@ -68,8 +71,10 @@ def health():
 def export():
     requested_format = request.args.get("format", "deployment")
     if requested_format not in ["blueprint", "environments", "deployment"]:
-        return create_error_response("BAD_REQUEST", "Query parameter 'format' must be one of 'blueprint', 'environments' or 'deployment'")
-        
+        return create_error_response(
+            "BAD_REQUEST",
+            "Query parameter 'format' must be one of 'blueprint', 'environments' or 'deployment'",
+        )
 
     # Default to exporting the ensemble provided to the server on startup
     path = current_app.config["UNFURL_ENSEMBLE_PATH"]
@@ -106,7 +111,9 @@ def export():
             ).find_git_repo(git_url)
 
             if repo is None:
-                return create_error_response("INTERNAL_ERROR", "Could not find repository")
+                return create_error_response(
+                    "INTERNAL_ERROR", "Could not find repository"
+                )
 
         deployment_path = request.args.get("deployment_path")
         if deployment_path:
@@ -133,7 +140,10 @@ def export():
         # Sort of a hack to get the specific error since it only raises an "UnfurlError"
         # Will break if the error message changes or if the Exception class changes
         if "No environment named" in error_message:
-            return create_error_response("BAD_REQUEST", f"No environment named '{deployment_enviroment}' found in the repository")
+            return create_error_response(
+                "BAD_REQUEST",
+                f"No environment named '{deployment_enviroment}' found in the repository",
+            )
         else:
             return create_error_response("INTERNAL_ERROR", "An internal error occurred")
 
@@ -156,17 +166,20 @@ def update_deployment():
     commit_msg = body.get("commit_msg", "Update deployment")
 
     # Project is external
-    if project_path.startswith('http') or project_path.startswith('git'):
+    if project_path.startswith("http") or project_path.startswith("git"):
         repo = LocalEnv(
             current_app.config["UNFURL_ENSEMBLE_PATH"], can_be_empty=True
         ).find_git_repo(project_path)
-        
+
         # Repo doesn't exists, clone it
         if repo is None:
             clone_root = current_app.config["UNFURL_CLONE_ROOT"]
             git_url = project_path
             from . import init
-            clone_location = (clone_root + "/" + Repo.get_path_for_git_repo(git_url)).lstrip('./')
+
+            clone_location = (
+                clone_root + "/" + Repo.get_path_for_git_repo(git_url)
+            ).lstrip("./")
 
             result = init.clone(
                 git_url,
@@ -180,8 +193,10 @@ def update_deployment():
             ).find_git_repo(git_url)
 
             if repo is None:
-                return create_error_response("INTERNAL_ERROR", "Could not find repository")
-    
+                return create_error_response(
+                    "INTERNAL_ERROR", "Could not find repository"
+                )
+
     else:
         clone_location = project_path
         repo = Repo.init(clone_location)
@@ -208,11 +223,11 @@ def update_deployment():
             else:
                 del target[typename][deleted]
             continue
-        target_inner[patch_inner['name']] = patch_inner
+        target_inner[patch_inner["name"]] = patch_inner
 
     with open(f"{clone_location}/{path}", "w") as f:
         f.write(json.dumps(target, indent=2))
-    
+
     repo.add_all(clone_location)
     repo.commit_files([f"{clone_location}/{path}"], commit_msg)
 
@@ -220,7 +235,7 @@ def update_deployment():
 
 
 def create_error_response(code, message):
-    http_code = 400 # Default to BAD_REQUEST
+    http_code = 400  # Default to BAD_REQUEST
     if code == "BAD_REQUEST":
         http_code = 400
     elif code == "UNAUTHORIZED":

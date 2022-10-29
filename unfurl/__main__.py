@@ -1022,8 +1022,10 @@ def commit(ctx, project_or_ensemble_path, message, skip_add, no_edit, **options)
     """Commit any changes to the given project or ensemble."""
     options.update(ctx.obj)
     localEnv = LocalEnv(
-        project_or_ensemble_path, options.get("home"), can_be_empty=True,
-        override_context=options.get("use_environment") or ""
+        project_or_ensemble_path,
+        options.get("home"),
+        can_be_empty=True,
+        override_context=options.get("use_environment") or "",
     )
     if localEnv.manifestPath:
         committer = localEnv.get_manifest()
@@ -1061,8 +1063,10 @@ def git_status(ctx, project_or_ensemble_path, dirty, **options):
     "Show the git status for paths relevant to the given project or ensemble."
     options.update(ctx.obj)
     localEnv = LocalEnv(
-        project_or_ensemble_path, options.get("home"), can_be_empty=True,
-        override_context=options.get("use_environment") or ""
+        project_or_ensemble_path,
+        options.get("home"),
+        can_be_empty=True,
+        override_context=options.get("use_environment") or "",
     )
     if localEnv.manifestPath:
         committer = localEnv.get_manifest()
@@ -1128,7 +1132,11 @@ def export(ctx, project_or_ensemble_path, format, file, **options):
 def status(ctx, ensemble, **options):
     """Show the status of deployed resources in the given ensemble."""
     options.update(ctx.obj)
-    localEnv = LocalEnv(ensemble, options.get("home"), override_context=options.get("use_environment") or "")
+    localEnv = LocalEnv(
+        ensemble,
+        options.get("home"),
+        override_context=options.get("use_environment") or "",
+    )
     manifest = localEnv.get_manifest()
     click.echo(manifest.status_summary())
     query = options.get("query")
@@ -1195,16 +1203,27 @@ def help(ctx, cmd=""):
     else:
         raise click.UsageError(f"no help found for unknown command '{cmd}'", ctx=ctx)
 
+
 @cli.command()
 @click.pass_context
 @click.argument("project_or_ensemble_path", default=".", type=click.Path(exists=True))
 @click.option("--port", default=8081, help="Port to listen on")
 @click.option("--address", default="localhost", help="Host to listen on")
-@click.option("--secret", envvar="UNFURL_SERVE_SECRET", help="Secret required to access the server")
-@click.option("--clone-root", default=".", help="Where to clone all repositories", type=click.Path(exists=True))
+@click.option(
+    "--secret",
+    envvar="UNFURL_SERVE_SECRET",
+    help="Secret required to access the server",
+)
+@click.option(
+    "--clone-root",
+    default=".",
+    help="Where to clone all repositories",
+    type=click.Path(exists=True),
+)
 def serve(ctx, port, address, secret, clone_root, project_or_ensemble_path, **options):
     options.update(ctx.obj)
     from .server import serve
+
     serve(address, port, secret, clone_root, project_or_ensemble_path, options)
 
 

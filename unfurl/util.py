@@ -129,7 +129,13 @@ class UnfurlValidationError(UnfurlError):
 
 
 class UnfurlTaskError(UnfurlError):
-    def __init__(self, task: "TaskView", message: object, log: int = logging.ERROR, dependency = None):
+    def __init__(
+        self,
+        task: "TaskView",
+        message: object,
+        log: int = logging.ERROR,
+        dependency=None,
+    ):
         task = cast("ConfigTask", task)
         message = f"{task.changeId} on {task.target.name} {task.name}: {message}"
         super().__init__(message, True, False)
@@ -338,7 +344,9 @@ def dump(
         )
         f = io.TextIOWrapper(tp, textEncoding)
         explicit = encoding is not None
-        if encoding == "yaml" or (not explicit and (suffix.endswith(".yml") or suffix.endswith(".yaml"))):
+        if encoding == "yaml" or (
+            not explicit and (suffix.endswith(".yml") or suffix.endswith(".yaml"))
+        ):
             (yaml or _yaml).dump(obj, f)
             return
         elif encoding == "json" or (not explicit and suffix.endswith(".json")):
@@ -515,9 +523,7 @@ DefaultValidatingLatestDraftValidator = (
 )
 
 
-def validate_schema(
-    obj: Any, schema: Mapping, baseUri: Optional[str] = None
-) -> bool:
+def validate_schema(obj: Any, schema: Mapping, baseUri: Optional[str] = None) -> bool:
     return not find_schema_errors(obj, schema)
 
 

@@ -15,7 +15,17 @@ eval_ref() given expression (string or dictionary) return list of Result
 Expr.resolve() given expression string, return list of Result
 Results._map_value same as map_value but with lazily evaluation
 """
-from typing import Any, Dict, List, Tuple, Optional, Union, Iterable, cast, TYPE_CHECKING
+from typing import (
+    Any,
+    Dict,
+    List,
+    Tuple,
+    Optional,
+    Union,
+    Iterable,
+    cast,
+    TYPE_CHECKING,
+)
 from typing import Mapping as MappingType
 import six
 import re
@@ -468,8 +478,11 @@ def validate_schema_func(arg, ctx):
     return validate_schema(args[0], args[1])
 
 
-def _for_each(foreach: Union[MappingType[str, Any], str],
-              results: Iterable[Tuple[Any, Any]], ctx: RefContext) -> List[Result]:
+def _for_each(
+    foreach: Union[MappingType[str, Any], str],
+    results: Iterable[Tuple[Any, Any]],
+    ctx: RefContext,
+) -> List[Result]:
     if isinstance(foreach, str):
         keyExp: Union[Mapping, str, None] = None
         valExp: Union[Mapping, str, None] = foreach
@@ -525,9 +538,11 @@ def _for_each(foreach: Union[MappingType[str, Any], str],
         return list(make_items())
 
 
-def for_each(foreach: Union[Mapping, str], results: list, ctx: RefContext) -> List[Result]:
+def for_each(
+    foreach: Union[Mapping, str], results: list, ctx: RefContext
+) -> List[Result]:
     if len(results) == 1 and isinstance(results[0].resolved, MutableSequence):
-        return _for_each(foreach, enumerate(results[0].resolved), ctx) # hack!
+        return _for_each(foreach, enumerate(results[0].resolved), ctx)  # hack!
     return _for_each(foreach, enumerate(r.external or r.resolved for r in results), ctx)
 
 
@@ -685,7 +700,11 @@ def lookup(result, key, context):
     except (KeyError, IndexError, TypeError, ValueError):
         if context._trace:
             import traceback
-            context.trace(f"lookup of '{key}' returned None due to exception:\n", traceback.format_exc())
+
+            context.trace(
+                f"lookup of '{key}' returned None due to exception:\n",
+                traceback.format_exc(),
+            )
         return None
 
 

@@ -11,7 +11,7 @@ from typing import (
     Union,
     ValuesView,
     cast,
-    MutableSequence
+    MutableSequence,
 )
 from typing_extensions import TypedDict
 import six
@@ -344,7 +344,7 @@ class _ConnectionsMap(dict):
         # the more specific connections are inserted first so this should find
         # the most relevant connection of the given type
         for value in self.values():
-              # XXX why is value sometimes a Result?
+            # XXX why is value sometimes a Result?
             if isinstance(value, Result):
                 value = value.resolved
             if (
@@ -402,7 +402,7 @@ class TaskView:
         self.configSpec = configSpec
         self.target = target
         self.reason = reason
-        self.logger = TaskLoggerAdapter(logger, self) # type: ignore
+        self.logger = TaskLoggerAdapter(logger, self)  # type: ignore
         self.cwd = os.path.abspath(self.target.base_dir)
         self.rendered: Any = None
         self.dry_run = None
@@ -578,7 +578,11 @@ class TaskView:
 
         # add the variables required by TOSCA 1.3 spec
         targets: List[str] = []
-        if isinstance(self.target, RelationshipInstance) and self.target.capability and self.target.target:
+        if (
+            isinstance(self.target, RelationshipInstance)
+            and self.target.capability
+            and self.target.target
+        ):
             targets = [
                 c.tosca_id
                 for c in self.target.target.get_capabilities(
@@ -589,16 +593,18 @@ class TaskView:
                 dict(
                     TARGETS=",".join(targets),
                     TARGET=self.target.target.tosca_id,
-                ))
+                )
+            )
             if self.target.source:
-              SOURCES=",".join(
-                  [
-                      r.tosca_id
-                      for r in self.target.source.get_requirements(
-                          self.target.requirement.template.name
-                      )
-                  ])
-              SOURCE=self.target.source.tosca_id
+                SOURCES = ",".join(
+                    [
+                        r.tosca_id
+                        for r in self.target.source.get_requirements(
+                            self.target.requirement.template.name
+                        )
+                    ]
+                )
+                SOURCE = self.target.source.tosca_id
         return env
 
     def get_settings(self) -> dict:
@@ -683,7 +689,10 @@ class TaskView:
                 if not isinstance(mapping, str):
                     invalid = True
                 if invalid:
-                    UnfurlTaskError(self, f"invalid or unsupported mapping for output '{key}': {mapping}")
+                    UnfurlTaskError(
+                        self,
+                        f"invalid or unsupported mapping for output '{key}': {mapping}",
+                    )
                 else:
                     self.target.attributes[mapping] = value
 
@@ -982,9 +991,13 @@ class TaskView:
                 if existingResource:
                     updated = self._update_instance(existingResource, resourceSpec)
                     if updated:
-                        self.logger.info("updating dynamic instance %s", existingResource.name)
+                        self.logger.info(
+                            "updating dynamic instance %s", existingResource.name
+                        )
                     else:
-                        self.logger.debug("no change to dynamic instance %s", existingResource.name)
+                        self.logger.debug(
+                            "no change to dynamic instance %s", existingResource.name
+                        )
                 else:
                     newResource = create_instance_from_spec(
                         self._manifest, self.target, rname, resourceSpec
@@ -1137,7 +1150,6 @@ class Dependency(Operational):
                 return False
         return True
 
-
     @staticmethod
     def has_value_changed(
         value: Union[Results, Mapping, MutableSequence, tuple, ChangeAware, Any],
@@ -1159,7 +1171,8 @@ class Dependency(Operational):
 
     def has_changed(self, config: "ChangeRecord") -> bool:
         changeId = config.changeId
-        context = RefContext(config.target, dict(val=self.expected, changeId=changeId))  # type: ignore (see Manifest.load_config_change)
+        # Manifest.load_config_change sets config.target
+        context = RefContext(config.target, dict(val=self.expected, changeId=changeId))  # type: ignore
         result = Ref(self.expr).resolve_one(context)  # resolve(context, self.wantList)
 
         if self.schema:

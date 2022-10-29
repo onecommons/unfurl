@@ -9,7 +9,17 @@ By convention, the "home" project defines a localhost instance and adds it to it
 """
 import os
 import os.path
-from typing import Any, Iterable, Dict, List, Optional, OrderedDict, Tuple, Union, TYPE_CHECKING
+from typing import (
+    Any,
+    Iterable,
+    Dict,
+    List,
+    Optional,
+    OrderedDict,
+    Tuple,
+    Union,
+    TYPE_CHECKING,
+)
 
 from ansible.parsing.vault import VaultLib
 import six
@@ -17,7 +27,13 @@ from six import Iterator
 from unfurl.runtime import NodeInstance
 
 from .repo import GitRepo, Repo, split_git_url, RepoView, normalize_git_url_hard
-from .util import UnfurlError, substitute_env, wrap_sensitive_value, save_to_tempfile, is_sensitive
+from .util import (
+    UnfurlError,
+    substitute_env,
+    wrap_sensitive_value,
+    save_to_tempfile,
+    is_sensitive,
+)
 from .merge import merge_dicts
 from .yamlloader import YamlConfig, make_vault_lib_ex, make_yaml
 from . import DefaultNames, get_home_config_path
@@ -32,7 +48,8 @@ if TYPE_CHECKING:
 _basepath = os.path.abspath(os.path.dirname(__file__))
 
 
-from .logs import getLogger 
+from .logs import getLogger
+
 logger = getLogger("unfurl")
 
 
@@ -42,12 +59,19 @@ class Project:
     one or more ensemble.yaml files which maybe optionally organized into one or more git repositories.
     """
 
-    def __init__(self, path: str, homeProject: Optional["Project"] = None, overrides: Optional[dict] = None):
+    def __init__(
+        self,
+        path: str,
+        homeProject: Optional["Project"] = None,
+        overrides: Optional[dict] = None,
+    ):
         assert isinstance(path, six.string_types), path
         self.projectRoot = os.path.abspath(os.path.dirname(path))
         self.overrides = overrides or {}
         if os.path.exists(path):
-            self.localConfig = LocalConfig(path, yaml_include_hook=self.load_yaml_include)
+            self.localConfig = LocalConfig(
+                path, yaml_include_hook=self.load_yaml_include
+            )
         else:
             self.localConfig = LocalConfig()
         self._set_repos()
@@ -245,9 +269,14 @@ class Project:
                     return repo
             elif not repourl_parts.username:  # if url doesn't have credentials already
                 candidate_parts = urlsplit(repo.url)
-                if candidate_parts.password and candidate_parts.hostname == repourl_parts.hostname:
+                if (
+                    candidate_parts.password
+                    and candidate_parts.hostname == repourl_parts.hostname
+                ):
                     # rewrite repoUrl to add credentials
-                    repoURL = urlunsplit(repourl_parts._replace(netloc=candidate_parts.netloc))
+                    repoURL = urlunsplit(
+                        repourl_parts._replace(netloc=candidate_parts.netloc)
+                    )
         return candidate or repoURL
 
     def find_git_repo(
@@ -432,7 +461,9 @@ class Project:
         return None
 
     def find_ensemble_by_path(self, path: str) -> Optional[dict]:
-        return self._find_ensemble_by_path(self.localConfig.ensembles, self.projectRoot, path)
+        return self._find_ensemble_by_path(
+            self.localConfig.ensembles, self.projectRoot, path
+        )
 
     def find_ensemble_by_name(self, name: str) -> Optional[dict]:
         for tpl in self.localConfig.ensembles:
@@ -574,7 +605,9 @@ class Project:
                 environment = expanded.get("default_environment")
                 ensembles = expanded.get("ensembles") or []
                 if "manifest_path" in url_vars:
-                    ensemble_tpl = self._find_ensemble_by_path(ensembles, self.projectRoot, url_vars["manifest_path"])
+                    ensemble_tpl = self._find_ensemble_by_path(
+                        ensembles, self.projectRoot, url_vars["manifest_path"]
+                    )
                 else:
                     ensemble_tpl = LocalConfig._get_default_manifest_tpl(ensembles)
                 if ensemble_tpl:
@@ -605,8 +638,11 @@ class LocalConfig:
     def __init__(self, path=None, validate=True, yaml_include_hook=None):
         defaultConfig = {"apiVersion": "unfurl/v1alpha1", "kind": "Project"}
         self.config = YamlConfig(
-            defaultConfig, path, validate,
-            os.path.join(_basepath, "unfurl-schema.json"), yaml_include_hook
+            defaultConfig,
+            path,
+            validate,
+            os.path.join(_basepath, "unfurl-schema.json"),
+            yaml_include_hook,
         )
         self.ensembles = self.config.expanded.get("ensembles") or []
         self.projects = self.config.expanded.get("projects") or {}
@@ -756,9 +792,9 @@ def _maplist(template, environment_scope=None):
             # match or if environment_scope is None skip any != *
             continue
         value = var["value"]
-        if var.get('variable_type') == 'file':
+        if var.get("variable_type") == "file":
             value = save_to_tempfile(value, var["key"]).name
-        elif var.get('masked'):
+        elif var.get("masked"):
             value = wrap_sensitive_value(value)
         yield var["key"], value
 
@@ -858,10 +894,10 @@ class LocalEnv:
         self.logger = logger
         self.manifest_context_name = None
         self.overrides: Dict[str, Any] = {}
-        if override_context is not None:  
+        if override_context is not None:
             # aka the --use-environment option
             # hackishly, "" is a valid option used by load_yaml_include
-            self.overrides['ENVIRONMENT'] = override_context
+            self.overrides["ENVIRONMENT"] = override_context
 
         if parent:
             self.parent = parent
@@ -1162,7 +1198,9 @@ class LocalEnv:
     def _create_working_dir(self, repoURL, revision, basepath):
         project = self.project or self.homeProject
         if not project:
-            logger.warning("Can not create clone repository, ensemble is not in an Unfurl project.")
+            logger.warning(
+                "Can not create clone repository, ensemble is not in an Unfurl project."
+            )
             return None
         while project:
             if basepath is None or project.is_path_in_project(basepath):
@@ -1189,7 +1227,9 @@ class LocalEnv:
             if not repo.is_dirty():
                 repo.pull(revision=revision)
         else:
-            assert isinstance(repo, str), repo # it's the repoUrl (possibly rewritten) at this point
+            assert isinstance(
+                repo, str
+            ), repo  # it's the repoUrl (possibly rewritten) at this point
             # git-local repos must already exist locally
             if repo.startswith("git-local://"):
                 return None, None, None

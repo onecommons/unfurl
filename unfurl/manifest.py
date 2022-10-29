@@ -8,7 +8,14 @@ from typing import Tuple, Any
 from ruamel.yaml.comments import CommentedMap
 from .tosca import ToscaSpec, TOSCA_VERSION, ArtifactSpec
 
-from .support import ResourceChanges, AttributeManager, Status, Priority, NodeState, Imports
+from .support import (
+    ResourceChanges,
+    AttributeManager,
+    Status,
+    Priority,
+    NodeState,
+    Imports,
+)
 from .runtime import (
     OperationalInstance,
     NodeInstance,

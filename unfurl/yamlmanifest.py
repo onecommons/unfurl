@@ -329,7 +329,11 @@ class YamlManifest(ReadOnlyManifest):
             )
         if self.context.get("instances"):
             # add context instances to spec instances but skip ones that are just in there because they were shared
-            env_instances = {k: v for k, v in self.context["instances"].items() if "imported" not in v}
+            env_instances = {
+                k: v
+                for k, v in self.context["instances"].items()
+                if "imported" not in v
+            }
             self._load_resource_templates(
                 env_instances, spec.setdefault("instances", {}), True
             )
@@ -525,13 +529,16 @@ class YamlManifest(ReadOnlyManifest):
         else:
             # ensemble is in the same project
             baseDir = getattr(location, "base_dir", self.get_base_dir())
-            artifact_tpl = dict(file=location['file'])
+            artifact_tpl = dict(file=location["file"])
             if "repository" in location:
                 artifact_tpl = location["repository"]
             artifact = ArtifactSpec(artifact_tpl, path=baseDir, spec=self.tosca)
             path = artifact.get_path()
-            localEnv = LocalEnv(path, parent=self.localEnv,
-                                override_context=location.get("environment", ""))
+            localEnv = LocalEnv(
+                path,
+                parent=self.localEnv,
+                override_context=location.get("environment", ""),
+            )
             if self.path and os.path.abspath(self.path) == os.path.abspath(
                 localEnv.manifestPath
             ):
@@ -820,7 +827,9 @@ class YamlManifest(ReadOnlyManifest):
             self.manifest.config["lastJob"] = jobRecord
             exclude_result = not self.changeLogPath
             # don't save result.results into this yaml, it might contain sensitive data
-            changes = list(map(lambda t: save_task(t, exclude_result), job.workDone.values()))
+            changes = list(
+                map(lambda t: save_task(t, exclude_result), job.workDone.values())
+            )
             if self.changeLogPath:
                 self.manifest.config["jobsLog"] = self.changeLogPath
 
@@ -944,7 +953,9 @@ class YamlManifest(ReadOnlyManifest):
             for change in changes:
                 if "readyState" not in change:
                     continue  # never ran (skipped)
-                status = change["readyState"].get("effective") or change["readyState"].get("local")
+                status = change["readyState"].get("effective") or change[
+                    "readyState"
+                ].get("local")
                 attrs = dict(
                     previousId=change.get("previousId", ""),
                     status=status,

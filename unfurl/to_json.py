@@ -243,7 +243,7 @@ def tosca_schema_to_jsonschema(p, spec):
 
 def _requirement_visibility(spec, name, req):
     if name == "dependency":
-        return "omit" # skip base TOSCA relationship type that every node has
+        return "omit"  # skip base TOSCA relationship type that every node has
     node = req.get("node")
     metadata = req.get("metadata") or {}
     if metadata.get("visibility"):
@@ -403,9 +403,10 @@ def always_export(p):
 #         return None
 #     return attribute_value_to_json(p, value)
 
+
 def _is_get_env_or_secret(value):
     if isinstance(value, dict):
-      return "get_env" in value or "secret" in value or "_generate" in value
+        return "get_env" in value or "secret" in value or "_generate" in value
 
 
 class PropertyVisitor:
@@ -414,10 +415,7 @@ class PropertyVisitor:
 
     def redact_if_sensitive(self, value):
         if isinstance(value, Mapping):
-            return {
-                key: self.redact_if_sensitive(v)
-                for key, v in value.items()
-            }
+            return {key: self.redact_if_sensitive(v) for key, v in value.items()}
         elif isinstance(value, (MutableSequence, tuple)):
             return [self.redact_if_sensitive(item) for item in value]
         elif is_sensitive(value):
@@ -729,7 +727,10 @@ def nodetemplate_to_json(nodetemplate, spec, types, for_resource=False):
     json["properties"] = list(template_properties_to_json(nodetemplate, visitor))
     if visitor.redacted and "predefined" not in nodetemplate.directives:
         json["directives"].append("predefined")
-        logger.warning("Adding 'predefined' directive to '%s' because it has redacted properties", nodetemplate.name)
+        logger.warning(
+            "Adding 'predefined' directive to '%s' because it has redacted properties",
+            nodetemplate.name,
+        )
     json["dependencies"] = []
     visibility = template_visibility(spec, nodetemplate, for_resource)
     if visibility != "inherit":
@@ -783,16 +784,22 @@ def nodetemplate_to_json(nodetemplate, spec, types, for_resource=False):
         if visibility:
             reqjson["constraint"] = dict(reqjson["constraint"], visibility=visibility)
         if visibility != "hidden":
-            has_visible_dependency =  True
+            has_visible_dependency = True
         json["dependencies"].append(reqjson)
 
-    if not for_resource and "predefined" in json["directives"] and json.get("visibility") not in ["hidden", "omit"]:
+    if (
+        not for_resource
+        and "predefined" in json["directives"]
+        and json.get("visibility") not in ["hidden", "omit"]
+    ):
         if visitor.user_settable:
             raise UnfurlError(
-                f"Can't export template '{nodetemplate.name}' because it is both predefined and has settings the user can change.")
+                f"Can't export template '{nodetemplate.name}' because it is both predefined and has settings the user can change."
+            )
         if has_visible_dependency:
             raise UnfurlError(
-                f"Can't export template '{nodetemplate.name}' because it is both predefined and has requirements the user can change.")
+                f"Can't export template '{nodetemplate.name}' because it is both predefined and has requirements the user can change."
+            )
     return json
 
 
@@ -935,12 +942,18 @@ def _template_title(spec, default):
 
 
 def _generate_env_names_from_type(reqname, type_definition, custom_defs):
-    for propdef in itertools.chain(type_definition.get_properties_def_objects(),
-                                   type_definition.get_attributes_def_objects()):
+    for propdef in itertools.chain(
+        type_definition.get_properties_def_objects(),
+        type_definition.get_attributes_def_objects(),
+    ):
         if propdef.name in ["tosca_id", "state", "tosca_name"]:
             continue
-        simple_type = get_simple_valuetype(propdef.schema['type'], custom_defs)
-        if simple_type and VALUE_TYPES[simple_type].get("type") in ["string", "boolean", "number"]:
+        simple_type = get_simple_valuetype(propdef.schema["type"], custom_defs)
+        if simple_type and VALUE_TYPES[simple_type].get("type") in [
+            "string",
+            "boolean",
+            "number",
+        ]:
             yield f"{reqname}_{propdef.name.upper()}"
 
 
@@ -1032,7 +1045,7 @@ def get_deployment_blueprints(manifest, blueprint, root_name, db):
                 primary=primary,
                 resourceTemplates=resourceTemplates,
                 ResourceTemplate=local_resource_templates,
-                environmentVariableNames=env_vars
+                environmentVariableNames=env_vars,
             )
         )
         deployment_templates[name] = template
@@ -1051,23 +1064,27 @@ def get_blueprint_from_topology(manifest, db):
     deployment_blueprint_name = manifest.context.get("deployment_blueprint")
     if deployment_blueprint_name and deployment_blueprint_name in templates:
         deployment_blueprint = templates[deployment_blueprint_name]
-        template = deployment_blueprint.copy()     
+        template = deployment_blueprint.copy()
 
     if "source" not in template:
         # the deployment template created for this deployment will have a "source" key
         # so if it doesn't (or one wasn't set) create a new one and set the current one as its "source"
-        template.update(dict(
-            __typename="DeploymentTemplate",
-            title=title,
-            name=slug,
-            slug=slug,
-            description=spec.template.description,
-            # names of ResourceTemplates
-            resourceTemplates=sorted(db["ResourceTemplate"]),
-            ResourceTemplate={},
-            source=deployment_blueprint_name,
-            projectPath=urlparse(manifest.repositories['spec'].url).path.lstrip('/').rstrip('.git')
-        ))
+        template.update(
+            dict(
+                __typename="DeploymentTemplate",
+                title=title,
+                name=slug,
+                slug=slug,
+                description=spec.template.description,
+                # names of ResourceTemplates
+                resourceTemplates=sorted(db["ResourceTemplate"]),
+                ResourceTemplate={},
+                source=deployment_blueprint_name,
+                projectPath=urlparse(manifest.repositories["spec"].url)
+                .path.lstrip("/")
+                .rstrip(".git"),
+            )
+        )
     template["blueprint"] = blueprint["name"]
     template["primary"] = root_name
     template["environmentVariableNames"] = list(_generate_env_names(spec, root_name))
@@ -1388,11 +1405,19 @@ def add_attributes(instance):
             if always_export(prop):
                 # evaluate computed property now
                 attrs.append(
-                    dict(name=prop.name, value=attribute_value_to_json(prop, instance.attributes[prop.name]))
+                    dict(
+                        name=prop.name,
+                        value=attribute_value_to_json(
+                            prop, instance.attributes[prop.name]
+                        ),
+                    )
                 )
             elif not is_computed(prop):
                 attrs.append(
-                    dict(name=prop.name, value=attribute_value_to_json(prop, prop.default))
+                    dict(
+                        name=prop.name,
+                        value=attribute_value_to_json(prop, prop.default),
+                    )
                 )
     return attrs
 
@@ -1427,7 +1452,12 @@ def add_computed_properties(instance):
             if always_export(prop) and prop.name not in instance.template.attributeDefs:
                 # evaluate computed property now
                 attrs.append(
-                    dict(name=prop.name, value=attribute_value_to_json(prop, instance.attributes[prop.name]))
+                    dict(
+                        name=prop.name,
+                        value=attribute_value_to_json(
+                            prop, instance.attributes[prop.name]
+                        ),
+                    )
                 )
 
     return attrs
@@ -1437,7 +1467,11 @@ def is_resource_real(instance):
     for resource_types in ["unfurl.nodes.CloudObject", "unfurl.nodes.K8sRawResource"]:
         if instance.template.is_compatible_type(resource_types):
             return True
-    if "id" in instance.attributes or "console_url" in instance.attributes or "url" in instance.attributes:
+    if (
+        "id" in instance.attributes
+        or "console_url" in instance.attributes
+        or "url" in instance.attributes
+    ):
         return True
     return False
 
@@ -1465,9 +1499,12 @@ def to_graphql_resource(instance, manifest, db, relationships):
         if pending or "virtual" in instance.template.directives:
             return None
         template = nodetemplate_to_json(
-            instance.template.toscaEntityTemplate, manifest.tosca, db["ResourceType"], True
+            instance.template.toscaEntityTemplate,
+            manifest.tosca,
+            db["ResourceType"],
+            True,
         )
-        if template.get("visibility") == 'omit':
+        if template.get("visibility") == "omit":
             return None
         db["ResourceTemplate"][instance.template.name] = template
 
@@ -1478,7 +1515,7 @@ def to_graphql_resource(instance, manifest, db, relationships):
         state=instance.state,
         status=instance.status,
         __typename="Resource",
-        imported=instance.imported
+        imported=instance.imported,
     )
 
     if "visibility" in template and template["visibility"] != "inherit":
@@ -1502,7 +1539,9 @@ def to_graphql_resource(instance, manifest, db, relationships):
                     # this resource wasn't referenced, don't include if it wasn't part of the plan
                     # XXX: have a more accurate way to figure this out
                     return None
-    logger.debug(f"exporting resource {instance.name} with visibility {resource.get('visibility')}")
+    logger.debug(
+        f"exporting resource {instance.name} with visibility {resource.get('visibility')}"
+    )
 
     resource["protected"] = instance.protected
     resource["attributes"] = add_attributes(instance)

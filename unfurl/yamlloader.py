@@ -190,10 +190,13 @@ def make_vault_lib_ex(secrets: List[Tuple[str, Union[str, bytes]]]):
 
 
 def urlopen(url):
-    return urllib.request.urlopen(url, context=ssl.create_default_context(cafile=certifi.where()))
+    return urllib.request.urlopen(
+        url, context=ssl.create_default_context(cafile=certifi.where())
+    )
 
 
 _refResolver = RefResolver("", None)
+
 
 class ImportResolver(toscaparser.imports.ImportResolver):
     def __init__(self, manifest, ignoreFileNotFound=False, expand=False):
@@ -315,7 +318,10 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                                 'The server "%(path)s" couldn\'t fulfill the request. '
                                 + 'Error code: "%(code)s".'
                             )
-                        ) % {"path": path, "code": e.code}  # type: ignore
+                        ) % {
+                            "path": path,
+                            "code": e.code,
+                        }  # type: ignore
                         ExceptionCollector.appendException(URLException(what=msg))
                         return
                     else:
@@ -420,9 +426,7 @@ class YamlConfig:
                 f = urlopen(path)
             except urllib.error.URLError:
                 if warnWhenNotFound:
-                    logger.warning(
-                        f"document include {path} could not be retreived"
-                    )
+                    logger.warning(f"document include {path} could not be retreived")
                     return path, None
                 raise
         else:
@@ -565,13 +569,13 @@ class YamlConfig:
         if self.loadHook:
             # give loadHook change to transform key
             key = self.loadHook(
-                    self,
-                    templatePath,
-                    self.baseDirs[-1],
-                    warnWhenNotFound,
-                    expanded,
-                    key,
-                )
+                self,
+                templatePath,
+                self.baseDirs[-1],
+                warnWhenNotFound,
+                expanded,
+                key,
+            )
             if not key:
                 return value, None, ""
 

@@ -84,16 +84,16 @@ class NodeState(int, Enum):
 
 
 class Priority(int, Enum):
-  ignore = 0
-  optional = 1
-  required = 2
-  critical = 3
+    ignore = 0
+    optional = 1
+    required = 2
+    critical = 3
 
 
 class Reason:
     add = "add"
     reconfigure = "reconfigure"
-    force = "force" 
+    force = "force"
     upgrade = "upgrade"
     update = "update"
     missing = "missing"
@@ -359,7 +359,9 @@ def apply_template(value, ctx, overrides=None):
     if not fail_on_undefined:
         templar.environment.undefined = _UnfurlUndefined
 
-    vars = _VarTrackerDict(__unfurl=ctx, __python_executable=sys.executable, __now=time.time())
+    vars = _VarTrackerDict(
+        __unfurl=ctx, __python_executable=sys.executable, __now=time.time()
+    )
     if hasattr(ctx.currentResource, "attributes"):
         vars["SELF"] = ctx.currentResource.attributes
     vars.update(ctx.vars)
@@ -610,8 +612,9 @@ def set_context_vars(vars, resource):
 
 class _EnvMapper(dict):
     """Resolve environment variable name to instance properties via the root template's requirements.
-       Pattern should match _generate_env_names in to_json.py and set_context_vars above.
+    Pattern should match _generate_env_names in to_json.py and set_context_vars above.
     """
+
     def __missing__(self, key):
         objname, sep, prop = key.partition("_")
         root = self.ctx.currentResource.root
@@ -775,20 +778,29 @@ class ContainerImage(ExternalValue):
     "registry.example.com:8080/repository/name:tag"
     "registry-1.docker.io/repository/name@sha256:digest"
     """
+
     # https://docs.docker.com/engine/reference/commandline/tag/
-    # An image name is made up of slash-separated name components, 
-    # optionally prefixed by a registry hostname. The hostname must comply with standard DNS rules, 
-    # but may not contain underscores. If a hostname is present, it may optionally be followed by 
-    # a port number in the format :8080. If not present, the command uses Docker’s public registry 
-    # located at registry-1.docker.io by default. Name components may contain lowercase letters, digits 
-    # and separators. A separator is defined as a period, one or two underscores, or one or more dashes. 
+    # An image name is made up of slash-separated name components,
+    # optionally prefixed by a registry hostname. The hostname must comply with standard DNS rules,
+    # but may not contain underscores. If a hostname is present, it may optionally be followed by
+    # a port number in the format :8080. If not present, the command uses Docker’s public registry
+    # located at registry-1.docker.io by default. Name components may contain lowercase letters, digits
+    # and separators. A separator is defined as a period, one or two underscores, or one or more dashes.
     # A name component may not start or end with a separator.
-    # A tag name must be valid ASCII and may contain lowercase and uppercase letters, digits, underscores, periods and dashes. 
+    # A tag name must be valid ASCII and may contain lowercase and uppercase letters, digits, underscores, periods and dashes.
     # # A tag name may not start with a period or a dash and may contain a maximum of 128 characters.
 
-    def __init__(self, name: str, tag=None, digest=None,
-                 registry_host=None, username=None, password=None, source_digest=None):
-        self.name = name.lstrip('/').lower()
+    def __init__(
+        self,
+        name: str,
+        tag=None,
+        digest=None,
+        registry_host=None,
+        username=None,
+        password=None,
+        source_digest=None,
+    ):
+        self.name = name.lstrip("/").lower()
         self.tag = tag
         self.digest = digest
         self.registry_host = registry_host
@@ -801,7 +813,7 @@ class ContainerImage(ExternalValue):
     # def resolve_key(self, name=None, currentResource=None):
     #     # hostname: registry-1.docker.io, name, tag, digest
 
-    def get(self) -> str:      
+    def get(self) -> str:
         if self.registry_host:
             name = os.path.join(self.registry_host, self.name)
         else:
@@ -821,18 +833,18 @@ class ContainerImage(ExternalValue):
         if not artifact_name:
             return None, None, None, None
         hostname = None
-        namespace, sep, name = artifact_name.partition('/')
-        if sep and (':' in namespace or artifact_name.count('/') > 1):
+        namespace, sep, name = artifact_name.partition("/")
+        if sep and (":" in namespace or artifact_name.count("/") > 1):
             # heuristic because name can look like a hostname
             hostname = namespace
         else:
             name = artifact_name
 
         tag = None
-        name, sep, digest = name.partition('@')
+        name, sep, digest = name.partition("@")
         if not sep:
             digest = None
-            name, sep, qualifier = artifact_name.partition(':')
+            name, sep, qualifier = artifact_name.partition(":")
             if sep:
                 tag = qualifier
         return name.lower(), tag, digest, hostname
@@ -845,17 +857,17 @@ class ContainerImage(ExternalValue):
     def resolve_name(base_name: str, artifact_name: str):
         if not base_name:
             return artifact_name
-        # support more qualified name such as image name or tag 
-        name, sep, qualifier = artifact_name.partition('@')
+        # support more qualified name such as image name or tag
+        name, sep, qualifier = artifact_name.partition("@")
         if not sep:
-            name, sep, qualifier = artifact_name.partition(':')
-        
+            name, sep, qualifier = artifact_name.partition(":")
+
         # if beginning of name overlaps with end of self.name discard it
-        segs, new_segs = base_name.split('/'), name.split('/')
-        while segs[-len(new_segs):] == new_segs:
+        segs, new_segs = base_name.split("/"), name.split("/")
+        while segs[-len(new_segs) :] == new_segs:
             new_segs.pop(0)
         if new_segs:
-            name = base_name + '/' + '/'.join(new_segs)
+            name = base_name + "/" + "/".join(new_segs)
         else:
             name = base_name
         return name.lower() + sep + qualifier
@@ -868,8 +880,7 @@ class ContainerImage(ExternalValue):
 
 
 set_eval_func(
-    "container_image",
-    lambda arg, ctx: ContainerImage.make(map_value(arg, ctx))
+    "container_image", lambda arg, ctx: ContainerImage.make(map_value(arg, ctx))
 )
 
 
@@ -883,8 +894,11 @@ def _get_instances_from_keyname(ctx, entity_name):
         ctx.trace("entity_name not found", entity_name)
         return None
 
+
 if TYPE_CHECKING:
     from .tosca import ArtifactSpec
+
+
 def _find_artifact(instances, artifact_name) -> "Optional[ArtifactSpec]":
     for instance in instances:
         # XXX implement instance.artifacts
@@ -909,17 +923,17 @@ def _get_container_image_from_repository(entity, artifact_name):
 
     if attr.get("registry_url"):
         hostname = attr["registry_url"]
-        if '//' in hostname:
+        if "//" in hostname:
             hostname = urlsplit(attr["registry_url"]).netloc
     username = attr.get("username")
     password = attr.get("password")
     source_digest = attr.get("revision")
-    return ContainerImage(name, tag, digest, hostname, username, password, source_digest)
+    return ContainerImage(
+        name, tag, digest, hostname, username, password, source_digest
+    )
 
 
-def get_artifact(
-    ctx: RefContext, entity, artifact_name, location=None, remove=None
-):
+def get_artifact(ctx: RefContext, entity, artifact_name, location=None, remove=None):
     """
     Returns either an URL or local path to the artifact
     See section "4.8.1 get_artifact" in TOSCA 1.3 (p. 189)
@@ -930,6 +944,7 @@ def get_artifact(
     If entity_name or artifact_name is not found return None.
     """
     from .runtime import NodeInstance, ArtifactInstance
+
     if not entity:
         return ContainerImage.make(artifact_name)  # XXX assume its a container image
     if isinstance(entity, ArtifactInstance):
@@ -961,7 +976,7 @@ def get_artifact(
     #     # if location == 'LOCAL_FILE':
 
 
-set_eval_func("get_artifact", lambda args, ctx: get_artifact(ctx, *(map_value(args, ctx))), True) # type: ignore
+set_eval_func("get_artifact", lambda args, ctx: get_artifact(ctx, *(map_value(args, ctx))), True)  # type: ignore
 
 
 def get_import(arg: RefContext, ctx):
@@ -985,7 +1000,12 @@ class _Import:
     if TYPE_CHECKING:
         from .runtime import EntityInstance
 
-    def __init__(self, external_instance: "EntityInstance", spec: dict, local_instance: Optional["EntityInstance"]=None):
+    def __init__(
+        self,
+        external_instance: "EntityInstance",
+        spec: dict,
+        local_instance: Optional["EntityInstance"] = None,
+    ):
         self.external_instance = external_instance
         self.spec = spec
         self.local_instance = local_instance
@@ -993,7 +1013,7 @@ class _Import:
 
 class Imports(collections.OrderedDict):
     def find_import(self, qualified_name):
-        # return a local shadow of the imported instance 
+        # return a local shadow of the imported instance
         # or the imported instance itself if no local shadow exist (yet).
         imported = self._find_import(qualified_name)
         if imported:

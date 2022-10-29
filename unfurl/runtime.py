@@ -631,7 +631,7 @@ class RelationshipInstance(EntityInstance):
     parentRelation = "_relationships"
     templateType = RelationshipSpec
     if TYPE_CHECKING:
-        template  = templateType()
+        template = templateType()
     source = None
 
     @property
@@ -639,7 +639,7 @@ class RelationshipInstance(EntityInstance):
         # parent is a capability, return it's parent (a Node)
         if self.parent:
             return self.parent.parent
-        else: 
+        else:
             return None
 
     @property
@@ -660,7 +660,9 @@ class RelationshipInstance(EntityInstance):
         env: Dict[str, str] = {}
         capability = self.parent
         if capability:
-            for name, val in matchfn(capability.template.find_props(capability.attributes)):
+            for name, val in matchfn(
+                capability.template.find_props(capability.attributes)
+            ):
                 if val is None:
                     if delete_if_none:
                         env.pop(name, None)
@@ -679,7 +681,7 @@ class ArtifactInstance(EntityInstance):
     parentRelation = "_artifacts"
     templateType = ArtifactSpec  # type: ignore # XXX type error doesn't make sense
     if TYPE_CHECKING:
-        template  = ArtifactSpec({})
+        template = ArtifactSpec({})
 
     def __init__(
         self, name="", attributes=None, parent=None, template=None, status=None

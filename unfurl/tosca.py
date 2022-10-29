@@ -523,7 +523,7 @@ class ToscaSpec:
             if not isinstance(impl, dict):
                 continue
             if name in node_templates:
-                if "default" not in node_templates[name].get('directives', []):
+                if "default" not in node_templates[name].get("directives", []):
                     continue  # allow default templates to be overridden
             # add this as a template
             if "template" not in impl:
@@ -911,7 +911,7 @@ class NodeSpec(EntitySpec):
                     yield p
 
     @property
-    def requirements(self) ->Dict[str, "RequirementSpec"]:
+    def requirements(self) -> Dict[str, "RequirementSpec"]:
         if self._requirements is None:
             self._requirements = {}
             nodeTemplate = self.toscaEntityTemplate
@@ -989,12 +989,17 @@ class NodeSpec(EntitySpec):
                 relSpec.toscaEntityTemplate.source.name
                 == reqSpec.parentNode.toscaEntityTemplate.name
             ):
-                assert not reqSpec.relationship or reqSpec.relationship.name == relSpec.name, (
+                assert (
+                    not reqSpec.relationship
+                    or reqSpec.relationship.name == relSpec.name
+                ), (
                     reqSpec.relationship,
                     relSpec,
                 )
                 reqSpec.relationship = relSpec
-                assert not relSpec.requirement or relSpec.requirement.name == reqSpec.name, (
+                assert (
+                    not relSpec.requirement or relSpec.requirement.name == reqSpec.name
+                ), (
                     relSpec.requirement,
                     reqSpec,
                 )
@@ -1415,7 +1420,6 @@ class ArtifactSpec(EntitySpec):
             return ContainerImage(artifactDef.file, **kw)
         # XXX return File or FilePath
         return None
-
 
 
 class GroupSpec(EntitySpec):

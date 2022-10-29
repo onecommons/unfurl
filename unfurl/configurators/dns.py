@@ -59,7 +59,9 @@ def _get_records(attrs):
         if attrs.validate and "value" in record and record["value"] is None:
             attrs._validate("value", record["value"], raw_records[key]["value"], n_def)
         if attrs.validate and "values" in record and record["values"] is None:
-            attrs._validate("values", record["value"], raw_records[key]["values"], v_def)
+            attrs._validate(
+                "values", record["value"], raw_records[key]["values"], v_def
+            )
 
         # value is a ResultsMap, make it a dict so we can serialize it as yaml
         return name, map_value(record, attrs.context)

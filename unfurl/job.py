@@ -645,7 +645,9 @@ class Job(ConfigChange):
 
         serious_errors = list(self._yield_serious_errors(errors))
         if serious_errors:
-            logger.error("Aborting job: there were errors during rendering: %s", serious_errors)
+            logger.error(
+                "Aborting job: there were errors during rendering: %s", serious_errors
+            )
             return self.rootResource
 
         # XXX update_plan(ready, unfulfilled) # try to reorder so we can add to ready
@@ -671,9 +673,13 @@ class Job(ConfigChange):
         # if there were circular dependencies or errors then notReady won't be empty
         if notReady:
             for parent, req in get_render_requests(notReady):
-                if self.jobOptions.workflow == "deploy" and not req.include_in_plan():  # we don't want to run these
+                if (
+                    self.jobOptions.workflow == "deploy" and not req.include_in_plan()
+                ):  # we don't want to run these
                     continue
-                deps = req.future_dependencies + [dep.expr for dep in req.get_unfulfilled_refs()]
+                deps = req.future_dependencies + [
+                    dep.expr for dep in req.get_unfulfilled_refs()
+                ]
                 message = f"can't fulfill {req.target.name}: never ran {deps}"
                 if req.task:
                     req.task.logger.info(message)
@@ -1020,7 +1026,8 @@ class Job(ConfigChange):
             if missing:
                 return False, reason
             if not workflow:
-                if (resource.parent
+                if (
+                    resource.parent
                     and self.is_change_id(resource.parent.created)
                     and self.get_job_id(resource.parent.created) == self.changeId
                 ):
@@ -1508,7 +1515,9 @@ def _render(job):
 def start_job(manifestPath=None, _opts=None):
     _opts = _opts or {}
     localEnv = LocalEnv(
-        manifestPath, _opts.get("home"), override_context=_opts.get("use_environment") or ""
+        manifestPath,
+        _opts.get("home"),
+        override_context=_opts.get("use_environment") or "",
     )
     opts = JobOptions(**_opts)
     path = localEnv.manifestPath

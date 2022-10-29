@@ -76,7 +76,7 @@ class LogExtraLevels:
         self.log(Levels.TRACE.value, msg, *args, **kwargs)  # type: ignore
 
     def verbose(self, msg: str, *args: object, **kwargs: Any) -> None:
-        self.log(Levels.VERBOSE.value, msg, *args, **kwargs) # type: ignore
+        self.log(Levels.VERBOSE.value, msg, *args, **kwargs)  # type: ignore
 
 
 class UnfurlLogger(logging.Logger, LogExtraLevels):
