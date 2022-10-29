@@ -239,6 +239,7 @@ class Configurator:
         values = [inputs[key] for key in keys]
 
         for dep in task.dependencies:
+            assert isinstance(dep, Dependency)
             if not isinstance(dep.expected, sensitive):
                 keys.append(dep.expr)
                 values.append(dep.expected)
@@ -395,7 +396,7 @@ class TaskView:
         configSpec: ConfigurationSpec,
         target: EntityInstance,
         reason: Optional[str] = None,
-        dependencies: Optional[List["Dependency"]] = None,
+        dependencies: Optional[List["Operational"]] = None,
     ) -> None:
         # public:
         self.configSpec = configSpec
@@ -415,7 +416,7 @@ class TaskView:
         self.messages: List[object] = []
         self._addedResources: List[NodeInstance] = []
         self._dependenciesChanged = False
-        self.dependencies = dependencies or []
+        self.dependencies: List["Operational"] = dependencies or []
         self._resourceChanges = ResourceChanges()
         self._workFolders: dict = {}
         self._rendering = False
@@ -792,6 +793,7 @@ class TaskView:
             expr, expected, schema, name, required, wantList, target
         )
         for i, dep in enumerate(self.dependencies):
+            assert isinstance(dep, Dependency)
             if dep.expr == expr or dep.name == name:
                 self.dependencies[i] = dependency
                 break
@@ -802,6 +804,7 @@ class TaskView:
 
     def remove_dependency(self, name: str) -> Optional["Dependency"]:
         for i, dep in enumerate(self.dependencies):
+            assert isinstance(dep, Dependency)
             if dep.name == name:
                 self.dependencies.pop(i)
                 self._dependenciesChanged = True

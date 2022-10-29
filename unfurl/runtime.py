@@ -341,7 +341,7 @@ class _ChildResources(Mapping):
 
 class EntityInstance(OperationalInstance, ResourceRef):
     attributeManager = None
-    created = None
+    created: Optional[Union[bool, str]] = None
     protected: Optional[bool] = None
     imports = None
     imported = None

@@ -32,7 +32,7 @@ from .support import Status, Priority, Defaults, AttributeManager, Reason, NodeS
 from .result import ResourceRef, serialize_value, ChangeRecord
 from .util import UnfurlError, UnfurlTaskError, to_enum, change_cwd
 from .merge import merge_dicts
-from .runtime import NodeInstance, Operational, OperationalInstance
+from .runtime import EntityInstance, NodeInstance, Operational, OperationalInstance
 from . import logs
 from .logs import end_collapsible, start_collapsible
 from .configurator import (
@@ -126,10 +126,14 @@ class JobOptions:
         message=None,
     )
 
+    parentJob = None
+    instance = None
+    workflow = Defaults.workflow
+
     defaults = dict(
         global_defaults,
-        parentJob=None,
-        instance=None,
+        parentJob=parentJob,
+        instance=instance,
         instances=None,
         template=None,
         # default options:
@@ -146,7 +150,7 @@ class JobOptions:
         destroyunmanaged=False,
         append=None,
         replace=None,
-        workflow=Defaults.workflow,
+        workflow=workflow,
     )
 
     def __init__(self, **kw: Any) -> None:
@@ -226,7 +230,7 @@ class ConfigTask(ConfigChange, TaskView):
 
         return locals()
 
-    priority: Priority = property(**__priority())
+    priority: Priority = property(**__priority())  # type: ignore
 
     @property
     def configurator(self):
@@ -578,7 +582,7 @@ class Job(ConfigChange):
     def create_task(
         self,
         configSpec: ConfiguratorResult,
-        target: NodeInstance,
+        target: EntityInstance,
         reason: Optional[str] = None,
     ) -> ConfigTask:
         task = ConfigTask(self, configSpec, target, reason=reason)
@@ -604,7 +608,7 @@ class Job(ConfigChange):
         if self.plan_requests is None:
             ready: Sequence[PlanRequest] = self.create_plan()
         else:
-            ready: Sequence[PlanRequest] = self.plan_requests[:]
+            ready = self.plan_requests[:]
 
         # run artifact job requests before render
         if self.external_requests:
@@ -616,7 +620,7 @@ class Job(ConfigChange):
         # we want to run these even if we just generating a plan
         self.external_jobs = self.run_external(planOnly=False)
         if self.external_jobs and self.external_jobs[-1].status == Status.error:
-            return [], [], ["error running job on external ensemble"]
+            return [], [], [UnfurlError("error running job on external ensemble")]
 
         ready, notReady, errors = do_render_requests(self, ready)
         return ready, notReady, errors
@@ -666,13 +670,14 @@ class Job(ConfigChange):
         # if there were circular dependencies or errors then notReady won't be empty
         if notReady:
             for parent, req in get_render_requests(notReady):
-                if self.workflow == "deploy" and not req.include_in_plan():  # we don't want to run these
+                if self.jobOptions.workflow == "deploy" and not req.include_in_plan():  # we don't want to run these
                     continue
                 deps = req.future_dependencies + [dep.expr for dep in req.get_unfulfilled_refs()]
                 message = f"can't fulfill {req.target.name}: never ran {deps}"
-                req.task.logger.info(message)
-                req.task.finished(ConfiguratorResult(False, False, result=message))
-                self.add_work(req.task)
+                if req.task:
+                    req.task.logger.info(message)
+                    req.task.finished(ConfiguratorResult(False, False, result=message))
+                    self.add_work(req.task)
 
         # force outputs to be evaluated now and commit the changes
         # so any attributes that were evaluated computing the outputs are saved in the manifest.
@@ -750,7 +755,7 @@ class Job(ConfigChange):
         if not WorkflowPlan:
             raise UnfurlError(f"unknown workflow: {joboptions.workflow}")  # type: ignore
 
-        if not self.parentJob:
+        if not self.jobOptions.parentJob:
             # don't do this when running a nested job
             # (planned was already removed and new tasks have already been rendered there)
             rmtree(os.path.join(self.rootResource.base_dir, Folders.Planned))
@@ -812,7 +817,7 @@ class Job(ConfigChange):
 
     def apply(
         self,
-        taskRequests: List[Union[JobRequest, TaskRequestGroup]],
+        taskRequests: Sequence[Union[JobRequest, PlanRequest]],
         depth: int = 0,
         parent: "TaskRequestGroup" = None,
     ) -> Tuple[ConfigTask, bool]:
@@ -836,7 +841,7 @@ class Job(ConfigChange):
                 self.run_job_request(taskRequest)
                 continue
             elif isinstance(taskRequest, TaskRequestGroup):
-                _task = self.apply_group(depth, taskRequest)
+                _task: Optional[ConfigTask] = self.apply_group(depth, taskRequest)
             else:
                 _task = self._run_operation(taskRequest, workflow, depth)
 
@@ -1000,6 +1005,7 @@ class Job(ConfigChange):
         or a create operation may also configure and start an instance.
         """
         resource = req.target
+        assert resource
         logger.trace(
             "checking operation entry test on %s: current state %s start state %s op %s workflow %s",
             resource.key,
@@ -1013,8 +1019,8 @@ class Job(ConfigChange):
             if missing:
                 return False, reason
             if not workflow:
-                if (
-                    self.is_change_id(resource.parent.created)
+                if (resource.parent
+                    and self.is_change_id(resource.parent.created)
                     and self.get_job_id(resource.parent.created) == self.changeId
                 ):
                     # optimization:
@@ -1048,7 +1054,7 @@ class Job(ConfigChange):
         return True, "passed"
 
     def _run_operation(
-        self, req: TaskRequest, workflow: str, depth: int
+        self, req: PlanRequest, workflow: str, depth: int
     ) -> Optional[ConfigTask]:
         if isinstance(req, SetStateRequest):
             logger.debug("Setting state with %s", req)
@@ -1109,7 +1115,10 @@ class Job(ConfigChange):
                         state_map[Status.absent] = NodeState.initial
                     else:
                         state_map[Status.absent] = NodeState.deleted
-                    state = state_map.get(resource._localStatus)
+                    if resource._localStatus is None:
+                        state = None
+                    else:
+                        state = state_map.get(resource._localStatus)
                     if state is not None:
                         resource.state = state
                 task.target_state = resource.state
@@ -1143,6 +1152,7 @@ class Job(ConfigChange):
         Returns a task.
         """
         task.target.root.attributeManager = task._attributeManager
+        errors: Any = None
         ok, errors = self.can_run_task(task)
         if not ok:
             return task.finished(ConfiguratorResult(False, False, result=errors))
@@ -1344,7 +1354,7 @@ class Job(ConfigChange):
 
         def _summary(
             requests: List[Union[JobRequest, TaskRequest, TaskRequestGroup]],
-            target: Optional[NodeInstance],
+            target: Optional[EntityInstance],
             indent: int,
         ) -> None:
             nonlocal count
@@ -1352,20 +1362,21 @@ class Job(ConfigChange):
                 isGroup = isinstance(request, TaskRequestGroup)
                 if isGroup and not request.children:  # type: ignore
                     continue
-                if not self.is_filtered() and self.workflow == "deploy":  # type: ignore
+                if isinstance(request, JobRequest):
+                    count += 1
+                    nodeStr = f'Job for "{request.name}":'
+                    output.append(" " * indent + nodeStr)
+                    continue
+                if not self.is_filtered() and self.jobOptions.workflow == "deploy":
                     if not request.include_in_plan():
                         logger.trace(
                             'excluding "%s" from plan: not required',
                             request.target.name,
                         )
                         continue
-                if isinstance(request, JobRequest):
-                    count += 1
-                    nodeStr = f'Job for "{request.name}":'
-                    output.append(" " * indent + nodeStr)
-                    continue
                 if request.target is not target:
                     target = request.target
+                    assert target
                     status = ", ".join(
                         filter(
                             None,

@@ -9,7 +9,7 @@ By convention, the "home" project defines a localhost instance and adds it to it
 """
 import os
 import os.path
-from typing import Any, Iterable, List, Optional, OrderedDict, Tuple, Union, TYPE_CHECKING
+from typing import Any, Iterable, Dict, List, Optional, OrderedDict, Tuple, Union, TYPE_CHECKING
 
 from ansible.parsing.vault import VaultLib
 import six
@@ -770,8 +770,8 @@ class LocalEnv:
     the local project it is part of and the home project.
     """
 
-    project = None
-    parent = None
+    project: Optional[Project] = None
+    parent: Optional[LocalEnv] = None
 
     def _find_external_project(
         self, manifestPath: str, project: Project
@@ -858,7 +858,7 @@ class LocalEnv:
         logger = logging.getLogger("unfurl")
         self.logger = logger
         self.manifest_context_name = None
-        self.overrides = {}
+        self.overrides: Dict[str, Any] = {}
         if override_context is not None:  
             # aka the --use-environment option
             # hackishly, "" is a valid option used by load_yaml_include
@@ -1199,6 +1199,7 @@ class LocalEnv:
             if not repo:
                 return None, None, None
 
+        assert isinstance(repo, GitRepo)
         if revision:
             if repo.revision != repo.resolve_rev_spec(revision):
                 repo.checkout(revision)
