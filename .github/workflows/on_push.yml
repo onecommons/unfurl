@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python: [3.7, 3.8, 3.9, "3.10", 3.11.0-rc.2]
+        python: [3.7, 3.8, 3.9, "3.10", "3.11.0"]
     env:
       TOX_SKIP_ENV: .+(docker|lock)
       UNFURL_LOGGING: info
@@ -60,10 +60,10 @@ jobs:
       - name: Run mypy and Tox
         # Run tox using the version of Python in `PATH`
         run: |
-          python -m mypy unfurl
           export PY_V=py3`python -c "import sys; print(sys.version_info.minor, end='')"`
           tox -c tosca-parser/tox.ini -e $PY_V
           tox -e $PY_V -- -n auto --dist loadfile
+          .tox/$PY_V/bin/mypy unfurl
       - name: build docs
         if: matrix.python == 3.9
         run: tox -e docs -- -W
