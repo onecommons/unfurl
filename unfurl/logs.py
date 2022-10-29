@@ -83,6 +83,10 @@ class UnfurlLogger(logging.Logger, LogExtraLevels):
     pass
 
 
+def getLogger(name: str) -> UnfurlLogger:
+    return logging.getLogger(name)  # type: ignore
+
+
 class JobLogHandler(logging.StreamHandler):
     def emit(self, record: logging.LogRecord) -> None:
         # hide output in terminals

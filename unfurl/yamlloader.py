@@ -42,6 +42,7 @@ from .merge import (
     restore_includes,
 )
 from .repo import is_url_or_git_path
+from .logs import getLogger
 from toscaparser.common.exception import URLException, ExceptionCollector
 from toscaparser.utils.gettextutils import _
 import toscaparser.imports
@@ -50,9 +51,8 @@ from toscaparser.repositories import Repository
 from ansible.parsing.vault import VaultLib, VaultSecret
 from ansible.utils.unsafe_proxy import AnsibleUnsafeText, AnsibleUnsafeBytes
 
-import logging
+logger = getLogger("unfurl")
 
-logger = logging.getLogger("unfurl")
 
 CLEARTEXT_VAULT = VaultLib(secrets=[("cleartext", b"")])
 
@@ -315,7 +315,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                                 'The server "%(path)s" couldn\'t fulfill the request. '
                                 + 'Error code: "%(code)s".'
                             )
-                        ) % {"path": path, "code": e.code}
+                        ) % {"path": path, "code": e.code}  # type: ignore
                         ExceptionCollector.appendException(URLException(what=msg))
                         return
                     else:

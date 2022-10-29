@@ -32,9 +32,8 @@ if TYPE_CHECKING:
 _basepath = os.path.abspath(os.path.dirname(__file__))
 
 
-import logging
-
-logger = logging.getLogger("unfurl")
+from .logs import getLogger 
+logger = getLogger("unfurl")
 
 
 class Project:
@@ -771,7 +770,7 @@ class LocalEnv:
     """
 
     project: Optional[Project] = None
-    parent: Optional[LocalEnv] = None
+    parent: Optional["LocalEnv"] = None
 
     def _find_external_project(
         self, manifestPath: str, project: Project
@@ -1170,8 +1169,8 @@ class LocalEnv:
                 repo = project.create_working_dir(repoURL, revision)
                 break
             project = project.parentProject
-        else:
-            repo = (self.project or self.homeProject).create_working_dir(
+        else:  # no break
+            repo = (self.project or self.homeProject).create_working_dir(  # type: ignore
                 repoURL, revision
             )
         return repo

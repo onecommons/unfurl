@@ -60,6 +60,12 @@ logger = logging.getLogger("unfurl")
 
 
 class Folders:
+    artifacts = "artifacts"
+    secrets = "secrets"
+    local = "local"
+    tasks = "tasks"
+    operations = "operation"
+    workflow = "workflow"
     Persistent = ("artifacts", "secrets", "local")
     Job = ("tasks", "operation", "workflow")
     Planned = "planned"

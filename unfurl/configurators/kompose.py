@@ -231,6 +231,7 @@ def _load_resource_file(task, out_path, filename, ingress_extras):
     with open(Path(out_path) / filename) as f:
         definition = f.read()
     definition = yaml.load(definition)
+    assert isinstance(definition, dict)
     if definition["kind"] == "Ingress" and ingress_extras:
         definition = merge_dicts(definition, ingress_extras)
     annotations = task.inputs.get('annotations')

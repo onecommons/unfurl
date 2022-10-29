@@ -14,7 +14,6 @@ from typing import (
     Iterable,
     List,
     Optional,
-    Tuple,
     Union,
     TYPE_CHECKING,
     cast,
@@ -36,7 +35,7 @@ from .tosca import (
     TopologySpec,
     ArtifactSpec,
 )
-from unfurl.logs import UnfurlLogger
+from .logs import UnfurlLogger
 import logging
 
 if TYPE_CHECKING:

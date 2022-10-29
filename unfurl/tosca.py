@@ -28,13 +28,14 @@ import toscaparser.imports
 import toscaparser.artifacts
 from toscaparser.common.exception import ExceptionCollector
 import os
+from .logs import getLogger
 import logging
 import re
 from typing import Dict, Optional
 
 from ruamel.yaml.comments import CommentedMap
 
-logger = logging.getLogger("unfurl")
+logger = getLogger("unfurl")
 
 from toscaparser import functions
 
@@ -625,7 +626,11 @@ def find_props(attributes, propertyDefs, flatten=False):
 # represents a node, capability or relationship
 class EntitySpec(ResourceRef):
     # XXX need to define __eq__ for spec changes
-    def __init__(self, toscaNodeTemplate, spec=None):
+    def __init__(self, toscaNodeTemplate=None, spec=None):
+        if not toscaNodeTemplate:
+            toscaNodeTemplate = next(
+                iter(create_default_topology().topology_template.nodetemplates)
+            )
         self.toscaEntityTemplate = toscaNodeTemplate
         self.spec = spec
         self.name = toscaNodeTemplate.name

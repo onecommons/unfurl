@@ -91,13 +91,16 @@ class Priority(int, Enum):
 
 
 class Reason:
-    pass
-
-
-for (
-    r
-) in "add reconfigure force upgrade update missing error degraded prune run".split():
-    setattr(Reason, r, r)
+    add = "add"
+    reconfigure = "reconfigure"
+    force = "force" 
+    upgrade = "upgrade"
+    update = "update"
+    missing = "missing"
+    error = "error"
+    degraded = "degraded"
+    prune = "prune"
+    run = "run"
 
 
 class Defaults:

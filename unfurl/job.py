@@ -381,6 +381,7 @@ class ConfigTask(ConfigChange, TaskView):
         # need to recreate this because _attributeManager was reset
         self._inputs = None
 
+        # really
         # record the live attributes that we are dependent on
         # note: task start fresh with no dependencies so don't need to worry update or removing previous ones
         for key, (target, attributes) in dependencies.items():

@@ -5,13 +5,15 @@ import os.path
 from pathlib import Path
 import sys
 import git
-import logging
+from .logs import getLogger
 from urllib.parse import urlparse
 from .util import UnfurlError, save_to_file
 import toscaparser.repositories
 from ruamel.yaml.comments import CommentedMap
+import logging
 
-logger = logging.getLogger("unfurl")
+
+logger = getLogger("unfurl")
 
 
 def is_git_worktree(path, gitDir=".git"):

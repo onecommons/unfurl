@@ -19,10 +19,10 @@ from .planrequests import (
     find_resources_from_template_name,
 )
 from .tosca import find_standard_interface, EntitySpec
+from .logs import getLogger
 
-import logging
 
-logger = logging.getLogger("unfurl")
+logger = getLogger("unfurl")
 
 
 def is_external_template_compatible(import_name: str, external: EntitySpec, template: EntitySpec):
@@ -281,7 +281,7 @@ class Plan:
             resource.state in [NodeState.starting, NodeState.started]
             or self.workflow == "stop"
         ):
-            nodeState = NodeState.stopping
+            nodeState: Optional[NodeState] = NodeState.stopping
             op = "Standard.stop"
 
             yield from self._run_operation(nodeState, op, resource, reason, inputs)

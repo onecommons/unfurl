@@ -1159,8 +1159,7 @@ class Dependency(Operational):
 
     def has_changed(self, config: "ChangeRecord") -> bool:
         changeId = config.changeId
-        assert self.target
-        context = RefContext(self.target, dict(val=self.expected, changeId=changeId))
+        context = RefContext(config.target, dict(val=self.expected, changeId=changeId))  # type: ignore (see Manifest.load_config_change)
         result = Ref(self.expr).resolve_one(context)  # resolve(context, self.wantList)
 
         if self.schema:
