@@ -354,14 +354,14 @@ class Ref:
             f"Ref.resolve(wantList={wantList}) start strict {ctx.strict}",
             self.source,
         )
-        results = eval_ref(self.source, ctx, True)
-        assert isinstance(results, list)
-        ctx.trace(f"Ref.resolve(wantList={wantList}) evalRef", self.source, results)
+        ref_results = eval_ref(self.source, ctx, True)
+        assert isinstance(ref_results, list)
+        ctx.trace(f"Ref.resolve(wantList={wantList}) evalRef", self.source, ref_results)
         select = self.foreach or self.select
-        if results and select:
-            results = for_each(select, results, ctx)
-        assert not isinstance(results, ResultsList), results
-        results = ResultsList(results, ctx)
+        if ref_results and select:
+            results = for_each(select, ref_results, ctx)
+        else:
+            results = ResultsList(ref_results, ctx)
         ctx.add_ref_reference(self, results)
         ctx.trace(f"Ref.resolve(wantList={wantList}) results", self.source, results)
         if self.foreach:
@@ -477,12 +477,20 @@ def validate_schema_func(arg, ctx):
     assert_form(args, MutableSequence, len(args) == 2)
     return validate_schema(args[0], args[1])
 
+if sys.version_info >= (3, 9):
+    MutableSequence_Result = MutableSequence[Result]
+else:
+    MutableSequence_Result = MutableSequence
+
+ResultOrResultList = Union[Result, MutableSequence_Result]
+PairResultOrResultList = Tuple[Any, ResultOrResultList]
+MaybePairOrResultOrResultList = Union[PairResultOrResultList, ResultOrResultList]
 
 def _for_each(
     foreach: Union[MappingType[str, Any], str],
     results: Iterable[Tuple[Any, Any]],
     ctx: RefContext,
-) -> List[Result]:
+) -> List[ResultOrResultList]:
     if isinstance(foreach, str):
         keyExp: Union[Mapping, str, None] = None
         valExp: Union[Mapping, str, None] = foreach
@@ -498,7 +506,7 @@ def _for_each(
     Break = object()
     Continue = object()
 
-    def make_items():
+    def make_items() -> Iterable[MaybePairOrResultOrResultList]:
         for i, (k, v) in enumerate(results):
             # XXX stop setting any kind of value to currentResource
             # assert isinstance(v, ResourceRef)
@@ -515,35 +523,39 @@ def _for_each(
                     break
                 elif key is Continue:
                     continue
-            valResults = eval_ref(valExp, ictx)
-            if not valResults:
+            assert valExp
+            evalResults = eval_ref(valExp, ictx)
+            if not evalResults:
                 continue
-            if len(valResults) == 1:
-                val = valResults[0].resolved
+            if len(evalResults) == 1:
+                val = evalResults[0].resolved
                 if val is Break:
                     break
                 elif val is Continue:
                     continue
-                valResults = valResults[0]
+                valResult: ResultOrResultList = evalResults[0]
+            else:
+                valResult = evalResults
 
             if keyExp:
-                yield (key, valResults)
+                yield (key, valResult)
             else:
-                yield valResults
+                yield valResult
 
     if keyExp:
-        # use CommentedMap to preserve order
-        return [CommentedMap(make_items())]
+        return [Result(CommentedMap( cast(Iterable[PairResultOrResultList], make_items()) ))]
     else:
-        return list(make_items())
+        return list(cast(Iterable[ResultOrResultList], make_items()))
 
 
 def for_each(
     foreach: Union[Mapping, str], results: list, ctx: RefContext
-) -> List[Result]:
+) -> ResultsList:
     if len(results) == 1 and isinstance(results[0].resolved, MutableSequence):
-        return _for_each(foreach, enumerate(results[0].resolved), ctx)  # hack!
-    return _for_each(foreach, enumerate(r.external or r.resolved for r in results), ctx)
+        result = _for_each(foreach, enumerate(results[0].resolved), ctx)  # hack!
+    else:
+        result = _for_each(foreach, enumerate(r.external or r.resolved for r in results), ctx)
+    return ResultsList(result, ctx)  # ResultsList[List[ResultOrResultList]]]
 
 
 def for_each_func(foreach: Union[Mapping, str], ctx: RefContext):
@@ -582,15 +594,9 @@ def set_eval_func(name, val, topLevel=False):
         _FuncsTop.append(name)
 
 
-if sys.version_info >= (3, 9):
-    MutableSequence_Result = MutableSequence[Result]
-else:
-    MutableSequence_Result = MutableSequence
-
-
 def eval_ref(
     val: Union[Mapping, str], ctx: RefContext, top: bool = False
-) -> MutableSequence_Result:
+) -> List[Result]:
     "val is assumed to be an expression, evaluate and return a list of Result"
     from .support import is_template, apply_template
 
@@ -640,7 +646,7 @@ def eval_ref(
         return [Result(mappedVal)]
 
 
-def eval_for_func(val, ctx):
+def eval_for_func(val, ctx) -> Any:
     "like `eval_ref` except it returns the resolved value"
     results = eval_ref(val, ctx)
     if not results:

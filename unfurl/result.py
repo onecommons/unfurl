@@ -305,11 +305,11 @@ class ChangeAware:
 class ExternalValue(ChangeAware):
     __slots__ = ("type", "key")
 
-    def __init__(self, type, key):
+    def __init__(self, type: str, key: Any):
         self.type = type
         self.key = key
 
-    def get(self):
+    def get(self) -> Any:
         return self.key
 
     def __digestable__(self, options):
@@ -347,13 +347,13 @@ class Result(ChangeAware):
     # in __getitem__ and __setitem__
     __slots__ = ("original", "resolved", "external", "select")
 
-    def __init__(self, resolved):
+    def __init__(self, resolved: Any):
         self.select = ()
         self.original = _Deleted  # assume this is new to start
         if isinstance(resolved, ExternalValue):
             self.resolved = resolved.get()
             assert not isinstance(self.resolved, Result), self.resolved
-            self.external = resolved
+            self.external: Optional[ExternalValue] = resolved
         else:
             assert not isinstance(resolved, Result), resolved
             self.resolved = resolved
