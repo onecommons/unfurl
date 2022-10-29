@@ -57,9 +57,10 @@ jobs:
           kubectl config view
       - name: Install Tox and any other packages
         run: pip install tox
-      - name: Run Tox
+      - name: Run mypy and Tox
         # Run tox using the version of Python in `PATH`
         run: |
+          mypy unfurl
           export PY_V=py3`python -c "import sys; print(sys.version_info.minor, end='')"`
           tox -c tosca-parser/tox.ini -e $PY_V
           tox -e $PY_V -- -n auto --dist loadfile
