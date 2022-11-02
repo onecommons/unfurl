@@ -102,7 +102,7 @@ CONNECTION_OPTIONS = {
     "namespace": "-n",
     "kubeconfig": "--kubeconfig",
     "context": "--context",
-    "kubectl_host": "--server",
+    "host": "--server",
     "username": "--username",
     "password": "--password",
     "client_cert": "--client-certificate",
