@@ -13,7 +13,7 @@ topology_template:
       directives:
         - default # we need this so that this node template is imported
       artifacts:
-        helm:
+        kubectl:
           type: artifact.AsdfTool
           file: kubectl
           properties:
@@ -118,10 +118,10 @@ node_types:
     derived_from: unfurl.nodes.K8sResource
     properties:
       definition:
-        metadata:  
+        metadata:
           # hide because this is computed from the "type" and "data" properties
-          user_settable: false      
-      type: 
+          user_settable: false
+      type:
         type: string
         default: Opaque
       data:
@@ -153,7 +153,7 @@ relationship_types:
         metadata:
           env_vars:
             - KUBE_CTX_CLUSTER
-        default: { get_env: KUBE_CTX_CLUSTER }    
+        default: { get_env: KUBE_CTX_CLUSTER }
       KUBECONFIG:
         type: unfurl.datatypes.EnvVar
         description: >
@@ -180,9 +180,9 @@ relationship_types:
           user_settable: true
           input_type: textarea
           env_vars:
-          - KUBE_CLUSTER_CA_CERT_DATA
+            - KUBE_CLUSTER_CA_CERT_DATA
         description: >
-            PEM-encoded root certificates bundle for TLS authentication
+          PEM-encoded root certificates bundle for TLS authentication
         default: { get_env: KUBE_CLUSTER_CA_CERT_DATA }
         required: false
       cluster_ca_certificate_file:
@@ -192,7 +192,7 @@ relationship_types:
             if: .::cluster_ca_certificate
             then:
               eval:
-                tempfile: 
+                tempfile:
                   eval: .::cluster_ca_certificate
                 suffix: .crt
             else: null
@@ -204,7 +204,7 @@ relationship_types:
         metadata:
           user_settable: true
           env_vars:
-          - KUBE_INSECURE
+            - KUBE_INSECURE
         required: false
         default: { get_env: KUBE_INSECURE }
       token:
@@ -214,7 +214,7 @@ relationship_types:
           sensitive: true
           user_settable: true
           env_vars:
-          - KUBE_TOKEN
+            - KUBE_TOKEN
         description: Token of your service account.
         required: false
         default: { get_env: KUBE_TOKEN }
@@ -244,7 +244,7 @@ relationship_types:
         metadata:
           user_settable: true
           env_vars:
-          - KUBE_HOST
+            - KUBE_HOST
       protocol:
         type: string
         default: https
