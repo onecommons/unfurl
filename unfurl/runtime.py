@@ -366,6 +366,21 @@ class EntityInstance(OperationalInstance, ResourceRef):
         assert isinstance(self.template, self.templateType)
         self._properties = {}
 
+
+    @property
+    def repository(self) -> Optional["toscaparser.repositories.Repository"]:
+        return None
+
+    def _get_prop(self, name):
+        # hack because `.repository` isn't a ResourceRef and so can't be evaluated in expressions
+        if name == ".repository":
+            if self.repository:
+                return self.repository.tpl
+            else:
+                return None
+        else:
+            return super()._get_prop(name)
+
     def _resolve(self, key):
         # might return a Result
         self.attributes[key]  # force resolve
@@ -700,17 +715,7 @@ class ArtifactInstance(EntityInstance):
     @property
     def repository(self) -> Optional["toscaparser.repositories.Repository"]:
         return self.template.repository
-
-    def _get_prop(self, name):
-        # hack because `.repository` isn't a ResourceRef and so can't be evaluated in expressions
-        if name == ".repository":
-            if self.template.repository:
-                return self.template.repository.tpl
-            else:
-                return None
-        else:
-            return super()._get_prop(name)
-
+  
     def get_path(self, resolver=None):
         return self.template.get_path_and_fragment(resolver)
 
@@ -834,6 +839,13 @@ class NodeInstance(HasInstancesInstance):
 
                     self._named_artifacts[template.name] = artifact
         return self._named_artifacts
+
+    @property
+    def repository(self) -> Optional["toscaparser.repositories.Repository"]:
+        if self.template.is_compatible_type("unfurl.nodes.Repository"):
+            # this is a reified repository -- return the Repository with the same name
+            return self.template.spec.template.repositories.get(self.template.name)
+        return None
 
     def _get_default_relationships(self, relation=None):
         if self.root is self:
