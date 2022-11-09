@@ -41,7 +41,7 @@ spec:
                   output_logs: yes
 
         test1:
-          type: tosca.nodes.Root
+          type: unfurl.nodes.Container.Application.Docker
           artifacts:
             image:
               type: tosca.artifacts.Deployment.Image.Container.Docker
@@ -151,6 +151,9 @@ class DockerTest(unittest.TestCase):
         run1 = runner.run(JobOptions(instance="test1"))
         assert len(run1.workDone) == 1, run1.workDone
         tasks = list(run1.workDone.values())
+        assert run1.rootResource.query("::test1::.artifacts::image::.repository::credential::user") == 'a_user'
+        assert run1.rootResource.query("::test1::registry_user") == "a_user"
+        assert run1.rootResource.query("::test1::registry_password") == "a_password"
         # docker login will fail because user doesn't exist:
         assert tasks[0].status.name == "error", tasks[0].status
         self.assertIn("401 Client Error", tasks[0].result.result.get("msg", ""))

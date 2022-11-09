@@ -102,20 +102,20 @@ node_types:
             then:
               get_artifact: [SELF, image]
             else:
-              eval: 
+              eval:
                 container_image:
                   eval: container::image
       registry_url:
         type: string
-        default: "{{ '.artifacts::image::.repository::url' | eval }}"
+        default: "{{ '.::.artifacts::image::.repository::url' | eval }}"
         required: false
       registry_user:
         type: string
-        default: "{{ '.artifacts::image::.repository::credential::user' | eval }}"
+        default: "{{ '.::.artifacts::image::.repository::credential::user' | eval }}"
         required: false
       registry_password:
         type: string
-        default: "{{ '.artifacts::image::.repository::credential::token' | eval }}"
+        default: "{{ '.::.artifacts::image::.repository::credential::token' | eval }}"
         required: false
 
     interfaces:

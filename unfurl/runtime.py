@@ -40,6 +40,7 @@ import logging
 
 if TYPE_CHECKING:
     from unfurl.configurator import Dependency
+    import toscaparser.repositories
 
 # Tell mypy the logger is of type UnfurlLogger
 logger = cast(UnfurlLogger, logging.getLogger("unfurl"))
@@ -697,8 +698,18 @@ class ArtifactInstance(EntityInstance):
         return self.template.file
 
     @property
-    def repository(self):
+    def repository(self) -> Optional["toscaparser.repositories.Repository"]:
         return self.template.repository
+
+    def _get_prop(self, name):
+        # hack because `.repository` isn't a ResourceRef and so can't be evaluated in expressions
+        if name == ".repository":
+            if self.template.repository:
+                return self.template.repository.tpl
+            else:
+                return None
+        else:
+            return super()._get_prop(name)
 
     def get_path(self, resolver=None):
         return self.template.get_path_and_fragment(resolver)

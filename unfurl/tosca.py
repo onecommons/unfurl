@@ -26,6 +26,7 @@ from toscaparser.elements.statefulentitytype import StatefulEntityType
 import toscaparser.workflow
 import toscaparser.imports
 import toscaparser.artifacts
+import toscaparser.repositories
 from toscaparser.common.exception import ExceptionCollector
 import os
 from .logs import getLogger
@@ -1358,7 +1359,7 @@ class ArtifactSpec(EntitySpec):
                 name, artifact_tpl, custom_defs, path
             )
         EntitySpec.__init__(self, artifact, spec)
-        self.repository = (
+        self.repository: Optional[toscaparser.repositories.Repository] = (
             spec
             and artifact.repository
             and spec.template.repositories.get(artifact.repository)
