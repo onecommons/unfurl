@@ -442,7 +442,7 @@ class Manifest(AttributeManager):
                     )
                     continue
                 if isinstance(repository, dict):
-                    repository = Repository(name, repository)
+                    repository = resolver.get_repository(name, repository)
                 self.add_repository(None, repository, "")
         return self._set_repositories()
 

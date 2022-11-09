@@ -22,6 +22,7 @@ from ruamel.yaml.representer import RepresenterError, SafeRepresenter
 from ruamel.yaml.constructor import ConstructorError
 
 from .util import (
+    filter_env,
     to_bytes,
     to_text,
     sensitive_str,
@@ -211,6 +212,12 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         return state
 
     def get_repository(self, name, tpl):
+        if self.manifest:
+            # don't create another Repository instance
+            repo_view = self.manifest.repositories.get(name)
+            if repo_view:
+                return repo_view.repository
+
         if isinstance(tpl, dict) and "url" in tpl:
             url = tpl["url"]
             if (
@@ -219,6 +226,21 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                 # convert to ssh://user@server/project.git
                 url = "ssh://" + url.replace(":", "/", 1)
             tpl["url"] = url
+
+        if self.manifest and tpl.get('credential'):
+            credential = tpl['credential']
+            # support expressions to resolve credential secrets
+            if self.manifest.rootResource:
+                from .eval import map_value
+                tpl['credential'] = map_value(credential, self.manifest.rootResource)
+            elif self.manifest.localEnv:
+                # we're including or importing before we finished initializing
+                # update os.environ so get_env works
+                context = self.manifest.localEnv.get_context(self.manifest.manifest.expanded.get("environment"))
+                if context.get("variables"):
+                    os.environ.update(filter_env(context["variables"]))
+                tpl['credential'] = self.manifest.localEnv.map_value(credential)
+
         return Repository(name, tpl)
 
     def get_url(self, importLoader, repository_name, file_name, isFile=None):

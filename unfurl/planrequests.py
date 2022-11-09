@@ -753,7 +753,12 @@ def create_instance_from_spec(_manifest, target, rname, resourceSpec):
         resourceSpec["created"] = target.key
 
     if "parent" not in resourceSpec and "template" in resourceSpec:
-        nodeSpec = _manifest.tosca.get_template(resourceSpec["template"])
+        tname = resourceSpec['template']
+        nodeSpec = _manifest.tosca.get_template(tname)
+        if not nodeSpec:
+            raise UnfurlError(
+                f'Can not find template "{tname}" when trying to create instance "{rname}".'
+            )
         parent = find_parent_resource(target.root, nodeSpec)
     else:
         parent = target.root

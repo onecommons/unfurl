@@ -21,6 +21,17 @@ def is_git_worktree(path, gitDir=".git"):
     return os.path.exists(os.path.join(path, gitDir))
 
 
+def _add_user_to_url(url, username, password):
+    assert username
+    parts = urlparse(url)
+    user, sep, host = parts.netloc.rpartition("@")
+    if password:
+        netloc = f"{username}:{password}@{host}"
+    else:
+        netloc = f"{username}@{host}"
+    return parts._replace(netloc=netloc).geturl()
+
+
 def normalize_git_url(url, hard=0):
     if url.startswith("git-local://"):  # truncate url after commit digest
         return "git-local://" + urlparse(url).netloc.partition(":")[0]
@@ -267,7 +278,16 @@ class RepoView:
 
     @property
     def url(self):
-        return self.repository.url if self.repository else self.repo.url
+        if self.repository:
+            url = self.repository.url
+            if self.repository.credential:
+                credential = self.repository.credential
+                return _add_user_to_url(url, credential["user"], credential["token"])
+            else:
+                return url
+        else:
+            assert self.repo
+            return self.repo.url
 
     def is_local_only(self):
         # if it doesn't have a repo then it most be local

@@ -15,9 +15,7 @@ from unfurl.repo import (
 from git import Repo
 from unfurl.configurator import Configurator, Status
 from toscaparser.common.exception import URLException
-import unfurl.configurators  # python2.7 workaround
-import unfurl.configurators.shell
-import unfurl.yamlmanifest  # python2.7 workaround
+from unfurl.yamlmanifest import YamlManifest
 
 
 def createUnrelatedRepo(gitDir):
@@ -619,3 +617,54 @@ repoManifestContent = """\
                 eval:
                   get_dir: remote-git-repo
   """
+
+reifiedManifestContent = """\
+  apiVersion: unfurl/v1alpha1
+  kind: Ensemble
+  spec:
+    instances:
+      git-repo:
+        template: git-repo
+    service_template:
+      topology_template:
+        node_templates:
+          git-repo:
+            type: unfurl.nodes.Repository
+  """
+
+projectManifest = """\
+apiVersion: unfurl/v1alpha1
+kind: Project
++?include-local: local/unfurl.yaml
+environments:
+  defaults:
+    variables:
+      git_token: secret
+    repositories:
+      spec:
+        url: https://github.com/onecommons/blueprints/example.git
+        credential:
+          user: deploy-token
+          token:
+            get_env: git_token
+      git-repo:
+        url: https://github.com/onecommons/base-payments.git
+        revision: 8454bc
+"""
+
+def test_reified_repo():
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        with open("unfurl.yaml", "w") as f:
+            f.write(projectManifest)
+        os.mkdir("ensemble")
+        with open("ensemble/ensemble.yaml", "w") as f:
+            f.write(reifiedManifestContent)
+        manifest = LocalEnv().get_manifest()
+        # .repository works on reified instances:
+        repository = manifest.repositories.get("git-repo")
+        assert isinstance(repository, RepoView), repository
+        assert manifest.rootResource.query("::git-repo::.repository::revision") == "8454bc"
+        # test that credentials for repository are rewrite urls and evaluate env vars
+        # make sure an environment can over the built-in "spec" repository
+        assert manifest.repositories.get("spec").url == "https://deploy-token:secret@github.com/onecommons/blueprints/example.git"
