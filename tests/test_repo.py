@@ -622,6 +622,10 @@ reifiedManifestContent = """\
   apiVersion: unfurl/v1alpha1
   kind: Ensemble
   spec:
+    # test that we can reference a repository declared in the environment during parse-time
+    +?include:
+      file: missing.yaml
+      repository: include-early-repo
     instances:
       git-repo:
         template: git-repo
@@ -635,7 +639,6 @@ reifiedManifestContent = """\
 projectManifest = """\
 apiVersion: unfurl/v1alpha1
 kind: Project
-+?include-local: local/unfurl.yaml
 environments:
   defaults:
     variables:
@@ -650,9 +653,11 @@ environments:
       git-repo:
         url: https://github.com/onecommons/base-payments.git
         revision: 8454bc
+      include-early-repo:
+        url: file:///nowhere
 """
 
-def test_reified_repo():
+def test_reified_repo(caplog):
     runner = CliRunner()
     with runner.isolated_filesystem():
         with open("unfurl.yaml", "w") as f:
@@ -666,5 +671,5 @@ def test_reified_repo():
         assert isinstance(repository, RepoView), repository
         assert manifest.rootResource.query("::git-repo::.repository::revision") == "8454bc"
         # test that credentials for repository are rewrite urls and evaluate env vars
-        # make sure an environment can over the built-in "spec" repository
+        # and make sure the environment can override the built-in "spec" repository
         assert manifest.repositories.get("spec").url == "https://deploy-token:secret@github.com/onecommons/blueprints/example.git"

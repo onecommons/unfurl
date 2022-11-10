@@ -39,6 +39,31 @@ logger = logging.getLogger("unfurl")
 _basepath = os.path.abspath(os.path.dirname(__file__))
 
 
+def relabel_dict(context, localEnv, key):
+    connections = context.get(key)
+    if not connections:
+        return {}
+    contexts = {}
+    if localEnv:
+        project = localEnv.project or localEnv.homeProject
+        if project:
+            contexts = project.contexts
+
+    # handle items like newname : oldname to rename merged connections
+    def follow_alias(v):
+        if isinstance(v, str):
+            env, sep, name = v.partition(":")
+            if sep:  # found a ":"
+                v = contexts[env][key][name]
+            else:  # look in current dict
+                v = connections[env]
+            return follow_alias(v)  # follow
+        else:
+            return v
+
+    return dict((n, follow_alias(v)) for n, v in connections.items())
+
+
 class Manifest(AttributeManager):
     """
     Base class for managing an ensemble.
@@ -58,9 +83,21 @@ class Manifest(AttributeManager):
         self.tosca = None
         self.specDigest = None
         self.repositories = {}
+        if self.localEnv:
+            # before we start parsing the manifest, add the repositories in the environment
+            self._add_repositories_from_environment()
         self.imports = Imports()
         self.imports.manifest = self
         self._importedManifests = {}
+
+    def _add_repositories_from_environment(self):
+        assert self.localEnv
+        context = self.localEnv.get_context()
+        repositories = relabel_dict(context, self.localEnv, "repositories")
+        resolver = self.get_import_resolver(self)
+        for name, tpl in repositories.items():
+            toscaRepository = resolver.get_repository(name, tpl)
+            self.repositories[name] = RepoView(toscaRepository, None)
 
     def _set_spec(self, spec, more_spec=None, skip_validation=False):
         """
@@ -425,11 +462,14 @@ class Manifest(AttributeManager):
         )
         return repository
 
-    def update_repositories(self, config, inlineRepositories=None, resolver=None):
+    def _update_repositories(self, config, inlineRepositories=None, resolver=None):
+        # _update_repositories is called during parse time when including files
         if not resolver:
             resolver = self.get_import_resolver(self)
+        # we need to fetch this every call since the config might have changed:
         repositories = self._get_repositories(config)
         for name, tpl in repositories.items():
+            # only set if we haven't seen this repository before
             if name not in self.repositories:
                 toscaRepository = resolver.get_repository(name, tpl)
                 self.repositories[name] = RepoView(toscaRepository, None)
@@ -448,9 +488,12 @@ class Manifest(AttributeManager):
 
     @staticmethod
     def _get_repositories(tpl):
-        return ((tpl.get("spec") or {}).get("service_template") or {}).get(
+        repositories = ((tpl.get("spec") or {}).get("service_template") or {}).get(
             "repositories"
         ) or {}
+        # these take priority:
+        repositories.update((tpl.get("environment") or {}).get("repositories") or {})
+        return repositories
 
     def _set_repositories(self):
         repositories = self.repositories
@@ -518,8 +561,8 @@ class Manifest(AttributeManager):
                 reponame = repo.get("name", os.path.basename(path))
                 # replace spec with just its name
                 artifactTpl["repository"] = reponame
-
-                inlineRepository = {reponame: dict(url=repo.get("url"))}
+                assert repo.get("url"), f"bad inline repository definition: {repo}"
+                inlineRepository = {reponame: dict(url=repo['url'])}
         else:
             artifactTpl = dict(file=templatePath)
 
@@ -535,11 +578,9 @@ class Manifest(AttributeManager):
             return True
 
         artifact = ArtifactSpec(artifactTpl, path=baseDir)
-
         tpl = CommentedMap()
-
-        resolver = self.get_import_resolver(warnWhenNotFound)
-        tpl["repositories"] = self.update_repositories(
+        resolver = self.get_import_resolver(warnWhenNotFound, config=expanded)
+        tpl["repositories"] = self._update_repositories(
             expanded or yamlConfig.config, inlineRepository, resolver
         )
         loader = toscaparser.imports.ImportsLoader(
@@ -555,8 +596,8 @@ class Manifest(AttributeManager):
             )
         return path, doc
 
-    def get_import_resolver(self, ignoreFileNotFound=False, expand=False):
-        return ImportResolver(self, ignoreFileNotFound, expand)
+    def get_import_resolver(self, ignoreFileNotFound=False, expand=False, config=None):
+        return ImportResolver(self, ignoreFileNotFound, expand, config)
 
 
 class SnapShotManifest(Manifest):
@@ -569,7 +610,7 @@ class SnapShotManifest(Manifest):
         self.manifest = YamlConfig(
             oldManifest, manifest.path, loadHook=self.load_yaml_include
         )
-        self.update_repositories(oldManifest)
+        self._update_repositories(oldManifest)
         expanded = self.manifest.expanded
         # just needs the spec, not root resource
         self._set_spec(expanded.get("spec", {}))

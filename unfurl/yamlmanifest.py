@@ -19,7 +19,7 @@ from .result import serialize_value, ChangeRecord
 from .support import ResourceChanges, Defaults, Status
 from .localenv import LocalEnv
 from .lock import Lock
-from .manifest import Manifest
+from .manifest import Manifest, relabel_dict
 from .tosca import ArtifactSpec, find_env_vars
 from .runtime import TopologyInstance
 from .eval import map_value
@@ -174,31 +174,6 @@ def save_task(task, skip_result=False):
     return output
 
 
-def relabel_dict(context, localEnv, key):
-    connections = context.get(key)
-    if not connections:
-        return {}
-    contexts = {}
-    if localEnv:
-        project = localEnv.project or localEnv.homeProject
-        if project:
-            contexts = project.contexts
-
-    # handle items like newname : oldname to rename merged connections
-    def follow_alias(v):
-        if isinstance(v, str):
-            env, sep, name = v.partition(":")
-            if sep:  # found a ":"
-                v = contexts[env][key][name]
-            else:  # look in current dict
-                v = connections[env]
-            return follow_alias(v)  # follow
-        else:
-            return v
-
-    return dict((n, follow_alias(v)) for n, v in connections.items())
-
-
 class ReadOnlyManifest(Manifest):
     """Loads an ensemble from a manifest but doesn't instantiate the instance model."""
 
@@ -229,9 +204,9 @@ class ReadOnlyManifest(Manifest):
         if context_inputs:
             inputs.update(context_inputs)
         spec["inputs"] = inputs
-        self.update_repositories(
-            manifest, relabel_dict(self.context, localEnv, "repositories")
-        )
+        # _update_repositories might not have been called while parsing
+        # call it now to make sure we set up the built-in repositories
+        self._update_repositories(manifest)
 
     @property
     def uris(self):
@@ -337,7 +312,6 @@ class YamlManifest(ReadOnlyManifest):
             self._load_resource_templates(
                 env_instances, spec.setdefault("instances", {}), True
             )
-
         self._set_spec(spec, more_spec, skip_validation)
         assert self.tosca
         if self.localEnv:

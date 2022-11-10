@@ -317,6 +317,9 @@ def _find_template(doc, key, path, cls, fail):
 
 def has_template(doc, key, value, path, cls):
     if key.include:
+        if key.maybe:
+            # treat missing includes as null template instead of an error
+            return True
         loadTemplate = getattr(doc, "loadTemplate", None)
         if not loadTemplate:
             return False

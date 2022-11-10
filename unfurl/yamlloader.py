@@ -200,11 +200,12 @@ _refResolver = RefResolver("", None)
 
 
 class ImportResolver(toscaparser.imports.ImportResolver):
-    def __init__(self, manifest, ignoreFileNotFound=False, expand=False):
+    def __init__(self, manifest, ignoreFileNotFound=False, expand=False, config=None):
         self.manifest = manifest
         self.ignoreFileNotFound = ignoreFileNotFound
         self.loader = manifest.loader
         self.expand = expand
+        self.config = config or {}
 
     def __getstate__(self):
         state = self.__dict__.copy()
@@ -236,7 +237,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
             elif self.manifest.localEnv:
                 # we're including or importing before we finished initializing
                 # update os.environ so get_env works
-                context = self.manifest.localEnv.get_context(self.manifest.manifest.expanded.get("environment"))
+                context = self.manifest.localEnv.get_context(self.config.get("environment"))
                 if context.get("variables"):
                     os.environ.update(filter_env(context["variables"]))
                 tpl['credential'] = self.manifest.localEnv.map_value(credential)
@@ -557,7 +558,7 @@ class YamlConfig:
         self, templatePath, warnWhenNotFound=False, expanded=None, check=False
     ):
         if check and isinstance(check, bool):
-            # called merge.has_template
+            # called by merge.has_template
             if self.loadHook:
                 return self.loadHook(
                     self,
