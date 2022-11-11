@@ -292,11 +292,12 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                 path = os.path.join(repo.working_dir, filePath, file_name or "").rstrip(
                     "/"
                 )
-                repository = None
-                if repository_name:
-                    repository = Repository(
-                        repository_name, importLoader.repositories[repository_name]
-                    )
+                if repo_view:
+                    assert not repo_view.repo
+                    repo_view.repo = repo
+                elif repository_name:
+                    # first time seeing this repository
+                    repository = self.get_repository(repository_name, importLoader.repositories[repository_name])
                     self.manifest.add_repository(repo, repository, filePath)
         elif file_name:
             path = os.path.join(path, file_name)

@@ -625,7 +625,9 @@ reifiedManifestContent = """\
     # test that we can reference a repository declared in the environment during parse-time
     +?include:
       file: missing.yaml
-      repository: include-early-repo
+      repository: 
+        name: include-early-repo
+        url: file:///different-than-env
     instances:
       git-repo:
         template: git-repo
@@ -673,3 +675,4 @@ def test_reified_repo(caplog):
         # test that credentials for repository are rewrite urls and evaluate env vars
         # and make sure the environment can override the built-in "spec" repository
         assert manifest.repositories.get("spec").url == "https://deploy-token:secret@github.com/onecommons/blueprints/example.git"
+        assert 'skipping inline repository definition for "include-early-repo", it was previously defined' in caplog.text

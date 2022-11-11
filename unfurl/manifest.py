@@ -447,16 +447,16 @@ class Manifest(AttributeManager):
         return repo, filePath, revision, bare
 
     def add_repository(self, repo, toscaRepository, file_name):
-        repository = self.repositories.get(toscaRepository.name)
-        # if repository:
-        #     # already exist, make sure it's the same repo
-        #     repo = repo or repository.repo
-        #     if (
-        #         repository.repo and repository.repo != repo
-        #     ) or repository.repository.tpl != toscaRepository.tpl:
-        #         raise UnfurlError(
-        #             f'Repository "{toscaRepository.name}" already defined'
-        #         )
+        repository: RepoView = self.repositories.get(toscaRepository.name)
+        if repository:
+            # already exist, make sure it's the same repo
+            repo = repo or repository.repo
+            if (
+                repository.repo and repository.repo != repo
+            ) or repository.repository.tpl != toscaRepository.tpl:
+                raise UnfurlError(
+                    f'Repository "{toscaRepository.name}" already defined'
+                )
         self.repositories[toscaRepository.name] = RepoView(
             toscaRepository, repo, file_name
         )
