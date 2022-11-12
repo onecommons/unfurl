@@ -158,6 +158,7 @@ def isolated_lifecycle(
     env=None,
     init_args=None,
     tmp_dir=None,
+    sleep=None,
 ) -> Iterable[Job]:
     cli_runner = CliRunner()
     with cli_runner.isolated_filesystem(
@@ -183,6 +184,8 @@ def isolated_lifecycle(
             assert result.exit_code == 0, result
             assert _latestJobs
             yield _check_job(_latestJobs[-1], i, step)
+            if sleep is not None and step.changed != 0:
+                time.sleep(sleep)
 
 
 def print_config(dir, homedir=None):
