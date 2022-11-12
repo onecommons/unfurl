@@ -1,4 +1,5 @@
 import os
+import time
 import traceback
 import unittest
 from collections.abc import MutableSequence
@@ -482,7 +483,14 @@ spec:
 
             os.chdir("..")
             # clone a project
-            run_cmd(runner, ["--home", "./unfurl_home", "clone", "p1", "p1copy"], True)
+            try:
+                run_cmd(runner, ["--home", "./unfurl_home", "clone", "p1", "p1copy"], True)
+            except AssertionError:
+                # mysterious intermittent error when running as Github Action
+                # parse error when loading local/unfurl.yaml -- new file not synced to disk?
+                # e.g. https://github.com/onecommons/unfurl/actions/runs/3452158215/attempts/3
+                time.sleep(.03)
+                run_cmd(runner, ["--home", "./unfurl_home", "clone", "p1", "p1copy"], True)
             result = run_cmd(runner, ["--home", "./unfurl_home", "deploy", "p1copy"])
             self.assertRegex(result.output, "Found nothing to do.")
 
