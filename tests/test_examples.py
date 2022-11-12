@@ -323,11 +323,11 @@ def test_unfurl_site_examples():
     # +    "running": true
     # }
     # nothing obvious changed on unfurl side -- maybe timing issue?
-    steps[1] = Step("check", Status.ok, changed=None)
     list(
         isolated_lifecycle(
             "unfurl_site",
             steps=steps,
             init_args="clone https://github.com/onecommons/unfurl_site.git".split(),
+            sleep=0.5
         )
     )
