@@ -95,6 +95,24 @@ ensembles:
 """
 
 
+def _clone_p1(runner, print_result=False):
+    count = 0
+    while True:
+        try:
+            run_cmd(runner, ["--home", "./unfurl_home", "clone", "p1", "p1copy"], print_result)
+        except AssertionError:
+            # mysterious intermittent error when running as Github Action
+            # parse error when loading local/unfurl.yaml -- new file not synced to disk?
+            # e.g. https://github.com/onecommons/unfurl/actions/runs/3452649045/jobs/5762693046
+            if count > 4:  # give up
+                raise
+            else:
+                count += 1
+                time.sleep(.03)
+        else:
+            return
+
+
 class CliTestConfigurator(Configurator):
     def run(self, task):
         attrs = task.target.attributes
@@ -483,14 +501,7 @@ spec:
 
             os.chdir("..")
             # clone a project
-            try:
-                run_cmd(runner, ["--home", "./unfurl_home", "clone", "p1", "p1copy"], True)
-            except AssertionError:
-                # mysterious intermittent error when running as Github Action
-                # parse error when loading local/unfurl.yaml -- new file not synced to disk?
-                # e.g. https://github.com/onecommons/unfurl/actions/runs/3452158215/attempts/3
-                time.sleep(.03)
-                run_cmd(runner, ["--home", "./unfurl_home", "clone", "p1", "p1copy"], True)
+            _clone_p1(runner, True)
             result = run_cmd(runner, ["--home", "./unfurl_home", "deploy", "p1copy"])
             self.assertRegex(result.output, "Found nothing to do.")
 
@@ -605,14 +616,7 @@ spec:
             self.assertRegex(result.output, "Found nothing to do.")
 
             os.chdir("..")
-            try:
-                run_cmd(runner, ["--home", "./unfurl_home", "clone", "p1", "p1copy"])
-            except AssertionError:
-                # mysterious intermittent error when running as Github Action
-                # parse error when loading local/unfurl.yaml -- new file not synced to disk?
-                # e.g. https://github.com/onecommons/unfurl/actions/runs/3452649045/jobs/5762693046
-                time.sleep(.03)
-                run_cmd(runner, ["--home", "./unfurl_home", "clone", "p1", "p1copy"])
+            _clone_p1(runner)
 
             localEnv = LocalEnv("p1copy", homePath="./unfurl_home")
             assert localEnv.manifest_context_name == "production"
