@@ -605,8 +605,14 @@ spec:
             self.assertRegex(result.output, "Found nothing to do.")
 
             os.chdir("..")
-
-            run_cmd(runner, ["--home", "./unfurl_home", "clone", "p1", "p1copy"])
+            try:
+                run_cmd(runner, ["--home", "./unfurl_home", "clone", "p1", "p1copy"])
+            except AssertionError:
+                # mysterious intermittent error when running as Github Action
+                # parse error when loading local/unfurl.yaml -- new file not synced to disk?
+                # e.g. https://github.com/onecommons/unfurl/actions/runs/3452649045/jobs/5762693046
+                time.sleep(.03)
+                run_cmd(runner, ["--home", "./unfurl_home", "clone", "p1", "p1copy"])
 
             localEnv = LocalEnv("p1copy", homePath="./unfurl_home")
             assert localEnv.manifest_context_name == "production"
