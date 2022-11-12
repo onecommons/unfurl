@@ -96,21 +96,22 @@ ensembles:
 
 
 def _clone_p1(runner, print_result=False):
-    count = 0
-    while True:
-        try:
-            run_cmd(runner, ["--home", "./unfurl_home", "clone", "p1", "p1copy"], print_result)
-        except AssertionError:
-            # mysterious intermittent error when running as Github Action
-            # parse error when loading local/unfurl.yaml -- new file not synced to disk?
-            # e.g. https://github.com/onecommons/unfurl/actions/runs/3452649045/jobs/5762693046
-            if count > 4:  # give up
-                raise
-            else:
-                count += 1
-                time.sleep(.03)
-        else:
-            return
+    run_cmd(runner, ["--home", "./unfurl_home", "clone", "p1", "p1copy"], print_result)
+    # count = 0
+    # while True:
+    #     try:
+    #         run_cmd(runner, ["--home", "./unfurl_home", "clone", "p1", "p1copy"], print_result)
+    #     except AssertionError:
+    #         # mysterious intermittent error when running as Github Action
+    #         # parse error when loading local/unfurl.yaml -- new file not synced to disk?
+    #         # e.g. https://github.com/onecommons/unfurl/actions/runs/3452649045/jobs/5762693046
+    #         if count > 4:  # give up
+    #             raise
+    #         else:
+    #             count += 1
+    #             time.sleep(.03)
+    #     else:
+    #         return
 
 
 class CliTestConfigurator(Configurator):
