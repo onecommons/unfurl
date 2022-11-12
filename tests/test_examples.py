@@ -316,7 +316,7 @@ class RunTest(unittest.TestCase):
 
 @unittest.skipIf("docker" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
 def test_unfurl_site_examples():
-    steps = DEFAULT_STEPS[1:]  # XXX fix docker check and enable the first step
+    steps = list(DEFAULT_STEPS[1:])  # XXX fix docker check and enable the first step
     # XXX github actions started failing on this step by reporting that check modified state:
     # {
     # -    "running": false
