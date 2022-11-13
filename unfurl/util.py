@@ -461,7 +461,7 @@ def get_random_password(count=12, prefix="uv", extra=None):
     srandom = random.SystemRandom()
     start = string.ascii_letters
     if extra is None:
-        extra = "%&()*+,-./:<>?=@^_`~"
+        extra = "%()*+,-./<>?=@^_~"
     source = string.ascii_letters + string.digits + extra
     return prefix + "".join(
         srandom.choice(source if i else start) for i in range(count)

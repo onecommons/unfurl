@@ -1035,14 +1035,11 @@ def _create_local_config(clonedProject, logger, vars):
         # replace ${var}
         contents = substitute_env(contents, vars)
 
-        path = _write_file(
+        _write_file(
             os.path.join(clonedProject.projectRoot, "local"),
             DefaultNames.LocalConfig,
             contents,
         )
-        with open(path) as f:
-            # loading this file seems to fix intermittent CI errors in Github Actions
-            logger.debug("created %s with:\n%s", path, f.read())
 
         logger.info(
             f'Generated new a local project configuration file at "{dest}"\n'
