@@ -459,7 +459,7 @@ def truncate_str(v: str) -> str:
 
 def get_random_password(count=12, prefix="uv", extra=None):
     srandom = random.SystemRandom()
-    start = string.ascii_letters + string.digits
+    start = string.ascii_letters
     if extra is None:
         extra = "%&()*+,-./:<>?=@^_`~"
     source = string.ascii_letters + string.digits + extra
