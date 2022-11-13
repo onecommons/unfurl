@@ -1035,11 +1035,13 @@ def _create_local_config(clonedProject, logger, vars):
         # replace ${var}
         contents = substitute_env(contents, vars)
 
-        _write_file(
+        path = _write_file(
             os.path.join(clonedProject.projectRoot, "local"),
             DefaultNames.LocalConfig,
             contents,
         )
+        with open(path) as f:
+            logger.info(f.read())
 
         logger.info(
             f'Generated new a local project configuration file at "{dest}"\n'

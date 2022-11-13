@@ -29,5 +29,5 @@ environments:
     secrets:
       vault_secrets:
           +%: merge # directive to merge this with other "vault_secrets" (by default secrets will be replaced)
-          ${VAULT_ID:default}: ${VAULT_PASSWORD|generate_new_vault_password}
-    # Note: The UNFURL_VAULT_${VAULT_ID:DEFAULT}_PASSWORD environment variable overrides this.
+          [% vaultid | default("default") %]: ${VAULT_PASSWORD|generate_new_vault_password}
+    # Note: The UNFURL_VAULT_[% vaultid | default("default") | upper %]_PASSWORD environment variable overrides this.

@@ -95,7 +95,7 @@ ensembles:
 """
 
 
-def _clone_p1(runner, print_result=False):
+def _clone_p1(runner, print_result=True):
     run_cmd(runner, ["--home", "./unfurl_home", "clone", "p1", "p1copy"], print_result)
     # count = 0
     # while True:
