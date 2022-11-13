@@ -1,5 +1,4 @@
 import os
-import time
 import traceback
 import unittest
 from collections.abc import MutableSequence
@@ -93,25 +92,6 @@ ensembles:
     file: git/default-manifest.yaml
     environment: test
 """
-
-
-def _clone_p1(runner, print_result=True):
-    run_cmd(runner, ["--home", "./unfurl_home", "clone", "p1", "p1copy"], print_result)
-    # count = 0
-    # while True:
-    #     try:
-    #         run_cmd(runner, ["--home", "./unfurl_home", "clone", "p1", "p1copy"], print_result)
-    #     except AssertionError:
-    #         # mysterious intermittent error when running as Github Action
-    #         # parse error when loading local/unfurl.yaml -- new file not synced to disk?
-    #         # e.g. https://github.com/onecommons/unfurl/actions/runs/3452649045/jobs/5762693046
-    #         if count > 4:  # give up
-    #             raise
-    #         else:
-    #             count += 1
-    #             time.sleep(.03)
-    #     else:
-    #         return
 
 
 class CliTestConfigurator(Configurator):
@@ -502,7 +482,7 @@ spec:
 
             os.chdir("..")
             # clone a project
-            _clone_p1(runner, True)
+            run_cmd(runner, ["--home", "./unfurl_home", "clone", "p1", "p1copy"], True)
             result = run_cmd(runner, ["--home", "./unfurl_home", "deploy", "p1copy"])
             self.assertRegex(result.output, "Found nothing to do.")
 
@@ -617,7 +597,8 @@ spec:
             self.assertRegex(result.output, "Found nothing to do.")
 
             os.chdir("..")
-            _clone_p1(runner)
+
+            run_cmd(runner, ["--home", "./unfurl_home", "clone", "p1", "p1copy"])
 
             localEnv = LocalEnv("p1copy", homePath="./unfurl_home")
             assert localEnv.manifest_context_name == "production"
