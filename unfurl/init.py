@@ -960,11 +960,15 @@ def clone(
     ======================= =============================================
 
     """
+    builder = EnsembleBuilder(source, ensemble_name, options)
     if not dest:
         dest = Repo.get_path_for_git_repo(source)  # choose dest based on source url
-    # XXX else: # we're assuming dest is directory, handle case where filename is included
-
-    builder = EnsembleBuilder(source, ensemble_name, options)
+        if os.path.exists(dest):
+            raise UnfurlError(
+                'Can not clone project to "'
+                + dest
+                + '": file already exists with that name'
+            )
     currentProject = find_project(dest, builder.home_path)
 
     ### step 1: clone the source repository and set the the source path
