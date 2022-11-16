@@ -853,19 +853,18 @@ class EnsembleBuilder:
         self, existingSourceProject, existingDestProject, dest
     ) -> bool:
         assert self.dest_project is None
-        new_project = self.source_project is not existingSourceProject
         if existingDestProject:
             #  set that as the dest_project
             self.dest_project = existingDestProject
         else:
             # otherwise set source_project as the dest_project
             self.dest_project = self.source_project
-            if new_project:
+            if self.source_project is not existingSourceProject:
                 # set "" as dest because we already "consumed" dest by cloning the project to that location
                 dest = ""
 
         assert self.dest_project is not None
-        if new_project or self._needs_local_config(self.dest_project):
+        if not existingDestProject or self._needs_local_config(self.dest_project):
             # create local/unfurl.yaml in the new project
             if _create_local_config(self.dest_project, self.logger, self.skeleton_vars):
                 # reload project with the new local project config
@@ -886,7 +885,6 @@ class EnsembleBuilder:
         ):
             relDestDir = self.ensemble_name
         self.dest_path = relDestDir
-        return new_project
 
     def has_existing_ensemble(self, sourceProject):
         from unfurl import yamlmanifest
