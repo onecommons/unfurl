@@ -307,6 +307,7 @@ root:
 
     def test_sensitive_logging(self):
         handler = logging.getLogger().handlers[0]
+        print('d', handler, handler.stream)
         old_stream = handler.stream
         try:
             handler.stream = six.StringIO()
@@ -317,8 +318,10 @@ root:
             logger = logging.getLogger("another")
             logger.critical("test2 %s", sensitive_str("sensitive"))
 
-            log_output = handler.stream.getvalue()
-            self.assertIn(sensitive_str.redacted_str, log_output)
+            log_output = handler.stream.getvalue() 
+            # rich color handler does weird escaping
+            # self.assertIn(sensitive_str.redacted_str, log_output)
+            self.assertIn("<REDACTED", log_output)
             self.assertNotIn("sensitive", log_output)
         finally:
             handler.stream = old_stream

@@ -18,6 +18,8 @@ try:
 except ImportError:
     AnsibleVaultEncryptedUnicode = None
 
+HIDDEN_MSG_LOGGER = "unfurl.metadata"
+
 
 def truncate(s: str, max: int = 748) -> str:
     if not s:
@@ -54,16 +56,16 @@ LOGGING = {
             "level": logging.INFO,
             "filters": ["sensitive"],
         },
-        "JobLogHandler": {
-            "class": "unfurl.logs.JobLogHandler",
+        "HiddenOutputLogHandler": {
+            "class": "unfurl.logs.HiddenOutputLogHandler",
             "level": logging.INFO,
             "filters": ["sensitive"],
         },
     },
     "loggers": {
         "git": {"level": logging.INFO, "handlers": ["console"]},
-        "unfurl.job.meta": {
-            "handlers": ["JobLogHandler"],
+        HIDDEN_MSG_LOGGER: {
+            "handlers": ["HiddenOutputLogHandler"],
             "level": logging.INFO,
         },
     },
@@ -87,45 +89,42 @@ def getLogger(name: str) -> UnfurlLogger:
     return logging.getLogger(name)  # type: ignore
 
 
-class JobLogHandler(logging.StreamHandler):
+class HiddenOutputLogHandler(logging.StreamHandler):
     def emit(self, record: logging.LogRecord) -> None:
         # hide output in terminals
         rich.print(record.msg, end="\x1b[2K\r", flush=True)
 
 
-class StyleDict(TypedDict):
-    bg: NotRequired[Union[str, Tuple[int, int, int]]]
-    fg: NotRequired[Union[str, Tuple[int, int, int]]]
-
 
 class ColorHandler(logging.StreamHandler):
-    # https://rich.readthedocs.io/en/stable/markup.html
+    # https://rich.readthedocs.io/en/stable/appendix/colors.html
     RICH_STYLE_LEVEL = {
-        Levels.CRITICAL: "black on red",
-        Levels.ERROR: "red",
-        Levels.WARNING: "yellow",
-        Levels.INFO: "cyan",
-        Levels.VERBOSE: "grey",
-        Levels.DEBUG: "grey",
-        Levels.TRACE: "grey",
+        Levels.CRITICAL: "white on bright_red",
+        Levels.ERROR: "white on red",
+        Levels.WARNING: "white on dark_orange",  # #ff8700
+        Levels.INFO: "white on blue",
+        Levels.VERBOSE: "white on bright_blue",
+        Levels.DEBUG: "white on black",
+        Levels.TRACE: "white on bright_black",
     }
 
     def emit(self, record: logging.LogRecord) -> None:
         message = truncate(self.format(record))
         # Hide meta job output because it seems to also be logged captured by
         # the root logger.
-        if record.name.startswith("unfurl.job.meta"):
+        if record.name.startswith(HIDDEN_MSG_LOGGER):
             return
 
         level = Levels[record.levelname]
         try:
             # Soft wrap prevents rich from breaking lines automatically (needed for emulated terminals, like gitlab CI)
-            console = Console(soft_wrap=True, file=self.stream)
-            console.print(f"[bold] UNFURL [/bold]", end="")
-            console.print(f"[{self.RICH_STYLE_LEVEL[level]}] {level.name} [/]", end="")
-            console.print(f" {message}")
-        except:
-            pass
+            console = Console(soft_wrap=True, force_terminal=os.environ.get("PY_COLORS") != "0", file=self.stream)
+            console.print(f"[{self.RICH_STYLE_LEVEL[level]}] {level.name.center(8)}[/]", end="")
+            console.print(f" {record.name.upper()}", end="")
+            console.print(f" {message}", **getattr(record, "rich", {}))
+        except Exception:
+            if os.environ.get("UNFURL_RAISE_LOGGING_EXCEPTIONS"):
+                raise
 
 
 class sensitive:

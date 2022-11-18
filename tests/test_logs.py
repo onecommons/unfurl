@@ -18,7 +18,7 @@ from ruamel.yaml.comments import CommentedMap
 def test_format_of_job_file_log():
     tmplogfile = logs.get_tmplog_path()
     logs.add_log_file(tmplogfile)
-    logger = logging.getLogger("unfurl")
+    logger = logs.getLogger("unfurl")
     logger.info("starting deploy job for ")
 
     with open(tmplogfile) as f:
@@ -30,12 +30,12 @@ def test_format_of_job_file_log():
 
 
 class TestLogLevelDetection:
-    def setup(self):
+    def setup_method(self):
         self.old_env_level = os.environ.get("UNFURL_LOGGING")
         if self.old_env_level:
             del os.environ["UNFURL_LOGGING"]
 
-    def teardown(self):
+    def teardown_method(self):
         if self.old_env_level:
             os.environ["UNFURL_LOGGING"] = self.old_env_level
 
@@ -109,7 +109,7 @@ class TestSensitiveFilter:
         "exc_info": None,
     }
 
-    def setup(self):
+    def setup_method(self):
         self.sensitive_filter = SensitiveFilter()
 
     def test_tuple_log_record(self):
@@ -155,3 +155,18 @@ def test_redaction(caplog):
     logger.info("should be redacted %s", CommentedMap(key=CommentedMap(nested=sensitive_str("password"))))
     assert "key" in caplog.text
     assert "password" not in caplog.text
+
+if __name__ == "__main__":
+    logger = logs.getLogger("unfurl")
+    logs.set_console_log_level(Levels.TRACE)
+    logger.error("redacted %s", sensitive_str("sensitive"))
+    for msg, level in [
+        ("CRITICAL", Levels.CRITICAL),
+        ("ERROR", Levels.ERROR),
+        ("WARNING", Levels.WARNING),
+        ("INFO", Levels.INFO),
+        ("VERBOSE", Levels.VERBOSE),
+        ("DEBUG", Levels.DEBUG),
+        ("TRACE", Levels.TRACE),
+    ]:
+        logger.log(level, msg)
