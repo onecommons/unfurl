@@ -46,6 +46,7 @@ class ConfigurationSpec:
             outputs=None,
             interface=None,
             entry_state=None,
+            base_dir=None,
         )
 
     def __init__(
@@ -68,6 +69,7 @@ class ConfigurationSpec:
         outputs=None,
         interface=None,
         entry_state=None,
+        base_dir=None,
     ):
         assert name and className, "missing required arguments"
         self.name = name
@@ -88,6 +90,7 @@ class ConfigurationSpec:
         self.dependencies = dependencies
         self.interface = interface
         self.entry_state = to_enum(NodeState, entry_state, NodeState.creating)
+        self.base_dir = base_dir
 
     def find_invalidate_inputs(self, inputs):
         if not self.inputSchema:
@@ -962,6 +965,7 @@ def _get_config_spec_args_from_implementation(iDef, inputs, target, operation_ho
     # if not operation_instance:
     #     operation_instance = operation_instance or target.root
     base_dir = getattr(iDef.value, "base_dir", iDef._source)
+    kw["base_dir"] = base_dir
     if artifactTpl:
         artifact = target.template.find_or_create_artifact(
             artifactTpl, base_dir, predefined

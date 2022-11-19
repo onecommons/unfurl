@@ -471,6 +471,8 @@ class TaskView:
             ctx.vars = vars
             if self.configSpec.artifact and self.configSpec.artifact.base_dir:
                 ctx.base_dir = self.configSpec.artifact.base_dir
+            elif self.configSpec.base_dir:
+                ctx.base_dir = self.configSpec.base_dir
             self._inputs = ResultsMap(inputs, ctx)
         return self._inputs
 
