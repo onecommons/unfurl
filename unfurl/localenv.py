@@ -250,15 +250,14 @@ class Project:
         # if repo isn't found, return the repo url, possibly rewritten to include server credentials
         candidate = None
         repourl_parts = urlsplit(repoURL)
+        normalized = normalize_git_url_hard(repoURL)
         for dir, repository in self.workingDirs.items():
             repo = repository.repo
             if repoURL.startswith("git-local://"):
                 initialCommit = urlparse(repoURL).netloc.partition(":")[0]
                 match = initialCommit == repo.get_initial_revision()
             else:
-                match = normalize_git_url_hard(repoURL) == normalize_git_url_hard(
-                    repo.url
-                )
+                match = normalized == normalize_git_url_hard(repo.url)
             if match:
                 if revision:
                     if repo.revision == repo.resolve_rev_spec(revision):
@@ -321,15 +320,15 @@ class Project:
         return self.find_git_repo(split_git_url(repoUrl)[0])
 
     def find_or_clone(self, repo: GitRepo) -> GitRepo:
-        gitUrl = repo.url
-        existingRepo = self.find_git_repo(gitUrl)
-        if existingRepo:
-            return existingRepo
+        for dir, repository in self.workingDirs.items():
+            if repo.get_initial_revision() == repository.repo.get_initial_revision():
+                return repository.repo
 
-        # if not found:
+        gitUrl = repo.url
         localRepoPath = os.path.abspath(
             self._create_path_for_git_repo(repo.working_dir or gitUrl)
         )
+        logger.trace('Cloning "%s" to: %s', repo.working_dir or gitUrl, localRepoPath)
         newRepo = repo.clone(localRepoPath)
         # use gitUrl to preserve original origin
         self.workingDirs[localRepoPath] = RepoView(dict(name="", url=gitUrl), newRepo)

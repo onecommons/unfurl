@@ -480,6 +480,7 @@ def clone_local_repos(manifest, sourceProject, targetProject):
         repoSpec = repoView.repository
         if repoSpec.name == "self":
             continue
+        # XXX should look in home project too
         repo = sourceProject.find_git_repo_from_repository(repoSpec)
         if repo:
             targetProject.find_or_clone(repo)
