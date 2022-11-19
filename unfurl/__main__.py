@@ -438,8 +438,7 @@ def _print_summary(job, options):
     jsonSummary = {}
     summary = options.get("output")
     if summary == "text" and not job.jobOptions.planOnly:
-        console = rich.console.Console(soft_wrap=True)
-        console.print(job.summary())
+        job.print_summary_table()
     elif summary == "json":
         if job.jobOptions.planOnly:
             jsonSummary = job._json_plan_summary()
@@ -458,7 +457,7 @@ def _print_summary(job, options):
                 click.echo("No results found")
             else:
                 click.echo(result)
-    if jsonSummary is not None:
+    if jsonSummary:
         click.echo(json.dumps(jsonSummary, indent=2))
 
 

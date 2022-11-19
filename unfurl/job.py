@@ -8,16 +8,15 @@ Each task tracks and records its modifications to the system's state
 
 import collections
 from datetime import datetime
-import time
 import types
 import itertools
 import os
 import json
 from typing import (
     Any,
-    Dict,
     Iterable,
     List,
+    Dict,
     Mapping,
     Optional,
     Sequence,
@@ -26,15 +25,12 @@ from typing import (
     cast,
     TYPE_CHECKING,
 )
-
-
 from .support import Status, Priority, Defaults, AttributeManager, Reason, NodeState
 from .result import ResourceRef, serialize_value, ChangeRecord
 from .util import UnfurlError, UnfurlTaskError, to_enum, change_cwd
 from .merge import merge_dicts
 from .runtime import EntityInstance, NodeInstance, Operational, OperationalInstance
-from . import logs
-from .logs import end_collapsible, start_collapsible
+from .logs import end_collapsible, start_collapsible, getLogger
 from .configurator import (
     TaskView,
     ConfiguratorResult,
@@ -53,18 +49,17 @@ from .planrequests import (
 )
 from .plan import Plan, get_success_status
 from .localenv import LocalEnv
-
-from . import configurators  # need to import configurators even though it is unused
 from . import display
+from . import configurators  # need to import configurators even though it is unused
+from .reporting import JobReporter
 
 from time import perf_counter
-import logging
 
 if TYPE_CHECKING:
     from unfurl.yamlmanifest import YamlManifest
 
 
-logger = cast(logs.UnfurlLogger, logging.getLogger("unfurl"))
+logger = getLogger("unfurl")
 
 
 class JobAborted(UnfurlError):
@@ -328,7 +323,7 @@ class ConfigTask(ConfigChange, TaskView):
         ):
             instance.created = self.changeId
 
-    def finished(self, result):
+    def finished(self, result: ConfiguratorResult):
         assert result
         if self.generator:
             self.generator.close()
@@ -1132,11 +1127,11 @@ class Job(ConfigChange):
             task_success = task.result and task.result.success
             status = task.target.status.name
             state_status = task.target.state.name if task.target.state else ""
-            extra = dict(rich=dict(style=task.target.status.color))
             if task_success:
-                task.logger.info("succeeded: status: %s state: %s", status, state_status, extra=extra)
+                task.logger.info(f"[{task.target.status.color}]succeeded: status: %s state: %s[/]", 
+                                 status, state_status)
             else:
-                task.logger.error("failed: status: %s state: %s", status, state_status, extra=extra)
+                task.logger.error(f"[{task.target.status.color}]sfailed: status: %s state: %s[/]", status, state_status)
 
         return task
 
@@ -1202,101 +1197,34 @@ class Job(ConfigChange):
             self.task_count += 1
         return self.task_count
 
-    ###########################################################################
-    ### Reporting methods
-    ###########################################################################
-    @staticmethod
-    def _job_request_summary(
-        requests: List[JobRequest], manifest: Optional["YamlManifest"]
-    ) -> Iterable[dict]:
-        for request in requests:
-            # XXX better reporting
-            node = dict(instance=request.name)
-            if manifest:
-                node["job_request"] = manifest.path
-            else:
-                node["job_request"] = "local"
-            if request.target:
-                node["status"] = str(request.target.status)
-            yield node
-
-    @staticmethod
-    def _switch_target(
-        target: NodeInstance, old_summary_list: List[dict]
-    ) -> List[dict]:
-        new_summary_list: List[dict] = []
-        node = dict(
-            instance=target.name,
-            status=str(target.status),
-            state=str(target.state),  # type: ignore
-            managed=target.created,
-            plan=new_summary_list,
+    @property
+    def log_path(self) -> str:
+        log_name = (
+            self.startTime.strftime("%Y-%m-%d-%H-%M-%S") + "-" + self.changeId[:-4]
         )
-        old_summary_list.append(node)
-        return new_summary_list
+        return self.manifest.get_job_log_path(log_name, ".log")
 
-    @staticmethod
-    def _list_plan_summary(
-        requests: List[JobRequest],
-        target: NodeInstance,
-        parent_summary_list: List[dict],
-        include_rendered: bool,
-        workflow: str,
-    ) -> None:
-        summary_list = parent_summary_list
-        for request in requests:
-            if isinstance(request, JobRequest):
-                summary_list.extend(Job._job_request_summary([request], None))
-                continue
-            isGroup = isinstance(request, TaskRequestGroup)
-            if isGroup and not request.children:
-                continue  # don't include in the plan
-            if request.target is not target:
-                if workflow == "deploy" and not request.include_in_plan():
-                    continue
-                # target changed, add it to the parent's list
-                # switch to the "plan" member of the new target
-                target = request.target
-                summary_list = Job._switch_target(target, parent_summary_list)
-            if isGroup:
-                sequence = []
-                group = {}
-                if request.workflow:
-                    group["workflow"] = str(request.workflow)
-                group["sequence"] = sequence
-                summary_list.append(group)
-                Job._list_plan_summary(
-                    request.children, target, sequence, include_rendered, workflow
-                )
-            else:
-                summary_list.append(request._summary_dict(include_rendered))
+    ###########################################################################
+    # Job Reporting methods
+    ###########################################################################
+
+    def stats(self, asMessage: bool = False) -> Union[Dict[str, int], str]:
+        return JobReporter.stats(self.workDone.values(), asMessage)
+
+    def print_summary_table(self):
+        JobReporter.summary_table(self)
+
+    def _plan_summary(
+        self,
+        plan_requests: List[TaskRequest],
+        external_requests: Iterable[Tuple[Any, Any]],
+    ) -> Tuple[str, int]:
+        return JobReporter.plan_summary(self, plan_requests, external_requests)
 
     def _json_plan_summary(
         self, pretty: bool = False, include_rendered: bool = True
     ) -> Union[str, list]:
-        """
-        Return a list of items that look like:
-
-          {
-          instance: target_name,
-          status: target_status,
-          plan: [
-              {"operation": "check"
-                "sequence": [
-                    <items like these>
-                  ]
-              }
-            ]
-          }
-        """
-        summary: List[dict] = []
-        for (m, requests) in self.external_requests:  # type: ignore
-            summary.extend(self._job_request_summary(requests, m))
-        self._list_plan_summary(self.plan_requests, None, summary, include_rendered, self.workflow)  # type: ignore
-        if not pretty:
-            return summary
-        else:
-            return json.dumps(summary, indent=2)
+        return JobReporter.json_plan_summary(self, pretty, include_rendered)
 
     def json_summary(
         self, pretty: bool = False, external: bool = False
@@ -1320,113 +1248,6 @@ class Job(ConfigChange):
             return json.dumps(summary, indent=2)
         return summary
 
-    def stats(self, asMessage: bool = False) -> Union[Dict[str, int], str]:
-        tasks = self.workDone.values()
-        key = lambda t: t._localStatus or Status.unknown
-        tasks = sorted(tasks, key=key)  # type: ignore
-        stats = dict(total=len(tasks), ok=0, error=0, unknown=0, skipped=0)
-        for k, g in itertools.groupby(tasks, key):
-            if not k:  # is a Status
-                stats["skipped"] = len(list(g))
-            else:
-                stats[k.name] = len(list(g))
-        stats["changed"] = len([t for t in tasks if t.modified_target])
-        if asMessage:
-            return "{total} tasks ({changed} changed, {ok} ok, {error} failed, {unknown} unknown, {skipped} skipped)".format(
-                **stats
-            )
-        return stats
-
-    def _plan_summary(
-        self,
-        plan_requests: List[TaskRequest],
-        external_requests: Iterable[Tuple[Any, Any]],
-    ) -> Tuple[str, int]:
-        """
-        Node "site" (status, state, created):
-          check: Install.check
-          workflow: # if group
-            Standard.create (reason add)
-            Standard.configure (reason add)
-        """
-        INDENT = 4
-        count = 0
-
-        def _summary(
-            requests: List[Union[JobRequest, TaskRequest, TaskRequestGroup]],
-            target: Optional[EntityInstance],
-            indent: int,
-        ) -> None:
-            nonlocal count
-            for request in requests:
-                isGroup = isinstance(request, TaskRequestGroup)
-                if isGroup and not request.children:  # type: ignore
-                    continue
-                if isinstance(request, JobRequest):
-                    count += 1
-                    nodeStr = f'Job for "{request.name}":'
-                    output.append(" " * indent + nodeStr)
-                    continue
-                if not self.is_filtered() and self.jobOptions.workflow == "deploy":
-                    if not request.include_in_plan():
-                        logger.trace(
-                            'excluding "%s" from plan: not required',
-                            request.target.name,
-                        )
-                        continue
-                if request.target is not target:
-                    target = request.target
-                    assert target
-                    status = ", ".join(
-                        filter(
-                            None,
-                            (
-                                target.status.name if target.status is not None else "",  # type: ignore
-                                target.state.name if target.state is not None else "",  # type: ignore
-                                "managed" if target.created else "",  # type: ignore
-                            ),
-                        )
-                    )
-                    nodeStr = f'Node "{target.name}" ({status}):'  # type: ignore
-                    output.append(" " * indent + nodeStr)
-                if isGroup:
-                    output.append(
-                        "%s- %s:" % (" " * indent, (request.workflow or "sequence"))  # type: ignore
-                    )
-                    _summary(request.children, target, indent + INDENT)  # type: ignore
-                else:
-                    count += 1
-                    output.append(" " * indent + f"- operation {request.name}")  # type: ignore
-                    if request.task:
-                        if request.task._workFolders:
-                            for wf in request.task._workFolders.values():
-                                output.append(" " * indent + f"   rendered at {wf.cwd}")
-                        if request.not_ready:
-                            output.append(
-                                " " * indent + "   (render waiting for dependents)"
-                            )
-                        elif request.task._errors:  # don't report error if waiting
-                            output.append(" " * indent + "   (errors while rendering)")
-
-        opts = self.jobOptions.get_user_settings()
-        options = ",".join([f"{k} = {opts[k]}" for k in opts if k != "planOnly"])
-        header = f"Plan for {self.workflow}"  # type: ignore
-        if options:
-            header += f" ({options})"
-        output = [header + ":\n"]
-
-        for m, jr in external_requests:
-            if jr:
-                count += 1
-                output += [f" External jobs on {m.path}:"]
-                for j in jr:
-                    output.append(" " * INDENT + j.name)
-
-        _summary(plan_requests, None, 0)  # type: ignore
-        if not count:
-            output.append("Nothing to do.")
-        return "\n".join(output), count
-
     def summary(self) -> str:
         outputString = ""
         outputs = self.get_outputs()
@@ -1447,17 +1268,11 @@ class Job(ConfigChange):
             self.status.name,
             self.stats(asMessage=True),
         )
+
         tasks = "\n    ".join(
             format(i + 1, task) for i, task in enumerate(self.workDone.values())
         )
         return line1 + tasks + outputString
-
-    @property
-    def log_path(self) -> str:
-        log_name = (
-            self.startTime.strftime("%Y-%m-%d-%H-%M-%S") + "-" + self.changeId[:-4]
-        )
-        return self.manifest.get_job_log_path(log_name, ".log")
 
 
 def create_job(manifest, joboptions, previousId=None):

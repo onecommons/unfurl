@@ -156,6 +156,40 @@ def test_redaction(caplog):
     assert "key" in caplog.text
     assert "password" not in caplog.text
 
+
+
+from unfurl.reporting import JobTable, Console
+
+def summary_table():
+    # title = "Job %s completed in %.3fs: [%s]%s[/]. %s:\n    " % (
+    #     self.changeId,
+    #     self.timeElapsed,
+    #     self.status.color,
+    #     self.status.name,
+    #     self.stats(asMessage=True),
+    # )
+    title = "Test"
+    table = JobTable(title=title)
+
+    table.add_column(" ", justify="right", style="cyan", no_wrap=True)
+    table.add_column("Operation", style="magenta")
+    table.add_column("Reason", style="magenta")
+    # table.add_column("Resource", style="magenta")
+    # table.add_column("Status", style="magenta")
+    # table.add_column("Changed", style="magenta")
+
+
+    # table.add_column("", justify="right", style="green")
+
+    table.add_row("Dec 20, 2019", "Star Wars: The Rise of Skywalker", "952", extra="This is some Text")
+    table.add_row("May 25, 2018", "Solo: A Star Wars Story", "[red]3945[/]", extra="More [b]hacky[/b] text")
+
+    # table.add_row("Dec 15, 2017", "Star Wars Ep. V111: The Last Jedi", "$1,332,539,889")
+    # table.add_row("Dec 16, 2016", "Rogue One: A Star Wars Story", "$1,332,439,889")
+
+    console = Console()
+    console.print(table)   
+
 if __name__ == "__main__":
     logger = logs.getLogger("unfurl")
     logs.set_console_log_level(Levels.TRACE)
@@ -170,3 +204,5 @@ if __name__ == "__main__":
         ("TRACE", Levels.TRACE),
     ]:
         logger.log(level, msg)
+    summary_table()
+
