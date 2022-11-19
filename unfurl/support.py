@@ -66,6 +66,17 @@ class Status(int, Enum):
     pending = 4
     absent = 5
 
+    @property
+    def color(self):
+        return {
+            Status.unknown: "white",
+            Status.ok: "green",
+            Status.degraded: "yellow",
+            Status.error: "red",
+            Status.pending: "white",
+            Status.absent: "yellow",
+        }[self]
+ 
 
 # see "3.4.1 Node States" p74
 class NodeState(int, Enum):

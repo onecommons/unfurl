@@ -175,6 +175,9 @@ class ShellConfigurator(TemplateConfigurator):
             return err
 
     def _handle_result(self, task, result, cwd, successCodes=(0,)):
+        # strips terminal escapes
+        result.stdout = clean_output(result.stdout or "")
+        result.stderr = clean_output(result.stderr or "")
         error = result.error or result.returncode not in successCodes or result.timeout
         if error:
             task.logger.warning('shell task run failure: "%s" in %s', result.cmd, cwd)
@@ -189,9 +192,6 @@ class ShellConfigurator(TemplateConfigurator):
         else:
             task.logger.info("shell task run success: %s", result.cmd)
             task.logger.debug("shell task output: %s", truncate_str(result.stdout))
-        # strips terminal escapes after we printed output via logger
-        result.stdout = clean_output(result.stdout or "")
-        result.stderr = clean_output(result.stderr or "")
         return not error
 
     def _process_result(self, task, result, cwd):

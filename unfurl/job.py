@@ -502,19 +502,10 @@ class ConfigTask(ConfigChange, TaskView):
         if asJson:
             return summary
         else:
-            color = {
-                Status.unknown: "grey",
-                Status.ok: "green",
-                Status.degraded: "yellow",
-                Status.error: "red",
-                Status.pending: "yellow",
-                Status.absent: "red",
-            }[self.target_status]
-
             return (
-                "{operation} on instance {rname} (type {type}, status [{color}]{targetStatus}[/{color}]) "
+                "{operation} on instance {rname} (type {type}, status {targetStatus}) "
                 + "using configurator {cname}, priority: {priority}, reason: {reason}"
-            ).format(cname=cname, rname=rname, color=color, **summary)
+            ).format(cname=cname, rname=rname, **summary)
 
     def __repr__(self):
         return f"ConfigTask({self.target}:{self.name})"
@@ -1092,7 +1083,7 @@ class Job(ConfigChange):
         )
         if task:
             start_collapsible(f"Task {req.target.name} ({req}", hash(req), True)
-            logger.info("Running task %s", req)
+            task.logger.info("started.")
 
             resource = req.target
             startingStatus = resource._localStatus
@@ -1137,14 +1128,15 @@ class Job(ConfigChange):
             #     task.target.state,
             #     req.startState,
             # )
-            logger.info(
-                "Finished taskrequest %s: %s %s %s",
-                task,
-                "success" if task.result and task.result.success else "failed",  # type: ignore
-                task.target.status.name,
-                task.target.state and task.target.state.name or "",  # type: ignore
-            )
             end_collapsible(hash(req))
+            task_success = task.result and task.result.success
+            status = task.target.status.name
+            state_status = task.target.state.name if task.target.state else ""
+            extra = dict(rich=dict(style=task.target.status.color))
+            if task_success:
+                task.logger.info("succeeded: status: %s state: %s", status, state_status, extra=extra)
+            else:
+                task.logger.error("failed: status: %s state: %s", status, state_status, extra=extra)
 
         return task
 
@@ -1495,11 +1487,11 @@ def _plan(manifest, jobOptions):
     )
     job.create_plan()
     if jobOptions.masterJob:
-        msg = "Created static plan for external job:"
+        msg = "Initial static plan for external job:"
     else:
-        msg = "Created static plan:"
-    msg, count = job._plan_summary(job.plan_requests, job.external_requests)
-    logger.debug(msg + "\n%s", msg)
+        msg = "Initial static plan:"
+    plan_msg, count = job._plan_summary(job.plan_requests, job.external_requests)
+    logger.debug(msg + "\n%s", plan_msg)
     return job
 
 

@@ -362,13 +362,16 @@ class TaskLoggerAdapter(logging.LoggerAdapter, LogExtraLevels):
         Delegate a log call to the underlying logger, after adding
         contextual information from this adapter instance.
         """
+        # we override this instead of process() because we need to change the log level
+        # note that `self.extra` does NOT replace kwargs['extra']
         if self.isEnabledFor(level):
             # task for {resource name}: {operation} (reason: {resource})
             # e.g. Task for test-node: configure (reason: missing)
-            task_id = f"for {self.extra.target.name}: {self.extra.configSpec.operation}"
-            if self.extra.reason:
-                task_id += f" (reason: {self.extra.reason})"
-            if self.extra._rendering:
+            task: TaskView = self.extra
+            task_id = f"for {task.target.name}: {task.configSpec.operation}"
+            if task.reason:
+                task_id += f" (reason: {task.reason})"
+            if task._rendering:
                 msg = f"Rendering task {task_id} (errors expected): {msg}"
                 if level >= Levels.VERBOSE:
                     level = Levels.VERBOSE
