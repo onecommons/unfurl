@@ -80,9 +80,7 @@ node_types:
     properties:
       main:
         type: string
-        default:
-          eval:
-            get_dir: spec.home
+        required: false
     interfaces:
       defaults:
         implementation:

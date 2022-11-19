@@ -209,15 +209,14 @@ class TerraformConfigurator(ShellConfigurator):
         # generated tf.json get written to as main.unfurl.tmp.tf.json
         write_vars = True
         contents = None
-        if "main" not in task.inputs:
-            main = get_path(task.inputs.context, "", "spec.home")
+        main = task.inputs.get_copy("main")
+        if not main:
+            main = get_path(task.inputs.context, task.target.name, "src")
             if not os.path.exists(main):
                 raise UnfurlTaskError(
                     task,
                     f'Input parameter "main" not specifed and default terraform module directory does not exist at "{main}"',
                 )
-        else:
-            main = task.inputs.get_copy("main")
         if task._errors:
             main = None  # assume render failed
         if isinstance(main, six.string_types):
