@@ -34,19 +34,43 @@ from click.termui import unstyle
 
 import subprocess
 
-# cf https://github.com/opsmop/opsmop/blob/master/opsmop/core/command.py
+
+def make_regex_filter(logregex: re.Pattern, levels: list):
+    def filter(data: str, skip: bool):
+        bare_line = clean_output(data)
+        match = logregex.search(bare_line)
+        loglevel = match and match.group(1)
+        if loglevel is not None:
+            # its a new log message
+            return loglevel not in levels
+        return skip
+    return filter
 
 
 class _PrintOnAppendList(list):
+    def __init__(self, filter=None):
+        self._filter = filter
+        self.skip = False
+
+    def filter(self, data: str):
+        if self._filter:
+            self.skip = self._filter(data, self.skip)
+            if self.skip:
+                return None
+        return data
+
     def append(self, data):
         list.append(self, data)
         try:
-            sys.stdout.write(data.decode())
-        except:
-            pass
+            s = self.filter(data.decode())
+            if s is not None:
+                sys.stdout.write(s)
+        except Exception:
+            if os.environ.get("UNFURL_RAISE_LOGGING_EXCEPTIONS"):
+                raise
 
 
-def _run(*args, **kwargs):
+def _run(*args, stdout_filter=None, stderr_filter=None, **kwargs):
     timeout = kwargs.pop("timeout", None)
     input = kwargs.pop("input", None)
     with subprocess.Popen(*args, **kwargs) as process:
@@ -57,9 +81,9 @@ def _run(*args, **kwargs):
             # _save_input is called after _fileobj2output is setup but before reading
             def _save_input_hook_hack(input):
                 if process.stdout:
-                    process._fileobj2output[process.stdout] = _PrintOnAppendList()
+                    process._fileobj2output[process.stdout] = _PrintOnAppendList(stdout_filter)
                 if process.stderr:
-                    process._fileobj2output[process.stderr] = _PrintOnAppendList()
+                    process._fileobj2output[process.stderr] = _PrintOnAppendList(stderr_filter)
                 _save_input(input)
 
             process._save_input = _save_input_hook_hack
@@ -110,6 +134,8 @@ class ShellConfigurator(TemplateConfigurator):
         cwd=None,
         keeplines=False,
         echo=True,
+        stdout_filter=None,
+        stderr_filter=None,
     ):
         """
         Returns an object with the following attributes:
@@ -126,9 +152,11 @@ class ShellConfigurator(TemplateConfigurator):
             # hack to echo results
             if echo and hasattr(subprocess.Popen, "_save_input"):
                 run = _run
+                kwargs = dict(stdout_filter=stdout_filter, stderr_filter=stderr_filter)
             else:
                 # Windows and 2.7 don't have _save_input
                 run = subprocess.run
+                kwargs = {}
             if shell and isinstance(shell, six.string_types):
                 executable = shell
             else:
@@ -144,6 +172,7 @@ class ShellConfigurator(TemplateConfigurator):
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 input=None,
+                **kwargs
             )
 
             # try to convert stdout and stderr to strings but leave as binary if that fails

@@ -1,7 +1,7 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
 from ..util import save_to_file, UnfurlTaskError, wrap_var, which
-from .shell import ShellConfigurator, clean_output
+from .shell import ShellConfigurator, clean_output, make_regex_filter
 from ..support import Status
 from ..result import Result
 from ..projectpaths import get_path, FilePath, Folders
@@ -17,7 +17,7 @@ def _get_env(env, verbose, dataDir):
     env["TF_INPUT"] = "0"
     # see https://www.terraform.io/plugin/log/managing
     # env["TF_LOG"] = "ERROR WARN INFO DEBUG TRACE".split()[verbose + 1]
-    if verbose > 0:
+    if verbose >= 0:
         # providers can be very verbose, don't set them to debug
         env["TF_LOG_CORE"] = "DEBUG"
 
@@ -25,6 +25,19 @@ def _get_env(env, verbose, dataDir):
     # contains modules/modules.json and plugins/plugins.json:
     env["TF_DATA_DIR"] = dataDir
     return env
+
+
+def get_echo_args(verbosity):
+    if verbosity == -1:  # quiet mode
+        return dict(echo=False) # no stdout or stderr
+    else:
+        logregex = re.compile(r"\[(TRACE|DEBUG|INFO|WARN|ERROR)\]")
+        if verbosity == 0:  # default
+            levels = "INFO|WARN|ERROR"
+        else:  # verbose == 1
+            levels = "TRACE|DEBUG|INFO|WARN|ERROR"
+        stderr_filter = make_regex_filter(logregex, levels.split('|'))
+    return dict(echo=True, stderr_filter=stderr_filter)
 
 
 def mark_block(schema, items, task, sensitive_names):
@@ -365,7 +378,6 @@ class TerraformConfigurator(ShellConfigurator):
     def run(self, task):
         cwd = task.get_work_folder(Folders.tasks)
         cmd, terraform, statePath = task.rendered
-        echo = task.verbose > -1
         current_path = cwd.cwd
         dataDir = os.getenv("TF_DATA_DIR", os.path.join(current_path, ".terraform"))
         env = _get_env(task.get_environment(False), task.verbose, dataDir)
@@ -384,12 +396,13 @@ class TerraformConfigurator(ShellConfigurator):
         else:
             providerSchema = {}
 
+        echo_args = get_echo_args(task.verbose)
         result = self.run_process(
             cmd,
             timeout=task.configSpec.timeout,
             env=env,
             cwd=cwd.cwd,
-            echo=echo,
+            **echo_args
         )
         if result.returncode and _needs_init(clean_output(result.stderr)):
             # modules or plugins out of date, re-run terraform init
@@ -402,7 +415,7 @@ class TerraformConfigurator(ShellConfigurator):
                     timeout=task.configSpec.timeout,
                     env=env,
                     cwd=cwd.cwd,
-                    echo=echo,
+                    **echo_args
                 )
             else:
                 raise UnfurlTaskError(
