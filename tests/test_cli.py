@@ -8,11 +8,13 @@ import unfurl
 from click.testing import CliRunner
 from unfurl.__main__ import _args, cli
 from unfurl.configurator import Configurator
+from unfurl.configurators.shell import clean_output
 from unfurl.localenv import LocalEnv, Project
 from unfurl.util import sensitive_list, UnfurlError
 from unfurl.yamlloader import yaml
 from unfurl.yamlmanifest import YamlManifest
 from .utils import run_cmd, print_config
+
 
 manifest = """
 apiVersion: unfurl/v1alpha1
@@ -403,7 +405,7 @@ spec:
                 traceback.format_exception(*result.exc_info)
             )
             getattr(self, "assertRegex", self.assertRegexpMatches)(
-                result.output,
+                clean_output(result.output),
                 "Job A[0-9A-Za-z]{11} completed: ok. Found nothing to do.",
             )
             self.assertEqual(result.exit_code, 0, result.output)
@@ -428,14 +430,14 @@ spec:
             self.assertEqual(result.exit_code, 0, result)
 
             result = runner.invoke(
-                cli, ["--home", "./unfurl_home", "deploy", "clone1/tests/examples"]
+                cli, ["--home", "./unfurl_home", "deploy", "clone1/tests/examples"],
             )
             # print("result.output", result.exit_code, result.output)
             assert not result.exception, "\n".join(
                 traceback.format_exception(*result.exc_info)
             )
             getattr(self, "assertRegex", self.assertRegexpMatches)(
-                result.output,
+                clean_output(result.output),
                 "Job A[0-9A-Za-z]{11} completed: ok. Found nothing to do.",
             )
             self.assertEqual(result.exit_code, 0, result.output)
