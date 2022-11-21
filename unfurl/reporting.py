@@ -17,7 +17,7 @@ from .planrequests import (
     JobRequest,
 )
 from .support import Status
-from .logs import getLogger
+from .logs import getLogger, getConsole
 from rich.console import Console
 from rich.table import Table
 from rich import box
@@ -35,7 +35,7 @@ logger = getLogger("unfurl")
 class JobTable(Table):
         
     def __init__(self, **kwargs):
-        super().__init__(box=box.HORIZONTALS, show_lines=True, **kwargs)
+        super().__init__(box=box.HORIZONTALS, show_lines=True, expand=True, **kwargs)
         self.hacks = {}
 
     def _render(self, console: "Console", options, widths):
@@ -290,7 +290,7 @@ class JobReporter:
 
     @staticmethod
     def summary_table(job):
-        console = Console()
+        console = getConsole()
         if not job.workDone:
             console.print(f"Job {job.changeId} completed: [{job.status.color}]{job.status.name}[/]. Found nothing to do.")
             return

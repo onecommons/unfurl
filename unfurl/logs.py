@@ -95,6 +95,11 @@ class HiddenOutputLogHandler(logging.StreamHandler):
         rich.print(record.msg, end="\x1b[2K\r", flush=True)
 
 
+def getConsole(**kwargs):
+    # Settings needed for emulated terminals, like gitlab CI:
+    # - Soft wrap prevents rich from breaking lines automatically
+    # - force_terminal to display colors
+    return Console(soft_wrap=True, force_terminal=os.environ.get("PY_COLORS") != "0", **kwargs)
 
 class ColorHandler(logging.StreamHandler):
     # https://rich.readthedocs.io/en/stable/appendix/colors.html
@@ -117,8 +122,7 @@ class ColorHandler(logging.StreamHandler):
 
         level = Levels[record.levelname]
         try:
-            # Soft wrap prevents rich from breaking lines automatically (needed for emulated terminals, like gitlab CI)
-            console = Console(soft_wrap=True, force_terminal=os.environ.get("PY_COLORS") != "0", file=self.stream)
+            console = getConsole(file=self.stream)
             console.print(f"[{self.RICH_STYLE_LEVEL[level]}] {level.name.center(8)}[/]", end="")
             console.print(f" {record.name.upper()}", end="")
             console.print(f" {message}", **getattr(record, "rich", {}))
