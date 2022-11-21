@@ -249,7 +249,7 @@ class Project:
     ) -> Union[GitRepo, str]:
         # if repo isn't found, return the repo url, possibly rewritten to include server credentials
         candidate = None
-        repourl_parts = urlsplit(repoURL)
+        # repourl_parts = urlsplit(repoURL)
         normalized = normalize_git_url_hard(repoURL)
         for dir, repository in self.workingDirs.items():
             repo = repository.repo
@@ -266,16 +266,16 @@ class Project:
                     candidate = repo
                 else:
                     return repo
-            elif not repourl_parts.username:  # if url doesn't have credentials already
-                candidate_parts = urlsplit(repo.url)
-                if (
-                    candidate_parts.password
-                    and candidate_parts.hostname == repourl_parts.hostname
-                ):
-                    # rewrite repoUrl to add credentials
-                    repoURL = urlunsplit(
-                        repourl_parts._replace(netloc=candidate_parts.netloc)
-                    )
+            # elif not repourl_parts.username:  # if url doesn't have credentials already
+            #     candidate_parts = urlsplit(repo.url)
+            #     if (
+            #         candidate_parts.password
+            #         and candidate_parts.hostname == repourl_parts.hostname
+            #     ):
+            #         # rewrite repoUrl to add credentials
+            #         repoURL = urlunsplit(
+            #             repourl_parts._replace(netloc=candidate_parts.netloc)
+            #         )
         return candidate or repoURL
 
     def find_git_repo(
