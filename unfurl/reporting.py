@@ -319,11 +319,11 @@ class JobReporter:
                 task_success = "[white]skipped[/]"
             operation = task.configSpec.operation
             reason = task.reason or ""
-            resource = task.target.name             
+            resource = task.target.name
             if task.status is None:
                 status = ""
             else:
-                status = f"[{task.status.color}]{task.status.name}[/]"
+                status = f"[{task.status.color}]{task.status.name.upper()}[/]"
             state = task.target_state and task.target_state.name or ""
             changed = "[green]Yes[/]" if task.modified_target else "[white]No[/]"
             if task.result and task.result.result:

@@ -1125,13 +1125,13 @@ class Job(ConfigChange):
             # )
             end_collapsible(hash(req))
             task_success = task.result and task.result.success
-            status = task.target.status.name
+            status = task.target.status.name.upper()
             state_status = task.target.state.name if task.target.state else ""
+            extra = dict(rich=dict(style=task.target.status.color))
             if task_success:
-                task.logger.info(f"[{task.target.status.color}]succeeded: status: %s state: %s[/]", 
-                                 status, state_status)
+                task.logger.info("succeeded, STATUS: %s state: %s", status, state_status, extra=extra)
             else:
-                task.logger.error(f"[{task.target.status.color}]sfailed: status: %s state: %s[/]", status, state_status)
+                task.logger.error("failed, STATUS: %s state: %s", status, state_status, extra=extra)
 
         return task
 
