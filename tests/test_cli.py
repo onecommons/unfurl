@@ -431,13 +431,14 @@ spec:
 
             result = runner.invoke(
                 cli, ["--home", "./unfurl_home", "deploy", "clone1/tests/examples"],
+                env=dict(PY_COLORS="0"),
             )
             # print("result.output", result.exit_code, result.output)
             assert not result.exception, "\n".join(
                 traceback.format_exception(*result.exc_info)
             )
             getattr(self, "assertRegex", self.assertRegexpMatches)(
-                clean_output(result.output),
+                result.output,
                 "Job A[0-9A-Za-z]{11} completed: ok. Found nothing to do.",
             )
             self.assertEqual(result.exit_code, 0, result.output)
