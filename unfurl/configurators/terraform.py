@@ -296,7 +296,7 @@ class TerraformConfigurator(ShellConfigurator):
 
     def _get_workfolder_name(self, task):
         return (
-            task.inputs.get("stateLocation") or Folders.artifacts
+            task.inputs.get("stateLocation") or Folders.secrets
         )  # XXX global option for secrets
 
     def _prepare_state(self, task, cwd):
