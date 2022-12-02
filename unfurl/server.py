@@ -220,8 +220,9 @@ def update_deployment():
                     target = {}
                 else:
                     del target[typename]
-            else:
+            elif deleted in target[typename]:
                 del target[typename][deleted]
+            # XXX else: log f"missing {deleted} in {typename}"
             continue
         target_inner[patch_inner["name"]] = patch_inner
 
