@@ -153,13 +153,30 @@ def export():
     return jsonify(json_summary)
 
 
+@app.route("/delete_deployment", methods=["POST"])
+def delete_deployment():
+    body = request.json
+    path = body.get("path")  # File path
+    return _patch(body, path)
+
+
+@app.route("/update_environment", methods=["POST"])
+def update_environment():
+    body = request.json
+    path = body.get("path")  # File path
+    return _patch(body, path)
+
+
 @app.route("/update_deployment", methods=["POST"])
 def update_deployment():
     body = request.json
+    path = body.get("path")  # File path
+    return _patch(body, path)
+
+
+def _patch(body, path):
     # Repository URL
     project_path = body.get("projectPath")
-    # File path
-    path = body.get("path")
     # Patch
     patch = body.get("patch")
 

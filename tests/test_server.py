@@ -235,7 +235,9 @@ def test_server_export_local():
         p.terminate()
         p.join()
 
-
+@unittest.skipIf(
+    "slow" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set"
+)
 def test_server_export_remote():
     runner = CliRunner()
     httpd, env_var_url = start_envvar_server(8011)

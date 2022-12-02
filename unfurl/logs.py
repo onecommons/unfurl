@@ -6,9 +6,7 @@ import os
 import tempfile
 import time
 import types
-from typing import Any, Dict, Tuple, Union
-from typing_extensions import NotRequired, TypedDict
-from abc import ABC, abstractmethod
+from typing import Any, Union
 
 import rich
 from rich.console import Console
@@ -95,11 +93,12 @@ class HiddenOutputLogHandler(logging.StreamHandler):
         rich.print(record.msg, end="\x1b[2K\r", flush=True)
 
 
-def getConsole(**kwargs):
+def getConsole(**kwargs) -> Console:
     # Settings needed for emulated terminals, like gitlab CI:
     # - Soft wrap prevents rich from breaking lines automatically
     # - force_terminal to display colors
     return Console(soft_wrap=True, force_terminal=os.environ.get("PY_COLORS") != "0", **kwargs)
+
 
 class ColorHandler(logging.StreamHandler):
     # https://rich.readthedocs.io/en/stable/appendix/colors.html
