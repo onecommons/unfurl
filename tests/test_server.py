@@ -12,6 +12,7 @@ from click.testing import CliRunner
 from git import Repo
 from unfurl import server
 
+import pytest
 from tests.utils import init_project, run_cmd
 from unfurl.repo import GitRepo
 
@@ -76,6 +77,17 @@ delete_patch = """
 }]
 """
 
+_server_port = 8081
+
+
+#  Increment port just in case server ports aren't closed in time for next test
+#  NB: if server processes aren't terminated: pkill -fl spawn_main
+def _next_port():
+    global _server_port
+    _server_port += 1
+    return _server_port
+
+
 def start_server_process(proc, port):
     proc.start()
     for _ in range(5):
@@ -111,225 +123,234 @@ def start_envvar_server(port):
     f.close()
     return httpd, env_var_url
 
+@pytest.fixture()
+def runner():
+    runner = CliRunner()
+    with runner.isolated_filesystem() as tmpdir:
+        os.mkdir("ensemble")
+        with open("ensemble/ensemble.yaml", "w") as f:
+            f.write(manifest)
 
-class TestServer(unittest.TestCase):
-    def setUp(self) -> None:
-        cli_runner = CliRunner()
-        self.runner = cli_runner
-        with cli_runner.isolated_filesystem() as tmpdir:
-            os.mkdir("ensemble")
-            with open("ensemble/ensemble.yaml", "w") as f:
-                f.write(manifest)
+        # server.serve('localhost', 8081, 'secret', 'ensemble', {})
+        server_process = Process(
+            target=server.serve,
+            args=("localhost", 8081, "secret", ".", f"{tmpdir}", {}),
+        )
+        assert start_server_process(server_process, 8081)
 
-            # server.serve('localhost', 8081, 'secret', 'ensemble', {})
-            p = Process(
-                target=server.serve,
-                args=("localhost", 8081, "secret", ".", f"{tmpdir}", {}),
-            )
-            self.server_process = p
-            assert start_server_process(p, 8081)
+        yield server_process
 
-    def set_up_deployment(self, deployment):
+        server_process.terminate()   # Gracefully shutdown the server (SIGTERM)
+        server_process.join()   # Wait for the server to terminate
+
+
+def set_up_deployment(runner, deployment):
+    init_project(
+        runner,
+        args=["init", "--mono"],
+        env=dict(UNFURL_HOME=""),
+    )
+
+    # Create a mock deployment
+    os.makedirs("dashboard/deployments/dev")
+    with open("dashboard/deployments/dev/deployment.json", "w") as f:
+        f.write(deployment)
+
+    repo = Repo.init('.')
+    repo = GitRepo(repo)
+    repo.add_all()
+    repo.commit_files(["dashboard/deployments/dev/deployment.json"], "Add deployment")
+
+    port = _next_port()
+    p = Process(
+        target=server.serve,
+        args=("localhost", port, None, ".", ".", {"home": ""}),
+    )
+    assert start_server_process(p, port)
+
+    return p, port
+
+
+def test_server_health(runner):
+    res = requests.get("http://localhost:8081/health", params={"secret": "secret"})
+
+    assert res.status_code == 200
+    assert res.content == b"OK"
+
+
+def test_server_authentication(runner):
+    res = requests.get("http://localhost:8081/health")
+    assert res.status_code == 401
+    assert res.json()["code"] == "UNAUTHORIZED"
+
+    res = requests.get("http://localhost:8081/health", params={"secret": "secret"})
+    assert res.status_code == 200
+    assert res.content == b"OK"
+
+    res = requests.get("http://localhost:8081/health", params={"secret": "wrong"})
+    assert res.status_code == 401
+    assert res.json()["code"] == "UNAUTHORIZED"
+
+    res = requests.get(
+        "http://localhost:8081/health", headers={"Authorization": "Bearer secret"}
+    )
+    assert res.status_code == 200
+    assert res.content == b"OK"
+
+    res = requests.get(
+        "http://localhost:8081/health", headers={"Authorization": "Bearer wrong"}
+    )
+    assert res.status_code == 401
+    assert res.json()["code"] == "UNAUTHORIZED"
+
+
+def test_server_export_local():
+    runner = CliRunner()
+    port = _next_port()
+    with runner.isolated_filesystem() as tmpdir:
+        p = Process(
+            target=server.serve,
+            args=("localhost", port, None, ".", f"{tmpdir}", {"home": ""}),
+        )
+        assert start_server_process(p, port)
+
         init_project(
-            self.runner,
+            runner,
+            args=["init", "--mono"],
+            env=dict(UNFURL_HOME=""),
+        )
+        for export_format in ["deployment", "environments", "blueprint"]:
+            res = requests.get(
+                f"http://localhost:{port}/export?format={export_format}"
+            )
+            assert res.status_code == 200
+            exported = run_cmd(
+                runner,
+                ["--home", "", "export", "--format", export_format],
+                env={"UNFURL_LOGGING": "critical"},
+            )
+            assert exported
+            assert res.json() == json.loads(exported.output)
+
+        p.terminate()
+        p.join()
+
+
+def test_server_export_remote():
+    runner = CliRunner()
+    httpd, env_var_url = start_envvar_server(8011)
+    if httpd is None:
+        httpd, env_var_url = start_envvar_server(8012)
+    with runner.isolated_filesystem():
+        init_project(
+            runner,
             args=["init", "--mono"],
             env=dict(UNFURL_HOME=""),
         )
 
-        # Create a mock deployment
-        os.makedirs("dashboard/deployments/dev")
-        with open ("dashboard/deployments/dev/deployment.json", "w") as f:
-            f.write(deployment)
-
-        repo = Repo.init('.')
-        repo = GitRepo(repo)
-        repo.add_all()
-        repo.commit_files(["dashboard/deployments/dev/deployment.json"], "Add deployment")
-
+        port = _next_port()
         p = Process(
             target=server.serve,
-            args=("localhost", 8082, None, ".", ".", {"home": ""}),
+            args=("localhost", port, None, ".", ".", {"home": ""}),
         )
-        assert start_server_process(p, 8082)
+        assert start_server_process(p, port)
 
-        return p
-
-    def test_server_health(self):
-        res = requests.get("http://localhost:8081/health", params={"secret": "secret"})
-
-        assert res.status_code == 200
-        assert res.content == b"OK"
-
-    def test_server_authentication(self):
-        res = requests.get("http://localhost:8081/health")
-        assert res.status_code == 401
-        assert res.json()["code"] == "UNAUTHORIZED"
-
-        res = requests.get("http://localhost:8081/health", params={"secret": "secret"})
-        assert res.status_code == 200
-        assert res.content == b"OK"
-
-        res = requests.get("http://localhost:8081/health", params={"secret": "wrong"})
-        assert res.status_code == 401
-        assert res.json()["code"] == "UNAUTHORIZED"
-
-        res = requests.get(
-            "http://localhost:8081/health", headers={"Authorization": "Bearer secret"}
+        run_cmd(
+            runner,
+            [
+                "--home", "",
+                "clone",
+                "--empty",
+                "https://gitlab.com/onecommons/project-templates/dashboard",
+                "--var", "UNFURL_CLOUD_VARS_URL", env_var_url,
+            ],
         )
-        assert res.status_code == 200
-        assert res.content == b"OK"
 
-        res = requests.get(
-            "http://localhost:8081/health", headers={"Authorization": "Bearer wrong"}
-        )
-        assert res.status_code == 401
-        assert res.json()["code"] == "UNAUTHORIZED"
-
-    def test_server_export_local(self):
-        with self.runner.isolated_filesystem() as tmpdir:
-            p = Process(
-                target=server.serve,
-                args=("localhost", 8082, None, ".", f"{tmpdir}", {"home": ""}),
+        for export_format in ["deployment", "environments", "blueprint"]:
+            res = requests.get(
+                f"http://localhost:{port}/export",
+                params={
+                    "url": "https://gitlab.com/onecommons/project-templates/dashboard",
+                    "format": export_format,
+                    "cloud_vars_url": env_var_url,
+                },
             )
-            self.server_process = p
-            assert start_server_process(p, 8082)
-
-            init_project(
-                self.runner,
-                args=["init", "--mono"],
-                env=dict(UNFURL_HOME=""),
-            )
-            for export_format in ["deployment", "environments", "blueprint"]:
-                res = requests.get(
-                    f"http://localhost:8082/export?format={export_format}"
-                )
-                assert res.status_code == 200
-                exported = run_cmd(
-                    self.runner,
-                    ["--home", "", "export", "--format", export_format],
-                    env={"UNFURL_LOGGING": "critical"},
-                )
-                assert exported
-                assert res.json() == json.loads(exported.output)
-
-            p.terminate()
-            p.join()
-
-    def test_server_export_remote(self):
-        httpd, env_var_url = start_envvar_server(8011)
-        if httpd is None:
-            httpd, env_var_url = start_envvar_server(8012)
-        with self.runner.isolated_filesystem():
-            init_project(
-                self.runner,
-                args=["init", "--mono"],
-                env=dict(UNFURL_HOME=""),
-            )
-
-            p = Process(
-                target=server.serve,
-                args=("localhost", 8082, None, ".", ".", {"home": ""}),
-            )
-            assert start_server_process(p, 8082)
-
-            run_cmd(
-                self.runner,
-                [
-                    "--home", "",
-                    "clone",
-                    "--empty",
-                    "https://gitlab.com/onecommons/project-templates/dashboard",
-                    "--var", "UNFURL_CLOUD_VARS_URL", env_var_url,
-                ],
-            )
-
-
-            for export_format in ["deployment", "environments", "blueprint"]:
-                res = requests.get(
-                    "http://localhost:8082/export",
-                    params={
-                        "url": "https://gitlab.com/onecommons/project-templates/dashboard",
-                        "format": export_format,
-                        "cloud_vars_url": env_var_url,
-                    },
-                )
-                assert res.status_code == 200
-
-                exported = run_cmd(
-                    self.runner,
-                    ["--home", "", "export", "dashboard", "--format", export_format],
-                    env={"UNFURL_LOGGING": "critical"},
-                )
-
-                assert exported
-                # Strip out output from the http server
-                output = exported.output
-                cleaned_output = output[max(output.find("{"), 0) :]
-                assert res.json() == json.loads(cleaned_output)
-            
-            p.terminate()
-            p.join()
-
-        if httpd:
-            httpd.socket.close()
-
-    def test_server_update_deployment(self):
-        with self.runner.isolated_filesystem():
-            initial_deployment = deployment.format("initial")
-            p = self.set_up_deployment(initial_deployment)
-
-            target_patch = patch.format("target")
-            res = requests.post(
-                "http://localhost:8082/update_deployment",
-                json={
-                    "projectPath": ".",
-                    "path": "dashboard/deployments/dev/deployment.json",
-                    "patch": json.loads(target_patch),
-                }
-            )
-
             assert res.status_code == 200
 
-            with open ("dashboard/deployments/dev/deployment.json", "r") as f:
-                data = json.load(f)
-                assert (data['ResourceTemplate']
-                            ['container_service']
-                            ['properties'][0]
-                            ['value']
-                            ['environment']
-                            ['VAR']
-                        ) == "target"   
-
-
-            p.terminate()
-            p.join()
-
-    def test_server_update_deployment_delete(self):
-        with self.runner.isolated_filesystem():
-            initial_deployment = deployment.format("initial")
-            p = self.set_up_deployment(initial_deployment)
-
-            res = requests.post(
-                "http://localhost:8082/update_deployment",
-                json={
-                    "projectPath": ".",
-                    "path": "dashboard/deployments/dev/deployment.json",
-                    "patch": json.loads(delete_patch),
-                }
+            exported = run_cmd(
+                runner,
+                ["--home", "", "export", "dashboard", "--format", export_format],
+                env={"UNFURL_LOGGING": "critical"},
             )
-            
-            assert res.status_code == 200
 
-            with open ("dashboard/deployments/dev/deployment.json", "r") as f:
-                data = json.load(f)
-                assert data == {
-                    "ResourceTemplate": {}
-                }
+            assert exported
+            # Strip out output from the http server
+            output = exported.output
+            cleaned_output = output[max(output.find("{"), 0) :]
+            assert res.json() == json.loads(cleaned_output)
+        
+        p.terminate()
+        p.join()
 
-            p.terminate()
-            p.join()
+    if httpd:
+        httpd.socket.close()
 
-    def tearDown(self) -> None:
-        self.server_process.terminate()   # Gracefully shutdown the server (SIGTERM)
-        self.server_process.join()   # Wait for the server to terminate
-        return super().tearDown()
+
+def test_server_update_deployment():
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        initial_deployment = deployment.format("initial")
+        p, port = set_up_deployment(runner, initial_deployment)
+
+        target_patch = patch.format("target")
+        res = requests.post(
+            f"http://localhost:{port}/update_deployment",
+            json={
+                "projectPath": ".",
+                "path": "dashboard/deployments/dev/deployment.json",
+                "patch": json.loads(target_patch),
+            }
+        )
+
+        assert res.status_code == 200
+
+        with open ("dashboard/deployments/dev/deployment.json", "r") as f:
+            data = json.load(f)
+            assert (data['ResourceTemplate']
+                        ['container_service']
+                        ['properties'][0]
+                        ['value']
+                        ['environment']
+                        ['VAR']
+                    ) == "target"   
+
+
+        p.terminate()
+        p.join()
+
+
+def test_server_update_deployment_delete():
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        initial_deployment = deployment.format("initial")
+        p, port = set_up_deployment(runner, initial_deployment)
+
+        res = requests.post(
+            f"http://localhost:{port}/update_deployment",
+            json={
+                "projectPath": ".",
+                "path": "dashboard/deployments/dev/deployment.json",
+                "patch": json.loads(delete_patch),
+            }
+        )
+        
+        assert res.status_code == 200
+
+        with open ("dashboard/deployments/dev/deployment.json", "r") as f:
+            data = json.load(f)
+            assert data == {
+                "ResourceTemplate": {}
+            }
+
+        p.terminate()
+        p.join()
