@@ -1348,6 +1348,7 @@ def to_environments(localEnv, existing=None):
         # XXX is it safe to only include types with "connect" implementations?
         all_connection_types.update(blueprintdb["ResourceType"])
     db["ResourceType"] = all_connection_types
+    db["DeploymentPath"] = to_deployments(localEnv)["DeploymentPath"]
     return db
 
 
