@@ -167,25 +167,22 @@ def export():
 @app.route("/delete_deployment", methods=["POST"])
 def delete_deployment():
     body = request.json
-    path = body.get("path")  # File path
-    return _patch_json(body, path)
+    return _patch_json(body)
 
 
 @app.route("/update_environment", methods=["POST"])
 def update_environment():
     body = request.json
-    path = body.get("path")  # File path
-    return _patch_json(body, path)
+    return _patch_json(body)
 
 
 @app.route("/update_deployment", methods=["POST"])
 def update_deployment():
     body = request.json
-    path = body.get("path")  # File path
-    return _patch_json(body, path)
+    return _patch_json(body)
 
 
-def _patch_deployment_blueprint(patch, manifest: "YamlManifest", deleted):
+def _patch_deployment_blueprint(patch: dict, manifest: "YamlManifest", deleted: bool) -> None:
     deployment_blueprint = patch["name"]
     doc = manifest.manifest.config
     deployment_blueprints = (
@@ -207,7 +204,7 @@ def _patch_deployment_blueprint(patch, manifest: "YamlManifest", deleted):
                     _patch_node_template(val, tpl)
 
 
-def _patch_node_template(patch, tpl):
+def _patch_node_template(patch: dict, tpl: dict) -> None:
     for key, value in patch.items():
         if key == "type":
             tpl[key] = value
@@ -216,37 +213,54 @@ def _patch_node_template(patch, tpl):
                 tpl.setdefault("metadata", {})["title"] = value
         elif key == "properties":
             props = tpl.setdefault("properties", {})
+            assert isinstance(value, list)
             for prop in value:
                 props[prop["name"]] = prop["value"]
         elif key == "dependencies":
-            tpl.requirements = [{dependency["name"]: dependency["match"]} for dependency in value]
+            tpl["requirements"] = [{dependency["name"]: dependency["match"]} for dependency in value]
 
 
-def _patch_ensemble(body, path):
+@app.route("/update_ensemble", methods=["POST"])
+def update_ensemble():
+    body = request.json
+    return _patch_ensemble(body)
+
+
+def _patch_ensemble(body: dict) -> str:
     patch = body.get("patch")
-    for clone_location, repo in _patch_request(body, path):
-        if repo is None:
-            return create_error_response("INTERNAL_ERROR", "Could not find repository")
-        manifest = LocalEnv(clone_location).get_manifest()
-        for patch_inner in patch:
-            typename = patch_inner.get("__typename")
-            deleted = patch.get("__deleted")
-            if typename == "DeploymentTemplate":
-                _patch_deployment_blueprint(patch_inner, manifest, deleted)
-            elif typename == "ResourceTemplate":
-                # notes: only update or delete node_templates declared directly in the manifest
-                doc = manifest.manifest.config
-                for key in ["spec", "service_template", "topology_template", "node_templates", patch_inner["name"]]:
-                    if deleted:
-                        if key not in doc:
-                            break
-                        elif key == patch_inner["name"]:
-                            del doc[key]
-                    else:
-                        doc = doc.setdefault(key, {})
-                if not deleted:
-                    _patch_node_template(patch_inner, doc)
-        manifest.manifest.save()
+    assert isinstance(patch, list)
+    environment = body.get("environment") or ""  # cloud_vars_url need the ""!
+    clone_location, repo = _patch_request(body)
+    if repo is None:
+        # XXX create a new ensemble if patch is for a new deployment
+        return create_error_response("INTERNAL_ERROR", "Could not find repository")
+    manifest = LocalEnv(clone_location, override_context=environment).get_manifest()
+    for patch_inner in patch:
+        assert isinstance(patch_inner, dict)
+        typename = patch_inner.get("__typename")
+        deleted = patch_inner.get("__deleted") or False
+        assert isinstance(deleted, bool)
+        if typename == "DeploymentTemplate":
+            _patch_deployment_blueprint(patch_inner, manifest, deleted)
+        elif typename == "ResourceTemplate":
+            # notes: only update or delete node_templates declared directly in the manifest
+            doc = manifest.manifest.config
+            for key in ["spec", "service_template", "topology_template", "node_templates", patch_inner["name"]]:
+                if deleted:
+                    if key not in doc:
+                        break
+                    elif key == patch_inner["name"]:
+                        del doc[key]
+                else:
+                    doc = doc.setdefault(key, {})
+            if not deleted:
+                _patch_node_template(patch_inner, doc)
+
+    manifest.manifest.save()
+    manifest.add_all()
+    commit_msg = body.get("commit_msg", "Update deployment")
+    committed = manifest.commit(commit_msg, False)
+    logger.info(f"committed to {committed} repositories")
     return "OK"
 
 
@@ -273,23 +287,27 @@ def _do_patch(patch, target):
         target_inner[patch_inner["name"]] = patch_inner
 
 
-def _patch_json(body, path):
+def _patch_json(body: dict) -> str:
     patch = body.get("patch")
-    for clone_location, repo in _patch_request(body, path):
-        if repo is None:
-            return create_error_response("INTERNAL_ERROR", "Could not find repository")
-        target = json.loads(repo.show(path, "HEAD"))
-        _do_patch(patch, target)
+    path = body.get("path")  # File path
+    clone_location, repo = _patch_request(body)
+    if repo is None:
+        return create_error_response("INTERNAL_ERROR", "Could not find repository")
+    target = json.loads(repo.show(path, "HEAD"))
+    _do_patch(patch, target)
 
-        with open(f"{clone_location}/{path}", "w") as f:
-            f.write(json.dumps(target, indent=2))
+    with open(f"{clone_location}/{path}", "w") as f:
+        f.write(json.dumps(target, indent=2))
+
+    commit_msg = body.get("commit_msg", "Update deployment")
+    repo.add_all(clone_location)
+    repo.commit_files([f"{clone_location}/{path}"], commit_msg)
     return "OK"
 
 
-def _patch_request(body, path):
+def _patch_request(body):
     # Repository URL
     project_path = body.get("projectPath")
-    commit_msg = body.get("commit_msg", "Update deployment")
 
     # Project is external
     if project_path.startswith("http") or project_path.startswith("git"):
@@ -307,10 +325,7 @@ def _patch_request(body, path):
             return create_error_response("INTERNAL_ERROR", "Could not find repository")
         repo = GitRepo(repo)
 
-    yield clone_location, repo
-
-    repo.add_all(clone_location)
-    repo.commit_files([f"{clone_location}/{path}"], commit_msg)
+    return clone_location, repo
 
 
 def create_error_response(code, message):
