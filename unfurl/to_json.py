@@ -715,7 +715,7 @@ def nodetemplate_to_json(nodetemplate, spec, types, for_resource=False):
     json = dict(
         type=nodetemplate.type,
         name=nodetemplate.name,
-        title=nodetemplate.name,
+        title=nodetemplate.entity_tpl.get("metadata", {}).get("title") or nodetemplate.name,
         description=nodetemplate.entity_tpl.get("description") or "",
         directives=nodetemplate.directives,
     )

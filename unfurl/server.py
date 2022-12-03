@@ -9,12 +9,13 @@ from flask import Flask, current_app, jsonify, request
 from flask_caching import Cache
 
 from git import Repo
-from unfurl.localenv import LocalEnv
-from unfurl.repo import GitRepo
-from unfurl.util import UnfurlError
+from .localenv import LocalEnv
+from .repo import GitRepo
+from .util import UnfurlError
+from .logs import getLogger, get_console_log_level
 
-logger = logging.getLogger("unfurl")
-
+logger = getLogger("unfurl.server")
+# note: export FLASK_ENV=development to see error stacks
 flask_config = {
     # Use in-memory caching, see https://flask-caching.readthedocs.io/en/latest/#built-in-cache-backends for more options
     "CACHE_TYPE": "simple",
@@ -94,7 +95,7 @@ def export():
 
             result = init.clone(
                 git_url,
-                clone_root + Repo.get_path_for_git_repo(git_url) + "/",
+                clone_root + GitRepo.get_path_for_git_repo(git_url) + "/",
                 empty=True,
                 var=(
                     [
@@ -106,7 +107,7 @@ def export():
             logging.info(result)
 
             repo = LocalEnv(
-                clone_root + "/" + Repo.get_path_for_git_repo(git_url),
+                clone_root + "/" + GitRepo.get_path_for_git_repo(git_url),
                 can_be_empty=True,
             ).find_git_repo(git_url)
 
@@ -136,6 +137,7 @@ def export():
             override_context=deployment_enviroment,
         )
     except UnfurlError as e:
+        logger.error("error loading project at %s", path, exc_info=True)
         error_message = str(e)
         # Sort of a hack to get the specific error since it only raises an "UnfurlError"
         # Will break if the error message changes or if the Exception class changes
@@ -157,24 +159,95 @@ def export():
 def delete_deployment():
     body = request.json
     path = body.get("path")  # File path
-    return _patch(body, path)
+    return _patch_request(body, path)
 
 
 @app.route("/update_environment", methods=["POST"])
 def update_environment():
     body = request.json
     path = body.get("path")  # File path
-    return _patch(body, path)
+    return _patch_request(body, path)
 
 
 @app.route("/update_deployment", methods=["POST"])
 def update_deployment():
     body = request.json
     path = body.get("path")  # File path
-    return _patch(body, path)
+    return _patch_request(body, path)
 
 
-def _patch(body, path):
+def _patch_deployment_blueprint(patch, manifest: "YamlManifest", deleted):
+    deployment_blueprint = patch_inner["name"]
+    doc = manifest.manifest.config
+    deployment_blueprints = (
+        doc.setdefault("spec", {}).setdefault("deployment_blueprints", {})
+    )
+    exists = deployment_blueprint in deployment_blueprints
+    if deleted:
+        if exists:
+            del deployment_blueprints[deployment_blueprint]
+    else:
+        deployment_blueprints[deployment_blueprint] = patch
+
+
+def _patch_node_template(patch, tpl):
+    for key, value in patch.items():
+        if key == "title":
+            if value != patch["name"]:
+                tpl.setdefault("metadata", {})["title"] = value
+        elif key == "properties":
+            props = tpl.setdefault("properties", {})
+            for prop in value:
+                props[prop["name"]] = prop["value"]
+        elif key == "dependencies":
+            tpl.requirements = [{dependency["name"]: dependency["match"]} for dependency in value]
+
+
+def _patch_ensemble(patch, manifest: "YamlManifest"):
+    for patch_inner in patch:
+        typename = patch_inner.get("__typename")
+        if typename == "DeploymentTemplate":
+            _patch_deployment_blueprint(patch_inner, target, deleted)
+        elif typename == "ResourceTemplate":
+            # notes: only update or delete node_templates declared directly in the manifest
+            deleted = patch.get("__deleted")
+            doc = manifest.manifest.config
+            for key in ["spec", "service_template", "topology_template", "node_templates", patch_inner["name"]]:
+                if deleted:
+                    if key not in doc:
+                        break
+                    elif key == patch_inner["name"]:
+                        del doc[key]
+                else:
+                    doc = doc.setdefault(key, {})
+            if not deleted:
+                _patch_node_template(patch_inner, doc)
+
+
+def _patch(patch, target):
+    for patch_inner in patch:
+        typename = patch_inner.get("__typename")
+        deleted = patch_inner.get("__deleted")
+        target_inner = target
+        if typename != "*":
+            if not target_inner.get(typename):
+                target_inner[typename] = {}
+            target_inner = target_inner[typename]
+        if deleted:
+            if deleted == "*":
+                if typename == "*":
+                    target = {}
+                else:
+                    del target[typename]
+            elif deleted in target[typename]:
+                del target[typename][deleted]
+            else:
+                logger.warning(f"skipping delete: {deleted} is missing from {typename}")
+            continue
+        target_inner[patch_inner["name"]] = patch_inner
+
+
+def _patch_request(body, path):
     # Repository URL
     project_path = body.get("projectPath")
     # Patch
@@ -195,7 +268,7 @@ def _patch(body, path):
             from . import init
 
             clone_location = (
-                clone_root + "/" + Repo.get_path_for_git_repo(git_url)
+                clone_root + "/" + GitRepo.get_path_for_git_repo(git_url)
             ).lstrip("./")
 
             result = init.clone(
@@ -222,26 +295,7 @@ def _patch(body, path):
         repo = GitRepo(repo)
 
     target = json.loads(repo.show(path, "HEAD"))
-
-    for patch_inner in patch:
-        typename = patch_inner.get("__typename")
-        deleted = patch_inner.get("__deleted")
-        target_inner = target
-        if typename != "*":
-            if not target_inner.get(typename):
-                target_inner[typename] = {}
-            target_inner = target_inner[typename]
-        if deleted:
-            if deleted == "*":
-                if typename == "*":
-                    target = {}
-                else:
-                    del target[typename]
-            elif deleted in target[typename]:
-                del target[typename][deleted]
-            # XXX else: log f"missing {deleted} in {typename}"
-            continue
-        target_inner[patch_inner["name"]] = patch_inner
+    _patch(patch, target)
 
     with open(f"{clone_location}/{path}", "w") as f:
         f.write(json.dumps(target, indent=2))
@@ -287,6 +341,6 @@ def serve(
     app.config["UNFURL_ENSEMBLE_PATH"] = project_or_ensemble_path
 
     # Start one WSGI server
-    uvicorn.run(app, host=host, port=port, interface="wsgi", log_level="info")
+    uvicorn.run(app, host=host, port=port, interface="wsgi", log_level=logger.getEffectiveLevel())
 
     # app.run(host=host, port=port)
