@@ -194,26 +194,28 @@ def test_server_export_local():
         )
         assert start_server_process(p, port)
 
-        init_project(
-            runner,
-            args=["init", "--mono"],
-            env=dict(UNFURL_HOME=""),
-        )
-        for export_format in ["deployment", "environments", "blueprint"]:
-            res = requests.get(
-                f"http://localhost:{port}/export?format={export_format}"
-            )
-            assert res.status_code == 200
-            exported = run_cmd(
+        try:
+            init_project(
                 runner,
-                ["--home", "", "export", "--format", export_format],
-                env={"UNFURL_LOGGING": "critical"},
+                args=["init", "--mono"],
+                env=dict(UNFURL_HOME=""),
             )
-            assert exported
-            assert res.json() == json.loads(exported.output)
-
-        p.terminate()
-        p.join()
+            # compare the export request output to the export command output
+            for export_format in ["deployment", "environments", "blueprint"]:
+                res = requests.get(
+                    f"http://localhost:{port}/export?format={export_format}"
+                )
+                assert res.status_code == 200
+                exported = run_cmd(
+                    runner,
+                    ["--home", "", "export", "--format", export_format],
+                    env={"UNFURL_LOGGING": "critical"},
+                )
+                assert exported
+                assert res.json() == json.loads(exported.output)
+        finally:
+            p.terminate()
+            p.join()
 
 @unittest.skipIf(
     "slow" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set"
@@ -236,43 +238,44 @@ def test_server_export_remote():
             args=("localhost", port, None, ".", ".", {"home": ""}),
         )
         assert start_server_process(p, port)
-
-        run_cmd(
-            runner,
-            [
-                "--home", "",
-                "clone",
-                "--empty",
-                "https://gitlab.com/onecommons/project-templates/dashboard",
-                "--var", "UNFURL_CLOUD_VARS_URL", env_var_url,
-            ],
-        )
-
-        for export_format in ["deployment", "environments", "blueprint"]:
-            res = requests.get(
-                f"http://localhost:{port}/export",
-                params={
-                    "url": "https://gitlab.com/onecommons/project-templates/dashboard",
-                    "format": export_format,
-                    "cloud_vars_url": env_var_url,
-                },
-            )
-            assert res.status_code == 200
-
-            exported = run_cmd(
+        try:
+            run_cmd(
                 runner,
-                ["--home", "", "export", "dashboard", "--format", export_format],
-                env={"UNFURL_LOGGING": "critical"},
+                [
+                    "--home", "",
+                    "clone",
+                    "--empty",
+                    "https://gitlab.com/onecommons/project-templates/dashboard",
+                    "--var", "UNFURL_CLOUD_VARS_URL", env_var_url,
+                ],
             )
+            # compare the export request output to the export command output
+            for export_format in ["deployment", "environments", "blueprint"]:
+                res = requests.get(
+                    f"http://localhost:{port}/export",
+                    params={
+                        "url": "https://gitlab.com/onecommons/project-templates/dashboard",
+                        "format": export_format,
+                        "cloud_vars_url": env_var_url,
+                    },
+                )
+                assert res.status_code == 200
+                # print(export_format)
+                # print(json.dumps(res.json(), indent=2)
 
-            assert exported
-            # Strip out output from the http server
-            output = exported.output
-            cleaned_output = output[max(output.find("{"), 0) :]
-            assert res.json() == json.loads(cleaned_output)
-        
-        p.terminate()
-        p.join()
+                exported = run_cmd(
+                    runner,
+                    ["--home", "", "export", "dashboard", "--format", export_format],
+                    env={"UNFURL_LOGGING": "critical"},
+                )
+                assert exported
+                # Strip out output from the http server
+                output = exported.output
+                cleaned_output = output[max(output.find("{"), 0) :]
+                assert res.json() == json.loads(cleaned_output)
+        finally:
+            p.terminate()
+            p.join()
 
     if httpd:
         httpd.socket.close()
@@ -281,58 +284,61 @@ def test_server_export_remote():
 def test_server_update_deployment():
     runner = CliRunner()
     with runner.isolated_filesystem():
-        initial_deployment = deployment.format("initial")
-        p, port = set_up_deployment(runner, initial_deployment)
+        try:
+            initial_deployment = deployment.format("initial")
+            p, port = set_up_deployment(runner, initial_deployment)
 
-        target_patch = patch.format("target")
-        res = requests.post(
-            f"http://localhost:{port}/update_deployment",
-            json={
-                "projectPath": ".",
-                "path": "dashboard/deployments/dev/deployment.json",
-                "patch": json.loads(target_patch),
-            }
-        )
+            target_patch = patch.format("target")
+            res = requests.post(
+                f"http://localhost:{port}/update_deployment",
+                json={
+                    "projectPath": ".",
+                    "path": "dashboard/deployments/dev/deployment.json",
+                    "patch": json.loads(target_patch),
+                }
+            )
+            assert res.status_code == 200
 
-        assert res.status_code == 200
+            with open("dashboard/deployments/dev/deployment.json", "r") as f:
+                data = json.load(f)
+                assert (data['ResourceTemplate']
+                            ['container_service']
+                            ['properties'][0]
+                            ['value']
+                            ['environment']
+                            ['VAR']
+                        ) == "target"   
 
-        with open("dashboard/deployments/dev/deployment.json", "r") as f:
-            data = json.load(f)
-            assert (data['ResourceTemplate']
-                        ['container_service']
-                        ['properties'][0]
-                        ['value']
-                        ['environment']
-                        ['VAR']
-                    ) == "target"   
-
-
-        p.terminate()
-        p.join()
+        finally:
+            p.terminate()
+            p.join()
 
 
 def test_server_update_deployment_delete():
     runner = CliRunner()
     with runner.isolated_filesystem():
-        initial_deployment = deployment.format("initial")
-        p, port = set_up_deployment(runner, initial_deployment)
+        try:
+            initial_deployment = deployment.format("initial")
+            p, port = set_up_deployment(runner, initial_deployment)
 
-        res = requests.post(
-            f"http://localhost:{port}/update_deployment",
-            json={
-                "projectPath": ".",
-                "path": "dashboard/deployments/dev/deployment.json",
-                "patch": json.loads(delete_patch),
-            }
-        )
-        
-        assert res.status_code == 200
+            res = requests.post(
+                f"http://localhost:{port}/update_deployment",
+                json={
+                    "projectPath": ".",
+                    "path": "dashboard/deployments/dev/deployment.json",
+                    "patch": json.loads(delete_patch),
+                }
+            )
+            
+            assert res.status_code == 200
 
-        with open ("dashboard/deployments/dev/deployment.json", "r") as f:
-            data = json.load(f)
-            assert data == {
-                "ResourceTemplate": {}
-            }
+            with open("dashboard/deployments/dev/deployment.json", "r") as f:
+                data = json.load(f)
+                assert data == {
+                    "ResourceTemplate": {}
+                }
+        finally:
+            p.terminate()
+            p.join()
 
-        p.terminate()
-        p.join()
+# XXX test patching with remote url
