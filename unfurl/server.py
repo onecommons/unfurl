@@ -14,6 +14,7 @@ from .repo import GitRepo
 from .util import UnfurlError
 from .logs import getLogger, get_console_log_level
 from .yamlmanifest import YamlManifest
+from . import to_json
 
 logger = getLogger("unfurl.server")
 # note: export FLASK_ENV=development to see error stacks
@@ -135,8 +136,6 @@ def export():
             "use_environment"
         )
 
-    from . import to_json
-
     try:
         local_env = LocalEnv(
             path,
@@ -189,17 +188,27 @@ def _patch_deployment_blueprint(patch, manifest: "YamlManifest", deleted):
     deployment_blueprints = (
         doc.setdefault("spec", {}).setdefault("deployment_blueprints", {})
     )
-    exists = deployment_blueprint in deployment_blueprints
+    current = deployment_blueprints.setdefault(deployment_blueprint, {})
     if deleted:
-        if exists:
-            del deployment_blueprints[deployment_blueprint]
+        del deployment_blueprints[deployment_blueprint]
     else:
-        deployment_blueprints[deployment_blueprint] = patch
+        keys = ["title", "cloud", "description", "primary", "source", "projectPath"]
+        for key, prop in patch.items():
+            if key in keys:
+                current[key] = prop
+            elif key == "ResourceTemplate":
+                # XXX do we care about these?
+                node_templates = current.setdefault("resource_templates", {})
+                for name, val in prop.items():
+                    tpl = node_templates.setdefault(name, {})
+                    _patch_node_template(val, tpl)
 
 
 def _patch_node_template(patch, tpl):
     for key, value in patch.items():
-        if key == "title":
+        if key == "type":
+            tpl[key] = value
+        elif key == "title":
             if value != patch["name"]:
                 tpl.setdefault("metadata", {})["title"] = value
         elif key == "properties":
@@ -258,6 +267,7 @@ def _patch(patch, target):
             continue
         target_inner[patch_inner["name"]] = patch_inner
 
+
 def _patch_json(body, path):
     patch = body.get("patch")
     for clone_location, repo in _patch_request(body, path):
@@ -267,6 +277,7 @@ def _patch_json(body, path):
         with open(f"{clone_location}/{path}", "w") as f:
             f.write(json.dumps(target, indent=2))
     return "OK"
+
 
 def _patch_request(body, path):
     # Repository URL
@@ -319,6 +330,7 @@ def _patch_request(body, path):
 
     repo.add_all(clone_location)
     repo.commit_files([f"{clone_location}/{path}"], commit_msg)
+
 
 def create_error_response(code, message):
     http_code = 400  # Default to BAD_REQUEST
