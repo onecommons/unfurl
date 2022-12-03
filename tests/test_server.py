@@ -16,22 +16,6 @@ import pytest
 from tests.utils import init_project, run_cmd
 from unfurl.repo import GitRepo
 
-manifest = """
-apiVersion: unfurl/v1alpha1
-kind: Ensemble
-+include:
-  file: ensemble-template.yaml
-  repository: spec
-metadata:
-  uri: git-local://67ebee6347690a0b60c045281ab460d067527b6a:/ensemble.yaml
-spec:
-  service_template:
-    repositories:
-    # Files that are shared across ensemble instances should be placed in this "spec" repository
-      spec:
-        url: git-local://0ebc2d5b5204bd6592286dbb28f0c641fc2ac5c2:/.
-"""
-
 # Very minimal deployment
 deployment = """
 {{
@@ -127,14 +111,10 @@ def start_envvar_server(port):
 def runner():
     runner = CliRunner()
     with runner.isolated_filesystem() as tmpdir:
-        os.mkdir("ensemble")
-        with open("ensemble/ensemble.yaml", "w") as f:
-            f.write(manifest)
-
         # server.serve('localhost', 8081, 'secret', 'ensemble', {})
         server_process = Process(
             target=server.serve,
-            args=("localhost", 8081, "secret", ".", f"{tmpdir}", {}),
+            args=("localhost", 8081, "secret", ".", "", {}),
         )
         assert start_server_process(server_process, 8081)
 
@@ -316,7 +296,7 @@ def test_server_update_deployment():
 
         assert res.status_code == 200
 
-        with open ("dashboard/deployments/dev/deployment.json", "r") as f:
+        with open("dashboard/deployments/dev/deployment.json", "r") as f:
             data = json.load(f)
             assert (data['ResourceTemplate']
                         ['container_service']
