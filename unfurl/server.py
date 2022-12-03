@@ -12,9 +12,10 @@ from git import Repo
 from .localenv import LocalEnv
 from .repo import GitRepo
 from .util import UnfurlError
-from .logs import getLogger, get_console_log_level
+from .logs import getLogger
 from .yamlmanifest import YamlManifest
 from . import to_json
+from . import init
 
 logger = getLogger("unfurl.server")
 # note: export FLASK_ENV=development to see error stacks
@@ -67,6 +68,43 @@ def health():
     return "OK"
 
 
+def _stage(git_url: str, cloud_vars_url: str, deployment_path: str):
+    # Default to exporting the ensemble provided to the server on startup
+    path = current_app.config["UNFURL_ENSEMBLE_PATH"]
+    try:
+        repo = LocalEnv(
+            path, can_be_empty=True
+        ).find_git_repo(git_url)
+    except UnfurlError:
+        repo = None
+
+    # Repo doesn't exists, clone it
+    clone_root = current_app.config["UNFURL_CLONE_ROOT"]
+    if not repo:
+        ensemble_path = clone_root + "/" + GitRepo.get_path_for_git_repo(git_url).lstrip("./")
+        result = init.clone(
+            git_url,
+            ensemble_path + "/",
+            var=(
+                [
+                    "UNFURL_CLOUD_VARS_URL",
+                    cloud_vars_url,
+                ],
+            ),
+        )
+        logging.info(result)
+
+        repo = LocalEnv(ensemble_path, can_be_empty=True).find_git_repo(git_url)
+        if not repo:
+            return None, None
+
+    if deployment_path:
+        path = os.path.join(repo.working_dir, deployment_path)
+    else:
+        path = repo.working_dir
+    return path, repo
+
+
 @app.route("/export")
 @cache.cached(
     query_string=True
@@ -79,56 +117,21 @@ def export():
             "Query parameter 'format' must be one of 'blueprint', 'environments' or 'deployment'",
         )
 
-    # Default to exporting the ensemble provided to the server on startup
-    path = current_app.config["UNFURL_ENSEMBLE_PATH"]
-
-    clone_root = current_app.config["UNFURL_CLONE_ROOT"]
-
     # If asking for external repository
     if request.args.get("url") is not None:
         git_url = unquote(request.args.get("url"))  # Unescape the URL
-
-        try:
-            repo = LocalEnv(
-                path, can_be_empty=True
-            ).find_git_repo(git_url)
-        except UnfurlError:
-            repo = None
-
-        # Repo doesn't exists, clone it
-        if not repo:
-            from . import init
-
-            ensemble_path = clone_root + "/" + GitRepo.get_path_for_git_repo(git_url)
-
-            cloud_vars_url = request.args.get("cloud_vars_url") or ""
-            if cloud_vars_url:
-                cloud_vars_url = unquote(cloud_vars_url)
-            logger.warning("cloud_vars_url %s", cloud_vars_url)
-            result = init.clone(
-                git_url,
-                ensemble_path,
-                var=(
-                    [
-                        "UNFURL_CLOUD_VARS_URL",
-                        cloud_vars_url,
-                    ],
-                ),
+        cloud_vars_url = request.args.get("cloud_vars_url") or ""
+        if cloud_vars_url:
+            cloud_vars_url = unquote(cloud_vars_url)
+        logger.warning("cloud_vars_url %s", cloud_vars_url)
+        deployment_path = request.args.get("deployment_path") or ""
+        path, repo = _stage(git_url, cloud_vars_url, deployment_path)
+        if path is None:
+            return create_error_response(
+                "INTERNAL_ERROR", "Could not find repository"
             )
-            logging.info(result)
-
-            repo = LocalEnv(ensemble_path, can_be_empty=True).find_git_repo(git_url)
-
-            if repo is None:
-                return create_error_response(
-                    "INTERNAL_ERROR", "Could not find repository"
-                )
-
-        deployment_path = request.args.get("deployment_path")
-        if deployment_path:
-            path = os.path.join(repo.working_dir, deployment_path)
-        else:
-            path = repo.working_dir
+    else:
+        path = current_app.config["UNFURL_ENSEMBLE_PATH"]
 
     deployment_enviroment = request.args.get("environment")
     if deployment_enviroment is None:
@@ -222,6 +225,8 @@ def _patch_node_template(patch, tpl):
 def _patch_ensemble(body, path):
     patch = body.get("patch")
     for clone_location, repo in _patch_request(body, path):
+        if repo is None:
+            return create_error_response("INTERNAL_ERROR", "Could not find repository")
         manifest = LocalEnv(clone_location).get_manifest()
         for patch_inner in patch:
             typename = patch_inner.get("__typename")
@@ -245,7 +250,7 @@ def _patch_ensemble(body, path):
     return "OK"
 
 
-def _patch(patch, target):
+def _do_patch(patch, target):
     for patch_inner in patch:
         typename = patch_inner.get("__typename")
         deleted = patch_inner.get("__deleted")
@@ -271,8 +276,10 @@ def _patch(patch, target):
 def _patch_json(body, path):
     patch = body.get("patch")
     for clone_location, repo in _patch_request(body, path):
+        if repo is None:
+            return create_error_response("INTERNAL_ERROR", "Could not find repository")
         target = json.loads(repo.show(path, "HEAD"))
-        _patch(patch, target)
+        _do_patch(patch, target)
 
         with open(f"{clone_location}/{path}", "w") as f:
             f.write(json.dumps(target, indent=2))
@@ -282,43 +289,17 @@ def _patch_json(body, path):
 def _patch_request(body, path):
     # Repository URL
     project_path = body.get("projectPath")
-    # Patch
-    patch = body.get("patch")
-
     commit_msg = body.get("commit_msg", "Update deployment")
 
     # Project is external
     if project_path.startswith("http") or project_path.startswith("git"):
-        repo = LocalEnv(
-            current_app.config["UNFURL_ENSEMBLE_PATH"], can_be_empty=True
-        ).find_git_repo(project_path)
-
-        # Repo doesn't exists, clone it
+        cloud_vars_url = body.get("cloud_vars_url") or ""
+        deployment_path = body.get("deployment_path") or ""
+        clone_location, repo = _stage(project_path, cloud_vars_url, deployment_path)
         if repo is None:
-            clone_root = current_app.config["UNFURL_CLONE_ROOT"]
-            git_url = project_path
-            from . import init
-
-            clone_location = (
-                clone_root + "/" + GitRepo.get_path_for_git_repo(git_url)
-            ).lstrip("./")
-
-            result = init.clone(
-                git_url,
-                clone_location + "/",
+            return create_error_response(
+                "INTERNAL_ERROR", "Could not find repository"
             )
-            logging.info(result)
-
-            repo = LocalEnv(
-                clone_location,
-                can_be_empty=True,
-            ).find_git_repo(git_url)
-
-            if repo is None:
-                return create_error_response(
-                    "INTERNAL_ERROR", "Could not find repository"
-                )
-
     else:
         clone_location = project_path
         repo = Repo.init(clone_location)
