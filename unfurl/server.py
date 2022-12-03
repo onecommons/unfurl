@@ -13,6 +13,7 @@ from .localenv import LocalEnv
 from .repo import GitRepo
 from .util import UnfurlError
 from .logs import getLogger, get_console_log_level
+from .yamlmanifest import YamlManifest
 
 logger = getLogger("unfurl.server")
 # note: export FLASK_ENV=development to see error stacks
@@ -93,23 +94,27 @@ def export():
         if not repo:
             from . import init
 
+            ensemble_path = clone_root + "/" + GitRepo.get_path_for_git_repo(git_url)
+            if requested_format == "blueprint": 
+                ensemble_path = os.path.join(ensemble_path, "ensemble_template.yaml")
+
+            cloud_vars_url = request.args.get("cloud_vars_url") or ""
+            if cloud_vars_url:
+                cloud_vars_url = unquote(cloud_vars_url)
             result = init.clone(
                 git_url,
-                clone_root + GitRepo.get_path_for_git_repo(git_url) + "/",
+                ensemble_path,
                 empty=True,
                 var=(
                     [
                         "UNFURL_CLOUD_VARS_URL",
-                        unquote(request.args.get("cloud_vars_url")),
+                        cloud_vars_url,
                     ],
                 ),
             )
             logging.info(result)
 
-            repo = LocalEnv(
-                clone_root + "/" + GitRepo.get_path_for_git_repo(git_url),
-                can_be_empty=True,
-            ).find_git_repo(git_url)
+            repo = LocalEnv(ensemble_path, can_be_empty=True).find_git_repo(git_url)
 
             if repo is None:
                 return create_error_response(
@@ -177,7 +182,7 @@ def update_deployment():
 
 
 def _patch_deployment_blueprint(patch, manifest: "YamlManifest", deleted):
-    deployment_blueprint = patch_inner["name"]
+    deployment_blueprint = patch["name"]
     doc = manifest.manifest.config
     deployment_blueprints = (
         doc.setdefault("spec", {}).setdefault("deployment_blueprints", {})
@@ -206,11 +211,11 @@ def _patch_node_template(patch, tpl):
 def _patch_ensemble(patch, manifest: "YamlManifest"):
     for patch_inner in patch:
         typename = patch_inner.get("__typename")
+        deleted = patch.get("__deleted")
         if typename == "DeploymentTemplate":
-            _patch_deployment_blueprint(patch_inner, target, deleted)
+            _patch_deployment_blueprint(patch_inner, manifest, deleted)
         elif typename == "ResourceTemplate":
             # notes: only update or delete node_templates declared directly in the manifest
-            deleted = patch.get("__deleted")
             doc = manifest.manifest.config
             for key in ["spec", "service_template", "topology_template", "node_templates", patch_inner["name"]]:
                 if deleted:
