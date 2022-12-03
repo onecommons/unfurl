@@ -86,25 +86,27 @@ def export():
     # If asking for external repository
     if request.args.get("url") is not None:
         git_url = unquote(request.args.get("url"))  # Unescape the URL
-        repo = LocalEnv(
-            current_app.config["UNFURL_ENSEMBLE_PATH"], can_be_empty=True
-        ).find_git_repo(git_url)
+
+        try:
+            repo = LocalEnv(
+                path, can_be_empty=True
+            ).find_git_repo(git_url)
+        except UnfurlError:
+            repo = None
 
         # Repo doesn't exists, clone it
         if not repo:
             from . import init
 
             ensemble_path = clone_root + "/" + GitRepo.get_path_for_git_repo(git_url)
-            if requested_format == "blueprint": 
-                ensemble_path = os.path.join(ensemble_path, "ensemble_template.yaml")
 
             cloud_vars_url = request.args.get("cloud_vars_url") or ""
             if cloud_vars_url:
                 cloud_vars_url = unquote(cloud_vars_url)
+            logger.warning("cloud_vars_url %s", cloud_vars_url)
             result = init.clone(
                 git_url,
                 ensemble_path,
-                empty=True,
                 var=(
                     [
                         "UNFURL_CLOUD_VARS_URL",
@@ -139,7 +141,7 @@ def export():
         local_env = LocalEnv(
             path,
             current_app.config["UNFURL_OPTIONS"].get("home"),
-            override_context=deployment_enviroment,
+            override_context=deployment_enviroment or "",  # cloud_vars_url need the ""!
         )
     except UnfurlError as e:
         logger.error("error loading project at %s", path, exc_info=True)
@@ -164,21 +166,21 @@ def export():
 def delete_deployment():
     body = request.json
     path = body.get("path")  # File path
-    return _patch_request(body, path)
+    return _patch_json(body, path)
 
 
 @app.route("/update_environment", methods=["POST"])
 def update_environment():
     body = request.json
     path = body.get("path")  # File path
-    return _patch_request(body, path)
+    return _patch_json(body, path)
 
 
 @app.route("/update_deployment", methods=["POST"])
 def update_deployment():
     body = request.json
     path = body.get("path")  # File path
-    return _patch_request(body, path)
+    return _patch_json(body, path)
 
 
 def _patch_deployment_blueprint(patch, manifest: "YamlManifest", deleted):
@@ -208,25 +210,30 @@ def _patch_node_template(patch, tpl):
             tpl.requirements = [{dependency["name"]: dependency["match"]} for dependency in value]
 
 
-def _patch_ensemble(patch, manifest: "YamlManifest"):
-    for patch_inner in patch:
-        typename = patch_inner.get("__typename")
-        deleted = patch.get("__deleted")
-        if typename == "DeploymentTemplate":
-            _patch_deployment_blueprint(patch_inner, manifest, deleted)
-        elif typename == "ResourceTemplate":
-            # notes: only update or delete node_templates declared directly in the manifest
-            doc = manifest.manifest.config
-            for key in ["spec", "service_template", "topology_template", "node_templates", patch_inner["name"]]:
-                if deleted:
-                    if key not in doc:
-                        break
-                    elif key == patch_inner["name"]:
-                        del doc[key]
-                else:
-                    doc = doc.setdefault(key, {})
-            if not deleted:
-                _patch_node_template(patch_inner, doc)
+def _patch_ensemble(body, path):
+    patch = body.get("patch")
+    for clone_location, repo in _patch_request(body, path):
+        manifest = LocalEnv(clone_location).get_manifest()
+        for patch_inner in patch:
+            typename = patch_inner.get("__typename")
+            deleted = patch.get("__deleted")
+            if typename == "DeploymentTemplate":
+                _patch_deployment_blueprint(patch_inner, manifest, deleted)
+            elif typename == "ResourceTemplate":
+                # notes: only update or delete node_templates declared directly in the manifest
+                doc = manifest.manifest.config
+                for key in ["spec", "service_template", "topology_template", "node_templates", patch_inner["name"]]:
+                    if deleted:
+                        if key not in doc:
+                            break
+                        elif key == patch_inner["name"]:
+                            del doc[key]
+                    else:
+                        doc = doc.setdefault(key, {})
+                if not deleted:
+                    _patch_node_template(patch_inner, doc)
+        manifest.manifest.save()
+    return "OK"
 
 
 def _patch(patch, target):
@@ -251,6 +258,15 @@ def _patch(patch, target):
             continue
         target_inner[patch_inner["name"]] = patch_inner
 
+def _patch_json(body, path):
+    patch = body.get("patch")
+    for clone_location, repo in _patch_request(body, path):
+        target = json.loads(repo.show(path, "HEAD"))
+        _patch(patch, target)
+
+        with open(f"{clone_location}/{path}", "w") as f:
+            f.write(json.dumps(target, indent=2))
+    return "OK"
 
 def _patch_request(body, path):
     # Repository URL
@@ -299,17 +315,10 @@ def _patch_request(body, path):
             return create_error_response("INTERNAL_ERROR", "Could not find repository")
         repo = GitRepo(repo)
 
-    target = json.loads(repo.show(path, "HEAD"))
-    _patch(patch, target)
-
-    with open(f"{clone_location}/{path}", "w") as f:
-        f.write(json.dumps(target, indent=2))
+    yield clone_location, repo
 
     repo.add_all(clone_location)
     repo.commit_files([f"{clone_location}/{path}"], commit_msg)
-
-    return "OK"
-
 
 def create_error_response(code, message):
     http_code = 400  # Default to BAD_REQUEST
