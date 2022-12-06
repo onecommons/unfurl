@@ -279,6 +279,7 @@ def _patch_ensemble(body: dict) -> str:
     commit_msg = body.get("commit_msg", "Update deployment")
     committed = manifest.commit(commit_msg, False)
     logger.info(f"committed to {committed} repositories")
+    # repo.repo.remotes.origin.push()
     return "OK"
 
 
@@ -321,12 +322,14 @@ def _patch_json(body: dict) -> str:
 
     _do_patch(patch, target)
 
-    with open(f"{clone_location}/{path}", "w") as write_file:
-        write_file.write(json.dumps(target, indent=2))
+    with open(full_path, "w") as write_file:
+        json.dump(target, write_file, indent=2)
 
     commit_msg = body.get("commit_msg", "Update deployment")
-    repo.add_all(clone_location)
-    repo.commit_files([f"{clone_location}/{path}"], commit_msg)
+    repo.add_all(full_path)
+    repo.commit_files([full_path], commit_msg)
+    # repo.repo.remotes["origin"].push()
+    logger.info("committed %s", full_path)
     return "OK"
 
 
