@@ -80,6 +80,7 @@ def _stage(git_url: str, cloud_vars_url: str, deployment_path: str):
             repo = LocalEnv(
                 path, can_be_empty=True
             ).find_git_repo(git_url)
+            logging.info("found existing repo as %s", repo.working_dir)
         except UnfurlError:
             logging.debug("failed to find git repo %s in ensemble path %s", git_url, path, exc_info=True)
             repo = None
@@ -111,6 +112,7 @@ def _stage(git_url: str, cloud_vars_url: str, deployment_path: str):
         path = os.path.join(repo.working_dir, deployment_path)
     else:
         path = repo.working_dir
+    logging.info("staging path set to %s", path)
     return path, repo
 
 
