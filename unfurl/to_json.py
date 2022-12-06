@@ -32,14 +32,13 @@ from toscaparser.elements.scalarunit import get_scalarunit_class
 from toscaparser.elements.datatype import DataType
 from toscaparser.elements.portspectype import PortSpec
 from toscaparser.activities import ConditionClause
-from .logs import sensitive, is_sensitive
+from .logs import sensitive, is_sensitive, getLogger
 from .tosca import is_function, get_nodefilters
 from .localenv import LocalEnv
 from .util import to_enum, UnfurlError
 from .support import Status, is_template
-import logging
 
-logger = logging.getLogger("unfurl")
+logger = getLogger("unfurl")
 
 
 def _print(*args):
@@ -1339,10 +1338,11 @@ def to_environments(localEnv, existing=None):
 
     db["DeploymentEnvironment"] = environments
     if blueprintdb:
-        if blueprintdb.get("repositories", {}).get("types"):
-            # don't include ResourceTypes if we are including a types repository
-            db["ResourceType"] = {}
-            return db
+        # XXX re-enable this?
+        # if blueprintdb.get("repositories", {}).get("types"):
+        #     # don't include ResourceTypes if we are including a types repository
+        #     db["ResourceType"] = all_connection_types
+        #     return db
 
         # add the rest of the types too
         # XXX is it safe to only include types with "connect" implementations?
