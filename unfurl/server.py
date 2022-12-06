@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+from typing import Optional, Tuple
 from urllib.parse import unquote
 
 import click
@@ -295,11 +296,14 @@ def _patch_json(body: dict) -> str:
     clone_location, repo = _patch_request(body)
     if repo is None:
         return create_error_response("INTERNAL_ERROR", "Could not find repository")
-    target = json.loads(repo.show(path, "HEAD"))
+
+    with open(f"{clone_location}/{path}") as read_file:
+        target = json.load(read_file)
+
     _do_patch(patch, target)
 
-    with open(f"{clone_location}/{path}", "w") as f:
-        f.write(json.dumps(target, indent=2))
+    with open(f"{clone_location}/{path}", "w") as write_file:
+        write_file.write(json.dumps(target, indent=2))
 
     commit_msg = body.get("commit_msg", "Update deployment")
     repo.add_all(clone_location)
@@ -307,9 +311,9 @@ def _patch_json(body: dict) -> str:
     return "OK"
 
 
-def _patch_request(body):
+def _patch_request(body: dict) -> Tuple[Optional[str], Optional[GitRepo]]:
     # Repository URL
-    project_path = body.get("projectPath")
+    project_path = body["projectPath"]
 
     # Project is external
     if project_path.startswith("http") or project_path.startswith("git"):
@@ -317,14 +321,12 @@ def _patch_request(body):
         deployment_path = body.get("deployment_path") or ""
         clone_location, repo = _stage(project_path, cloud_vars_url, deployment_path)
         if repo is None:
-            return create_error_response(
-                "INTERNAL_ERROR", "Could not find repository"
-            )
+            return None, None
     else:
         clone_location = project_path
         repo = Repo.init(clone_location)
         if repo is None:
-            return create_error_response("INTERNAL_ERROR", "Could not find repository")
+            return None, None
         repo = GitRepo(repo)
 
     return clone_location, repo
