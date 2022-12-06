@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import time
 from typing import Optional, Tuple
 from urllib.parse import unquote
 
@@ -71,19 +72,25 @@ def health():
 
 def _stage(git_url: str, cloud_vars_url: str, deployment_path: str):
     # Default to exporting the ensemble provided to the server on startup
+    repo = None
     path = current_app.config["UNFURL_ENSEMBLE_PATH"]
-    try:
-        repo = LocalEnv(
-            path, can_be_empty=True
-        ).find_git_repo(git_url)
-    except UnfurlError:
-        logging.debug("failed to find git repo %s in ensemble path %s", git_url, path, exc_info=True)
-        repo = None
+    if path and path != ".":
+        # if the user set an UNFURL_ENSEMBLE_PATH try to use it
+        try:
+            repo = LocalEnv(
+                path, can_be_empty=True
+            ).find_git_repo(git_url)
+        except UnfurlError:
+            logging.debug("failed to find git repo %s in ensemble path %s", git_url, path, exc_info=True)
+            repo = None
 
     # Repo doesn't exists, clone it
     clone_root = current_app.config["UNFURL_CLONE_ROOT"]
     if not repo:
-        ensemble_path = clone_root + "/" + GitRepo.get_path_for_git_repo(git_url).lstrip("./")
+        # clone_dest_path = GitRepo.get_path_for_git_repo(git_url)
+        # XXX hack!!!
+        clone_dest_path = f"dashboard.{time.time()}"
+        ensemble_path = os.path.join(clone_root, clone_dest_path)
         result = init.clone(
             git_url,
             ensemble_path + "/",
@@ -175,6 +182,12 @@ def delete_deployment():
 
 @app.route("/update_environment", methods=["POST"])
 def update_environment():
+    body = request.json
+    return _patch_json(body)
+
+
+@app.route("/delete_environment", methods=["POST"])
+def delete_environment():
     body = request.json
     return _patch_json(body)
 
