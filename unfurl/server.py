@@ -310,8 +310,12 @@ def _patch_json(body: dict) -> str:
     if repo is None:
         return create_error_response("INTERNAL_ERROR", "Could not find repository")
 
-    with open(f"{clone_location}/{path}") as read_file:
-        target = json.load(read_file)
+    full_path = os.path.join(clone_location, path)
+    if os.path.exists(full_path):
+        with open() as read_file:
+            target = json.load(read_file)
+    else:
+        target = {}
 
     _do_patch(patch, target)
 
