@@ -305,14 +305,14 @@ def _do_patch(patch, target):
 
 def _patch_json(body: dict) -> str:
     patch = body.get("patch")
-    path = body.get("path")  # File path
+    path = body["path"]  # File path
     clone_location, repo = _patch_request(body)
     if repo is None:
         return create_error_response("INTERNAL_ERROR", "Could not find repository")
-
+    assert clone_location is not None
     full_path = os.path.join(clone_location, path)
     if os.path.exists(full_path):
-        with open() as read_file:
+        with open(full_path) as read_file:
             target = json.load(read_file)
     else:
         target = {}
