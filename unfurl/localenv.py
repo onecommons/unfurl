@@ -35,7 +35,7 @@ from .util import (
     is_sensitive,
 )
 from .merge import merge_dicts
-from .yamlloader import YamlConfig, make_vault_lib_ex, make_yaml
+from .yamlloader import UnfurlVaultLib, YamlConfig, make_vault_lib_ex, make_yaml
 from . import DefaultNames, get_home_config_path
 from urllib.parse import urlparse, urlunsplit, urlsplit
 from ruamel.yaml.comments import CommentedMap
@@ -445,6 +445,10 @@ class Project:
                 yield vaultId, password
 
     def make_vault_lib(self, contextName: Optional[str] = None) -> Optional[VaultLib]:
+        if self.overrides.get("UNFURL_VAULT_SKIP_DECRYPT"):
+            vault = UnfurlVaultLib(secrets=None)
+            vault.skip_decode = True
+            return vault
         secrets = list(self.get_vault_passwords(contextName))
         if secrets:
             return make_vault_lib_ex(secrets)
@@ -897,6 +901,8 @@ class LocalEnv:
             # aka the --use-environment option
             # hackishly, "" is a valid option used by load_yaml_include
             self.overrides["ENVIRONMENT"] = override_context
+        if os.getenv("UNFURL_VAULT_SKIP_DECRYPT"):
+            self.overrides["UNFURL_VAULT_SKIP_DECRYPT"] = True
 
         if parent:
             self.parent = parent

@@ -103,7 +103,7 @@ def represent_sensitive_bytes(dumper, data):
 
 def _construct_vault(constructor, node, tag):
     value = constructor.construct_scalar(node)
-    if os.getenv("UNFURL_VAULT_SKIP_DECRYPT"):
+    if getattr(constructor.vault, "skip_decode", False):
         return sensitive_str.redacted_str
     if not constructor.vault.secrets:
         raise ConstructorError(
@@ -170,6 +170,10 @@ def make_yaml(vault=None):
 
 yaml = make_yaml()
 cleartext_yaml = make_yaml(CLEARTEXT_VAULT)
+
+
+class UnfurlVaultLib(VaultLib):
+    skip_decode = False
 
 
 def make_vault_lib(passwordBytes, vaultId="default"):

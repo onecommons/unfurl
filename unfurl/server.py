@@ -76,6 +76,7 @@ def _stage(git_url: str, cloud_vars_url: str, deployment_path: str):
             path, can_be_empty=True
         ).find_git_repo(git_url)
     except UnfurlError:
+        logging.debug("failed to find git repo %s in ensemble path %s", git_url, path, exc_info=True)
         repo = None
 
     # Repo doesn't exists, clone it
@@ -145,6 +146,7 @@ def export():
             current_app.config["UNFURL_OPTIONS"].get("home"),
             override_context=deployment_enviroment or "",  # cloud_vars_url need the ""!
         )
+        local_env.overrides["UNFURL_VAULT_SKIP_DECRYPT"] = True
     except UnfurlError as e:
         logger.error("error loading project at %s", path, exc_info=True)
         error_message = str(e)
