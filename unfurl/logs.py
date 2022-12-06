@@ -113,7 +113,10 @@ class ColorHandler(logging.StreamHandler):
     }
 
     def emit(self, record: logging.LogRecord) -> None:
-        message = truncate(self.format(record))
+        if record.exc_info:
+            message = self.format(record)
+        else:
+            message = truncate(self.format(record))
         # Hide meta job output because it seems to also be logged captured by
         # the root logger.
         if record.name.startswith(HIDDEN_MSG_LOGGER):
