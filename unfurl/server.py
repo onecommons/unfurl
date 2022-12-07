@@ -26,8 +26,8 @@ flask_config = {
     "CACHE_TYPE": "simple",
 }
 app = Flask(__name__)
-app.config.from_mapping(flask_config)
-cache = Cache(app)
+# app.config.from_mapping(flask_config)
+# cache = Cache(app)
 
 
 @app.before_request
@@ -118,9 +118,9 @@ def _stage(git_url: str, cloud_vars_url: str, deployment_path: str):
 
 
 @app.route("/export")
-@cache.cached(
-    query_string=True
-)  # Ensure that the request cached includes the query string (the response differs between different formats)
+# @cache.cached(
+#     query_string=True
+# )  # Ensure that the request cached includes the query string (the response differs between different formats)
 def export():
     requested_format = request.args.get("format", "deployment")
     if requested_format not in ["blueprint", "environments", "deployment"]:
@@ -313,6 +313,7 @@ def _patch_ensemble(body: dict) -> str:
         # XXX create a new ensemble if patch is for a new deployment
         return create_error_response("INTERNAL_ERROR", "Could not find repository")
     manifest = LocalEnv(clone_location, override_context=environment).get_manifest()
+    logger.info("vault secrets %s", manifest.manifest.vault.secrets)
     for patch_inner in patch:
         assert isinstance(patch_inner, dict)
         typename = patch_inner.get("__typename")
