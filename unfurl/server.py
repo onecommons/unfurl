@@ -2,7 +2,7 @@ import json
 import logging
 import os
 import time
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 from urllib.parse import unquote
 
 import click
@@ -80,7 +80,8 @@ def _stage(git_url: str, cloud_vars_url: str, deployment_path: str):
             repo = LocalEnv(
                 path, can_be_empty=True
             ).find_git_repo(git_url)
-            logging.info("found existing repo as %s", repo.working_dir)
+            if repo:
+                logging.info("found existing repo as %s", repo.working_dir)
         except UnfurlError:
             logging.debug("failed to find git repo %s in ensemble path %s", git_url, path, exc_info=True)
             repo = None
@@ -185,13 +186,13 @@ def delete_deployment():
 @app.route("/update_environment", methods=["POST"])
 def update_environment():
     body = request.json
-    return _patch_json(body)
+    return _patch_environment(body)
 
 
 @app.route("/delete_environment", methods=["POST"])
 def delete_environment():
     body = request.json
-    return _patch_json(body)
+    return _patch_environment(body)
 
 
 @app.route("/update_deployment", methods=["POST"])
@@ -238,10 +239,69 @@ def _patch_node_template(patch: dict, tpl: dict) -> None:
             tpl["requirements"] = [{dependency["name"]: dependency["match"]} for dependency in value]
 
 
+@app.route("/delete_ensemble", methods=["POST"])
+def delete_ensemble():
+    body = request.json
+    return _patch_ensemble(body)
+
+
 @app.route("/update_ensemble", methods=["POST"])
 def update_ensemble():
     body = request.json
     return _patch_ensemble(body)
+
+
+def _patch_environment(body: dict) -> str:
+    patch = body.get("patch")
+    assert isinstance(patch, list)
+    clone_location, repo = _patch_request(body)
+    if repo is None:
+        # XXX create a new ensemble if patch is for a new deployment
+        return create_error_response("INTERNAL_ERROR", "Could not find repository")
+    localEnv = LocalEnv(clone_location)
+    for patch_inner in patch:
+        assert isinstance(patch_inner, dict)
+        typename = patch_inner.get("__typename")
+        deleted = patch_inner.get("__deleted") or False
+        assert isinstance(deleted, bool)
+        assert localEnv.project
+        localConfig = localEnv.project.localConfig
+        if typename == "DeploymentEnvironment":
+            environments = localConfig.config.setdefault("environments", {})
+            name = patch_inner["name"]
+            if deleted:
+                if name in environments:
+                    del environments[name]
+            else:
+                environment = environments.setdefault(name, {})
+                for key in patch_inner:
+                    if key == "instances" or key == "connections":
+                        target = environment.get(key) or {}
+                        for node_name, node_patch in patch_inner[key].items():
+                            tpl = target.setdefault(node_name, {})
+                            if not isinstance(tpl, dict):
+                                # connections keys can be a string or null
+                                tpl = {}
+                            _patch_node_template(node_patch, tpl)
+                        environment[key] = target  # replace
+        elif typename == "DeploymentPath":
+            path = patch_inner["name"]
+            tpl = localEnv.project.find_ensemble_by_path(path)
+            if deleted:
+                if tpl:
+                    localConfig.ensembles.remove(tpl)
+            else:
+                if not tpl:
+                    tpl = dict(file=patch_inner["name"])
+                    localConfig.ensembles.append(tpl)
+                for key in patch_inner:
+                    if key not in ["name", "__deleted", "__typename"]:
+                        tpl[key] = patch_inner[key]
+            localConfig.config.config["ensembles"] = localConfig.ensembles
+    localConfig.config.save()
+    commit_msg = body.get("commit_msg", "Update environment")
+    _commit_and_push(repo, localConfig.config.path, commit_msg)
+    return "OK"
 
 
 def _patch_ensemble(body: dict) -> str:
@@ -285,7 +345,7 @@ def _patch_ensemble(body: dict) -> str:
     return "OK"
 
 
-def _do_patch(patch, target):
+def _do_patch(patch: List[dict], target: dict):
     for patch_inner in patch:
         typename = patch_inner.get("__typename")
         deleted = patch_inner.get("__deleted")
@@ -309,7 +369,8 @@ def _do_patch(patch, target):
 
 
 def _patch_json(body: dict) -> str:
-    patch = body.get("patch")
+    patch = body["patch"]
+    assert isinstance(patch, list)
     path = body["path"]  # File path
     clone_location, repo = _patch_request(body)
     if repo is None:
@@ -328,13 +389,17 @@ def _patch_json(body: dict) -> str:
         json.dump(target, write_file, indent=2)
 
     commit_msg = body.get("commit_msg", "Update deployment")
+    _commit_and_push(repo, full_path, commit_msg)
+    return "OK"
+
+
+def _commit_and_push(repo, full_path, commit_msg):
     repo.add_all(full_path)
     repo.commit_files([full_path], commit_msg)
-    logger.info("committed %s", full_path)
+    logger.info("committed %s: %s", full_path, commit_msg)
     if repo.repo.remotes:
         repo.repo.remotes.origin.push()
         logger.info("pushed")
-    return "OK"
 
 
 def _patch_request(body: dict) -> Tuple[Optional[str], Optional[GitRepo]]:
