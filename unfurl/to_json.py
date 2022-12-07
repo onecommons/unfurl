@@ -1372,9 +1372,10 @@ def set_deploymentpaths(project, existing=None):
             deployment_paths[path] = {
                 "__typename": "DeploymentPath",
                 "name": path,
-                "project_id": None,
-                "pipelines": [],
+                "project_id": ensemble_info.get("project_id"),
+                "pipelines": ensemble_info.get("pipelines", []),
                 "environment": ensemble_info["environment"],
+                "incremental_deploy": ensemble_info.get("incremental_deploy", False)
             }
     return db
 
