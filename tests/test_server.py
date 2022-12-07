@@ -226,12 +226,6 @@ def test_server_export_remote():
     if httpd is None:
         httpd, env_var_url = start_envvar_server(8012)
     with runner.isolated_filesystem():
-        init_project(
-            runner,
-            args=["init", "--mono"],
-            env=dict(UNFURL_HOME=""),
-        )
-
         port = _next_port()
         p = Process(
             target=server.serve,
