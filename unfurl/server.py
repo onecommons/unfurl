@@ -28,7 +28,7 @@ flask_config = {
 app = Flask(__name__)
 # app.config.from_mapping(flask_config)
 # cache = Cache(app)
-
+app.config["UNFURL_OPTIONS"] = {}
 
 @app.before_request
 def hook():
@@ -37,7 +37,7 @@ def hook():
     Secret can be in the secret query parameter (localhost:8080/health?secret=<secret>) or as an
     Authorization bearer token (Authorization=Bearer <secret>).
     """
-    secret = current_app.config["UNFURL_SECRET"]
+    secret = current_app.config.get("UNFURL_SECRET")
     if secret is None:  # No secret specified, no authentication required
         return
 
@@ -73,7 +73,7 @@ def health():
 def _stage(git_url: str, cloud_vars_url: str, deployment_path: str) -> Tuple[Optional[str], Optional[GitRepo]]:
     # Default to exporting the ensemble provided to the server on startup
     repo = None
-    path = current_app.config["UNFURL_ENSEMBLE_PATH"]
+    path = current_app.config.get("UNFURL_ENSEMBLE_PATH", ".")
     if path and path != ".":
         # if the user set an UNFURL_ENSEMBLE_PATH try to use it
         try:
@@ -87,7 +87,7 @@ def _stage(git_url: str, cloud_vars_url: str, deployment_path: str) -> Tuple[Opt
             repo = None
 
     # Repo doesn't exists, clone it
-    clone_root = current_app.config["UNFURL_CLONE_ROOT"]
+    clone_root = current_app.config.get("UNFURL_CLONE_ROOT", ".")
     if not repo:
         # clone_dest_path = GitRepo.get_path_for_git_repo(git_url)
         # XXX hack!!!
@@ -459,6 +459,9 @@ def serve(
     app.config["UNFURL_ENSEMBLE_PATH"] = project_or_ensemble_path
 
     # Start one WSGI server
-    uvicorn.run(app, host=host, port=port, interface="wsgi", log_level=logger.getEffectiveLevel())
-
+    # uvicorn.run(app, host=host, port=port, interface="wsgi", log_level=logger.getEffectiveLevel())
     # app.run(host=host, port=port)
+    # gunicorn"  , "-b", "0.0.0.0:5000", "unfurl.server:app"
+
+    from gunicorn.app.wsgiapp import WSGIApplication
+    WSGIApplication().run()
