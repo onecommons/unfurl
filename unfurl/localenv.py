@@ -589,7 +589,7 @@ class Project:
             key = templatePath
             merge = None
 
-        url_vars = os.environ.copy()
+        url_vars = {} # os.environ.copy()
         url_vars.update(self.overrides)
         if action:
             if isinstance(action, str):

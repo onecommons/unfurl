@@ -70,7 +70,7 @@ def health():
     return "OK"
 
 
-def _stage(git_url: str, cloud_vars_url: str, deployment_path: str):
+def _stage(git_url: str, cloud_vars_url: str, deployment_path: str) -> Tuple[Optional[str], Optional[GitRepo]]:
     # Default to exporting the ensemble provided to the server on startup
     repo = None
     path = current_app.config["UNFURL_ENSEMBLE_PATH"]
@@ -103,7 +103,7 @@ def _stage(git_url: str, cloud_vars_url: str, deployment_path: str):
                 ],
             ),
         )
-        logging.info(result)
+        logging.info(f"cloned: {result} in pid {os.getpid()}")
 
         repo = LocalEnv(ensemble_path, can_be_empty=True).find_git_repo(git_url)
         if not repo:
