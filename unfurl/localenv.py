@@ -9,6 +9,7 @@ By convention, the "home" project defines a localhost instance and adds it to it
 """
 import os
 import os.path
+import re
 from typing import (
     Any,
     Iterable,
@@ -484,6 +485,11 @@ class Project:
         dirname, name = os.path.split(projectRoot)
         if name == DefaultNames.ProjectDirectory:
             name = os.path.basename(dirname)
+        # make sure this conforms to project name syntax in json-schema:
+        #       ^[A-Za-z._][A-Za-z0-9._:\\-]*$
+        name = re.sub(r"[^A-Za-z0-9._:\\-]", "_", name)
+        if not name[0].isalpha() and name[0] not in "._":
+            name = "_" + name
         return name
 
     def get_default_context(self) -> Any:
