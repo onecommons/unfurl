@@ -240,12 +240,9 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                 tpl['credential'] = map_value(credential, self.manifest.rootResource)
             elif self.manifest.localEnv:
                 # we're including or importing before we finished initializing
-                # XXX
                 # update os.environ so get_env works
-                # context = self.manifest.localEnv.get_context(self.config.get("environment"))
-                # if context.get("variables"):
-                #     os.environ.update(filter_env(context["variables"]))
-                tpl['credential'] = self.manifest.localEnv.map_value(credential)
+                context = self.manifest.localEnv.get_context(self.config.get("environment"))
+                tpl['credential'] = self.manifest.localEnv.map_value(credential, context.get("variables"))
 
         return Repository(name, tpl)
 

@@ -545,7 +545,7 @@ class TaskView:
 
         return env
 
-    def get_environment(self, addOnly: bool) -> dict:
+    def get_environment(self, addOnly: bool, env: Optional[dict] = None) -> dict:
         """Return a dictionary of environment variables applicable to this task.
 
         Args:
@@ -560,18 +560,15 @@ class TaskView:
         2. Variables set by the connections that are available to this operation.
         3. Variables declared in the operation's ``environment`` section.
         """
+        if env is None:
+            env = self.inputs.context.environ
 
-        env = os.environ.copy()
         # build rules by order of preference (last overrides first):
         # 1. ensemble's environment
         # 2. variables set by connections
         # 3. operation's environment
 
-        # we use merge.copy() to preserve basedir
-        rules = merge.copy(self.target.root.envRules)
-
-        rules.update(self._find_relationship_env_vars())
-
+        rules = self._find_relationship_env_vars()
         if self.configSpec.environment:
             rules.update(self.configSpec.environment)
 

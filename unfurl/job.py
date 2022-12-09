@@ -251,6 +251,12 @@ class ConfigTask(ConfigChange, TaskView):
         self.target.root.attributeManager = self._attributeManager
         self.target_status = self.target.status
         self.target_state = self.target.state
+        self.set_envvars()
+
+    #def set_envvars(self):
+    #  if configurator needs os.environ:
+    #      self.saved = os.environ.copy()
+    #     os.environ = self.get_environment()
 
     def _update_status(self, result):
         """
@@ -325,6 +331,7 @@ class ConfigTask(ConfigChange, TaskView):
 
     def finished(self, result: ConfiguratorResult):
         assert result
+        self.restore_envvars()
         if self.generator:
             self.generator.close()
             self.generator = None

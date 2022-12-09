@@ -381,7 +381,6 @@ class YamlManifest(ReadOnlyManifest):
             self.manifest.vault and self.manifest.vault.secrets
         ):  # setBaseDir() may create a new templar
             rootResource._templar._loader.set_vault_secrets(self.manifest.vault.secrets)
-        rootResource.envRules = self.context.get("variables") or CommentedMap()
         if not self.localEnv:
             return
 
@@ -429,18 +428,16 @@ class YamlManifest(ReadOnlyManifest):
         # let's do it before we import any other manifests.
         # But only if we're the main manifest.
         if not self.localEnv or not self.localEnv.parent:
-            if self.context.get("variables"):
-                env = filter_env(map_value(self.context["variables"], root))
-            else:
-                env = os.environ.copy()
+            rules = self.context.get("variables") or CommentedMap()
             for rel in root.requirements:
-                t = lambda datatype: datatype.type == "unfurl.datatypes.EnvVar"
-                env.update(rel.merge_props(find_env_vars, True))
-            intersect_dict(os.environ, env)  # remove keys not in env
-            os.environ.update(env)
+                rules.update(rel.merge_props(find_env_vars, True))
+            rules = serialize_value(
+                map_value(rules, root), resolveExternal=True
+            )
+            root._environ = filter_env(rules, root.environ)
             paths = self.localEnv and self.localEnv.get_paths()
             if paths:
-                os.environ["PATH"] = (
+                root.environ["PATH"] = os.environ["PATH"] = (
                     os.pathsep.join(paths) + os.pathsep + os.environ.get("PATH", [])
                 )
                 logger.debug("PATH set to %s", os.environ["PATH"])

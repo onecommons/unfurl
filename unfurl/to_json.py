@@ -1369,7 +1369,7 @@ def set_deploymentpaths(project, existing=None):
     for ensemble_info in project.localConfig.ensembles:
         if "environment" in ensemble_info and "project" not in ensemble_info:
             # exclude external ensembles
-            path = os.path.dirname(ensemble_info["file"])
+            path = os.path.dirname()
             if path in deployment_paths:
                 continue  # don't overwrite
             deployment_paths[path] = {

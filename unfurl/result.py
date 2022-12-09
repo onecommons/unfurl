@@ -141,6 +141,9 @@ class ResourceRef(ABC):
     def readonly(self) -> bool:
         return False
 
+    @property
+    def environ(self):
+        return self.root._environ
 
 class ChangeRecord:
     """

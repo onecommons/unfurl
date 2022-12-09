@@ -30,6 +30,7 @@ from unfurl.runtime import NodeInstance
 from .repo import GitRepo, Repo, split_git_url, RepoView, normalize_git_url_hard
 from .util import (
     UnfurlError,
+    filter_env,
     substitute_env,
     wrap_sensitive_value,
     save_to_tempfile,
@@ -1290,16 +1291,18 @@ class LocalEnv:
                 return repo, filePath, revision, bare
         return None, None, None, None
 
-    def map_value(self, val: Any) -> Any:
+    def map_value(self, val: Any, env_rules: Optional[dict]) -> Any:
         """
         Evaluate using project home as a base dir.
         """
         from .runtime import NodeInstance
-        from .eval import map_value
+        from .eval import map_value, RefContext
 
         instance = NodeInstance()
         instance._baseDir = self.config.config.get_base_dir()
-        return map_value(val, instance)
+        if env_rules is not None:
+            instance._environ = filter_env(env_rules, instance.environ)
+        return map_value(val, RefContext(instance))
 
     def get_paths(self) -> List[str]:
         """

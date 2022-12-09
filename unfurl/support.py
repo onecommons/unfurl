@@ -565,7 +565,7 @@ def has_env(arg, ctx):
     """
     {has_env: foo}
     """
-    return arg in os.environ
+    return arg in ctx.environ
 
 
 set_eval_func("has_env", has_env, True)
@@ -580,7 +580,7 @@ def get_env(args, ctx: RefContext):
 
     If the value of its argument is empty (e.g. [] or null), return the entire dictionary.
     """
-    env = os.environ
+    env = ctx.environ
     if not args:
         return env
 
@@ -649,9 +649,9 @@ class _EnvMapper(dict):
 
 
 def to_env(args, ctx: RefContext):
-    env = None
+    env = ctx.environ
     if ctx.task:
-        env = ctx.task.get_environment(False)
+        env = ctx.task.get_environment(False, env)
     sub = _EnvMapper(env or {})
     sub.ctx = ctx  # type: ignore
 
@@ -659,9 +659,10 @@ def to_env(args, ctx: RefContext):
     assert isinstance(rules, Mapping)
     result = filter_env(rules, env, True, sub)
     if ctx.kw.get("update_os_environ"):
+        ctx.environ = result
         os.environ.update(result)
         for key, value in rules.items():
-            if value is None and key in os.environ:
+            if value is None and key in ctx.environ:
                 del os.environ[key]
     return result
 

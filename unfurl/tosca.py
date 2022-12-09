@@ -841,6 +841,10 @@ class EntitySpec(ResourceRef):
                 return True
         return False
 
+    @property
+    def environ(self):
+        return os.environ
+
 
 def _get_roots(node, seen=None):
     # node can reference each other's properties, so we need to handle circular references
