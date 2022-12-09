@@ -295,7 +295,10 @@ def _patch_environment(body: dict) -> str:
                     localConfig.ensembles.remove(tpl)
             else:
                 if not tpl:
-                    tpl = dict(file=patch_inner["name"])
+                    deployment_path = patch_inner["name"]
+                    if deployment_path[-1] != "/":
+                        deployment_path += "/"
+                    tpl = dict(file=deployment_path)
                     localConfig.ensembles.append(tpl)
                 for key in patch_inner:
                     if key not in ["name", "__deleted", "__typename"]:
