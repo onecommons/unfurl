@@ -743,7 +743,8 @@ required_envvars = [
     "UNFURL_APPROVE",
     "UNFURL_MOCK_DEPLOY",
     "UNFURL_LOGFILE",
-    "UNFURL_VAULT_SKIP_DECRYPT",
+    "UNFURL_SKIP_VAULT_DECRYPT",
+    "UNFURL_SKIP_UPSTREAM_CHECK",
     "UNFURL_VALIDATION_MODE",
 ]
 # hack for sphinx ext documentedlist

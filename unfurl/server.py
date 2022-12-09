@@ -160,7 +160,7 @@ def export():
             current_app.config["UNFURL_OPTIONS"].get("home"),
             override_context=deployment_enviroment or "",  # cloud_vars_url need the ""!
         )
-        local_env.overrides["UNFURL_VAULT_SKIP_DECRYPT"] = True
+        local_env.overrides["UNFURL_SKIP_VAULT_DECRYPT"] = True
     except UnfurlError as e:
         logger.error("error loading project at %s", path, exc_info=True)
         error_message = str(e)
@@ -332,7 +332,7 @@ def _patch_ensemble(body: dict, create: bool) -> str:
         blueprint_url = body["blueprint_url"]
         logger.info("creating deployment at %s for %s", clone_location, blueprint_url)
         msg = init.clone(blueprint_url, clone_location, existing=True, mono=True, skeleton="dashboard",
-                         environment=environment, deployment_blueprint=deployment_blueprint)
+                         environment=environment, use_deployment_blueprint=deployment_blueprint)
         logger.info(msg)
     manifest = LocalEnv(clone_location, override_context=environment).get_manifest()
     # logger.info("vault secrets %s", manifest.manifest.vault.secrets)

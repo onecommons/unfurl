@@ -446,7 +446,7 @@ class Project:
                 yield vaultId, password
 
     def make_vault_lib(self, contextName: Optional[str] = None) -> Optional[VaultLib]:
-        if self.overrides.get("UNFURL_VAULT_SKIP_DECRYPT"):
+        if self.overrides.get("UNFURL_SKIP_VAULT_DECRYPT"):
             vault = UnfurlVaultLib(secrets=None)
             vault.skip_decode = True
             return vault
@@ -907,8 +907,8 @@ class LocalEnv:
             # aka the --use-environment option
             # hackishly, "" is a valid option used by load_yaml_include
             self.overrides["ENVIRONMENT"] = override_context
-        if os.getenv("UNFURL_VAULT_SKIP_DECRYPT"):
-            self.overrides["UNFURL_VAULT_SKIP_DECRYPT"] = True
+        if os.getenv("UNFURL_SKIP_VAULT_DECRYPT"):
+            self.overrides["UNFURL_SKIP_VAULT_DECRYPT"] = True
 
         if parent:
             self.parent = parent
@@ -1235,7 +1235,7 @@ class LocalEnv:
             logger.debug(
                 "Using existing repository at %s for %s", repo.working_dir, repoURL
             )
-            if not repo.is_dirty():
+            if not os.getenv("UNFURL_SKIP_UPSTREAM_CHECK") and not repo.is_dirty():
                 repo.pull(revision=revision)
         else:
             assert isinstance(
