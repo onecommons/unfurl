@@ -327,7 +327,9 @@ def _patch_ensemble(body: dict, create: bool) -> str:
     if create:
         deployment_blueprint = body.get("deployment_blueprint")
         blueprint_url = body["blueprint_url"]
-        init.clone(blueprint_url, clone_location, environment=environment, deployment_blueprint=deployment_blueprint)
+        logger.info("creating deployment at %s for %s", clone_location, blueprint_url)
+        msg = init.clone(blueprint_url, clone_location, environment=environment, deployment_blueprint=deployment_blueprint)
+        logger.info(msg)
     manifest = LocalEnv(clone_location, override_context=environment).get_manifest()
     # logger.info("vault secrets %s", manifest.manifest.vault.secrets)
     for patch_inner in patch:
