@@ -236,7 +236,10 @@ def _patch_node_template(patch: dict, tpl: dict) -> None:
             for prop in value:
                 props[prop["name"]] = prop["value"]
         elif key == "dependencies":
-            tpl["requirements"] = [{dependency["name"]: dependency["match"]} for dependency in value]
+            requirements = [{dependency["name"]: dependency["match"]}
+                            for dependency in value if "match" in dependency]
+            if requirements or "requirements" in tpl:
+                tpl["requirements"] = requirements
 
 
 @app.route("/delete_ensemble", methods=["POST"])
