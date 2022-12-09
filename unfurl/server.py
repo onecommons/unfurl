@@ -14,12 +14,15 @@ from git import Repo
 from .localenv import LocalEnv
 from .repo import GitRepo
 from .util import UnfurlError, get_random_password
-from .logs import getLogger
+from .logs import getLogger, add_log_file
 from .yamlmanifest import YamlManifest
 from . import to_json
 from . import init
 
+if os.getenv("UNFURL_LOGFILE"):
+    add_log_file(os.getenv("UNFURL_LOGFILE"))
 logger = getLogger("unfurl.server")
+
 # note: export FLASK_ENV=development to see error stacks
 flask_config = {
     # Use in-memory caching, see https://flask-caching.readthedocs.io/en/latest/#built-in-cache-backends for more options
