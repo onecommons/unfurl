@@ -267,7 +267,7 @@ def _patch_environment(body: dict) -> str:
         assert localEnv.project
         localConfig = localEnv.project.localConfig
         if typename == "DeploymentEnvironment":
-            environments = localConfig.config.setdefault("environments", {})
+            environments = localConfig.config.config.setdefault("environments", {})
             name = patch_inner["name"]
             if deleted:
                 if name in environments:
