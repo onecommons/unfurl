@@ -294,10 +294,10 @@ class YamlManifest(ReadOnlyManifest):
             manifest.get("spec", {}).get("deployment_blueprints") or {}
         )
         if deployment_blueprint:
-            self._add_deployment_blueprint_template(
+            if self._add_deployment_blueprint_template(
                 deployment_blueprints, deployment_blueprint, more_spec
-            )
-            logger.info('Using deployment blueprint "%s"', deployment_blueprint)
+            ):
+                logger.info('Using deployment blueprint "%s"', deployment_blueprint)
         elif deployment_blueprints:
             logger.warning(
                 "This ensemble contains deployment blueprints but none were specified for use."
@@ -353,9 +353,12 @@ class YamlManifest(ReadOnlyManifest):
         self, deployment_blueprints, deployment_blueprint, more_spec
     ):
         if deployment_blueprint not in deployment_blueprints:
-            raise UnfurlError(
-                f"Can not find requested deployment blueprint: '{deployment_blueprint}' is missing from the ensemble."
-            )
+            msg = f"Can not find requested deployment blueprint: '{deployment_blueprint}' is missing from the ensemble."
+            if self.validate:
+                raise UnfurlError(msg)
+            else:
+                logger.error(msg)
+            return False
         deployment_blueprint_tpl = deployment_blueprints[deployment_blueprint]
         resource_templates = deployment_blueprint_tpl.get("resource_templates")
         resourceTemplates = deployment_blueprint_tpl.get("resourceTemplates")
@@ -374,6 +377,7 @@ class YamlManifest(ReadOnlyManifest):
         if resource_templates:
             node_templates = more_spec["topology_template"]["node_templates"]
             self._load_resource_templates(resource_templates, node_templates, False)
+        return True
 
     def _configure_root(self, rootResource):
         rootResource.imports = self.imports

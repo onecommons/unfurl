@@ -336,7 +336,8 @@ def _patch_ensemble(body: dict, create: bool) -> str:
         msg = init.clone(blueprint_url, clone_location, existing=True, mono=True, skeleton="dashboard",
                          use_environment=environment, use_deployment_blueprint=deployment_blueprint)
         logger.info(msg)
-    manifest = LocalEnv(clone_location, override_context=environment).get_manifest()
+    # don't validate in case we are still an incomplete draft
+    manifest = LocalEnv(clone_location, override_context=environment).get_manifest(skip_validation=True)
     # logger.info("vault secrets %s", manifest.manifest.vault.secrets)
     for patch_inner in patch:
         assert isinstance(patch_inner, dict)
