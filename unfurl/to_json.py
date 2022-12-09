@@ -511,6 +511,9 @@ def node_type_to_graphql(spec, type_definition, types: dict):
     jsontype["extends"] = extends
     if not type_definition.is_derived_from("tosca.nodes.Root"):
         return jsontype
+    if type_definition.defs is None:
+        logger.warning("%s is missing type definition", type_definition.type)
+        return jsontype
 
     # add capabilities types to extends
     for cap in type_definition.get_capability_typedefs():
