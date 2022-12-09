@@ -774,17 +774,7 @@ class EnsembleBuilder:
             )
         else:
             destProject.register_ensemble(manifest.path, context=self.environment)
-        environments_json_path = os.path.join(
-            destProject.projectRoot, "environments.json"
-        )
-        if os.path.exists(environments_json_path):
-            # temp hack for unfurl.cloud integration
-            from .to_json import set_deploymentpaths
-
-            envjson = set_deploymentpaths(destProject, environments_json_path)
-            with open(environments_json_path, "w") as f:
-                f.write(json.dumps(envjson, indent=2))
-
+        destProject.project_repoview.repo.commit_files([destProject.localConfig.config.path], "Add ensemble")
         self.manifest = manifest
         return destDir
 

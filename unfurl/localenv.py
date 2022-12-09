@@ -557,7 +557,7 @@ class Project:
         if managedBy or project:
             assert not (managedBy and project)
             self.register_project(managedBy or project, changed=True)
-        elif context:
+        else:
             self.localConfig.config.config["ensembles"] = self.localConfig.ensembles
             self.localConfig.config.save()
 
