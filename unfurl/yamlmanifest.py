@@ -312,6 +312,7 @@ class YamlManifest(ReadOnlyManifest):
             self._load_resource_templates(
                 env_instances, spec.setdefault("instances", {}), True
             )
+        self.validate = not skip_validation  # see AttributeManager.validate
         self._set_spec(spec, more_spec, skip_validation)
         assert self.tosca
         if self.localEnv:
@@ -336,7 +337,8 @@ class YamlManifest(ReadOnlyManifest):
                 self.imports.add_import(name.rstrip("s"), instance, local_spec)
 
         rootResource = self.create_topology_instance(status)
-
+        for key, val in status.get("instances", {}).items():
+            self.create_node_instance(key, val, rootResource)
         # create an new instances declared in the spec:
         for name, instance in spec.get("instances", {}).items():
             if not rootResource.find_resource(name):
@@ -413,6 +415,7 @@ class YamlManifest(ReadOnlyManifest):
         template = self.tosca.topology
         operational = self.load_status(status)
         root = TopologyInstance(template, operational)
+        root.attributeManager = self
         if os.environ.get("UNFURL_WORKDIR"):
             root.set_base_dir(os.environ["UNFURL_WORKDIR"])
         elif not self.path:
@@ -450,8 +453,6 @@ class YamlManifest(ReadOnlyManifest):
 
         # need to set rootResource before createNodeInstance() is called
         self.rootResource = root
-        for key, val in status.get("instances", {}).items():
-            self.create_node_instance(key, val, root)
         return root
 
     def _load_resource_templates(self, templates, node_templates, virtual):

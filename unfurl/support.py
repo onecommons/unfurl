@@ -1270,6 +1270,7 @@ class AttributeManager:
     -- if a configurator wants to re-evaluate that attribute, it can create a dependency on it
     so to treat that as changed configuration.
     """
+    validate = True
 
     # what about an attribute that is added to the spec that already exists in status?
     # XXX2 tests for the above behavior
@@ -1332,11 +1333,10 @@ class AttributeManager:
             else:
                 _attributes = ChainMap(copy.deepcopy(resource._attributes))
             ctx = self._get_context(resource)
-            validate = True
             mode = os.getenv("UNFURL_VALIDATION_MODE")
             if mode is not None and "nopropcheck" in mode:
-                validate = False
-            attributes = ResultsMap(_attributes, ctx, validate=validate)
+                self.validate = False
+            attributes = ResultsMap(_attributes, ctx, validate=self.validate)
             self.attributes[resource.key] = (resource, attributes)
             return attributes
         else:
