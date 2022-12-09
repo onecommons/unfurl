@@ -278,6 +278,7 @@ def test_server_export_remote():
 def test_server_update_deployment():
     runner = CliRunner()
     with runner.isolated_filesystem():
+        p = None
         try:
             initial_deployment = deployment.format("initial")
             p, port = set_up_deployment(runner, initial_deployment)
@@ -304,13 +305,15 @@ def test_server_update_deployment():
                         ) == "target"   
 
         finally:
-            p.terminate()
-            p.join()
+            if p:
+                p.terminate()
+                p.join()
 
 
 def test_server_update_deployment_delete():
     runner = CliRunner()
     with runner.isolated_filesystem():
+        p = None
         try:
             initial_deployment = deployment.format("initial")
             p, port = set_up_deployment(runner, initial_deployment)
@@ -332,7 +335,8 @@ def test_server_update_deployment_delete():
                     "ResourceTemplate": {}
                 }
         finally:
-            p.terminate()
-            p.join()
+          if p:
+              p.terminate()
+              p.join()
 
 # XXX test patching with remote url
