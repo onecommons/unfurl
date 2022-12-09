@@ -245,13 +245,19 @@ def _patch_node_template(patch: dict, tpl: dict) -> None:
 @app.route("/delete_ensemble", methods=["POST"])
 def delete_ensemble():
     body = request.json
-    return _patch_ensemble(body)
+    return _patch_ensemble(body, False)
 
 
 @app.route("/update_ensemble", methods=["POST"])
 def update_ensemble():
     body = request.json
-    return _patch_ensemble(body)
+    return _patch_ensemble(body, False)
+
+
+@app.route("/create_ensemble", methods=["POST"])
+def create_ensemble():
+    body = request.json
+    return _patch_ensemble(body, True)
 
 
 def _patch_environment(body: dict) -> str:
@@ -310,7 +316,7 @@ def _patch_environment(body: dict) -> str:
     return "OK"
 
 
-def _patch_ensemble(body: dict) -> str:
+def _patch_ensemble(body: dict, create: bool) -> str:
     patch = body.get("patch")
     assert isinstance(patch, list)
     environment = body.get("environment") or ""  # cloud_vars_url need the ""!
@@ -318,8 +324,12 @@ def _patch_ensemble(body: dict) -> str:
     if repo is None:
         # XXX create a new ensemble if patch is for a new deployment
         return create_error_response("INTERNAL_ERROR", "Could not find repository")
+    if create:
+        deployment_blueprint = body.get("deployment_blueprint")
+        blueprint_url = body["blueprint_url"]
+        init.clone(blueprint_url, clone_location, environment=environment, deployment_blueprint=deployment_blueprint)
     manifest = LocalEnv(clone_location, override_context=environment).get_manifest()
-    logger.info("vault secrets %s", manifest.manifest.vault.secrets)
+    # logger.info("vault secrets %s", manifest.manifest.vault.secrets)
     for patch_inner in patch:
         assert isinstance(patch_inner, dict)
         typename = patch_inner.get("__typename")
