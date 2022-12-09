@@ -13,7 +13,7 @@ from flask_caching import Cache
 from git import Repo
 from .localenv import LocalEnv
 from .repo import GitRepo
-from .util import UnfurlError
+from .util import UnfurlError, get_random_password
 from .logs import getLogger
 from .yamlmanifest import YamlManifest
 from . import to_json
@@ -91,7 +91,7 @@ def _stage(git_url: str, cloud_vars_url: str, deployment_path: str) -> Tuple[Opt
     if not repo:
         # clone_dest_path = GitRepo.get_path_for_git_repo(git_url)
         # XXX hack!!!
-        clone_dest_path = f"dashboard.{time.time()}"
+        clone_dest_path = f"dashboard.{time.time()}{get_random_password(3, '', '')}"
         ensemble_path = os.path.join(clone_root, clone_dest_path)
         result = init.clone(
             git_url,
