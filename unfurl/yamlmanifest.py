@@ -282,11 +282,11 @@ class YamlManifest(ReadOnlyManifest):
         skip_validation=False,
     ):
         super().__init__(manifest, path, validate, localEnv, vault)
+        self.validate = not skip_validation  # see AttributeManager.validate
         # instantiate the tosca template
         manifest = self.manifest.expanded
         if self.manifest.path:
             self.lockfilepath = self.manifest.path + ".lock"
-
         spec = manifest.get("spec", {})
         more_spec = self._load_context(self.context, localEnv)
         deployment_blueprint = self.context.get("deployment_blueprint")
@@ -312,7 +312,6 @@ class YamlManifest(ReadOnlyManifest):
             self._load_resource_templates(
                 env_instances, spec.setdefault("instances", {}), True
             )
-        self.validate = not skip_validation  # see AttributeManager.validate
         self._set_spec(spec, more_spec, skip_validation)
         assert self.tosca
         if self.localEnv:
