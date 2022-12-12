@@ -1367,9 +1367,7 @@ def set_deploymentpaths(project, existing=None):
         if "environment" in ensemble_info and "project" not in ensemble_info:
             # exclude external ensembles
             path = os.path.dirname(ensemble_info["file"])
-            if path in deployment_paths:
-                continue  # don't overwrite
-            deployment_paths[path] = {
+            obj = {
                 "__typename": "DeploymentPath",
                 "name": path,
                 "project_id": ensemble_info.get("project_id"),
@@ -1377,6 +1375,11 @@ def set_deploymentpaths(project, existing=None):
                 "environment": ensemble_info["environment"],
                 "incremental_deploy": ensemble_info.get("incremental_deploy", False)
             }
+            if path in deployment_paths:
+                # merge duplicate entries
+                deployment_paths[path].update(obj)
+            else:
+                deployment_paths[path] = obj
     return db
 
 
