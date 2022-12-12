@@ -305,15 +305,13 @@ def _patch_environment(body: dict) -> str:
                             _patch_node_template(node_patch, tpl)
                         environment[key] = target  # replace
         elif typename == "DeploymentPath":
-            path = patch_inner["name"]
-            tpl = localEnv.project.find_ensemble_by_path(path)
+            deployment_path = os.path.join(patch_inner["name"], "ensemble.yaml")
+            tpl = localEnv.project.find_ensemble_by_path(deployment_path)
             if deleted:
                 if tpl:
                     localConfig.ensembles.remove(tpl)
             else:
                 if not tpl:
-                    deployment_path = patch_inner["name"]
-                    deployment_path = os.path.join(patch_inner["name"], "ensemble.yaml")
                     tpl = dict(file=deployment_path)
                     localConfig.ensembles.append(tpl)
                 for key in patch_inner:
