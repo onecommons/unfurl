@@ -458,11 +458,15 @@ class Project:
     @staticmethod
     def _find_ensemble_by_path(ensembles, projectRoot, path: str) -> Optional[dict]:
         path = os.path.abspath(path)
+        match = None
         for tpl in ensembles:
             file = tpl.get("file")
             if file and os.path.normpath(os.path.join(projectRoot, file)) == path:
-                return tpl
-        return None
+                if not match:
+                    match = tpl
+                else:  # merge duplicate ensembles
+                    match.update(tpl)
+        return match
 
     def find_ensemble_by_path(self, path: str) -> Optional[dict]:
         return self._find_ensemble_by_path(
