@@ -229,8 +229,8 @@ def _patch_deployment_blueprint(patch: dict, manifest: "YamlManifest", deleted: 
 
 def _make_requirement(dependency) -> dict:
     req = dict(node=dependency.get("match"))
-    if "constraint" in dependency and "visiblity" in dependency["constraint"]:
-        req["metadata"] = dict(visiblity=dependency["constraint"]["visiblity"])
+    if "constraint" in dependency and "visibility" in dependency["constraint"]:
+        req["metadata"] = dict(visibility=dependency["constraint"]["visibility"])
     return req
 
 
