@@ -227,6 +227,13 @@ def _patch_deployment_blueprint(patch: dict, manifest: "YamlManifest", deleted: 
                     _patch_node_template(val, tpl)
 
 
+def _make_requirement(dependency) -> dict:
+    req = dict(node=dependency.get("match"))
+    if "constraint" in dependency and "visiblity" in dependency["constraint"]:
+        req["metadata"] = dict(visiblity=dependency["constraint"]["visiblity"])
+    return req
+
+
 def _patch_node_template(patch: dict, tpl: dict) -> None:
     for key, value in patch.items():
         if key == "type":
@@ -240,7 +247,7 @@ def _patch_node_template(patch: dict, tpl: dict) -> None:
             for prop in value:
                 props[prop["name"]] = prop["value"]
         elif key == "dependencies":
-            requirements = [{dependency["name"]: dependency["match"]}
+            requirements = [{dependency["name"]: _make_requirement(dependency)}
                             for dependency in value if "match" in dependency]
             if requirements or "requirements" in tpl:
                 tpl["requirements"] = requirements
