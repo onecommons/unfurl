@@ -1,0 +1,15 @@
+apiVersion: unfurl/v1alpha1
+kind: Ensemble
+spec:
+  service_template:
+    topology_template:
+      node_templates:
+        template1:
+          type: tosca:Root
+          requirements:
+            - a_dependency:
+                node: template2
+                metadata:
+                  visibility: visible
+        template2:
+          type: tosca:Root

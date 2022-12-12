@@ -46,8 +46,15 @@ def test_jsonexport():
     # assert app_container and len(app_container.instances) == 1, app_container and app_container.instances
     assert app_container.relationships[0].source == manifest.tosca.nodeTemplates.get("the_app")
 
-
     # XXX verify that saving the manifest preserves the json include
+
+
+def test_jsonexport_requirement_visibility():
+    basepath = os.path.join(os.path.dirname(__file__), "examples/")
+    # loads yaml with with a json include
+    local = LocalEnv(basepath + "visibility-metadata-ensemble.yaml")
+    jsonExport = to_deployment(local)
+    assert jsonExport["ResourceTemplate"]["template1"]["dependencies"][0]["constraint"]["visibility"] == "visible"
 
 
 class ManifestSyntaxTest(unittest.TestCase):

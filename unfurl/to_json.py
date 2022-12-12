@@ -761,15 +761,12 @@ def nodetemplate_to_json(nodetemplate, spec, types, for_resource=False):
         if name in ["dependency", "installer"]:
             # skip artifact requirements and the base TOSCA relationship type that every node has
             continue
+        # we need to call _get_explicit_relationship() to make sure all the requirements relationships are created
         reqDef, rel_template = nodetemplate._get_explicit_relationship(name, req_dict)
         reqconstraint = _find_requirement_constraint(jsonnodetype["requirements"], name)
         reqjson = dict(constraint=reqconstraint, name=name, __typename="Requirement")
-        req_metadata = req_dict.get("metadata") or {}
-        visibility = (
-            req_metadata
-            and "constraint" in req_metadata
-            and req_metadata["constraint"].get("visibility")
-        )
+        req_metadata = req_dict.get("metadata") or req_dict.get("constraint") or {}
+        visibility = req_metadata and req_metadata.get("visibility")
         if req_dict.get("node") and not _get_typedef(req_dict["node"], spec):
             # it's not a type, assume it's a node template
             # (the node template name might not match a template if it is only defined in the deployment blueprints)
