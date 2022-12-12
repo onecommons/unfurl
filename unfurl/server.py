@@ -313,8 +313,7 @@ def _patch_environment(body: dict) -> str:
             else:
                 if not tpl:
                     deployment_path = patch_inner["name"]
-                    if deployment_path[-1] != "/":
-                        deployment_path += "/"
+                    deployment_path = os.path.join(patch_inner["name"], "ensemble.yaml")
                     tpl = dict(file=deployment_path)
                     localConfig.ensembles.append(tpl)
                 for key in patch_inner:
