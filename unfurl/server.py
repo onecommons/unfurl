@@ -200,7 +200,7 @@ def delete_environment():
 
 
 @app.route("/update_deployment", methods=["POST"])
-def update_deployment():
+def update_deployment_request():
     body = request.json
     return _patch_json(body)
 
@@ -271,6 +271,25 @@ def create_ensemble():
     return _patch_ensemble(body, True)
 
 
+def update_deployment(project, key, patch_inner, save, deleted=False):
+    localConfig = project.localConfig
+    deployment_path = os.path.join(project.projectRoot, key, "ensemble.yaml")
+    tpl = project.find_ensemble_by_path(deployment_path)
+    if deleted:
+        if tpl:
+            localConfig.ensembles.remove(tpl)
+    else:
+        if not tpl:
+            tpl = dict(file=deployment_path)
+            localConfig.ensembles.append(tpl)
+        for key in patch_inner:
+            if key not in ["name", "__deleted", "__typename"]:
+                tpl[key] = patch_inner[key]
+    localConfig.config.config["ensembles"] = localConfig.ensembles
+    if save:
+        localConfig.config.save()
+
+
 def _patch_environment(body: dict) -> str:
     patch = body.get("patch")
     assert isinstance(patch, list)
@@ -305,19 +324,7 @@ def _patch_environment(body: dict) -> str:
                             _patch_node_template(node_patch, tpl)
                         environment[key] = target  # replace
         elif typename == "DeploymentPath":
-            deployment_path = os.path.join(localEnv.project.projectRoot, patch_inner["name"], "ensemble.yaml")
-            tpl = localEnv.project.find_ensemble_by_path(deployment_path)
-            if deleted:
-                if tpl:
-                    localConfig.ensembles.remove(tpl)
-            else:
-                if not tpl:
-                    tpl = dict(file=deployment_path)
-                    localConfig.ensembles.append(tpl)
-                for key in patch_inner:
-                    if key not in ["name", "__deleted", "__typename"]:
-                        tpl[key] = patch_inner[key]
-            localConfig.config.config["ensembles"] = localConfig.ensembles
+            update_deployment(localEnv.project, patch_inner["name"], patch_inner, False, deleted)
     localConfig.config.save()
     commit_msg = body.get("commit_msg", "Update environment")
     _commit_and_push(repo, localConfig.config.path, commit_msg)

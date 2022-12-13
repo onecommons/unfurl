@@ -1383,6 +1383,10 @@ def set_deploymentpaths(project, existing=None):
     return db
 
 
+def get_deployments(project) -> dict:
+    return set_deploymentpaths(project)["DeploymentPath"]
+
+
 def add_attributes(instance):
     attrs = []
     attributeDefs = instance.template.attributeDefs.copy()
