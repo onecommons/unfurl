@@ -1,8 +1,7 @@
 import json
-import logging
 import os
 import time
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Any, Union, TYPE_CHECKING
 from urllib.parse import unquote
 
 import click
@@ -10,7 +9,7 @@ import uvicorn
 from flask import Flask, current_app, jsonify, request
 from flask_caching import Cache
 
-from git import Repo
+import git
 from .localenv import LocalEnv
 from .repo import GitRepo
 from .util import UnfurlError, get_random_password
@@ -18,6 +17,9 @@ from .logs import getLogger, add_log_file
 from .yamlmanifest import YamlManifest
 from . import to_json
 from . import init
+
+if TYPE_CHECKING:
+    from git.objects import Commit
 
 __logfile = os.getenv("UNFURL_LOGFILE")
 if __logfile:
@@ -30,9 +32,68 @@ flask_config = {
     "CACHE_TYPE": "simple",
 }
 app = Flask(__name__)
-# app.config.from_mapping(flask_config)
-# cache = Cache(app)
+app.config.from_mapping(flask_config)
+cache = Cache(app)
 app.config["UNFURL_OPTIONS"] = {}
+
+
+def _get_project_repo(project_id: str) -> git.Repo:
+    clone_root = current_app.config.get("UNFURL_CLONE_ROOT", ".")
+    path = os.path.join(clone_root, project_id)
+    return GitRepo(git.Repo(path))
+
+
+def set_cache(repo: git.Repo, project_id: str, file_path: str, branch: str, key: str, latest_commit: str, value: Any, last_commit: Optional[str] = None) -> str:
+    full_key = f"{project_id}:{branch or ''}:{file_path}:{key}"
+    if not last_commit:
+        commits = list(repo.repo.iter_commits(branch, file_path, max_count=1))
+        if not commits:  # missing file
+            last_commit = ""
+        else:
+            current_commit = commits[0]
+            last_commit = current_commit.hexsha
+    assert isinstance(last_commit, str)
+    cache.set(full_key, (value, last_commit, latest_commit))
+    return last_commit
+
+
+def get_cache(project_id: str, file_path: str, branch: str, key: str, latest_commit: str) -> Tuple[Any, Union[bool, "Commit"]]:
+    full_key = f"{project_id}:{branch or ''}:{file_path}:{key}"
+    value: Tuple = cache.get(full_key)
+    if not value:
+        logger.debug("cache miss for %s", full_key)
+        return None, False  # cache miss
+    response, last_commit, latest_commit = value
+    if not latest_commit or last_commit == latest_commit:
+        # this is the latest (or we aren't checking)
+        logger.debug("cache hit for %s with %s", full_key, latest_commit)
+        return response, True
+    else:
+        # cache might be out of date, let's check by getting the commit info for the file path
+        repo = _get_project_repo(project_id)
+        assert repo  # if it's in the cache we should have local repository
+        if repo.revision != latest_commit:
+            repo.pull()  # repo is out of date
+        # https://gitpython.readthedocs.io/en/stable/reference.html?highlight=iter_commits#git.repo.base.Repo.iter_commits
+        commits = list(repo.repo.iter_commits(branch, file_path, max_count=1))
+        if commits:
+            current_commit = commits[0]
+            new_commit = current_commit.hexsha
+            # tree[file_path]
+            # time.gmtime(commit.committed_date)
+        else:
+            new_commit = ""  # not found
+            current_commit = False  # treat as cache miss
+        if new_commit == last_commit:
+            # hasn't changed, update cache with latest_commit so we don't have to do this check again
+            cache.set(full_key, (response, last_commit, latest_commit))
+            logger.debug("cache hit for %s, updated %s", full_key, latest_commit)
+            return value, True
+        else:
+            # stale -- up to the caller to do something about it, e.g. update or delete the key
+            logger.debug("stale cache hit for %s with %s", full_key, latest_commit)
+            return value, current_commit
+
 
 @app.before_request
 def hook():
@@ -74,32 +135,27 @@ def health():
     return "OK"
 
 
-def _stage(git_url: str, cloud_vars_url: str, deployment_path: str) -> Tuple[Optional[str], Optional[GitRepo]]:
+def _stage(git_url: str, cloud_vars_url: str, project_id: str = None) -> Optional[GitRepo]:
     # Default to exporting the ensemble provided to the server on startup
     repo = None
-    path = current_app.config.get("UNFURL_ENSEMBLE_PATH", ".")
-    if path and path != ".":
-        # if the user set an UNFURL_ENSEMBLE_PATH try to use it
-        try:
-            repo = LocalEnv(
-                path, can_be_empty=True
-            ).find_git_repo(git_url)
-            if repo:
-                logging.info("found existing repo as %s", repo.working_dir)
-        except UnfurlError:
-            logging.debug("failed to find git repo %s in ensemble path %s", git_url, path, exc_info=True)
-            repo = None
-
-    # Repo doesn't exists, clone it
     clone_root = current_app.config.get("UNFURL_CLONE_ROOT", ".")
+    if project_id:
+        path = os.path.join(clone_root, project_id)
+    else:
+        path = os.path.join(clone_root, f"dashboard.{time.time()}{get_random_password(3, '', '')}")
+    try:
+        repo = LocalEnv(path, can_be_empty=True).find_git_repo(git_url)
+        if repo:
+            logger.info("found existing repo as %s", repo.working_dir)
+    except UnfurlError:
+        logger.debug("failed to find git repo %s in ensemble path %s", git_url, path, exc_info=True)
+        repo = None
+
+    # repo doesn't exists, clone it
     if not repo:
-        # clone_dest_path = GitRepo.get_path_for_git_repo(git_url)
-        # XXX hack!!!
-        clone_dest_path = f"dashboard.{time.time()}{get_random_password(3, '', '')}"
-        ensemble_path = os.path.join(clone_root, clone_dest_path)
         result = init.clone(
             git_url,
-            ensemble_path + "/",
+            path,
             var=(
                 [
                     "UNFURL_CLOUD_VARS_URL",
@@ -107,24 +163,28 @@ def _stage(git_url: str, cloud_vars_url: str, deployment_path: str) -> Tuple[Opt
                 ],
             ),
         )
-        logging.info(f"cloned: {result} in pid {os.getpid()}")
+        logger.info(f"cloned: {result} in pid {os.getpid()}")
+        repo = LocalEnv(path, can_be_empty=True).find_git_repo(git_url)
+        if repo:
+            logger.info("cloned %s to %s", git_url, repo.working_dir)
+    return repo
 
-        repo = LocalEnv(ensemble_path, can_be_empty=True).find_git_repo(git_url)
-        if not repo:
-            return None, None
 
+def _get_filepath(format, deployment_path):
     if deployment_path:
-        path = os.path.join(repo.working_dir, deployment_path)
+        if not deployment_path.endswith(".yaml"):
+            return os.path.join(deployment_path, "ensemble.yaml")
+        return deployment_path
+    elif format == "blueprint":
+        return "ensemble-template.yaml"
+    elif format == "environments":
+        return "unfurl.yaml"
     else:
-        path = repo.working_dir
-    logging.info("staging path set to %s", path)
-    return path, repo
+        return "ensemble/ensemble.yaml"
 
 
+# /export?format=environments&include_deployments=true&latest_commit=foo&project_id=bar&branch=main
 @app.route("/export")
-# @cache.cached(
-#     query_string=True
-# )  # Ensure that the request cached includes the query string (the response differs between different formats)
 def export():
     requested_format = request.args.get("format", "deployment")
     if requested_format not in ["blueprint", "environments", "deployment"]:
@@ -133,19 +193,37 @@ def export():
             "Query parameter 'format' must be one of 'blueprint', 'environments' or 'deployment'",
         )
 
+    repo: Optional[GitRepo] = None
+    latest_commit = request.args.get("latest_commit")
+    last_commit = None
+    if latest_commit is not None:
+        project_id = request.args["project_id"]
+        branch = request.args.get("branch")
+        file_path = _get_filepath(requested_format, request.args.get("deployment_path"))
+        key = requested_format
+        response, commitinfo = get_cache(project_id, file_path, branch, key, latest_commit)
+        if commitinfo:
+            if isinstance(commitinfo, bool):
+                return response
+            # else in cache but stale
+            repo = GitRepo(commitinfo.repo)
+            last_commit = commitinfo.hexsha
+        # else cache miss
+
     # If asking for external repository
-    if request.args.get("url") is not None:
+    if not repo and request.args.get("url") is not None:
         git_url = unquote(request.args.get("url"))  # Unescape the URL
         cloud_vars_url = request.args.get("cloud_vars_url") or ""
         if cloud_vars_url:
             cloud_vars_url = unquote(cloud_vars_url)
         logger.warning("cloud_vars_url %s", cloud_vars_url)
-        deployment_path = request.args.get("deployment_path") or ""
-        path, repo = _stage(git_url, cloud_vars_url, deployment_path)
-        if path is None:
+        repo = _stage(git_url, cloud_vars_url, request.args.get("project_id"))
+        if repo is None:
             return create_error_response(
                 "INTERNAL_ERROR", "Could not find repository"
             )
+        deployment_path = request.args.get("deployment_path") or ""
+        path = os.path.join(repo.working_dir, deployment_path)
     else:
         path = current_app.config["UNFURL_ENSEMBLE_PATH"]
 
@@ -155,6 +233,7 @@ def export():
             "use_environment"
         )
 
+    # load the ensemble
     try:
         local_env = LocalEnv(
             path,
@@ -177,8 +256,10 @@ def export():
 
     exporter = getattr(to_json, "to_" + requested_format)
     json_summary = exporter(local_env)
-
-    return jsonify(json_summary)
+    response = jsonify(json_summary)
+    if latest_commit:
+        set_cache(repo, project_id, file_path, branch, key, latest_commit, response, last_commit)
+    return response
 
 
 @app.route("/delete_deployment", methods=["POST"])
@@ -442,21 +523,20 @@ def _commit_and_push(repo, full_path, commit_msg):
 def _patch_request(body: dict) -> Tuple[Optional[str], Optional[GitRepo]]:
     # Repository URL
     project_path = body["projectPath"]
-
     # Project is external
     if project_path.startswith("http") or project_path.startswith("git"):
         cloud_vars_url = body.get("cloud_vars_url") or ""
-        deployment_path = body.get("deployment_path") or ""
-        clone_location, repo = _stage(project_path, cloud_vars_url, deployment_path)
+        repo = _stage(project_path, cloud_vars_url, body.get("project_id"))
         if repo is None:
             return None, None
+        deployment_path = body.get("deployment_path") or ""
+        clone_location = os.path.join(repo.working_dir, deployment_path)
     else:
         clone_location = project_path
-        repo = Repo.init(clone_location)
+        repo = git.Repo.init(clone_location)
         if repo is None:
             return None, None
         repo = GitRepo(repo)
-
     return clone_location, repo
 
 
@@ -471,6 +551,7 @@ def create_error_response(code, message):
     return jsonify({"code": code, "message": message}), http_code
 
 
+# UNFURL_SKIP_UPSTREAM_CHECK=1 UNFURL_HOME="" gunicorn unfurl.server:app
 def serve(
     host: str,
     port: int,

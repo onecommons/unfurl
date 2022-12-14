@@ -1136,8 +1136,11 @@ def status(ctx, ensemble, **options):
         options.get("home"),
         override_context=options.get("use_environment") or "",
     )
+    logger = logging.getLogger("unfurl")
     manifest = localEnv.get_manifest()
-    click.echo(manifest.status_summary())
+    summary = manifest.status_summary()
+    click.echo(summary)
+    logger.debug("Status summary:\n%s", summary)
     query = options.get("query")
     if query:
         trace = options.get("trace")

@@ -248,6 +248,8 @@ def test_server_export_remote():
                 res = requests.get(
                     f"http://localhost:{port}/export",
                     params={
+                        "project_id": "1",
+                        "latest_commit": "foo",  # enable caching but just get the latest in the cache
                         "url": "https://gitlab.com/onecommons/project-templates/dashboard",
                         "format": export_format,
                         "cloud_vars_url": env_var_url,
