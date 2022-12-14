@@ -220,7 +220,7 @@ def test_server_export_local():
 @unittest.skipIf(
     "slow" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set"
 )
-def test_server_export_remote():
+def test_server_export_remote(caplog):
     runner = CliRunner()
     httpd, env_var_url = start_envvar_server(8011)
     if httpd is None:
@@ -245,30 +245,39 @@ def test_server_export_remote():
             )
             # compare the export request output to the export command output
             for export_format in ["deployment", "environments", "blueprint"]:
-                res = requests.get(
-                    f"http://localhost:{port}/export",
-                    params={
-                        "project_id": "1",
-                        "latest_commit": "foo",  # enable caching but just get the latest in the cache
-                        "url": "https://gitlab.com/onecommons/project-templates/dashboard",
-                        "format": export_format,
-                        "cloud_vars_url": env_var_url,
-                    },
-                )
-                assert res.status_code == 200
-                # print(export_format)
-                # print(json.dumps(res.json(), indent=2)
+                # try twice, second attempt should be cached
+                for msg in ("cache miss for", "cache hit for"):
+                    # test caching
+                    project_id = "1"
+                    res = requests.get(
+                        f"http://localhost:{port}/export",
+                        params={
+                            "project_id": project_id,
+                            "latest_commit": "foo",  # enable caching but just get the latest in the cache
+                            "url": "https://gitlab.com/onecommons/project-templates/dashboard",
+                            "format": export_format,
+                            "cloud_vars_url": env_var_url,
+                        },
+                    )
+                    assert res.status_code == 200
+                    # process_logoutput = capsys.readouterr().err
+                    file_path = server._get_filepath(export_format, None)
+                    key = server._cache_key(project_id, "", file_path, export_format)
+                    # print("process_logoutput", process_logoutput)
+                    # assert f"{msg} {key}" in caplog.text
+                    # print(export_format)
+                    # print(json.dumps(res.json(), indent=2)
 
-                exported = run_cmd(
-                    runner,
-                    ["--home", "", "export", "dashboard", "--format", export_format],
-                    env={"UNFURL_LOGGING": "critical"},
-                )
-                assert exported
-                # Strip out output from the http server
-                output = exported.output
-                cleaned_output = output[max(output.find("{"), 0) :]
-                assert res.json() == json.loads(cleaned_output)
+                    exported = run_cmd(
+                        runner,
+                        ["--home", "", "export", "dashboard", "--format", export_format],
+                        env={"UNFURL_LOGGING": "critical"},
+                    )
+                    assert exported
+                    # Strip out output from the http server
+                    output = exported.output
+                    cleaned_output = output[max(output.find("{"), 0):]
+                    assert res.json() == json.loads(cleaned_output)
         finally:
             p.terminate()
             p.join()

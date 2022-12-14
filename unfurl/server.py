@@ -1,7 +1,7 @@
 import json
 import os
 import time
-from typing import List, Optional, Tuple, Any, Union, TYPE_CHECKING
+from typing import List, Optional, Tuple, Any, Union, TYPE_CHECKING, cast
 from urllib.parse import unquote
 
 import click
@@ -43,8 +43,12 @@ def _get_project_repo(project_id: str) -> git.Repo:
     return GitRepo(git.Repo(path))
 
 
+def _cache_key(project_id: str, branch: str, file_path: str, key: str):
+    return f"{project_id}:{branch or ''}:{file_path}:{key}"
+
+
 def set_cache(repo: git.Repo, project_id: str, file_path: str, branch: str, key: str, latest_commit: str, value: Any, last_commit: Optional[str] = None) -> str:
-    full_key = f"{project_id}:{branch or ''}:{file_path}:{key}"
+    full_key = _cache_key(project_id, branch, file_path, key)
     if not last_commit:
         commits = list(repo.repo.iter_commits(branch, file_path, max_count=1))
         if not commits:  # missing file
@@ -56,17 +60,18 @@ def set_cache(repo: git.Repo, project_id: str, file_path: str, branch: str, key:
     cache.set(full_key, (value, last_commit, latest_commit))
     return last_commit
 
+CacheValueType = Tuple[Any, str, str]
 
 def get_cache(project_id: str, file_path: str, branch: str, key: str, latest_commit: str) -> Tuple[Any, Union[bool, "Commit"]]:
-    full_key = f"{project_id}:{branch or ''}:{file_path}:{key}"
-    value: Tuple = cache.get(full_key)
+    full_key = _cache_key(project_id, branch, file_path, key)
+    value = cast(CacheValueType, cache.get(full_key))
     if not value:
-        logger.debug("cache miss for %s", full_key)
+        logger.info("cache miss for %s", full_key)
         return None, False  # cache miss
-    response, last_commit, latest_commit = value
-    if not latest_commit or last_commit == latest_commit:
+    response, last_commit, cached_latest_commit = value
+    if not latest_commit or cached_latest_commit == latest_commit:
         # this is the latest (or we aren't checking)
-        logger.debug("cache hit for %s with %s", full_key, latest_commit)
+        logger.info("cache hit for %s with %s", full_key, latest_commit)
         return response, True
     else:
         # cache might be out of date, let's check by getting the commit info for the file path
@@ -87,12 +92,12 @@ def get_cache(project_id: str, file_path: str, branch: str, key: str, latest_com
         if new_commit == last_commit:
             # hasn't changed, update cache with latest_commit so we don't have to do this check again
             cache.set(full_key, (response, last_commit, latest_commit))
-            logger.debug("cache hit for %s, updated %s", full_key, latest_commit)
-            return value, True
+            logger.info("cache hit for %s, updated %s", full_key, latest_commit)
+            return response, True
         else:
             # stale -- up to the caller to do something about it, e.g. update or delete the key
-            logger.debug("stale cache hit for %s with %s", full_key, latest_commit)
-            return value, current_commit
+            logger.info("stale cache hit for %s with %s", full_key, latest_commit)
+            return response, current_commit
 
 
 @app.before_request
@@ -204,10 +209,13 @@ def export():
         response, commitinfo = get_cache(project_id, file_path, branch, key, latest_commit)
         if commitinfo:
             if isinstance(commitinfo, bool):
-                return response
-            # else in cache but stale
-            repo = GitRepo(commitinfo.repo)
-            last_commit = commitinfo.hexsha
+                return jsonify(response)
+            # else in cache but stale, serve stale 
+            # XXX but queue an update
+            # repo = GitRepo(commitinfo.repo)
+            # last_commit = commitinfo.hexsha
+            # set_cache(repo, project_id, file_path, branch, key, latest_commit, json_summary, last_commit)
+            return jsonify(response)
         # else cache miss
 
     # If asking for external repository
@@ -256,10 +264,9 @@ def export():
 
     exporter = getattr(to_json, "to_" + requested_format)
     json_summary = exporter(local_env)
-    response = jsonify(json_summary)
     if latest_commit:
-        set_cache(repo, project_id, file_path, branch, key, latest_commit, response, last_commit)
-    return response
+        set_cache(repo, project_id, file_path, branch, key, latest_commit, json_summary, last_commit)
+    return jsonify(json_summary)
 
 
 @app.route("/delete_deployment", methods=["POST"])
