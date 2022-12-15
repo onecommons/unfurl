@@ -57,7 +57,8 @@ patch = """
 delete_patch = """
 [{
     "__typename": "ResourceTemplate",
-    "__deleted": "container_service"
+    "name "container_service",
+    "__deleted": true
 }]
 """
 
@@ -243,9 +244,11 @@ def test_server_export_remote(caplog):
                     "--var", "UNFURL_CLOUD_VARS_URL", env_var_url,
                 ],
             )
+            last_commit = GitRepo(Repo("dashboard")).revision
             # compare the export request output to the export command output
             for export_format in ["deployment", "environments", "blueprint"]:
                 # try twice, second attempt should be cached
+                cleaned_output = "0"
                 for msg in ("cache miss for", "cache hit for"):
                     # test caching
                     project_id = "1"
@@ -253,7 +256,7 @@ def test_server_export_remote(caplog):
                         f"http://localhost:{port}/export",
                         params={
                             "project_id": project_id,
-                            "latest_commit": "foo",  # enable caching but just get the latest in the cache
+                            "latest_commit": last_commit,  # enable caching but just get the latest in the cache
                             "url": "https://gitlab.com/onecommons/project-templates/dashboard",
                             "format": export_format,
                             "cloud_vars_url": env_var_url,
@@ -261,22 +264,23 @@ def test_server_export_remote(caplog):
                     )
                     assert res.status_code == 200
                     # process_logoutput = capsys.readouterr().err
+                    # print("process_logoutput", process_logoutput)
                     file_path = server._get_filepath(export_format, None)
                     key = server._cache_key(project_id, "", file_path, export_format)
-                    # print("process_logoutput", process_logoutput)
-                    # assert f"{msg} {key}" in caplog.text
+                    # XXX assert f"{msg} {key}" in caplog.text
                     # print(export_format)
                     # print(json.dumps(res.json(), indent=2)
-
-                    exported = run_cmd(
-                        runner,
-                        ["--home", "", "export", "dashboard", "--format", export_format],
-                        env={"UNFURL_LOGGING": "critical"},
-                    )
-                    assert exported
-                    # Strip out output from the http server
-                    output = exported.output
-                    cleaned_output = output[max(output.find("{"), 0):]
+                    if msg == "cache miss for":
+                        # don't bother re-exporting the second time
+                        exported = run_cmd(
+                            runner,
+                            ["--home", "", "export", "dashboard", "--format", export_format],
+                            env={"UNFURL_LOGGING": "critical"},
+                        )
+                        assert exported
+                        # Strip out output from the http server
+                        output = exported.output
+                        cleaned_output = output[max(output.find("{"), 0):]
                     assert res.json() == json.loads(cleaned_output)
         finally:
             p.terminate()

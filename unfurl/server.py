@@ -62,6 +62,8 @@ def set_cache(repo: git.Repo, project_id: str, file_path: str, branch: str, key:
 
 CacheValueType = Tuple[Any, str, str]
 
+
+# we assume latest_commit is the last commit the client has seen but it might be older than the local tip
 def get_cache(project_id: str, file_path: str, branch: str, key: str, latest_commit: str) -> Tuple[Any, Union[bool, "Commit"]]:
     full_key = _cache_key(project_id, branch, file_path, key)
     value = cast(CacheValueType, cache.get(full_key))
@@ -69,7 +71,7 @@ def get_cache(project_id: str, file_path: str, branch: str, key: str, latest_com
         logger.info("cache miss for %s", full_key)
         return None, False  # cache miss
     response, last_commit, cached_latest_commit = value
-    if not latest_commit or cached_latest_commit == latest_commit:
+    if not latest_commit or latest_commit == cached_latest_commit:
         # this is the latest (or we aren't checking)
         logger.info("cache hit for %s with %s", full_key, latest_commit)
         return response, True
@@ -77,20 +79,29 @@ def get_cache(project_id: str, file_path: str, branch: str, key: str, latest_com
         # cache might be out of date, let's check by getting the commit info for the file path
         repo = _get_project_repo(project_id)
         assert repo  # if it's in the cache we should have local repository
-        if repo.revision != latest_commit:
-            repo.pull()  # repo is out of date
-        # https://gitpython.readthedocs.io/en/stable/reference.html?highlight=iter_commits#git.repo.base.Repo.iter_commits
+        try:
+            repo.repo.commit(latest_commit)
+        except git.BadObject:
+            # latest_commit not in repo, repo probably is out of date
+            repo.pull()
+
+        # check if latest_commit is older than the cached_latest_commit
+        if list(repo.repo.iter_commits(f"{latest_commit}..{cached_latest_commit}", max_count=1)):
+            # the client has an old commit
+            logger.info("cache hit for %s with %s", full_key, latest_commit)
+            return response, True
+
+        # the latest_commit is newer than the cached_latest_commit, check if the file has changed
         commits = list(repo.repo.iter_commits(branch, file_path, max_count=1))
         if commits:
             current_commit = commits[0]
             new_commit = current_commit.hexsha
-            # tree[file_path]
-            # time.gmtime(commit.committed_date)
         else:
+            # file doesn't exist
             new_commit = ""  # not found
             current_commit = False  # treat as cache miss
         if new_commit == last_commit:
-            # hasn't changed, update cache with latest_commit so we don't have to do this check again
+            # the file hasn't changed, let's update cache with latest_commit so we don't have to do this check again
             cache.set(full_key, (response, last_commit, latest_commit))
             logger.info("cache hit for %s, updated %s", full_key, latest_commit)
             return response, True
@@ -480,13 +491,14 @@ def _do_patch(patch: List[dict], target: dict):
                 target_inner[typename] = {}
             target_inner = target_inner[typename]
         if deleted:
+            name = patch_inner.get("name", deleted)
             if deleted == "*":
                 if typename == "*":
                     target = {}
                 else:
                     del target[typename]
-            elif deleted in target[typename]:
-                del target[typename][deleted]
+            elif name in target[typename]:
+                del target[typename][name]
             else:
                 logger.warning(f"skipping delete: {deleted} is missing from {typename}")
             continue
