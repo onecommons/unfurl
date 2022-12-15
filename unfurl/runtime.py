@@ -786,9 +786,8 @@ class NodeInstance(HasInstancesInstance):
                 if id(template.relationship) not in instantiated:
                     relInstance = self._find_relationship(template.relationship)
                     if not relInstance:
-                        raise UnfurlError(
-                            f'can not find relation instance for requirement "{name}" on node "{self.name}"'
-                        )
+                        logger.warning(f'can not find relation instance for requirement "{name}" on node "{self.name}"')
+                        continue
                     assert template.relationship is relInstance.template
                     assert self.template is relInstance.template.source
                     self._requirements.append(relInstance)
