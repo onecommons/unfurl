@@ -65,6 +65,7 @@ def set_cache(repo: git.Repo, project_id: str, file_path: str, branch: str, key:
     cache.set(full_key, (value, last_commit, latest_commit))
     return last_commit
 
+
 CacheValueType = Tuple[Any, str, str]
 
 
@@ -221,7 +222,7 @@ def export():
 
     repo: Optional[GitRepo] = None
     latest_commit = request.args.get("latest_commit")
-    last_commit = None
+    last_commit: Optional[str] = None
     if latest_commit is not None:
         project_id = request.args["project_id"]
         branch = request.args.get("branch")
@@ -231,29 +232,29 @@ def export():
         if commitinfo:
             if isinstance(commitinfo, bool):
                 return jsonify(response)
-            # else in cache but stale, serve stale 
-            # XXX but queue an update
-            # repo = GitRepo(commitinfo.repo)
-            # last_commit = commitinfo.hexsha
-            # set_cache(repo, project_id, file_path, branch, key, latest_commit, json_summary, last_commit)
-            return jsonify(response)
-        # else cache miss
+            # in cache but stale
+            repo = GitRepo(commitinfo.repo)
+            last_commit = commitinfo.hexsha
+            # XXX? check date to see if its recent enough to serve anyway
+            # if time.gmtime(commitinfo.committed_date) - time.time() < stale_ok_age:
+            #      return jsonify(response)
 
-    # If asking for external repository
-    if not repo and request.args.get("url") is not None:
-        git_url = unquote(request.args.get("url"))  # Unescape the URL
-        cloud_vars_url = request.args.get("cloud_vars_url") or ""
-        if cloud_vars_url:
-            cloud_vars_url = unquote(cloud_vars_url)
-        logger.warning("cloud_vars_url %s", cloud_vars_url)
-        repo = _stage(git_url, cloud_vars_url, request.args.get("project_id"))
-        if repo is None:
-            return create_error_response(
-                "INTERNAL_ERROR", "Could not find repository"
-            )
-        deployment_path = request.args.get("deployment_path") or ""
-        path = os.path.join(repo.working_dir, deployment_path)
-    else:
+    url = request.args.get("url")  # asking for external ensemble
+    if url is not None:
+        if not repo:
+            git_url = unquote(url)  # Unescape the URL
+            cloud_vars_url = request.args.get("cloud_vars_url") or ""
+            if cloud_vars_url:
+                cloud_vars_url = unquote(cloud_vars_url)
+            logger.warning("cloud_vars_url %s", cloud_vars_url)
+            repo = _stage(git_url, cloud_vars_url, request.args.get("project_id"))
+            if repo is None:
+                return create_error_response(
+                    "INTERNAL_ERROR", "Could not find repository"
+                )
+            deployment_path = request.args.get("deployment_path") or ""
+            path = os.path.join(repo.working_dir, deployment_path)
+    else:  # use the current ensemble
         path = current_app.config["UNFURL_ENSEMBLE_PATH"]
 
     deployment_enviroment = request.args.get("environment")
