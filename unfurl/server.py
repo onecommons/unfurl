@@ -294,7 +294,7 @@ def export():
 @app.route("/delete_deployment", methods=["POST"])
 def delete_deployment():
     body = request.json
-    return _patch_json(body)
+    return _patch_environment(body)
 
 
 @app.route("/update_environment", methods=["POST"])
@@ -307,12 +307,6 @@ def update_environment():
 def delete_environment():
     body = request.json
     return _patch_environment(body)
-
-
-@app.route("/update_deployment", methods=["POST"])
-def update_deployment_request():
-    body = request.json
-    return _patch_json(body)
 
 
 def _patch_deployment_blueprint(patch: dict, manifest: "YamlManifest", deleted: bool) -> None:
@@ -363,10 +357,18 @@ def _patch_node_template(patch: dict, tpl: dict) -> None:
                 tpl["requirements"] = requirements
 
 
-@app.route("/delete_ensemble", methods=["POST"])
-def delete_ensemble():
-    body = request.json
-    return _patch_ensemble(body, False)
+# XXX
+# @app.route("/delete_ensemble", methods=["POST"])
+# def delete_ensemble():
+#     body = request.json
+#     deployment_path = body.get("deployment_path")
+#     update_deployment(deployment_path)
+#     repo.delete_dir(deployment_path)
+#     localConfig.config.save()
+#     commit_msg = body.get("commit_msg", "Update environment")
+#     invalidate_cache(body, "environments")
+#     _commit_and_push(repo, localConfig.config.path, commit_msg)
+#     return "OK"
 
 
 @app.route("/update_ensemble", methods=["POST"])
@@ -440,6 +442,10 @@ def _patch_environment(body: dict) -> str:
     invalidate_cache(body, "environments")
     _commit_and_push(repo, localConfig.config.path, commit_msg)
     return "OK"
+
+
+# def queue_request(environ):
+#   url = f"{environ['wsgi.url_scheme']}://{environ['SERVER_NAME']}:{environ['SERVER_PORT']}/"
 
 
 def invalidate_cache(body: dict, format: str) -> bool:

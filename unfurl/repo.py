@@ -593,6 +593,11 @@ class GitRepo(Repo):
             path = os.path.relpath(path, self.working_dir)
         return f"git-local://{self.get_initial_revision()}:{name}/{path}"
 
+    def delete_dir(self, path, commit=None):
+        self.repo.index.remove(os.path.abspath(path), r=True, working_tree=True)
+        if commit:
+            self.repo.index.commit(commit)
+
     # XXX: def getDependentRepos()
     # XXX: def canManage()
 
