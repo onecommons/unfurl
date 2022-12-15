@@ -252,8 +252,8 @@ def export():
                 return create_error_response(
                     "INTERNAL_ERROR", "Could not find repository"
                 )
-            deployment_path = request.args.get("deployment_path") or ""
-            path = os.path.join(repo.working_dir, deployment_path)
+        deployment_path = request.args.get("deployment_path") or ""
+        path = os.path.join(repo.working_dir, deployment_path)
     else:  # use the current ensemble
         path = current_app.config["UNFURL_ENSEMBLE_PATH"]
 
