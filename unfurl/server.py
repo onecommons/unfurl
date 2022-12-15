@@ -86,14 +86,19 @@ def get_cache(project_id: str, file_path: str, branch: str, key: str, latest_com
         assert repo  # if it's in the cache we should have local repository
         try:
             repo.repo.commit(latest_commit)
-        except git.BadObject:
+        except ValueError:
             # latest_commit not in repo, repo probably is out of date
             repo.pull()
 
-        # check if latest_commit is older than the cached_latest_commit
-        if list(repo.repo.iter_commits(f"{latest_commit}..{cached_latest_commit}", max_count=1)):
-            # the client has an old commit
-            logger.info("cache hit for %s with %s", full_key, latest_commit)
+        try:
+            # check if latest_commit is older than the cached_latest_commit
+            if list(repo.repo.iter_commits(f"{latest_commit}..{cached_latest_commit}", max_count=1)):
+                # the client has an old commit
+                logger.info("cache hit for %s with %s", full_key, latest_commit)
+                return response, True
+        except Exception:
+            logger.info("cache hit for %s, but error with client's commit %s", full_key, latest_commit)
+            # still getting error with last_commit
             return response, True
 
         # the latest_commit is newer than the cached_latest_commit, check if the file has changed
@@ -586,7 +591,7 @@ def create_error_response(code, message):
     return jsonify({"code": code, "message": message}), http_code
 
 
-# UNFURL_SKIP_UPSTREAM_CHECK=1 UNFURL_HOME="" gunicorn unfurl.server:app
+# UNFURL_SKIP_UPSTREAM_CHECK=1 UNFURL_HOME="" gunicorn -w 4 unfurl.server:app
 def serve(
     host: str,
     port: int,
