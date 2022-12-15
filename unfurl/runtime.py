@@ -35,15 +35,13 @@ from .tosca import (
     TopologySpec,
     ArtifactSpec,
 )
-from .logs import UnfurlLogger
-import logging
+from .logs import getLogger
 
 if TYPE_CHECKING:
     from unfurl.configurator import Dependency
     import toscaparser.repositories
 
-# Tell mypy the logger is of type UnfurlLogger
-logger = cast(UnfurlLogger, logging.getLogger("unfurl"))
+logger = getLogger("unfurl")
 
 # CF 3.4.1 Node States p61
 
@@ -765,9 +763,9 @@ class NodeInstance(HasInstancesInstance):
         assert relationship and relationship.capability and relationship.target
         # find the Capability instance that corresponds to this relationship template's capability
         targetNodeInstance = self.root.find_resource(relationship.target.name)
-        assert (
-            targetNodeInstance
-        ), f"target instance {relationship.target.name} should have been already created"
+        if not targetNodeInstance:
+            logger.warning(f"target instance {relationship.target.name} should have already been created -- is {self.name} out of sync with latest templates?")
+            return None
         for cap in targetNodeInstance.capabilities:
             if cap.template is relationship.capability:
                 for relInstance in cap.relationships:
