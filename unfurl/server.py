@@ -43,8 +43,13 @@ def _get_project_repo(project_id: str) -> git.Repo:
     return GitRepo(git.Repo(path))
 
 
-def _cache_key(project_id: str, branch: str, file_path: str, key: str):
+def _cache_key(project_id: str, branch: Optional[str], file_path: str, key: str) -> str:
     return f"{project_id}:{branch or ''}:{file_path}:{key}"
+
+
+def delete_cache(project_id: str, branch: Optional[str], file_path: str, key: str) -> bool:
+    full_key = _cache_key(project_id, branch, file_path, key)
+    return cache.delete(full_key)
 
 
 def set_cache(repo: git.Repo, project_id: str, file_path: str, branch: str, key: str, latest_commit: str, value: Any, last_commit: Optional[str] = None) -> str:
@@ -426,8 +431,18 @@ def _patch_environment(body: dict) -> str:
             update_deployment(localEnv.project, patch_inner["name"], patch_inner, False, deleted)
     localConfig.config.save()
     commit_msg = body.get("commit_msg", "Update environment")
+    invalidate_cache(body, "environments")
     _commit_and_push(repo, localConfig.config.path, commit_msg)
     return "OK"
+
+
+def invalidate_cache(body: dict, format: str) -> bool:
+    project_id = body.get("project_id")
+    if project_id:
+        branch = body.get("branch")
+        file_path = _get_filepath(format, body.get("deployment_path"))
+        return delete_cache(project_id, branch, file_path, format)
+    return False
 
 
 def _patch_ensemble(body: dict, create: bool) -> str:
@@ -475,6 +490,7 @@ def _patch_ensemble(body: dict, create: bool) -> str:
     commit_msg = body.get("commit_msg", "Update deployment")
     committed = manifest.commit(commit_msg, False)
     logger.info(f"committed to {committed} repositories")
+    invalidate_cache(body, "deployment")
     if repo.repo.remotes:
         repo.repo.remotes.origin.push()
         logger.info("pushed")
