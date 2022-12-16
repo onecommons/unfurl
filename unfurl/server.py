@@ -496,7 +496,7 @@ def _patch_environment(body: dict, project_id: str) -> str:
             update_deployment(localEnv.project, patch_inner["name"], patch_inner, False, deleted)
     localConfig.config.save()
     commit_msg = body.get("commit_msg", "Update environment")
-    invalidate_cache(body, "environments")
+    invalidate_cache(body, "environments", project_id)
     _commit_and_push(repo, localConfig.config.path, commit_msg)
     return "OK"
 
@@ -505,8 +505,7 @@ def _patch_environment(body: dict, project_id: str) -> str:
 #   url = f"{environ['wsgi.url_scheme']}://{environ['SERVER_NAME']}:{environ['SERVER_PORT']}/"
 
 
-def invalidate_cache(body: dict, format: str) -> bool:
-    project_id = body.get("project_id")
+def invalidate_cache(body: dict, format: str, project_id: str) -> bool:
     if project_id:
         branch = body.get("branch")
         file_path = _get_filepath(format, body.get("deployment_path"))
@@ -561,7 +560,7 @@ def _patch_ensemble(body: dict, create: bool, project_id: str) -> str:
     commit_msg = body.get("commit_msg", "Update deployment")
     committed = manifest.commit(commit_msg, False)
     logger.info(f"committed to {committed} repositories")
-    invalidate_cache(body, "deployment")
+    invalidate_cache(body, "deployment", project_id)
     if repo.repo.remotes:
         repo.repo.remotes.origin.push()
         logger.info("pushed")
