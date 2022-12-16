@@ -1094,9 +1094,10 @@ class LocalEnv:
                         message = f"Can't find an Unfurl ensemble or project in folder '{manifestPath}'"
                         raise UnfurlError(message)
         else:
-            test = os.path.join(manifestPath, DefaultNames.LocalConfig)
-            if os.path.exists(test):
-                return None, self.get_project(test, self.homeProject)
+            assert os.path.isfile(manifestPath)
+            if os.path.basename(manifestPath) == DefaultNames.LocalConfig:
+                # assume unfurl.yaml is a project file
+                return None, self.get_project(manifestPath, self.homeProject)
             # assume its a pointing to an ensemble
             return manifestPath, None
 
