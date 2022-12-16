@@ -11,7 +11,7 @@ from flask_caching import Cache
 
 import git
 from .localenv import LocalEnv
-from .repo import GitRepo
+from .repo import GitRepo, Repo
 from .util import UnfurlError, get_random_password
 from .logs import getLogger, add_log_file
 from .yamlmanifest import YamlManifest
@@ -37,9 +37,13 @@ cache = Cache(app)
 app.config["UNFURL_OPTIONS"] = {}
 
 
-def _get_project_repo(project_id: str) -> git.Repo:
+def _get_project_repo_dir(project_id: str) -> str:
     clone_root = current_app.config.get("UNFURL_CLONE_ROOT", ".")
-    path = os.path.join(clone_root, project_id)
+    return os.path.join(clone_root, project_id)
+
+
+def _get_project_repo(project_id: str) -> git.Repo:
+    path = _get_project_repo_dir(project_id)
     return GitRepo(git.Repo(path))
 
 
@@ -210,6 +214,15 @@ def _get_filepath(format, deployment_path):
         return "ensemble/ensemble.yaml"
 
 
+def format_from_path(path):
+    if path.endswith("ensemble-template.yaml"):
+        return "blueprint"
+    elif path.endswith("unfurl.yaml"):
+        return "environments"
+    else:
+        return "deployment"
+
+
 # /export?format=environments&include_deployments=true&latest_commit=foo&project_id=bar&branch=main
 @app.route("/export")
 def export():
@@ -224,11 +237,10 @@ def export():
     latest_commit = request.args.get("latest_commit")
     last_commit: Optional[str] = None
     if latest_commit is not None:
-        project_id = request.args["project_id"]
+        project_id = request.args["auth_project"]
         branch = request.args.get("branch")
         file_path = _get_filepath(requested_format, request.args.get("deployment_path"))
-        key = requested_format
-        response, commitinfo = get_cache(project_id, file_path, branch, key, latest_commit)
+        response, commitinfo = get_cache(project_id, file_path, branch, requested_format, latest_commit)
         if commitinfo:
             if isinstance(commitinfo, bool):
                 return jsonify(response)
@@ -246,8 +258,8 @@ def export():
             cloud_vars_url = request.args.get("cloud_vars_url") or ""
             if cloud_vars_url:
                 cloud_vars_url = unquote(cloud_vars_url)
-            logger.warning("cloud_vars_url %s", cloud_vars_url)
-            repo = _stage(git_url, cloud_vars_url, request.args.get("project_id"))
+            # logger.warning("cloud_vars_url %s", cloud_vars_url)
+            repo = _stage(git_url, cloud_vars_url, request.args.get("auth_project"))
             if repo is None:
                 return create_error_response(
                     "INTERNAL_ERROR", "Could not find repository"
@@ -263,13 +275,61 @@ def export():
             "use_environment"
         )
 
+    local_env, json_summary = _do_export(path, requested_format, deployment_enviroment)
+    if not local_env:
+        return json_summary  # this will be an error response
+    if latest_commit:
+        set_cache(repo, project_id, file_path, branch, requested_format, latest_commit, json_summary, last_commit)
+    return jsonify(json_summary)
+
+
+@app.route("/populate_cache")
+def populate_cache():
+    project_id = request.args["auth_project"]
+    branch = request.args.get("branch")
+    path = request.args["path"]
+    latest_commit = request.args["latest_commit"]
+    requested_format = format_from_path(path)
+    removed = request.args.get("removed")
+    if removed:
+        logger.info("deleting from cache for %s with %s", path, requested_format)
+        delete_cache(project_id, branch, path, requested_format)
+        return "OK"
+    project_dir = _get_project_repo_dir(project_id)
+    if not os.path.isdir(project_dir):
+        # don't try to clone private repository
+        if request.args.get("visibility") != "public":
+            logger.info("skipping populate cache for private repository %s", url)
+            return "OK"
+        url = request.args["url"]
+        git_url = unquote(url)  # Unescape the URL
+        repo = _stage(git_url, "", project_id)
+        if repo is None:
+            return create_error_response(
+                "INTERNAL_ERROR", "Could not find repository"
+            )
+
+    local_path = os.path.join(project_dir, path)
+    local_env, json_summary = _do_export(local_path, requested_format, "")
+    if not local_env:
+        return json_summary  # this will be an error response
+    repo = local_env.project.project_repoview.repo
+    logger.info("setting cache for %s with %s", path, requested_format)
+    set_cache(repo, project_id, path, branch, requested_format, latest_commit, json_summary, latest_commit)
+    return "OK"
+
+
+def _do_export(path, requested_format, deployment_enviroment):
     # load the ensemble
+    local_env = None
     try:
         local_env = LocalEnv(
             path,
             current_app.config["UNFURL_OPTIONS"].get("home"),
+            can_be_empty=True,
             override_context=deployment_enviroment or "",  # cloud_vars_url need the ""!
         )
+        # we don't want to decrypt secrets because the export is cached and shared
         local_env.overrides["UNFURL_SKIP_VAULT_DECRYPT"] = True
     except UnfurlError as e:
         logger.error("error loading project at %s", path, exc_info=True)
@@ -277,36 +337,33 @@ def export():
         # Sort of a hack to get the specific error since it only raises an "UnfurlError"
         # Will break if the error message changes or if the Exception class changes
         if "No environment named" in error_message:
-            return create_error_response(
+            return local_env, create_error_response(
                 "BAD_REQUEST",
                 f"No environment named '{deployment_enviroment}' found in the repository",
             )
         else:
-            return create_error_response("INTERNAL_ERROR", "An internal error occurred")
+            return local_env, create_error_response("INTERNAL_ERROR", "An internal error occurred")
 
     exporter = getattr(to_json, "to_" + requested_format)
-    json_summary = exporter(local_env)
-    if latest_commit:
-        set_cache(repo, project_id, file_path, branch, key, latest_commit, json_summary, last_commit)
-    return jsonify(json_summary)
+    return local_env, exporter(local_env)
 
 
 @app.route("/delete_deployment", methods=["POST"])
 def delete_deployment():
     body = request.json
-    return _patch_environment(body)
+    return _patch_environment(body, request.args.get("auth_project") or "")
 
 
 @app.route("/update_environment", methods=["POST"])
 def update_environment():
     body = request.json
-    return _patch_environment(body)
+    return _patch_environment(body, request.args.get("auth_project") or "")
 
 
 @app.route("/delete_environment", methods=["POST"])
 def delete_environment():
     body = request.json
-    return _patch_environment(body)
+    return _patch_environment(body, request.args.get("auth_project") or "")
 
 
 def _patch_deployment_blueprint(patch: dict, manifest: "YamlManifest", deleted: bool) -> None:
@@ -374,13 +431,13 @@ def _patch_node_template(patch: dict, tpl: dict) -> None:
 @app.route("/update_ensemble", methods=["POST"])
 def update_ensemble():
     body = request.json
-    return _patch_ensemble(body, False)
+    return _patch_ensemble(body, False, request.args.get("auth_project") or "")
 
 
 @app.route("/create_ensemble", methods=["POST"])
 def create_ensemble():
     body = request.json
-    return _patch_ensemble(body, True)
+    return _patch_ensemble(body, True, request.args.get("auth_project") or "")
 
 
 def update_deployment(project, key, patch_inner, save, deleted=False):
@@ -402,10 +459,10 @@ def update_deployment(project, key, patch_inner, save, deleted=False):
         localConfig.config.save()
 
 
-def _patch_environment(body: dict) -> str:
+def _patch_environment(body: dict, project_id: str) -> str:
     patch = body.get("patch")
     assert isinstance(patch, list)
-    clone_location, repo = _patch_request(body)
+    clone_location, repo = _patch_request(body, project_id)
     if repo is None:
         # XXX create a new ensemble if patch is for a new deployment
         return create_error_response("INTERNAL_ERROR", "Could not find repository")
@@ -457,11 +514,11 @@ def invalidate_cache(body: dict, format: str) -> bool:
     return False
 
 
-def _patch_ensemble(body: dict, create: bool) -> str:
+def _patch_ensemble(body: dict, create: bool, project_id: str) -> str:
     patch = body.get("patch")
     assert isinstance(patch, list)
     environment = body.get("environment") or ""  # cloud_vars_url need the ""!
-    clone_location, repo = _patch_request(body)
+    clone_location, repo = _patch_request(body, project_id)
     if repo is None:
         # XXX create a new ensemble if patch is for a new deployment
         return create_error_response("INTERNAL_ERROR", "Could not find repository")
@@ -534,30 +591,30 @@ def _do_patch(patch: List[dict], target: dict):
             continue
         target_inner[patch_inner["name"]] = patch_inner
 
+# no longer used
+# def _patch_json(body: dict) -> str:
+#     patch = body["patch"]
+#     assert isinstance(patch, list)
+#     path = body["path"]  # File path
+#     clone_location, repo = _patch_request(body, body.get("project_id") or "")
+#     if repo is None:
+#         return create_error_response("INTERNAL_ERROR", "Could not find repository")
+#     assert clone_location is not None
+#     full_path = os.path.join(clone_location, path)
+#     if os.path.exists(full_path):
+#         with open(full_path) as read_file:
+#             target = json.load(read_file)
+#     else:
+#         target = {}
 
-def _patch_json(body: dict) -> str:
-    patch = body["patch"]
-    assert isinstance(patch, list)
-    path = body["path"]  # File path
-    clone_location, repo = _patch_request(body)
-    if repo is None:
-        return create_error_response("INTERNAL_ERROR", "Could not find repository")
-    assert clone_location is not None
-    full_path = os.path.join(clone_location, path)
-    if os.path.exists(full_path):
-        with open(full_path) as read_file:
-            target = json.load(read_file)
-    else:
-        target = {}
+#     _do_patch(patch, target)
 
-    _do_patch(patch, target)
+#     with open(full_path, "w") as write_file:
+#         json.dump(target, write_file, indent=2)
 
-    with open(full_path, "w") as write_file:
-        json.dump(target, write_file, indent=2)
-
-    commit_msg = body.get("commit_msg", "Update deployment")
-    _commit_and_push(repo, full_path, commit_msg)
-    return "OK"
+#     commit_msg = body.get("commit_msg", "Update deployment")
+#     _commit_and_push(repo, full_path, commit_msg)
+#     return "OK"
 
 
 def _commit_and_push(repo, full_path, commit_msg):
@@ -569,13 +626,13 @@ def _commit_and_push(repo, full_path, commit_msg):
         logger.info("pushed")
 
 
-def _patch_request(body: dict) -> Tuple[Optional[str], Optional[GitRepo]]:
+def _patch_request(body: dict, project_id: str) -> Tuple[Optional[str], Optional[GitRepo]]:
     # Repository URL
     project_path = body["projectPath"]
     # Project is external
     if project_path.startswith("http") or project_path.startswith("git"):
         cloud_vars_url = body.get("cloud_vars_url") or ""
-        repo = _stage(project_path, cloud_vars_url, body.get("project_id"))
+        repo = _stage(project_path, cloud_vars_url, project_id)
         if repo is None:
             return None, None
         deployment_path = body.get("deployment_path") or ""

@@ -287,6 +287,24 @@ def test_server_export_remote(caplog):
         httpd.socket.close()
 
 
+def test_populate_cache(runner):
+    project_id = "1"
+    port = 8081
+    res = requests.get(
+        f"http://localhost:{port}/populate_cache",
+        params={
+            "secret": "secret",
+            "auth_project": project_id,
+            "latest_commit": "HEAD",
+            "url": "https://gitlab.com/onecommons/project-templates/dashboard",
+            "path": "unfurl.yaml",
+            "visibility": "public",
+        },
+    )
+    assert res.status_code == 200
+    assert res.content == b"OK"
+
+
 def test_server_update_deployment():
     runner = CliRunner()
     with runner.isolated_filesystem():
