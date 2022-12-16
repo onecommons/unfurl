@@ -577,6 +577,13 @@ class Manifest(AttributeManager):
                 return reponame in repositories
             return True
 
+        if not artifactTpl["file"]:
+            msg = f"document include {templatePath} missing file (base: {baseDir})"
+            if warnWhenNotFound:
+                logger.warning(msg)
+                return "", None
+            raise UnfurlError(msg)
+
         artifact = ArtifactSpec(artifactTpl, path=baseDir)
         tpl = CommentedMap()
         resolver = self.get_import_resolver(warnWhenNotFound, config=expanded)
