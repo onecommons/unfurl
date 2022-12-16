@@ -15,25 +15,23 @@ from unfurl import server
 import pytest
 from tests.utils import init_project, run_cmd
 from unfurl.repo import GitRepo
+from unfurl.yamlloader import yaml
 
 # Very minimal deployment
 deployment = """
-{{
-    "ResourceTemplate": {{
-        "container_service": {{
-            "properties": [
-                {{
-                    "value": {{
-                        "environment": {{
-                            "VAR": "{0}"
-                        }}
-                    }}
-                }}
-            ]
-        }}
-    }}
-}}
-"""
+apiVersion: unfurl/v1alpha1
+kind: Ensemble
+spec:
+  service_template:
+    topology_template:
+      node_templates:
+        container_service:
+          type: tosca:Root
+          properties:
+            container:
+              environment:
+                VAR: "{0}"
+"""              
 
 patch = """
 [{{
@@ -57,7 +55,7 @@ patch = """
 delete_patch = """
 [{
     "__typename": "ResourceTemplate",
-    "name "container_service",
+    "name": "container_service",
     "__deleted": true
 }]
 """
@@ -133,14 +131,13 @@ def set_up_deployment(runner, deployment):
     )
 
     # Create a mock deployment
-    os.makedirs("dashboard/deployments/dev")
-    with open("dashboard/deployments/dev/deployment.json", "w") as f:
+    with open("ensemble/ensemble.yaml", "w") as f:
         f.write(deployment)
 
     repo = Repo.init('.')
     repo = GitRepo(repo)
     repo.add_all()
-    repo.commit_files(["dashboard/deployments/dev/deployment.json"], "Add deployment")
+    repo.commit_files(["ensemble/ensemble.yaml"], "Add deployment")
 
     port = _next_port()
     p = Process(
@@ -255,7 +252,7 @@ def test_server_export_remote(caplog):
                     res = requests.get(
                         f"http://localhost:{port}/export",
                         params={
-                            "project_id": project_id,
+                            "auth_project": project_id,
                             "latest_commit": last_commit,  # enable caching but just get the latest in the cache
                             "url": "https://gitlab.com/onecommons/project-templates/dashboard",
                             "format": export_format,
@@ -300,58 +297,43 @@ def test_server_update_deployment():
 
             target_patch = patch.format("target")
             res = requests.post(
-                f"http://localhost:{port}/update_deployment",
+                f"http://localhost:{port}/update_ensemble",
                 json={
                     "projectPath": ".",
-                    "path": "dashboard/deployments/dev/deployment.json",
                     "patch": json.loads(target_patch),
                 }
             )
             assert res.status_code == 200
 
-            with open("dashboard/deployments/dev/deployment.json", "r") as f:
-                data = json.load(f)
-                assert (data['ResourceTemplate']
+            with open("ensemble/ensemble.yaml", "r") as f:
+                data = yaml.load(f.read())                
+                assert (data['spec']
+                            ['service_template']
+                            ['topology_template']
+                            ['node_templates']
                             ['container_service']
-                            ['properties'][0]
-                            ['value']
+                            ['properties']
+                            ['container']
                             ['environment']
                             ['VAR']
-                        ) == "target"   
+                        ) == "target"
+
+            res = requests.post(
+                f"http://localhost:{port}/update_ensemble",
+                json={
+                    "projectPath": ".",
+                    "patch": json.loads(delete_patch),
+                }
+            )
+            assert res.status_code == 200
+            with open("ensemble/ensemble.yaml", "r") as f:
+                data = yaml.load(f.read())
+                assert not data['spec']['service_template']['topology_template']['node_templates']
 
         finally:
             if p:
                 p.terminate()
                 p.join()
 
-
-def test_server_update_deployment_delete():
-    runner = CliRunner()
-    with runner.isolated_filesystem():
-        p = None
-        try:
-            initial_deployment = deployment.format("initial")
-            p, port = set_up_deployment(runner, initial_deployment)
-
-            res = requests.post(
-                f"http://localhost:{port}/update_deployment",
-                json={
-                    "projectPath": ".",
-                    "path": "dashboard/deployments/dev/deployment.json",
-                    "patch": json.loads(delete_patch),
-                }
-            )
-            
-            assert res.status_code == 200
-
-            with open("dashboard/deployments/dev/deployment.json", "r") as f:
-                data = json.load(f)
-                assert data == {
-                    "ResourceTemplate": {}
-                }
-        finally:
-          if p:
-              p.terminate()
-              p.join()
 
 # XXX test patching with remote url

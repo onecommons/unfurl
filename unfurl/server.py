@@ -492,6 +492,8 @@ def _patch_ensemble(body: dict, create: bool) -> str:
                         break
                     elif key == patch_inner["name"]:
                         del doc[key]
+                    else:
+                        doc = doc[key]
                 else:
                     doc = doc.setdefault(key, {})
             if not deleted:
