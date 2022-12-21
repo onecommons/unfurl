@@ -34,7 +34,17 @@ flask_config = {
 app = Flask(__name__)
 app.config.from_mapping(flask_config)
 cache = Cache(app)
-app.config["UNFURL_OPTIONS"] = {}
+app.config["UNFURL_OPTIONS"] = {
+  "UNFURL_CLONE_ROOT": os.getenv("UNFURL_CLONE_ROOT") or "."
+}
+
+
+def get_project_id(request):
+    # sanitize: project_id should be a integer
+    project_id = request.args.get("auth_project")
+    if project_id:
+        return str(int(project_id))
+    return ""
 
 
 def _get_project_repo_dir(project_id: str) -> str:
@@ -237,7 +247,7 @@ def export():
     latest_commit = request.args.get("latest_commit")
     last_commit: Optional[str] = None
     if latest_commit is not None:
-        project_id = request.args["auth_project"]
+        project_id = get_project_id(request)
         branch = request.args.get("branch")
         file_path = _get_filepath(requested_format, request.args.get("deployment_path"))
         response, commitinfo = get_cache(project_id, file_path, branch, requested_format, latest_commit)
@@ -259,7 +269,7 @@ def export():
             if cloud_vars_url:
                 cloud_vars_url = unquote(cloud_vars_url)
             # logger.warning("cloud_vars_url %s", cloud_vars_url)
-            repo = _stage(git_url, cloud_vars_url, request.args.get("auth_project"))
+            repo = _stage(git_url, cloud_vars_url, get_project_id(request))
             if repo is None:
                 return create_error_response(
                     "INTERNAL_ERROR", "Could not find repository"
@@ -285,7 +295,7 @@ def export():
 
 @app.route("/populate_cache")
 def populate_cache():
-    project_id = request.args["auth_project"]
+    project_id = get_project_id(request)
     branch = request.args.get("branch")
     path = request.args["path"]
     latest_commit = request.args["latest_commit"]
@@ -297,11 +307,11 @@ def populate_cache():
         return "OK"
     project_dir = _get_project_repo_dir(project_id)
     if not os.path.isdir(project_dir):
+        url = request.args["url"]
         # don't try to clone private repository
         if request.args.get("visibility") != "public":
             logger.info("skipping populate cache for private repository %s", url)
             return "OK"
-        url = request.args["url"]
         git_url = unquote(url)  # Unescape the URL
         repo = _stage(git_url, "", project_id)
         if repo is None:
@@ -351,19 +361,19 @@ def _do_export(path, requested_format, deployment_enviroment):
 @app.route("/delete_deployment", methods=["POST"])
 def delete_deployment():
     body = request.json
-    return _patch_environment(body, request.args.get("auth_project") or "")
+    return _patch_environment(body, get_project_id(request))
 
 
 @app.route("/update_environment", methods=["POST"])
 def update_environment():
     body = request.json
-    return _patch_environment(body, request.args.get("auth_project") or "")
+    return _patch_environment(body, get_project_id(request))
 
 
 @app.route("/delete_environment", methods=["POST"])
 def delete_environment():
     body = request.json
-    return _patch_environment(body, request.args.get("auth_project") or "")
+    return _patch_environment(body, get_project_id(request))
 
 
 def _patch_deployment_blueprint(patch: dict, manifest: "YamlManifest", deleted: bool) -> None:
@@ -431,13 +441,13 @@ def _patch_node_template(patch: dict, tpl: dict) -> None:
 @app.route("/update_ensemble", methods=["POST"])
 def update_ensemble():
     body = request.json
-    return _patch_ensemble(body, False, request.args.get("auth_project") or "")
+    return _patch_ensemble(body, False, get_project_id(request))
 
 
 @app.route("/create_ensemble", methods=["POST"])
 def create_ensemble():
     body = request.json
-    return _patch_ensemble(body, True, request.args.get("auth_project") or "")
+    return _patch_ensemble(body, True, get_project_id(request))
 
 
 def update_deployment(project, key, patch_inner, save, deleted=False):
