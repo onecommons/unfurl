@@ -277,7 +277,8 @@ def mark_sensitive(task, resource):
                 if containers:
                     for container in containers:
                         for env in container.get("env") or []:
-                            env["value"] = task.sensitive(env["value"])
+                            if "value" in env:
+                                env["value"] = task.sensitive(env["value"])
 
 
 class ResourceConfigurator(AnsibleConfigurator):
