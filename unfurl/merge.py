@@ -211,7 +211,7 @@ def _json_pointer_unescape(s):
     return s.replace("~1", "/").replace("~0", "~")
 
 
-_RE_INVALID_JSONPOINTER_ESCAPE = re.compile("(~[^01]|~$)")
+_RE_INVALID_JSONPOINTER_ESCAPE = re.compile("~[^01]|(~$)")
 
 
 def _json_pointer_validate(pointer):
