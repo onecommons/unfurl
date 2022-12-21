@@ -64,6 +64,9 @@ def normalize_git_url_hard(url):
 
 
 def is_url_or_git_path(url):
+    if url.startswith("--"):
+        # security: see https://github.com/gitpython-developers/GitPython/issues/1517
+        return False
     if "://" in url and not url.startswith("file:"):
         return True
     if "@" in url:
@@ -79,6 +82,9 @@ def split_git_url(url):
     Returns (repoURL, filePath, revision)
     RepoURL will be an empty string if it isn't a path to a git repo
     """
+    if url.startswith("--"):
+        # security: see https://github.com/gitpython-developers/GitPython/issues/1517
+        return False
     parts = urlparse(url)
     if parts.scheme == "git-local":
         return parts.scheme + "://" + parts.netloc, parts.path[1:], parts.fragment
