@@ -890,7 +890,7 @@ def _get_or_make_primary(spec, db):
     return root.name, root.type
 
 
-def to_graphql_blueprint(spec, db, deploymentTemplates=None):
+def to_graphql_blueprint(spec, db):
     """
     Returns json object as ApplicationBlueprint
 
@@ -913,7 +913,7 @@ def to_graphql_blueprint(spec, db, deploymentTemplates=None):
     title, name = _template_title(spec, root_name)
     blueprint = dict(__typename="ApplicationBlueprint", name=name, title=title)
     blueprint["primary"] = root_type
-    blueprint["deploymentTemplates"] = deploymentTemplates or []
+    blueprint["deploymentTemplates"] = []
     blueprint["description"] = spec.template.description
     metadata = spec.template.tpl.get("metadata") or {}
     blueprint["livePreview"] = metadata.get("livePreview")
@@ -1053,10 +1053,8 @@ def get_deployment_blueprints(manifest, blueprint, root_name, db):
 
 def get_blueprint_from_topology(manifest, db):
     spec = manifest.tosca
-    title = os.getenv("DEPLOYMENT") or os.path.basename(os.path.dirname(manifest.path))
-    slug = slugify(title)
     # XXX cloud = spec.topology.primary_provider
-    blueprint, root_name = to_graphql_blueprint(spec, db, [title])
+    blueprint, root_name = to_graphql_blueprint(spec, db)
     templates = get_deployment_blueprints(manifest, blueprint, root_name, db)
 
     template = {}
@@ -1065,9 +1063,11 @@ def get_blueprint_from_topology(manifest, db):
         deployment_blueprint = templates[deployment_blueprint_name]
         template = deployment_blueprint.copy()
 
+    # the deployment template created for this deployment will have a "source" key
+    # so if it doesn't (or one wasn't set) create a new one and set the current one as its "source"
     if "source" not in template:
-        # the deployment template created for this deployment will have a "source" key
-        # so if it doesn't (or one wasn't set) create a new one and set the current one as its "source"
+        title = os.path.basename(os.path.dirname(manifest.path))
+        slug = slugify(title)
         template.update(
             dict(
                 __typename="DeploymentTemplate",
@@ -1084,6 +1084,9 @@ def get_blueprint_from_topology(manifest, db):
                 .rstrip(".git"),
             )
         )
+        templates[slug] = template
+
+    blueprint["deploymentTemplates"] = list(templates)
     template["blueprint"] = blueprint["name"]
     template["primary"] = root_name
     template["environmentVariableNames"] = list(_generate_env_names(spec, root_name))
@@ -1156,6 +1159,7 @@ def add_graphql_deployment(manifest, db, dtemplate):
       status: Status
       summary: String
       workflow: String
+      deployTime: String
     }
     """
     name = dtemplate["name"]
@@ -1187,10 +1191,8 @@ def add_graphql_deployment(manifest, db, dtemplate):
             )
             if workflow == "undeploy" and deployment["status"] == Status.ok:
                 deployment["status"] = Status.absent
-
         deployment["summary"] = manifest.lastJob.get("summary")
-    deployment["ci_job_id"] = os.getenv("CI_JOB_ID")
-    deployment["ci_pipeline_id"] = os.getenv("CI_PIPELINE_ID")
+        deployment["deployTime"] = manifest.lastJob.startTime.isoformat(' ', 'seconds')
 
     url = manifest.rootResource.attributes["outputs"].get("url")
     primary_resource = db["Resource"].get(primary_name)
