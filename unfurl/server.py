@@ -40,10 +40,9 @@ app.config["UNFURL_OPTIONS"] = {
 
 
 def get_project_id(request):
-    # sanitize: project_id should be a integer
     project_id = request.args.get("auth_project")
     if project_id:
-        return str(int(project_id))
+        return project_id
     return ""
 
 
@@ -194,6 +193,7 @@ def _stage(git_url: str, cloud_vars_url: str, project_id: str = None) -> Optiona
 
     # repo doesn't exists, clone it
     if not repo:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
         result = init.clone(
             git_url,
             path,
@@ -258,7 +258,7 @@ def export():
             repo = GitRepo(commitinfo.repo)
             last_commit = commitinfo.hexsha
             # XXX? check date to see if its recent enough to serve anyway
-            # if time.gmtime(commitinfo.committed_date) - time.time() < stale_ok_age:
+            # if commitinfo.committed_date - time.time() < stale_ok_age:
             #      return jsonify(response)
 
     url = request.args.get("url")  # asking for external ensemble
