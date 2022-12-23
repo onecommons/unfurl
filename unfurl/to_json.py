@@ -16,6 +16,7 @@ import os.path
 import sys
 import itertools
 import json
+import datetime
 from typing import Any, Dict, List, Optional, Union, cast, TYPE_CHECKING
 from collections import Counter
 from collections.abc import Mapping, MutableSequence
@@ -37,6 +38,7 @@ from .tosca import is_function, get_nodefilters
 from .localenv import LocalEnv
 from .util import to_enum, UnfurlError
 from .support import Status, is_template
+from .result import ChangeRecord
 
 logger = getLogger("unfurl")
 
@@ -1090,6 +1092,9 @@ def get_blueprint_from_topology(manifest, db):
     template["blueprint"] = blueprint["name"]
     template["primary"] = root_name
     template["environmentVariableNames"] = list(_generate_env_names(spec, root_name))
+    last_commit_time = manifest.last_commit_time()
+    if last_commit_time:
+        template["commitTime"] = datetime.datetime.fromtimestamp(last_commit_time).isoformat(' ', 'seconds')
     return blueprint, template
 
 
@@ -1192,7 +1197,8 @@ def add_graphql_deployment(manifest, db, dtemplate):
             if workflow == "undeploy" and deployment["status"] == Status.ok:
                 deployment["status"] = Status.absent
         deployment["summary"] = manifest.lastJob.get("summary")
-        deployment["deployTime"] = manifest.lastJob.startTime.isoformat(' ', 'seconds')
+        deployment["deployTime"] = datetime.datetime.strptime(
+            manifest.lastJob["startTime"], ChangeRecord.DateTimeFormat).isoformat(' ', 'seconds')
 
     url = manifest.rootResource.attributes["outputs"].get("url")
     primary_resource = db["Resource"].get(primary_name)

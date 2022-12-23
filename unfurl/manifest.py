@@ -606,6 +606,21 @@ class Manifest(AttributeManager):
     def get_import_resolver(self, ignoreFileNotFound=False, expand=False, config=None):
         return ImportResolver(self, ignoreFileNotFound, expand, config)
 
+    def last_commit_time(self) -> float:
+        # return seconds (0 if not found)
+        repo = self.repo
+        if not repo:
+            return 0
+        try:
+            # find the revision that last modified this file before or equal to the current revision
+            # (use current revision to handle branches)
+            commits = list(repo.repo.iter_commits(repo.revision, self.path, max_count=1))
+        except ValueError:
+            return 0
+        if commits:
+            return commits[0].committed_date
+        return 0
+
 
 class SnapShotManifest(Manifest):
     def __init__(self, manifest, commitId):
