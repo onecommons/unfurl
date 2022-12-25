@@ -360,7 +360,6 @@ def _do_export(project_id: str, requested_format: str, deployment_path: str, cac
     # load the ensemble
     local_env = None
     try:
-        logger.error("%s %s", os.path.exists(clone_location), clone_location)
         local_env = LocalEnv(
             clone_location,
             current_app.config["UNFURL_OPTIONS"].get("home"),
