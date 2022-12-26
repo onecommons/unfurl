@@ -206,10 +206,6 @@ class KomposeConfigurator(ShellConfigurator):
     # XXX add a delete operation that deletes child resources
     def run(self, task):
         assert task.configSpec.operation in ["configure", "create"]
-        if task.reason == Reason.reconfigure:
-            subtask = yield task.create_sub_task("Install.restart")
-            yield subtask.result
-            return
         cwd = task.get_work_folder()
         out_path = cwd.get_current_path(self._output_dir)
         files = os.listdir(out_path)
