@@ -1025,8 +1025,8 @@ def _create_local_config(clonedProject, logger, vars):
         vars["generate_new_vault_password"] = (
             lambda: _warn_about_new_password(dest) or get_random_password()
         )
-        # replace ${var}
-        contents = substitute_env(contents, vars)
+        # replace ${var} or preserve if not set
+        contents = substitute_env(contents, vars, True)
 
         _write_file(
             os.path.join(clonedProject.projectRoot, "local"),

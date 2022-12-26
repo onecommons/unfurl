@@ -593,7 +593,7 @@ class Project:
             key = templatePath
             merge = None
 
-        url_vars = {} # os.environ.copy()
+        url_vars = {}
         url_vars.update(self.overrides)
         if action:
             if isinstance(action, str):
@@ -892,6 +892,7 @@ class LocalEnv:
         project: Optional[Project] = None,
         can_be_empty: bool = False,
         override_context: Optional[str] = None,
+        overrides: Optional[Dict[str, Any]] = None,
     ) -> None:
         """
         If manifestPath is None find the first unfurl.yaml or ensemble.yaml
@@ -906,7 +907,7 @@ class LocalEnv:
         logger = logging.getLogger("unfurl")
         self.logger = logger
         self.manifest_context_name = None
-        self.overrides: Dict[str, Any] = {}
+        self.overrides: dict = overrides or {}
         if override_context is not None:
             # aka the --use-environment option
             # hackishly, "" is a valid option used by load_yaml_include

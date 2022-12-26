@@ -308,7 +308,7 @@ class Configurator:
                 results.append(task.inputs._getresult(key))
 
         newDigest = get_digest(results, manifest=task._manifest)
-        # I can't find somewhere where digestValue is defined on ChangeRecord, but I'll assume the use is correct
+        # note: digestValue attribute is set in Manifest.load_config_change
         mismatch = changeset.digestValue != newDigest  # type: ignore
         if mismatch:
             task.logger.verbose(

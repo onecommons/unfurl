@@ -565,7 +565,9 @@ def _patch_ensemble(body: dict, create: bool, project_id: str) -> str:
                          use_environment=environment, use_deployment_blueprint=deployment_blueprint)
         logger.info(msg)
     # don't validate in case we are still an incomplete draft
-    manifest = LocalEnv(clone_location, override_context=environment).get_manifest(skip_validation=True)
+    cloud_vars_url = body.get("cloud_vars_url") or ""
+    overrides = dict(ENVIRONMENT=environment, UNFURL_CLOUD_VARS_URL=cloud_vars_url)
+    manifest = LocalEnv(clone_location, overrides=overrides).get_manifest(skip_validation=True)
     # logger.info("vault secrets %s", manifest.manifest.vault.secrets)
     for patch_inner in patch:
         assert isinstance(patch_inner, dict)
