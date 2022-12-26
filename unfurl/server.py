@@ -63,7 +63,8 @@ CacheValueType = Tuple[Any, str, str]
 # XXX support dependencies on multiple repositories (e.g. unfurl-types):
 # in get_and_set(), have work() return (and set_cache receives) a list of (project_id, branch, latest_commit) instead of `latest_commit`
 # get_cache would have to check all of them (and unless all latest_commits are passed to get_cache it will have check every time)
-# to mitigate cache misses on muti-use/monolithic repos use branches to partition uses? but that would require a lot of branch management for interdependent code.
+# (and the request would still need to send the root latest_commit)
+# to mitigate cache misses on multi-use/monolithic repos use branches to partition uses? but that would require a lot of branch management for interdependent code.
 
 # more sophisticated option: allow tag refs as the last_commit, so cache.get() has a semantic versioned tags as latest_commits
 # if the primary latest_commit isn't out of date, we assume the tags are accurate
@@ -304,6 +305,7 @@ def export():
     if latest_commit is not None:
         branch = request.args.get("branch")
         cache_entry = CacheEntry(project_id, branch, file_path, requested_format)
+
         def _cache_work(cache_entry, latest_commit):
             return _do_export(cache_entry.project_id, cache_entry.key, cache_entry.file_path, cache_entry, request.args)
         err, json_summary = cache_entry.get_or_set(cache, _cache_work, latest_commit)
@@ -313,8 +315,8 @@ def export():
         return err
     else:
         return jsonify(json_summary)
-    
-      
+
+
 @app.route("/populate_cache")
 def populate_cache():
     project_id = get_project_id(request)
@@ -486,6 +488,8 @@ def update_deployment(project, key, patch_inner, save, deleted=False):
     if save:
         localConfig.config.save()
 
+def _patch_response(repo: GitRepo):
+    return jsonify(dict(commit=repo.revision))
 
 def _patch_environment(body: dict, project_id: str) -> str:
     patch = body.get("patch")
@@ -528,7 +532,7 @@ def _patch_environment(body: dict, project_id: str) -> str:
     commit_msg = body.get("commit_msg", "Update environment")
     invalidate_cache(body, "environments", project_id)
     _commit_and_push(repo, localConfig.config.path, commit_msg)
-    return "OK"
+    return _patch_response(repo)
 
 
 # def queue_request(environ):
@@ -595,7 +599,7 @@ def _patch_ensemble(body: dict, create: bool, project_id: str) -> str:
     if manifest.repo.repo.remotes:
         manifest.repo.repo.remotes.origin.push()
         logger.info("pushed")
-    return "OK"
+    return _patch_response(manifest.repo)
 
 
 # no longer used
@@ -655,6 +659,7 @@ def _commit_and_push(repo, full_path, commit_msg):
     if repo.repo.remotes:
         repo.repo.remotes.origin.push()
         logger.info("pushed")
+    return repo.revision
 
 
 def _fetch_localenv_location(project_path: str, deployment_path: str, args: dict) -> Optional[str]:

@@ -371,6 +371,7 @@ def test_server_update_deployment():
                 }
             )
             assert res.status_code == 200
+            assert res.content.startswith(b'{"commit":')
             with open("ensemble/ensemble.yaml", "r") as f:
                 data = yaml.load(f.read())
                 assert not data['spec']['service_template']['topology_template']['node_templates']
