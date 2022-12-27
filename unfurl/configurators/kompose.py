@@ -155,7 +155,6 @@ class KomposeConfigurator(ShellConfigurator):
         labels["kompose.image-pull-policy"] = main_service.get(
             "pull_policy", "Always"
         ).title()
-
         # create the output directory:
         output_dir = cwd.get_current_path(self._output_dir)
         if not os.path.isdir(output_dir):
@@ -199,25 +198,30 @@ class KomposeConfigurator(ShellConfigurator):
             task.logger.debug("setting ingress_extras to:\n%s", ingress_extras)
         if not self._handle_result(task, result, cwd.cwd):
             raise UnfurlTaskError(task, "kompose convert failed")
-        return ingress_extras
+        definitions = self.save_definitions(task, output_dir, ingress_extras)
+        task.target.attributes["definitions"] = definitions
+        return definitions
 
-    # XXX if updating should either update or delete previously created resources
-    # XXX when updating compare resources, if nothing has yield the restart operation
-    # XXX add a delete operation that deletes child resources
-    def run(self, task):
-        assert task.configSpec.operation in ["configure", "create"]
-        cwd = task.get_work_folder()
-        out_path = cwd.get_current_path(self._output_dir)
+    def save_definitions(self, task, out_path, ingress_extras):
         files = os.listdir(out_path)
         # add each file as a Unfurl k8s resource so unfurl can manage them (in particular, delete them)
         task.logger.verbose(
             "Creating Kubernetes resources from these files: %s", ", ".join(files)
         )
-        ingress_extras = task.rendered
+        return {Path(filename).stem: _load_resource_file(task, out_path, filename, ingress_extras)
+                for filename in files}
+
+    # XXX if updating delete previously created resources that are no longer referenced
+    # XXX when updating compare resources, if nothing has yield the restart operation
+    # XXX add a delete operation that deletes child resources
+    def run(self, task):
+        assert task.configSpec.operation in ["configure", "create"]
+        # add each file as a Unfurl k8s resource so unfurl can manage them (in particular, delete them)
+        definitions = task.target.attributes["definitions"] or {}
         jobRequest, errors = task.update_instances(
             [
-                _load_resource_file(task, out_path, filename, ingress_extras)
-                for filename in files
+                _render_template(task, task.target.name, name, definition["kind"])
+                for name, definition in definitions.items()
             ]
         )
         if errors:
@@ -233,14 +237,14 @@ class KomposeConfigurator(ShellConfigurator):
         return True
 
 
-def configure_inputs(definition, timeout):
+def configure_inputs(kind, timeout):
     timeout = timeout or TIMEOUT
     delay = 10
     configuration = dict(wait=True, wait_timeout=timeout)
-    if definition["kind"] == "Deployment":
+    if kind == "Deployment":
         configuration["wait_condition"] = {"status": "True", "type": "Progressing"}
     inputs = {"configuration": configuration}
-    if definition["kind"] == "Ingress":
+    if kind == "Ingress":
         inputs["playbook"] = dict(
             register="rs",
             until="rs.result.status.loadBalancer.ingress is defined",
@@ -263,15 +267,20 @@ def _load_resource_file(task, out_path, filename, ingress_extras):
             annotations
         )
     mark_sensitive(task, definition)
+    return definition
+
+
+def _render_template(task, rname: str, name: str, kind: str) -> dict:
+    expr = dict(eval=f"::{rname}::definitions::{name}")
     return dict(
-        name=Path(filename).stem,
+        name=name,
         parent="SELF",  # so the host namespace is honored
         template=dict(
             type="unfurl.nodes.K8sRawResource",
-            properties=dict(definition=definition),
+            properties=dict(definition=expr),
             interfaces=dict(
                 Standard=dict(
-                    inputs=configure_inputs(definition, task.configSpec.timeout)
+                    inputs=configure_inputs(kind, task.configSpec.timeout)
                 )
             ),
         ),

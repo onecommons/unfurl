@@ -918,6 +918,14 @@ class TaskView:
                     truncate_str(value),
                 )
             updated = True
+
+        template = resourceSpec.get("template")
+        if isinstance(template, str) and template != existingResource.template.name:
+            raise UnfurlTaskError(
+                self,
+                f"changing TOSCA templates in update_instances not supported: {existingResource.name} changed to {template}",
+            )
+
         return updated
 
     def _parse_instances_tpl(
