@@ -124,15 +124,14 @@ class CacheEntry:
             # newer not in repo, repo probably is out of date
             self.repo.pull()
 
-    def commit_older_than(self, older, newer):
+    def is_commit_older_than(self, older, newer):
         self._pull_if_missing_commit(newer)
         assert self.repo
-        # check if latest_commit is older than the cached_latest_commit
         # if "older..newer" is true iter_commits (git rev-list) will list
         # newer commits up to and including "newer", newest first
         # otherwise the list will be empty
         if list(self.repo.repo.iter_commits(f"{older}..{newer}", max_count=1)):
-            return True  # latest_commit is older than cached_latest_commit
+            return True
         return False
 
     def get_cache(self, cache, latest_commit: str) -> Tuple[Any, Union[bool, "Commit"]]:
@@ -153,16 +152,16 @@ class CacheEntry:
         else:
             # cache might be out of date, let's check by getting the commit info for the file path
             try:
-                older = self.commit_older_than(cached_latest_commit, latest_commit)
+                cached_is_older = self.is_commit_older_than(cached_latest_commit, latest_commit)
             except Exception:
                 logger.info("cache hit for %s, but error with client's commit %s", full_key, latest_commit)
                 # got error resolving last_commit, just return the cached value
                 return response, True
-            if older:
+            if not cached_is_older:
                 # the client has an older commit than the cache had, so treat as a cache hit
                 logger.info("cache hit for %s with %s", full_key, latest_commit)
                 return response, True
-            
+
             assert self.repo
             # the latest_commit is newer than the cached_latest_commit, check if the file has changed
             commits = list(self.repo.repo.iter_commits(self.branch, [self.file_path], max_count=1))
