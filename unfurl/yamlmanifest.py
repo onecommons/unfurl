@@ -3,6 +3,7 @@
 """Loads and saves a ensemble manifest.
 """
 from __future__ import absolute_import
+from typing import Dict, List, Optional, Tuple
 import six
 import sys
 from collections.abc import MutableSequence, Mapping
@@ -15,11 +16,11 @@ from . import DefaultNames
 from .util import UnfurlError, to_yaml_text, filter_env
 from .merge import patch_dict, intersect_dict
 from .yamlloader import YamlConfig, make_yaml
-from .result import serialize_value, ChangeRecord
+from .result import serialize_value
 from .support import ResourceChanges, Defaults, Status
 from .localenv import LocalEnv
 from .lock import Lock
-from .manifest import Manifest, relabel_dict
+from .manifest import Manifest, relabel_dict, ChangeRecordRecord
 from .tosca import ArtifactSpec, find_env_vars
 from .runtime import TopologyInstance
 from .eval import map_value
@@ -268,7 +269,7 @@ def clone(localEnv, destPath):
 
 
 class YamlManifest(ReadOnlyManifest):
-    _operationIndex = None
+    _operationIndex: Optional[Dict[Tuple[str, str], str]] = None
     lockfilepath = None
     lockfile = None
 
@@ -543,8 +544,7 @@ class YamlManifest(ReadOnlyManifest):
         self.imports.add_import(name, resource, value)
         self._importedManifests[id(root)] = importedManifest
 
-    def load_changes(self, changes, changeLogPath):
-        # self.changeSets[changeid => ChangeRecords]
+    def load_changes(self, changes: Optional[List[dict]], changeLogPath: str) -> bool:
         if changes is not None:
             self.changeSets = {
                 c.changeId: c
@@ -557,7 +557,7 @@ class YamlManifest(ReadOnlyManifest):
                     self.changeSets = {
                         c.changeId: c
                         for c in (
-                            ChangeRecord(parse=line.strip())
+                            ChangeRecordRecord(parse=line.strip())
                             for line in f.readlines()
                             if not line.strip().startswith("#")
                         )
@@ -596,23 +596,21 @@ class YamlManifest(ReadOnlyManifest):
             return True
         return False
 
-    def find_last_operation(self, target, operation):
+    def find_last_operation(self, target, operation) -> Optional[ChangeRecordRecord]:
         if self._operationIndex is None:
-            operationIndex = {}
+            operationIndex: Dict[Tuple[str, str], str] = {}
             if self.changeSets:
                 # add list() for 3.7
                 for change in reversed(list(self.changeSets.values())):
-                    if not hasattr(change, "target") or not hasattr(
-                        change, "operation"
-                    ):
+                    if not change.target or not change.operation:
                         continue
                     key = (change.target, change.operation)
                     last = operationIndex.setdefault(key, change.changeId)
                     if last < change.changeId:
-                        operationIndex[key] = change
+                        operationIndex[key] = change.changeId
             self._operationIndex = operationIndex
         changeId = self._operationIndex.get((target, operation))
-        if changeId is not None:
+        if changeId is not None and self.changeSets:
             return self.changeSets[changeId]
         return None
 
@@ -944,7 +942,7 @@ class YamlManifest(ReadOnlyManifest):
                     if key.startswith("digest"):
                         attrs[key] = change[key]
                 attrs["summary"] = change["summary"]
-                line = ChangeRecord.format_log(change["changeId"], attrs)
+                line = ChangeRecordRecord.format_log(change["changeId"], attrs)
                 f.write(line)
 
     def save_change_log(self, jobRecord, newChanges):

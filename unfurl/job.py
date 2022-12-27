@@ -75,7 +75,6 @@ class ConfigChange(OperationalInstance, ChangeRecord):
     1. Live resource attributes that the configuration's inputs depend on.
     2. Other configurations and resources it relies on to function properly.
     """
-
     def __init__(
         self,
         parentJob: Optional["Job"] = None,
@@ -410,11 +409,11 @@ class ConfigTask(ConfigChange, TaskView):
     #         previousId = previousChange.previousId
     #     return None
 
-    def has_inputs_changed(self):
+    def has_inputs_changed(self) -> bool:
         """
         Evaluate configuration spec's inputs and compare with the current inputs' values
         """
-        changeset = self._manifest.find_last_operation(
+        changeset = cast("YamlManifest", self._manifest).find_last_operation(
             self.target.key, self.configSpec.operation
         )
         if not changeset:
