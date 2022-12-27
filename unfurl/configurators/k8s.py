@@ -205,6 +205,9 @@ class ClusterConfigurator(Configurator):
             return "Configurator can't perform this operation (only supports check and discover)"
         return True
 
+    def can_dry_run(self, task):
+        return True
+
     def run(self, task):
         cluster = task.target
         # the endpoint on the cluster will have connection info
