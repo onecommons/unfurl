@@ -920,11 +920,19 @@ class TaskView:
             updated = True
 
         template = resourceSpec.get("template")
-        if isinstance(template, str) and template != existingResource.template.name:
-            raise UnfurlTaskError(
-                self,
-                f"changing TOSCA templates in update_instances not supported: {existingResource.name} changed to {template}",
-            )
+        if template:
+            if isinstance(template, dict):
+                tname = existingResource.template.name
+                existingResource.template = self._manifest.tosca.add_node_template(tname, template)
+            elif isinstance(template, str) and template != existingResource.template.name:
+                nodeSpec = self._manifest.tosca.nodeTemplates.get(template)
+                if not nodeSpec:
+                    raise UnfurlTaskError(
+                        self,
+                        f"couldn't update TOSCA template for {existingResource.name}: '{template}' is not defined",
+                    )
+                existingResource.template = nodeSpec
+            updated = True
 
         return updated
 
