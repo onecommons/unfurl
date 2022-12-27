@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from functools import partial
 import json
 import os
 import time
@@ -155,7 +156,7 @@ class CacheEntry:
                 cached_is_older = self.is_commit_older_than(cached_latest_commit, latest_commit)
             except Exception:
                 logger.info("cache hit for %s, but error with client's commit %s", full_key, latest_commit)
-                # got error resolving last_commit, just return the cached value
+                # got an error resolving latest_commit, just return the cached value
                 return response, True
             if not cached_is_older:
                 # the client has an older commit than the cache had, so treat as a cache hit
@@ -182,7 +183,7 @@ class CacheEntry:
                 logger.info("stale cache hit for %s with %s", full_key, latest_commit)
                 return response, self.commitinfo
 
-    def get_or_set(self, cache, work: Callable, latest_commit) -> Tuple[Optional[Any], Any]:
+    def get_or_set(self, cache, work: Callable, latest_commit: str) -> Tuple[Optional[Any], Any]:
         value, commitinfo = self.get_cache(cache, latest_commit)
         if commitinfo:
             if commitinfo is True:
@@ -296,6 +297,10 @@ def format_from_path(path):
         return "deployment"
 
 
+def _cache_work(args: dict, cache_entry: CacheEntry, latest_commit: str) -> Any:
+    return _do_export(cache_entry.project_id, cache_entry.key, cache_entry.file_path, cache_entry, args)
+
+
 # /export?format=environments&include_deployments=true&latest_commit=foo&project_id=bar&branch=main
 @app.route("/export")
 def export():
@@ -314,16 +319,30 @@ def export():
     if latest_commit is not None:
         branch = request.args.get("branch")
         cache_entry = CacheEntry(project_id, branch, file_path, requested_format)
-
-        def _cache_work(cache_entry, latest_commit):
-            return _do_export(cache_entry.project_id, cache_entry.key, cache_entry.file_path, cache_entry, request.args)
-        err, json_summary = cache_entry.get_or_set(cache, _cache_work, latest_commit)
+        err, json_summary = cache_entry.get_or_set(cache, partial(_cache_work, request.args), latest_commit)
     else:
         err, json_summary = _do_export(project_id, requested_format, file_path, None, request.args)
-    if err:
-        return err
+    # XXX
+    # if err == 304:  # cache hit
+    #     etag = request.headers.get("If-None-Match")
+    #     if latest_commit == etag:
+    #         return "Not Modified", 304      
+    if not err:
+        if request.args.get("include_all_deployments"):
+            deployments = []
+            for manifest_path in json_summary["DeploymentPath"]:
+                dcache_entry = CacheEntry(project_id, branch, manifest_path, "deployment")
+                derr, djson = dcache_entry.get_or_set(cache, partial(_cache_work, request.args), latest_commit)
+                if derr:
+                    deployments.append(djson)
+            json_summary["deployments"] = deployments
+
+        response = jsonify(json_summary)
+        if latest_commit:
+            response.headers["Etag"] = f'W/"{latest_commit}"'
+        return response
     else:
-        return jsonify(json_summary)
+        return err
 
 
 @app.route("/populate_cache")
@@ -344,10 +363,7 @@ def populate_cache():
         if request.args.get("visibility") != "public":
             logger.info("skipping populate cache for private repository %s", project_id)
             return "OK"
-
-    def _cache_work(cache_entry, latest_commit):
-        return _do_export(cache_entry.project_id, cache_entry.key, cache_entry.file_path, cache_entry, request.args)
-    err, json_summary = cache_entry.get_or_set(cache, _cache_work, latest_commit)
+    err, json_summary = cache_entry.get_or_set(cache, partial(_cache_work, request.args), latest_commit)
     if err:
         return err
     else:
