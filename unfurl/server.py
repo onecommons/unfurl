@@ -35,8 +35,10 @@ flask_config = {
 app = Flask(__name__)
 app.config.from_mapping(flask_config)
 cache = Cache(app)
+app.config["UNFURL_OPTIONS"] = {}
 app.config["UNFURL_CLONE_ROOT"] = os.getenv("UNFURL_CLONE_ROOT") or "."
 app.config["UNFURL_CLOUD_SERVER"] = os.getenv("UNFURL_CLOUD_SERVER")
+
 
 def get_project_id(request):
     project_id = request.args.get("auth_project")
@@ -111,22 +113,28 @@ class CacheEntry:
         cache.set(full_key, (value, last_commit, latest_commit))
         return last_commit
 
-    def commit_newer_than(self, latest_commit, cached_latest_commit):
+    def _pull_if_missing_commit(self, commit: str):
         if not self.repo:
             self._set_project_repo()
-        repo = self.repo
-        assert repo  # if it's in the cache we should have local repository
+        if not self.repo:
+            return  # we don't have a local copy of the repo
         try:
-            repo.repo.commit(latest_commit)
+            self.repo.repo.commit(commit)
         except ValueError:
-            # latest_commit not in repo, repo probably is out of date
-            repo.pull()
+            # newer not in repo, repo probably is out of date
+            self.repo.pull()
 
+    def commit_older_than(self, older, newer):
+        self._pull_if_missing_commit(newer)
+        assert self.repo
         # check if latest_commit is older than the cached_latest_commit
-        if list(repo.repo.iter_commits(f"{latest_commit}..{cached_latest_commit}", max_count=1)):
+        # if "older..newer" is true iter_commits (git rev-list) will list
+        # newer commits up to and including "newer", newest first
+        # otherwise the list will be empty
+        if list(self.repo.repo.iter_commits(f"{older}..{newer}", max_count=1)):
             return True  # latest_commit is older than cached_latest_commit
         return False
-     
+
     def get_cache(self, cache, latest_commit: str) -> Tuple[Any, Union[bool, "Commit"]]:
         """Look up a cached value and then check if it out of date by checking if the file path in the key was modified after the given commit
         (also store the last_commit so we don't have to do that check everytime)
@@ -145,12 +153,12 @@ class CacheEntry:
         else:
             # cache might be out of date, let's check by getting the commit info for the file path
             try:
-                newer = self.commit_newer_than(latest_commit, cached_latest_commit)
+                older = self.commit_older_than(cached_latest_commit, latest_commit)
             except Exception:
                 logger.info("cache hit for %s, but error with client's commit %s", full_key, latest_commit)
                 # got error resolving last_commit, just return the cached value
                 return response, True
-            if not newer:
+            if older:
                 # the client has an older commit than the cache had, so treat as a cache hit
                 logger.info("cache hit for %s with %s", full_key, latest_commit)
                 return response, True
@@ -184,6 +192,8 @@ class CacheEntry:
             # XXX? check date to see if its recent enough to serve anyway
             # if commitinfo.committed_date - time.time() < stale_ok_age:
             #      return value
+        else:  # cache miss
+            self._pull_if_missing_commit(latest_commit)
         err, value = work(self, latest_commit)
         if not err:
             self.set_cache(cache, latest_commit, value)
