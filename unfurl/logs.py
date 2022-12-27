@@ -18,8 +18,8 @@ except ImportError:
 
 HIDDEN_MSG_LOGGER = "unfurl.metadata"
 
-
-def truncate(s: str, max: int = 748) -> str:
+DEFAULT_TRUNCATE_LENGTH = 748
+def truncate(s: str, max: int = DEFAULT_TRUNCATE_LENGTH) -> str:
     if not s:
         return ""
     if len(s) > max:
@@ -113,10 +113,11 @@ class ColorHandler(logging.StreamHandler):
     }
 
     def emit(self, record: logging.LogRecord) -> None:
-        if record.exc_info:
-            message = self.format(record)
-        else:
-            message = truncate(self.format(record))
+        message = self.format(record)
+        if not record.exc_info:
+            truncate_length = getattr(record, "truncate", DEFAULT_TRUNCATE_LENGTH)
+            if truncate_length:
+                message = truncate(message, truncate_length)
         # Hide meta job output because it seems to also be logged captured by
         # the root logger.
         if record.name.startswith(HIDDEN_MSG_LOGGER):

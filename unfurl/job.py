@@ -601,7 +601,7 @@ class Job(ConfigChange):
         if self.external_requests:
             msg = "Running local installation tasks"
             plan, count = self._plan_summary([], self.external_requests)
-            logger.info(msg + "\n%s", plan)
+            logger.info(msg + "\n%s", plan, extra=dict(truncate=0))
 
         # currently external jobs are just for installing artifacts
         # we want to run these even if we just generating a plan
@@ -1306,7 +1306,7 @@ def _plan(manifest, jobOptions):
     else:
         msg = "Initial static plan:"
     plan_msg, count = job._plan_summary(job.plan_requests, job.external_requests)
-    logger.debug(msg + "\n%s", plan_msg)
+    logger.debug(msg + "\n%s", plan_msg, extra=dict(truncate=0))
     return job
 
 
@@ -1315,7 +1315,7 @@ def _render(job):
     with change_cwd(job.manifest.get_base_dir()):
         ready, notReady, errors = job.render()
         msg, count = job._plan_summary(ready + notReady, [])
-        logger.info(msg)
+        logger.info(msg, extra=dict(truncate=0))
     return (ready, notReady, errors), count
 
 
