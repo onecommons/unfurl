@@ -82,6 +82,7 @@ class CacheEntry:
     key: str
     repo: Optional[GitRepo] = None
     commitinfo: Optional["Commit"] = None
+    hit: Optional[bool] = None
 
     def _set_project_repo(self) -> Optional[GitRepo]:
         self.repo = _get_project_repo(self.project_id)
@@ -144,11 +145,13 @@ class CacheEntry:
         value = cast(CacheValueType, cache.get(full_key))
         if not value:
             logger.info("cache miss for %s", full_key)
+            self.hit = False
             return None, False  # cache miss
         response, last_commit, cached_latest_commit = value
         if not latest_commit or latest_commit == cached_latest_commit:
             # this is the latest (or we aren't checking)
             logger.info("cache hit for %s with %s", full_key, latest_commit)
+            self.hit = True
             return response, True
         else:
             # cache might be out of date, let's check by getting the commit info for the file path
@@ -157,10 +160,12 @@ class CacheEntry:
             except Exception:
                 logger.info("cache hit for %s, but error with client's commit %s", full_key, latest_commit)
                 # got an error resolving latest_commit, just return the cached value
+                self.hit = True
                 return response, True
             if not cached_is_older:
                 # the client has an older commit than the cache had, so treat as a cache hit
                 logger.info("cache hit for %s with %s", full_key, latest_commit)
+                self.hit = True
                 return response, True
 
             assert self.repo
@@ -177,6 +182,7 @@ class CacheEntry:
                 # the file hasn't changed, let's update the cache with latest_commit so we don't have to do this check again
                 cache.set(full_key, (response, last_commit, latest_commit))
                 logger.info("cache hit for %s, updated %s", full_key, latest_commit)
+                self.hit = True
                 return response, True
             else:
                 # stale -- up to the caller to do something about it, e.g. update or delete the key
@@ -192,6 +198,7 @@ class CacheEntry:
             # XXX? check date to see if its recent enough to serve anyway
             # if commitinfo.committed_date - time.time() < stale_ok_age:
             #      return value
+            self.hit = False
         else:  # cache miss
             self._pull_if_missing_commit(latest_commit)
         err, value = work(self, latest_commit)
@@ -322,21 +329,21 @@ def export():
         err, json_summary = cache_entry.get_or_set(cache, partial(_cache_work, request.args), latest_commit)
     else:
         err, json_summary = _do_export(project_id, requested_format, file_path, None, request.args)
-    # XXX
-    # if err == 304:  # cache hit
-    #     etag = request.headers.get("If-None-Match")
-    #     if latest_commit == etag:
-    #         return "Not Modified", 304      
     if not err:
+        hit = cache_entry and cache_entry.hit
         if request.args.get("include_all_deployments"):
             deployments = []
             for manifest_path in json_summary["DeploymentPath"]:
                 dcache_entry = CacheEntry(project_id, branch, manifest_path, "deployment")
                 derr, djson = dcache_entry.get_or_set(cache, partial(_cache_work, request.args), latest_commit)
-                if derr:
+                if not derr:
                     deployments.append(djson)
+                    hit = hit and dcache_entry.hit
             json_summary["deployments"] = deployments
-
+        if hit:
+            etag = request.headers.get("If-None-Match")
+            if latest_commit == etag:
+                return "Not Modified", 304
         response = jsonify(json_summary)
         if latest_commit:
             response.headers["Etag"] = f'W/"{latest_commit}"'

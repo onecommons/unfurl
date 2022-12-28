@@ -255,16 +255,18 @@ def test_server_export_remote(caplog):
                             "latest_commit": last_commit,  # enable caching but just get the latest in the cache
                             "format": export_format,
                         },
+                        headers={"If-None-Match": last_commit}
                     )
-                    assert res.status_code == 200
-                    # process_logoutput = capsys.readouterr().err
-                    # print("process_logoutput", process_logoutput)
                     file_path = server._get_filepath(export_format, None)
                     key = server.CacheEntry(project_id, "", file_path, export_format).cache_key()
-                    # XXX assert f"{msg} {key}" in caplog.text
+                    # XXX figure out how to capture the server process' stderr, caplog and capsys don't work
+                    # process_logoutput = capsys.readouterr().err
+                    # print("process_logoutput", process_logoutput)
+                    # assert f"{msg} {key}" in caplog.text
                     # print(export_format)
                     # print(json.dumps(res.json(), indent=2)
                     if msg == "cache miss for":
+                        assert res.status_code == 200
                         # don't bother re-exporting the second time
                         exported = run_cmd(
                             runner,
@@ -275,7 +277,10 @@ def test_server_export_remote(caplog):
                         # Strip out output from the http server
                         output = exported.output
                         cleaned_output = output[max(output.find("{"), 0):]
-                    assert res.json() == json.loads(cleaned_output)
+                        assert res.json() == json.loads(cleaned_output)
+                    else:
+                        # cache hit
+                        assert res.status_code == 304
             
             # test with a blueprint
             run_cmd(
