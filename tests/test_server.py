@@ -255,7 +255,7 @@ def test_server_export_remote(caplog):
                             "latest_commit": last_commit,  # enable caching but just get the latest in the cache
                             "format": export_format,
                         },
-                        headers={"If-None-Match": last_commit}
+                        headers={"If-None-Match": server._make_etag(last_commit)}
                     )
                     file_path = server._get_filepath(export_format, None)
                     key = server.CacheEntry(project_id, "", file_path, export_format).cache_key()

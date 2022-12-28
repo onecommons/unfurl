@@ -309,6 +309,10 @@ def _cache_work(args: dict, cache_entry: CacheEntry, latest_commit: str) -> Any:
     return _do_export(cache_entry.project_id, cache_entry.key, cache_entry.file_path, cache_entry, args)
 
 
+def _make_etag(latest_commit: str):
+    return f'W/"{latest_commit}"'
+
+
 # /export?format=environments&include_deployments=true&latest_commit=foo&project_id=bar&branch=main
 @app.route("/export")
 def export():
@@ -343,11 +347,11 @@ def export():
             json_summary["deployments"] = deployments
         if hit:
             etag = request.headers.get("If-None-Match")
-            if f'W/"{latest_commit}"' == etag:
+            if _make_etag(latest_commit) == etag:
                 return "Not Modified", 304
         response = jsonify(json_summary)
         if latest_commit:
-            response.headers["Etag"] = f'W/"{latest_commit}"'
+            response.headers["Etag"] = _make_etag(latest_commit)
         return response
     else:
         return err
