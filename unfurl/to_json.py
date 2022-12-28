@@ -1098,7 +1098,7 @@ def get_blueprint_from_topology(manifest, db):
     return blueprint, template
 
 
-def to_graphql(localEnv):
+def _to_graphql(localEnv):
     # set skip_validation because we want to be able to dump incomplete service templates
     manifest = localEnv.get_manifest(skip_validation=True)
     db = {}
@@ -1216,7 +1216,7 @@ def add_graphql_deployment(manifest, db, dtemplate):
 
 
 def to_blueprint(localEnv, existing=None):
-    db, manifest, env, env_types = to_graphql(localEnv)
+    db, manifest, env, env_types = _to_graphql(localEnv)
     blueprint, root_name = to_graphql_blueprint(manifest.tosca, db)
     deployment_blueprints = get_deployment_blueprints(
         manifest, blueprint, root_name, db
@@ -1229,13 +1229,15 @@ def to_blueprint(localEnv, existing=None):
 
 # NB! to_deployment is the default export format used by __main__.export (but you won't find that via grep)
 def to_deployment(localEnv, existing=None):
-    db, manifest, env, env_types = to_graphql(localEnv)
+    logger.debug("exporting deployment %s", localEnv.manifestPath)
+    db, manifest, env, env_types = _to_graphql(localEnv)
     blueprint, dtemplate = get_blueprint_from_topology(manifest, db)
     db["DeploymentTemplate"] = {dtemplate["name"]: dtemplate}
     db["ApplicationBlueprint"] = {blueprint["name"]: blueprint}
-    deployment = add_graphql_deployment(manifest, db, dtemplate)
+    add_graphql_deployment(manifest, db, dtemplate)
     # don't include base node type:
     db["ResourceType"].pop("tosca.nodes.Root")
+    logger.debug("finished exporting deployment %s", localEnv.manifestPath)
     return db
 
 
@@ -1333,11 +1335,12 @@ def to_environments(localEnv, existing=None):
     blueprintdb = None
     for name in localEnv.project.contexts:
         # we create new LocalEnv for each context because we need to instantiate a different ToscaSpec object
-        blueprintdb, manifest, env, env_types = to_graphql(
+        blueprintdb, manifest, env, env_types = _to_graphql(
             LocalEnv(
                 localEnv.manifestPath,
                 project=localEnv.project,
                 override_context=name,
+                readonly=True,
             )
         )
         env["name"] = name
@@ -1356,12 +1359,26 @@ def to_environments(localEnv, existing=None):
         # XXX is it safe to only include types with "connect" implementations?
         all_connection_types.update(blueprintdb["ResourceType"])
     db["ResourceType"] = all_connection_types
-    db["DeploymentPath"] = to_deployments(localEnv)["DeploymentPath"]
+    db["DeploymentPath"] = set_deploymentpaths(localEnv.project)["DeploymentPath"]
     return db
 
 
 def to_deployments(localEnv, existing=None):
-    return set_deploymentpaths(localEnv.project, existing)
+    db = set_deploymentpaths(localEnv.project)
+    deployments = db["deployments"] = []
+    for manifest_path, dp in db["DeploymentPath"].items():
+        try:
+            # optimization: reuse localenv
+            localEnv.manifestPath = os.path.join(manifest_path, "ensemble.yaml")
+            environment = dp.get("environment") or "defaults"
+            localEnv.manifest_context_name = environment
+            deployments.append(to_deployment(localEnv))
+        except Exception:
+            logger.error("error exporting deployment %s", manifest_path, exc_info=True)
+
+    # from .yamlloader import yaml_perf
+    # _print(f"exported {len(deployments)} deployments, {yaml_perf} seconds parsing yaml")
+    return db
 
 
 def set_deploymentpaths(project, existing=None):
