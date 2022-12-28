@@ -38,6 +38,7 @@ from .tosca import is_function, get_nodefilters
 from .util import to_enum, UnfurlError
 from .support import Status, is_template
 from .result import ChangeRecord
+from .localenv import LocalEnv
 
 logger = getLogger("unfurl")
 
@@ -1324,7 +1325,7 @@ def to_environments(localEnv, existing=None):
     """
 
     # XXX one manifest and blueprint per environment
-    if existing:
+    if existing and os.path.exists(existing):
         with open(existing) as f:
             db = json.load(f)
     else:
@@ -1332,10 +1333,26 @@ def to_environments(localEnv, existing=None):
     environments = {}
     all_connection_types = {}
     blueprintdb = None
+    deployments = set_deploymentpaths(localEnv.project)["DeploymentPath"]
+    env_deployments = {}
+    for ensemble_info in deployments.values():
+        env_deployments[ensemble_info["environment"]] = ensemble_info["name"]
     for name in localEnv.project.contexts:
-        # set context because we need to instantiate a different ToscaSpec object
-        localEnv.manifest_context_name = name
-        blueprintdb, manifest, env, env_types = _to_graphql(localEnv)
+        if name in env_deployments:
+            # we can reuse the localEnv if there's a distinct manifest that uses this environment
+            localEnv.manifest_context_name = name
+            localEnv.manifestPath = os.path.join(env_deployments[name], "ensemble.yaml")
+            localLocalEnv = localEnv
+        else:
+            # this environment doesn't have any deployments so we have to create a new localEnv
+            # because we need to instantiate a different ToscaSpec object
+            localLocalEnv = LocalEnv(
+                localEnv.manifestPath,
+                parent=localEnv,
+                override_context=name,
+                readonly=True,
+            )
+        blueprintdb, manifest, env, env_types = _to_graphql(localLocalEnv)
         env["name"] = name
         environments[name] = env
         all_connection_types.update(env_types)
@@ -1352,7 +1369,7 @@ def to_environments(localEnv, existing=None):
         # XXX is it safe to only include types with "connect" implementations?
         all_connection_types.update(blueprintdb["ResourceType"])
     db["ResourceType"] = all_connection_types
-    db["DeploymentPath"] = set_deploymentpaths(localEnv.project)["DeploymentPath"]
+    db["DeploymentPath"] = deployments
     return db
 
 

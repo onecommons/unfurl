@@ -345,7 +345,8 @@ def export():
             deployments = []
             for manifest_path in json_summary["DeploymentPath"]:
                 dcache_entry = CacheEntry(project_id, branch, manifest_path, "deployment")
-                derr, djson = dcache_entry.get_or_set(cache, partial(_cache_work, request.args), latest_commit)
+                workfn = partial(_cache_work, request.args)
+                derr, djson = dcache_entry.get_or_set(cache, workfn, latest_commit)
                 if not derr:
                     deployments.append(djson)
                     hit = hit and dcache_entry.hit
@@ -429,6 +430,9 @@ def _do_export(project_id: str, requested_format: str, deployment_path: str,
         err, parent_localenv = None, None
     if not err:
         err, local_env = _make_readonly_localenv(clone_location, parent_localenv)
+        if args.get("environment"):
+            local_env.manifest_context_name = args["environment"]
+
     if err:
         return create_error_response("INTERNAL_ERROR", "An internal error occurred"), None
 

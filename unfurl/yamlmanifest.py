@@ -468,7 +468,9 @@ class YamlManifest(ReadOnlyManifest):
         for name, tpl in templates.items():
             # hacky way to exclude being part of the deployment plan and the manifest's status
             if virtual:
-                tpl.setdefault("directives", []).append("virtual")
+                directives = tpl.setdefault("directives", [])
+                if "virtual" not in directives:
+                    directives.append("virtual")
             node_templates[name] = tpl
 
     def _load_context(self, context, localEnv):
