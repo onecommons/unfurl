@@ -35,7 +35,6 @@ from toscaparser.elements.portspectype import PortSpec
 from toscaparser.activities import ConditionClause
 from .logs import sensitive, is_sensitive, getLogger
 from .tosca import is_function, get_nodefilters
-from .localenv import LocalEnv
 from .util import to_enum, UnfurlError
 from .support import Status, is_template
 from .result import ChangeRecord
@@ -1334,15 +1333,9 @@ def to_environments(localEnv, existing=None):
     all_connection_types = {}
     blueprintdb = None
     for name in localEnv.project.contexts:
-        # we create new LocalEnv for each context because we need to instantiate a different ToscaSpec object
-        blueprintdb, manifest, env, env_types = _to_graphql(
-            LocalEnv(
-                localEnv.manifestPath,
-                project=localEnv.project,
-                override_context=name,
-                readonly=True,
-            )
-        )
+        # set context because we need to instantiate a different ToscaSpec object
+        localEnv.manifest_context_name = name
+        blueprintdb, manifest, env, env_types = _to_graphql(localEnv)
         env["name"] = name
         environments[name] = env
         all_connection_types.update(env_types)

@@ -60,6 +60,7 @@ delete_patch = """
 }]
 """
 
+_static_server_port = 8090
 _server_port = 8091
 CLOUD_TEST_SERVER = "https://gitlab.com/"
 
@@ -112,13 +113,13 @@ def start_envvar_server(port):
 def runner():
     runner = CliRunner()
     with runner.isolated_filesystem() as tmpdir:
-        # server.serve('localhost', 8081, 'secret', 'ensemble', {})
+        # server.serve('localhost', _static_server_port, 'secret', 'ensemble', {})
         # "url": ,
         server_process = Process(
             target=server.serve,
-            args=("localhost", 8081, "secret", ".", "", {}, CLOUD_TEST_SERVER),
+            args=("localhost", _static_server_port, "secret", ".", "", {}, CLOUD_TEST_SERVER),
         )
-        assert start_server_process(server_process, 8081)
+        assert start_server_process(server_process, _static_server_port)
 
         yield server_process
 
@@ -153,33 +154,33 @@ def set_up_deployment(runner, deployment):
 
 
 def test_server_health(runner):
-    res = requests.get("http://localhost:8081/health", params={"secret": "secret"})
+    res = requests.get("http://localhost:8090/health", params={"secret": "secret"})
 
     assert res.status_code == 200
     assert res.content == b"OK"
 
 
 def test_server_authentication(runner):
-    res = requests.get("http://localhost:8081/health")
+    res = requests.get("http://localhost:8090/health")
     assert res.status_code == 401
     assert res.json()["code"] == "UNAUTHORIZED"
 
-    res = requests.get("http://localhost:8081/health", params={"secret": "secret"})
+    res = requests.get("http://localhost:8090/health", params={"secret": "secret"})
     assert res.status_code == 200
     assert res.content == b"OK"
 
-    res = requests.get("http://localhost:8081/health", params={"secret": "wrong"})
+    res = requests.get("http://localhost:8090/health", params={"secret": "wrong"})
     assert res.status_code == 401
     assert res.json()["code"] == "UNAUTHORIZED"
 
     res = requests.get(
-        "http://localhost:8081/health", headers={"Authorization": "Bearer secret"}
+        "http://localhost:8090/health", headers={"Authorization": "Bearer secret"}
     )
     assert res.status_code == 200
     assert res.content == b"OK"
 
     res = requests.get(
-        "http://localhost:8081/health", headers={"Authorization": "Bearer wrong"}
+        "http://localhost:8090/health", headers={"Authorization": "Bearer wrong"}
     )
     assert res.status_code == 401
     assert res.json()["code"] == "UNAUTHORIZED"
@@ -321,7 +322,7 @@ def test_populate_cache(runner):
     project_ids = ["onecommons/project-templates/dashboard", "onecommons/project-templates/dashboard",
                   "onecommons/project-templates/application-blueprint"]
     files = ["unfurl.yaml", "ensemble/ensemble.yaml", "ensemble-template.yaml"]
-    port = 8081
+    port = 8090
     for file_path, project_id in zip(files, project_ids):
         res = requests.get(
             f"http://localhost:{port}/populate_cache",

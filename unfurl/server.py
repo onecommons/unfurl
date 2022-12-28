@@ -202,7 +202,12 @@ class CacheEntry:
             self.hit = False
         else:  # cache miss
             self._pull_if_missing_commit(latest_commit)
-        err, value = work(self, latest_commit)
+
+        try:
+            err, value = work(self, latest_commit)
+        except Exception as err:
+            logger.error("unexpected error doing work for cache", exc_info=True)
+            return err, None
         if not err:
             self.set_cache(cache, latest_commit, value)
         return err, value
@@ -306,7 +311,7 @@ def format_from_path(path):
 
 
 def _cache_work(args: dict, cache_entry: CacheEntry, latest_commit: str) -> Any:
-    return _do_export(cache_entry.project_id, cache_entry.key, cache_entry.file_path, cache_entry, args)
+    return _do_export(cache_entry.project_id, cache_entry.key, cache_entry.file_path, cache_entry, latest_commit, args)
 
 
 def _make_etag(latest_commit: str):
@@ -328,12 +333,12 @@ def export():
     deployment_path = request.args.get("deployment_path") or ""
     cache_entry = None
     file_path = _get_filepath(requested_format, deployment_path)
+    branch = request.args.get("branch")
     if latest_commit is not None:
-        branch = request.args.get("branch")
         cache_entry = CacheEntry(project_id, branch, file_path, requested_format)
         err, json_summary = cache_entry.get_or_set(cache, partial(_cache_work, request.args), latest_commit)
     else:
-        err, json_summary = _do_export(project_id, requested_format, file_path, None, request.args)
+        err, json_summary = _do_export(project_id, requested_format, file_path, None, None, request.args)
     if not err:
         hit = cache_entry and cache_entry.hit
         if request.args.get("include_all_deployments"):
@@ -382,7 +387,26 @@ def populate_cache():
         return "OK"
 
 
-def _do_export(project_id: str, requested_format: str, deployment_path: str, cache_entry: CacheEntry, args: dict) -> Tuple[Optional[Any], Optional[str]]:
+def _make_readonly_localenv(clone_location, parent_localenv=None):
+    try:
+        local_env = LocalEnv(
+            clone_location,
+            current_app.config["UNFURL_OPTIONS"].get("home"),
+            can_be_empty=True,
+            readonly=True,
+            parent=parent_localenv
+        )
+        # we don't want to decrypt secrets because the export is cached and shared
+        local_env.overrides["UNFURL_SKIP_VAULT_DECRYPT"] = True
+        local_env.overrides["UNFURL_SKIP_UPSTREAM_CHECK"] = True
+    except UnfurlError as e:
+        logger.error("error loading project at %s", clone_location, exc_info=True)
+        return e, None
+    return None, local_env
+
+
+def _do_export(project_id: str, requested_format: str, deployment_path: str, 
+               cache_entry: CacheEntry, latest_commit: str, args: dict) -> Tuple[Optional[Any], Optional[str]]:
     if project_id:
         if cache_entry and cache_entry.commitinfo:
             repo = GitRepo(cache_entry.commitinfo.repo)
@@ -397,18 +421,15 @@ def _do_export(project_id: str, requested_format: str, deployment_path: str, cac
         clone_location = current_app.config.get("UNFURL_ENSEMBLE_PATH") or "."
 
     # load the ensemble
-    local_env = None
-    try:
-        local_env = LocalEnv(
-            clone_location,
-            current_app.config["UNFURL_OPTIONS"].get("home"),
-            can_be_empty=True,
-            readonly=True
-        )
-        # we don't want to decrypt secrets because the export is cached and shared
-        local_env.overrides["UNFURL_SKIP_VAULT_DECRYPT"] = True
-    except UnfurlError:
-        logger.error("error loading project at %s", clone_location, exc_info=True)
+    if cache_entry:
+        err, parent_localenv = CacheEntry(project_id, cache_entry.branch, "unfurl.yaml", "localenv"
+                                          ).get_or_set(
+            cache, lambda *args: _make_readonly_localenv(clone_location), latest_commit)
+    else:
+        err, parent_localenv = None, None
+    if not err:
+        err, local_env = _make_readonly_localenv(clone_location, parent_localenv)
+    if err:
         return create_error_response("INTERNAL_ERROR", "An internal error occurred"), None
 
     exporter = getattr(to_json, "to_" + requested_format)
@@ -753,7 +774,7 @@ def serve(
     app.config["UNFURL_OPTIONS"] = options
     app.config["UNFURL_CLONE_ROOT"] = clone_root
     app.config["UNFURL_ENSEMBLE_PATH"] = project_or_ensemble_path
-    app.config["UNFURL_CLOUD_SERVER"] = cloud_server
+    app.config["UNFURL_CLOUD_SERVER"] = cloud_server or os.getenv("UNFURL_CLOUD_SERVER")
 
     # Start one WSGI server
     uvicorn.run(app, host=host, port=port, interface="wsgi", log_level=logger.getEffectiveLevel())

@@ -918,6 +918,8 @@ class LocalEnv:
             self.overrides["ENVIRONMENT"] = override_context
         if os.getenv("UNFURL_SKIP_VAULT_DECRYPT"):
             self.overrides["UNFURL_SKIP_VAULT_DECRYPT"] = True
+        if os.getenv("UNFURL_SKIP_UPSTREAM_CHECK"):
+            self.overrides["UNFURL_SKIP_UPSTREAM_CHECK"] = True
 
         if parent:
             self.parent = parent
@@ -1030,7 +1032,7 @@ class LocalEnv:
         path = Project.normalize_path(path)
         project = self._projects.get(path)
         if not project:
-            project = Project(path, homeProject, self.overrides)
+            project = Project(path, homeProject, self.overrides, readonly=self.readonly)
             self._projects[path] = project
         return project
 
@@ -1245,7 +1247,7 @@ class LocalEnv:
             logger.debug(
                 "Using existing repository at %s for %s", repo.working_dir, repoURL
             )
-            if not os.getenv("UNFURL_SKIP_UPSTREAM_CHECK") and not repo.is_dirty():
+            if not self.overrides.get("UNFURL_SKIP_UPSTREAM_CHECK") and not repo.is_dirty():
                 repo.pull(revision=revision)
         else:
             assert isinstance(
