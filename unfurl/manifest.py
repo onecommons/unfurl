@@ -28,7 +28,7 @@ from .util import UnfurlError, to_enum, sensitive_str, get_base_dir
 from .repo import RevisionManager, split_git_url, RepoView
 from .merge import merge_dicts
 from .result import ChangeRecord
-from .yamlloader import YamlConfig, yaml, ImportResolver
+from .yamlloader import YamlConfig, yaml, ImportResolver, yaml_dict_type
 import toscaparser.imports
 from toscaparser.repositories import Repository
 
@@ -148,8 +148,9 @@ class Manifest(AttributeManager):
                 more_spec,
                 replaceKeys=["node_templates", "relationship_templates"],
             )
-        if not isinstance(toscaDef, CommentedMap):
-            toscaDef = CommentedMap(toscaDef.items())
+        yaml_dict_cls = yaml_dict_type(self.localEnv and self.localEnv.readonly)
+        if not isinstance(toscaDef, yaml_dict_cls):
+            toscaDef = yaml_dict_cls(toscaDef.items())
         if getattr(toscaDef, "base_dir", None) and (
             not path or toscaDef.base_dir != os.path.dirname(path)
         ):

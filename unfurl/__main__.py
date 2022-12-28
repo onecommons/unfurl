@@ -1105,6 +1105,7 @@ def export(ctx, project_or_ensemble_path, format, file, **options):
         project_or_ensemble_path,
         options.get("home"),
         override_context=options.get("use_environment") or "",
+        readonly=True
     )
     exporter = getattr(to_json, "to_" + format)
     jsonSummary = exporter(localEnv, file)

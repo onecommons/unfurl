@@ -39,6 +39,7 @@ cache = Cache(app)
 app.config["UNFURL_OPTIONS"] = {}
 app.config["UNFURL_CLONE_ROOT"] = os.getenv("UNFURL_CLONE_ROOT") or "."
 app.config["UNFURL_CLOUD_SERVER"] = os.getenv("UNFURL_CLOUD_SERVER")
+app.config["UNFURL_SECRET"] = os.getenv("UNFURL_SERVE_SECRET")
 
 
 def get_project_id(request):
@@ -342,7 +343,7 @@ def export():
             json_summary["deployments"] = deployments
         if hit:
             etag = request.headers.get("If-None-Match")
-            if latest_commit == etag:
+            if f'W/"{latest_commit}"' == etag:
                 return "Not Modified", 304
         response = jsonify(json_summary)
         if latest_commit:
@@ -398,6 +399,7 @@ def _do_export(project_id: str, requested_format: str, deployment_path: str, cac
             clone_location,
             current_app.config["UNFURL_OPTIONS"].get("home"),
             can_be_empty=True,
+            readonly=True
         )
         # we don't want to decrypt secrets because the export is cached and shared
         local_env.overrides["UNFURL_SKIP_VAULT_DECRYPT"] = True

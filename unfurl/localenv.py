@@ -65,16 +65,17 @@ class Project:
         path: str,
         homeProject: Optional["Project"] = None,
         overrides: Optional[dict] = None,
+        readonly: Optional[bool] = False,
     ):
         assert isinstance(path, six.string_types), path
         self.projectRoot = os.path.abspath(os.path.dirname(path))
         self.overrides = overrides or {}
         if os.path.exists(path):
             self.localConfig = LocalConfig(
-                path, yaml_include_hook=self.load_yaml_include
+                path, yaml_include_hook=self.load_yaml_include, readonly=readonly
             )
         else:
-            self.localConfig = LocalConfig()
+            self.localConfig = LocalConfig(readonly=readonly)
         self._set_repos()
         # XXX this updates and saves the local config to disk -- constructing a Project object shouldn't do that
         # especially since we localenv might not have found the ensemble yet
@@ -648,7 +649,7 @@ class LocalConfig:
         "instances",
     ]
 
-    def __init__(self, path=None, validate=True, yaml_include_hook=None):
+    def __init__(self, path=None, validate=True, yaml_include_hook=None, readonly=False):
         defaultConfig = {"apiVersion": "unfurl/v1alpha1", "kind": "Project"}
         self.config = YamlConfig(
             defaultConfig,
@@ -656,6 +657,7 @@ class LocalConfig:
             validate,
             os.path.join(_basepath, "unfurl-schema.json"),
             yaml_include_hook,
+            readonly=readonly
         )
         self.ensembles = self.config.expanded.get("ensembles") or []
         self.projects = self.config.expanded.get("projects") or {}
@@ -893,6 +895,7 @@ class LocalEnv:
         can_be_empty: bool = False,
         override_context: Optional[str] = None,
         overrides: Optional[Dict[str, Any]] = None,
+        readonly: Optional[bool] = False,
     ) -> None:
         """
         If manifestPath is None find the first unfurl.yaml or ensemble.yaml
@@ -908,6 +911,7 @@ class LocalEnv:
         self.logger = logger
         self.manifest_context_name = None
         self.overrides: dict = overrides or {}
+        self.readonly = readonly
         if override_context is not None:
             # aka the --use-environment option
             # hackishly, "" is a valid option used by load_yaml_include

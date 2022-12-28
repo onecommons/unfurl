@@ -192,6 +192,7 @@ class ReadOnlyManifest(Manifest):
             os.path.join(_basepath, "manifest-schema.json"),
             self.load_yaml_include,
             vault,
+            localEnv and localEnv.readonly
         )
         if self.manifest.path:
             logger.debug("loaded ensemble manifest at %s", self.manifest.path)
