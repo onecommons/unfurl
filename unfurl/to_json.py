@@ -1348,7 +1348,7 @@ def to_environments(localEnv, existing=None):
             # because we need to instantiate a different ToscaSpec object
             localLocalEnv = LocalEnv(
                 localEnv.manifestPath,
-                parent=localEnv,
+                project=localEnv.project,
                 override_context=name,
                 readonly=True,
             )
