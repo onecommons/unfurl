@@ -64,6 +64,7 @@ def _get_project_repo(project_id: str) -> Optional[GitRepo]:
 # cache value, last_commit (on the file_path), latest_commit (seen in branch)
 CacheValueType = Tuple[Any, str, str]
 _cache_inflight_sleep_duration = 0.2
+_cache_inflight_timeout = float(os.getenv("UNFURL_SERVE_CACHE_TIMEOUT") or 120)  # should match request timeout
 
 # XXX support dependencies on multiple repositories (e.g. unfurl-types):
 # in get_and_set(), have work() return (and set_cache receives) a list of (project_id, branch, latest_commit) instead of `latest_commit`
@@ -132,6 +133,8 @@ class CacheEntry:
             self.repo.pull()
 
     def is_commit_older_than(self, older, newer):
+        if older == newer:
+            return False
         self._pull_if_missing_commit(newer)
         assert self.repo
         # if "older..newer" is true iter_commits (git rev-list) will list
@@ -195,19 +198,23 @@ class CacheEntry:
                 return response, self.commitinfo
 
     def _set_inflight(self, cache, latest_commit) -> Tuple[Any, Union[bool, "Commit"]]:
-        inflight_commit = cache.get(self._inflight_key())
-        # if inflight_commit is older than latest_commit, do the work anyway otherwise wait for it
-        if inflight_commit and not self.is_commit_older_than(inflight_commit, latest_commit):
-            # keep checking inflight key until it is deleted
-            while True:
-                time.sleep(_cache_inflight_sleep_duration)
-                if not cache.get(self._inflight_key()):
-                    # no longer in flight
-                    value, commitinfo = self.get_cache(cache, inflight_commit)
-                    if commitinfo:  # hit
-                        return value, commitinfo
-                    # missing, so inflight work must have failed, continue with our work
-        cache.set(self._inflight_key(), latest_commit)
+        inflight = cache.get(self._inflight_key())
+        if inflight:
+            inflight_commit, start_time = inflight
+            # if inflight_commit is older than latest_commit, do the work anyway otherwise wait for the inflight value
+            if not self.is_commit_older_than(inflight_commit, latest_commit):
+                # keep checking inflight key until it is deleted
+                # or if been inflight longer than timeout, assume its work aborted and stop waiting
+                while time.time() - start_time < _cache_inflight_timeout:
+                    time.sleep(_cache_inflight_sleep_duration)
+                    if not cache.get(self._inflight_key()):
+                        # no longer in flight
+                        value, commitinfo = self.get_cache(cache, inflight_commit)
+                        if commitinfo:  # hit, use this instead of doing our work
+                            return value, commitinfo
+                        break  # missing, so inflight work must have failed, continue with our work
+
+        cache.set(self._inflight_key(), (latest_commit, time.time()))
         return None, False
 
     def _cancel_inflight(self, cache):
