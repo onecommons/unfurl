@@ -1136,6 +1136,7 @@ def status(ctx, ensemble, **options):
         ensemble,
         options.get("home"),
         override_context=options.get("use_environment") or "",
+        readonly=True,
     )
     logger = logging.getLogger("unfurl")
     manifest = localEnv.get_manifest()
