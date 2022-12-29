@@ -63,6 +63,7 @@ def _get_project_repo(project_id: str) -> Optional[GitRepo]:
 
 # cache value, last_commit (on the file_path), latest_commit (seen in branch)
 CacheValueType = Tuple[Any, str, str]
+_cache_inflight_sleep_duration = 0.2
 
 # XXX support dependencies on multiple repositories (e.g. unfurl-types):
 # in get_and_set(), have work() return (and set_cache receives) a list of (project_id, branch, latest_commit) instead of `latest_commit`
@@ -91,6 +92,9 @@ class CacheEntry:
 
     def cache_key(self) -> str:
         return f"{self.project_id}:{self.branch or ''}:{self.file_path}:{self.key}"
+
+    def _inflight_key(self) -> str:
+        return "_inflight::" + self.cache_key()
 
     def delete_cache(self, cache) -> bool:
         full_key = self.cache_key()
@@ -190,6 +194,25 @@ class CacheEntry:
                 logger.info("stale cache hit for %s with %s", full_key, latest_commit)
                 return response, self.commitinfo
 
+    def _set_inflight(self, cache, latest_commit) -> Tuple[Any, Union[bool, "Commit"]]:
+        inflight_commit = cache.get(self._inflight_key())
+        # if inflight_commit is older than latest_commit, do the work anyway otherwise wait for it
+        if inflight_commit and not self.is_commit_older_than(inflight_commit, latest_commit):
+            # keep checking inflight key until it is deleted
+            while True:
+                time.sleep(_cache_inflight_sleep_duration)
+                if not cache.get(self._inflight_key()):
+                    # no longer in flight
+                    value, commitinfo = self.get_cache(cache, inflight_commit)
+                    if commitinfo:  # hit
+                        return value, commitinfo
+                    # missing, so inflight work must have failed, continue with our work
+        cache.set(self._inflight_key(), latest_commit)
+        return None, False
+
+    def _cancel_inflight(self, cache):
+        return cache.delete(self._inflight_key())
+
     def get_or_set(self, cache, work: Callable, latest_commit: str) -> Tuple[Optional[Any], Any]:
         value, commitinfo = self.get_cache(cache, latest_commit)
         if commitinfo:
@@ -203,13 +226,21 @@ class CacheEntry:
         else:  # cache miss
             self._pull_if_missing_commit(latest_commit)
 
+        value, found_inflight = self._set_inflight(cache, latest_commit)
+        if found_inflight:
+            # there was already work inflight and use that instead
+            return None, value
+
         try:
             err, value = work(self, latest_commit)
-        except Exception as err:
+        except Exception as exc:
             logger.error("unexpected error doing work for cache", exc_info=True)
-            return err, None
-        if not err:
-            self.set_cache(cache, latest_commit, value)
+            err, value = exc, None
+        try:
+            if not err:
+                self.set_cache(cache, latest_commit, value)
+        finally:
+            self._cancel_inflight(cache)
         return err, value
 
 
