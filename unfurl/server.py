@@ -360,7 +360,10 @@ def export():
             response.headers["Etag"] = _make_etag(latest_commit)
         return response
     else:
-        return err
+        if isinstance(err, Exception):
+            return create_error_response("INTERNAL_ERROR", "An internal error occurred")
+        else:
+            return err
 
 
 @app.route("/populate_cache")

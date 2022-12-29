@@ -1341,7 +1341,7 @@ def to_environments(localEnv, existing=None):
         if name in env_deployments:
             # we can reuse the localEnv if there's a distinct manifest that uses this environment
             localEnv.manifest_context_name = name
-            localEnv.manifestPath = os.path.join(env_deployments[name], "ensemble.yaml")
+            localEnv.manifestPath = os.path.join(localEnv.project.projectRoot, env_deployments[name], "ensemble.yaml")
             localLocalEnv = localEnv
         else:
             # this environment doesn't have any deployments so we have to create a new localEnv
@@ -1379,7 +1379,7 @@ def to_deployments(localEnv, existing=None):
     for manifest_path, dp in db["DeploymentPath"].items():
         try:
             # optimization: reuse localenv
-            localEnv.manifestPath = os.path.join(manifest_path, "ensemble.yaml")
+            localEnv.manifestPath = os.path.join(localEnv.project.projectRoot, manifest_path, "ensemble.yaml")
             environment = dp.get("environment") or "defaults"
             localEnv.manifest_context_name = environment
             deployments.append(to_deployment(localEnv))
