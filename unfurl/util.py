@@ -556,6 +556,9 @@ class ChainMap(MutableMapping):
     def __init__(self, *maps: MutableMapping) -> None:
         self._maps = maps
 
+    def copy(self):
+        return ChainMap(*(m.copy() for m in self._maps))
+
     def split(self) -> Tuple[MutableMapping, "ChainMap"]:
         return self._maps[0], ChainMap(*self._maps[1:])
 

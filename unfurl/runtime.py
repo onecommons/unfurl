@@ -380,9 +380,8 @@ class EntityInstance(OperationalInstance, ResourceRef):
             return super()._get_prop(name)
 
     def _resolve(self, key):
-        # might return a Result
-        self.attributes[key]  # force resolve
-        return self.attributes._attributes[key]
+        # force resolve, might return a Result
+        return self.attributes._getresult(key)
 
     def query(self, expr, vars=None, wantList=False, trace=None):
         from .eval import Ref, RefContext
@@ -911,8 +910,8 @@ class NodeInstance(HasInstancesInstance):
     def _resolve(self, key):
         # might return a Result
         try:
-            self.attributes[key]  # force resolve
-            return self.attributes._attributes[key]
+            # force resolve
+            return self.attributes._getresult(key)
         except KeyError:
             try:
                 inherit = self._interfaces.get("inherit")  # pre-loaded

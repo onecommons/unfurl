@@ -340,6 +340,9 @@ class _ConnectionsMap(dict):
         }
         return by_type.values()
 
+    def copy(self):
+        return self
+
     def __missing__(self, key: object) -> object:
         # the more specific connections are inserted first so this should find
         # the most relevant connection of the given type
@@ -441,8 +444,7 @@ class TaskView:
             assert self._attributeManager  # type: ignore
             assert self.target.root.attributeManager is self._attributeManager  # type: ignore
             ctx = RefContext(self.target, task=self)
-            # deepcopy because ResultsMap might modify interior maps and lists
-            inputs = copy.deepcopy(self.configSpec.inputs)
+            inputs = self.configSpec.inputs
             relationship = None
             if isinstance(self.target, RelationshipInstance):
                 relationship = self.target
@@ -455,7 +457,6 @@ class TaskView:
             HOST = (target.parent or target).attributes
             ORCHESTRATOR = target.root.find_instance_or_external("localhost")
             vars = dict(
-                inputs=inputs,
                 task=self.get_settings(),
                 connections=self._get_connections(),
                 SELF=self.target.attributes,
@@ -477,6 +478,7 @@ class TaskView:
             elif self.configSpec.base_dir:
                 ctx.base_dir = self.configSpec.base_dir
             self._inputs = ResultsMap(inputs, ctx)
+            vars["inputs"] = self._inputs
         return self._inputs
 
     @property
