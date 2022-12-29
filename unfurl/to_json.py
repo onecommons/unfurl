@@ -1390,6 +1390,8 @@ def to_deployments(localEnv, existing=None):
     # _print(f"exported {len(deployments)} deployments, {yaml_perf} seconds parsing yaml")
     return db
 
+def get_deploymentpaths(project):
+    return set_deploymentpaths(project)["DeploymentPath"]
 
 def set_deploymentpaths(project, existing=None):
     if existing:
