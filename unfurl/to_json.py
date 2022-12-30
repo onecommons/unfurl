@@ -1053,6 +1053,13 @@ def get_deployment_blueprints(manifest, blueprint, root_name, db):
     return deployment_templates
 
 
+def _project_path(url):
+    pp = urlparse(url).path.lstrip("/")
+    if pp.endswith(".git"):
+        return pp[:-4]
+    return pp
+
+
 def get_blueprint_from_topology(manifest, db):
     spec = manifest.tosca
     # XXX cloud = spec.topology.primary_provider
@@ -1081,9 +1088,7 @@ def get_blueprint_from_topology(manifest, db):
                 resourceTemplates=sorted(db["ResourceTemplate"]),
                 ResourceTemplate={},
                 source=deployment_blueprint_name,
-                projectPath=urlparse(manifest.repositories["spec"].url)
-                .path.lstrip("/")
-                .rstrip(".git"),
+                projectPath=_project_path(manifest.repositories["spec"].url),
             )
         )
         templates[slug] = template
@@ -1390,8 +1395,10 @@ def to_deployments(localEnv, existing=None):
     # _print(f"exported {len(deployments)} deployments, {yaml_perf} seconds parsing yaml")
     return db
 
+
 def get_deploymentpaths(project):
     return set_deploymentpaths(project)["DeploymentPath"]
+
 
 def set_deploymentpaths(project, existing=None):
     if existing:

@@ -50,8 +50,8 @@ def normalize_git_url(url, hard=0):
             netloc = f"{user.partition(':')[0]}@{host}"
         else:
             netloc = host
-        if hard == 2:
-            path = parts.path.rstrip(".git")
+        if hard == 2 and parts.path.endswith(".git"):
+            path = parts.path[:-4]
         else:
             path = parts.path
         return parts._replace(netloc=netloc, path=path).geturl()
@@ -460,6 +460,9 @@ class GitRepo(Repo):
             if os.path.isabs(path):
                 # get path relative to repository's root
                 path = os.path.relpath(path, self.working_dir)
+                if path.startswith(".."):
+                    # outside of the repo, don't include it in the url
+                    return normalize_git_url(self.url, sanitize)
             return normalize_git_url(self.url, sanitize) + "#:" + path
         else:
             return self.get_git_local_url(path)
