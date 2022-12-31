@@ -674,5 +674,5 @@ def test_reified_repo(caplog):
         assert manifest.rootResource.query("::git-repo::.repository::revision") == "8454bc"
         # test that credentials for repository are rewrite urls and evaluate env vars
         # and make sure the environment can override the built-in "spec" repository
-        assert manifest.repositories.get("spec").url == "https://deploy-token:secret@github.com/onecommons/blueprints/example.git"
+        assert manifest.repositories.get("spec").url == "https://deploy-token@github.com/onecommons/blueprints/example.git"
         assert 'skipping inline repository definition for "include-early-repo", it was previously defined' in caplog.text

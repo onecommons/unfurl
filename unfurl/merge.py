@@ -7,13 +7,14 @@ from collections import namedtuple
 from collections.abc import Mapping, MutableSequence, Sequence
 
 from ruamel.yaml.comments import CommentedMap, CommentedBase
+from ansible.parsing.yaml.objects import AnsibleMapping
 
 from .util import UnfurlError
 
 
 def _mapCtor(self):
     if hasattr(self, "base_dir"):
-        return make_map_with_base(self, self.base_dir)
+        return make_map_with_base(self, self.base_dir, CommentedMap)
     return CommentedMap
 
 
@@ -34,23 +35,27 @@ if CommentedMap.__deepcopy__ is not __deepcopy__:
     CommentedMap.__deepcopy__ = __deepcopy__  # type: ignore
 
 
+def _mapCtor2(self):
+    if hasattr(self, "base_dir"):
+        return make_map_with_base(self, self.base_dir, AnsibleMapping)
+    return AnsibleMapping
+
+
+AnsibleMapping.mapCtor = property(_mapCtor2)  # type: ignore
+
+
 def copy(src):
     cls = getattr(src, "mapCtor", src.__class__)
-    if six.PY2 and cls is CommentedMap:
-        return CommentedMap(src.items())
     return cls(src)
 
 
-def make_map_with_base(doc, baseDir):
+def make_map_with_base(doc, baseDir, cls):
     loadTemplate = getattr(doc, "loadTemplate", None)
     _anchorCache = getattr(doc, "_anchorCache", None)
     lc = getattr(doc, "lc", None)
 
     def factory(*args, **kws):
-        if six.PY2 and args and isinstance(args[0], dict):
-            map = CommentedMap(args[0].items(), **kws)
-        else:
-            map = CommentedMap(*args, **kws)
+        map = cls(*args, **kws)
         map.base_dir = baseDir
         if loadTemplate:
             map.loadTemplate = loadTemplate
@@ -194,7 +199,7 @@ def _cache_anchors(_anchorCache, obj):
 
 
 def find_anchor(doc, anchorName):
-    if not isinstance(doc, CommentedMap):
+    if not isinstance(doc, dict):
         return None
 
     _anchorCache = getattr(doc, "_anchorCache", None)
@@ -211,7 +216,7 @@ def _json_pointer_unescape(s):
     return s.replace("~1", "/").replace("~0", "~")
 
 
-_RE_INVALID_JSONPOINTER_ESCAPE = re.compile("(~[^01]|~$)")
+_RE_INVALID_JSONPOINTER_ESCAPE = re.compile("~[^01]|(~$)")
 
 
 def _json_pointer_validate(pointer):
@@ -232,7 +237,7 @@ def get_template(doc, key, value, path, cls, includes=None):
         value, template, baseDir = doc.loadTemplate(value, key.maybe, doc, path)
         if template is None:  # include wasn't not found and key.maybe
             return None
-        cls = make_map_with_base(doc, baseDir)
+        cls = make_map_with_base(doc, baseDir, cls)
         # fileKey = key._replace(include=None)
         # template = getTemplate(template, fileKey, "raw", (), cls)
     else:
@@ -454,7 +459,7 @@ def _delete_deleted_keys(expanded):
 
 
 def expand_doc(doc, current=None, cls=dict):
-    includes = CommentedMap()
+    includes = cls()
     if current is None:
         current = doc
     if not isinstance(doc, Mapping) or not isinstance(current, Mapping):

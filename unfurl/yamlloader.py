@@ -5,7 +5,7 @@ import sys
 import codecs
 import json
 import os
-from typing import Union, Tuple, List
+from typing import Optional, Union, Tuple, List
 import six
 import urllib
 from urllib.parse import urljoin, urlsplit
@@ -50,12 +50,39 @@ import toscaparser.imports
 from toscaparser.repositories import Repository
 
 from ansible.parsing.vault import VaultLib, VaultSecret
+from ansible.parsing.yaml.objects import AnsibleMapping
+from ansible.parsing.yaml.loader import AnsibleLoader, AnsibleConstructor
 from ansible.utils.unsafe_proxy import AnsibleUnsafeText, AnsibleUnsafeBytes
+from time import perf_counter
 
 logger = getLogger("unfurl")
 
+yaml_perf = 0.0
 
 CLEARTEXT_VAULT = VaultLib(secrets=[("cleartext", b"")])
+
+
+def yaml_dict_type(readonly: bool) -> type:
+    if readonly:
+        return AnsibleMapping
+    else:
+        return CommentedMap
+
+
+def load_yaml(yaml, stream, path=None, readonly=False):
+    global yaml_perf
+    start_time = perf_counter()
+    if not readonly:
+        if path and isinstance(stream, str):
+            stream = six.StringIO(stream)
+            stream.name = path
+        doc = yaml.load(stream)
+    else:
+        loader = AnsibleLoader(stream, path, yaml.constructor.vault.secrets)
+        loader.vault = yaml.constructor.vault
+        doc = loader.get_single_data()
+    yaml_perf += (perf_counter() - start_time)
+    return doc
 
 
 def _use_clear_text(vault):
@@ -140,6 +167,11 @@ def construct_vaultbinary(constructor, node):
     return sensitive_bytes(cleartext)
 
 
+AnsibleConstructor.add_constructor("!vault", construct_vault)
+AnsibleConstructor.add_constructor("!vault-json", construct_vaultjson)
+AnsibleConstructor.add_constructor("!vault-binary", construct_vaultbinary)
+
+
 def make_yaml(vault=None):
     if not vault:
         vault = VaultLib(secrets=None)
@@ -176,7 +208,7 @@ class UnfurlVaultLib(VaultLib):
     skip_decode = False
 
 
-def make_vault_lib(passwordBytes, vaultId="default"):
+def make_vault_lib(passwordBytes: Union[str, bytes], vaultId="default") -> Optional[VaultLib]:
     if passwordBytes:
         if isinstance(passwordBytes, six.string_types):
             passwordBytes = to_bytes(passwordBytes)
@@ -185,7 +217,7 @@ def make_vault_lib(passwordBytes, vaultId="default"):
     return None
 
 
-def make_vault_lib_ex(secrets: List[Tuple[str, Union[str, bytes]]]):
+def make_vault_lib_ex(secrets: List[Tuple[str, Union[str, bytes]]]) -> VaultLib:
     vault_secrets = []
     for vaultId, passwordBytes in secrets:
         if isinstance(passwordBytes, six.string_types):
@@ -206,6 +238,7 @@ _refResolver = RefResolver("", None)
 class ImportResolver(toscaparser.imports.ImportResolver):
     def __init__(self, manifest, ignoreFileNotFound=False, expand=False, config=None):
         self.manifest = manifest
+        self.readonly = manifest and manifest.localEnv and manifest.localEnv.readonly
         self.ignoreFileNotFound = ignoreFileNotFound
         self.loader = manifest.loader
         self.expand = expand
@@ -353,11 +386,13 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                     else:
                         raise
             with f:
-                doc = yaml.load(f.read())
-                if isinstance(doc, CommentedMap):
+                contents = f.read()
+                doc = load_yaml(yaml, contents, path, self.readonly)
+                yaml_dict = yaml_dict_type(self.readonly)
+                if isinstance(doc, yaml_dict):
                     if self.expand:
                         includes, doc = expand_doc(
-                            doc, cls=make_map_with_base(doc, get_base_dir(path))
+                            doc, cls=make_map_with_base(doc, get_base_dir(path), yaml_dict)
                         )
                         doc.includes = includes
                     doc.path = path
@@ -383,12 +418,14 @@ class YamlConfig:
         schema=None,
         loadHook=None,
         vault=None,
+        readonly=False
     ):
         try:
             self._yaml = None
             self.vault = vault
             self.path = None
             self.schema = schema
+            self.readonly = readonly
             self.lastModified = None
             if path:
                 self.path = os.path.abspath(path)
@@ -402,16 +439,12 @@ class YamlConfig:
                 self.path = None
 
             if isinstance(config, six.string_types):
-                if self.path:
-                    # set name on a StringIO so parsing error messages include the path
-                    config = six.StringIO(config)
-                    config.name = self.path
-                self.config = self.yaml.load(config)
+                self.config = load_yaml(self.yaml, config, self.path, self.readonly)
             elif isinstance(config, dict):
                 self.config = CommentedMap(config.items())
             else:
                 self.config = config
-            if not isinstance(self.config, CommentedMap):
+            if not isinstance(self.config, dict):
                 raise UnfurlValidationError(
                     f'invalid YAML document with contents: "{self.config}"'
                 )
@@ -424,8 +457,9 @@ class YamlConfig:
             self.loadHook = loadHook
 
             self.baseDirs = [self.get_base_dir()]
+            yaml_dict = yaml_dict_type(self.readonly)
             self.includes, expandedConfig = expand_doc(
-                self.config, cls=make_map_with_base(self.config, self.baseDirs[0])
+                self.config, cls=make_map_with_base(self.config, self.baseDirs[0], yaml_dict)
             )
             self.expanded = expandedConfig
             errors = schema and self.validate(expandedConfig)
@@ -467,7 +501,7 @@ class YamlConfig:
             f = open(path, "r")
 
         with f:
-            config = self.yaml.load(f)
+            config = load_yaml(self.yaml, f, path, self.readonly)
         if fragment and config:
             return path, _refResolver.resolve_fragment(config, fragment)
         return path, config
@@ -488,6 +522,10 @@ class YamlConfig:
             raise UnfurlError(f"Error saving {self.path}", True)
 
     def save(self):
+        if self.readonly:
+            raise UnfurlError(
+                f'Can not save "{self.path}", it is set to readonly'
+            )
         output = six.StringIO()
         self.dump(output)
         if self.path:
@@ -627,7 +665,7 @@ class YamlConfig:
                 newBaseDir = baseDir
             else:
                 newBaseDir = os.path.dirname(path)
-            if isinstance(template, CommentedMap):
+            if isinstance(template, dict):
                 template.base_dir = newBaseDir
             _cache_anchors(self.config._anchorCache, template)
         except Exception:

@@ -3,6 +3,7 @@
 """Loads and saves a ensemble manifest.
 """
 from __future__ import absolute_import
+from typing import Dict, List, Optional, Tuple
 import six
 import sys
 from collections.abc import MutableSequence, Mapping
@@ -15,11 +16,11 @@ from . import DefaultNames
 from .util import UnfurlError, to_yaml_text, filter_env
 from .merge import patch_dict, intersect_dict
 from .yamlloader import YamlConfig, make_yaml
-from .result import serialize_value, ChangeRecord
+from .result import serialize_value
 from .support import ResourceChanges, Defaults, Status
 from .localenv import LocalEnv
 from .lock import Lock
-from .manifest import Manifest, relabel_dict
+from .manifest import Manifest, relabel_dict, ChangeRecordRecord
 from .tosca import ArtifactSpec, find_env_vars
 from .runtime import TopologyInstance
 from .eval import map_value
@@ -191,6 +192,7 @@ class ReadOnlyManifest(Manifest):
             os.path.join(_basepath, "manifest-schema.json"),
             self.load_yaml_include,
             vault,
+            localEnv and localEnv.readonly
         )
         if self.manifest.path:
             logger.debug("loaded ensemble manifest at %s", self.manifest.path)
@@ -268,7 +270,7 @@ def clone(localEnv, destPath):
 
 
 class YamlManifest(ReadOnlyManifest):
-    _operationIndex = None
+    _operationIndex: Optional[Dict[Tuple[str, str], str]] = None
     lockfilepath = None
     lockfile = None
 
@@ -282,11 +284,11 @@ class YamlManifest(ReadOnlyManifest):
         skip_validation=False,
     ):
         super().__init__(manifest, path, validate, localEnv, vault)
+        self.validate = not skip_validation  # see AttributeManager.validate
         # instantiate the tosca template
         manifest = self.manifest.expanded
         if self.manifest.path:
             self.lockfilepath = self.manifest.path + ".lock"
-
         spec = manifest.get("spec", {})
         more_spec = self._load_context(self.context, localEnv)
         deployment_blueprint = self.context.get("deployment_blueprint")
@@ -294,10 +296,10 @@ class YamlManifest(ReadOnlyManifest):
             manifest.get("spec", {}).get("deployment_blueprints") or {}
         )
         if deployment_blueprint:
-            self._add_deployment_blueprint_template(
+            if self._add_deployment_blueprint_template(
                 deployment_blueprints, deployment_blueprint, more_spec
-            )
-            logger.info('Using deployment blueprint "%s"', deployment_blueprint)
+            ):
+                logger.info('Using deployment blueprint "%s"', deployment_blueprint)
         elif deployment_blueprints:
             logger.warning(
                 "This ensemble contains deployment blueprints but none were specified for use."
@@ -312,7 +314,6 @@ class YamlManifest(ReadOnlyManifest):
             self._load_resource_templates(
                 env_instances, spec.setdefault("instances", {}), True
             )
-        self.validate = not skip_validation  # see AttributeManager.validate
         self._set_spec(spec, more_spec, skip_validation)
         assert self.tosca
         if self.localEnv:
@@ -353,9 +354,12 @@ class YamlManifest(ReadOnlyManifest):
         self, deployment_blueprints, deployment_blueprint, more_spec
     ):
         if deployment_blueprint not in deployment_blueprints:
-            raise UnfurlError(
-                f"Can not find requested deployment blueprint: '{deployment_blueprint}' is missing from the ensemble."
-            )
+            msg = f"Can not find requested deployment blueprint: '{deployment_blueprint}' is missing from the ensemble."
+            if self.validate:
+                raise UnfurlError(msg)
+            else:
+                logger.error(msg)
+            return False
         deployment_blueprint_tpl = deployment_blueprints[deployment_blueprint]
         resource_templates = deployment_blueprint_tpl.get("resource_templates")
         resourceTemplates = deployment_blueprint_tpl.get("resourceTemplates")
@@ -374,6 +378,7 @@ class YamlManifest(ReadOnlyManifest):
         if resource_templates:
             node_templates = more_spec["topology_template"]["node_templates"]
             self._load_resource_templates(resource_templates, node_templates, False)
+        return True
 
     def _configure_root(self, rootResource):
         rootResource.imports = self.imports
@@ -460,7 +465,9 @@ class YamlManifest(ReadOnlyManifest):
         for name, tpl in templates.items():
             # hacky way to exclude being part of the deployment plan and the manifest's status
             if virtual:
-                tpl.setdefault("directives", []).append("virtual")
+                directives = tpl.setdefault("directives", [])
+                if "virtual" not in directives:
+                    directives.append("virtual")
             node_templates[name] = tpl
 
     def _load_context(self, context, localEnv):
@@ -537,8 +544,7 @@ class YamlManifest(ReadOnlyManifest):
         self.imports.add_import(name, resource, value)
         self._importedManifests[id(root)] = importedManifest
 
-    def load_changes(self, changes, changeLogPath):
-        # self.changeSets[changeid => ChangeRecords]
+    def load_changes(self, changes: Optional[List[dict]], changeLogPath: str) -> bool:
         if changes is not None:
             self.changeSets = {
                 c.changeId: c
@@ -551,7 +557,7 @@ class YamlManifest(ReadOnlyManifest):
                     self.changeSets = {
                         c.changeId: c
                         for c in (
-                            ChangeRecord(parse=line.strip())
+                            ChangeRecordRecord(parse=line.strip())
                             for line in f.readlines()
                             if not line.strip().startswith("#")
                         )
@@ -590,23 +596,21 @@ class YamlManifest(ReadOnlyManifest):
             return True
         return False
 
-    def find_last_operation(self, target, operation):
+    def find_last_operation(self, target, operation) -> Optional[ChangeRecordRecord]:
         if self._operationIndex is None:
-            operationIndex = {}
+            operationIndex: Dict[Tuple[str, str], str] = {}
             if self.changeSets:
                 # add list() for 3.7
                 for change in reversed(list(self.changeSets.values())):
-                    if not hasattr(change, "target") or not hasattr(
-                        change, "operation"
-                    ):
+                    if not change.target or not change.operation:
                         continue
                     key = (change.target, change.operation)
                     last = operationIndex.setdefault(key, change.changeId)
                     if last < change.changeId:
-                        operationIndex[key] = change
+                        operationIndex[key] = change.changeId
             self._operationIndex = operationIndex
         changeId = self._operationIndex.get((target, operation))
-        if changeId is not None:
+        if changeId is not None and self.changeSets:
             return self.changeSets[changeId]
         return None
 
@@ -938,7 +942,7 @@ class YamlManifest(ReadOnlyManifest):
                     if key.startswith("digest"):
                         attrs[key] = change[key]
                 attrs["summary"] = change["summary"]
-                line = ChangeRecord.format_log(change["changeId"], attrs)
+                line = ChangeRecordRecord.format_log(change["changeId"], attrs)
                 f.write(line)
 
     def save_change_log(self, jobRecord, newChanges):

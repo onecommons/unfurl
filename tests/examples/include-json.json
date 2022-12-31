@@ -36,7 +36,7 @@
             "min": 1,
             "max": 1,
             "resourceType": "Compute",
-            "visibility": "visible"
+            "visibility": "hidden"
           },
           "name": "host",
           "__typename": "Requirement",
@@ -51,7 +51,7 @@
             "min": 1,
             "max": 1,
             "resourceType": "DNS",
-            "visibility": "visible"
+            "visibility": "hidden"
           },
           "name": "resolver",
           "__typename": "Requirement",
@@ -66,7 +66,7 @@
             "min": 1,
             "max": 1,
             "resourceType": "MongoDb",
-            "visibility": "visible"
+            "visibility": "hidden"
           },
           "name": "db",
           "__typename": "Requirement",
@@ -114,8 +114,7 @@
       "name": "atlas_service",
       "title": "atlas_service",
       "description": "",
-      "directives": [
-      ],
+      "directives": [],
       "properties": [
         {
           "name": "login",

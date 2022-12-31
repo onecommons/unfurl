@@ -652,13 +652,9 @@ class EntitySpec(ResourceRef):
         # XXX user should be able to declare default attribute values
         self.propertyDefs = toscaNodeTemplate.get_properties()
         self.attributeDefs = {}
-        # XXX test_helm.py fails without making a deepcopy
-        # some how chart_values is being modifying outside of a task transaction
-        self.properties = copy.deepcopy(
-            CommentedMap(
+        self.properties = CommentedMap(
                 [(prop.name, prop.value) for prop in self.propertyDefs.values()]
             )
-        )
         if toscaNodeTemplate.type_definition:
             # add attributes definitions
             attrDefs = toscaNodeTemplate.type_definition.get_attributes_def()

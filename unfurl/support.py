@@ -5,7 +5,6 @@ Internal classes supporting the runtime.
 """
 import collections
 from collections.abc import MutableSequence, Mapping
-import copy
 import os
 import sys
 import os.path
@@ -626,6 +625,9 @@ class _EnvMapper(dict):
     Pattern should match _generate_env_names in to_json.py and set_context_vars above.
     """
 
+    def copy(self):
+        return _EnvMapper(self)
+
     def __missing__(self, key):
         objname, sep, prop = key.partition("_")
         root = self.ctx.currentResource.root
@@ -1245,6 +1247,9 @@ class TopologyMap(dict):
     def __init__(self, resource):
         self.resource = resource
 
+    def copy(self):
+        return self
+
     def __getitem__(self, key):
         r = self.resource.find_resource(key)
         if r:
@@ -1322,17 +1327,15 @@ class AttributeManager:
             if resource.shadow:
                 return resource.shadow.attributes
 
-            # deepcopy() because lazily created ResultMaps and ResultLists will mutate
-            # the underlying nested structures when resolving values
             if resource.template:
                 specAttributes = resource.template.defaultAttributes
                 _attributes = ChainMap(
-                    copy.deepcopy(resource._attributes),
-                    copy.deepcopy(resource.template.properties),
-                    copy.deepcopy(specAttributes),
+                    resource._attributes,
+                    resource.template.properties,
+                    specAttributes,
                 )
             else:
-                _attributes = ChainMap(copy.deepcopy(resource._attributes))
+                _attributes = ChainMap(resource._attributes)
             ctx = self._get_context(resource)
             mode = os.getenv("UNFURL_VALIDATION_MODE")
             if mode is not None and "nopropcheck" in mode:

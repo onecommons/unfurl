@@ -4,8 +4,9 @@ from collections.abc import Mapping
 import os.path
 import hashlib
 import json
-from typing import Tuple, Any
+from typing import Dict, Optional, Any, Sequence
 from ruamel.yaml.comments import CommentedMap
+
 from .tosca import ToscaSpec, TOSCA_VERSION, ArtifactSpec
 
 from .support import (
@@ -26,8 +27,8 @@ from .runtime import (
 from .util import UnfurlError, to_enum, sensitive_str, get_base_dir
 from .repo import RevisionManager, split_git_url, RepoView
 from .merge import merge_dicts
-from .yamlloader import YamlConfig, yaml, ImportResolver
-from .job import ConfigChange
+from .result import ChangeRecord
+from .yamlloader import YamlConfig, yaml, ImportResolver, yaml_dict_type
 import toscaparser.imports
 from toscaparser.repositories import Repository
 
@@ -63,6 +64,10 @@ def relabel_dict(context, localEnv, key):
 
     return dict((n, follow_alias(v)) for n, v in connections.items())
 
+class ChangeRecordRecord(ChangeRecord):
+    target: str = ""
+    operation: str = ""
+    dependencies: Sequence = ()
 
 class Manifest(AttributeManager):
     """
@@ -79,7 +84,7 @@ class Manifest(AttributeManager):
         self.repo = self._find_repo()
         self.currentCommitId = self.repo and self.repo.revision
         self.revisions = RevisionManager(self)
-        self.changeSets = None
+        self.changeSets: Optional[Dict[str, ChangeRecordRecord]] = None
         self.tosca = None
         self.specDigest = None
         self.repositories = {}
@@ -143,8 +148,9 @@ class Manifest(AttributeManager):
                 more_spec,
                 replaceKeys=["node_templates", "relationship_templates"],
             )
-        if not isinstance(toscaDef, CommentedMap):
-            toscaDef = CommentedMap(toscaDef.items())
+        yaml_dict_cls = yaml_dict_type(self.localEnv and self.localEnv.readonly)
+        if not isinstance(toscaDef, yaml_dict_cls):
+            toscaDef = yaml_dict_cls(toscaDef.items())
         if getattr(toscaDef, "base_dir", None) and (
             not path or toscaDef.base_dir != os.path.dirname(path)
         ):
@@ -236,20 +242,22 @@ class Manifest(AttributeManager):
                 ]
         return resourceChanges
 
-    def load_config_change(self, changeSet):
+    def load_config_change(self, changeSet: dict) -> ChangeRecordRecord:
         """
         Reconstruct the Configuration that was applied in the past
         """
         from .configurator import Dependency
 
-        configChange = ConfigChange()
+        configChange = ChangeRecordRecord()
         Manifest.load_status(changeSet, configChange)
         configChange.changeId = changeSet.get("changeId", 0)
         configChange.previousId = changeSet.get("previousId")
-        configChange.target = changeSet.get("target")
-        configChange.operation = changeSet.get("implementation", {}).get("operation")
+        configChange.target = changeSet.get("target", "")
+        assert isinstance(configChange.target, str)
+        configChange.operation = changeSet.get("implementation", {}).get("operation", "")
+        assert isinstance(configChange.operation, str)
 
-        configChange.inputs = changeSet.get("inputs")
+        configChange.inputs = changeSet.get("inputs")  # type: ignore
         # 'digestKeys', 'digestValue' but configurator can set more:
         for key in changeSet.keys():
             if key.startswith("digest"):
@@ -269,12 +277,12 @@ class Manifest(AttributeManager):
             )
 
         if "changes" in changeSet:
-            configChange.resourceChanges = self.load_resource_changes(
+            configChange.resourceChanges = self.load_resource_changes(  # type: ignore
                 changeSet["changes"]
             )
 
-        configChange.result = changeSet.get("result")
-        configChange.messages = changeSet.get("messages", [])
+        configChange.result = changeSet.get("result")  # type: ignore
+        configChange.messages = changeSet.get("messages", [])  # type: ignore
 
         # XXX
         # ('action', ''),
@@ -352,7 +360,7 @@ class Manifest(AttributeManager):
             return None
         if not self.changeSets:  # XXX load changesets if None
             return None
-        jobId = ConfigChange.get_job_id(operational.last_config_change)
+        jobId = ChangeRecord.get_job_id(operational.last_config_change)
         return self.changeSets.get(jobId)
 
     def _create_entity_instance(self, ctor, name, status, parent):
@@ -577,6 +585,13 @@ class Manifest(AttributeManager):
                 return reponame in repositories
             return True
 
+        if not artifactTpl["file"]:
+            msg = f"document include {templatePath} missing file (base: {baseDir})"
+            if warnWhenNotFound:
+                logger.warning(msg)
+                return "", None
+            raise UnfurlError(msg)
+
         artifact = ArtifactSpec(artifactTpl, path=baseDir)
         tpl = CommentedMap()
         resolver = self.get_import_resolver(warnWhenNotFound, config=expanded)
@@ -598,6 +613,21 @@ class Manifest(AttributeManager):
 
     def get_import_resolver(self, ignoreFileNotFound=False, expand=False, config=None):
         return ImportResolver(self, ignoreFileNotFound, expand, config)
+
+    def last_commit_time(self) -> float:
+        # return seconds (0 if not found)
+        repo = self.repo
+        if not repo:
+            return 0
+        try:
+            # find the revision that last modified this file before or equal to the current revision
+            # (use current revision to handle branches)
+            commits = list(repo.repo.iter_commits(repo.revision, self.path, max_count=1))
+        except ValueError:
+            return 0
+        if commits:
+            return commits[0].committed_date
+        return 0
 
 
 class SnapShotManifest(Manifest):

@@ -16,6 +16,7 @@ import os.path
 import sys
 import itertools
 import json
+import datetime
 from typing import Any, Dict, List, Optional, Union, cast, TYPE_CHECKING
 from collections import Counter
 from collections.abc import Mapping, MutableSequence
@@ -34,9 +35,10 @@ from toscaparser.elements.portspectype import PortSpec
 from toscaparser.activities import ConditionClause
 from .logs import sensitive, is_sensitive, getLogger
 from .tosca import is_function, get_nodefilters
-from .localenv import LocalEnv
 from .util import to_enum, UnfurlError
 from .support import Status, is_template
+from .result import ChangeRecord
+from .localenv import LocalEnv
 
 logger = getLogger("unfurl")
 
@@ -761,15 +763,12 @@ def nodetemplate_to_json(nodetemplate, spec, types, for_resource=False):
         if name in ["dependency", "installer"]:
             # skip artifact requirements and the base TOSCA relationship type that every node has
             continue
+        # we need to call _get_explicit_relationship() to make sure all the requirements relationships are created
         reqDef, rel_template = nodetemplate._get_explicit_relationship(name, req_dict)
         reqconstraint = _find_requirement_constraint(jsonnodetype["requirements"], name)
         reqjson = dict(constraint=reqconstraint, name=name, __typename="Requirement")
-        req_metadata = req_dict.get("metadata") or {}
-        visibility = (
-            req_metadata
-            and "constraint" in req_metadata
-            and req_metadata["constraint"].get("visibility")
-        )
+        req_metadata = req_dict.get("metadata") or req_dict.get("constraint") or {}
+        visibility = req_metadata and req_metadata.get("visibility")
         if req_dict.get("node") and not _get_typedef(req_dict["node"], spec):
             # it's not a type, assume it's a node template
             # (the node template name might not match a template if it is only defined in the deployment blueprints)
@@ -893,7 +892,7 @@ def _get_or_make_primary(spec, db):
     return root.name, root.type
 
 
-def to_graphql_blueprint(spec, db, deploymentTemplates=None):
+def to_graphql_blueprint(spec, db):
     """
     Returns json object as ApplicationBlueprint
 
@@ -916,7 +915,7 @@ def to_graphql_blueprint(spec, db, deploymentTemplates=None):
     title, name = _template_title(spec, root_name)
     blueprint = dict(__typename="ApplicationBlueprint", name=name, title=title)
     blueprint["primary"] = root_type
-    blueprint["deploymentTemplates"] = deploymentTemplates or []
+    blueprint["deploymentTemplates"] = []
     blueprint["description"] = spec.template.description
     metadata = spec.template.tpl.get("metadata") or {}
     blueprint["livePreview"] = metadata.get("livePreview")
@@ -1054,12 +1053,17 @@ def get_deployment_blueprints(manifest, blueprint, root_name, db):
     return deployment_templates
 
 
+def _project_path(url):
+    pp = urlparse(url).path.lstrip("/")
+    if pp.endswith(".git"):
+        return pp[:-4]
+    return pp
+
+
 def get_blueprint_from_topology(manifest, db):
     spec = manifest.tosca
-    title = os.getenv("DEPLOYMENT") or os.path.basename(os.path.dirname(manifest.path))
-    slug = slugify(title)
     # XXX cloud = spec.topology.primary_provider
-    blueprint, root_name = to_graphql_blueprint(spec, db, [title])
+    blueprint, root_name = to_graphql_blueprint(spec, db)
     templates = get_deployment_blueprints(manifest, blueprint, root_name, db)
 
     template = {}
@@ -1068,9 +1072,11 @@ def get_blueprint_from_topology(manifest, db):
         deployment_blueprint = templates[deployment_blueprint_name]
         template = deployment_blueprint.copy()
 
+    # the deployment template created for this deployment will have a "source" key
+    # so if it doesn't (or one wasn't set) create a new one and set the current one as its "source"
     if "source" not in template:
-        # the deployment template created for this deployment will have a "source" key
-        # so if it doesn't (or one wasn't set) create a new one and set the current one as its "source"
+        title = os.path.basename(os.path.dirname(manifest.path))
+        slug = slugify(title)
         template.update(
             dict(
                 __typename="DeploymentTemplate",
@@ -1082,18 +1088,22 @@ def get_blueprint_from_topology(manifest, db):
                 resourceTemplates=sorted(db["ResourceTemplate"]),
                 ResourceTemplate={},
                 source=deployment_blueprint_name,
-                projectPath=urlparse(manifest.repositories["spec"].url)
-                .path.lstrip("/")
-                .rstrip(".git"),
+                projectPath=_project_path(manifest.repositories["spec"].url),
             )
         )
+        templates[slug] = template
+
+    blueprint["deploymentTemplates"] = list(templates)
     template["blueprint"] = blueprint["name"]
     template["primary"] = root_name
     template["environmentVariableNames"] = list(_generate_env_names(spec, root_name))
+    last_commit_time = manifest.last_commit_time()
+    if last_commit_time:
+        template["commitTime"] = datetime.datetime.fromtimestamp(last_commit_time).isoformat(' ', 'seconds')
     return blueprint, template
 
 
-def to_graphql(localEnv):
+def _to_graphql(localEnv):
     # set skip_validation because we want to be able to dump incomplete service templates
     manifest = localEnv.get_manifest(skip_validation=True)
     db = {}
@@ -1159,6 +1169,7 @@ def add_graphql_deployment(manifest, db, dtemplate):
       status: Status
       summary: String
       workflow: String
+      deployTime: String
     }
     """
     name = dtemplate["name"]
@@ -1190,10 +1201,9 @@ def add_graphql_deployment(manifest, db, dtemplate):
             )
             if workflow == "undeploy" and deployment["status"] == Status.ok:
                 deployment["status"] = Status.absent
-
         deployment["summary"] = manifest.lastJob.get("summary")
-    deployment["ci_job_id"] = os.getenv("CI_JOB_ID")
-    deployment["ci_pipeline_id"] = os.getenv("CI_PIPELINE_ID")
+        deployment["deployTime"] = datetime.datetime.strptime(
+            manifest.lastJob["startTime"], ChangeRecord.DateTimeFormat).isoformat(' ', 'seconds')
 
     url = manifest.rootResource.attributes["outputs"].get("url")
     primary_resource = db["Resource"].get(primary_name)
@@ -1211,7 +1221,7 @@ def add_graphql_deployment(manifest, db, dtemplate):
 
 
 def to_blueprint(localEnv, existing=None):
-    db, manifest, env, env_types = to_graphql(localEnv)
+    db, manifest, env, env_types = _to_graphql(localEnv)
     blueprint, root_name = to_graphql_blueprint(manifest.tosca, db)
     deployment_blueprints = get_deployment_blueprints(
         manifest, blueprint, root_name, db
@@ -1224,13 +1234,15 @@ def to_blueprint(localEnv, existing=None):
 
 # NB! to_deployment is the default export format used by __main__.export (but you won't find that via grep)
 def to_deployment(localEnv, existing=None):
-    db, manifest, env, env_types = to_graphql(localEnv)
+    logger.debug("exporting deployment %s", localEnv.manifestPath)
+    db, manifest, env, env_types = _to_graphql(localEnv)
     blueprint, dtemplate = get_blueprint_from_topology(manifest, db)
     db["DeploymentTemplate"] = {dtemplate["name"]: dtemplate}
     db["ApplicationBlueprint"] = {blueprint["name"]: blueprint}
-    deployment = add_graphql_deployment(manifest, db, dtemplate)
+    add_graphql_deployment(manifest, db, dtemplate)
     # don't include base node type:
     db["ResourceType"].pop("tosca.nodes.Root")
+    logger.debug("finished exporting deployment %s", localEnv.manifestPath)
     return db
 
 
@@ -1318,7 +1330,7 @@ def to_environments(localEnv, existing=None):
     """
 
     # XXX one manifest and blueprint per environment
-    if existing:
+    if existing and os.path.exists(existing):
         with open(existing) as f:
             db = json.load(f)
     else:
@@ -1326,15 +1338,26 @@ def to_environments(localEnv, existing=None):
     environments = {}
     all_connection_types = {}
     blueprintdb = None
+    deployments = set_deploymentpaths(localEnv.project)["DeploymentPath"]
+    env_deployments = {}
+    for ensemble_info in deployments.values():
+        env_deployments[ensemble_info["environment"]] = ensemble_info["name"]
     for name in localEnv.project.contexts:
-        # we create new LocalEnv for each context because we need to instantiate a different ToscaSpec object
-        blueprintdb, manifest, env, env_types = to_graphql(
-            LocalEnv(
+        if name in env_deployments:
+            # we can reuse the localEnv if there's a distinct manifest that uses this environment
+            localEnv.manifest_context_name = name
+            localEnv.manifestPath = os.path.join(localEnv.project.projectRoot, env_deployments[name], "ensemble.yaml")
+            localLocalEnv = localEnv
+        else:
+            # this environment doesn't have any deployments so we have to create a new localEnv
+            # because we need to instantiate a different ToscaSpec object
+            localLocalEnv = LocalEnv(
                 localEnv.manifestPath,
                 project=localEnv.project,
                 override_context=name,
+                readonly=True,
             )
-        )
+        blueprintdb, manifest, env, env_types = _to_graphql(localLocalEnv)
         env["name"] = name
         environments[name] = env
         all_connection_types.update(env_types)
@@ -1351,12 +1374,30 @@ def to_environments(localEnv, existing=None):
         # XXX is it safe to only include types with "connect" implementations?
         all_connection_types.update(blueprintdb["ResourceType"])
     db["ResourceType"] = all_connection_types
-    db["DeploymentPath"] = to_deployments(localEnv)["DeploymentPath"]
+    db["DeploymentPath"] = deployments
     return db
 
 
 def to_deployments(localEnv, existing=None):
-    return set_deploymentpaths(localEnv.project, existing)
+    db = set_deploymentpaths(localEnv.project)
+    deployments = db["deployments"] = []
+    for manifest_path, dp in db["DeploymentPath"].items():
+        try:
+            # optimization: reuse localenv
+            localEnv.manifestPath = os.path.join(localEnv.project.projectRoot, manifest_path, "ensemble.yaml")
+            environment = dp.get("environment") or "defaults"
+            localEnv.manifest_context_name = environment
+            deployments.append(to_deployment(localEnv))
+        except Exception:
+            logger.error("error exporting deployment %s", manifest_path, exc_info=True)
+
+    # from .yamlloader import yaml_perf
+    # _print(f"exported {len(deployments)} deployments, {yaml_perf} seconds parsing yaml")
+    return db
+
+
+def get_deploymentpaths(project):
+    return set_deploymentpaths(project)["DeploymentPath"]
 
 
 def set_deploymentpaths(project, existing=None):
@@ -1369,10 +1410,8 @@ def set_deploymentpaths(project, existing=None):
     for ensemble_info in project.localConfig.ensembles:
         if "environment" in ensemble_info and "project" not in ensemble_info:
             # exclude external ensembles
-            path = os.path.dirname()
-            if path in deployment_paths:
-                continue  # don't overwrite
-            deployment_paths[path] = {
+            path = os.path.dirname(ensemble_info["file"])
+            obj = {
                 "__typename": "DeploymentPath",
                 "name": path,
                 "project_id": ensemble_info.get("project_id"),
@@ -1380,6 +1419,11 @@ def set_deploymentpaths(project, existing=None):
                 "environment": ensemble_info["environment"],
                 "incremental_deploy": ensemble_info.get("incremental_deploy", False)
             }
+            if path in deployment_paths:
+                # merge duplicate entries
+                deployment_paths[path].update(obj)
+            else:
+                deployment_paths[path] = obj
     return db
 
 

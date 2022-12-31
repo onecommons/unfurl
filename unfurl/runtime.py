@@ -36,15 +36,13 @@ from .tosca import (
     TopologySpec,
     ArtifactSpec,
 )
-from .logs import UnfurlLogger
-import logging
+from .logs import getLogger
 
 if TYPE_CHECKING:
     from unfurl.configurator import Dependency
     import toscaparser.repositories
 
-# Tell mypy the logger is of type UnfurlLogger
-logger = cast(UnfurlLogger, logging.getLogger("unfurl"))
+logger = getLogger("unfurl")
 
 # CF 3.4.1 Node States p61
 
@@ -382,9 +380,8 @@ class EntityInstance(OperationalInstance, ResourceRef):
             return super()._get_prop(name)
 
     def _resolve(self, key):
-        # might return a Result
-        self.attributes[key]  # force resolve
-        return self.attributes._attributes[key]
+        # force resolve, might return a Result
+        return self.attributes._getresult(key)
 
     def query(self, expr, vars=None, wantList=False, trace=None):
         from .eval import Ref, RefContext
@@ -766,9 +763,9 @@ class NodeInstance(HasInstancesInstance):
         assert relationship and relationship.capability and relationship.target
         # find the Capability instance that corresponds to this relationship template's capability
         targetNodeInstance = self.root.find_resource(relationship.target.name)
-        assert (
-            targetNodeInstance
-        ), f"target instance {relationship.target.name} should have been already created"
+        if not targetNodeInstance:
+            logger.warning(f"target instance {relationship.target.name} should have already been created -- is {self.name} out of sync with latest templates?")
+            return None
         for cap in targetNodeInstance.capabilities:
             if cap.template is relationship.capability:
                 for relInstance in cap.relationships:
@@ -789,9 +786,8 @@ class NodeInstance(HasInstancesInstance):
                 if id(template.relationship) not in instantiated:
                     relInstance = self._find_relationship(template.relationship)
                     if not relInstance:
-                        raise UnfurlError(
-                            f'can not find relation instance for requirement "{name}" on node "{self.name}"'
-                        )
+                        logger.warning(f'can not find relation instance for requirement "{name}" on node "{self.name}"')
+                        continue
                     assert template.relationship is relInstance.template
                     assert self.template is relInstance.template.source
                     self._requirements.append(relInstance)
@@ -915,8 +911,8 @@ class NodeInstance(HasInstancesInstance):
     def _resolve(self, key):
         # might return a Result
         try:
-            self.attributes[key]  # force resolve
-            return self.attributes._attributes[key]
+            # force resolve
+            return self.attributes._getresult(key)
         except KeyError:
             try:
                 inherit = self._interfaces.get("inherit")  # pre-loaded

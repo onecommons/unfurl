@@ -556,6 +556,9 @@ class ChainMap(MutableMapping):
     def __init__(self, *maps: MutableMapping) -> None:
         self._maps = maps
 
+    def copy(self):
+        return ChainMap(*(m.copy() for m in self._maps))
+
     def split(self) -> Tuple[MutableMapping, "ChainMap"]:
         return self._maps[0], ChainMap(*self._maps[1:])
 
@@ -610,7 +613,7 @@ class Generate:
             return False
 
 
-def substitute_env(contents, env=None):
+def substitute_env(contents, env=None, preserve_missing=False):
     """
     Replace ${NAME} or ${NAME:default value} with the value of the environment variable $NAME
     Use \${NAME} to ignore
@@ -620,15 +623,18 @@ def substitute_env(contents, env=None):
 
     def replace(m):
         if m.group(1):  # \ found
-            return m.group(0)[len(m.group(1)) - 1 or 1 :]
-        default_value = m.group(3)[1:] if m.group(3) else ""
+            return m.group(0)[len(m.group(1)) - 1 or 1:]
         for name in m.group(2).split("|"):
             if name in env:
                 value = env[name]
                 if callable(value):
                     return value()
                 return value
-        return default_value
+        # can't resolve, use default
+        if preserve_missing:
+            return m.group(0)
+        else:  # return the default value or an empty ""
+            return m.group(3)[1:] if m.group(3) else ""
 
     return re.sub(r"(\\+)?\$\{([\w|]+)(\:.+?)?\}", replace, contents)
 
@@ -743,7 +749,8 @@ required_envvars = [
     "UNFURL_APPROVE",
     "UNFURL_MOCK_DEPLOY",
     "UNFURL_LOGFILE",
-    "UNFURL_VAULT_SKIP_DECRYPT",
+    "UNFURL_SKIP_VAULT_DECRYPT",
+    "UNFURL_SKIP_UPSTREAM_CHECK",
     "UNFURL_VALIDATION_MODE",
 ]
 # hack for sphinx ext documentedlist

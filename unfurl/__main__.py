@@ -1105,6 +1105,7 @@ def export(ctx, project_or_ensemble_path, format, file, **options):
         project_or_ensemble_path,
         options.get("home"),
         override_context=options.get("use_environment") or "",
+        readonly=True
     )
     exporter = getattr(to_json, "to_" + format)
     jsonSummary = exporter(localEnv, file)
@@ -1135,9 +1136,13 @@ def status(ctx, ensemble, **options):
         ensemble,
         options.get("home"),
         override_context=options.get("use_environment") or "",
+        readonly=True,
     )
+    logger = logging.getLogger("unfurl")
     manifest = localEnv.get_manifest()
-    click.echo(manifest.status_summary())
+    summary = manifest.status_summary()
+    click.echo(summary)
+    logger.debug("Status summary:\n%s", summary)
     query = options.get("query")
     if query:
         trace = options.get("trace")

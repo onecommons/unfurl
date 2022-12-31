@@ -50,8 +50,8 @@ def normalize_git_url(url, hard=0):
             netloc = f"{user.partition(':')[0]}@{host}"
         else:
             netloc = host
-        if hard == 2:
-            path = parts.path.rstrip(".git")
+        if hard == 2 and parts.path.endswith(".git"):
+            path = parts.path[:-4]
         else:
             path = parts.path
         return parts._replace(netloc=netloc, path=path).geturl()
@@ -64,6 +64,9 @@ def normalize_git_url_hard(url):
 
 
 def is_url_or_git_path(url):
+    if url.startswith("--"):
+        # security: see https://github.com/gitpython-developers/GitPython/issues/1517
+        return False
     if "://" in url and not url.startswith("file:"):
         return True
     if "@" in url:
@@ -79,6 +82,9 @@ def split_git_url(url):
     Returns (repoURL, filePath, revision)
     RepoURL will be an empty string if it isn't a path to a git repo
     """
+    if url.startswith("--"):
+        # security: see https://github.com/gitpython-developers/GitPython/issues/1517
+        return False
     parts = urlparse(url)
     if parts.scheme == "git-local":
         return parts.scheme + "://" + parts.netloc, parts.path[1:], parts.fragment
@@ -98,7 +104,10 @@ class _ProgressPrinter(git.RemoteProgress):
     def update(self, op_code, cur_count, max_count=None, message=""):
         # we use print instead of logging because we don't want to clutter logs with this message
         if message and logger.getEffectiveLevel() <= logging.INFO:
-            print(f"fetching from {self.gitUrl}, received: {message} ", file=sys.stderr)
+            url = self.gitUrl
+            if "://" in url and "@" in url:  # sanitize
+                url = normalize_git_url_hard(url)
+            print(f"fetching from {url}, received: {message} ", file=sys.stderr)
 
 
 class Repo:
@@ -451,6 +460,9 @@ class GitRepo(Repo):
             if os.path.isabs(path):
                 # get path relative to repository's root
                 path = os.path.relpath(path, self.working_dir)
+                if path.startswith(".."):
+                    # outside of the repo, don't include it in the url
+                    return normalize_git_url(self.url, sanitize)
             return normalize_git_url(self.url, sanitize) + "#:" + path
         else:
             return self.get_git_local_url(path)
@@ -592,6 +604,11 @@ class GitRepo(Repo):
             # get path relative to repository's root
             path = os.path.relpath(path, self.working_dir)
         return f"git-local://{self.get_initial_revision()}:{name}/{path}"
+
+    def delete_dir(self, path, commit=None):
+        self.repo.index.remove(os.path.abspath(path), r=True, working_tree=True)
+        if commit:
+            self.repo.index.commit(commit)
 
     # XXX: def getDependentRepos()
     # XXX: def canManage()

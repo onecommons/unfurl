@@ -81,6 +81,8 @@ node_types:
       main:
         type: string
         required: false
+        metadata:
+          user_settable: false
     interfaces:
       defaults:
         implementation:

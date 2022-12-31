@@ -66,16 +66,17 @@ class Project:
         path: str,
         homeProject: Optional["Project"] = None,
         overrides: Optional[dict] = None,
+        readonly: Optional[bool] = False,
     ):
         assert isinstance(path, six.string_types), path
         self.projectRoot = os.path.abspath(os.path.dirname(path))
         self.overrides = overrides or {}
         if os.path.exists(path):
             self.localConfig = LocalConfig(
-                path, yaml_include_hook=self.load_yaml_include
+                path, yaml_include_hook=self.load_yaml_include, readonly=readonly
             )
         else:
-            self.localConfig = LocalConfig()
+            self.localConfig = LocalConfig(readonly=readonly)
         self._set_repos()
         # XXX this updates and saves the local config to disk -- constructing a Project object shouldn't do that
         # especially since we localenv might not have found the ensemble yet
@@ -251,7 +252,7 @@ class Project:
     ) -> Union[GitRepo, str]:
         # if repo isn't found, return the repo url, possibly rewritten to include server credentials
         candidate = None
-        # repourl_parts = urlsplit(repoURL)
+        repourl_parts = urlsplit(repoURL)
         normalized = normalize_git_url_hard(repoURL)
         for dir, repository in self.workingDirs.items():
             repo = repository.repo
@@ -268,16 +269,16 @@ class Project:
                     candidate = repo
                 else:
                     return repo
-            # elif not repourl_parts.username:  # if url doesn't have credentials already
-            #     candidate_parts = urlsplit(repo.url)
-            #     if (
-            #         candidate_parts.password
-            #         and candidate_parts.hostname == repourl_parts.hostname
-            #     ):
-            #         # rewrite repoUrl to add credentials
-            #         repoURL = urlunsplit(
-            #             repourl_parts._replace(netloc=candidate_parts.netloc)
-            #         )
+            elif not repourl_parts.username:  # if url doesn't have credentials already
+                candidate_parts = urlsplit(repo.url)
+                if (
+                    candidate_parts.password
+                    and candidate_parts.hostname == repourl_parts.hostname
+                ):
+                    # rewrite repoUrl to add credentials
+                    repoURL = urlunsplit(
+                        repourl_parts._replace(netloc=candidate_parts.netloc)
+                    )
         return candidate or repoURL
 
     def find_git_repo(
@@ -447,7 +448,7 @@ class Project:
                 yield vaultId, password
 
     def make_vault_lib(self, contextName: Optional[str] = None) -> Optional[VaultLib]:
-        if self.overrides.get("UNFURL_VAULT_SKIP_DECRYPT"):
+        if self.overrides.get("UNFURL_SKIP_VAULT_DECRYPT"):
             vault = UnfurlVaultLib(secrets=None)
             vault.skip_decode = True
             return vault
@@ -459,11 +460,15 @@ class Project:
     @staticmethod
     def _find_ensemble_by_path(ensembles, projectRoot, path: str) -> Optional[dict]:
         path = os.path.abspath(path)
+        match = None
         for tpl in ensembles:
             file = tpl.get("file")
             if file and os.path.normpath(os.path.join(projectRoot, file)) == path:
-                return tpl
-        return None
+                if not match:
+                    match = tpl
+                else:  # merge duplicate ensembles
+                    match.update(tpl)
+        return match
 
     def find_ensemble_by_path(self, path: str) -> Optional[dict]:
         return self._find_ensemble_by_path(
@@ -558,7 +563,7 @@ class Project:
         if managedBy or project:
             assert not (managedBy and project)
             self.register_project(managedBy or project, changed=True)
-        elif context:
+        else:
             self.localConfig.config.config["ensembles"] = self.localConfig.ensembles
             self.localConfig.config.save()
 
@@ -590,7 +595,7 @@ class Project:
             key = templatePath
             merge = None
 
-        url_vars = {} # os.environ.copy()
+        url_vars = {}
         url_vars.update(self.overrides)
         if action:
             if isinstance(action, str):
@@ -645,7 +650,7 @@ class LocalConfig:
         "instances",
     ]
 
-    def __init__(self, path=None, validate=True, yaml_include_hook=None):
+    def __init__(self, path=None, validate=True, yaml_include_hook=None, readonly=False):
         defaultConfig = {"apiVersion": "unfurl/v1alpha1", "kind": "Project"}
         self.config = YamlConfig(
             defaultConfig,
@@ -653,6 +658,7 @@ class LocalConfig:
             validate,
             os.path.join(_basepath, "unfurl-schema.json"),
             yaml_include_hook,
+            readonly=readonly
         )
         self.ensembles = self.config.expanded.get("ensembles") or []
         self.projects = self.config.expanded.get("projects") or {}
@@ -889,6 +895,8 @@ class LocalEnv:
         project: Optional[Project] = None,
         can_be_empty: bool = False,
         override_context: Optional[str] = None,
+        overrides: Optional[Dict[str, Any]] = None,
+        readonly: Optional[bool] = False,
     ) -> None:
         """
         If manifestPath is None find the first unfurl.yaml or ensemble.yaml
@@ -903,13 +911,16 @@ class LocalEnv:
         logger = logging.getLogger("unfurl")
         self.logger = logger
         self.manifest_context_name = None
-        self.overrides: Dict[str, Any] = {}
+        self.overrides: dict = overrides or {}
+        self.readonly = readonly
         if override_context is not None:
             # aka the --use-environment option
             # hackishly, "" is a valid option used by load_yaml_include
             self.overrides["ENVIRONMENT"] = override_context
-        if os.getenv("UNFURL_VAULT_SKIP_DECRYPT"):
-            self.overrides["UNFURL_VAULT_SKIP_DECRYPT"] = True
+        if os.getenv("UNFURL_SKIP_VAULT_DECRYPT"):
+            self.overrides["UNFURL_SKIP_VAULT_DECRYPT"] = True
+        if os.getenv("UNFURL_SKIP_UPSTREAM_CHECK"):
+            self.overrides["UNFURL_SKIP_UPSTREAM_CHECK"] = True
 
         if parent:
             self.parent = parent
@@ -1022,7 +1033,7 @@ class LocalEnv:
         path = Project.normalize_path(path)
         project = self._projects.get(path)
         if not project:
-            project = Project(path, homeProject, self.overrides)
+            project = Project(path, homeProject, self.overrides, readonly=self.readonly)
             self._projects[path] = project
         return project
 
@@ -1091,9 +1102,10 @@ class LocalEnv:
                         message = f"Can't find an Unfurl ensemble or project in folder '{manifestPath}'"
                         raise UnfurlError(message)
         else:
-            test = os.path.join(manifestPath, DefaultNames.LocalConfig)
-            if os.path.exists(test):
-                return None, self.get_project(test, self.homeProject)
+            assert os.path.isfile(manifestPath)
+            if os.path.basename(manifestPath) == DefaultNames.LocalConfig:
+                # assume unfurl.yaml is a project file
+                return None, self.get_project(manifestPath, self.homeProject)
             # assume its a pointing to an ensemble
             return manifestPath, None
 
@@ -1236,7 +1248,7 @@ class LocalEnv:
             logger.debug(
                 "Using existing repository at %s for %s", repo.working_dir, repoURL
             )
-            if not repo.is_dirty():
+            if not self.overrides.get("UNFURL_SKIP_UPSTREAM_CHECK") and not repo.is_dirty():
                 repo.pull(revision=revision)
         else:
             assert isinstance(

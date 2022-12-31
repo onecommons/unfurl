@@ -511,7 +511,7 @@ class Results(ABC):
         from .eval import RefContext
 
         assert not isinstance(serializedOriginal, Results), serializedOriginal
-        self._attributes = serializedOriginal
+        self._attributes = serializedOriginal.copy()
         self._deleted = {}
         if not isinstance(resourceOrCxt, RefContext):
             ctx = RefContext(resourceOrCxt)

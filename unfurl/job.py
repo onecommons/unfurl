@@ -75,7 +75,6 @@ class ConfigChange(OperationalInstance, ChangeRecord):
     1. Live resource attributes that the configuration's inputs depend on.
     2. Other configurations and resources it relies on to function properly.
     """
-
     def __init__(
         self,
         parentJob: Optional["Job"] = None,
@@ -417,11 +416,11 @@ class ConfigTask(ConfigChange, TaskView):
     #         previousId = previousChange.previousId
     #     return None
 
-    def has_inputs_changed(self):
+    def has_inputs_changed(self) -> bool:
         """
         Evaluate configuration spec's inputs and compare with the current inputs' values
         """
-        changeset = self._manifest.find_last_operation(
+        changeset = cast("YamlManifest", self._manifest).find_last_operation(
             self.target.key, self.configSpec.operation
         )
         if not changeset:
@@ -608,7 +607,7 @@ class Job(ConfigChange):
         if self.external_requests:
             msg = "Running local installation tasks"
             plan, count = self._plan_summary([], self.external_requests)
-            logger.info(msg + "\n%s", plan)
+            logger.info(msg + "\n%s", plan, extra=dict(truncate=0))
 
         # currently external jobs are just for installing artifacts
         # we want to run these even if we just generating a plan
@@ -1313,7 +1312,7 @@ def _plan(manifest, jobOptions):
     else:
         msg = "Initial static plan:"
     plan_msg, count = job._plan_summary(job.plan_requests, job.external_requests)
-    logger.debug(msg + "\n%s", plan_msg)
+    logger.debug(msg + "\n%s", plan_msg, extra=dict(truncate=0))
     return job
 
 
@@ -1322,7 +1321,7 @@ def _render(job):
     with change_cwd(job.manifest.get_base_dir()):
         ready, notReady, errors = job.render()
         msg, count = job._plan_summary(ready + notReady, [])
-        logger.info(msg)
+        logger.info(msg, extra=dict(truncate=0))
     return (ready, notReady, errors), count
 
 
@@ -1332,6 +1331,7 @@ def start_job(manifestPath=None, _opts=None):
         manifestPath,
         _opts.get("home"),
         override_context=_opts.get("use_environment") or "",
+        # XXX readonly=_opts.get("planOnly")
     )
     opts = JobOptions(**_opts)
     path = localEnv.manifestPath

@@ -15,25 +15,23 @@ from unfurl import server
 import pytest
 from tests.utils import init_project, run_cmd
 from unfurl.repo import GitRepo
+from unfurl.yamlloader import yaml
 
 # Very minimal deployment
 deployment = """
-{{
-    "ResourceTemplate": {{
-        "container_service": {{
-            "properties": [
-                {{
-                    "value": {{
-                        "environment": {{
-                            "VAR": "{0}"
-                        }}
-                    }}
-                }}
-            ]
-        }}
-    }}
-}}
-"""
+apiVersion: unfurl/v1alpha1
+kind: Ensemble
+spec:
+  service_template:
+    topology_template:
+      node_templates:
+        container_service:
+          type: tosca:Root
+          properties:
+            container:
+              environment:
+                VAR: "{0}"
+"""              
 
 patch = """
 [{{
@@ -57,11 +55,14 @@ patch = """
 delete_patch = """
 [{
     "__typename": "ResourceTemplate",
-    "__deleted": "container_service"
+    "name": "container_service",
+    "__deleted": true
 }]
 """
 
+_static_server_port = 8090
 _server_port = 8091
+CLOUD_TEST_SERVER = "https://gitlab.com/"
 
 
 #  Increment port just in case server ports aren't closed in time for next test
@@ -107,16 +108,18 @@ def start_envvar_server(port):
     f.close()
     return httpd, env_var_url
 
+
 @pytest.fixture()
 def runner():
     runner = CliRunner()
     with runner.isolated_filesystem() as tmpdir:
-        # server.serve('localhost', 8081, 'secret', 'ensemble', {})
+        # server.serve('localhost', _static_server_port, 'secret', 'ensemble', {})
+        # "url": ,
         server_process = Process(
             target=server.serve,
-            args=("localhost", 8081, "secret", ".", "", {}),
+            args=("localhost", _static_server_port, "secret", ".", "", {}, CLOUD_TEST_SERVER),
         )
-        assert start_server_process(server_process, 8081)
+        assert start_server_process(server_process, _static_server_port)
 
         yield server_process
 
@@ -132,19 +135,18 @@ def set_up_deployment(runner, deployment):
     )
 
     # Create a mock deployment
-    os.makedirs("dashboard/deployments/dev")
-    with open("dashboard/deployments/dev/deployment.json", "w") as f:
+    with open("ensemble/ensemble.yaml", "w") as f:
         f.write(deployment)
 
     repo = Repo.init('.')
     repo = GitRepo(repo)
     repo.add_all()
-    repo.commit_files(["dashboard/deployments/dev/deployment.json"], "Add deployment")
+    repo.commit_files(["ensemble/ensemble.yaml"], "Add deployment")
 
     port = _next_port()
     p = Process(
         target=server.serve,
-        args=("localhost", port, None, ".", ".", {"home": ""}),
+        args=("localhost", port, None, ".", ".", {"home": ""}, ),
     )
     assert start_server_process(p, port)
 
@@ -152,33 +154,33 @@ def set_up_deployment(runner, deployment):
 
 
 def test_server_health(runner):
-    res = requests.get("http://localhost:8081/health", params={"secret": "secret"})
+    res = requests.get("http://localhost:8090/health", params={"secret": "secret"})
 
     assert res.status_code == 200
     assert res.content == b"OK"
 
 
 def test_server_authentication(runner):
-    res = requests.get("http://localhost:8081/health")
+    res = requests.get("http://localhost:8090/health")
     assert res.status_code == 401
     assert res.json()["code"] == "UNAUTHORIZED"
 
-    res = requests.get("http://localhost:8081/health", params={"secret": "secret"})
+    res = requests.get("http://localhost:8090/health", params={"secret": "secret"})
     assert res.status_code == 200
     assert res.content == b"OK"
 
-    res = requests.get("http://localhost:8081/health", params={"secret": "wrong"})
+    res = requests.get("http://localhost:8090/health", params={"secret": "wrong"})
     assert res.status_code == 401
     assert res.json()["code"] == "UNAUTHORIZED"
 
     res = requests.get(
-        "http://localhost:8081/health", headers={"Authorization": "Bearer secret"}
+        "http://localhost:8090/health", headers={"Authorization": "Bearer secret"}
     )
     assert res.status_code == 200
     assert res.content == b"OK"
 
     res = requests.get(
-        "http://localhost:8081/health", headers={"Authorization": "Bearer wrong"}
+        "http://localhost:8090/health", headers={"Authorization": "Bearer wrong"}
     )
     assert res.status_code == 401
     assert res.json()["code"] == "UNAUTHORIZED"
@@ -220,16 +222,13 @@ def test_server_export_local():
 @unittest.skipIf(
     "slow" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set"
 )
-def test_server_export_remote():
+def test_server_export_remote(caplog):
     runner = CliRunner()
-    httpd, env_var_url = start_envvar_server(8011)
-    if httpd is None:
-        httpd, env_var_url = start_envvar_server(8012)
     with runner.isolated_filesystem():
         port = _next_port()
         p = Process(
             target=server.serve,
-            args=("localhost", port, None, ".", ".", {"home": ""}),
+            args=("localhost", port, None, ".", ".", {"home": ""}, CLOUD_TEST_SERVER),
         )
         assert start_server_process(p, port)
         try:
@@ -240,39 +239,103 @@ def test_server_export_remote():
                     "clone",
                     "--empty",
                     "https://gitlab.com/onecommons/project-templates/dashboard",
-                    "--var", "UNFURL_CLOUD_VARS_URL", env_var_url,
                 ],
             )
+            last_commit = GitRepo(Repo("dashboard")).revision
             # compare the export request output to the export command output
-            for export_format in ["deployment", "environments", "blueprint"]:
-                res = requests.get(
-                    f"http://localhost:{port}/export",
-                    params={
-                        "url": "https://gitlab.com/onecommons/project-templates/dashboard",
-                        "format": export_format,
-                        "cloud_vars_url": env_var_url,
-                    },
-                )
-                assert res.status_code == 200
-                # print(export_format)
-                # print(json.dumps(res.json(), indent=2)
-
-                exported = run_cmd(
-                    runner,
-                    ["--home", "", "export", "dashboard", "--format", export_format],
-                    env={"UNFURL_LOGGING": "critical"},
-                )
-                assert exported
-                # Strip out output from the http server
-                output = exported.output
-                cleaned_output = output[max(output.find("{"), 0) :]
-                assert res.json() == json.loads(cleaned_output)
+            for export_format in ["deployment", "environments"]:
+                # try twice, second attempt should be cached
+                cleaned_output = "0"
+                for msg in ("cache miss for", "cache hit for"):
+                    # test caching
+                    project_id = "onecommons/project-templates/dashboard"
+                    res = requests.get(
+                        f"http://localhost:{port}/export",
+                        params={
+                            "auth_project": project_id,
+                            "latest_commit": last_commit,  # enable caching but just get the latest in the cache
+                            "format": export_format,
+                        },
+                        headers={"If-None-Match": server._make_etag(last_commit)}
+                    )
+                    file_path = server._get_filepath(export_format, None)
+                    key = server.CacheEntry(project_id, "", file_path, export_format).cache_key()
+                    # XXX figure out how to capture the server process' stderr, caplog and capsys don't work
+                    # process_logoutput = capsys.readouterr().err
+                    # print("process_logoutput", process_logoutput)
+                    # assert f"{msg} {key}" in caplog.text
+                    # print(export_format)
+                    # print(json.dumps(res.json(), indent=2)
+                    if msg == "cache miss for":
+                        assert res.status_code == 200
+                        # don't bother re-exporting the second time
+                        exported = run_cmd(
+                            runner,
+                            ["--home", "", "export", "dashboard", "--format", export_format],
+                            env={"UNFURL_LOGGING": "critical"},
+                        )
+                        assert exported
+                        # Strip out output from the http server
+                        output = exported.output
+                        cleaned_output = output[max(output.find("{"), 0):]
+                        assert res.json() == json.loads(cleaned_output)
+                    else:
+                        # cache hit
+                        assert res.status_code == 304
+            
+            # test with a blueprint
+            run_cmd(
+                runner,
+                [
+                    "--home", "",
+                    "clone",
+                    "--empty",
+                    "https://gitlab.com/onecommons/project-templates/application-blueprint",
+                ]
+            )
+            res = requests.get(
+                f"http://localhost:{port}/export",
+                params={
+                    "auth_project": "onecommons/project-templates/application-blueprint",
+                    "latest_commit": last_commit,  # enable caching but just get the latest in the cache
+                    "format": "blueprint",
+                },
+            )
+            assert res.status_code == 200
+            # don't bother re-exporting the second time
+            exported = run_cmd(
+                runner,
+                ["--home", "", "export", "--format", "blueprint", "application-blueprint/ensemble-template.yaml"],
+                env={"UNFURL_LOGGING": "critical"},
+            )
+            assert exported
+            # Strip out output from the http server
+            output = exported.output
+            cleaned_output = output[max(output.find("{"), 0):]
+            assert res.json() == json.loads(cleaned_output)
         finally:
             p.terminate()
             p.join()
 
-    if httpd:
-        httpd.socket.close()
+
+def test_populate_cache(runner):
+    project_ids = ["onecommons/project-templates/dashboard", "onecommons/project-templates/dashboard",
+                  "onecommons/project-templates/application-blueprint"]
+    files = ["unfurl.yaml", "ensemble/ensemble.yaml", "ensemble-template.yaml"]
+    port = 8090
+    for file_path, project_id in zip(files, project_ids):
+        res = requests.get(
+            f"http://localhost:{port}/populate_cache",
+            params={
+                "secret": "secret",
+                "auth_project": project_id,
+                "latest_commit": "HEAD",
+                "path": file_path,
+                "visibility": "public",
+            },
+        )
+        assert res.status_code == 200
+        assert res.content == b"OK"
 
 
 def test_server_update_deployment():
@@ -285,58 +348,44 @@ def test_server_update_deployment():
 
             target_patch = patch.format("target")
             res = requests.post(
-                f"http://localhost:{port}/update_deployment",
+                f"http://localhost:{port}/update_ensemble",
                 json={
                     "projectPath": ".",
-                    "path": "dashboard/deployments/dev/deployment.json",
                     "patch": json.loads(target_patch),
                 }
             )
             assert res.status_code == 200
 
-            with open("dashboard/deployments/dev/deployment.json", "r") as f:
-                data = json.load(f)
-                assert (data['ResourceTemplate']
+            with open("ensemble/ensemble.yaml", "r") as f:
+                data = yaml.load(f.read())            
+                assert (data['spec']
+                            ['service_template']
+                            ['topology_template']
+                            ['node_templates']
                             ['container_service']
-                            ['properties'][0]
-                            ['value']
+                            ['properties']
+                            ['container']
                             ['environment']
                             ['VAR']
-                        ) == "target"   
+                        ) == "target"
+
+            res = requests.post(
+                f"http://localhost:{port}/update_ensemble",
+                json={
+                    "projectPath": ".",
+                    "patch": json.loads(delete_patch),
+                }
+            )
+            assert res.status_code == 200
+            assert res.content.startswith(b'{"commit":')
+            with open("ensemble/ensemble.yaml", "r") as f:
+                data = yaml.load(f.read())
+                assert not data['spec']['service_template']['topology_template']['node_templates']
 
         finally:
             if p:
                 p.terminate()
                 p.join()
 
-
-def test_server_update_deployment_delete():
-    runner = CliRunner()
-    with runner.isolated_filesystem():
-        p = None
-        try:
-            initial_deployment = deployment.format("initial")
-            p, port = set_up_deployment(runner, initial_deployment)
-
-            res = requests.post(
-                f"http://localhost:{port}/update_deployment",
-                json={
-                    "projectPath": ".",
-                    "path": "dashboard/deployments/dev/deployment.json",
-                    "patch": json.loads(delete_patch),
-                }
-            )
-            
-            assert res.status_code == 200
-
-            with open("dashboard/deployments/dev/deployment.json", "r") as f:
-                data = json.load(f)
-                assert data == {
-                    "ResourceTemplate": {}
-                }
-        finally:
-          if p:
-              p.terminate()
-              p.join()
 
 # XXX test patching with remote url
