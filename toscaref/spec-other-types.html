@@ -141,16 +141,16 @@
 <p><code class="docutils literal notranslate"><span class="pre">artifact_types</span></code> is a reusable entity in a servcie template that defines the type of one or more files that are used to define implementation or deployment artifacts. These are referenced by nodes or relationships on their operation.</p>
 <section id="example">
 <h3>Example<a class="headerlink" href="#example" title="Permalink to this headline"></a></h3>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">artifact_types</span><span class="p">:</span><span class="w"></span>
-<span class="w">  </span><span class="nt">QCOW</span><span class="p">:</span><span class="w"></span>
-<span class="w">    </span><span class="nt">derived_from</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca:Deployment.Image.VM</span><span class="w"></span>
-<span class="w">    </span><span class="nt">properties</span><span class="p">:</span><span class="w"></span>
-<span class="w">      </span><span class="nt">os</span><span class="p">:</span><span class="w"></span>
-<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">string</span><span class="w"></span>
-<span class="w">      </span><span class="nt">version</span><span class="p">:</span><span class="w"></span>
-<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">version</span><span class="w"></span>
-<span class="w">    </span><span class="nt">mime_type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">application/x-qcow</span><span class="w"></span>
-<span class="w">    </span><span class="nt">file_ext</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="w"> </span><span class="nv">qcow</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">qcow2</span><span class="w"> </span><span class="p p-Indicator">]</span><span class="w"></span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">artifact_types</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">QCOW</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">derived_from</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca:Deployment.Image.VM</span>
+<span class="w">    </span><span class="nt">properties</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">os</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">string</span>
+<span class="w">      </span><span class="nt">version</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">version</span>
+<span class="w">    </span><span class="nt">mime_type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">application/x-qcow</span>
+<span class="w">    </span><span class="nt">file_ext</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="w"> </span><span class="nv">qcow</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">qcow2</span><span class="w"> </span><span class="p p-Indicator">]</span>
 </pre></div>
 </div>
 <div class="admonition seealso">
@@ -164,11 +164,11 @@
 <p><code class="docutils literal notranslate"><span class="pre">capability_types</span></code> is a reusable entity that describes a kind of capability that a node type can declare to expose.  Implicit or explicit requirements that are declared as part of one node can be matched or fulfilled by  the capabilities declared by another node.</p>
 <section id="id3">
 <h3>Example<a class="headerlink" href="#id3" title="Permalink to this headline"></a></h3>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">capability_types</span><span class="p">:</span><span class="w"></span>
-<span class="w">  </span><span class="nt">Socket</span><span class="p">:</span><span class="w"></span>
-<span class="w">    </span><span class="nt">properties</span><span class="p">:</span><span class="w"></span>
-<span class="w">      </span><span class="nt">standard</span><span class="p">:</span><span class="w"></span>
-<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">string</span><span class="w"></span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">capability_types</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">Socket</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">properties</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">standard</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">string</span>
 </pre></div>
 </div>
 <div class="admonition seealso">
@@ -182,15 +182,15 @@
 <p><code class="docutils literal notranslate"><span class="pre">relationship_types</span></code> is a reusable entity that defines the type of one or more relationships between Node Types or Node Templates.</p>
 <section id="id5">
 <h3>Example<a class="headerlink" href="#id5" title="Permalink to this headline"></a></h3>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">relationship_types</span><span class="p">:</span><span class="w"></span>
-<span class="w">  </span><span class="nt">Plug</span><span class="p">:</span><span class="w"></span>
-<span class="w">    </span><span class="nt">properties</span><span class="p">:</span><span class="w"></span>
-<span class="w">      </span><span class="nt">vendor</span><span class="p">:</span><span class="w"></span>
-<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">string</span><span class="w"></span>
-<span class="w">        </span><span class="nt">required</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w"></span>
-<span class="w">    </span><span class="nt">attributes</span><span class="p">:</span><span class="w"></span>
-<span class="w">      </span><span class="nt">ip_address</span><span class="p">:</span><span class="w"></span>
-<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">string</span><span class="w"></span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">relationship_types</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">Plug</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">properties</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">vendor</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">string</span>
+<span class="w">        </span><span class="nt">required</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<span class="w">    </span><span class="nt">attributes</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">ip_address</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">string</span>
 </pre></div>
 </div>
 <div class="admonition seealso">
@@ -204,10 +204,10 @@
 <p><code class="docutils literal notranslate"><span class="pre">interface_types</span></code> is a reusable entity that describes a set of operations that can be used to interact with or manage a node or relationship in a TOSCA topology.</p>
 <section id="id7">
 <h3>Example<a class="headerlink" href="#id7" title="Permalink to this headline"></a></h3>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">interface_types</span><span class="p">:</span><span class="w"></span>
-<span class="w">    </span><span class="nt">Backup</span><span class="p">:</span><span class="w"></span>
-<span class="w">      </span><span class="nt">operations</span><span class="p">:</span><span class="w"></span>
-<span class="w">        </span><span class="nt">start_backup</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{}</span><span class="w"></span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">interface_types</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">Backup</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">operations</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">start_backup</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{}</span>
 </pre></div>
 </div>
 <div class="admonition seealso">
@@ -221,15 +221,15 @@
 <p><code class="docutils literal notranslate"><span class="pre">group_types</span></code> defines logical grouping types for nodes.</p>
 <section id="id9">
 <h3>Example<a class="headerlink" href="#id9" title="Permalink to this headline"></a></h3>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">group_types</span><span class="p">:</span><span class="w"></span>
-<span class="w"> </span><span class="nt">ResourceGroup</span><span class="p">:</span><span class="w"></span>
-<span class="w">    </span><span class="c1"># Groups can have properties</span><span class="w"></span>
-<span class="w">    </span><span class="nt">properties</span><span class="p">:</span><span class="w"></span>
-<span class="w">      </span><span class="nt">priority</span><span class="p">:</span><span class="w"></span>
-<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">float</span><span class="w"></span>
-<span class="w">    </span><span class="nt">members</span><span class="p">:</span><span class="w"> </span><span class="c1"># node or group types</span><span class="w"></span>
-<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca:Compute</span><span class="w"></span>
-<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca:Abstract.Storage</span><span class="w"></span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">group_types</span><span class="p">:</span>
+<span class="w"> </span><span class="nt">ResourceGroup</span><span class="p">:</span>
+<span class="w">    </span><span class="c1"># Groups can have properties</span>
+<span class="w">    </span><span class="nt">properties</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">priority</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">float</span>
+<span class="w">    </span><span class="nt">members</span><span class="p">:</span><span class="w"> </span><span class="c1"># node or group types</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca:Compute</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca:Abstract.Storage</span>
 </pre></div>
 </div>
 <div class="admonition seealso">
@@ -243,13 +243,13 @@
 <p><code class="docutils literal notranslate"><span class="pre">policy_types</span></code> defines a type of requirement that affects or governs an application or service’s topology at some stage of its lifecycle, but is not explicitly part of the topology itself.</p>
 <section id="id11">
 <h3>Example<a class="headerlink" href="#id11" title="Permalink to this headline"></a></h3>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">policy_types</span><span class="p">:</span><span class="w"></span>
-<span class="w">  </span><span class="nt">Backup</span><span class="p">:</span><span class="w"></span>
-<span class="w">    </span><span class="nt">targets</span><span class="p">:</span><span class="w"></span>
-<span class="w">    </span><span class="c1"># Can include both node types and group types</span><span class="w"></span>
-<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca:Compute</span><span class="w"></span>
-<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">RedundantResources</span><span class="w"> </span><span class="c1"># This group type is declared below</span><span class="w"></span>
-<span class="w">    </span><span class="c1"># If “targets” is not specified then any node template or group can be a target</span><span class="w"></span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">policy_types</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">Backup</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">targets</span><span class="p">:</span>
+<span class="w">    </span><span class="c1"># Can include both node types and group types</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca:Compute</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">RedundantResources</span><span class="w"> </span><span class="c1"># This group type is declared below</span>
+<span class="w">    </span><span class="c1"># If “targets” is not specified then any node template or group can be a target</span>
 </pre></div>
 </div>
 <div class="admonition seealso">

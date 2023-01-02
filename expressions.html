@@ -248,14 +248,14 @@ See <a class="reference external" href="_static/TOSCA-Simple-Profile-YAML-v1.3-o
 <blockquote>
 <div><p>Quote the given value without evaluating it.
 For example:</p>
-<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">q</span><span class="p">:</span><span class="w"></span>
-<span class="w">  </span><span class="nt">eval</span><span class="p">:</span><span class="w"></span>
-<span class="w">     </span><span class="l l-Scalar l-Scalar-Plain">this will not be evaluated</span><span class="w"></span>
+<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">q</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">eval</span><span class="p">:</span>
+<span class="w">     </span><span class="l l-Scalar l-Scalar-Plain">this will not be evaluated</span>
 </pre></div>
 </div>
 <p>Will evaluate to:</p>
-<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">eval</span><span class="p">:</span><span class="w"></span>
-<span class="w">   </span><span class="l l-Scalar l-Scalar-Plain">this will not be evaluated</span><span class="w"></span>
+<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">eval</span><span class="p">:</span>
+<span class="w">   </span><span class="l l-Scalar l-Scalar-Plain">this will not be evaluated</span>
 </pre></div>
 </div>
 <p>without any further evaluation.</p>
@@ -379,17 +379,17 @@ returns the result of the last expression evaluated.</p>
 <blockquote>
 <div><p>Read or write a file. If the <code class="docutils literal notranslate"><span class="pre">contents</span></code> keyword argument is present, a file will be written
 upon evaluation of this function, otherwise it will be read.</p>
-<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="c1"># read</span><span class="w"></span>
-<span class="nt">eval</span><span class="p">:</span><span class="w"></span>
-<span class="w">  </span><span class="nt">file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">foo/local.config</span><span class="w"></span>
-<span class="nt">select</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">contents</span><span class="w"></span>
+<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="c1"># read</span>
+<span class="nt">eval</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">foo/local.config</span>
+<span class="nt">select</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">contents</span>
 
-<span class="c1"># write</span><span class="w"></span>
-<span class="nt">eval</span><span class="p">:</span><span class="w"></span>
-<span class="w">  </span><span class="nt">file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">path.txt.vault</span><span class="w"></span>
-<span class="w">  </span><span class="nt">contents</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;this</span><span class="nv"> </span><span class="s">will</span><span class="nv"> </span><span class="s">be</span><span class="nv"> </span><span class="s">saved</span><span class="nv"> </span><span class="s">as</span><span class="nv"> </span><span class="s">a</span><span class="nv"> </span><span class="s">vault</span><span class="nv"> </span><span class="s">encrypted</span><span class="nv"> </span><span class="s">file&quot;</span><span class="w"></span>
-<span class="w">  </span><span class="nt">encoding</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault</span><span class="w"></span>
-<span class="nt">select</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">path</span><span class="w"></span>
+<span class="c1"># write</span>
+<span class="nt">eval</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">path.txt.vault</span>
+<span class="w">  </span><span class="nt">contents</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;this</span><span class="nv"> </span><span class="s">will</span><span class="nv"> </span><span class="s">be</span><span class="nv"> </span><span class="s">saved</span><span class="nv"> </span><span class="s">as</span><span class="nv"> </span><span class="s">a</span><span class="nv"> </span><span class="s">vault</span><span class="nv"> </span><span class="s">encrypted</span><span class="nv"> </span><span class="s">file&quot;</span>
+<span class="w">  </span><span class="nt">encoding</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault</span>
+<span class="nt">select</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">path</span>
 </pre></div>
 </div>
 <table class="docutils align-default">
@@ -532,15 +532,15 @@ upon evaluation of this function, otherwise it will be read.</p>
 </tbody>
 </table>
 <p>Example: this will always evaluate to “expected”:</p>
-<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">eval</span><span class="p">:</span><span class="w"></span>
-<span class="w">  </span><span class="nt">if</span><span class="p">:</span><span class="w"></span>
-<span class="w">    </span><span class="nt">or</span><span class="p">:</span><span class="w"></span>
-<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">not</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">$a</span><span class="w"></span>
-<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">$a</span><span class="w"></span>
-<span class="w">  </span><span class="nt">then</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">expected</span><span class="w"></span>
-<span class="w">  </span><span class="nt">else</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unexpected</span><span class="w"></span>
-<span class="nt">vars</span><span class="p">:</span><span class="w"></span>
-<span class="w">  </span><span class="nt">a</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w"></span>
+<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">eval</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">if</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">or</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">not</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">$a</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">$a</span>
+<span class="w">  </span><span class="nt">then</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">expected</span>
+<span class="w">  </span><span class="nt">else</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unexpected</span>
+<span class="nt">vars</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">a</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 </pre></div>
 </div>
 </div></blockquote>
@@ -565,18 +565,18 @@ kwargs*: value}</p></td>
 </tr>
 </tbody>
 </table>
-<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">eval</span><span class="p">:</span><span class="w"></span>
-<span class="w">  </span><span class="nt">lookup</span><span class="p">:</span><span class="w"></span>
-<span class="w">    </span><span class="nt">env</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">TEST_ENV</span><span class="w"></span>
+<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">eval</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">lookup</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">env</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">TEST_ENV</span>
 
-<span class="nt">eval</span><span class="p">:</span><span class="w"></span>
-<span class="w">  </span><span class="nt">lookup</span><span class="p">:</span><span class="w"></span>
-<span class="w">    </span><span class="nt">env</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">TEST_ENV</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">default</span><span class="p p-Indicator">]</span><span class="w"></span>
+<span class="nt">eval</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">lookup</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">env</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">TEST_ENV</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">default</span><span class="p p-Indicator">]</span>
 
-<span class="nt">eval</span><span class="p">:</span><span class="w"></span>
-<span class="w">  </span><span class="nt">lookup</span><span class="p">:</span><span class="w"></span>
-<span class="w">    </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://example.com/foo.txt</span><span class="w"></span>
-<span class="w">    </span><span class="nt">validate_certs</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w"></span>
+<span class="nt">eval</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">lookup</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://example.com/foo.txt</span>
+<span class="w">    </span><span class="nt">validate_certs</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 </pre></div>
 </div>
 </div></blockquote>
@@ -618,19 +618,19 @@ kwargs*: value}</p></td>
 </tr>
 </tbody>
 </table>
-<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">eval</span><span class="p">:</span><span class="w"></span>
-<span class="w">  </span><span class="nt">python</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">path/to/src.py#func</span><span class="w"></span>
+<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">eval</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">python</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">path/to/src.py#func</span>
 
-<span class="c1"># or:</span><span class="w"></span>
+<span class="c1"># or:</span>
 
-<span class="nt">eval</span><span class="p">:</span><span class="w"></span>
-<span class="w">  </span><span class="nt">python</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">python_module.func</span><span class="w"></span>
+<span class="nt">eval</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">python</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">python_module.func</span>
 
-<span class="c1"># with args:</span><span class="w"></span>
+<span class="c1"># with args:</span>
 
-<span class="nt">eval</span><span class="p">:</span><span class="w"></span>
-<span class="w">  </span><span class="nt">python</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">python_module.func</span><span class="w"></span>
-<span class="w">  </span><span class="nt">args</span><span class="p">:</span><span class="w">   </span><span class="l l-Scalar l-Scalar-Plain">foo</span><span class="w"></span>
+<span class="nt">eval</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">python</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">python_module.func</span>
+<span class="w">  </span><span class="nt">args</span><span class="p">:</span><span class="w">   </span><span class="l l-Scalar l-Scalar-Plain">foo</span>
 </pre></div>
 </div>
 <p>Execute the given python function and evaluate to its return value.
@@ -657,10 +657,10 @@ If <code class="docutils literal notranslate"><span class="pre">args</span></cod
 <blockquote>
 <div><p>Create local, temporary file with the specified content.
 It will be deleted after <code class="docutils literal notranslate"><span class="pre">unfurl</span></code> process exits.</p>
-<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">eval</span><span class="p">:</span><span class="w"></span>
-<span class="w">  </span><span class="nt">tempfile</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;contents&quot;</span><span class="w"></span>
-<span class="w">  </span><span class="nt">encoding</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault</span><span class="w"></span>
-<span class="w">  </span><span class="nt">suffix</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">.json</span><span class="w"></span>
+<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">eval</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">tempfile</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;contents&quot;</span>
+<span class="w">  </span><span class="nt">encoding</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault</span>
+<span class="w">  </span><span class="nt">suffix</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">.json</span>
 </pre></div>
 </div>
 <table class="docutils align-default">
@@ -692,16 +692,16 @@ if neither is specified, the encoding will be determined by the content, either 
 <section id="template">
 <h3>template<a class="headerlink" href="#template" title="Permalink to this headline"></a></h3>
 <p>Evaluate file or inline contents as an Ansible-flavored Jinja2 template.</p>
-<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">eval</span><span class="p">:</span><span class="w"></span>
-<span class="w">  </span><span class="nt">template</span><span class="p">:</span><span class="w"></span>
-<span class="w">    </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">path/to/template.j2</span><span class="w"></span>
+<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">eval</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">template</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">path/to/template.j2</span>
 </pre></div>
 </div>
-<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">eval</span><span class="p">:</span><span class="w"></span>
-<span class="w">  </span><span class="nt">template</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">&gt;</span><span class="w"></span>
-<span class="w">    </span><span class="no">{%if testVar %}success{%else%}failed{%endif%}</span><span class="w"></span>
-<span class="nt">vars</span><span class="p">:</span><span class="w"></span>
-<span class="w">  </span><span class="nt">testVar</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w"></span>
+<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">eval</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">template</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">&gt;</span>
+<span class="w">    </span><span class="no">{%if testVar %}success{%else%}failed{%endif%}</span>
+<span class="nt">vars</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">testVar</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 </pre></div>
 </div>
 </section>

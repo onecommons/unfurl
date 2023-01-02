@@ -92,14 +92,14 @@
 <ol class="arabic simple">
 <li><p>After you’ve installed Unfurl, the first step is to create your “home” environment for Unfurl:</p></li>
 </ol>
-<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>unfurl home --init
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>unfurl<span class="w"> </span>home<span class="w"> </span>--init
 </pre></div>
 </div>
 <p>This will create an Unfurl project that, by default, is located at <code class="docutils literal notranslate"><span class="pre">~/.unfurl_home</span></code>. It will contain local configuration settings that will shared with your other projects and also creates an isolated environment to run Unfurl in. For more information, see <a class="reference internal" href="get-started-step-by-step.html#configure"><span class="std std-ref">.unfurl_home</span></a>.</p>
 <ol class="arabic simple" start="2">
 <li><p>Create an Unfurl project that will manage your deployment environments and record changes to your cloud accounts, for example:</p></li>
 </ol>
-<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>unfurl init --create-environment aws-staging --skeleton aws
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>unfurl<span class="w"> </span>init<span class="w"> </span>--create-environment<span class="w"> </span>aws-staging<span class="w"> </span>--skeleton<span class="w"> </span>aws
 </pre></div>
 </div>
 <p>The <code class="docutils literal notranslate"><span class="pre">--skeleton</span></code> option lets you specify an alternative to the default project skeleton. Unfurl currently includes two: <code class="docutils literal notranslate"><span class="pre">gcp</span></code> and <code class="docutils literal notranslate"><span class="pre">aws</span></code>.</p>
@@ -111,7 +111,7 @@
 <li><p>(Optional) Create a separate project to manage your application’s configuration and infrastructure-as-code files.</p></li>
 </ol>
 <p>You can add your infrastructure-as-code configuration directly into the environments project you just created but it can be more flexible to create separate projects for each application you are developing. For example, if you already have a git repository containing your application’s code, this command:</p>
-<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>unfurl init --existing --use-environment aws-staging
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>unfurl<span class="w"> </span>init<span class="w"> </span>--existing<span class="w"> </span>--use-environment<span class="w"> </span>aws-staging
 </pre></div>
 </div>
 <p>will commit an Unfurl project located at <code class="docutils literal notranslate"><span class="pre">.unfurl</span></code> in git repository the current directory is located in. By default, it will deploy into the environment you specified with <code class="docutils literal notranslate"><span class="pre">--use-environment</span></code> option (here, <code class="docutils literal notranslate"><span class="pre">aws-staging</span></code>) and those changes will be recorded in that environment’s repository.</p>

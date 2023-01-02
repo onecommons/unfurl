@@ -211,17 +211,17 @@ if a configurator name isn’t found it is treated as an external command.</p>
 <p>If you set an external command line directly as the <code class="docutils literal notranslate"><span class="pre">implementation</span></code>, Unfurl will choose the appropriate one to use.
 If <code class="docutils literal notranslate"><span class="pre">operation_host</span></code> is local it will use the <a class="reference internal" href="#shell"><span class="std std-ref">Shell</span></a> configurator, if it is remote,
 it will use the <code class="docutils literal notranslate"><span class="pre">Ansible</span></code> configurator and generate a playbook that invokes it on the remote machine:</p>
-<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unfurl/v1alpha1</span><span class="w"></span>
-<span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Ensemble</span><span class="w"></span>
-<span class="nt">spec</span><span class="p">:</span><span class="w"></span>
-<span class="w">  </span><span class="nt">service_template</span><span class="p">:</span><span class="w"></span>
-<span class="w">    </span><span class="nt">topology_template</span><span class="p">:</span><span class="w"></span>
-<span class="w">      </span><span class="nt">node_templates</span><span class="p">:</span><span class="w"></span>
-<span class="w">        </span><span class="nt">test_remote</span><span class="p">:</span><span class="w"></span>
-<span class="w">          </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca:Root</span><span class="w"></span>
-<span class="w">          </span><span class="nt">interfaces</span><span class="p">:</span><span class="w"></span>
-<span class="w">            </span><span class="nt">Standard</span><span class="p">:</span><span class="w"></span>
-<span class="w">              </span><span class="nt">configure</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">echo &quot;abbreviated configuration&quot;</span><span class="w"></span>
+<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unfurl/v1alpha1</span>
+<span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Ensemble</span>
+<span class="nt">spec</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">service_template</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">topology_template</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">node_templates</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">test_remote</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca:Root</span>
+<span class="w">          </span><span class="nt">interfaces</span><span class="p">:</span>
+<span class="w">            </span><span class="nt">Standard</span><span class="p">:</span>
+<span class="w">              </span><span class="nt">configure</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">echo &quot;abbreviated configuration&quot;</span>
 </pre></div>
 </div>
 <p>Available configurators include:</p>
@@ -243,28 +243,28 @@ These <a class="reference external" href="https://docs.ansible.com/ansible/lates
 <p>You can access the same Unfurl filters and queries available in the Ensemble manifest from inside a playbook.</p>
 <section id="example">
 <h3>Example<a class="headerlink" href="#example" title="Permalink to this headline"></a></h3>
-<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unfurl/v1alpha1</span><span class="w"></span>
-<span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Ensemble</span><span class="w"></span>
-<span class="nt">spec</span><span class="p">:</span><span class="w"></span>
-<span class="w">  </span><span class="nt">service_template</span><span class="p">:</span><span class="w"></span>
-<span class="w">    </span><span class="nt">topology_template</span><span class="p">:</span><span class="w"></span>
-<span class="w">      </span><span class="nt">node_templates</span><span class="p">:</span><span class="w"></span>
-<span class="w">        </span><span class="nt">test_remote</span><span class="p">:</span><span class="w"></span>
-<span class="w">          </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca:Root</span><span class="w"></span>
-<span class="w">          </span><span class="nt">interfaces</span><span class="p">:</span><span class="w"></span>
-<span class="w">            </span><span class="nt">Standard</span><span class="p">:</span><span class="w"></span>
-<span class="w">              </span><span class="nt">configure</span><span class="p">:</span><span class="w"></span>
-<span class="w">                </span><span class="nt">implementation</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Ansible</span><span class="w"></span>
-<span class="w">                </span><span class="nt">inputs</span><span class="p">:</span><span class="w"></span>
-<span class="w">                  </span><span class="nt">playbook</span><span class="p">:</span><span class="w"></span>
-<span class="w">                    </span><span class="c1"># quote this yaml so its templates are not evaluated before we pass it to Ansible</span><span class="w"></span>
-<span class="w">                    </span><span class="nt">q</span><span class="p">:</span><span class="w"></span>
-<span class="w">                      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">set_fact</span><span class="p">:</span><span class="w"></span>
-<span class="w">                          </span><span class="nt">fact1</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">&#39;.name&#39;</span><span class="nv"> </span><span class="s">|</span><span class="nv"> </span><span class="s">eval</span><span class="nv"> </span><span class="s">}}&quot;</span><span class="w"></span>
-<span class="w">                      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Hello</span><span class="w"></span>
-<span class="w">                        </span><span class="nt">command</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">echo &quot;{{ fact1 }}&quot;</span><span class="w"></span>
-<span class="w">                </span><span class="nt">outputs</span><span class="p">:</span><span class="w"></span>
-<span class="w">                  </span><span class="nt">fact1</span><span class="p">:</span><span class="w"></span>
+<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unfurl/v1alpha1</span>
+<span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Ensemble</span>
+<span class="nt">spec</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">service_template</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">topology_template</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">node_templates</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">test_remote</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca:Root</span>
+<span class="w">          </span><span class="nt">interfaces</span><span class="p">:</span>
+<span class="w">            </span><span class="nt">Standard</span><span class="p">:</span>
+<span class="w">              </span><span class="nt">configure</span><span class="p">:</span>
+<span class="w">                </span><span class="nt">implementation</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Ansible</span>
+<span class="w">                </span><span class="nt">inputs</span><span class="p">:</span>
+<span class="w">                  </span><span class="nt">playbook</span><span class="p">:</span>
+<span class="w">                    </span><span class="c1"># quote this yaml so its templates are not evaluated before we pass it to Ansible</span>
+<span class="w">                    </span><span class="nt">q</span><span class="p">:</span>
+<span class="w">                      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">set_fact</span><span class="p">:</span>
+<span class="w">                          </span><span class="nt">fact1</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">&#39;.name&#39;</span><span class="nv"> </span><span class="s">|</span><span class="nv"> </span><span class="s">eval</span><span class="nv"> </span><span class="s">}}&quot;</span>
+<span class="w">                      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Hello</span>
+<span class="w">                        </span><span class="nt">command</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">echo &quot;{{ fact1 }}&quot;</span>
+<span class="w">                </span><span class="nt">outputs</span><span class="p">:</span>
+<span class="w">                  </span><span class="nt">fact1</span><span class="p">:</span>
 </pre></div>
 </div>
 </section>
@@ -345,22 +345,22 @@ As described above, this is the default if no configurator is specified.</p>
 <section id="id2">
 <h3>Example<a class="headerlink" href="#id2" title="Permalink to this headline"></a></h3>
 <p>In this example, <code class="docutils literal notranslate"><span class="pre">operation_host</span></code> is set to a remote instance so the command is executed remotely using Ansible.</p>
-<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unfurl/v1alpha1</span><span class="w"></span>
-<span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Ensemble</span><span class="w"></span>
-<span class="nt">spec</span><span class="p">:</span><span class="w"></span>
-<span class="w">  </span><span class="nt">service_template</span><span class="p">:</span><span class="w"></span>
-<span class="w">    </span><span class="nt">topology_template</span><span class="p">:</span><span class="w"></span>
-<span class="w">      </span><span class="nt">node_templates</span><span class="p">:</span><span class="w"></span>
-<span class="w">        </span><span class="nt">test_remote</span><span class="p">:</span><span class="w"></span>
-<span class="w">          </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca:Root</span><span class="w"></span>
-<span class="w">          </span><span class="nt">interfaces</span><span class="p">:</span><span class="w"></span>
-<span class="w">            </span><span class="nt">Standard</span><span class="p">:</span><span class="w"></span>
-<span class="w">              </span><span class="nt">configure</span><span class="p">:</span><span class="w"></span>
-<span class="w">                </span><span class="nt">implementation</span><span class="p">:</span><span class="w"></span>
-<span class="w">                  </span><span class="nt">primary</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Cmd</span><span class="w"></span>
-<span class="w">                  </span><span class="nt">operation_host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">staging.example.com</span><span class="w"></span>
-<span class="w">                </span><span class="nt">inputs</span><span class="p">:</span><span class="w"></span>
-<span class="w">                  </span><span class="nt">cmd</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">echo &quot;test&quot;</span><span class="w"></span>
+<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unfurl/v1alpha1</span>
+<span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Ensemble</span>
+<span class="nt">spec</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">service_template</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">topology_template</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">node_templates</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">test_remote</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca:Root</span>
+<span class="w">          </span><span class="nt">interfaces</span><span class="p">:</span>
+<span class="w">            </span><span class="nt">Standard</span><span class="p">:</span>
+<span class="w">              </span><span class="nt">configure</span><span class="p">:</span>
+<span class="w">                </span><span class="nt">implementation</span><span class="p">:</span>
+<span class="w">                  </span><span class="nt">primary</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Cmd</span>
+<span class="w">                  </span><span class="nt">operation_host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">staging.example.com</span>
+<span class="w">                </span><span class="nt">inputs</span><span class="p">:</span>
+<span class="w">                  </span><span class="nt">cmd</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">echo &quot;test&quot;</span>
 </pre></div>
 </div>
 </section>
@@ -394,26 +394,26 @@ As described above, this is the default if no configurator is specified.</p>
 <section id="inline-shell-script-example">
 <h3>Inline shell script example<a class="headerlink" href="#inline-shell-script-example" title="Permalink to this headline"></a></h3>
 <p>This example executes an inline shell script and uses the <code class="docutils literal notranslate"><span class="pre">cwd</span></code> and <code class="docutils literal notranslate"><span class="pre">shell</span></code> input options.</p>
-<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unfurl/v1alpha1</span><span class="w"></span>
-<span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Ensemble</span><span class="w"></span>
-<span class="nt">spec</span><span class="p">:</span><span class="w"></span>
-<span class="w">  </span><span class="nt">service_template</span><span class="p">:</span><span class="w"></span>
-<span class="w">    </span><span class="nt">topology_template</span><span class="p">:</span><span class="w"></span>
-<span class="w">      </span><span class="nt">node_templates</span><span class="p">:</span><span class="w"></span>
-<span class="w">        </span><span class="nt">shellscript-example</span><span class="p">:</span><span class="w"></span>
-<span class="w">          </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca:Root</span><span class="w"></span>
-<span class="w">          </span><span class="nt">interfaces</span><span class="p">:</span><span class="w"></span>
-<span class="w">            </span><span class="nt">Standard</span><span class="p">:</span><span class="w"></span>
-<span class="w">              </span><span class="nt">configure</span><span class="p">:</span><span class="w"></span>
-<span class="w">                </span><span class="nt">implementation</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">|</span><span class="w"></span>
-<span class="w">                  </span><span class="no">if ! [ -x &quot;$(command -v testvars)&quot; ]; then</span><span class="w"></span>
-<span class="w">                    </span><span class="no">source testvars.sh</span><span class="w"></span>
-<span class="w">                  </span><span class="no">fi</span><span class="w"></span>
-<span class="w">                </span><span class="nt">inputs</span><span class="p">:</span><span class="w"></span>
-<span class="w">                    </span><span class="nt">cwd</span><span class="p">:</span><span class="w"> </span><span class="s">&#39;{{</span><span class="nv"> </span><span class="s">&quot;project&quot;</span><span class="nv"> </span><span class="s">|</span><span class="nv"> </span><span class="s">get_dir</span><span class="nv"> </span><span class="s">}}&#39;</span><span class="w"></span>
-<span class="w">                    </span><span class="nt">keeplines</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w"></span>
-<span class="w">                    </span><span class="c1"># our script requires bash</span><span class="w"></span>
-<span class="w">                    </span><span class="nt">shell</span><span class="p">:</span><span class="w"> </span><span class="s">&#39;{{</span><span class="nv"> </span><span class="s">&quot;bash&quot;</span><span class="nv"> </span><span class="s">|</span><span class="nv"> </span><span class="s">which</span><span class="nv"> </span><span class="s">}}&#39;</span><span class="w"></span>
+<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unfurl/v1alpha1</span>
+<span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Ensemble</span>
+<span class="nt">spec</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">service_template</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">topology_template</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">node_templates</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">shellscript-example</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca:Root</span>
+<span class="w">          </span><span class="nt">interfaces</span><span class="p">:</span>
+<span class="w">            </span><span class="nt">Standard</span><span class="p">:</span>
+<span class="w">              </span><span class="nt">configure</span><span class="p">:</span>
+<span class="w">                </span><span class="nt">implementation</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">|</span>
+<span class="w">                  </span><span class="no">if ! [ -x &quot;$(command -v testvars)&quot; ]; then</span>
+<span class="w">                    </span><span class="no">source testvars.sh</span>
+<span class="w">                  </span><span class="no">fi</span>
+<span class="w">                </span><span class="nt">inputs</span><span class="p">:</span>
+<span class="w">                    </span><span class="nt">cwd</span><span class="p">:</span><span class="w"> </span><span class="s">&#39;{{</span><span class="nv"> </span><span class="s">&quot;project&quot;</span><span class="nv"> </span><span class="s">|</span><span class="nv"> </span><span class="s">get_dir</span><span class="nv"> </span><span class="s">}}&#39;</span>
+<span class="w">                    </span><span class="nt">keeplines</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">                    </span><span class="c1"># our script requires bash</span>
+<span class="w">                    </span><span class="nt">shell</span><span class="p">:</span><span class="w"> </span><span class="s">&#39;{{</span><span class="nv"> </span><span class="s">&quot;bash&quot;</span><span class="nv"> </span><span class="s">|</span><span class="nv"> </span><span class="s">which</span><span class="nv"> </span><span class="s">}}&#39;</span>
 </pre></div>
 </div>
 </section>
@@ -421,29 +421,29 @@ As described above, this is the default if no configurator is specified.</p>
 <h3>Example with artifact<a class="headerlink" href="#example-with-artifact" title="Permalink to this headline"></a></h3>
 <p>Declaring an artifact of a type that is associated with the shell configurator
 ensures Unfurl will install the artifact if necessary, before it runs the command.</p>
-<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unfurl/v1alpha1</span><span class="w"></span>
-<span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Ensemble</span><span class="w"></span>
-<span class="nt">spec</span><span class="p">:</span><span class="w"></span>
-<span class="w">  </span><span class="nt">service_template</span><span class="p">:</span><span class="w"></span>
-<span class="w">    </span><span class="nt">imports</span><span class="p">:</span><span class="w"></span>
-<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">repository</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unfurl</span><span class="w"></span>
-<span class="w">      </span><span class="nt">file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca_plugins/artifacts.yaml</span><span class="w"></span>
-<span class="w">    </span><span class="nt">topology_template</span><span class="p">:</span><span class="w"></span>
-<span class="w">      </span><span class="nt">node_templates</span><span class="p">:</span><span class="w"></span>
-<span class="w">        </span><span class="nt">terraform-example</span><span class="p">:</span><span class="w"></span>
-<span class="w">          </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca:Root</span><span class="w"></span>
-<span class="w">          </span><span class="nt">artifacts</span><span class="p">:</span><span class="w"></span>
-<span class="w">            </span><span class="nt">ripgrep</span><span class="p">:</span><span class="w"></span>
-<span class="w">              </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">artifact.AsdfTool</span><span class="w"></span>
-<span class="w">              </span><span class="nt">file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ripgrep</span><span class="w"></span>
-<span class="w">              </span><span class="nt">properties</span><span class="p">:</span><span class="w"></span>
-<span class="w">                </span><span class="nt">version</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">13.0.0</span><span class="w"></span>
-<span class="w">          </span><span class="nt">interfaces</span><span class="p">:</span><span class="w"></span>
-<span class="w">            </span><span class="nt">Standard</span><span class="p">:</span><span class="w"></span>
-<span class="w">              </span><span class="nt">configure</span><span class="p">:</span><span class="w"></span>
-<span class="w">                </span><span class="nt">implementation</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ripgrep</span><span class="w"></span>
-<span class="w">                </span><span class="nt">inputs</span><span class="p">:</span><span class="w"></span>
-<span class="w">                  </span><span class="nt">cmd</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">rg search</span><span class="w"></span>
+<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unfurl/v1alpha1</span>
+<span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Ensemble</span>
+<span class="nt">spec</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">service_template</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">imports</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">repository</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unfurl</span>
+<span class="w">      </span><span class="nt">file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca_plugins/artifacts.yaml</span>
+<span class="w">    </span><span class="nt">topology_template</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">node_templates</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">terraform-example</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca:Root</span>
+<span class="w">          </span><span class="nt">artifacts</span><span class="p">:</span>
+<span class="w">            </span><span class="nt">ripgrep</span><span class="p">:</span>
+<span class="w">              </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">artifact.AsdfTool</span>
+<span class="w">              </span><span class="nt">file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ripgrep</span>
+<span class="w">              </span><span class="nt">properties</span><span class="p">:</span>
+<span class="w">                </span><span class="nt">version</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">13.0.0</span>
+<span class="w">          </span><span class="nt">interfaces</span><span class="p">:</span>
+<span class="w">            </span><span class="nt">Standard</span><span class="p">:</span>
+<span class="w">              </span><span class="nt">configure</span><span class="p">:</span>
+<span class="w">                </span><span class="nt">implementation</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ripgrep</span>
+<span class="w">                </span><span class="nt">inputs</span><span class="p">:</span>
+<span class="w">                  </span><span class="nt">cmd</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">rg search</span>
 </pre></div>
 </div>
 </section>
@@ -545,32 +545,32 @@ Any sensitive state will be encrypted using Ansible Vault.</p>
 <p>You can use the <code class="docutils literal notranslate"><span class="pre">unfurl.nodes.Installer.Terraform</span></code> node type with your node template to the avoid boilerplate and set the needed inputs.</p>
 <section id="id8">
 <h3>Example<a class="headerlink" href="#id8" title="Permalink to this headline"></a></h3>
-<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unfurl/v1alpha1</span><span class="w"></span>
-<span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Ensemble</span><span class="w"></span>
-<span class="nt">spec</span><span class="p">:</span><span class="w"></span>
-<span class="w">  </span><span class="nt">service_template</span><span class="p">:</span><span class="w"></span>
-<span class="w">    </span><span class="nt">imports</span><span class="p">:</span><span class="w"></span>
-<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">repository</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unfurl</span><span class="w"></span>
-<span class="w">      </span><span class="nt">file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca_plugins/artifacts.yaml</span><span class="w"></span>
-<span class="w">    </span><span class="nt">topology_template</span><span class="p">:</span><span class="w"></span>
-<span class="w">      </span><span class="nt">node_templates</span><span class="p">:</span><span class="w"></span>
+<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unfurl/v1alpha1</span>
+<span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Ensemble</span>
+<span class="nt">spec</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">service_template</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">imports</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">repository</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unfurl</span>
+<span class="w">      </span><span class="nt">file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca_plugins/artifacts.yaml</span>
+<span class="w">    </span><span class="nt">topology_template</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">node_templates</span><span class="p">:</span>
 
-<span class="w">        </span><span class="nt">terraform-example</span><span class="p">:</span><span class="w"></span>
-<span class="w">          </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unfurl.nodes.Installer.Terraform</span><span class="w"></span>
-<span class="w">          </span><span class="nt">interfaces</span><span class="p">:</span><span class="w"></span>
-<span class="w">            </span><span class="nt">defaults</span><span class="p">:</span><span class="w"></span>
-<span class="w">              </span><span class="nt">inputs</span><span class="p">:</span><span class="w"></span>
-<span class="w">                </span><span class="nt">tfvars</span><span class="p">:</span><span class="w"></span>
-<span class="w">                  </span><span class="nt">tag</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">test</span><span class="w"></span>
-<span class="w">                </span><span class="nt">main</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">|</span><span class="w"></span>
+<span class="w">        </span><span class="nt">terraform-example</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unfurl.nodes.Installer.Terraform</span>
+<span class="w">          </span><span class="nt">interfaces</span><span class="p">:</span>
+<span class="w">            </span><span class="nt">defaults</span><span class="p">:</span>
+<span class="w">              </span><span class="nt">inputs</span><span class="p">:</span>
+<span class="w">                </span><span class="nt">tfvars</span><span class="p">:</span>
+<span class="w">                  </span><span class="nt">tag</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">test</span>
+<span class="w">                </span><span class="nt">main</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">|</span>
 
-<span class="w">                  </span><span class="no">variable &quot;tag&quot; {</span><span class="w"></span>
-<span class="w">                    </span><span class="no">type        = string</span><span class="w"></span>
-<span class="w">                  </span><span class="no">}</span><span class="w"></span>
+<span class="w">                  </span><span class="no">variable &quot;tag&quot; {</span>
+<span class="w">                    </span><span class="no">type        = string</span>
+<span class="w">                  </span><span class="no">}</span>
 
-<span class="w">                  </span><span class="no">output &quot;name&quot; {</span><span class="w"></span>
-<span class="w">                    </span><span class="no">value = var.tag</span><span class="w"></span>
-<span class="w">                  </span><span class="no">}</span><span class="w"></span>
+<span class="w">                  </span><span class="no">output &quot;name&quot; {</span>
+<span class="w">                    </span><span class="no">value = var.tag</span>
+<span class="w">                  </span><span class="no">}</span>
 </pre></div>
 </div>
 </section>
@@ -626,9 +626,9 @@ See the Terraform providers’ schema documentation for details but top-level ke
 </pre></div>
 </div>
 <p>Becomes:</p>
-<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">variable</span><span class="p">:</span><span class="w"></span>
-<span class="w">  </span><span class="nt">example</span><span class="p">:</span><span class="w"></span>
-<span class="w">    </span><span class="nt">default</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">hello</span><span class="w"></span>
+<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">variable</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">example</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">default</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">hello</span>
 </pre></div>
 </div>
 <p>Example 2: Resource declaration</p>
@@ -639,11 +639,11 @@ See the Terraform providers’ schema documentation for details but top-level ke
 </pre></div>
 </div>
 <p>becomes:</p>
-<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">resource</span><span class="p">:</span><span class="w"></span>
-<span class="w">  </span><span class="nt">aws_instance</span><span class="p">:</span><span class="w"></span>
-<span class="w">   </span><span class="nt">example</span><span class="p">:</span><span class="w"></span>
-<span class="w">    </span><span class="nt">instance_type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">t2.micro</span><span class="w"></span>
-<span class="w">    </span><span class="nt">ami</span><span class="p">:</span><span class="w">           </span><span class="l l-Scalar l-Scalar-Plain">ami-abc123</span><span class="w"></span>
+<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">resource</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">aws_instance</span><span class="p">:</span>
+<span class="w">   </span><span class="nt">example</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">instance_type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">t2.micro</span>
+<span class="w">    </span><span class="nt">ami</span><span class="p">:</span><span class="w">           </span><span class="l l-Scalar l-Scalar-Plain">ami-abc123</span>
 </pre></div>
 </div>
 <p>Example 3: Resource with multiple provisioners</p>
@@ -664,17 +664,17 @@ See the Terraform providers’ schema documentation for details but top-level ke
 </pre></div>
 </div>
 <p>Multiple provisioners become a list:</p>
-<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">resource</span><span class="p">:</span><span class="w"></span>
-<span class="w">  </span><span class="nt">aws_instance</span><span class="p">:</span><span class="w"></span>
-<span class="w">    </span><span class="nt">example</span><span class="p">:</span><span class="w"></span>
-<span class="w">      </span><span class="nt">provisioner</span><span class="p">:</span><span class="w"></span>
-<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">local-exec</span><span class="w"></span>
-<span class="w">            </span><span class="l l-Scalar l-Scalar-Plain">command</span><span class="p p-Indicator">:</span><span class="w"> </span><span class="s">&quot;echo</span><span class="nv"> </span><span class="s">&#39;Hello</span><span class="nv"> </span><span class="s">World&#39;</span><span class="nv"> </span><span class="s">&gt;example.txt&quot;</span><span class="w"></span>
-<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">file</span><span class="p">:</span><span class="w"></span>
-<span class="w">            </span><span class="nt">source</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">example.txt</span><span class="w"></span>
-<span class="w">            </span><span class="nt">destination</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/tmp/example.txt</span><span class="w"></span>
-<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">remote-exec</span><span class="p">:</span><span class="w"></span>
-<span class="w">            </span><span class="nt">inline</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;sudo</span><span class="nv"> </span><span class="s">install-something</span><span class="nv"> </span><span class="s">-f</span><span class="nv"> </span><span class="s">/tmp/example.txt&quot;</span><span class="p p-Indicator">]</span><span class="w"></span>
+<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">resource</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">aws_instance</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">example</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">provisioner</span><span class="p">:</span>
+<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">local-exec</span>
+<span class="w">            </span><span class="l l-Scalar l-Scalar-Plain">command</span><span class="p p-Indicator">:</span><span class="w"> </span><span class="s">&quot;echo</span><span class="nv"> </span><span class="s">&#39;Hello</span><span class="nv"> </span><span class="s">World&#39;</span><span class="nv"> </span><span class="s">&gt;example.txt&quot;</span>
+<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">file</span><span class="p">:</span>
+<span class="w">            </span><span class="nt">source</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">example.txt</span>
+<span class="w">            </span><span class="nt">destination</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/tmp/example.txt</span>
+<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">remote-exec</span><span class="p">:</span>
+<span class="w">            </span><span class="nt">inline</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;sudo</span><span class="nv"> </span><span class="s">install-something</span><span class="nv"> </span><span class="s">-f</span><span class="nv"> </span><span class="s">/tmp/example.txt&quot;</span><span class="p p-Indicator">]</span>
 </pre></div>
 </div>
 </section>
@@ -726,22 +726,22 @@ They are enumerated <a class="reference external" href="https://docs.ansible.com
 </section>
 <section id="id13">
 <h3>Example<a class="headerlink" href="#id13" title="Permalink to this headline"></a></h3>
-<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">node_templates</span><span class="p">:</span><span class="w"></span>
-<span class="w">  </span><span class="nt">hello-world-container</span><span class="p">:</span><span class="w"></span>
-<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unfurl.nodes.Container.Application.Docker</span><span class="w"></span>
-<span class="w">    </span><span class="nt">requirements</span><span class="p">:</span><span class="w"></span>
-<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">compute</span><span class="w"></span>
-<span class="w">    </span><span class="nt">artifacts</span><span class="p">:</span><span class="w"></span>
-<span class="w">      </span><span class="nt">image</span><span class="p">:</span><span class="w"></span>
-<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.artifacts.Deployment.Image.Container.Docker</span><span class="w"></span>
-<span class="w">        </span><span class="nt">file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">busybox</span><span class="w"></span>
-<span class="w">    </span><span class="nt">interfaces</span><span class="p">:</span><span class="w"></span>
-<span class="w">      </span><span class="nt">Standard</span><span class="p">:</span><span class="w"></span>
-<span class="w">        </span><span class="nt">inputs</span><span class="p">:</span><span class="w"></span>
-<span class="w">          </span><span class="nt">configuration</span><span class="p">:</span><span class="w"></span>
-<span class="w">            </span><span class="nt">command</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;echo&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;hello</span><span class="nv"> </span><span class="s">world&quot;</span><span class="p p-Indicator">]</span><span class="w"></span>
-<span class="w">            </span><span class="nt">detach</span><span class="p">:</span><span class="w">  </span><span class="l l-Scalar l-Scalar-Plain">no</span><span class="w"></span>
-<span class="w">            </span><span class="nt">output_logs</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">yes</span><span class="w"></span>
+<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">node_templates</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">hello-world-container</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unfurl.nodes.Container.Application.Docker</span>
+<span class="w">    </span><span class="nt">requirements</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">compute</span>
+<span class="w">    </span><span class="nt">artifacts</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">image</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.artifacts.Deployment.Image.Container.Docker</span>
+<span class="w">        </span><span class="nt">file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">busybox</span>
+<span class="w">    </span><span class="nt">interfaces</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">Standard</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">inputs</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">configuration</span><span class="p">:</span>
+<span class="w">            </span><span class="nt">command</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;echo&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;hello</span><span class="nv"> </span><span class="s">world&quot;</span><span class="p p-Indicator">]</span>
+<span class="w">            </span><span class="nt">detach</span><span class="p">:</span><span class="w">  </span><span class="l l-Scalar l-Scalar-Plain">no</span>
+<span class="w">            </span><span class="nt">output_logs</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">yes</span>
 </pre></div>
 </div>
 </section>
@@ -803,30 +803,30 @@ The DNS records specified here will be added, updated or removed from the zone w
 </section>
 <section id="id15">
 <h3>Example<a class="headerlink" href="#id15" title="Permalink to this headline"></a></h3>
-<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">node_templates</span><span class="p">:</span><span class="w"></span>
-<span class="w">  </span><span class="nt">example_com_zone</span><span class="p">:</span><span class="w"></span>
-<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unfurl.nodes.DNSZone</span><span class="w"></span>
-<span class="w">    </span><span class="nt">properties</span><span class="p">:</span><span class="w"></span>
-<span class="w">      </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">example.com.</span><span class="w"></span>
-<span class="w">      </span><span class="nt">provider</span><span class="p">:</span><span class="w"></span>
-<span class="w">        </span><span class="c1"># Amazon Route53 (Note: this provider requires that the zone already exists.)</span><span class="w"></span>
-<span class="w">        </span><span class="nt">class</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">octodns.provider.route53.Route53Provider</span><span class="w"></span>
+<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">node_templates</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">example_com_zone</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unfurl.nodes.DNSZone</span>
+<span class="w">    </span><span class="nt">properties</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">example.com.</span>
+<span class="w">      </span><span class="nt">provider</span><span class="p">:</span>
+<span class="w">        </span><span class="c1"># Amazon Route53 (Note: this provider requires that the zone already exists.)</span>
+<span class="w">        </span><span class="nt">class</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">octodns.provider.route53.Route53Provider</span>
 
-<span class="w">  </span><span class="nt">test_app</span><span class="p">:</span><span class="w"></span>
-<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.nodes.WebServer</span><span class="w"></span>
-<span class="w">    </span><span class="nt">requirements</span><span class="p">:</span><span class="w"></span>
-<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">compute</span><span class="w"></span>
-<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">dns</span><span class="p">:</span><span class="w"></span>
-<span class="w">          </span><span class="nt">node</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">example_com_zone</span><span class="w"></span>
-<span class="w">          </span><span class="nt">relationship</span><span class="p">:</span><span class="w"></span>
-<span class="w">             </span><span class="nt">type</span><span class="p">:</span><span class="w">   </span><span class="l l-Scalar l-Scalar-Plain">unfurl.relationships.DNSRecords</span><span class="w"></span>
-<span class="w">             </span><span class="nt">properties</span><span class="p">:</span><span class="w"></span>
-<span class="w">               </span><span class="nt">records</span><span class="p">:</span><span class="w"></span>
-<span class="w">                </span><span class="nt">www</span><span class="p">:</span><span class="w"></span>
-<span class="w">                  </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">A</span><span class="w"></span>
-<span class="w">                  </span><span class="nt">value</span><span class="p">:</span><span class="w"></span>
-<span class="w">                    </span><span class="c1"># get the ip address of the Compute instance that this is hosted on</span><span class="w"></span>
-<span class="w">                    </span><span class="nt">eval</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">.source::.requirements::[.name=host]::.target::public_address</span><span class="w"></span>
+<span class="w">  </span><span class="nt">test_app</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.nodes.WebServer</span>
+<span class="w">    </span><span class="nt">requirements</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">compute</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">dns</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">node</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">example_com_zone</span>
+<span class="w">          </span><span class="nt">relationship</span><span class="p">:</span>
+<span class="w">             </span><span class="nt">type</span><span class="p">:</span><span class="w">   </span><span class="l l-Scalar l-Scalar-Plain">unfurl.relationships.DNSRecords</span>
+<span class="w">             </span><span class="nt">properties</span><span class="p">:</span>
+<span class="w">               </span><span class="nt">records</span><span class="p">:</span>
+<span class="w">                </span><span class="nt">www</span><span class="p">:</span>
+<span class="w">                  </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">A</span>
+<span class="w">                  </span><span class="nt">value</span><span class="p">:</span>
+<span class="w">                    </span><span class="c1"># get the ip address of the Compute instance that this is hosted on</span>
+<span class="w">                    </span><span class="nt">eval</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">.source::.requirements::[.name=host]::.target::public_address</span>
 </pre></div>
 </div>
 </section>

@@ -325,14 +325,14 @@ the expression will be the result of evaluating it against the first ancestor of
 <p>When multiple steps resolve to lists the resultant lists are flattened.
 However if the final set of matches contain values that are lists those values are not flattened.</p>
 <p>For example, given:</p>
-<div class="highlight-javascript notranslate"><div class="highlight"><pre><span></span><span class="p">{</span><span class="nx">x</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
-<span class="w">        </span><span class="nx">a</span><span class="o">:</span><span class="w"> </span><span class="p">[{</span><span class="nx">c</span><span class="o">:</span><span class="mf">1</span><span class="p">},</span><span class="w"> </span><span class="p">{</span><span class="nx">c</span><span class="o">:</span><span class="mf">2</span><span class="p">}]</span><span class="w"></span>
-<span class="w">      </span><span class="p">},</span><span class="w"></span>
-<span class="w">      </span><span class="p">{</span><span class="w"></span>
-<span class="w">        </span><span class="nx">a</span><span class="o">:</span><span class="w"> </span><span class="p">[{</span><span class="nx">c</span><span class="o">:</span><span class="mf">3</span><span class="p">},</span><span class="w"> </span><span class="p">{</span><span class="nx">c</span><span class="o">:</span><span class="mf">4</span><span class="p">}]</span><span class="w"></span>
-<span class="w">      </span><span class="p">}</span><span class="w"></span>
-<span class="w">    </span><span class="p">]</span><span class="w"></span>
-<span class="p">}</span><span class="w"></span>
+<div class="highlight-javascript notranslate"><div class="highlight"><pre><span></span><span class="p">{</span><span class="nx">x</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nx">a</span><span class="o">:</span><span class="w"> </span><span class="p">[{</span><span class="nx">c</span><span class="o">:</span><span class="mf">1</span><span class="p">},</span><span class="w"> </span><span class="p">{</span><span class="nx">c</span><span class="o">:</span><span class="mf">2</span><span class="p">}]</span>
+<span class="w">      </span><span class="p">},</span>
+<span class="w">      </span><span class="p">{</span>
+<span class="w">        </span><span class="nx">a</span><span class="o">:</span><span class="w"> </span><span class="p">[{</span><span class="nx">c</span><span class="o">:</span><span class="mf">3</span><span class="p">},</span><span class="w"> </span><span class="p">{</span><span class="nx">c</span><span class="o">:</span><span class="mf">4</span><span class="p">}]</span>
+<span class="w">      </span><span class="p">}</span>
+<span class="w">    </span><span class="p">]</span>
+<span class="p">}</span>
 </pre></div>
 </div>
 <p><code class="docutils literal notranslate"><span class="pre">x::a::c</span></code> resolves to:

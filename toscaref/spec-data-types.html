@@ -121,16 +121,16 @@
 <p>The <code class="docutils literal notranslate"><span class="pre">data_types</span></code> section allows you to define custom datatypes that you can use as the value for properties, attributes, and parameters (inputs and outputs).</p>
 <section id="declaration">
 <h2>Declaration<a class="headerlink" href="#declaration" title="Permalink to this headline"></a></h2>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">data_types</span><span class="p">:</span><span class="w"></span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">data_types</span><span class="p">:</span>
 
-<span class="w">  </span><span class="nt">data_type1</span><span class="p">:</span><span class="w"></span>
-<span class="w">    </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">...</span><span class="w"></span>
-<span class="w">    </span><span class="nt">properties</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">...</span><span class="w"></span>
+<span class="w">  </span><span class="nt">data_type1</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">...</span>
+<span class="w">    </span><span class="nt">properties</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">...</span>
 
-<span class="w">  </span><span class="nt">data_type2</span><span class="p">:</span><span class="w"></span>
-<span class="w">    </span><span class="nt">derived_from</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">data_type1</span><span class="w"></span>
-<span class="w">    </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">...</span><span class="w"></span>
-<span class="w">    </span><span class="nt">properties</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">...</span><span class="w"></span>
+<span class="w">  </span><span class="nt">data_type2</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">derived_from</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">data_type1</span>
+<span class="w">    </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">...</span>
+<span class="w">    </span><span class="nt">properties</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">...</span>
 </pre></div>
 </div>
 </section>
@@ -232,48 +232,48 @@ this type’s properties, we define an <code class="docutils literal notranslate
 the endpoint data type previously defined. Lastly, we define a node
 template with a <code class="docutils literal notranslate"><span class="pre">DatabaseService</span></code> type. This node template fully
 configures the endpoint properties (i.e. the <code class="docutils literal notranslate"><span class="pre">ip</span></code> and <code class="docutils literal notranslate"><span class="pre">port</span></code>).</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">tosca_definitions_version</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca_dsl_1_2</span><span class="w"></span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">tosca_definitions_version</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca_dsl_1_2</span>
 
-<span class="nt">data_types</span><span class="p">:</span><span class="w"></span>
+<span class="nt">data_types</span><span class="p">:</span>
 
-<span class="w">  </span><span class="nt">my.datatypes.Endpoint</span><span class="p">:</span><span class="w"></span>
-<span class="w">    </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Socket endpoint details</span><span class="w"></span>
-<span class="w">    </span><span class="nt">properties</span><span class="p">:</span><span class="w"></span>
-<span class="w">      </span><span class="nt">ip</span><span class="p">:</span><span class="w"></span>
-<span class="w">        </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">the endpoint IP</span><span class="w"></span>
-<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">string</span><span class="w"></span>
-<span class="w">      </span><span class="nt">port</span><span class="p">:</span><span class="w"></span>
-<span class="w">        </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">the endpoint port</span><span class="w"></span>
-<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">integer</span><span class="w"></span>
+<span class="w">  </span><span class="nt">my.datatypes.Endpoint</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Socket endpoint details</span>
+<span class="w">    </span><span class="nt">properties</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">ip</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">the endpoint IP</span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">string</span>
+<span class="w">      </span><span class="nt">port</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">the endpoint port</span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">integer</span>
 
-<span class="nt">node_types</span><span class="p">:</span><span class="w"></span>
+<span class="nt">node_types</span><span class="p">:</span>
 
-<span class="w">  </span><span class="nt">DatabaseService</span><span class="p">:</span><span class="w"></span>
-<span class="w">    </span><span class="nt">derived_from</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.nodes.DBMS</span><span class="w"></span>
-<span class="w">    </span><span class="nt">properties</span><span class="p">:</span><span class="w"></span>
-<span class="w">      </span><span class="nt">endpoint</span><span class="p">:</span><span class="w"></span>
-<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my.datatypes.Endpoint</span><span class="w"></span>
+<span class="w">  </span><span class="nt">DatabaseService</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">derived_from</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.nodes.DBMS</span>
+<span class="w">    </span><span class="nt">properties</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">endpoint</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my.datatypes.Endpoint</span>
 
-<span class="nt">node_templates</span><span class="p">:</span><span class="w"></span>
+<span class="nt">node_templates</span><span class="p">:</span>
 
-<span class="w">  </span><span class="nt">my_db_service</span><span class="p">:</span><span class="w"></span>
-<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">DatabaseService</span><span class="w"></span>
-<span class="w">    </span><span class="nt">properties</span><span class="p">:</span><span class="w"></span>
-<span class="w">      </span><span class="nt">endpoint</span><span class="p">:</span><span class="w"></span>
-<span class="w">        </span><span class="nt">ip</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">192.168.15.85</span><span class="w"></span>
-<span class="w">        </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2233</span><span class="w"></span>
+<span class="w">  </span><span class="nt">my_db_service</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">DatabaseService</span>
+<span class="w">    </span><span class="nt">properties</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">endpoint</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">ip</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">192.168.15.85</span>
+<span class="w">        </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2233</span>
 </pre></div>
 </div>
 <section id="schema-validations">
 <h4>Schema Validations<a class="headerlink" href="#schema-validations" title="Permalink to this headline"></a></h4>
 <p>If we were to miss a property or specify an additional property under
 <code class="docutils literal notranslate"><span class="pre">endpoint</span></code>, the service template will fail validation.</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">node_templates</span><span class="p">:</span><span class="w"></span>
-<span class="w">  </span><span class="nt">my_db_service2</span><span class="p">:</span><span class="w"></span>
-<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">DatabaseService</span><span class="w"></span>
-<span class="w">    </span><span class="nt">properties</span><span class="p">:</span><span class="w"></span>
-<span class="w">      </span><span class="nt">endpoint</span><span class="p">:</span><span class="w"></span>
-<span class="w">        </span><span class="nt">ip</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">192.168.15.85</span><span class="w"></span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">node_templates</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">my_db_service2</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">DatabaseService</span>
+<span class="w">    </span><span class="nt">properties</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">endpoint</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">ip</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">192.168.15.85</span>
 </pre></div>
 </div>
 <p>The above example will fail validation on missing <code class="docutils literal notranslate"><span class="pre">port</span></code> property.</p>
@@ -282,14 +282,14 @@ configures the endpoint properties (i.e. the <code class="docutils literal notr
 <p>If <code class="docutils literal notranslate"><span class="pre">port</span></code> had its <code class="docutils literal notranslate"><span class="pre">required</span></code> attribute set to <code class="docutils literal notranslate"><span class="pre">false</span></code>, no validation failure would take place</p>
 </div>
 <p>Let’s have a look at another example:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">node_templates</span><span class="p">:</span><span class="w"></span>
-<span class="w">  </span><span class="nt">my_db_service3</span><span class="p">:</span><span class="w"></span>
-<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">DatabaseService</span><span class="w"></span>
-<span class="w">    </span><span class="nt">properties</span><span class="p">:</span><span class="w"></span>
-<span class="w">      </span><span class="nt">endpoint</span><span class="p">:</span><span class="w"></span>
-<span class="w">        </span><span class="nt">ip</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">192.168.15.85</span><span class="w"></span>
-<span class="w">        </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2233</span><span class="w"></span>
-<span class="w">        </span><span class="nt">some_other_property</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">the_value</span><span class="w"></span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">node_templates</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">my_db_service3</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">DatabaseService</span>
+<span class="w">    </span><span class="nt">properties</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">endpoint</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">ip</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">192.168.15.85</span>
+<span class="w">        </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2233</span>
+<span class="w">        </span><span class="nt">some_other_property</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">the_value</span>
 </pre></div>
 </div>
 <p>This will fail validation on unexpected <code class="docutils literal notranslate"><span class="pre">some_other_property</span></code> that is not
@@ -302,37 +302,37 @@ specified in <code class="docutils literal notranslate"><span class="pre">endpoi
 For example, consider the <code class="docutils literal notranslate"><span class="pre">my.datatypes.Endpoint</span></code> defined in the
 previous example. We can derive from it, to create an endpoint data type
 that also includes a user name.</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">tosca_definitions_version</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca_simple_unfurl_1_0_0</span><span class="w"></span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">tosca_definitions_version</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca_simple_unfurl_1_0_0</span>
 
-<span class="nt">data_types</span><span class="p">:</span><span class="w"></span>
+<span class="nt">data_types</span><span class="p">:</span>
 
-<span class="w">  </span><span class="nt">my.datatypes.Endpoint</span><span class="p">:</span><span class="w"></span>
-<span class="w">    </span><span class="l l-Scalar l-Scalar-Plain">...</span><span class="w"></span>
+<span class="w">  </span><span class="nt">my.datatypes.Endpoint</span><span class="p">:</span>
+<span class="w">    </span><span class="l l-Scalar l-Scalar-Plain">...</span>
 
-<span class="w">  </span><span class="nt">my.datatypes.ExtendedEndpoint</span><span class="p">:</span><span class="w"></span>
-<span class="w">    </span><span class="nt">derived_from</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my.datatypes.Endpoint</span><span class="w"></span>
-<span class="w">    </span><span class="nt">properties</span><span class="p">:</span><span class="w"></span>
-<span class="w">      </span><span class="nt">username</span><span class="p">:</span><span class="w"></span>
-<span class="w">        </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Username used to connect to the endpoint</span><span class="w"></span>
-<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">string</span><span class="w"></span>
+<span class="w">  </span><span class="nt">my.datatypes.ExtendedEndpoint</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">derived_from</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my.datatypes.Endpoint</span>
+<span class="w">    </span><span class="nt">properties</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">username</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Username used to connect to the endpoint</span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">string</span>
 
-<span class="nt">node_types</span><span class="p">:</span><span class="w"></span>
+<span class="nt">node_types</span><span class="p">:</span>
 
-<span class="w">  </span><span class="nt">DatabaseService</span><span class="p">:</span><span class="w"></span>
-<span class="w">    </span><span class="nt">derived_from</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.nodes.DBMS</span><span class="w"></span>
-<span class="w">    </span><span class="nt">properties</span><span class="p">:</span><span class="w"></span>
-<span class="w">      </span><span class="nt">endpoint</span><span class="p">:</span><span class="w"></span>
-<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my.datatypes.ExtendedEndpoint</span><span class="w"></span>
+<span class="w">  </span><span class="nt">DatabaseService</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">derived_from</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca.nodes.DBMS</span>
+<span class="w">    </span><span class="nt">properties</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">endpoint</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my.datatypes.ExtendedEndpoint</span>
 
-<span class="nt">node_templates</span><span class="p">:</span><span class="w"></span>
+<span class="nt">node_templates</span><span class="p">:</span>
 
-<span class="w">  </span><span class="nt">my_db_service</span><span class="p">:</span><span class="w"></span>
-<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">DatabaseService</span><span class="w"></span>
-<span class="w">    </span><span class="nt">properties</span><span class="p">:</span><span class="w"></span>
-<span class="w">      </span><span class="nt">endpoint</span><span class="p">:</span><span class="w"></span>
-<span class="w">        </span><span class="nt">ip</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">192.168.15.85</span><span class="w"></span>
-<span class="w">        </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2233</span><span class="w"></span>
-<span class="w">        </span><span class="nt">username</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">jimmy</span><span class="w"></span>
+<span class="w">  </span><span class="nt">my_db_service</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">DatabaseService</span>
+<span class="w">    </span><span class="nt">properties</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">endpoint</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">ip</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">192.168.15.85</span>
+<span class="w">        </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2233</span>
+<span class="w">        </span><span class="nt">username</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">jimmy</span>
 </pre></div>
 </div>
 </section>
@@ -342,47 +342,47 @@ that also includes a user name.</p>
 reuse the previously defined <code class="docutils literal notranslate"><span class="pre">my.datatypes.Endpoint</span></code>. This time, we
 will create a <code class="docutils literal notranslate"><span class="pre">my.datatypes.Connection</span></code> that will hold endpoint
 information + authentication details.</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">tosca_definitions_version</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca_dsl_1_2</span><span class="w"></span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">tosca_definitions_version</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca_dsl_1_2</span>
 
-<span class="nt">data_types</span><span class="p">:</span><span class="w"></span>
+<span class="nt">data_types</span><span class="p">:</span>
 
-<span class="w">  </span><span class="nt">my.datatypes.Endpoint</span><span class="p">:</span><span class="w"></span>
-<span class="w">    </span><span class="l l-Scalar l-Scalar-Plain">...</span><span class="w"></span>
+<span class="w">  </span><span class="nt">my.datatypes.Endpoint</span><span class="p">:</span>
+<span class="w">    </span><span class="l l-Scalar l-Scalar-Plain">...</span>
 
-<span class="w">  </span><span class="nt">my.datatypes.Connection</span><span class="p">:</span><span class="w"></span>
-<span class="w">    </span><span class="nt">properties</span><span class="p">:</span><span class="w"></span>
-<span class="w">      </span><span class="nt">endpoint</span><span class="p">:</span><span class="w"></span>
-<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my.datatypes.Endpoint</span><span class="w"></span>
-<span class="w">      </span><span class="nt">auth</span><span class="p">:</span><span class="w"></span>
-<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my.datatypes.Auth</span><span class="w"></span>
+<span class="w">  </span><span class="nt">my.datatypes.Connection</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">properties</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">endpoint</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my.datatypes.Endpoint</span>
+<span class="w">      </span><span class="nt">auth</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my.datatypes.Auth</span>
 
-<span class="w">  </span><span class="nt">my.datatypes.Auth</span><span class="p">:</span><span class="w"></span>
-<span class="w">    </span><span class="nt">properties</span><span class="p">:</span><span class="w"></span>
-<span class="w">      </span><span class="nt">username</span><span class="p">:</span><span class="w"></span>
-<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">string</span><span class="w"></span>
-<span class="w">      </span><span class="nt">password</span><span class="p">:</span><span class="w"></span>
-<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">string</span><span class="w"></span>
+<span class="w">  </span><span class="nt">my.datatypes.Auth</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">properties</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">username</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">string</span>
+<span class="w">      </span><span class="nt">password</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">string</span>
 
-<span class="nt">node_types</span><span class="p">:</span><span class="w"></span>
+<span class="nt">node_types</span><span class="p">:</span>
 
-<span class="w">  </span><span class="nt">DatabaseService</span><span class="p">:</span><span class="w"></span>
-<span class="w">    </span><span class="nt">derived_from</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cloudify.nodes.DBMS</span><span class="w"></span>
-<span class="w">    </span><span class="nt">properties</span><span class="p">:</span><span class="w"></span>
-<span class="w">      </span><span class="nt">connection</span><span class="p">:</span><span class="w"></span>
-<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my.datatypes.Connection</span><span class="w"></span>
+<span class="w">  </span><span class="nt">DatabaseService</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">derived_from</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cloudify.nodes.DBMS</span>
+<span class="w">    </span><span class="nt">properties</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">connection</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my.datatypes.Connection</span>
 
-<span class="nt">node_templates</span><span class="p">:</span><span class="w"></span>
+<span class="nt">node_templates</span><span class="p">:</span>
 
-<span class="w">  </span><span class="nt">my_db_service</span><span class="p">:</span><span class="w"></span>
-<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">DatabaseService</span><span class="w"></span>
-<span class="w">    </span><span class="nt">properties</span><span class="p">:</span><span class="w"></span>
-<span class="w">      </span><span class="nt">connection</span><span class="p">:</span><span class="w"></span>
-<span class="w">        </span><span class="nt">endpoint</span><span class="p">:</span><span class="w"></span>
-<span class="w">          </span><span class="nt">ip</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">192.168.15.85</span><span class="w"></span>
-<span class="w">          </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2233</span><span class="w"></span>
-<span class="w">        </span><span class="nt">auth</span><span class="p">:</span><span class="w"></span>
-<span class="w">          </span><span class="nt">username</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">jimmy</span><span class="w"></span>
-<span class="w">          </span><span class="nt">password</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">secret</span><span class="w"></span>
+<span class="w">  </span><span class="nt">my_db_service</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">DatabaseService</span>
+<span class="w">    </span><span class="nt">properties</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">connection</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">endpoint</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">ip</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">192.168.15.85</span>
+<span class="w">          </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2233</span>
+<span class="w">        </span><span class="nt">auth</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">username</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">jimmy</span>
+<span class="w">          </span><span class="nt">password</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">secret</span>
 </pre></div>
 </div>
 </section>
@@ -393,53 +393,53 @@ by setting default values where it makes sense. Consider our previously
 defined <code class="docutils literal notranslate"><span class="pre">my.datatypes.Connection</span></code>. We can simplify its usage if we
 know that <code class="docutils literal notranslate"><span class="pre">port</span></code> by default will be <code class="docutils literal notranslate"><span class="pre">2233</span></code> and username by default
 will be <code class="docutils literal notranslate"><span class="pre">admin</span></code>.</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">tosca_definitions_version</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca_dsl_1_2</span><span class="w"></span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">tosca_definitions_version</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca_dsl_1_2</span>
 
-<span class="nt">data_types</span><span class="p">:</span><span class="w"></span>
+<span class="nt">data_types</span><span class="p">:</span>
 
-<span class="w">  </span><span class="nt">my.datatypes.Connection</span><span class="p">:</span><span class="w"></span>
-<span class="w">    </span><span class="nt">properties</span><span class="p">:</span><span class="w"></span>
-<span class="w">      </span><span class="nt">endpoint</span><span class="p">:</span><span class="w"></span>
-<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my.datatypes.Endpoint</span><span class="w"></span>
-<span class="w">      </span><span class="nt">auth</span><span class="p">:</span><span class="w"></span>
-<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my.datatypes.Auth</span><span class="w"></span>
+<span class="w">  </span><span class="nt">my.datatypes.Connection</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">properties</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">endpoint</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my.datatypes.Endpoint</span>
+<span class="w">      </span><span class="nt">auth</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my.datatypes.Auth</span>
 
-<span class="w">  </span><span class="nt">my.datatypes.Endpoint</span><span class="p">:</span><span class="w"></span>
-<span class="w">    </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Socket endpoint details</span><span class="w"></span>
-<span class="w">    </span><span class="nt">properties</span><span class="p">:</span><span class="w"></span>
-<span class="w">      </span><span class="nt">ip</span><span class="p">:</span><span class="w"></span>
-<span class="w">        </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">the endpoint IP</span><span class="w"></span>
-<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">string</span><span class="w"></span>
-<span class="w">      </span><span class="nt">port</span><span class="p">:</span><span class="w"></span>
-<span class="w">        </span><span class="nt">default</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2233</span><span class="w"></span>
-<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">integer</span><span class="w"></span>
+<span class="w">  </span><span class="nt">my.datatypes.Endpoint</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Socket endpoint details</span>
+<span class="w">    </span><span class="nt">properties</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">ip</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">the endpoint IP</span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">string</span>
+<span class="w">      </span><span class="nt">port</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">default</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2233</span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">integer</span>
 
-<span class="w">  </span><span class="nt">my.datatypes.Auth</span><span class="p">:</span><span class="w"></span>
-<span class="w">    </span><span class="nt">properties</span><span class="p">:</span><span class="w"></span>
-<span class="w">      </span><span class="nt">username</span><span class="p">:</span><span class="w"></span>
-<span class="w">        </span><span class="nt">default</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">admin</span><span class="w"></span>
-<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">string</span><span class="w"></span>
-<span class="w">      </span><span class="nt">password</span><span class="p">:</span><span class="w"></span>
-<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">string</span><span class="w"></span>
+<span class="w">  </span><span class="nt">my.datatypes.Auth</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">properties</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">username</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">default</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">admin</span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">string</span>
+<span class="w">      </span><span class="nt">password</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">string</span>
 
-<span class="nt">node_types</span><span class="p">:</span><span class="w"></span>
+<span class="nt">node_types</span><span class="p">:</span>
 
-<span class="w">  </span><span class="nt">DatabaseService</span><span class="p">:</span><span class="w"></span>
-<span class="w">    </span><span class="nt">derived_from</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cloudify.nodes.DBMS</span><span class="w"></span>
-<span class="w">    </span><span class="nt">properties</span><span class="p">:</span><span class="w"></span>
-<span class="w">      </span><span class="nt">connection</span><span class="p">:</span><span class="w"></span>
-<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my.datatypes.Connection</span><span class="w"></span>
+<span class="w">  </span><span class="nt">DatabaseService</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">derived_from</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cloudify.nodes.DBMS</span>
+<span class="w">    </span><span class="nt">properties</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">connection</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my.datatypes.Connection</span>
 
-<span class="nt">node_templates</span><span class="p">:</span><span class="w"></span>
+<span class="nt">node_templates</span><span class="p">:</span>
 
-<span class="w">  </span><span class="nt">my_db_service</span><span class="p">:</span><span class="w"></span>
-<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">DatabaseService</span><span class="w"></span>
-<span class="w">    </span><span class="nt">properties</span><span class="p">:</span><span class="w"></span>
-<span class="w">      </span><span class="nt">connection</span><span class="p">:</span><span class="w"></span>
-<span class="w">        </span><span class="nt">endpoint</span><span class="p">:</span><span class="w"></span>
-<span class="w">          </span><span class="nt">ip</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">192.168.15.85</span><span class="w"></span>
-<span class="w">        </span><span class="nt">auth</span><span class="p">:</span><span class="w"></span>
-<span class="w">          </span><span class="nt">password</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">secret</span><span class="w"></span>
+<span class="w">  </span><span class="nt">my_db_service</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">DatabaseService</span>
+<span class="w">    </span><span class="nt">properties</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">connection</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">endpoint</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">ip</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">192.168.15.85</span>
+<span class="w">        </span><span class="nt">auth</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">password</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">secret</span>
 </pre></div>
 </div>
 <p>Notice how the <code class="docutils literal notranslate"><span class="pre">my_db_service</span></code> node template only specified the
@@ -450,17 +450,17 @@ properties got the default <code class="docutils literal notranslate"><span clas
 <p>As its name implies, default values are of course, just defaults. As
 such, you can override them in same way you would configure properties
 without default values. For example:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">node_templates</span><span class="p">:</span><span class="w"></span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">node_templates</span><span class="p">:</span>
 
-<span class="w">  </span><span class="nt">my_db_service</span><span class="p">:</span><span class="w"></span>
-<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">DatabaseService</span><span class="w"></span>
-<span class="w">    </span><span class="nt">properties</span><span class="p">:</span><span class="w"></span>
-<span class="w">      </span><span class="nt">connection</span><span class="p">:</span><span class="w"></span>
-<span class="w">        </span><span class="nt">endpoint</span><span class="p">:</span><span class="w"></span>
-<span class="w">          </span><span class="nt">ip</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">192.168.15.85</span><span class="w"></span>
-<span class="w">          </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2244</span><span class="w"></span>
-<span class="w">        </span><span class="nt">auth</span><span class="p">:</span><span class="w"></span>
-<span class="w">          </span><span class="nt">password</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">secret</span><span class="w"></span>
+<span class="w">  </span><span class="nt">my_db_service</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">DatabaseService</span>
+<span class="w">    </span><span class="nt">properties</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">connection</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">endpoint</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">ip</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">192.168.15.85</span>
+<span class="w">          </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2244</span>
+<span class="w">        </span><span class="nt">auth</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">password</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">secret</span>
 </pre></div>
 </div>
 <p>Here we have overridden the default <code class="docutils literal notranslate"><span class="pre">connection.endpoint.port</span></code> value and kept the default <code class="docutils literal notranslate"><span class="pre">connection.auth.username</span></code> value.</p>
@@ -478,63 +478,63 @@ type <code class="docutils literal notranslate"><span class="pre">nodes.MyApp</s
 template <code class="docutils literal notranslate"><span class="pre">my_app</span></code> of type <code class="docutils literal notranslate"><span class="pre">nodes.MyApp</span></code>. This node template
 overrides another single nested property <code class="docutils literal notranslate"><span class="pre">prop3</span></code> of the <code class="docutils literal notranslate"><span class="pre">data1</span></code>
 property.</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">tosca_definitions_version</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca_dsl_1_2</span><span class="w"></span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">tosca_definitions_version</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca_dsl_1_2</span>
 
-<span class="nt">data_types</span><span class="p">:</span><span class="w"></span>
+<span class="nt">data_types</span><span class="p">:</span>
 
-<span class="w">  </span><span class="nt">datatypes.Data1</span><span class="p">:</span><span class="w"></span>
-<span class="w">    </span><span class="nt">properties</span><span class="p">:</span><span class="w"></span>
-<span class="w">      </span><span class="nt">prop1</span><span class="p">:</span><span class="w"></span>
-<span class="w">        </span><span class="nt">default</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">prop1_default</span><span class="w"></span>
-<span class="w">      </span><span class="nt">prop2</span><span class="p">:</span><span class="w"></span>
-<span class="w">        </span><span class="nt">default</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">prop2_default</span><span class="w"></span>
-<span class="w">      </span><span class="nt">prop3</span><span class="p">:</span><span class="w"></span>
-<span class="w">        </span><span class="nt">default</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">prop3_default</span><span class="w"></span>
+<span class="w">  </span><span class="nt">datatypes.Data1</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">properties</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">prop1</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">default</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">prop1_default</span>
+<span class="w">      </span><span class="nt">prop2</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">default</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">prop2_default</span>
+<span class="w">      </span><span class="nt">prop3</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">default</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">prop3_default</span>
 
-<span class="nt">node_types</span><span class="p">:</span><span class="w"></span>
+<span class="nt">node_types</span><span class="p">:</span>
 
-<span class="w">  </span><span class="nt">nodes.MyApp</span><span class="p">:</span><span class="w"></span>
-<span class="w">    </span><span class="nt">properties</span><span class="p">:</span><span class="w"></span>
-<span class="w">      </span><span class="nt">data1</span><span class="p">:</span><span class="w"></span>
-<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">datatypes.Data1</span><span class="w"></span>
-<span class="w">        </span><span class="nt">default</span><span class="p">:</span><span class="w"></span>
-<span class="w">          </span><span class="nt">prop2</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">prop2_override</span><span class="w"></span>
+<span class="w">  </span><span class="nt">nodes.MyApp</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">properties</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">data1</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">datatypes.Data1</span>
+<span class="w">        </span><span class="nt">default</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">prop2</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">prop2_override</span>
 
-<span class="nt">node_templates</span><span class="p">:</span><span class="w"></span>
+<span class="nt">node_templates</span><span class="p">:</span>
 
-<span class="w">  </span><span class="nt">my_app</span><span class="p">:</span><span class="w"></span>
-<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">nodes.MyApp</span><span class="w"></span>
-<span class="w">    </span><span class="nt">properties</span><span class="p">:</span><span class="w"></span>
-<span class="w">      </span><span class="nt">data1</span><span class="p">:</span><span class="w"></span>
-<span class="w">        </span><span class="nt">prop3</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">prop3_override</span><span class="w"></span>
+<span class="w">  </span><span class="nt">my_app</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">nodes.MyApp</span>
+<span class="w">    </span><span class="nt">properties</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">data1</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">prop3</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">prop3_override</span>
 </pre></div>
 </div>
 <p>After the service template is parsed, the <code class="docutils literal notranslate"><span class="pre">my_app</span></code> node template properties will be:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">data1</span><span class="p">:</span><span class="w"></span>
-<span class="w">  </span><span class="nt">prop1</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">prop1_default</span><span class="w"></span>
-<span class="w">  </span><span class="nt">prop2</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">prop2_override</span><span class="w"></span>
-<span class="w">  </span><span class="nt">prop3</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">prop3_override</span><span class="w"></span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">data1</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">prop1</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">prop1_default</span>
+<span class="w">  </span><span class="nt">prop2</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">prop2_override</span>
+<span class="w">  </span><span class="nt">prop3</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">prop3_override</span>
 </pre></div>
 </div>
 <p>This also applies for compound data types, for example:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">data_types</span><span class="p">:</span><span class="w"></span>
-<span class="w">  </span><span class="nt">datatypes.Data1</span><span class="p">:</span><span class="w"></span>
-<span class="w">    </span><span class="l l-Scalar l-Scalar-Plain">...</span><span class="w"></span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">data_types</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">datatypes.Data1</span><span class="p">:</span>
+<span class="w">    </span><span class="l l-Scalar l-Scalar-Plain">...</span>
 
-<span class="w">  </span><span class="nt">datatypes.Data2</span><span class="p">:</span><span class="w"></span>
-<span class="w">    </span><span class="nt">properties</span><span class="p">:</span><span class="w"></span>
-<span class="w">      </span><span class="nt">data1</span><span class="p">:</span><span class="w"></span>
-<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">datatypes.Data1</span><span class="w"></span>
-<span class="w">        </span><span class="nt">default</span><span class="p">:</span><span class="w"></span>
-<span class="w">          </span><span class="nt">prop2</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">prop2_override</span><span class="w"></span>
+<span class="w">  </span><span class="nt">datatypes.Data2</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">properties</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">data1</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">datatypes.Data1</span>
+<span class="w">        </span><span class="nt">default</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">prop2</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">prop2_override</span>
 </pre></div>
 </div>
 <p>In which case, <code class="docutils literal notranslate"><span class="pre">datatypes.Data2</span></code>’s <code class="docutils literal notranslate"><span class="pre">data1</span></code> property default value
 will be:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">data1</span><span class="p">:</span><span class="w"></span>
-<span class="w">  </span><span class="nt">prop1</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">prop1_default</span><span class="w"></span>
-<span class="w">  </span><span class="nt">prop2</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">prop2_override</span><span class="w"></span>
-<span class="w">  </span><span class="nt">prop3</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">prop3_default</span><span class="w"></span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">data1</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">prop1</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">prop1_default</span>
+<span class="w">  </span><span class="nt">prop2</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">prop2_override</span>
+<span class="w">  </span><span class="nt">prop3</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">prop3_default</span>
 </pre></div>
 </div>
 </section>
@@ -544,47 +544,47 @@ will be:</p>
 property who’s type is a custom data type and keeps that type
 explicitly, a similar nested merging logic will apply as described
 previously. For example:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">tosca_definitions_version</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca_dsl_1_2</span><span class="w"></span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">tosca_definitions_version</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tosca_dsl_1_2</span>
 
-<span class="nt">data_types</span><span class="p">:</span><span class="w"></span>
+<span class="nt">data_types</span><span class="p">:</span>
 
-<span class="w">  </span><span class="nt">datatypes.Data1</span><span class="p">:</span><span class="w"></span>
-<span class="w">    </span><span class="nt">properties</span><span class="p">:</span><span class="w"></span>
-<span class="w">      </span><span class="nt">prop1</span><span class="p">:</span><span class="w"></span>
-<span class="w">        </span><span class="nt">default</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">prop1_default</span><span class="w"></span>
-<span class="w">      </span><span class="nt">prop2</span><span class="p">:</span><span class="w"></span>
-<span class="w">        </span><span class="nt">default</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">prop2_default</span><span class="w"></span>
-<span class="w">      </span><span class="nt">prop3</span><span class="p">:</span><span class="w"></span>
-<span class="w">        </span><span class="nt">default</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">prop3_default</span><span class="w"></span>
+<span class="w">  </span><span class="nt">datatypes.Data1</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">properties</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">prop1</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">default</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">prop1_default</span>
+<span class="w">      </span><span class="nt">prop2</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">default</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">prop2_default</span>
+<span class="w">      </span><span class="nt">prop3</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">default</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">prop3_default</span>
 
-<span class="nt">node_types</span><span class="p">:</span><span class="w"></span>
+<span class="nt">node_types</span><span class="p">:</span>
 
-<span class="w">  </span><span class="nt">nodes.MyApp</span><span class="p">:</span><span class="w"></span>
-<span class="w">    </span><span class="nt">properties</span><span class="p">:</span><span class="w"></span>
-<span class="w">      </span><span class="nt">data2</span><span class="p">:</span><span class="w"></span>
-<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">datatypes.Data1</span><span class="w"></span>
-<span class="w">        </span><span class="nt">default</span><span class="p">:</span><span class="w"></span>
-<span class="w">          </span><span class="nt">prop2</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">prop2_override</span><span class="w"></span>
+<span class="w">  </span><span class="nt">nodes.MyApp</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">properties</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">data2</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">datatypes.Data1</span>
+<span class="w">        </span><span class="nt">default</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">prop2</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">prop2_override</span>
 
-<span class="w">  </span><span class="nt">nodes.DerivedFromMyApp</span><span class="p">:</span><span class="w"></span>
-<span class="w">    </span><span class="nt">derived_from</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">nodes.MyApp</span><span class="w"></span>
-<span class="w">    </span><span class="nt">properties</span><span class="p">:</span><span class="w"></span>
-<span class="w">      </span><span class="nt">data2</span><span class="p">:</span><span class="w"></span>
-<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">datatypes.Data1</span><span class="w"></span>
-<span class="w">        </span><span class="nt">default</span><span class="p">:</span><span class="w"></span>
-<span class="w">          </span><span class="nt">prop3</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">prop3_override</span><span class="w"></span>
+<span class="w">  </span><span class="nt">nodes.DerivedFromMyApp</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">derived_from</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">nodes.MyApp</span>
+<span class="w">    </span><span class="nt">properties</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">data2</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">datatypes.Data1</span>
+<span class="w">        </span><span class="nt">default</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">prop3</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">prop3_override</span>
 
-<span class="nt">node_templates</span><span class="p">:</span><span class="w"></span>
+<span class="nt">node_templates</span><span class="p">:</span>
 
-<span class="w">  </span><span class="nt">my_app</span><span class="p">:</span><span class="w"></span>
-<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">nodes.DerivedFromMyApp</span><span class="w"></span>
+<span class="w">  </span><span class="nt">my_app</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">nodes.DerivedFromMyApp</span>
 </pre></div>
 </div>
 <p>After the service template is parsed, the <code class="docutils literal notranslate"><span class="pre">my_app</span></code> node template properties will be:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">data1</span><span class="p">:</span><span class="w"></span>
-<span class="w">  </span><span class="nt">prop1</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">prop1_default</span><span class="w"></span>
-<span class="w">  </span><span class="nt">prop2</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">prop2_override</span><span class="w"></span>
-<span class="w">  </span><span class="nt">prop3</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">prop3_override</span><span class="w"></span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">data1</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">prop1</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">prop1_default</span>
+<span class="w">  </span><span class="nt">prop2</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">prop2_override</span>
+<span class="w">  </span><span class="nt">prop3</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">prop3_override</span>
 </pre></div>
 </div>
 <div class="admonition seealso">

@@ -713,17 +713,17 @@ otherwise only variables added will be included.</p>
 <p>Operational status indicates if the instance currently exists or not.
 This will queue a new child job if needed.</p>
 <p>To run the job based on the supplied spec immediately, yield the returned JobRequest.</p>
-<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w">     </span><span class="l l-Scalar l-Scalar-Plain">aNewInstance</span><span class="w"></span>
-<span class="w">  </span><span class="nt">template</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">aNodeTemplate</span><span class="w"></span>
-<span class="w">  </span><span class="nt">parent</span><span class="p">:</span><span class="w">   </span><span class="l l-Scalar l-Scalar-Plain">HOST</span><span class="w"></span>
-<span class="w">  </span><span class="nt">attributes</span><span class="p">:</span><span class="w"></span>
-<span class="w">     </span><span class="nt">anAttribute</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">aValue</span><span class="w"></span>
-<span class="w">  </span><span class="nt">readyState</span><span class="p">:</span><span class="w"></span>
-<span class="w">    </span><span class="nt">local</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ok</span><span class="w"></span>
-<span class="w">    </span><span class="nt">state</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">state</span><span class="w"></span>
-<span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w">     </span><span class="l l-Scalar l-Scalar-Plain">SELF</span><span class="w"></span>
-<span class="w">  </span><span class="nt">attributes</span><span class="p">:</span><span class="w"></span>
-<span class="w">      </span><span class="nt">anAttribute</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">aNewValue</span><span class="w"></span>
+<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w">     </span><span class="l l-Scalar l-Scalar-Plain">aNewInstance</span>
+<span class="w">  </span><span class="nt">template</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">aNodeTemplate</span>
+<span class="w">  </span><span class="nt">parent</span><span class="p">:</span><span class="w">   </span><span class="l l-Scalar l-Scalar-Plain">HOST</span>
+<span class="w">  </span><span class="nt">attributes</span><span class="p">:</span>
+<span class="w">     </span><span class="nt">anAttribute</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">aValue</span>
+<span class="w">  </span><span class="nt">readyState</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">local</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ok</span>
+<span class="w">    </span><span class="nt">state</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">state</span>
+<span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w">     </span><span class="l l-Scalar l-Scalar-Plain">SELF</span>
+<span class="w">  </span><span class="nt">attributes</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">anAttribute</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">aNewValue</span>
 </pre></div>
 </div>
 <dl class="field-list simple">
