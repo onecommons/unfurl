@@ -437,16 +437,16 @@ def populate_cache():
 
 def _make_readonly_localenv(clone_location, parent_localenv=None):
     try:
+        # we don't want to decrypt secrets because the export is cached and shared
+        overrides = dict(UNFURL_SKIP_VAULT_DECRYPT=True, UNFURL_SKIP_UPSTREAM_CHECK=True)
         local_env = LocalEnv(
             clone_location,
             current_app.config["UNFURL_OPTIONS"].get("home"),
             can_be_empty=True,
+            parent=parent_localenv,
             readonly=True,
-            parent=parent_localenv
+            overrides=overrides,
         )
-        # we don't want to decrypt secrets because the export is cached and shared
-        local_env.overrides["UNFURL_SKIP_VAULT_DECRYPT"] = True
-        local_env.overrides["UNFURL_SKIP_UPSTREAM_CHECK"] = True
     except UnfurlError as e:
         logger.error("error loading project at %s", clone_location, exc_info=True)
         return e, None
