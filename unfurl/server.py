@@ -5,6 +5,7 @@ import os
 import time
 from typing import List, Optional, Tuple, Any, Union, TYPE_CHECKING, cast, Callable
 from urllib.parse import unquote, urljoin, urlsplit, urlunsplit
+from base64 import b64decode
 
 import click
 import uvicorn
@@ -372,11 +373,16 @@ def export():
     cache_entry = None
     file_path = _get_filepath(requested_format, deployment_path)
     branch = request.args.get("branch")
+    if request.headers.get("x-git-credentials"):
+        args = dict(request.args)
+        args["username"], args["password"] = b64decode(request.headers["x-git-credentials"]).decode().split(":", 1)
+    else:
+        args = request.args
     if latest_commit is not None:
         cache_entry = CacheEntry(project_id, branch, file_path, requested_format)
-        err, json_summary = cache_entry.get_or_set(cache, partial(_cache_work, request.args), latest_commit)
+        err, json_summary = cache_entry.get_or_set(cache, partial(_cache_work, args), latest_commit)
     else:
-        err, json_summary = _do_export(project_id, requested_format, file_path, None, None, request.args)
+        err, json_summary = _do_export(project_id, requested_format, file_path, None, None, args)
     if not err:
         hit = cache_entry and cache_entry.hit
         if request.args.get("include_all_deployments"):
@@ -431,16 +437,16 @@ def populate_cache():
 
 def _make_readonly_localenv(clone_location, parent_localenv=None):
     try:
+        # we don't want to decrypt secrets because the export is cached and shared
+        overrides = dict(UNFURL_SKIP_VAULT_DECRYPT=True, UNFURL_SKIP_UPSTREAM_CHECK=True)
         local_env = LocalEnv(
             clone_location,
             current_app.config["UNFURL_OPTIONS"].get("home"),
             can_be_empty=True,
+            parent=parent_localenv,
             readonly=True,
-            parent=parent_localenv
+            overrides=overrides,
         )
-        # we don't want to decrypt secrets because the export is cached and shared
-        local_env.overrides["UNFURL_SKIP_VAULT_DECRYPT"] = True
-        local_env.overrides["UNFURL_SKIP_UPSTREAM_CHECK"] = True
     except UnfurlError as e:
         logger.error("error loading project at %s", clone_location, exc_info=True)
         return e, None
@@ -482,21 +488,28 @@ def _do_export(project_id: str, requested_format: str, deployment_path: str,
     return None, json_summary
 
 
+def _get_body(request):
+    body = request.json
+    if request.headers.get("x-git-credentials"):
+        body["username"], body["password"] = b64decode(request.headers["x-git-credentials"]).decode().split(":", 1)
+    return body
+
+
 @app.route("/delete_deployment", methods=["POST"])
 def delete_deployment():
-    body = request.json
+    body = _get_body(request)
     return _patch_environment(body, get_project_id(request))
 
 
 @app.route("/update_environment", methods=["POST"])
 def update_environment():
-    body = request.json
+    body = _get_body(request)
     return _patch_environment(body, get_project_id(request))
 
 
 @app.route("/delete_environment", methods=["POST"])
 def delete_environment():
-    body = request.json
+    body = _get_body(request)
     return _patch_environment(body, get_project_id(request))
 
 
@@ -564,13 +577,13 @@ def _patch_node_template(patch: dict, tpl: dict) -> None:
 
 @app.route("/update_ensemble", methods=["POST"])
 def update_ensemble():
-    body = request.json
+    body = _get_body(request)
     return _patch_ensemble(body, False, get_project_id(request))
 
 
 @app.route("/create_ensemble", methods=["POST"])
 def create_ensemble():
-    body = request.json
+    body = _get_body(request)
     return _patch_ensemble(body, True, get_project_id(request))
 
 
@@ -592,8 +605,10 @@ def update_deployment(project, key, patch_inner, save, deleted=False):
     if save:
         localConfig.config.save()
 
+
 def _patch_response(repo: GitRepo):
     return jsonify(dict(commit=repo.revision))
+
 
 def _patch_environment(body: dict, project_id: str) -> str:
     patch = body.get("patch")
@@ -635,7 +650,9 @@ def _patch_environment(body: dict, project_id: str) -> str:
     localConfig.config.save()
     commit_msg = body.get("commit_msg", "Update environment")
     invalidate_cache(body, "environments", project_id)
-    _commit_and_push(repo, localConfig.config.path, commit_msg)
+    err = _commit_and_push(repo, localConfig.config.path, commit_msg)
+    if err:
+        return err  # err will be an error response
     return _patch_response(repo)
 
 
@@ -699,12 +716,20 @@ def _patch_ensemble(body: dict, create: bool, project_id: str) -> str:
     manifest.manifest.save()
     manifest.add_all()
     commit_msg = body.get("commit_msg", "Update deployment")
+    # XXX catch exception from commit and run git restore to rollback working dir
     committed = manifest.commit(commit_msg, False)
     logger.info(f"committed to {committed} repositories")
     invalidate_cache(body, "deployment", project_id)
     if manifest.repo.repo.remotes:
-        manifest.repo.repo.remotes.origin.push()
-        logger.info("pushed")
+        try:
+            manifest.repo.repo.remotes.origin.push()
+            logger.info("pushed")
+        except Exception:
+            # discard the last commit that we couldn't push
+            # this is mainly for security if we couldn't push because the user wasn't authorized
+            manifest.repo.reset()
+            logger.error("push failed", exc_info=True)
+            return create_error_response("INTERNAL_ERROR", "Could not push repository")
     return _patch_response(manifest.repo)
 
 
@@ -760,12 +785,20 @@ def _patch_ensemble(body: dict, create: bool, project_id: str) -> str:
 
 def _commit_and_push(repo, full_path, commit_msg):
     repo.add_all(full_path)
+    # XXX catch exception and run git restore to rollback working dir
     repo.commit_files([full_path], commit_msg)
     logger.info("committed %s: %s", full_path, commit_msg)
     if repo.repo.remotes:
-        repo.repo.remotes.origin.push()
-        logger.info("pushed")
-    return repo.revision
+        try:
+            repo.repo.remotes.origin.push()
+            logger.info("pushed")
+        except Exception:
+            # discard the last commit that we couldn't push
+            # this is mainly for security if we couldn't push because the user wasn't authorized
+            repo.repo.reset()
+            logger.error("push failed", exc_info=True)
+            return create_error_response("INTERNAL_ERROR", "Could not push repository")
+    return None
 
 
 def _fetch_localenv_location(project_path: str, deployment_path: str, args: dict) -> Optional[str]:

@@ -16,6 +16,8 @@ import pytest
 from tests.utils import init_project, run_cmd
 from unfurl.repo import GitRepo
 from unfurl.yamlloader import yaml
+from base64 import b64encode
+
 
 # Very minimal deployment
 deployment = """
@@ -256,7 +258,10 @@ def test_server_export_remote(caplog):
                             "latest_commit": last_commit,  # enable caching but just get the latest in the cache
                             "format": export_format,
                         },
-                        headers={"If-None-Match": server._make_etag(last_commit)}
+                        headers={
+                          "If-None-Match": server._make_etag(last_commit),
+                          "x-git-credentials": b64encode("username:token".encode())
+                        }
                     )
                     file_path = server._get_filepath(export_format, None)
                     key = server.CacheEntry(project_id, "", file_path, export_format).cache_key()
@@ -352,12 +357,15 @@ def test_server_update_deployment():
                 json={
                     "projectPath": ".",
                     "patch": json.loads(target_patch),
+                },
+                headers = {
+                    "x-git-credentials": b64encode("username:token".encode())
                 }
             )
             assert res.status_code == 200
 
             with open("ensemble/ensemble.yaml", "r") as f:
-                data = yaml.load(f.read())            
+                data = yaml.load(f.read())     
                 assert (data['spec']
                             ['service_template']
                             ['topology_template']
