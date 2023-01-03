@@ -3,7 +3,7 @@ from functools import partial
 import json
 import os
 import time
-from typing import List, Optional, Tuple, Any, Union, TYPE_CHECKING, cast, Callable
+from typing import Dict, List, Optional, Tuple, Any, Union, TYPE_CHECKING, cast, Callable
 from urllib.parse import unquote, urljoin, urlsplit, urlunsplit
 from base64 import b64decode
 
@@ -31,7 +31,7 @@ logger = getLogger("unfurl.server")
 
 # note: export FLASK_ENV=development to see error stacks
 # see https://flask-caching.readthedocs.io/en/latest/#built-in-cache-backends for more options
-flask_config: dict[str, Any] = {
+flask_config: Dict[str, Any] = {
     "CACHE_TYPE": os.environ.get('CACHE_TYPE', "simple"),
     "CACHE_KEY_PREFIX": os.environ.get("CACHE_KEY_PREFIX", "ufsv::"),
 }
@@ -689,13 +689,19 @@ def _patch_ensemble(body: dict, create: bool, project_id: str) -> str:
         # XXX create a new ensemble if patch is for a new deployment
         return create_error_response("INTERNAL_ERROR", "Could not find repository")
     assert clone_location
+    deployment_blueprint = body.get("deployment_blueprint")
     if create:
-        deployment_blueprint = body.get("deployment_blueprint")
         blueprint_url = body["blueprint_url"]
         logger.info("creating deployment at %s for %s", clone_location, blueprint_url)
         msg = init.clone(blueprint_url, clone_location, existing=True, mono=True, skeleton="dashboard",
                          use_environment=environment, use_deployment_blueprint=deployment_blueprint)
         logger.info(msg)
+    # elif clone:
+    #     logger.info("creating deployment at %s for %s", clone_location, blueprint_url)
+    #     msg = init.clone(clone_location, clone_location, existing=True, mono=True, skeleton="dashboard",
+    #                      use_environment=environment, use_deployment_blueprint=deployment_blueprint)
+    #     logger.info(msg)
+
     # don't validate in case we are still an incomplete draft
     cloud_vars_url = body.get("cloud_vars_url") or ""
     overrides = dict(ENVIRONMENT=environment, UNFURL_CLOUD_VARS_URL=cloud_vars_url)
