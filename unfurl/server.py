@@ -605,8 +605,10 @@ def update_deployment(project, key, patch_inner, save, deleted=False):
     if save:
         localConfig.config.save()
 
+
 def _patch_response(repo: GitRepo):
     return jsonify(dict(commit=repo.revision))
+
 
 def _patch_environment(body: dict, project_id: str) -> str:
     patch = body.get("patch")
@@ -648,7 +650,9 @@ def _patch_environment(body: dict, project_id: str) -> str:
     localConfig.config.save()
     commit_msg = body.get("commit_msg", "Update environment")
     invalidate_cache(body, "environments", project_id)
-    _commit_and_push(repo, localConfig.config.path, commit_msg)
+    err = _commit_and_push(repo, localConfig.config.path, commit_msg)
+    if err:
+        return err  # err will be an error response
     return _patch_response(repo)
 
 
@@ -712,12 +716,20 @@ def _patch_ensemble(body: dict, create: bool, project_id: str) -> str:
     manifest.manifest.save()
     manifest.add_all()
     commit_msg = body.get("commit_msg", "Update deployment")
+    # XXX catch exception from commit and run git restore to rollback working dir
     committed = manifest.commit(commit_msg, False)
     logger.info(f"committed to {committed} repositories")
     invalidate_cache(body, "deployment", project_id)
     if manifest.repo.repo.remotes:
-        manifest.repo.repo.remotes.origin.push()
-        logger.info("pushed")
+        try:
+            manifest.repo.repo.remotes.origin.push()
+            logger.info("pushed")
+        except Exception:
+            # discard the last commit that we couldn't push
+            # this is mainly for security if we couldn't push because the user wasn't authorized
+            manifest.repo.reset()
+            logger.error("push failed", exc_info=True)
+            return create_error_response("INTERNAL_ERROR", "Could not push repository")
     return _patch_response(manifest.repo)
 
 
@@ -773,12 +785,20 @@ def _patch_ensemble(body: dict, create: bool, project_id: str) -> str:
 
 def _commit_and_push(repo, full_path, commit_msg):
     repo.add_all(full_path)
+    # XXX catch exception and run git restore to rollback working dir
     repo.commit_files([full_path], commit_msg)
     logger.info("committed %s: %s", full_path, commit_msg)
     if repo.repo.remotes:
-        repo.repo.remotes.origin.push()
-        logger.info("pushed")
-    return repo.revision
+        try:
+            repo.repo.remotes.origin.push()
+            logger.info("pushed")
+        except Exception:
+            # discard the last commit that we couldn't push
+            # this is mainly for security if we couldn't push because the user wasn't authorized
+            repo.repo.reset()
+            logger.error("push failed", exc_info=True)
+            return create_error_response("INTERNAL_ERROR", "Could not push repository")
+    return None
 
 
 def _fetch_localenv_location(project_path: str, deployment_path: str, args: dict) -> Optional[str]:

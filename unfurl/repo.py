@@ -490,6 +490,9 @@ class GitRepo(Repo):
         # success error code means it's ignored
         return not self.run_cmd(["check-ignore", "-q", localPath])[0]
 
+    def reset(self, args: str = "--hard HEAD~1") -> bool:
+        return not self.run_cmd(("reset " + args).split())[0]
+
     def run_cmd(self, args, **kw):
         """
         :return:
