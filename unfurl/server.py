@@ -30,10 +30,21 @@ if __logfile:
 logger = getLogger("unfurl.server")
 
 # note: export FLASK_ENV=development to see error stacks
+# see https://flask-caching.readthedocs.io/en/latest/#built-in-cache-backends for more options
 flask_config = {
-    # Use in-memory caching, see https://flask-caching.readthedocs.io/en/latest/#built-in-cache-backends for more options
-    "CACHE_TYPE": "simple",
+    "CACHE_TYPE": os.environ.get('CACHE_TYPE', "simple"),
+    "CACHE_KEY_PREFIX": os.environ.get("CACHE_KEY_PREFIX", "ufsv::"),
 }
+# default: never cache entries never expire
+flask_config["CACHE_DEFAULT_TIMEOUT"] = os.environ.get("CACHE_DEFAULT_TIMEOUT") or 0
+if flask_config["CACHE_TYPE"] == "RedisCache":
+    if "CACHE_REDIS_URL" in os.environ:
+        flask_config["CACHE_REDIS_URL"] = os.environ['CACHE_REDIS_URL']
+    else:
+        flask_config["CACHE_REDIS_HOST"] = os.environ['CACHE_REDIS_HOST']
+        flask_config["CACHE_REDIS_PORT"] = int(os.environ.get('CACHE_REDIS_PORT') or 6379)
+        flask_config["CACHE_REDIS_DB"] = int(os.environ.get('CACHE_REDIS_DB') or 0)
+
 app = Flask(__name__)
 app.config.from_mapping(flask_config)
 cache = Cache(app)
