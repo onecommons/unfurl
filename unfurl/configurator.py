@@ -204,7 +204,7 @@ class Configurator:
         """
         return True
 
-    def should_run(self, task: "TaskView") -> bool:
+    def should_run(self, task: "TaskView") -> Union[bool, Priority]:
         """Does this configuration need to be run?"""
         return self.configSpec.should_run()
 
@@ -383,6 +383,8 @@ class TaskLoggerAdapter(logging.LoggerAdapter, LogExtraLevels):
             self.logger.log(level, msg, *args, **kwargs)
 
 
+_initializing_environ = object()
+
 class TaskView:
     """The interface presented to configurators.
 
@@ -417,7 +419,6 @@ class TaskView:
             UnfurlTaskError
         ] = []  # UnfurlTaskError objects appends themselves to this list
         self._inputs: Optional[ResultsMap] = None
-        self._environ = None
         self._manifest = manifest
         self.messages: List[object] = []
         self._addedResources: List[NodeInstance] = []
@@ -426,8 +427,47 @@ class TaskView:
         self._resourceChanges = ResourceChanges()
         self._workFolders: dict = {}
         self._rendering = False
+        self._environ: object = None
+        self._previous_environ = None
         # public:
         self.operation_host = find_operation_host(target, configSpec.operation_host)
+
+    @property
+    def environ(self) -> Dict[str, str]:
+        if self._inputs is None:
+            # not ready yet
+            return self.target.environ
+        if self._environ is None:
+            self._environ = _initializing_environ
+            self._environ = self.get_environment(False)
+        elif self._environ is _initializing_environ:
+            raise UnfurlTaskError(self, "Expression attempted to access environment during environment initiation")
+        return cast(Dict[str, str], self._environ)
+
+    def set_envvars(self):
+        old_env = {}
+        for key, value in self.environ.items():
+            old_env[key] = os.environ.get(key)
+            if value is None:
+                try:
+                    del os.environ[key]
+                except Exception:
+                    pass
+            else:
+                os.environ[key] = value
+        self._previous_environ = old_env
+
+    def restore_envvars(self):
+        if not self._previous_environ:
+            return
+        for key, value in self._previous_environ.items():
+            if value is None:
+                try:
+                    del os.environ[key]
+                except Exception:
+                    pass
+            else:
+                os.environ[key] = value
 
     @property
     def inputs(self) -> ResultsMap:
@@ -563,7 +603,7 @@ class TaskView:
         3. Variables declared in the operation's ``environment`` section.
         """
         if env is None:
-            env = self.inputs.context.environ
+            env = self.target.environ
 
         # build rules by order of preference (last overrides first):
         # 1. ensemble's environment
@@ -575,6 +615,8 @@ class TaskView:
             rules.update(self.configSpec.environment)
 
         # apply rules
+        # NB: Context.environ() calls TaskView.environ() which calls this method during initiation
+        # If an expression being evaluated below invokes Context.environ a task error will be raised
         rules = serialize_value(
             map_value(rules, self.inputs.context), resolveExternal=True
         )

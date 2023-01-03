@@ -44,7 +44,6 @@ import logging
 
 if TYPE_CHECKING:
     from .configurator import TaskView
-    from .runtime import NodeInstance
 
 
 logger = cast(UnfurlLogger, logging.getLogger("unfurl.eval"))
@@ -52,7 +51,7 @@ logger = cast(UnfurlLogger, logging.getLogger("unfurl.eval"))
 
 def map_value(
     value: Any,
-    resourceOrCxt: Union["RefContext", "NodeInstance"],
+    resourceOrCxt: Union["RefContext", "ResourceRef"],
     applyTemplates: bool = True,
 ) -> Optional[Union[ResultsList, Result, List[Result]]]:
     if not isinstance(resourceOrCxt, RefContext):
@@ -155,7 +154,6 @@ class RefContext:
         self._strict = strict
         self.base_dir = currentResource.base_dir
         self.templar = currentResource.templar
-        self.environ = currentResource.environ
         self.referenced = _Tracker()
         self.task = task
         self.kw: MappingType[str, Any] = {}
@@ -166,6 +164,13 @@ class RefContext:
             return not self.task._rendering
         else:
             return self._strict
+
+    @property
+    def environ(self):
+        if self.task:
+            return self.task.environ
+        else:
+            return self.currentResource.environ
 
     def copy(
         self,
@@ -194,7 +199,6 @@ class RefContext:
             copy.wantList = wantList
         copy.base_dir = self.base_dir
         copy.templar = self.templar
-        copy.environ = self.environ
         copy.referenced = self.referenced
         copy.task = self.task
         return copy

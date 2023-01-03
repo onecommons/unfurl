@@ -178,7 +178,7 @@ class Operational(ChangeAware):
         return False
 
     @staticmethod
-    def aggregate_status(statuses: Iterable["Operational"], seen) -> Optional[Status]:
+    def aggregate_status(statuses: Iterable["Operational"], seen: Dict[int, "Operational"]) -> Optional[Status]:
         """
         Returns: ok, degraded, pending or None
 
@@ -339,7 +339,7 @@ class _ChildResources(Mapping):
 
 
 class EntityInstance(OperationalInstance, ResourceRef):
-    attributeManager = None
+    attributeManager: Optional[AttributeManager] = None
     created: Optional[Union[bool, str]] = None
     protected: Optional[bool] = None
     imports = None

@@ -34,6 +34,7 @@ from .logs import end_collapsible, start_collapsible, getLogger
 from .configurator import (
     TaskView,
     ConfiguratorResult,
+    Configurator,
 )
 from .projectpaths import Folders, rmtree
 from .planrequests import (
@@ -176,7 +177,7 @@ class JobOptions:
         }
 
 
-class ConfigTask(ConfigChange, TaskView):
+class ConfigTask(TaskView, ConfigChange):
     """
     receives a configSpec and a target node instance
     instantiates and runs Configurator
@@ -204,8 +205,11 @@ class ConfigTask(ConfigChange, TaskView):
         self.target.root.attributeManager = self._attributeManager
         self._resolved_inputs = {}
 
-    def _status(self, seen):
-        return self.local_status
+    def _status(self, seen: Dict[int, Operational]) -> Status:
+        status = self.local_status
+        # if not status:
+        #     return Status.unknown
+        return status  # type: ignore
 
     def __priority():  # type: ignore
         doc = "The priority property."
@@ -227,14 +231,13 @@ class ConfigTask(ConfigChange, TaskView):
     priority: Priority = property(**__priority())  # type: ignore
 
     @property
-    def configurator(self):
+    def configurator(self) -> Configurator:
         if self._configurator is None:
             self._configurator = self.configSpec.create()
         return self._configurator
 
-    def start_run(self):
+    def start_run(self) -> None:
         self.generator = self.configurator.get_generator(self)
-        assert isinstance(self.generator, types.GeneratorType)
 
     def send(self, change):
         result = None
@@ -245,19 +248,14 @@ class ConfigTask(ConfigChange, TaskView):
             self.commit_changes()
         return result
 
-    def start(self):
+    def start(self) -> None:
         self.start_run()
         self.target.root.attributeManager = self._attributeManager
         self.target_status = self.target.status
         self.target_state = self.target.state
         self.set_envvars()
 
-    #def set_envvars(self):
-    #  if configurator needs os.environ:
-    #      self.saved = os.environ.copy()
-    #     os.environ = self.get_environment()
-
-    def _update_status(self, result):
+    def _update_status(self, result) -> bool:
         """
         Update the instances status with the result of the operation.
         If status wasn't explicitly set but the operation changed the instance's configuration
@@ -910,7 +908,7 @@ class Job(ConfigChange):
             if task._configurator:
                 priority = task.configurator.should_run(task)
             else:
-                priority = task.priority  # type: ignore
+                priority = task.priority
         except Exception:
             # unexpected error don't run this
             UnfurlTaskError(task, "shouldRun failed unexpectedly")
@@ -920,18 +918,19 @@ class Job(ConfigChange):
             priority = priority and Priority.required or Priority.ignore
         else:
             priority = to_enum(Priority, priority)
-        if priority != task.priority:  # type: ignore
+        if priority != task.priority:
             logger.debug(
                 "configurator changed task %s priority from %s to %s",
                 task,
-                task.priority,  # type: ignore
+                task.priority,
                 priority,
             )
-            task.priority = priority  # type: ignore
+            assert isinstance(priority, Priority)
+            task.priority = priority
         if not priority > Priority.ignore:
             return False, "configurator cancelled"
 
-        if task.reason == Reason.reconfigure:  # type: ignore
+        if task.reason == Reason.reconfigure:
             if task.has_inputs_changed() or task.has_dependencies_changed():
                 return True, "change detected"
             else:

@@ -380,7 +380,7 @@ class TerraformConfigurator(ShellConfigurator):
         cmd, terraform, statePath = task.rendered
         current_path = cwd.cwd
         dataDir = os.getenv("TF_DATA_DIR", os.path.join(current_path, ".terraform"))
-        env = _get_env(task.get_environment(False), task.verbose, dataDir)
+        env = _get_env(task.environ, task.verbose, dataDir)
 
         ### Load the providers schemas and run terraform init if necessary
         providerSchemaPath = os.path.join(dataDir, "providers-schema.json")

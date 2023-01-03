@@ -12,7 +12,7 @@ import six
 import re
 import ast
 import time
-from typing import TYPE_CHECKING, cast, Dict, Optional, Any
+from typing import TYPE_CHECKING, Union, cast, Dict, Optional, Any
 from enum import Enum
 from urllib.parse import urlsplit
 
@@ -570,7 +570,7 @@ def has_env(arg, ctx):
 set_eval_func("has_env", has_env, True)
 
 
-def get_env(args, ctx: RefContext):
+def get_env(args, ctx: RefContext) -> Union[str, None, Dict[str, str]]:
     """
     Return the value of the given environment variable name.
     If NAME is not present in the environment, return the given default value if supplied or return None.
@@ -579,18 +579,22 @@ def get_env(args, ctx: RefContext):
 
     If the value of its argument is empty (e.g. [] or null), return the entire dictionary.
     """
-    env = ctx.environ
+    env = cast(Dict[str, str], ctx.environ)
     if not args:
         return env
 
     if isinstance(args, list):
         name = args[0]
-        default = args[1] if len(args) > 1 else None
+        default: Union[str, None] = args[1] if len(args) > 1 else None
     else:
         name = args
         default = None
 
-    return env.get(name, map_value(default, ctx))
+    if name in env:
+        return env[name]
+    else:
+        default = cast(Union[str, None], map_value(default, ctx))
+        return default
 
 
 set_eval_func("get_env", get_env, True)
@@ -652,8 +656,6 @@ class _EnvMapper(dict):
 
 def to_env(args, ctx: RefContext):
     env = ctx.environ
-    if ctx.task:
-        env = ctx.task.get_environment(False, env)
     sub = _EnvMapper(env or {})
     sub.ctx = ctx  # type: ignore
 
@@ -661,7 +663,9 @@ def to_env(args, ctx: RefContext):
     assert isinstance(rules, Mapping)
     result = filter_env(rules, env, True, sub)
     if ctx.kw.get("update_os_environ"):
-        ctx.environ = result
+        if ctx.task:
+            ctx.task._environ = result
+        ctx.currentResource.root._environ = result
         os.environ.update(result)
         for key, value in rules.items():
             if value is None and key in ctx.environ:
