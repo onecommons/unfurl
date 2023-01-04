@@ -850,7 +850,7 @@ def create_task_request(
         configSpec,
         resource,
         reason or action,
-        startState=startState,
+        startState=startState or iDef.entry_state,
     )
     if skip_filter:
         return req

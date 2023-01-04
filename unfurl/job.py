@@ -455,7 +455,7 @@ class ConfigTask(TaskView, ConfigChange):
         ):
             # check if the live attributes this task depends on has been set
             missing, reason = _dependency_check(self)
-            # don't check if this operation does depend on the operational dependencies being live
+            # skip check on self.target if this operation doesn't depend on its operational dependencies being live
             if not missing and self.configSpec.entry_state > NodeState.initial:
                 missing, reason = _dependency_check(self.target)
         return missing, reason
@@ -1032,6 +1032,8 @@ class Job(ConfigChange):
                     return False, "skipping check on a new instance"
                 else:
                     return True, "passed"
+        elif req.configSpec.operation == "restart" and not resource.present:
+            return False, "instance can't be restart"
 
         if self.jobOptions.force:  # type: ignore  # always run
             return True, "passed"
