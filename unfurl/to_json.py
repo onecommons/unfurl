@@ -729,12 +729,12 @@ def nodetemplate_to_json(nodetemplate, spec, types, for_resource=False):
     jsonnodetype = types[nodetemplate.type]
     visitor = PropertyVisitor()
     json["properties"] = list(template_properties_to_json(nodetemplate, visitor))
-    if visitor.redacted and "predefined" not in nodetemplate.directives:
-        json["directives"].append("predefined")
-        logger.warning(
-            "Adding 'predefined' directive to '%s' because it has redacted properties",
-            nodetemplate.name,
-        )
+    # if visitor.redacted and "predefined" not in nodetemplate.directives:
+    #     json["directives"].append("predefined")
+    #     logger.warning(
+    #         "Adding 'predefined' directive to '%s' because it has redacted properties",
+    #         nodetemplate.name,
+    #     )
     json["dependencies"] = []
     visibility = template_visibility(spec, nodetemplate, for_resource)
     if visibility != "inherit":
