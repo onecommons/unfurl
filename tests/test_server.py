@@ -19,6 +19,15 @@ from unfurl.yamlloader import yaml
 from base64 import b64encode
 
 
+UNFURL_TEST_REDIS_URL = os.getenv("UNFURL_TEST_REDIS_URL")
+if UNFURL_TEST_REDIS_URL:
+    os.environ["CACHE_TYPE"] = "RedisCache"
+    os.environ["CACHE_REDIS_URL"] = UNFURL_TEST_REDIS_URL
+    os.environ["CACHE_KEY_PREFIX"] = "test" + str(int(time.time())) + "::"
+    # time out in 2 minutes so we don't fill up the cache with cruft:
+    os.environ["CACHE_DEFAULT_TIMEOUT"] = "120"
+
+
 # Very minimal deployment
 deployment = """
 apiVersion: unfurl/v1alpha1
@@ -221,6 +230,7 @@ def test_server_export_local():
             p.terminate()
             p.join()
 
+
 @unittest.skipIf(
     "slow" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set"
 )
@@ -394,6 +404,5 @@ def test_server_update_deployment():
             if p:
                 p.terminate()
                 p.join()
-
 
 # XXX test patching with remote url

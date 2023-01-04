@@ -15,6 +15,7 @@ google-auth # Apache 2.0
 grpcio==1.50.0 # fix issue with m1 macs
 python-gitlab<=3.4.0
 gunicorn==20.1.0
+redis==4.3.5
 # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 # NB: this need to stay in in sync with [extras] in setup.cfg
 # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
