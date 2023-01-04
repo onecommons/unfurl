@@ -564,7 +564,8 @@ class Project:
             self.register_project(managedBy or project, changed=True)
         else:
             self.localConfig.config.config["ensembles"] = self.localConfig.ensembles
-            self.localConfig.config.save()
+            if not self.localConfig.config.readonly:
+                self.localConfig.config.save()
 
     def register_project(
         self, project, for_context=None, changed=False, save_project=True
@@ -793,10 +794,11 @@ class LocalConfig:
                     changed = True
 
         if changed:
-            if key:
+            if key and not self.config.readonly:
                 self.config.save_include(key)
             self.config.config["ensembles"] = self.ensembles
-            self.config.save()
+            if not self.config.readonly:
+                self.config.save()
         return lock
 
 

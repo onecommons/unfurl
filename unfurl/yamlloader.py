@@ -590,6 +590,10 @@ class YamlConfig:
 
     def save_include(self, key):
         path, template = self._cachedDocIncludes[key]
+        if self.readonly:
+            raise UnfurlError(
+                f'Can not save include at "{path}", config "{self.path}" is readonly'
+            )
         output = six.StringIO()
         try:
             self.yaml.dump(template, output)
