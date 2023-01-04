@@ -367,6 +367,10 @@ class ConfigTask(TaskView, ConfigChange):
         self.target_state = self.target.state
         return self
 
+    def _reset(self):
+        self._inputs = None
+        self._environ = None
+
     def commit_changes(self):
         """
         This can be called multiple times if the configurator yields multiple times.
@@ -377,10 +381,9 @@ class ConfigTask(TaskView, ConfigChange):
 
         if self._inputs is not None:
             self._resolved_inputs.update(self.inputs.get_resolved())
-        # need to recreate this because _attributeManager was reset
-        self._inputs = None
+        # need to reset because _attributeManager was reset in commit_changes()
+        self._reset()
 
-        # really
         # record the live attributes that we are dependent on
         # note: task start fresh with no dependencies so don't need to worry update or removing previous ones
         for key, (target, attributes) in dependencies.items():

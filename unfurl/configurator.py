@@ -428,45 +428,41 @@ class TaskView:
         self._workFolders: dict = {}
         self._rendering = False
         self._environ: object = None
-        self._previous_environ = None
         # public:
         self.operation_host = find_operation_host(target, configSpec.operation_host)
 
     @property
     def environ(self) -> Dict[str, str]:
-        if self._inputs is None:
+        if self._inputs is None or self._environ is _initializing_environ:
             # not ready yet
             return self.target.environ
         if self._environ is None:
             self._environ = _initializing_environ
             self._environ = self.get_environment(False)
-        elif self._environ is _initializing_environ:
-            raise UnfurlTaskError(self, "Expression attempted to access environment during environment initiation")
         return cast(Dict[str, str], self._environ)
 
     def set_envvars(self):
-        old_env = {}
+        """
+        Update os.environ with the task's environ and save the current one so it can be restored by ``restore_envvars``
+        """
+        self.logger.trace("update os.environ with %s", self.environ)
+        for key in os.environ:
+            current = self.environ.get(key)
+            if current is None:
+                del os.environ[key]
         for key, value in self.environ.items():
-            old_env[key] = os.environ.get(key)
-            if value is None:
-                try:
-                    del os.environ[key]
-                except Exception:
-                    pass
-            else:
+            if value is not None:
                 os.environ[key] = value
-        self._previous_environ = old_env
 
     def restore_envvars(self):
-        if not self._previous_environ:
-            return
-        for key, value in self._previous_environ.items():
-            if value is None:
-                try:
-                    del os.environ[key]
-                except Exception:
-                    pass
-            else:
+        # restore the environ set on root resource
+        self.logger.trace("restoring os.environ with %s", self.target.root.environ)
+        for key in os.environ:
+            current = self.target.root.environ.get(key)
+            if current is None:
+                del os.environ[key]
+        for key, value in self.target.environ.items():
+            if value is not None:
                 os.environ[key] = value
 
     @property

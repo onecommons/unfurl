@@ -663,13 +663,15 @@ def to_env(args, ctx: RefContext):
     assert isinstance(rules, Mapping)
     result = filter_env(rules, env, True, sub)
     if ctx.kw.get("update_os_environ"):
-        if ctx.task:
-            ctx.task._environ = result
-        ctx.currentResource.root._environ = result
-        os.environ.update(result)
-        for key, value in rules.items():
-            if value is None and key in ctx.environ:
-                del os.environ[key]
+        log = ctx.task and ctx.task.logger or logger
+        log.debug("to_env is updating os.environ with %s using rules %s", result, rules)
+        # update all the copies of environ
+        envs = [ctx.environ, ctx.currentResource.root._environ, os.environ]
+        for env in envs:
+            env.update(result)
+            for key, value in rules.items():
+                if value is None and key in env:
+                    del env[key]
     return result
 
 

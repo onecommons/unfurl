@@ -159,7 +159,7 @@ gcpTestUpgradeConnectionManifest = """\
   spec:
     service_template:
       topology_template:
-        node_templates:   
+        node_templates:
           testNode:
             type: tosca.nodes.Root
             interfaces:

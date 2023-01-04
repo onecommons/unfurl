@@ -537,7 +537,7 @@ def _prepare_request(job, req: TaskRequest, errors):
     finally:
         task.restore_envvars()
     if error:
-        task._inputs = None
+        task._reset()
         task._attributeManager.attributes = {}  # rollback changes
         errors.append(error)
     else:
@@ -597,13 +597,13 @@ def _render_request(job, parent, req, requests):
         )
         # rollback changes:
         task._errors = []
-        task._inputs = None
+        task._reset()
         task._attributeManager.attributes = {}
         task.discard_work_folders()
         return deps or dependent_refs, None
     elif error:
         task.fail_work_folders()
-        task._inputs = None
+        task._reset()
         task.logger.warning("Configurator render failed", exc_info=error_info)
         task._attributeManager.attributes = {}  # rollback changes
         return None, error

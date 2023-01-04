@@ -410,6 +410,28 @@ class YamlManifest(ReadOnlyManifest):
             repository.load_secrets(rootResource._templar._loader)
             repository.yaml = self.yaml
 
+    def _set_root_environ(self) -> None:
+        # We need to set the environment as early as possible but not too early
+        # Each ensemble maintains its own set of environment variables that is used when evaluating expressions (e.g get_env)
+        # but os.environ is only set to this when a task is active.
+        root = self.rootResource
+        assert root
+        rules = self.context.get("variables") or CommentedMap()
+        for rel in root.requirements:
+            rules.update(rel.merge_props(find_env_vars, True))
+        rules = serialize_value(
+            map_value(rules, root), resolveExternal=True
+        )
+        root._environ = filter_env(rules, os.environ)
+        paths = self.localEnv and self.localEnv.get_paths()
+        if paths:
+            path = os.pathsep.join(paths)
+            if path not in root._environ["PATH"]:  # avoid setting twice
+                root._environ["PATH"] = (
+                    path + os.pathsep + root._environ.get("PATH", "")
+                )
+                logger.debug("PATH set to %s", root._environ["PATH"])
+
     def create_topology_instance(self, status: dict) -> TopologyInstance:
         """
         If an instance of the toplogy is recorded in status, load it,
@@ -427,24 +449,9 @@ class YamlManifest(ReadOnlyManifest):
         else:
             root.set_base_dir(self.get_base_dir())
 
-        # We need to set the environment as early as possible but not too early
-        # and only once.
-        # Each ensemble maintains its own set of environment variables that is used when evaluting expressions (e.g get_env)
-        # but os.environ is only set to this when a task is running.
-        # note: task isn't active
-        rules = self.context.get("variables") or CommentedMap()
-        for rel in root.requirements:
-            rules.update(rel.merge_props(find_env_vars, True))
-        rules = serialize_value(
-            map_value(rules, root), resolveExternal=True
-        )
-        root._environ = filter_env(rules, os.environ)
-        paths = self.localEnv and self.localEnv.get_paths()
-        if paths:
-            root._environ["PATH"] = (
-                os.pathsep.join(paths) + os.pathsep + root._environ.get("PATH", "")
-            )
-            logger.debug("PATH set to %s", root._environ["PATH"])
+        # need to set rootResource before createNodeInstance() is called
+        self.rootResource = root
+        self._set_root_environ()
 
         # self.load_external_ensemble("localhost", tpl) # declared in templates/home/unfurl.yaml.j2
         importsSpec = self.context.get("external", {})
@@ -452,8 +459,6 @@ class YamlManifest(ReadOnlyManifest):
         for name, value in importsSpec.items():
             self.load_external_ensemble(name, value)
 
-        # need to set rootResource before createNodeInstance() is called
-        self.rootResource = root
         return root
 
     def _load_resource_templates(self, templates, node_templates, virtual):
