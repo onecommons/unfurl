@@ -4,7 +4,7 @@ import json
 import os
 import time
 from typing import Dict, List, Optional, Tuple, Any, Union, TYPE_CHECKING, cast, Callable
-from urllib.parse import unquote, urljoin, urlsplit, urlunsplit
+from urllib.parse import urljoin, urlsplit, urlunsplit
 from base64 import b64decode
 
 import click
@@ -14,12 +14,13 @@ from flask_caching import Cache
 
 import git
 from .localenv import LocalEnv
-from .repo import GitRepo, Repo
-from .util import UnfurlError, get_random_password
+from .repo import GitRepo
+from .util import UnfurlError, get_package_digest
 from .logs import getLogger, add_log_file
 from .yamlmanifest import YamlManifest
 from . import to_json
 from . import init
+from . import __version__
 if TYPE_CHECKING:
     from git.objects import Commit
 
@@ -300,6 +301,11 @@ def hook():
 @app.route("/health")
 def health():
     return "OK"
+
+
+@app.route("/version")
+def version():
+    return f"{__version__(True)} ({get_package_digest()})"
 
 
 def get_project_url(project_id: str, username=None, password=None) -> str:
