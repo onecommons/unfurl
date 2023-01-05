@@ -204,7 +204,7 @@ class Configurator:
         """
         return True
 
-    def should_run(self, task: "TaskView") -> bool:
+    def should_run(self, task: "TaskView") -> Union[bool, Priority]:
         """Does this configuration need to be run?"""
         return self.configSpec.should_run()
 
@@ -383,6 +383,8 @@ class TaskLoggerAdapter(logging.LoggerAdapter, LogExtraLevels):
             self.logger.log(level, msg, *args, **kwargs)
 
 
+_initializing_environ = object()
+
 class TaskView:
     """The interface presented to configurators.
 
@@ -417,7 +419,6 @@ class TaskView:
             UnfurlTaskError
         ] = []  # UnfurlTaskError objects appends themselves to this list
         self._inputs: Optional[ResultsMap] = None
-        self._environ = None
         self._manifest = manifest
         self.messages: List[object] = []
         self._addedResources: List[NodeInstance] = []
@@ -426,8 +427,43 @@ class TaskView:
         self._resourceChanges = ResourceChanges()
         self._workFolders: dict = {}
         self._rendering = False
+        self._environ: object = None
         # public:
         self.operation_host = find_operation_host(target, configSpec.operation_host)
+
+    @property
+    def environ(self) -> Dict[str, str]:
+        if self._inputs is None or self._environ is _initializing_environ:
+            # not ready yet
+            return self.target.environ
+        if self._environ is None:
+            self._environ = _initializing_environ
+            self._environ = self.get_environment(False)
+        return cast(Dict[str, str], self._environ)
+
+    def set_envvars(self):
+        """
+        Update os.environ with the task's environ and save the current one so it can be restored by ``restore_envvars``
+        """
+        self.logger.trace("update os.environ with %s", self.environ)
+        for key in os.environ:
+            current = self.environ.get(key)
+            if current is None:
+                del os.environ[key]
+        for key, value in self.environ.items():
+            if value is not None:
+                os.environ[key] = value
+
+    def restore_envvars(self):
+        # restore the environ set on root resource
+        self.logger.trace("restoring os.environ with %s", self.target.root.environ)
+        for key in os.environ:
+            current = self.target.root.environ.get(key)
+            if current is None:
+                del os.environ[key]
+        for key, value in self.target.environ.items():
+            if value is not None:
+                os.environ[key] = value
 
     @property
     def inputs(self) -> ResultsMap:
@@ -547,7 +583,7 @@ class TaskView:
 
         return env
 
-    def get_environment(self, addOnly: bool) -> dict:
+    def get_environment(self, addOnly: bool, env: Optional[dict] = None) -> dict:
         """Return a dictionary of environment variables applicable to this task.
 
         Args:
@@ -562,22 +598,21 @@ class TaskView:
         2. Variables set by the connections that are available to this operation.
         3. Variables declared in the operation's ``environment`` section.
         """
+        if env is None:
+            env = self.target.environ
 
-        env = os.environ.copy()
         # build rules by order of preference (last overrides first):
         # 1. ensemble's environment
         # 2. variables set by connections
         # 3. operation's environment
 
-        # we use merge.copy() to preserve basedir
-        rules = merge.copy(self.target.root.envRules)
-
-        rules.update(self._find_relationship_env_vars())
-
+        rules = self._find_relationship_env_vars()
         if self.configSpec.environment:
             rules.update(self.configSpec.environment)
 
         # apply rules
+        # NB: Context.environ() calls TaskView.environ() which calls this method during initiation
+        # If an expression being evaluated below invokes Context.environ a task error will be raised
         rules = serialize_value(
             map_value(rules, self.inputs.context), resolveExternal=True
         )

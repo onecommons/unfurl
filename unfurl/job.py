@@ -34,6 +34,7 @@ from .logs import end_collapsible, start_collapsible, getLogger
 from .configurator import (
     TaskView,
     ConfiguratorResult,
+    Configurator,
 )
 from .projectpaths import Folders, rmtree
 from .planrequests import (
@@ -177,7 +178,7 @@ class JobOptions:
         }
 
 
-class ConfigTask(ConfigChange, TaskView):
+class ConfigTask(TaskView, ConfigChange):
     """
     receives a configSpec and a target node instance
     instantiates and runs Configurator
@@ -205,8 +206,11 @@ class ConfigTask(ConfigChange, TaskView):
         self.target.root.attributeManager = self._attributeManager
         self._resolved_inputs = {}
 
-    def _status(self, seen):
-        return self.local_status
+    def _status(self, seen: Dict[int, Operational]) -> Status:
+        status = self.local_status
+        # if not status:
+        #     return Status.unknown
+        return status  # type: ignore
 
     def __priority():  # type: ignore
         doc = "The priority property."
@@ -228,14 +232,13 @@ class ConfigTask(ConfigChange, TaskView):
     priority: Priority = property(**__priority())  # type: ignore
 
     @property
-    def configurator(self):
+    def configurator(self) -> Configurator:
         if self._configurator is None:
             self._configurator = self.configSpec.create()
         return self._configurator
 
-    def start_run(self):
+    def start_run(self) -> None:
         self.generator = self.configurator.get_generator(self)
-        assert isinstance(self.generator, types.GeneratorType)
 
     def send(self, change):
         result = None
@@ -246,13 +249,14 @@ class ConfigTask(ConfigChange, TaskView):
             self.commit_changes()
         return result
 
-    def start(self):
+    def start(self) -> None:
         self.start_run()
         self.target.root.attributeManager = self._attributeManager
         self.target_status = self.target.status
         self.target_state = self.target.state
+        self.set_envvars()
 
-    def _update_status(self, result):
+    def _update_status(self, result) -> bool:
         """
         Update the instances status with the result of the operation.
         If status wasn't explicitly set but the operation changed the instance's configuration
@@ -325,6 +329,7 @@ class ConfigTask(ConfigChange, TaskView):
 
     def finished(self, result: ConfiguratorResult):
         assert result
+        self.restore_envvars()
         if self.generator:
             self.generator.close()
             self.generator = None
@@ -363,6 +368,10 @@ class ConfigTask(ConfigChange, TaskView):
         self.target_state = self.target.state
         return self
 
+    def _reset(self):
+        self._inputs = None
+        self._environ = None
+
     def commit_changes(self):
         """
         This can be called multiple times if the configurator yields multiple times.
@@ -373,10 +382,9 @@ class ConfigTask(ConfigChange, TaskView):
 
         if self._inputs is not None:
             self._resolved_inputs.update(self.inputs.get_resolved())
-        # need to recreate this because _attributeManager was reset
-        self._inputs = None
+        # need to reset because _attributeManager was reset in commit_changes()
+        self._reset()
 
-        # really
         # record the live attributes that we are dependent on
         # note: task start fresh with no dependencies so don't need to worry update or removing previous ones
         for key, (target, attributes) in dependencies.items():
@@ -448,7 +456,7 @@ class ConfigTask(ConfigChange, TaskView):
         ):
             # check if the live attributes this task depends on has been set
             missing, reason = _dependency_check(self)
-            # don't check if this operation does depend on the operational dependencies being live
+            # skip check on self.target if this operation doesn't depend on its operational dependencies being live
             if not missing and self.configSpec.entry_state > NodeState.initial:
                 missing, reason = _dependency_check(self.target)
         return missing, reason
@@ -904,7 +912,7 @@ class Job(ConfigChange):
             if task._configurator:
                 priority = task.configurator.should_run(task)
             else:
-                priority = task.priority  # type: ignore
+                priority = task.priority
         except Exception:
             # unexpected error don't run this
             UnfurlTaskError(task, "shouldRun failed unexpectedly")
@@ -914,18 +922,19 @@ class Job(ConfigChange):
             priority = priority and Priority.required or Priority.ignore
         else:
             priority = to_enum(Priority, priority)
-        if priority != task.priority:  # type: ignore
+        if priority != task.priority:
             logger.debug(
                 "configurator changed task %s priority from %s to %s",
                 task,
-                task.priority,  # type: ignore
+                task.priority,
                 priority,
             )
-            task.priority = priority  # type: ignore
+            assert isinstance(priority, Priority)
+            task.priority = priority
         if not priority > Priority.ignore:
             return False, "configurator cancelled"
 
-        if task.reason == Reason.reconfigure:  # type: ignore
+        if task.reason == Reason.reconfigure:
             if task.has_inputs_changed() or task.has_dependencies_changed():
                 return True, "change detected"
             else:
@@ -1024,6 +1033,8 @@ class Job(ConfigChange):
                     return False, "skipping check on a new instance"
                 else:
                     return True, "passed"
+        elif req.configSpec.operation == "restart" and not resource.present:
+            return False, "instance can't be restart"
 
         if self.jobOptions.force:  # type: ignore  # always run
             return True, "passed"

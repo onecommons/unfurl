@@ -143,6 +143,6 @@ class DelegateConfigurator(Configurator):
         else:
             subtaskRequest = task.rendered
             assert subtaskRequest
-            # note: this will call canRun() and if needed canDryRun() on subtask but not shouldRun()
+            # note: this will call can_run_task() for the subtask but not shouldRun()
             subtask = yield subtaskRequest
             yield subtask.result

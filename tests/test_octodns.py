@@ -50,6 +50,7 @@ class TestOctoDnsConfigurator:
         # if the compute ip address changeses (here via check), the zone should be updated
         try:
             os.environ["OCTODNS_TEST_IP"] = "10.10.10.2"
+            runner.manifest._set_root_environ()
             job = runner.run(JobOptions(workflow="check"))
         finally:
             del os.environ["OCTODNS_TEST_IP"]

@@ -514,6 +514,7 @@ def _prepare_request(job, req: TaskRequest, errors):
         task = req.task = job.create_task(req.configSpec, req.target, reason=req.reason)
     error = None
     try:
+        task.set_envvars()
         proceed, msg = job.should_run_task(task)
         if not proceed:
             req.required = False
@@ -533,8 +534,10 @@ def _prepare_request(job, req: TaskRequest, errors):
         proceed = False
         # note: failed rendering may be re-tried later if it has dependencies
         error = UnfurlTaskError(task, "should_run_task failed", logging.DEBUG)
+    finally:
+        task.restore_envvars()
     if error:
-        task._inputs = None
+        task._reset()
         task._attributeManager.attributes = {}  # rollback changes
         errors.append(error)
     else:
@@ -555,12 +558,15 @@ def _render_request(job, parent, req, requests):
         task.logger.debug("rendering %s %s", task.target.name, task.name)
         task._rendering = True
         task.inputs
+        task.set_envvars()
         assert not task._inputs.context.strict
         task.rendered = task.configurator.render(task)
     except Exception:
         # note: failed rendering may be re-tried later if it has dependencies
         error_info = sys.exc_info()
         error = UnfurlTaskError(task, "Configurator render failed", False)
+    finally:
+        task.restore_envvars()
     if task._errors:
         # we turned off strictness so templating errors got saved here instead
         req.render_errors = task._errors
@@ -591,13 +597,13 @@ def _render_request(job, parent, req, requests):
         )
         # rollback changes:
         task._errors = []
-        task._inputs = None
+        task._reset()
         task._attributeManager.attributes = {}
         task.discard_work_folders()
         return deps or dependent_refs, None
     elif error:
         task.fail_work_folders()
-        task._inputs = None
+        task._reset()
         task.logger.warning("Configurator render failed", exc_info=error_info)
         task._attributeManager.attributes = {}  # rollback changes
         return None, error
@@ -844,7 +850,7 @@ def create_task_request(
         configSpec,
         resource,
         reason or action,
-        startState=startState,
+        startState=startState or iDef.entry_state,
     )
     if skip_filter:
         return req

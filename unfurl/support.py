@@ -12,7 +12,7 @@ import six
 import re
 import ast
 import time
-from typing import TYPE_CHECKING, cast, Dict, Optional, Any
+from typing import TYPE_CHECKING, Union, cast, Dict, Optional, Any
 from enum import Enum
 from urllib.parse import urlsplit
 
@@ -564,13 +564,13 @@ def has_env(arg, ctx):
     """
     {has_env: foo}
     """
-    return arg in os.environ
+    return arg in ctx.environ
 
 
 set_eval_func("has_env", has_env, True)
 
 
-def get_env(args, ctx: RefContext):
+def get_env(args, ctx: RefContext) -> Union[str, None, Dict[str, str]]:
     """
     Return the value of the given environment variable name.
     If NAME is not present in the environment, return the given default value if supplied or return None.
@@ -579,18 +579,22 @@ def get_env(args, ctx: RefContext):
 
     If the value of its argument is empty (e.g. [] or null), return the entire dictionary.
     """
-    env = os.environ
+    env = cast(Dict[str, str], ctx.environ)
     if not args:
         return env
 
     if isinstance(args, list):
         name = args[0]
-        default = args[1] if len(args) > 1 else None
+        default: Union[str, None] = args[1] if len(args) > 1 else None
     else:
         name = args
         default = None
 
-    return env.get(name, map_value(default, ctx))
+    if name in env:
+        return env[name]
+    else:
+        default = cast(Union[str, None], map_value(default, ctx))
+        return default
 
 
 set_eval_func("get_env", get_env, True)
@@ -651,9 +655,7 @@ class _EnvMapper(dict):
 
 
 def to_env(args, ctx: RefContext):
-    env = None
-    if ctx.task:
-        env = ctx.task.get_environment(False)
+    env = ctx.environ
     sub = _EnvMapper(env or {})
     sub.ctx = ctx  # type: ignore
 
@@ -661,10 +663,15 @@ def to_env(args, ctx: RefContext):
     assert isinstance(rules, Mapping)
     result = filter_env(rules, env, True, sub)
     if ctx.kw.get("update_os_environ"):
-        os.environ.update(result)
-        for key, value in rules.items():
-            if value is None and key in os.environ:
-                del os.environ[key]
+        log = ctx.task and ctx.task.logger or logger
+        log.debug("to_env is updating os.environ with %s using rules %s", result, rules)
+        # update all the copies of environ
+        envs = [ctx.environ, ctx.currentResource.root._environ, os.environ]
+        for env in envs:
+            env.update(result)
+            for key, value in rules.items():
+                if value is None and key in env:
+                    del env[key]
     return result
 
 

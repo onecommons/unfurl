@@ -306,7 +306,7 @@ def _remote_cmd(runtime_, cmd_line, local_env, version_check):
 
     if envvar_filter:
         addOnly = kind == "docker"
-        env = filter_env(local_env.map_value(envvar_filter), addOnly=addOnly)
+        env = filter_env(local_env.map_value(envvar_filter, None), addOnly=addOnly)
     else:
         env = None
 

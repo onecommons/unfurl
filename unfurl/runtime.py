@@ -8,6 +8,7 @@ Each instance have a status; attributes that describe its state; and a TOSCA tem
 which describes its capabilities, relationships and available interfaces for configuring and interacting with it.
 """
 from datetime import datetime
+import os
 from typing import (
     Any,
     Dict,
@@ -177,7 +178,7 @@ class Operational(ChangeAware):
         return False
 
     @staticmethod
-    def aggregate_status(statuses: Iterable["Operational"], seen) -> Optional[Status]:
+    def aggregate_status(statuses: Iterable["Operational"], seen: Dict[int, "Operational"]) -> Optional[Status]:
         """
         Returns: ok, degraded, pending or None
 
@@ -338,12 +339,11 @@ class _ChildResources(Mapping):
 
 
 class EntityInstance(OperationalInstance, ResourceRef):
-    attributeManager = None
+    attributeManager: Optional[AttributeManager] = None
     created: Optional[Union[bool, str]] = None
     protected: Optional[bool] = None
     imports = None
     imported = None
-    envRules = None
     _baseDir = ""
     templateType = EntitySpec
 
@@ -542,6 +542,7 @@ class HasInstancesInstance(EntityInstance):
         if self.root is self:
             self._all = _ChildResources(self)
             self._templar = Templar(DataLoader())
+            self._environ = os.environ.copy()
 
     @property
     def key(self):

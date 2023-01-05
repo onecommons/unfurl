@@ -23,6 +23,7 @@ from .runtime import (
     CapabilityInstance,
     RelationshipInstance,
     ArtifactInstance,
+    TopologyInstance
 )
 from .util import UnfurlError, to_enum, sensitive_str, get_base_dir
 from .repo import RevisionManager, split_git_url, RepoView
@@ -75,7 +76,7 @@ class Manifest(AttributeManager):
     Derived classes handle loading and serialization.
     """
 
-    rootResource = None
+    rootResource: Optional[TopologyInstance] = None
 
     def __init__(self, path, localEnv=None):
         super().__init__(yaml)

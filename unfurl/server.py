@@ -20,7 +20,6 @@ from .logs import getLogger, add_log_file
 from .yamlmanifest import YamlManifest
 from . import to_json
 from . import init
-
 if TYPE_CHECKING:
     from git.objects import Commit
 

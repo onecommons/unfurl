@@ -264,7 +264,7 @@ class ShellConfigurator(TemplateConfigurator):
         isString = isinstance(cmd, six.string_types)
         # default for shell: True if command is a string otherwise False
         shell = params.get("shell", isString)
-        env = task.get_environment(False)
+        env = task.environ
         task.logger.trace("shell using env %s", env)
         keeplines = params.get("keeplines")
         echo = params.get("echo", task.verbose > -1)
