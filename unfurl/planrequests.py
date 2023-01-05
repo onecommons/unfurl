@@ -215,12 +215,12 @@ class TaskRequest(PlanRequest):
 
     def __init__(
         self,
-        configSpec,
-        target,
-        reason,
-        persist=False,
-        required=None,
-        startState=None,
+        configSpec: ConfigurationSpec,
+        target: EntityInstance,
+        reason: str,
+        persist: bool = False,
+        required: Optional[bool] = None,
+        startState: Optional[NodeState] = None,
     ):
         super().__init__(target)
         self.configSpec = configSpec
@@ -345,10 +345,10 @@ class SetStateRequest(PlanRequest):
 
 
 class TaskRequestGroup(PlanRequest):
-    def __init__(self, target, workflow):
+    def __init__(self, target: EntityInstance, workflow: str):
         super().__init__(target)
         self.workflow = workflow
-        self.children = []
+        self.children: List[PlanRequest] = []
 
     @property
     def future_dependencies(self):

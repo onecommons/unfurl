@@ -834,7 +834,7 @@ class TaskView:
 
     def create_sub_task(
         self,
-        operation: Optional[str] = None,
+        operation: Optional[Union[str, ConfigurationSpec]] = None,
         resource: Optional[EntityInstance] = None,
         inputs: Optional[dict] = None,
         persist: bool = False,
@@ -857,7 +857,7 @@ class TaskView:
 
         if not operation:
             operation = f"{self.configSpec.interface}.{self.configSpec.operation}"
-        if isinstance(operation, six.string_types):
+        if isinstance(operation, str):
             taskRequest = create_task_request(
                 self.job.jobOptions,  # type: ignore
                 operation,
