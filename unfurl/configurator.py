@@ -796,7 +796,7 @@ class TaskView:
     # other configurations maybe modify those changes, triggering a configuration change
     def query(
         self,
-        query: str,
+        query: Union[str, dict],
         dependency: bool = False,
         name: Optional[str] = None,
         required: bool = False,
@@ -811,7 +811,7 @@ class TaskView:
             result = Ref(query, vars=vars).resolve(
                 self.inputs.context, wantList, strict
             )
-        except:
+        except Exception:
             if not throw:
                 UnfurlTaskError(
                     self, f"error while evaluating query: {query}", logging.WARNING

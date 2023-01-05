@@ -24,6 +24,7 @@ class CheckGoogleCloudConnectionConfigurator(Configurator):
         # check environment vars instead of connection attributes
         # because we want to make sure they were set by the connection
         status = Status.ok
+        update_env = {}
         if not os.getenv("GOOGLE_OAUTH_ACCESS_TOKEN"):
             try:
                 credentials, project_id = google.auth.default()
@@ -35,7 +36,7 @@ class CheckGoogleCloudConnectionConfigurator(Configurator):
                 else:
                     task.logger.verbose("validated google auth")
                 if project_id and not os.getenv("CLOUDSDK_CORE_PROJECT"):
-                    os.environ["CLOUDSDK_CORE_PROJECT"] = project_id
+                    update_env["CLOUDSDK_CORE_PROJECT"] = project_id
             except google.auth.exceptions.DefaultCredentialsError:
                 task.logger.error("unable to authenticate with Google Cloud")
                 status = Status.error
@@ -55,6 +56,10 @@ class CheckGoogleCloudConnectionConfigurator(Configurator):
                 status = job.status
         else:
             # both present, give GOOGLE_APPLICATION_CREDENTIALS priority
-            del os.environ["GOOGLE_OAUTH_ACCESS_TOKEN"]
+            # by deleting GOOGLE_OAUTH_ACCESS_TOKEN
+            update_env["GOOGLE_OAUTH_ACCESS_TOKEN"] = None
 
+        if update_env:
+            # update_os_environ=True so that os.environ changes persist after this task
+            task.query(dict(eval=dict(to_env=update_env, update_os_environ=True)))
         yield task.done(True, status=status)

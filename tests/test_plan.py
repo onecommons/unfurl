@@ -8,6 +8,8 @@ from unfurl.localenv import LocalEnv
 from unfurl.job import start_job
 from .utils import init_project, run_job_cmd
 from pathlib import Path
+from unfurl.support import Status
+from unfurl.configurator import Configurator
 
 manifest = """\
 apiVersion: unfurl/v1alpha1
@@ -145,6 +147,12 @@ gcpTestManifest = """\
 # test with good connection
 # create and destroy unfurl_service_account, verify upgraded GOOGLE_APPLICATION_CREDENTIALS
 
+class TestEnvironConfigurator(Configurator):
+    def run(self, task):
+        assert os.environ["GOOGLE_APPLICATION_CREDENTIALS"], os.environ
+        assert "GOOGLE_OAUTH_ACCESS_TOKEN" not in os.environ, os.environ
+        yield task.done(True, Status.ok)
+
 gcpTestUpgradeConnectionManifest = """\
   apiVersion: unfurl/v1alpha1
   kind: Ensemble
@@ -166,15 +174,13 @@ gcpTestUpgradeConnectionManifest = """\
               Standard:
                 operations:
                   create:
-                    implementation: Template
-                    inputs:
-                      resultTemplate:
-                        readyState: ok
+                    implementation:
+                      primary: TestEnviron
           unfurl_service_account:
             type: tosca:Root
             directives:
               - dependent # don't create instance
-            interfaces:          
+            interfaces:
               Standard:
                 requirements:
                   - unfurl.relationships.ConnectsTo.GoogleCloudProject
@@ -261,6 +267,7 @@ def test_validate_connection():
   ]
 }
 
+
 def test_upgrade_connection():
     """
     test that we can connect to AWS account
@@ -307,4 +314,76 @@ def test_upgrade_connection():
           "unknown": 0,
           "skipped": 0,
           "changed": 3
+        }
+
+
+gcpEnvVarTypes = """\
+  apiVersion: unfurl/v1alpha1
+  kind: Ensemble
+  +include:
+    file: ensemble-template.yaml
+    repository: spec
+  changes: [] # set this so we save changes here instead of the job changelog files
+  spec:
+    service_template:
+      topology_template:
+        node_templates:
+          testNode:
+            type: tosca.nodes.Root
+            interfaces:
+              Standard:
+                operations:
+                  create:
+                    implementation:
+                      className: Template
+                    inputs:
+                      resultTemplate:
+                        readyState: ok
+"""
+
+
+def test_gcp_configurator():
+    """
+    test the unfurl.datatypes.EnvVar sets os.environ when default is get_env
+    """
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        # override home so to avoid interferring with other tests
+        result = runner.invoke(
+            cli,
+            [
+                "--home",
+                "./unfurl_home",
+                "init",
+                "--mono",
+                "--skeleton=gcp",
+            ],
+        )
+        # uncomment this to see output:
+        # print("result.output", result.exit_code, result.output)
+        assert not result.exception, "\n".join(
+            traceback.format_exception(*result.exc_info)
+        )
+
+        with open("ensemble/ensemble.yaml", "w") as f:
+            f.write(gcpEnvVarTypes)
+
+        # if both are present the gcp configurator will delete GOOGLE_OAUTH_ACCESS_TOKEN
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "cred.json"
+        os.environ["GOOGLE_OAUTH_ACCESS_TOKEN"] = "delete me"
+        # print ("os.environ", os.environ)
+        job, rendered, proceed = start_job(_opts={"startTime": 1})
+        job.run(rendered)
+        assert "GOOGLE_OAUTH_ACCESS_TOKEN" not in os.environ
+
+        summary = job.json_summary()
+        assert summary["job"] == {
+          "id": "A01110000000",
+          "status": "ok",
+          "total": 2,
+          "ok": 2,
+          "error": 0,
+          "unknown": 0,
+          "skipped": 0,
+          "changed": 2
         }
