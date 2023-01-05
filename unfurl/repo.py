@@ -207,6 +207,9 @@ class Repo:
                 raise UnfurlError(
                     f"couldn't create directory, it already exists and isn't empty: {localRepoPath}"
                 )
+        parent_dir = os.path.dirname(localRepoPath)
+        if parent_dir.strip("/"):
+            os.makedirs(parent_dir, exist_ok=True)
         logger.info("Fetching %s %s to %s", gitUrl, revision or "", localRepoPath)
         progress = _ProgressPrinter()
         progress.gitUrl = gitUrl

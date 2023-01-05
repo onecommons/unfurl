@@ -383,9 +383,9 @@ def export():
     cache_entry = None
     file_path = _get_filepath(requested_format, deployment_path)
     branch = request.args.get("branch")
-    if request.headers.get("x-git-credentials"):
+    if request.headers.get("X-Git-Credentials"):
         args = dict(request.args)
-        args["username"], args["password"] = b64decode(request.headers["x-git-credentials"]).decode().split(":", 1)
+        args["username"], args["password"] = b64decode(request.headers["X-Git-Credentials"]).decode().split(":", 1)
     else:
         args = request.args
     if latest_commit is not None:

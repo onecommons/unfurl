@@ -270,7 +270,7 @@ def test_server_export_remote(caplog):
                         },
                         headers={
                           "If-None-Match": server._make_etag(last_commit),
-                          "x-git-credentials": b64encode("username:token".encode())
+                          "X-Git-Credentials": b64encode("username:token".encode())
                         }
                     )
                     file_path = server._get_filepath(export_format, None)
@@ -368,8 +368,8 @@ def test_server_update_deployment():
                     "projectPath": ".",
                     "patch": json.loads(target_patch),
                 },
-                headers = {
-                    "x-git-credentials": b64encode("username:token".encode())
+                headers={
+                    "X-Git-Credentials": b64encode("username:token".encode())
                 }
             )
             assert res.status_code == 200
