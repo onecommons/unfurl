@@ -413,7 +413,7 @@ def export():
             json_summary["deployments"] = deployments
         if hit:
             etag = request.headers.get("If-None-Match")
-            if _make_etag(latest_commit) == etag:
+            if latest_commit and _make_etag(latest_commit) == etag:
                 return "Not Modified", 304
         response = jsonify(json_summary)
         if latest_commit:
@@ -590,11 +590,11 @@ def _patch_node_template(patch: dict, tpl: dict) -> None:
 # def delete_ensemble():
 #     body = request.json
 #     deployment_path = body.get("deployment_path")
+#     invalidate_cache(body, "environments")
 #     update_deployment(deployment_path)
 #     repo.delete_dir(deployment_path)
 #     localConfig.config.save()
 #     commit_msg = body.get("commit_msg", "Update environment")
-#     invalidate_cache(body, "environments")
 #     _commit_and_push(repo, localConfig.config.path, commit_msg)
 #     return "OK"
 
@@ -641,6 +641,7 @@ def _patch_environment(body: dict, project_id: str) -> str:
     if clone_location is None:
         # XXX create a new ensemble if patch is for a new deployment
         return create_error_response("INTERNAL_ERROR", "Could not find repository")
+    invalidate_cache(body, "environments", project_id)
     localEnv = LocalEnv(clone_location, can_be_empty=True)
     assert localEnv.project
     repo = localEnv.project.project_repoview.repo
@@ -673,7 +674,6 @@ def _patch_environment(body: dict, project_id: str) -> str:
             update_deployment(localEnv.project, patch_inner["name"], patch_inner, False, deleted)
     localConfig.config.save()
     commit_msg = body.get("commit_msg", "Update environment")
-    invalidate_cache(body, "environments", project_id)
     err = _commit_and_push(repo, localConfig.config.path, commit_msg)
     if err:
         return err  # err will be an error response
@@ -702,6 +702,7 @@ def _patch_ensemble(body: dict, create: bool, project_id: str) -> str:
         # XXX create a new ensemble if patch is for a new deployment
         return create_error_response("INTERNAL_ERROR", "Could not find repository")
     assert clone_location
+    invalidate_cache(body, "deployment", project_id)
     deployment_blueprint = body.get("deployment_blueprint")
     if create:
         blueprint_url = body["blueprint_url"]
@@ -749,7 +750,6 @@ def _patch_ensemble(body: dict, create: bool, project_id: str) -> str:
     # XXX catch exception from commit and run git restore to rollback working dir
     committed = manifest.commit(commit_msg, False)
     logger.info(f"committed to {committed} repositories")
-    invalidate_cache(body, "deployment", project_id)
     if manifest.repo.repo.remotes:
         try:
             manifest.repo.repo.remotes.origin.push()
