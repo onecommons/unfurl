@@ -318,7 +318,7 @@ def get_project_url(project_id: str, username=None, password=None) -> str:
         else:
             netloc = f"{username}@{url_parts.netloc}"
         base_url = urlunsplit(url_parts._replace(netloc=netloc))
-    return urljoin(base_url, project_id)
+    return urljoin(base_url, project_id + ".git")
 
 
 def _stage(project_id: str, args: dict) -> Optional[str]:
@@ -469,7 +469,7 @@ def _make_readonly_localenv(clone_location, parent_localenv=None):
     return None, local_env
 
 
-def _do_export(project_id: str, requested_format: str, deployment_path: str, 
+def _do_export(project_id: str, requested_format: str, deployment_path: str,
                cache_entry: CacheEntry, latest_commit: str, args: dict) -> Tuple[Optional[Any], Optional[str]]:
     if project_id:
         if cache_entry and cache_entry.commitinfo:
@@ -506,8 +506,8 @@ def _do_export(project_id: str, requested_format: str, deployment_path: str,
 
 def _get_body(request):
     body = request.json
-    if request.headers.get("x-git-credentials"):
-        body["username"], body["password"] = b64decode(request.headers["x-git-credentials"]).decode().split(":", 1)
+    if request.headers.get("X-Git-Credentials"):
+        body["username"], body["password"] = b64decode(request.headers["X-Git-Credentials"]).decode().split(":", 1)
     return body
 
 
@@ -527,6 +527,14 @@ def update_environment():
 def delete_environment():
     body = _get_body(request)
     return _patch_environment(body, get_project_id(request))
+
+
+@app.route("/create_provider", methods=["POST"])
+def create_provider():
+    body = _get_body(request)
+    project_id = get_project_id(request)
+    _patch_environment(body, project_id)
+    return _patch_ensemble(body, True, project_id)
 
 
 def _patch_deployment_blueprint(patch: dict, manifest: "YamlManifest", deleted: bool) -> None:
