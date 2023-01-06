@@ -688,7 +688,10 @@ def invalidate_cache(body: dict, format: str, project_id: str) -> bool:
     if project_id and project_id != ".":
         branch = body.get("branch")
         file_path = _get_filepath(format, body.get("deployment_path"))
-        return CacheEntry(project_id, branch, file_path, format).delete_cache(cache)
+        entry = CacheEntry(project_id, branch, file_path, format)
+        success = entry.delete_cache(cache)
+        logger.debug(f"invalidate cache: delete {entry.cache_key()} on {project_id}: {success}")
+        return success
     return False
 
 
