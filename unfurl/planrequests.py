@@ -566,7 +566,7 @@ def _render_request(job: "Job", parent: Optional[TaskRequestGroup], req: TaskReq
         task._rendering = True
         task.inputs
         task.set_envvars()
-        assert task._inputs and not task._inputs.context.strict
+        assert task._inputs is not None and not task._inputs.context.strict
         task.rendered = task.configurator.render(task)
     except Exception:
         # note: failed rendering may be re-tried later if it has dependencies
