@@ -255,11 +255,12 @@ class CacheEntry:
         except Exception as exc:
             logger.error("unexpected error doing work for cache", exc_info=True)
             err, value = exc, None
-        try:
-            if not err:
-                self.set_cache(cache, latest_commit, value)
-        finally:
-            self._cancel_inflight(cache)
+            
+        found_inflight = self._cancel_inflight(cache)
+        # if we not found_inflight that means invalidate_cache deleted it so we should cache the result 
+        if found_inflight and not err:
+            self.set_cache(cache, latest_commit, value)
+            
         return err, value
 
 
@@ -485,10 +486,11 @@ def _do_export(project_id: str, requested_format: str, deployment_path: str,
         clone_location = current_app.config.get("UNFURL_ENSEMBLE_PATH") or "."
 
     # load the ensemble
-    if cache_entry:
+    if False:  # cache_entry: temporarily disable
+        # don't pass latest_commit because localenv doesn't care
         err, parent_localenv = CacheEntry(project_id, cache_entry.branch, "unfurl.yaml", "localenv"
                                           ).get_or_set(
-            cache, lambda *args: _make_readonly_localenv(clone_location), latest_commit)
+            cache, lambda *args: _make_readonly_localenv(clone_location), None)
     else:
         err, parent_localenv = None, None
     if not err:
@@ -690,7 +692,9 @@ def invalidate_cache(body: dict, format: str, project_id: str) -> bool:
         file_path = _get_filepath(format, body.get("deployment_path"))
         entry = CacheEntry(project_id, branch, file_path, format)
         success = entry.delete_cache(cache)
-        logger.debug(f"invalidate cache: delete {entry.cache_key()} on {project_id}: {success}")
+        logger.debug(f"invalidate cache: delete {entry.cache_key()}: {success}")
+        was_inflight = entry._cancel_inflight(cache)
+        logger.debug(f"invalidate cache: cancel inflight {entry.cache_key()}: {was_inflight}")
         return success
     return False
 
