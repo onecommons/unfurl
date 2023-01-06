@@ -19,11 +19,11 @@ from collections.abc import Mapping
 import os
 import copy
 
-from unfurl.logs import UnfurlLogger, Levels, LogExtraLevels
+from .logs import UnfurlLogger, Levels, LogExtraLevels
 
 if TYPE_CHECKING:
-    from unfurl.manifest import Manifest, ChangeRecordRecord
-    from unfurl.job import ConfigTask
+    from .manifest import Manifest, ChangeRecordRecord
+    from .job import ConfigTask
 
 
 from .support import Status, ResourceChanges, Priority, set_context_vars
@@ -150,7 +150,7 @@ class Configurator:
     def get_generator(self, task: "TaskView") -> Generator:
         return self.run(task)
 
-    def render(self, task: "TaskView") -> None:
+    def render(self, task: "TaskView") -> Any:
         """
         This method is called is called during the planning phase to give the configurator an
         opportunity to do early validation and error detection and generate any plan information or configuration files that the user may want to review before the running the deployment task.

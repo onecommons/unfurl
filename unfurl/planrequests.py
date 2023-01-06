@@ -2,12 +2,15 @@
 # SPDX-License-Identifier: MIT
 import collections
 import re
-from typing import Iterator, List, Optional, Sequence, Tuple
+from typing import TYPE_CHECKING, Iterator, List, Mapping, Optional, Sequence, Tuple
 import six
 import shlex
 import sys
 import os
 import os.path
+
+if TYPE_CHECKING:
+    from .job import Job, ConfigTask, JobOptions
 
 from .util import (
     lookup_class,
@@ -20,9 +23,10 @@ from .util import (
 from .result import serialize_value
 from .support import Defaults, NodeState, Priority
 from .runtime import EntityInstance
+from .logs import getLogger
 import logging
 
-logger = logging.getLogger("unfurl")
+logger = getLogger("unfurl")
 
 
 # we want ConfigurationSpec to be independent of our object model and easily serializable
@@ -145,14 +149,14 @@ class ConfigurationSpec:
 class PlanRequest:
     error = None
     future_dependencies: list = []
-    task = None
-    render_errors = None
+    task: Optional["ConfigTask"] = None
+    render_errors: Optional[List[UnfurlTaskError]] = None
 
     def __init__(self, target: "EntityInstance"):
         self.target = target
 
     @property
-    def root(self):
+    def root(self) -> Optional["EntityInstance"]:
         return self.target.root if self.target else None
 
     def update_future_dependencies(self, completed):
@@ -504,7 +508,7 @@ def set_fulfilled(requests, completed):
     return ready, notReady
 
 
-def _prepare_request(job, req: TaskRequest, errors):
+def _prepare_request(job: "Job", req: TaskRequest, errors: List) -> bool:
     # req is a taskrequests, future_requests are (grouprequest, taskrequest) pairs
     if req.task:
         task = req.task
@@ -545,7 +549,10 @@ def _prepare_request(job, req: TaskRequest, errors):
     return proceed
 
 
-def _render_request(job, parent, req, requests):
+FlattenedRequests = List[Tuple[Optional[TaskRequestGroup], TaskRequest]]
+
+
+def _render_request(job: "Job", parent: Optional[TaskRequestGroup], req: TaskRequest, requests: FlattenedRequests) -> Tuple[Optional[List], Optional[UnfurlError]]:
     # req is a taskrequests, future_requests are (grouprequest, taskrequest) pairs
     assert req.task
     task = req.task
@@ -559,7 +566,7 @@ def _render_request(job, parent, req, requests):
         task._rendering = True
         task.inputs
         task.set_envvars()
-        assert not task._inputs.context.strict
+        assert task._inputs and not task._inputs.context.strict
         task.rendered = task.configurator.render(task)
     except Exception:
         # note: failed rendering may be re-tried later if it has dependencies
@@ -790,11 +797,11 @@ def _maybe_mock(iDef, template):
 
 
 def create_task_request(
-    jobOptions,
-    operation,
-    resource,
-    reason=None,
-    inputs=None,
+    jobOptions: "JobOptions",
+    operation: str,
+    resource: "EntityInstance",
+    reason: Optional[str] = None,
+    inputs: Optional[Mapping] = None,
     startState=None,
     operation_host=None,
     skip_filter=False,
