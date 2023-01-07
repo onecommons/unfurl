@@ -155,13 +155,13 @@ class Repo(abc.ABC):
                 return path
         return None
 
-    @abc.abstractmethod
     @property
+    @abc.abstractmethod
     def working_dir(self) -> str:
         ...
 
-    @abc.abstractmethod
     @property
+    @abc.abstractmethod
     def revision(self) -> str:
         ...
 
