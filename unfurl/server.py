@@ -255,12 +255,11 @@ class CacheEntry:
         except Exception as exc:
             logger.error("unexpected error doing work for cache", exc_info=True)
             err, value = exc, None
-            
+
         found_inflight = self._cancel_inflight(cache)
         # if we not found_inflight that means invalidate_cache deleted it so we should cache the result 
         if found_inflight and not err:
             self.set_cache(cache, latest_commit, value)
-            
         return err, value
 
 
@@ -486,11 +485,11 @@ def _do_export(project_id: str, requested_format: str, deployment_path: str,
         clone_location = current_app.config.get("UNFURL_ENSEMBLE_PATH") or "."
 
     # load the ensemble
-    if False:  # cache_entry: temporarily disable
+    if cache_entry:
         # don't pass latest_commit because localenv doesn't care
         err, parent_localenv = CacheEntry(project_id, cache_entry.branch, "unfurl.yaml", "localenv"
                                           ).get_or_set(
-            cache, lambda *args: _make_readonly_localenv(clone_location), None)
+            cache, lambda *args: _make_readonly_localenv(clone_location), "")
     else:
         err, parent_localenv = None, None
     if not err:

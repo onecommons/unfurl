@@ -47,7 +47,7 @@ spec:
 patch = """
 [{{
     "name": "container_service",
-    "type": "unfurl.nodes.ContainerService",
+    "type": "tosca:Root",
     "title": "container_service",
     "description": "",
     "directives": [],
@@ -373,6 +373,18 @@ def test_server_update_deployment():
                 }
             )
             assert res.status_code == 200
+            last_commit = res.json()["commit"]
+
+            res = requests.get(
+                f"http://localhost:{port}/export",
+                params={
+                    "auth_project": ".",
+                    "latest_commit": last_commit,  # enable caching but just get the latest in the cache
+                    "format": "deployment",
+                },
+            )
+            assert res.status_code == 200
+            assert res.json()["ResourceTemplate"]["container_service"]["properties"][0]["name"] == "container"
 
             with open("ensemble/ensemble.yaml", "r") as f:
                 data = yaml.load(f.read())     
@@ -396,6 +408,7 @@ def test_server_update_deployment():
             )
             assert res.status_code == 200
             assert res.content.startswith(b'{"commit":')
+
             with open("ensemble/ensemble.yaml", "r") as f:
                 data = yaml.load(f.read())
                 assert not data['spec']['service_template']['topology_template']['node_templates']
