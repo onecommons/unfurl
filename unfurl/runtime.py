@@ -150,15 +150,15 @@ class Operational(ChangeAware):
     # The computed attribute `lastChange` is whichever of the above two attributes are more recent.
 
     @property
-    def last_state_change(self) -> Optional[datetime]:
+    def last_state_change(self) -> Optional[str]:
         return None
 
     @property
-    def last_config_change(self) -> Optional[datetime]:
+    def last_config_change(self) -> Optional[str]:
         return None
 
     @property
-    def last_change(self) -> Optional[datetime]:
+    def last_change(self) -> Optional[str]:
         if not self.last_state_change:
             return self.last_config_change
         elif not self.last_config_change:
@@ -234,16 +234,16 @@ class OperationalInstance(Operational):
         status: Optional[Union["OperationalInstance", int, str]] = None,
         priority: Optional[Union[int, str, Priority]] = None,
         manualOveride: Optional[Union["OperationalInstance", int, str]] = None,
-        lastStateChange: Optional[datetime] = None,
-        lastConfigChange: Optional[datetime] = None,
+        lastStateChange: Optional[str] = None,
+        lastConfigChange: Optional[str] = None,
         state: NodeState = None,
     ) -> None:
         if isinstance(status, OperationalInstance):
             self._localStatus: Optional[Status] = status._localStatus
             self._manualOverideStatus: Optional[Status] = status._manualOverideStatus
             self._priority: Optional[Priority] = status._priority
-            self._lastStateChange: Optional[datetime] = status._lastStateChange
-            self._lastConfigChange: Optional[datetime] = status._lastConfigChange
+            self._lastStateChange: Optional[str] = status._lastStateChange
+            self._lastConfigChange: Optional[str] = status._lastConfigChange
             self._state: Optional[NodeState] = status._state
             self.dependencies: List["Operational"] = status.dependencies
         else:
@@ -303,11 +303,11 @@ class OperationalInstance(Operational):
     priority: Optional[Priority] = property(**__priority())  # type: ignore
 
     @property
-    def last_state_change(self) -> Optional[datetime]:
+    def last_state_change(self) -> Optional[str]:
         return self._lastStateChange
 
     @property
-    def last_config_change(self) -> Optional[datetime]:
+    def last_config_change(self) -> Optional[str]:
         return self._lastConfigChange
 
     def __state():  # type: ignore

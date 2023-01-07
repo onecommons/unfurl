@@ -389,7 +389,7 @@ class Result(ChangeAware):
 
     def get_diff(self):
         if isinstance(self.resolved, Results):
-            return self.resolved.getDiff()
+            return self.resolved.get_diff()
         else:
             new = self.as_ref()
             if isinstance(self.resolved, Mapping) and isinstance(

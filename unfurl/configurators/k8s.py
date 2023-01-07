@@ -33,6 +33,7 @@ def _get_connection_config(instance):
         connect = instance.attributes
         # the parent of a relationship will be the capability it connects to
         # or root if relationship is a default connection
+        assert instance.parent
         if instance.parent is not instance.root:
             endpoint = instance.parent.attributes
         else:

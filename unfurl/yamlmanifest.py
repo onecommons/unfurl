@@ -719,6 +719,7 @@ class YamlManifest(ReadOnlyManifest):
 
     def save_root_resource(self, discovered):
         resource = self.rootResource
+        assert resource
         status = CommentedMap()
 
         # record the input and output values

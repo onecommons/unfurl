@@ -45,34 +45,34 @@ def get_dir(context, relativeTo, mkdir=False):
     refContext.add_external_reference(filepath)
     return filepath.get()
 
-
+# XXX
 # override ansible built-in so we use our yaml object
-@contextfilter
-def to_yaml(context, a, *args, **kw):
-    refContext = context["__unfurl"]
-    refContext.yaml
-    default_flow_style = kw.pop("default_flow_style", None)
-    transformed = yaml.dump(
-        a,
-        Dumper=AnsibleDumper,
-        allow_unicode=True,
-        default_flow_style=default_flow_style,
-        **kw
-    )
-    return to_text(transformed)
+# @contextfilter
+# def to_yaml(context, a, *args, **kw):
+#     refContext = context["__unfurl"]
+#     refContext.yaml
+#     default_flow_style = kw.pop("default_flow_style", None)
+#     transformed = yaml.dump(
+#         a,
+#         Dumper=AnsibleDumper,
+#         allow_unicode=True,
+#         default_flow_style=default_flow_style,
+#         **kw
+#     )
+#     return to_text(transformed)
 
 
-@contextfilter
-def to_nice_yaml(context, a, indent=4, *args, **kw):
-    transformed = yaml.dump(
-        a,
-        Dumper=AnsibleDumper,
-        indent=indent,
-        allow_unicode=True,
-        default_flow_style=False,
-        **kw
-    )
-    return to_text(transformed)
+# @contextfilter
+# def to_nice_yaml(context, a, indent=4, *args, **kw):
+#     transformed = yaml.dump(
+#         a,
+#         Dumper=AnsibleDumper,
+#         indent=indent,
+#         allow_unicode=True,
+#         default_flow_style=False,
+#         **kw
+#     )
+#     return to_text(transformed)
 
 
 class FilterModule:

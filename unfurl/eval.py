@@ -480,7 +480,7 @@ def eq_func(arg, ctx):
 
 def validate_schema_func(arg, ctx):
     args = map_value(arg, ctx)
-    assert_form(args, MutableSequence, len(args) == 2)
+    assert_form(args, MutableSequence, len(args) == 2)  # type: ignore
     return validate_schema(args[0], args[1])
 
 if sys.version_info >= (3, 9):

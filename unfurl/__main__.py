@@ -857,7 +857,7 @@ def runtime(ctx, project_folder, init=False, update=False, **options):
 
         packages = [
             req
-            for req in importlib.metadata.requires("unfurl")
+            for req in importlib.metadata.requires("unfurl")  # type: ignore
             if "extra ==" not in req
         ]
         error = subprocess.run(["pipenv", "install"] + packages, env=env).returncode
@@ -955,7 +955,7 @@ def git(ctx, gitargs, dir="."):
             for repo in localEnv.get_manifest().repositories.values()
             if repo.repo
         }
-    elif localEnv.project.project_repoview.repo:
+    elif localEnv.project and localEnv.project.project_repoview.repo:
         repo = localEnv.project.project_repoview.repo
         repos = {os.path.relpath(repo.working_dir, os.path.abspath(dir)): repo}
     else:
@@ -973,7 +973,7 @@ def git(ctx, gitargs, dir="."):
         _status, stdout, stderr = repo.run_cmd(gitargs)
         click.echo(stdout + "\n")
         if stderr.strip():
-            click.echo(stderr + "\n", color="red")
+            click.secho(stderr + "\n", fg="red")
         if _status != 0:
             status = _status
 
@@ -1029,6 +1029,7 @@ def commit(ctx, project_or_ensemble_path, message, skip_add, no_edit, **options)
     if localEnv.manifestPath:
         committer = localEnv.get_manifest()
     else:
+        assert localEnv.project
         committer = localEnv.project.project_repoview
 
     if not skip_add:
@@ -1070,6 +1071,7 @@ def git_status(ctx, project_or_ensemble_path, dirty, **options):
     if localEnv.manifestPath:
         committer = localEnv.get_manifest()
     else:
+        assert localEnv.project
         committer = localEnv.project.project_repoview
     statuses = committer.get_repo_status(dirty)
     if not statuses:

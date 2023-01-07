@@ -291,7 +291,7 @@ class ConfigTask(TaskView, ConfigChange):
             # otherwise doesn't modify target status
         return False
 
-    def _update_last_change(self, result):
+    def _update_last_change(self, result: ConfiguratorResult) -> bool:
         """
         If the target's configuration or state has changed, set the instance's lastChange
         state to this tasks' changeid.

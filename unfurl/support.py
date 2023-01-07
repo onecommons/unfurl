@@ -16,6 +16,8 @@ from typing import TYPE_CHECKING, Union, cast, Dict, Optional, Any
 from enum import Enum
 from urllib.parse import urlsplit
 
+if TYPE_CHECKING:
+    from .manifest import Manifest
 
 from .eval import RefContext, set_eval_func, Ref, map_value
 from .result import (
@@ -141,6 +143,7 @@ def eval_python(arg, ctx):
     else:
         funcName = arg
     func = load_class(funcName)
+    assert callable(func)
 
     kw = ctx.kw
     if "args" in kw:
@@ -1032,6 +1035,8 @@ class _Import:
 
 
 class Imports(collections.OrderedDict):
+    manifest: Optional["Manifest"] = None
+
     def find_import(self, qualified_name):
         # return a local shadow of the imported instance
         # or the imported instance itself if no local shadow exist (yet).

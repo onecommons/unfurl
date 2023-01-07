@@ -1,5 +1,6 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
+import abc
 import os
 import os.path
 from pathlib import Path
@@ -110,7 +111,9 @@ class _ProgressPrinter(git.RemoteProgress):
             print(f"fetching from {url}, received: {message} ", file=sys.stderr)
 
 
-class Repo:
+class Repo(abc.ABC):
+    url: str = ""
+
     @staticmethod
     def find_containing_repo(rootDir, gitDir=".git"):
         """
@@ -151,6 +154,16 @@ class Repo:
                 parent.add_to_local_git_ignore("/" + path)
                 return path
         return None
+
+    @abc.abstractmethod
+    @property
+    def working_dir(self) -> str:
+        ...
+
+    @abc.abstractmethod
+    @property
+    def revision(self) -> str:
+        ...
 
     def find_repo_path(self, path):
         localPath = self.find_path(path)[0]
@@ -434,7 +447,7 @@ class GitRepo(Repo):
             # note: these might not look like absolute urls, e.g. git@github.com:onecommons/unfurl.git
             try:
                 remote = gitrepo.remotes["origin"]
-            except:
+            except Exception:
                 remote = gitrepo.remotes[0]
             self.url = remote.url
 
