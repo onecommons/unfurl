@@ -127,9 +127,9 @@ def generate_main(relpath, tfvars, outputs):
         module["source"] = relpath
         root = dict(module=dict(main=module))
         if outputs:
-            output = root["output"] = {}
+            root["output"] = {}
             for name in outputs:
-                output[name] = dict(
+                root["output"][name] = dict(
                     value=f"${{module.main.{name}}}", sensitive=sensitive
                 )
         return "main.tmp.tf.json", root

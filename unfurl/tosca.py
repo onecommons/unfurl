@@ -132,6 +132,7 @@ class ToscaSpec:
                 modified.append(import_tpl)
                 continue
 
+            assert self.topology
             match = Ref(import_tpl["when"]).resolve_one(
                 RefContext(self.topology, trace=0)
             )
@@ -182,6 +183,7 @@ class ToscaSpec:
 
     def _overlay(self, overlays):
         def _find_matches():
+            assert self.topology
             ExceptionCollector.start()  # clears previous errors
             for expression, _tpl in overlays.items():
                 try:
@@ -195,7 +197,7 @@ class ToscaSpec:
                             yield (item, _tpl)
                     else:
                         yield (match, _tpl)
-                except:
+                except Exception:
                     ExceptionCollector.appendException(
                         UnfurlValidationError(
                             f'error evaluating decorator match expression "{expression}"',

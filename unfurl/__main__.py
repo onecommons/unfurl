@@ -19,7 +19,7 @@ import subprocess
 import sys
 import traceback
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, List, Union, TYPE_CHECKING
 
 import click
 import rich
@@ -32,6 +32,10 @@ from .localenv import LocalEnv, Project
 from .logs import Levels
 from .support import Status
 from .util import filter_env, get_package_digest
+
+if TYPE_CHECKING:
+    from repo import RepoView
+    from yamlmanifest import YamlManifest
 
 _latestJobs = []  # for testing
 _args: List[str] = []  # for testing
@@ -1027,7 +1031,7 @@ def commit(ctx, project_or_ensemble_path, message, skip_add, no_edit, **options)
         override_context=options.get("use_environment") or "",
     )
     if localEnv.manifestPath:
-        committer = localEnv.get_manifest()
+        committer: Union["YamlManifest", "RepoView"] = localEnv.get_manifest()
     else:
         assert localEnv.project
         committer = localEnv.project.project_repoview
@@ -1069,7 +1073,7 @@ def git_status(ctx, project_or_ensemble_path, dirty, **options):
         override_context=options.get("use_environment") or "",
     )
     if localEnv.manifestPath:
-        committer = localEnv.get_manifest()
+        committer: Union["YamlManifest", "RepoView"] = localEnv.get_manifest()
     else:
         assert localEnv.project
         committer = localEnv.project.project_repoview
@@ -1148,6 +1152,7 @@ def status(ctx, ensemble, **options):
     query = options.get("query")
     if query:
         trace = options.get("trace")
+        assert manifest.rootResource
         result = manifest.rootResource.query(query, trace=trace)
         click.echo("query: " + query)
         if result is None:

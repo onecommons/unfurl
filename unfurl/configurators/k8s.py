@@ -3,6 +3,7 @@
 from __future__ import absolute_import
 import re
 from base64 import b64encode
+from typing import Dict, Union
 from ..configurator import Configurator
 from ..support import Status, Priority
 from ..runtime import RelationshipInstance
@@ -28,7 +29,7 @@ def _get_connection_config(instance):
     # https://github.com/ansible-collections/kubernetes.core/blob/7f7008fecc9e5d16340e9b0bff510b7cde2f2cfd/plugins/connection/kubectl.py
     if not instance:
         return {}
-    connection = {}
+    connection : Dict[str, Union[str, bool]] = {}
     if isinstance(instance, RelationshipInstance):
         connect = instance.attributes
         # the parent of a relationship will be the capability it connects to

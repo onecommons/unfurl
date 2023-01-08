@@ -1063,7 +1063,10 @@ class LocalEnv:
             project = self.homeProject.localConfig.projects.get(projectName)
             # allow "home" to refer to the home project
             if not project and projectName == "home":
-                repo = self.homeProject.project_repoview
+                repoview = self.homeProject.project_repoview
+                if not repoview:
+                    return None
+                repo = repoview.repo
                 file = ""
 
         if project:

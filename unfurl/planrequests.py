@@ -115,6 +115,7 @@ class ConfigurationSpec:
         if not klass:
             raise UnfurlError(f"Could not load configurator {self.className}")
         else:
+            assert callable(klass)
             return klass(self)
 
     def should_run(self):

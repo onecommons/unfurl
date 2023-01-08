@@ -5,6 +5,7 @@ import os
 import os.path
 from pathlib import Path
 import sys
+from typing import Dict, Optional
 import git
 from .logs import getLogger
 from urllib.parse import urlparse
@@ -127,8 +128,8 @@ class Repo(abc.ABC):
         return None
 
     @staticmethod
-    def find_git_working_dirs(rootDir, include_root, gitDir=".git"):
-        working_dirs = {}
+    def find_git_working_dirs(rootDir, include_root, gitDir=".git") -> Dict[str, "RepoView"]:
+        working_dirs: Dict[str, "RepoView"] = {}
         for root, dirs, files in os.walk(rootDir):
             if Repo.update_git_working_dirs(working_dirs, root, dirs, gitDir):
                 if not include_root or rootDir != root:
@@ -136,7 +137,7 @@ class Repo(abc.ABC):
         return working_dirs
 
     @staticmethod
-    def update_git_working_dirs(working_dirs, root, dirs, gitDir=".git"):
+    def update_git_working_dirs(working_dirs, root, dirs, gitDir=".git") -> Optional[str]:
         if gitDir in dirs and is_git_worktree(root, gitDir):
             assert os.path.isdir(root), root
             repo = GitRepo(git.Repo(root))

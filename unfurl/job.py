@@ -125,6 +125,8 @@ class JobOptions:
     parentJob = None
     instance = None
     workflow = Defaults.workflow
+    planOnly = False
+    verbose = 0
 
     defaults = dict(
         global_defaults,
@@ -242,6 +244,7 @@ class ConfigTask(TaskView, ConfigChange):
 
     def send(self, change):
         result = None
+        assert self.generator
         try:
             result = self.generator.send(change)
         finally:
@@ -711,7 +714,7 @@ class Job(ConfigChange):
                             )
                             return None
                 try:
-                    display.verbosity = jobOptions.verbose  # type: ignore
+                    display.verbosity = jobOptions.verbose
                     self._run((ready, notReady, errors))
                 except JobAborted as e:
                     self.local_status = Status.error  # type: ignore
@@ -860,7 +863,7 @@ class Job(ConfigChange):
             else:
                 failed = True
             if task.priority == Priority.critical:
-                if failed or task.result.status == Status.error:
+                if failed or (task.result and task.result.status == Status.error):
                     raise JobAborted(
                         f"Critical task failed: {task.name} for {task.target.name}"
                     )
@@ -898,7 +901,7 @@ class Job(ConfigChange):
             external_job = create_job(manifest, jobOptions)
             external_jobs.append(external_job)
             rendered, count = _render(external_job)
-            if not jobOptions.planOnly and count:  # type: ignore
+            if not jobOptions.planOnly and count:
                 external_job.run(rendered)
             if external_job.status == Status.error:
                 break

@@ -557,7 +557,8 @@ class ChainMap(MutableMapping):
         self._maps = maps
 
     def copy(self):
-        return ChainMap(*(m.copy() for m in self._maps))
+         # assume map implements copy()
+        return ChainMap(*(m.copy() for m in self._maps))  # type: ignore
 
     def split(self) -> Tuple[MutableMapping, "ChainMap"]:
         return self._maps[0], ChainMap(*self._maps[1:])
