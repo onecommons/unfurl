@@ -1359,6 +1359,13 @@ def to_environments(localEnv, existing=None):
             )
         blueprintdb, manifest, env, env_types = _to_graphql(localLocalEnv)
         env["name"] = name
+        instances = localEnv.project.contexts[name].get("instances")
+        if instances:
+            # imported (aka shared) resources are just a reference and won't be part of the manifest unless referenced
+            # so just copy them over now
+            for instance_name, value in instances.items():
+                if "imported" in value:
+                    env["instances"][instance_name] = value
         environments[name] = env
         all_connection_types.update(env_types)
 
