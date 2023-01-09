@@ -569,7 +569,7 @@ def _make_requirement(dependency) -> dict:
 
 def _patch_node_template(patch: dict, tpl: dict) -> None:
     for key, value in patch.items():
-        if key == "type":
+        if key in ["type", "directives", "imported"]:
             tpl[key] = value
         elif key == "title":
             if value != patch["name"]:
