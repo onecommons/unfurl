@@ -486,10 +486,9 @@ def _do_export(project_id: str, requested_format: str, deployment_path: str,
 
     # load the ensemble
     if cache_entry:
-        # don't pass latest_commit because localenv doesn't care
         err, parent_localenv = CacheEntry(project_id, cache_entry.branch, "unfurl.yaml", "localenv"
                                           ).get_or_set(
-            cache, lambda *args: _make_readonly_localenv(clone_location), "")
+            cache, lambda *args: _make_readonly_localenv(clone_location), latest_commit)
     else:
         err, parent_localenv = None, None
     if not err:
