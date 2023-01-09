@@ -386,7 +386,7 @@ def is_computed(p):  # p: Property | PropertyDef
     return (
         p.name in ["tosca_id", "state", "tosca_name"]
         or is_value_computed(p.value)
-        or is_value_computed(p.default)
+        or (p.value is None and is_value_computed(p.default))
         or metadata.get("computed")
     )
 
