@@ -1194,8 +1194,10 @@ def version(ctx, semver=False, remote=False, **options):
         click.echo(f"unfurl version {__version__(True)} ({get_package_digest()})")
 
     if remote and not options.get("no_runtime"):
-        click.echo("Remote:")
-        _run(get_home_config_path(options.get("home")), options)
+        home_path = get_home_config_path(options.get("home"))
+        if home_path:
+            click.echo("Remote:")
+            _run(home_path, options)
 
 
 @cli.command()
@@ -1233,9 +1235,9 @@ def help(ctx, cmd=""):
 )
 def serve(ctx, port, address, secret, clone_root, project_or_ensemble_path, **options):
     options.update(ctx.obj)
-    from .server import serve
+    from .server import serve as _serve
 
-    serve(address, port, secret, clone_root, project_or_ensemble_path, options)
+    _serve(address, port, secret, clone_root, project_or_ensemble_path, options)
 
 
 def main():

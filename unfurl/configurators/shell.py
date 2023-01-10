@@ -77,21 +77,21 @@ def _run(*args, stdout_filter=None, stderr_filter=None, **kwargs):
         try:
             stdout = None
             stderr = None
-            _save_input = process._save_input
+            _save_input = process._save_input  # type: ignore
             # _save_input is called after _fileobj2output is setup but before reading
             def _save_input_hook_hack(input):
                 if process.stdout:
-                    process._fileobj2output[process.stdout] = _PrintOnAppendList(stdout_filter)
+                    process._fileobj2output[process.stdout] = _PrintOnAppendList(stdout_filter)  # type: ignore
                 if process.stderr:
-                    process._fileobj2output[process.stderr] = _PrintOnAppendList(stderr_filter)
+                    process._fileobj2output[process.stderr] = _PrintOnAppendList(stderr_filter)  # type: ignore
                 _save_input(input)
 
-            process._save_input = _save_input_hook_hack
+            process._save_input = _save_input_hook_hack  # type: ignore
             process.communicate(input, timeout=timeout)
             if process.stdout:
-                stdout = b"".join(process._fileobj2output[process.stdout])
+                stdout = b"".join(process._fileobj2output[process.stdout])  # type: ignore
             if process.stderr:
-                stderr = b"".join(process._fileobj2output[process.stderr])
+                stderr = b"".join(process._fileobj2output[process.stderr])  # type: ignore
         except subprocess.TimeoutExpired:
             process.kill()
             process.wait()
@@ -101,6 +101,7 @@ def _run(*args, stdout_filter=None, stderr_filter=None, **kwargs):
             # We don't call process.wait() as .__exit__ does that for us.
             raise
         retcode = process.poll()
+        assert isinstance(retcode, int)
     return subprocess.CompletedProcess(process.args, retcode, stdout, stderr)
 
 
@@ -155,7 +156,7 @@ class ShellConfigurator(TemplateConfigurator):
                 kwargs = dict(stdout_filter=stdout_filter, stderr_filter=stderr_filter)
             else:
                 # Windows and 2.7 don't have _save_input
-                run = subprocess.run
+                run = subprocess.run  # type: ignore
                 kwargs = {}
             if shell and isinstance(shell, six.string_types):
                 executable = shell
@@ -191,16 +192,16 @@ class ShellConfigurator(TemplateConfigurator):
         except subprocess.TimeoutExpired as err:
             err.cmd = cmdStr
             err.timeout = timeout
-            err.returncode = None
-            err.error = None
+            err.returncode = None  # type: ignore
+            err.error = None  # type: ignore
             return err
         except Exception as err:
-            err.cmd = cmdStr
-            err.timeout = None
-            err.stderr = None
-            err.stdout = None
-            err.returncode = None
-            err.error = err
+            err.cmd = cmdStr  # type: ignore
+            err.timeout = None  # type: ignore
+            err.stderr = None  # type: ignore
+            err.stdout = None  # type: ignore
+            err.returncode = None  # type: ignore
+            err.error = err  # type: ignore
             return err
 
     def _handle_result(self, task, result, cwd, successCodes=(0,)):
