@@ -114,7 +114,7 @@ class CacheEntry:
         logger.info("deleting from cache: %s", full_key)
         return cache.delete(full_key)
 
-    def set_cache(self, cache, latest_commit: str, value: Any) -> str:
+    def set_cache(self, cache, latest_commit: Optional[str], value: Any) -> str:
         full_key = self.cache_key()
         logger.info("setting cache with %s", full_key)
         last_commit = self.commitinfo and self.commitinfo.hexsha
@@ -130,7 +130,7 @@ class CacheEntry:
                 self.commitinfo = commits[0]
                 last_commit = self.commitinfo.hexsha
         assert isinstance(last_commit, str)
-        cache.set(full_key, (value, last_commit, latest_commit))
+        cache.set(full_key, (value, last_commit, latest_commit or last_commit))
         return last_commit
 
     def _pull_if_missing_commit(self, commit: str):
@@ -156,7 +156,7 @@ class CacheEntry:
             return True
         return False
 
-    def get_cache(self, cache, latest_commit: str) -> Tuple[Any, Union[bool, "Commit"]]:
+    def get_cache(self, cache, latest_commit: Optional[str]) -> Tuple[Any, Union[bool, "Commit"]]:
         """Look up a cached value and then check if it out of date by checking if the file path in the key was modified after the given commit
         (also store the last_commit so we don't have to do that check everytime)
         we assume latest_commit is the last commit the client has seen but it might be older than the local copy
@@ -232,7 +232,7 @@ class CacheEntry:
     def _cancel_inflight(self, cache):
         return cache.delete(self._inflight_key())
 
-    def get_or_set(self, cache, work: Callable, latest_commit: str) -> Tuple[Optional[Any], Any]:
+    def get_or_set(self, cache, work: Callable, latest_commit: Optional[str]) -> Tuple[Optional[Any], Any]:
         value, commitinfo = self.get_cache(cache, latest_commit)
         if commitinfo:
             if commitinfo is True:
@@ -242,7 +242,7 @@ class CacheEntry:
             # if commitinfo.committed_date - time.time() < stale_ok_age:
             #      return value
             self.hit = False
-        else:  # cache miss
+        elif latest_commit:  # cache miss
             self._pull_if_missing_commit(latest_commit)
 
         value, found_inflight = self._set_inflight(cache, latest_commit)
@@ -257,7 +257,7 @@ class CacheEntry:
             err, value = exc, None
 
         found_inflight = self._cancel_inflight(cache)
-        # if we not found_inflight that means invalidate_cache deleted it so we should cache the result 
+        # skip caching work if not `found_inflight` -- that means invalidate_cache deleted it
         if found_inflight and not err:
             self.set_cache(cache, latest_commit, value)
         return err, value
@@ -398,7 +398,7 @@ def export():
         cache_entry = CacheEntry(project_id, branch, file_path, requested_format)
         err, json_summary = cache_entry.get_or_set(cache, partial(_cache_work, args), latest_commit)
     else:
-        err, json_summary = _do_export(project_id, requested_format, file_path, None, None, args)
+        err, json_summary = _do_export(project_id, requested_format, file_path, None, "", args)
     if not err:
         hit = cache_entry and cache_entry.hit
         if request.args.get("include_all_deployments"):
@@ -470,7 +470,7 @@ def _make_readonly_localenv(clone_location, parent_localenv=None):
 
 
 def _do_export(project_id: str, requested_format: str, deployment_path: str,
-               cache_entry: CacheEntry, latest_commit: str, args: dict) -> Tuple[Optional[Any], Optional[str]]:
+               cache_entry: Optional[CacheEntry], latest_commit: str, args: dict) -> Tuple[Optional[Any], Optional[str]]:
     if project_id:
         if cache_entry and cache_entry.commitinfo:
             repo = GitRepo(cache_entry.commitinfo.repo)
