@@ -307,7 +307,7 @@ class YamlManifest(ReadOnlyManifest):
         if self.context.get("instances"):
             # add context instances to spec instances but skip ones that are just in there because they were shared
             env_instances = {
-                k: v
+                k: v.copy()
                 for k, v in self.context["instances"].items()
                 if "imported" not in v
             }
@@ -527,6 +527,7 @@ class YamlManifest(ReadOnlyManifest):
             ):
                 # don't import self (might happen when context is shared)
                 return
+            logger.verbose("loading external ensemble at %s", localEnv.manifestPath)
             importedManifest = localEnv.get_manifest()
 
         uri = value.get("uri")
