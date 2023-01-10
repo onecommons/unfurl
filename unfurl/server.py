@@ -552,11 +552,14 @@ def _patch_deployment_blueprint(patch: dict, manifest: "YamlManifest", deleted: 
             if key in keys:
                 current[key] = prop
             elif key == "ResourceTemplate":
-                # XXX do we care about these?
-                node_templates = current.setdefault("resource_templates", {})
+                # assume the patch has the complete set and replace the current set
+                old_node_templates = current.get("resource_templates", {})
+                new_node_templates = {}
                 for name, val in prop.items():
-                    tpl = node_templates.setdefault(name, {})
+                    tpl = old_node_templates.get(name, {})
                     _patch_node_template(val, tpl)
+                    new_node_templates[name] = tpl
+                current["resource_templates"] = new_node_templates
 
 
 def _make_requirement(dependency) -> dict:
