@@ -1300,6 +1300,17 @@ def map_nodefilter(filters, jsonprops):
             schema.update(map_constraints(schema["type"], constraints, schema))
 
 
+def _set_shared_instances(instances):
+    env_instances = {}
+    # imported (aka shared) resources are just a reference and won't be part of the manifest unless referenced
+    # so just copy them over now
+    if instances:
+        for instance_name, value in instances.items():
+            if "imported" in value:
+                env_instances[instance_name] = value
+    return env_instances
+
+
 def to_environments(localEnv, existing=None):
     """
       Map environments in unfurl.yaml to DeploymentEnvironments
@@ -1342,6 +1353,8 @@ def to_environments(localEnv, existing=None):
     env_deployments = {}
     for ensemble_info in deployments.values():
         env_deployments[ensemble_info["environment"]] = ensemble_info["name"]
+    defaults = localEnv.project.contexts.get("defaults")
+    default_imported_instances = _set_shared_instances(defaults and defaults.get("instances"))
     for name in localEnv.project.contexts:
         if name in env_deployments:
             # we can reuse the localEnv if there's a distinct manifest that uses this environment
@@ -1359,13 +1372,9 @@ def to_environments(localEnv, existing=None):
             )
         blueprintdb, manifest, env, env_types = _to_graphql(localLocalEnv)
         env["name"] = name
+        env["instances"].update(default_imported_instances)
         instances = localEnv.project.contexts[name].get("instances")
-        if instances:
-            # imported (aka shared) resources are just a reference and won't be part of the manifest unless referenced
-            # so just copy them over now
-            for instance_name, value in instances.items():
-                if "imported" in value:
-                    env["instances"][instance_name] = value
+        env["instances"].update(_set_shared_instances(instances))
         environments[name] = env
         all_connection_types.update(env_types)
 

@@ -6,6 +6,7 @@ from collections.abc import MutableSequence
 import functools
 import logging
 import sys
+from typing import Dict, Tuple
 
 import ansible.constants as C
 from ansible import context
@@ -24,7 +25,7 @@ display = Display()
 logger = logging.getLogger("unfurl")
 
 
-def get_ansible_results(result, extraKeys=(), facts=()):
+def get_ansible_results(result, extraKeys=(), facts=()) -> Tuple[Dict, Dict]:
     """
     Returns a dictionary containing at least:
 
@@ -87,7 +88,6 @@ class AnsibleConfigurator(TemplateConfigurator):
         return True
 
     def _make_inventory_from_group(self, group, includeInstances):
-        hosts = {}
         vars = {}
         children = {}
         # XXX:
@@ -100,7 +100,7 @@ class AnsibleConfigurator(TemplateConfigurator):
                     child, includeInstances
                 )
         vars.update(group.properties.get("hostvars", {}))
-        return dict(hosts=hosts, vars=vars, children=children)
+        return dict(hosts={}, vars=vars, children=children)
 
     def _get_host_vars(self, node):
         # return ansible_connection, ansible_host, ansible_user, ansible_port
@@ -311,8 +311,8 @@ class AnsibleConfigurator(TemplateConfigurator):
                     )
                 )
                 mergeFn = lambda a, b: a.update(b) or a
-                results = functools.reduce(mergeFn, resultList, {})
-                outputs = functools.reduce(mergeFn, outputList, {})
+                results: Dict = functools.reduce(mergeFn, resultList, {})
+                outputs: Dict = functools.reduce(mergeFn, outputList, {})
             else:
                 results, outputs = {}, {}
 
