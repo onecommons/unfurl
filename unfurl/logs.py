@@ -6,7 +6,7 @@ import os
 import tempfile
 import time
 import types
-from typing import Any, Union
+from typing import Any, Union, cast
 
 import rich
 from rich.console import Console
@@ -84,7 +84,7 @@ class UnfurlLogger(logging.Logger, LogExtraLevels):
 
 
 def getLogger(name: str) -> UnfurlLogger:
-    return logging.getLogger(name)  # type: ignore
+    return cast(UnfurlLogger, logging.getLogger(name))
 
 
 class HiddenOutputLogHandler(logging.StreamHandler):
@@ -213,6 +213,9 @@ def initialize_logging() -> None:
             os.getenv("UNFURL_LOGGING").upper()  # type: ignore
         ]
     logging.config.dictConfig(LOGGING)
+    if os.getenv("UNFURL_LOG_FORMAT"):
+        formatter = logging.Formatter(os.getenv("UNFURL_LOG_FORMAT"))
+        logging.getLogger().handlers[0].setFormatter(formatter)
 
 
 def set_console_log_level(log_level: int) -> None:
@@ -237,7 +240,8 @@ def add_log_file(filename: str, console_level: Levels = Levels.INFO):
 
     handler = logging.FileHandler(filename)
     f = SensitiveFilter()
-    formatter = logging.Formatter("[%(asctime)s] %(name)s:%(levelname)s: %(message)s")
+    fmt = os.getenv("UNFURL_LOG_FORMAT") or "[%(asctime)s] %(name)s:%(levelname)s: %(message)s"
+    formatter = logging.Formatter(fmt)
     handler.setFormatter(formatter)
     log_level = min(console_level, Levels.DEBUG)
     handler.setLevel(log_level)

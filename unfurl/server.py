@@ -335,6 +335,7 @@ def _stage(project_id: str, args: dict) -> Optional[str]:
         result = init.clone(
             git_url,
             repo_path,
+            empty=True
         )
         logger.info(f"cloned {git_url}: {result} in pid {os.getpid()}")
         repo = _get_project_repo(project_id)
@@ -866,7 +867,7 @@ def create_error_response(code, message):
     return jsonify({"code": code, "message": message}), http_code
 
 
-# UNFURL_SKIP_UPSTREAM_CHECK=1 UNFURL_HOME="" gunicorn -w 4 unfurl.server:app
+# UNFURL_HOME="" gunicorn --log-level debug -w 4 unfurl.server:app
 def serve(
     host: str,
     port: int,

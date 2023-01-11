@@ -753,6 +753,9 @@ required_envvars = [
     "UNFURL_SKIP_VAULT_DECRYPT",
     "UNFURL_SKIP_UPSTREAM_CHECK",
     "UNFURL_VALIDATION_MODE",
+    "UNFURL_LOG_FORMAT",
+    "UNFURL_RAISE_LOGGING_EXCEPTIONS",
+    "PY_COLORS",
 ]
 # hack for sphinx ext documentedlist
 _sphinx_envvars = [(i,) for i in required_envvars]
