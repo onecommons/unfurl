@@ -64,7 +64,7 @@ class Folders:
     secrets = "secrets"
     local = "local"
     tasks = "tasks"
-    operations = "operation"
+    operation = "operation"
     workflow = "workflow"
     Persistent = ("artifacts", "secrets", "local")
     Job = ("tasks", "operation", "workflow")
@@ -330,7 +330,7 @@ class File(ExternalValue):
         if self.encoding != "binary":
             try:
                 # convert from bytes to string
-                contents = codecs.decode(contents, self.encoding or "utf-8")
+                contents = codecs.decode(contents, self.encoding or "utf-8")  # type: ignore
             except ValueError:
                 pass  # keep at bytes
         if not show:  # it was encrypted

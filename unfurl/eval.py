@@ -53,13 +53,13 @@ def map_value(
     value: Any,
     resourceOrCxt: Union["RefContext", "ResourceRef"],
     applyTemplates: bool = True,
-) -> Optional[Union[ResultsList, Result, List[Result]]]:
+) -> Any:
     if not isinstance(resourceOrCxt, RefContext):
         resourceOrCxt = RefContext(resourceOrCxt)
     return _map_value(value, resourceOrCxt, False, applyTemplates)
 
 
-def _map_value(value, ctx, wantList=False, applyTemplates=True):
+def _map_value(value: Any, ctx: "RefContext", wantList: bool = False, applyTemplates: bool = True) -> Any:
     from .support import is_template, apply_template
 
     if Ref.is_ref(value):
@@ -292,7 +292,7 @@ class Expr:
         # XXX vars
         return f"Expr('{self.source}')"
 
-    def resolve(self, context):
+    def resolve(self, context) -> List[Any]:
         # returns a list of Result
         currentResource = context.currentResource
         if not self.paths[0].key and not self.paths[0].filters:  # starts with "::"
@@ -340,7 +340,7 @@ class Ref:
         ctx: RefContext,
         wantList: Union[bool, str] = True,
         strict: bool = _defaultStrictness,
-    ) -> Optional[Union[ResultsList, Result, List[Result]]]:
+    ) -> Optional[Union[ResultsList, Result, List[Result], Any]]:
         """
         If wantList=True (default) returns a ResultList of matches
         Note that values in the list can be a list or None

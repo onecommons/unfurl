@@ -9,7 +9,7 @@ import os.path
 import shutil
 import sys
 import json
-from typing import Any
+from typing import Any, Dict
 import uuid
 import logging
 from jinja2.loaders import FileSystemLoader
@@ -636,6 +636,7 @@ class EnsembleBuilder:
         assert not self.templateVars
 
         # source is a path into the project relative to the current directory
+        assert self.source_path
         source_path = os.path.join(self.source_project.projectRoot, self.source_path)
         self.templateVars = _get_ensemble_paths(
             source_path,
@@ -667,6 +668,7 @@ class EnsembleBuilder:
         return destDir, manifestName
 
     def _get_inputs_template(self):
+        assert self.source_project
         local_template = os.path.join(
             self.source_project.projectRoot, DefaultNames.InputsTemplate
         )
@@ -680,6 +682,7 @@ class EnsembleBuilder:
 
         specProject = self.dest_project
         assert project
+        assert self.source_project
         sourceDir = os.path.normpath(
             os.path.join(
                 self.source_project.projectRoot, self.templateVars["sourceDir"]
@@ -780,6 +783,7 @@ class EnsembleBuilder:
 
     def clone_local_project(self, currentProject, sourceProject, dest_dir):
         self.source_path = sourceProject.get_relative_path(self.input_source)
+        assert self.source_path
         assert not self.source_path.startswith(
             ".."
         ), f"{self.source_path} should be inside the project"
@@ -832,6 +836,7 @@ class EnsembleBuilder:
 
         self.source_project = find_project(sourceProjectRoot, self.home_path)
         # set source to point to the cloned project
+        assert self.source_project
         self.source_path = self.source_project.get_relative_path(targetDir)
         return self.source_project
 
@@ -878,9 +883,8 @@ class EnsembleBuilder:
         self.dest_path = relDestDir
 
     def has_existing_ensemble(self, sourceProject):
-        from unfurl import yamlmanifest
-
         if self.source_project is not sourceProject and not self.shared_repo:
+            assert self.dest_project
             if "localEnv" in self.templateVars and os.path.exists(
                 Path(self.dest_project.projectRoot) / self.dest_path
             ):
@@ -898,6 +902,7 @@ class EnsembleBuilder:
     def set_ensemble(self, isRemote, existingSourceProject, existingDestProject):
         sourceWasCloned = self.source_project is not existingSourceProject
         destIsNew = not existingDestProject
+        assert self.dest_project
         if destIsNew and self.has_existing_ensemble(existingSourceProject):
             # if dest_project is new (we just cloned it)
             # check if we cloned the ensemble already
@@ -1107,7 +1112,7 @@ def _run_pip_env(do_install, pipenv_project, kw):
         def noexit(code):
             retcode = code
 
-        sys.exit = noexit
+        sys.exit = noexit  # type: ignore
 
         do_install(pipenv_project, **kw)
     finally:
@@ -1186,7 +1191,7 @@ def create_venv(projectDir, pipfileLocation, unfurlLocation):
             return f'Pipfile location is not a valid directory: "{pipfileLocation}"'
         copy_pipfiles(pipfileLocation, projectDir)
 
-        kw = dict(python=pythonPath, extra_index_url=[])
+        kw: Dict = dict(python=pythonPath, extra_index_url=[])
         pipenv_project = PipEnvProject()
         # need to run without args first so lock isn't overwritten
         retcode = _run_pip_env(do_install, pipenv_project, kw)

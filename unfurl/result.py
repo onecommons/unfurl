@@ -4,11 +4,13 @@ from collections.abc import Mapping, MutableSequence, MutableMapping
 from abc import ABC, abstractmethod
 from datetime import datetime, timedelta
 import logging
-from typing import TYPE_CHECKING, Any, Match, Optional
+from typing import TYPE_CHECKING, Any, Match, Optional, Tuple, cast
 import six
 import hashlib
 import re
 from toscaparser.common.exception import ValidationError
+if TYPE_CHECKING:
+    from unfurl.tosca import EntitySpec
 
 from .merge import diff_dicts
 from .util import (
@@ -82,9 +84,9 @@ def serialize_value(value, **kw):
 class ResourceRef(ABC):
 
     parent = None  # must be defined by subclass
-    # note: really an EntitySpec but would cause cicular imports
-    template: Optional["ResourceRef"] = None
+    template: Optional["EntitySpec"] = None
     base_dir = ""
+    name = ""
 
     @abstractmethod
     def _resolve(self, key):
@@ -111,7 +113,7 @@ class ResourceRef(ABC):
 
     def yield_parents(self):
         "yield self and ancestors starting from self"
-        resource = self
+        resource: Optional[ResourceRef] = self
         while resource:
             yield resource
             resource = resource.parent
@@ -351,7 +353,7 @@ class Result(ChangeAware):
     __slots__ = ("original", "resolved", "external", "select")
 
     def __init__(self, resolved: Any):
-        self.select = ()
+        self.select: Tuple = ()
         self.original = _Deleted  # assume this is new to start
         if isinstance(resolved, ExternalValue):
             self.resolved = resolved.get()
@@ -388,7 +390,7 @@ class Result(ChangeAware):
         return False
 
     def get_diff(self):
-        if isinstance(self.resolved, Results):
+        if isinstance(self.resolved, (ResultsList, ResultsMap)):
             return self.resolved.get_diff()
         else:
             new = self.as_ref()
@@ -432,17 +434,17 @@ class Result(ChangeAware):
                 value = self.resolved[key]
         return value
 
-    def project(self, key, ctx):
-        # returns a Result
+    def project(self, key: Any, ctx) -> "Result":
         from .eval import Ref
 
         value = self._resolve_key(key, ctx._lastResource)
         if isinstance(value, Result):
             result = value
         elif Ref.is_ref(value):
-            result = Ref(value).resolve(ctx, wantList="result")
-            if not result:
+            _result = cast(Optional[Result], Ref(value).resolve(ctx, wantList="result"))
+            if not _result:
                 raise KeyError(key)
+            result = _result
         else:
             result = Result(value)
         if self.external:
@@ -578,7 +580,7 @@ class Results(ABC):
     def _getitem(self, key):
         return self._getresult(key).resolved
 
-    def _getresult(self, key):
+    def _getresult(self, key: Any) -> Result:
         from .eval import map_value
 
         val = self._attributes[key]
@@ -601,7 +603,7 @@ class Results(ABC):
                 resolved = self._map_value(val, self.context, self.applyTemplates, defs)
             # will return a Result if val was an expression that was evaluated
             if isinstance(resolved, Result):
-                result = resolved
+                result: Result = resolved
                 result.resolved = self._transform(key, result.resolved)
                 resolved = result.resolved
             else:
@@ -647,7 +649,7 @@ class Results(ABC):
         try:
             if value is None:
                 # required attributes might be null depending on the state of the resource
-                if propDef.required and key not in resource.template.attributeDefs:
+                if propDef.required and resource.template and key not in resource.template.attributeDefs:
                     msg = f'Property "{key}" on "{resource.template.name}" cannot be null.'
                     raise ValidationError(message=msg)
             else:
