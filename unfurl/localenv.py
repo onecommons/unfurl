@@ -163,7 +163,9 @@ class Project:
         current = os.path.abspath(testPath)
         if not stopPath:
             stopPath = os.sep
-        while current and current != stopPath:
+        else:
+            stopPath = os.path.abspath(stopPath)
+        while current and len(current) >= len(stopPath):
             test = os.path.join(current, DefaultNames.LocalConfig)
             if os.path.exists(test):
                 return test
@@ -172,6 +174,8 @@ class Project:
             )
             if os.path.exists(test):
                 return test
+            if current == os.sep:
+                break
             current = os.path.dirname(current)
         return None
 
