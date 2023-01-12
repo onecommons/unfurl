@@ -377,7 +377,7 @@ def test_gcp_configurator():
         os.environ["GOOGLE_OAUTH_ACCESS_TOKEN"] = "delete me"
 
         # set this so get_ensemble_metadata()["unfurlproject"] looks realistic:
-        os.system("git remote add origin https://unfurl.cloud/my/dashboard")
+        os.system("git remote add origin https://unfurl.cloud/my/dashboard.git")
         job, rendered, proceed = start_job(_opts={"startTime": 1})
         job.run(rendered)
         assert "GOOGLE_OAUTH_ACCESS_TOKEN" not in os.environ
@@ -398,4 +398,4 @@ def test_gcp_configurator():
         result = list(job.workDone.values())[-1].result.result
         assert result.pop("commit")
         assert result == dict(deployment="ensemble", job="A01110000000",
-                              environment="testing", unfurlproject='https://unfurl.cloud/my/dashboard')
+                              environment="testing", unfurlproject='my/dashboard')

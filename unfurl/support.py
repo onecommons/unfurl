@@ -751,7 +751,7 @@ def get_ensemble_metadata(arg, ctx):
         job=ctx.task.job.changeId
     )
     if ensemble.repo:
-        metadata["unfurlproject"] = ensemble.repo.url
+        metadata["unfurlproject"] = ensemble.repo.project_path()
         metadata["commit"] = ensemble.repo.revision[:8]
     environment = ensemble.localEnv and ensemble.localEnv.manifest_context_name
     if environment:

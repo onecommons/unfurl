@@ -199,19 +199,25 @@ class Repo(abc.ABC):
         return self.url.startswith("git-local://") or os.path.isabs(self.url)
 
     @staticmethod
-    def get_path_for_git_repo(gitUrl):
+    def get_path_for_git_repo(gitUrl: str, name_only=True) -> str:
         parts = urlparse(gitUrl)
         if parts.scheme == "git-local":
             # e.g. extract spec from git-local://0cfeee6571c4276ce1a63dc37aa8cbf8b8085d60:spec
             name = parts.netloc.partition(":")[1]
         else:
+            path = parts.path.strip("/")
             # e.g. extract tosca-parser from https://github.com/onecommons/tosca-parser.git
+            if name_only:
+                path = os.path.basename(path)
             name = (
-                os.path.splitext(os.path.basename(parts.path.strip("/")))[0]
+                os.path.splitext(path)[0]
                 or parts.netloc
             )
         assert not name.endswith(".git"), name
         return name
+
+    def project_path(self) -> str:
+        return self.get_path_for_git_repo(self.url, False)
 
     @classmethod
     def create_working_dir(cls, gitUrl, localRepoPath, revision=None):
