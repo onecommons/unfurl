@@ -7,6 +7,7 @@ from ..support import Status
 from ..planrequests import set_default_command
 import importlib
 from typing import Tuple
+from collections.abc import Mapping
 
 # need to define these now because these configurators are lazily imported
 # and so won't register themselves through AutoRegisterClass
@@ -101,7 +102,7 @@ class TemplateConfigurator(Configurator):
         runResult = task.rendered
         done = task.inputs.get_copy("done", {})
         if "result" not in done:
-            if not isinstance(runResult, dict):
+            if not isinstance(runResult, Mapping):
                 done["result"] = {"run": runResult, "outputs": done.get("outputs")}
             else:
                 done["result"] = runResult

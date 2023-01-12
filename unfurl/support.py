@@ -257,6 +257,8 @@ def is_template(val, ctx=None):
 
 
 class _VarTrackerDict(dict):
+    ctx: Optional[RefContext] = None
+
     def __getitem__(self, key):
         try:
             val = super().__getitem__(key)
@@ -265,6 +267,7 @@ class _VarTrackerDict(dict):
             raise
 
         try:
+            assert self.ctx
             return self.ctx.resolve_reference(key)
         except KeyError:
             return val
@@ -293,7 +296,7 @@ def _wrap_sequence(v):
 unsafe_proxy._wrap_sequence = _wrap_sequence
 
 
-def apply_template(value, ctx, overrides=None):
+def apply_template(value: str, ctx: RefContext, overrides=None) -> Any:
     if not isinstance(value, six.string_types):
         msg = f"Error rendering template: source must be a string, not {type(value)}"
         if ctx.strict:
@@ -304,7 +307,7 @@ def apply_template(value, ctx, overrides=None):
     if ctx.task:
         logger = ctx.task.logger
     else:
-        logger = logging.getLogger("unfurl")
+        logger = logging.getLogger("unfurl")  # type: ignore
 
     # local class to bind with logger and ctx
     class _UnfurlUndefined(DebugUndefined):
@@ -376,7 +379,7 @@ def apply_template(value, ctx, overrides=None):
         __unfurl=ctx, __python_executable=sys.executable, __now=time.time()
     )
     if hasattr(ctx.currentResource, "attributes"):
-        vars["SELF"] = ctx.currentResource.attributes
+        vars["SELF"] = ctx.currentResource.attributes  # type: ignore
     vars.update(ctx.vars)
     vars.ctx = ctx
 
@@ -631,12 +634,14 @@ class _EnvMapper(dict):
     """Resolve environment variable name to instance properties via the root template's requirements.
     Pattern should match _generate_env_names in to_json.py and set_context_vars above.
     """
+    ctx: Optional[RefContext] = None
 
     def copy(self):
         return _EnvMapper(self)
 
     def __missing__(self, key):
         objname, sep, prop = key.partition("_")
+        assert self.ctx
         root = self.ctx.currentResource.root
         app = root.template.spec.substitution_template
         if app and objname and prop:
@@ -660,7 +665,7 @@ class _EnvMapper(dict):
 def to_env(args, ctx: RefContext):
     env = ctx.environ
     sub = _EnvMapper(env or {})
-    sub.ctx = ctx  # type: ignore
+    sub.ctx = ctx
 
     rules = map_value(args or {}, ctx)
     assert isinstance(rules, Mapping)
@@ -735,6 +740,31 @@ set_eval_func(
     "to_googlecloud_label",
     lambda arg, ctx: to_googlecloud_label(map_value(arg, ctx)),
 )
+
+
+def get_ensemble_metadata(arg, ctx):
+    if not ctx.task:
+        return {}
+    ensemble = ctx.task._manifest
+    metadata = dict(
+        deployment=os.path.basename(os.path.dirname(ensemble.path)),
+        job=ctx.task.job.changeId
+    )
+    if ensemble.repo:
+        metadata["unfurlproject"] = ensemble.repo.url
+        metadata["commit"] = ensemble.repo.revision[:8]
+    environment = ensemble.localEnv and ensemble.localEnv.manifest_context_name
+    if environment:
+        metadata["environment"] = environment
+    if arg:
+        key = map_value(arg, ctx)
+        return metadata.get(key)
+    else:
+        return metadata
+
+
+set_eval_func("get_ensemble_metadata", get_ensemble_metadata)
+
 
 _toscaKeywordsToExpr = {
     "SELF": ".",
@@ -1044,6 +1074,7 @@ class Imports(collections.OrderedDict):
         if imported:
             return imported
         iName, sep, rName = qualified_name.partition(":")
+        assert self.manifest
         localEnv = self.manifest.localEnv
         if iName not in self and localEnv:
             project = localEnv.project or localEnv.homeProject
@@ -1099,7 +1130,7 @@ class ExternalResource(ExternalValue):
                 (message, schemaErrors) = messages
                 raise UnfurlValidationError(
                     f"schema validation failed for attribute '{name}': {schemaErrors}",
-                    schemaErrors,
+                    schemaErrors,  # type: ignore
                 )
 
     def _get_schema(self, name):

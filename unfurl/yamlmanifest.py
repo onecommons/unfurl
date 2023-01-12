@@ -522,9 +522,7 @@ class YamlManifest(ReadOnlyManifest):
                 parent=self.localEnv,
                 override_context=location.get("environment", ""),
             )
-            if self.path and os.path.abspath(self.path) == os.path.abspath(
-                localEnv.manifestPath
-            ):
+            if self.is_path_to_self(localEnv.manifestPath):
                 # don't import self (might happen when context is shared)
                 return
             logger.verbose("loading external ensemble at %s", localEnv.manifestPath)

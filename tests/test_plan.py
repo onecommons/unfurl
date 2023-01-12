@@ -337,6 +337,9 @@ gcpEnvVarTypes = """\
                     implementation:
                       className: Template
                     inputs:
+                      run:
+                        eval:
+                          get_ensemble_metadata:
                       resultTemplate:
                         readyState: ok
 """
@@ -357,6 +360,7 @@ def test_gcp_configurator():
                 "init",
                 "--mono",
                 "--skeleton=gcp",
+                "--use-environment=testing"
             ],
         )
         # uncomment this to see output:
@@ -371,7 +375,9 @@ def test_gcp_configurator():
         # if both are present the gcp configurator will delete GOOGLE_OAUTH_ACCESS_TOKEN
         os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "cred.json"
         os.environ["GOOGLE_OAUTH_ACCESS_TOKEN"] = "delete me"
-        # print ("os.environ", os.environ)
+
+        # set this so get_ensemble_metadata()["unfurlproject"] looks realistic:
+        os.system("git remote add origin https://unfurl.cloud/my/dashboard")
         job, rendered, proceed = start_job(_opts={"startTime": 1})
         job.run(rendered)
         assert "GOOGLE_OAUTH_ACCESS_TOKEN" not in os.environ
@@ -387,3 +393,9 @@ def test_gcp_configurator():
           "skipped": 0,
           "changed": 2
         }
+
+        # check that get_ensemble_metadata() evaluated correctly:
+        result = list(job.workDone.values())[-1].result.result
+        assert result.pop("commit")
+        assert result == dict(deployment="ensemble", job="A01110000000",
+                              environment="testing", unfurlproject='https://unfurl.cloud/my/dashboard')
