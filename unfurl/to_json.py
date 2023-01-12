@@ -141,11 +141,11 @@ def tosca_type_to_jsonschema(spec, propdefs, toscatype):
     propdefs = [p for p in propdefs if is_property_user_visible(p)]
     jsonschema = dict(
         type="object",
-        properties={p.name: tosca_schema_to_jsonschema(p, spec) for p in propdefs},
+        properties = {p.name: tosca_schema_to_jsonschema(p, spec) for p in propdefs},
     )
     # add typeid:
     if toscatype:
-        jsonschema["properties"].update({"$toscatype": dict(const=toscatype)})
+        jsonschema["properties"].update({"$toscatype": dict(const=toscatype)})  # type: ignore
     return jsonschema
 
 
@@ -1356,27 +1356,30 @@ def to_environments(localEnv, existing=None):
     defaults = localEnv.project.contexts.get("defaults")
     default_imported_instances = _set_shared_instances(defaults and defaults.get("instances"))
     for name in localEnv.project.contexts:
-        if name in env_deployments:
-            # we can reuse the localEnv if there's a distinct manifest that uses this environment
-            localEnv.manifest_context_name = name
-            localEnv.manifestPath = os.path.join(localEnv.project.projectRoot, env_deployments[name], "ensemble.yaml")
-            localLocalEnv = localEnv
-        else:
-            # this environment doesn't have any deployments so we have to create a new localEnv
-            # because we need to instantiate a different ToscaSpec object
-            localLocalEnv = LocalEnv(
-                localEnv.manifestPath,
-                project=localEnv.project,
-                override_context=name,
-                readonly=True,
-            )
-        blueprintdb, manifest, env, env_types = _to_graphql(localLocalEnv)
-        env["name"] = name
-        env["instances"].update(default_imported_instances)
-        instances = localEnv.project.contexts[name].get("instances")
-        env["instances"].update(_set_shared_instances(instances))
-        environments[name] = env
-        all_connection_types.update(env_types)
+        try:
+            if name in env_deployments:
+                # we can reuse the localEnv if there's a distinct manifest that uses this environment
+                localEnv.manifest_context_name = name
+                localEnv.manifestPath = os.path.join(localEnv.project.projectRoot, env_deployments[name], "ensemble.yaml")
+                localLocalEnv = localEnv
+            else:
+                # this environment doesn't have any deployments so we have to create a new localEnv
+                # because we need to instantiate a different ToscaSpec object
+                localLocalEnv = LocalEnv(
+                    localEnv.manifestPath,
+                    project=localEnv.project,
+                    override_context=name,
+                    readonly=True,
+                )
+            blueprintdb, manifest, env, env_types = _to_graphql(localLocalEnv)
+            env["name"] = name
+            env["instances"].update(default_imported_instances)
+            instances = localEnv.project.contexts[name].get("instances")
+            env["instances"].update(_set_shared_instances(instances))
+            environments[name] = env
+            all_connection_types.update(env_types)
+        except Exception:
+            logger.error("error exporting environment %s", name, exc_info=True)
 
     db["DeploymentEnvironment"] = environments
     if blueprintdb:
