@@ -14,8 +14,8 @@ environment:
   deployment_blueprint: {{ deployment_blueprint }}
 {%- endif %}
 spec:
-  inputs:
   {%- if inputs | default("") %}
+  inputs:
     {{ inputs | indent }}
   {%- endif %}
   service_template:
