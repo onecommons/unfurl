@@ -749,7 +749,10 @@ def _patch_ensemble(body: dict, create: bool, project_id: str) -> str:
                     else:
                         doc = doc[key]
                 else:
-                    doc = doc.setdefault(key, {})
+                    if not doc.get(key):
+                        doc = doc[key] = {}
+                    else:
+                        doc = doc[key]
             if not deleted:
                 _patch_node_template(patch_inner, doc)
 
