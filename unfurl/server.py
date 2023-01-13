@@ -750,7 +750,7 @@ def _patch_ensemble(body: dict, create: bool, project_id: str) -> str:
                         doc = doc[key]
                 else:
                     if not doc.get(key):
-                        doc = doc[key] = {}
+                        doc[key] = doc = {}
                     else:
                         doc = doc[key]
             if not deleted:
