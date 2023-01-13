@@ -324,7 +324,10 @@ def requirement_to_graphql(spec, req_dict):
             reqobj["match"] = nodetype
             nodetype = spec.nodeTemplates[nodetype].type
     else:
-        nodetype = req.get("capability") or "tosca.nodes.Root"
+        nodetype = req.get("capability")
+        if not nodetype:
+            logger.warning("skipping constraint %s, there was no type specified ", req_dict)
+            return None
     reqobj["resourceType"] = nodetype
     if req.get("node_filter"):
         reqobj["node_filter"] = req["node_filter"]
