@@ -339,7 +339,7 @@ def test_populate_cache(runner):
     files = ["unfurl.yaml", "ensemble/ensemble.yaml", "ensemble-template.yaml"]
     port = 8090
     for file_path, project_id in zip(files, project_ids):
-        res = requests.get(
+        res = requests.post(
             f"http://localhost:{port}/populate_cache",
             params={
                 "secret": "secret",

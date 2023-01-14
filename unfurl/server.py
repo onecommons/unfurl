@@ -374,6 +374,17 @@ def _make_etag(latest_commit: str):
     return f'W/"{latest_commit}"'
 
 
+def json_response(obj, pretty):
+    dump_args = {}
+    if pretty:
+        dump_args.setdefault("indent", 2)
+    else:
+        dump_args.setdefault("separators", (",", ":"))
+    return current_app.response_class(
+        f"{current_app.json.dumps(obj, **dump_args)}\n", mimetype=current_app.json.mimetype
+    )
+
+
 # /export?format=environments&include_deployments=true&latest_commit=foo&project_id=bar&branch=main
 @app.route("/export")
 def export():
@@ -416,6 +427,9 @@ def export():
             etag = request.headers.get("If-None-Match")
             if latest_commit and _make_etag(latest_commit) == etag:
                 return "Not Modified", 304
+
+        # XXX json_response fails: current_app.json mysteriously missing
+        # response = json_response(json_summary, request.args.get("pretty"))
         response = jsonify(json_summary)
         if latest_commit:
             response.headers["Etag"] = _make_etag(latest_commit)
@@ -427,7 +441,7 @@ def export():
             return err
 
 
-@app.route("/populate_cache")
+@app.route("/populate_cache", methods=["POST"])
 def populate_cache():
     project_id = get_project_id(request)
     branch = request.args.get("branch")
