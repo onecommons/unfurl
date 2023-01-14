@@ -516,7 +516,7 @@ class GitRepo(Repo):
     def reset(self, args: str = "--hard HEAD~1") -> bool:
         return not self.run_cmd(("reset " + args).split())[0]
 
-    def run_cmd(self, args, **kw):
+    def run_cmd(self, args, with_exceptions=False, **kw):
         """
         :return:
           tuple(int(status), str(stdout), str(stderr))
@@ -529,7 +529,7 @@ class GitRepo(Repo):
 
         # note: sets cwd to working_dir
         return gitcmd.execute(
-            call, with_exceptions=False, with_extended_output=True, **kw
+            call, with_exceptions=with_exceptions, with_extended_output=True, **kw
         )
 
     def add_to_local_git_ignore(self, rule):
@@ -591,12 +591,12 @@ class GitRepo(Repo):
         # https://gitpython.readthedocs.io/en/stable/reference.html?highlight=is_dirty#git.repo.base.Repo.is_dirty
         return self.repo.is_dirty(untracked_files=untracked_files, path=path or None)
 
-    def pull(self, remote="origin", revision=None, ff_only=True):
+    def pull(self, remote="origin", revision=None, ff_only=True, **kw):
         if remote in self.repo.remotes:
             cmd = ["pull", remote, revision or "HEAD"]
             if ff_only:
                 cmd.append("--ff-only")
-            code, out, err = self.run_cmd(cmd)
+            code, out, err = self.run_cmd(cmd, **kw)
             if code:
                 logger.info(
                     "attempt to pull latest from %s into %s failed: %s %s",

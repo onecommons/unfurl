@@ -10,6 +10,7 @@ from base64 import b64decode
 import click
 import uvicorn
 from flask import Flask, current_app, jsonify, request
+import flask.json
 from flask_caching import Cache
 
 import git
@@ -142,7 +143,7 @@ class CacheEntry:
             self.repo.repo.commit(commit)
         except ValueError:
             # newer not in repo, repo probably is out of date
-            self.repo.pull()
+            self.repo.pull(with_exceptions=True)  # raise if pull fails
 
     def is_commit_older_than(self, older, newer):
         if older == newer:
@@ -375,13 +376,19 @@ def _make_etag(latest_commit: str):
 
 
 def json_response(obj, pretty):
-    dump_args = {}
+    dump_args: Dict = {}
     if pretty:
         dump_args.setdefault("indent", 2)
     else:
         dump_args.setdefault("separators", (",", ":"))
+
+    dumps = flask.json.dumps
+    mimetype = current_app.config["JSONIFY_MIMETYPE"]
+    # XXX in flask 2.2+:
+    # dumps = current_app.json.dumps
+    # mimetype= current_app.json.mimetype
     return current_app.response_class(
-        f"{current_app.json.dumps(obj, **dump_args)}\n", mimetype=current_app.json.mimetype
+        f"{dumps(obj, **dump_args)}\n", mimetype=mimetype
     )
 
 
@@ -428,9 +435,7 @@ def export():
             if latest_commit and _make_etag(latest_commit) == etag:
                 return "Not Modified", 304
 
-        # XXX json_response fails: current_app.json mysteriously missing
-        # response = json_response(json_summary, request.args.get("pretty"))
-        response = jsonify(json_summary)
+        response = json_response(json_summary, request.args.get("pretty"))
         if latest_commit:
             response.headers["Etag"] = _make_etag(latest_commit)
         return response
@@ -787,7 +792,7 @@ def _patch_ensemble(body: dict, create: bool, project_id: str) -> str:
     logger.info(f"committed to {committed} repositories")
     if manifest.repo.repo.remotes:
         try:
-            manifest.repo.repo.remotes.origin.push()
+            manifest.repo.repo.remotes.origin.push().raise_if_error()
             logger.info("pushed")
         except Exception:
             # discard the last commit that we couldn't push
@@ -855,7 +860,7 @@ def _commit_and_push(repo, full_path, commit_msg):
     logger.info("committed %s: %s", full_path, commit_msg)
     if repo.repo.remotes:
         try:
-            repo.repo.remotes.origin.push()
+            repo.repo.remotes.origin.push().raise_if_error()
             logger.info("pushed")
         except Exception:
             # discard the last commit that we couldn't push

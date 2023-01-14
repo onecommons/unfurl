@@ -108,7 +108,7 @@ def map_constraints(jsonType, constraints, schema):
 ONE_TO_ONE_TYPES = ("string", "boolean", "map", "list")
 
 #  see constraints.PROPERTY_TYPES
-VALUE_TYPES = dict(
+VALUE_TYPES: Dict[str, Dict] = dict(
     integer={"type": "number"},
     string={"type": "string"},
     boolean={"type": "boolean"},
