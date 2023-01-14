@@ -140,7 +140,7 @@ class Configurator:
 
     exclude_from_digest: Tuple[str, ...] = ()
 
-    attribute_output_metadata_key = None
+    attribute_output_metadata_key: Optional[str] = None
 
     @classmethod
     def set_config_spec_args(klass, kw: dict, target: None) -> dict:
