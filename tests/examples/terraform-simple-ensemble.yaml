@@ -6,22 +6,36 @@ spec:
       - repository: unfurl
         file: tosca_plugins/artifacts.yaml
 
+    node_types:
+      # defines a type of resource that is managed (create/update/delete) by a terraform resource
+      GenericTerraformManagedResource:
+        derived_from: unfurl.nodes.Installer.Terraform
+        properties:
+          tag:
+            type: string
+            metadata:
+              # This declares that this property will set as a terraform variable with the same name:
+              tfvar: true
+        attributes:
+          test_output:
+            type: string
+            metadata:
+              # This declares that this attribute will be set to the terraform output with the same name:
+              tfoutput: true
+        interfaces:
+          defaults:
+            inputs:
+              main: { get_env: terraform_dir }
+          Standard:
+            configure:
+            delete:
+
     topology_template:
       node_templates:
         terraform-node:
-          type: unfurl.nodes.Installer.Terraform
-          # will look in spec/terraform-node for tf files by default
-          interfaces:
-            defaults:
-              outputs:
-                test_output:
-              inputs:
-                main: { get_env: terraform_dir }
-                tfvars: |
-                  tag = "test2"
-            Standard:
-              operations:
-                configure:
+          type: GenericTerraformManagedResource
+          properties:
+            tag: test2
 
         terraform-node-json:
           type: unfurl.nodes.Installer.Terraform
@@ -65,4 +79,3 @@ spec:
             Standard:
               operations:
                 configure:
-

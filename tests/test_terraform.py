@@ -62,6 +62,8 @@ class TerraformTest(unittest.TestCase):
                 "outputting test2!",
                 "Hello, test!",
             }
+            terraform_node = job.rootResource.find_resource("terraform-node")
+            self.assertEqual(terraform_node.attributes["test_output"], 'outputting test2!')
 
             # print(job.summary())
             # print(job._planSummary())
@@ -85,7 +87,7 @@ class TerraformTest(unittest.TestCase):
                             "target": "terraform-node",
                             "operation": "check",
                             "template": "terraform-node",
-                            "type": "unfurl.nodes.Installer.Terraform",
+                            "type": "GenericTerraformManagedResource",
                             "targetStatus": "absent",
                             "targetState": "initial",
                             "changed": True,
@@ -98,7 +100,7 @@ class TerraformTest(unittest.TestCase):
                             "target": "terraform-node",
                             "operation": "configure",
                             "template": "terraform-node",
-                            "type": "unfurl.nodes.Installer.Terraform",
+                            "type": "GenericTerraformManagedResource",
                             "targetStatus": "ok",
                             "targetState": "configured",
                             "changed": True,
@@ -188,7 +190,7 @@ class TerraformTest(unittest.TestCase):
                             "target": "terraform-node",
                             "operation": "delete",
                             "template": "terraform-node",
-                            "type": "unfurl.nodes.Installer.Terraform",
+                            "type": "GenericTerraformManagedResource",
                             "targetStatus": "absent",
                             "targetState": "deleted",
                             "changed": True,
@@ -252,7 +254,7 @@ class TerraformTest(unittest.TestCase):
                             "target": "terraform-node",
                             "operation": "check",
                             "template": "terraform-node",
-                            "type": "unfurl.nodes.Installer.Terraform",
+                            "type": "GenericTerraformManagedResource",
                             "targetStatus": "absent",
                             "targetState": "deleted",
                             "changed": False,

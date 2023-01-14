@@ -140,6 +140,8 @@ class Configurator:
 
     exclude_from_digest: Tuple[str, ...] = ()
 
+    attribute_output_metadata_key = None
+
     @classmethod
     def set_config_spec_args(klass, kw: dict, target: None) -> dict:
         return kw
@@ -445,7 +447,7 @@ class TaskView:
         """
         Update os.environ with the task's environ and save the current one so it can be restored by ``restore_envvars``
         """
-        self.logger.trace("update os.environ with %s", self.environ)
+        # self.logger.trace("update os.environ with %s", self.environ)
         for key in os.environ:
             current = self.environ.get(key)
             if current is None:
@@ -456,7 +458,7 @@ class TaskView:
 
     def restore_envvars(self):
         # restore the environ set on root resource
-        self.logger.trace("restoring os.environ with %s", self.target.root.environ)
+        # self.logger.trace("restoring os.environ with %s", self.target.root.environ)
         for key in os.environ:
             current = self.target.root.environ.get(key)
             if current is None:
@@ -718,6 +720,7 @@ class TaskView:
     #     """
 
     def _set_outputs(self, outputs):
+        metadata_key = self.configurator.attribute_output_metadata_key
         for key, value in outputs.items():
             mapping = self.configSpec.outputs.get(key)
             if mapping:
@@ -737,6 +740,10 @@ class TaskView:
                     )
                 else:
                     self.target.attributes[mapping] = value
+            elif metadata_key:
+                attr_def = self.target.template.attributeDefs.get(key)
+                if attr_def and attr_def.schema.get("metadata", {}).get(metadata_key):
+                    self.target.attributes[key] = value      
 
     def done(
         self,

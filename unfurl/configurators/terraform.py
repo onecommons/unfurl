@@ -8,7 +8,6 @@ from ..projectpaths import get_path, FilePath, Folders
 import json
 import os
 import os.path
-import six
 import re
 
 
@@ -96,6 +95,12 @@ def mark_sensitive(schemas, state, task, sensitive_names=()):
     return state
 
 
+def _get_tfvars_from_properties(instance):
+    return {p.name: instance.attributes[p.name]
+            for p in instance.template.propertyDefs.values()
+            if p.schema.get("metadata", {}).get("tfvar")}
+
+
 _main_tf_template = """\
 module "main" {
  source = "%s"
@@ -112,7 +117,7 @@ def generate_main(relpath, tfvars, outputs):
     # when the referenced output is sensitive
     sensitive = True
     # if tfvars are hcl:
-    if isinstance(tfvars, six.string_types):
+    if isinstance(tfvars, str):
         output = ""
         for name in outputs:
             if sensitive:
@@ -141,6 +146,7 @@ def _needs_init(msg):
 
 class TerraformConfigurator(ShellConfigurator):
     _default_cmd = "terraform"
+    attribute_output_metadata_key = "tfoutput"
 
     # provider schemas don't always mark keys as sensitive that they should, so just in case:
     sensitive_names = [
@@ -214,6 +220,28 @@ class TerraformConfigurator(ShellConfigurator):
             task.logger.debug("failed to load provider schema", exc_info=True)
             return None
 
+    def _get_outputs(self, task):
+        outputs = [p.name for p in task.target.template.attributeDefs.values()
+                   if p.schema.get("metadata", {}).get(self.attribute_output_metadata_key)]
+        if task.configSpec.outputs:
+            if isinstance(task.configSpec.outputs, (str, int)):
+                raise UnfurlTaskError(
+                    task,
+                    f'Invalid Terraform outputs specified "{task.configSpec.outputs}"',
+                )
+            outputs.extend(task.configSpec.outputs)
+        return outputs
+
+    def _get_tfvars(self, task):
+        tfvars = task.inputs.get_copy("tfvars")
+        if not isinstance(tfvars, str):
+            tfprops = _get_tfvars_from_properties(task.target)
+            if isinstance(tfvars, dict):
+                tfvars.update(tfprops)
+            else:
+                return tfprops
+        return tfvars
+
     def _prepare_workspace(self, task, cwd):
         """
         In terraform directory:
@@ -232,7 +260,7 @@ class TerraformConfigurator(ShellConfigurator):
                 )
         if task._errors:
             main = None  # assume render failed
-        if isinstance(main, six.string_types):
+        if isinstance(main, str):
             if "\n" in main:
                 # assume its HCL and not a path
                 contents = main
@@ -245,16 +273,10 @@ class TerraformConfigurator(ShellConfigurator):
                     relpath = cwd.relpath_to_current(main)
                     if relpath != ".":
                         write_vars = False
-                        outputs = []
-                        if task.configSpec.outputs:
-                            if isinstance(task.configSpec.outputs, (str, int)):
-                                raise UnfurlTaskError(
-                                    task,
-                                    f'Invalid Terraform outputs specified "{task.configSpec.outputs}"',
-                                )
-                            outputs = list(task.configSpec.outputs)
+                        outputs = self._get_outputs(task)
+                        tfvars = self._get_tfvars(task)
                         path, contents = generate_main(
-                            relpath, task.inputs.get_copy("tfvars"), outputs
+                            relpath, tfvars, outputs
                         )
 
                     # set this as FilePath so we can monitor changes to it
@@ -282,11 +304,11 @@ class TerraformConfigurator(ShellConfigurator):
     def _prepare_vars(self, task, cwd):
         # XXX .tfvars can be sensitive
         # we need to output the plan and convert it to json to see which variables are marked sensitive
-        tfvars = task.inputs.get_copy("tfvars")
+        tfvars = self._get_tfvars(task)
         if task._errors:
             return None  # assume render failed
         if tfvars:
-            if isinstance(tfvars, six.string_types):
+            if isinstance(tfvars, str):
                 # assume the contents of a tfvars file
                 path = "vars.tmp.tfvars"
             else:
