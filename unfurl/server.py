@@ -450,13 +450,16 @@ def populate_cache():
     requested_format = format_from_path(path)
     removed = request.args.get("removed")
     cache_entry = CacheEntry(project_id, branch, path, requested_format)
-    if removed:
+    visibility = request.args.get("visibility")
+    logger.info("populate cache with %s latest %s, removed %s visibility %s", cache_entry.cache_key(), latest_commit, removed, visibility)
+    if removed and removed not in ["0", "false"]:
         cache_entry.delete_cache(cache)
+        cache_entry._cancel_inflight(cache)
         return "OK"
     project_dir = _get_project_repo_dir(project_id)
     if not os.path.isdir(project_dir):
         # don't try to clone private repository
-        if request.args.get("visibility") != "public":
+        if visibility != "public":
             logger.info("skipping populate cache for private repository %s", project_id)
             return "OK"
     err, json_summary = cache_entry.get_or_set(cache, partial(_cache_work, request.args), latest_commit)
