@@ -655,6 +655,7 @@ def _patch_response(repo: GitRepo):
 def _patch_environment(body: dict, project_id: str) -> str:
     patch = body.get("patch")
     assert isinstance(patch, list)
+    already_exists = os.path.isdir(_get_project_repo_dir(project_id))
     clone_location = _fetch_localenv_location(project_id, "", body)
     if clone_location is None:
         # XXX create a new ensemble if patch is for a new deployment
@@ -663,6 +664,8 @@ def _patch_environment(body: dict, project_id: str) -> str:
     localEnv = LocalEnv(clone_location, can_be_empty=True)
     assert localEnv.project
     repo = localEnv.project.project_repoview.repo
+    if already_exists:
+        repo.pull()
     for patch_inner in patch:
         assert isinstance(patch_inner, dict)
         typename = patch_inner.get("__typename")
@@ -720,12 +723,15 @@ def _patch_ensemble(body: dict, create: bool, project_id: str) -> str:
     assert isinstance(patch, list)
     environment = body.get("environment") or ""  # cloud_vars_url need the ""!
     deployment_path = body.get("deployment_path") or ""
+    existing_repo = _get_project_repo(project_id)
     clone_location = _fetch_localenv_location(project_id, deployment_path, body)
     if clone_location is None:
         # XXX create a new ensemble if patch is for a new deployment
         return create_error_response("INTERNAL_ERROR", "Could not find repository")
     assert clone_location
     invalidate_cache(body, "deployment", project_id)
+    if existing_repo:
+        existing_repo.pull()
     deployment_blueprint = body.get("deployment_blueprint")
     if create:
         blueprint_url = body["blueprint_url"]
