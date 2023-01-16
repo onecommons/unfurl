@@ -5,8 +5,9 @@ import os
 import os.path
 from pathlib import Path
 import sys
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 import git
+import git.exc
 from .logs import getLogger
 from urllib.parse import urlparse
 from .util import UnfurlError, save_to_file
@@ -103,6 +104,8 @@ def split_git_url(url):
 
 
 class _ProgressPrinter(git.RemoteProgress):
+    gitUrl = ''
+
     def update(self, op_code, cur_count, max_count=None, message=""):
         # we use print instead of logging because we don't want to clutter logs with this message
         if message and logger.getEffectiveLevel() <= logging.INFO:
@@ -237,8 +240,8 @@ class Repo(abc.ABC):
             kwargs = dict(recurse_submodules=True)
             if revision:
                 kwargs["branch"] = revision
-            repo = git.Repo.clone_from(gitUrl, localRepoPath, progress, **kwargs)
-        except git.exc.GitCommandError as err:
+            repo = git.Repo.clone_from(gitUrl, localRepoPath, progress, **kwargs)  # type: ignore
+        except git.exc.GitCommandError as err:  # type: ignore
             raise UnfurlError(
                 f'couldn\'t create working directory, clone failed: "{err._cmdline}"\nTry re-running that command to diagnose the problem.'
             )
@@ -525,7 +528,7 @@ class GitRepo(Repo):
           tuple(int(status), str(stdout), str(stderr))
         """
         gitcmd = self.repo.git
-        call = [gitcmd.GIT_PYTHON_GIT_EXECUTABLE]
+        call: List[str] = [gitcmd.GIT_PYTHON_GIT_EXECUTABLE or "git"]
         # add persistent git options
         call.extend(gitcmd._persistent_git_options)
         call.extend(list(args))
@@ -533,7 +536,7 @@ class GitRepo(Repo):
         # note: sets cwd to working_dir
         return gitcmd.execute(
             call, with_exceptions=with_exceptions, with_extended_output=True, **kw
-        )
+        )  # type: ignore
 
     def add_to_local_git_ignore(self, rule):
         path = os.path.join(self.repo.git_dir, "info")
