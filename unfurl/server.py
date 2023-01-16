@@ -674,13 +674,13 @@ def _patch_environment(body: dict, project_id: str) -> str:
     repo = localEnv.project.project_repoview.repo
     if already_exists:
         repo.pull()
+    localConfig = localEnv.project.localConfig
     for patch_inner in patch:
         assert isinstance(patch_inner, dict)
         typename = patch_inner.get("__typename")
         deleted = patch_inner.get("__deleted") or False
         assert isinstance(deleted, bool)
         assert localEnv.project
-        localConfig = localEnv.project.localConfig
         if typename == "DeploymentEnvironment":
             environments = localConfig.config.config.setdefault("environments", {})
             name = patch_inner["name"]
@@ -703,7 +703,7 @@ def _patch_environment(body: dict, project_id: str) -> str:
             update_deployment(localEnv.project, patch_inner["name"], patch_inner, False, deleted)
     localConfig.config.save()
     commit_msg = body.get("commit_msg", "Update environment")
-    err = _commit_and_push(repo, localConfig.config.path, commit_msg)
+    err = _commit_and_push(repo, cast(str, localConfig.config.path), commit_msg)
     if err:
         return err  # err will be an error response
     return _patch_response(repo)
@@ -741,9 +741,11 @@ def _patch_ensemble(body: dict, create: bool, project_id: str) -> str:
     if existing_repo:
         existing_repo.pull()
     deployment_blueprint = body.get("deployment_blueprint")
-    if create:
+    if create: 
         blueprint_url = body["blueprint_url"]
         logger.info("creating deployment at %s for %s", clone_location, blueprint_url)
+        # set our local package overrides in the defaults in the dashboard skeleton's local/unfurl.yaml 
+        # var=["packages", app.config["UNFURL_CLOUD_SERVER"] + "onecommons/types"]
         msg = init.clone(blueprint_url, clone_location, existing=True, mono=True, skeleton="dashboard",
                          use_environment=environment, use_deployment_blueprint=deployment_blueprint)
         logger.info(msg)
@@ -753,9 +755,10 @@ def _patch_ensemble(body: dict, create: bool, project_id: str) -> str:
     #                      use_environment=environment, use_deployment_blueprint=deployment_blueprint)
     #     logger.info(msg)
 
-    # don't validate in case we are still an incomplete draft
     cloud_vars_url = body.get("cloud_vars_url") or ""
+    # set the UNFURL_CLOUD_VARS_URL because we may need to encrypt with vault secret when we commit changes.
     overrides = dict(ENVIRONMENT=environment, UNFURL_CLOUD_VARS_URL=cloud_vars_url)
+    # don't validate in case we are still an incomplete draft
     manifest = LocalEnv(clone_location, overrides=overrides).get_manifest(skip_validation=True)
     # logger.info("vault secrets %s", manifest.manifest.vault.secrets)
     for patch_inner in patch:
@@ -853,7 +856,7 @@ def _patch_ensemble(body: dict, create: bool, project_id: str) -> str:
 #     return "OK"
 
 
-def _commit_and_push(repo, full_path, commit_msg):
+def _commit_and_push(repo: GitRepo, full_path: str, commit_msg: str):
     repo.add_all(full_path)
     # XXX catch exception and run git restore to rollback working dir
     repo.commit_files([full_path], commit_msg)
@@ -865,7 +868,7 @@ def _commit_and_push(repo, full_path, commit_msg):
         except Exception:
             # discard the last commit that we couldn't push
             # this is mainly for security if we couldn't push because the user wasn't authorized
-            repo.repo.reset()
+            repo.reset()
             logger.error("push failed", exc_info=True)
             return create_error_response("INTERNAL_ERROR", "Could not push repository")
     return None

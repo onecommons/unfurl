@@ -6,7 +6,7 @@ pyrsistent==0.15.7; python_version<'3' # last version with 2.7 support (needed f
 jsonschema[format_nongpl]==3.2 # MIT
 ruamel.yaml>= 0.16.13; python_version>='3'  # MIT
 ansible>=4.2.0,<5.0 # gpl 3
-GitPython <= 3.1.14 # BSD (3.1.18 is incompatible with 3.7)
+GitPython == 3.1.30 # BSD
 rich==12.4.4  # MIT
 # the following are all Apache 2.0 (note: don't put comments on -r lines)
 -r tosca-parser/requirements.txt
