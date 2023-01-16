@@ -14,6 +14,7 @@ import flask.json
 from flask_caching import Cache
 
 import git
+from git.objects import Commit
 from .localenv import LocalEnv
 from .repo import GitRepo
 from .util import UnfurlError, get_package_digest
@@ -22,8 +23,6 @@ from .yamlmanifest import YamlManifest
 from . import to_json
 from . import init
 from . import __version__
-if TYPE_CHECKING:
-    from git.objects import Commit
 
 __logfile = os.getenv("UNFURL_LOGFILE")
 if __logfile:
