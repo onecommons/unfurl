@@ -25,14 +25,12 @@ from .tosca import ArtifactSpec, find_env_vars
 from .runtime import TopologyInstance
 from .eval import map_value
 from .planrequests import create_instance_from_spec
-
+from .logs import getLogger
 from ruamel.yaml.comments import CommentedMap
 from codecs import open
 from ansible.parsing.dataloader import DataLoader
 
-import logging
-
-logger = logging.getLogger("unfurl")
+logger = getLogger("unfurl")
 
 _basepath = os.path.abspath(os.path.dirname(__file__))
 
@@ -179,7 +177,7 @@ class ReadOnlyManifest(Manifest):
     """Loads an ensemble from a manifest but doesn't instantiate the instance model."""
 
     def __init__(
-        self, manifest=None, path=None, validate=True, localEnv=None, vault=None
+        self, manifest=None, path: Optional[str]=None, validate=True, localEnv=None, vault=None
     ):
         path = path or localEnv and localEnv.manifestPath
         if path:
@@ -211,8 +209,8 @@ class ReadOnlyManifest(Manifest):
         self._update_repositories(manifest)
 
     @property
-    def uris(self):
-        uris = []
+    def uris(self) -> List[str]:
+        uris: List[str] = []
         if "metadata" in self.manifest.config:
             uri = self.metadata.get("uri")
             uris = self.metadata.get("aliases") or []
@@ -323,8 +321,8 @@ class YamlManifest(ReadOnlyManifest):
             logger.info(msg)
 
         status = manifest.get("status", {})
-        self.changeLogPath = manifest.get("jobsLog")
-        self.jobsFolder = manifest.get("jobsFolder", "jobs")
+        self.changeLogPath: str = manifest.get("jobsLog") or ""
+        self.jobsFolder: str = manifest.get("jobsFolder", "jobs")
         if not self.changeLogPath and localEnv and manifest.get("changes") is None:
             # save changes to a separate file if we're in a local environment
             self.changeLogPath = DefaultNames.JobsLog
@@ -438,9 +436,8 @@ class YamlManifest(ReadOnlyManifest):
         otherwise create a new resource using the the topology as its template
         """
         # XXX use the substitution_mapping (3.8.12) represent the resource
-        template = self.tosca.topology
         operational = self.load_status(status)
-        root = TopologyInstance(template, operational)
+        root = TopologyInstance(self.tosca and self.tosca.topology, operational)
         root.attributeManager = self
         if os.environ.get("UNFURL_WORKDIR"):
             root.set_base_dir(os.environ["UNFURL_WORKDIR"])
@@ -504,7 +501,7 @@ class YamlManifest(ReadOnlyManifest):
             )
 
         if "project" in location:
-            importedManifest = self.localEnv.get_external_manifest(location)
+            importedManifest = self.localEnv and self.localEnv.get_external_manifest(location)
             if not importedManifest:
                 raise UnfurlError(
                     f"Can not import external ensemble '{name}': can't find project '{location['project']}'"
@@ -587,11 +584,11 @@ class YamlManifest(ReadOnlyManifest):
         else:
             # ok if we race here, we'll just raise an error
             self.lockfile = open(self.lockfilepath, "xb", buffering=0)
-            self.lockfile.write(bytes(str(os.getpid()), "ascii"))
+            self.lockfile.write(bytes(str(os.getpid()), "ascii"))  # type: ignore
             return True
 
     def unlock(self):
-        if self.lockfile:
+        if self.lockfile and self.lockfilepath:
             # unlink first to avoid race (this will fail on Windows)
             os.unlink(self.lockfilepath)
             self.lockfile.close()
@@ -617,7 +614,7 @@ class YamlManifest(ReadOnlyManifest):
             return self.changeSets[changeId]
         return None
 
-    def save_entity_instance(self, resource):
+    def save_entity_instance(self, resource) -> Tuple[str, Dict]:
         status = CommentedMap()
         status["template"] = resource.template.get_uri()
 
@@ -637,7 +634,7 @@ class YamlManifest(ReadOnlyManifest):
             status["protected"] = resource.protected
         return (resource.name, status)
 
-    def save_requirement(self, resource):
+    def save_requirement(self, resource) -> Optional[List[Dict[str, Dict]]]:
         if not resource.last_change and (
             not resource.local_status or resource.local_status <= Status.ok
         ):
@@ -647,7 +644,7 @@ class YamlManifest(ReadOnlyManifest):
         status["capability"] = resource.parent.key
         return [{name: status}]
 
-    def _save_entity_if_instantiated(self, resource, checkstatus=True):
+    def _save_entity_if_instantiated(self, resource, checkstatus=True) -> Optional[Tuple[str, Dict]]:
         if "virtual" in resource.template.directives:
             return None
         if not resource.last_change and (
@@ -672,7 +669,7 @@ class YamlManifest(ReadOnlyManifest):
             return ret
         name, status = ret
 
-        if self.tosca.discovered and resource.template.name in self.tosca.discovered:
+        if self.tosca and self.tosca.discovered and resource.template.name in self.tosca.discovered:
             discovered[resource.template.name] = self.tosca.discovered[
                 resource.template.name
             ]
@@ -810,7 +807,7 @@ class YamlManifest(ReadOnlyManifest):
             changes = list(
                 map(lambda t: save_task(t, exclude_result), job.workDone.values())
             )
-            if self.changeLogPath:
+            if self.changeLogPath and self.path is not None:
                 self.manifest.config["jobsLog"] = self.changeLogPath
 
                 jobLogPath = self.get_job_log_path(jobRecord["startTime"])
@@ -870,7 +867,7 @@ class YamlManifest(ReadOnlyManifest):
             if not repository.readOnly and repository.is_dirty():
                 repository.add_all()
 
-    def commit(self, msg, addAll):
+    def commit(self, msg: str, addAll: bool) -> int:
         committed = 0
         for repository in self.repositories.values():
             if repository.repo == self.repo:
@@ -953,9 +950,10 @@ class YamlManifest(ReadOnlyManifest):
         try:
             changelog = CommentedMap()
             fullPath = self.get_job_log_path(jobRecord["startTime"])
-            changelog["manifest"] = os.path.relpath(
-                self.manifest.path, os.path.dirname(fullPath)
-            )
+            if self.manifest.path is not None:
+                changelog["manifest"] = os.path.relpath(
+                    self.manifest.path, os.path.dirname(fullPath)
+                )
             changes = itertools.chain([jobRecord], newChanges)
             changelog["changes"] = list(changes)
             output = six.StringIO()

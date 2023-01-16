@@ -575,7 +575,7 @@ def _make_typedef(typename, custom_defs):
 
 def to_graphql_nodetypes(spec):
     # node types are readonly, so mapping doesn't need to be bijective
-    types = {}
+    types: Dict[str, Dict[str, Any]] = {}
     custom_defs = spec.template.topology_template.custom_defs
     for typename in custom_defs:
         if typename in types:
@@ -1179,7 +1179,7 @@ def add_graphql_deployment(manifest, db, dtemplate):
     title = dtemplate.get("title") or name
     deployment = dict(name=name, title=title, __typename="Deployment")
     templates = db["ResourceTemplate"]
-    relationships = {}
+    relationships: Dict[str, List[Dict]] = {}
     for t in templates.values():
         if "dependencies" in t:
             for c in t["dependencies"]:
@@ -1253,7 +1253,7 @@ def mark_leaf_types(types):
     # types without implementations can't be instantiated by users
     # treat non-leaf types as abstract types that shouldn't be instatiated
     # treat leaf types that have requirements as having implementations
-    counts = Counter()
+    counts: Counter = Counter()
     for rt in types.values():
         for name in rt["extends"]:
             counts[name] += 1

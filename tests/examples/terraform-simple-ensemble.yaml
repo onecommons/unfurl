@@ -59,8 +59,9 @@ spec:
               outputs:
                 tag: tag
               inputs:
-                tfvars:
-                  tag: test
+                # test with strings instead of maps
+                tfvars: |
+                  tag = "test"
                 main: |
                   terraform {
                     required_version = ">= 0.12.26"

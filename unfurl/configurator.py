@@ -18,7 +18,7 @@ import six
 from collections.abc import Mapping
 import os
 import copy
-
+from toscaparser.properties import Property
 from .logs import UnfurlLogger, Levels, LogExtraLevels
 
 if TYPE_CHECKING:
@@ -372,7 +372,7 @@ class TaskLoggerAdapter(logging.LoggerAdapter, LogExtraLevels):
         if self.isEnabledFor(level):
             # task for {resource name}: {operation} (reason: {resource})
             # e.g. Task for test-node: configure (reason: missing)
-            task: TaskView = self.extra
+            task = cast(TaskView, self.extra)
             task_id = f"for {task.target.name}: {task.configSpec.operation}"
             if task.reason:
                 task_id += f" (reason: {task.reason})"
@@ -719,8 +719,8 @@ class TaskView:
     #     outputs to share operation outputs so far
     #     """
 
-    def _set_outputs(self, outputs):
-        metadata_key = self.configurator.attribute_output_metadata_key
+    def _set_outputs(self, outputs: Dict[str, Any]) -> None:
+        metadata_key = self.configurator.attribute_output_metadata_key  # type: ignore
         for key, value in outputs.items():
             mapping = self.configSpec.outputs.get(key)
             if mapping:
@@ -965,6 +965,7 @@ class TaskView:
 
         template = resourceSpec.get("template")
         if template:
+            assert self._manifest.tosca
             if isinstance(template, dict):
                 tname = existingResource.template.name
                 existingResource.template = self._manifest.tosca.add_node_template(tname, template)
@@ -1208,7 +1209,8 @@ class Dependency(Operational):
         value = Ref(self.expr).resolve(RefContext(self.target))
         if isinstance(self.schema, dict):
             return not validate_schema(value, self.schema)
-        else:  # ProperyDef
+        else:
+            assert isinstance(self.schema, Property), type(self.schema)
             try:
                 self.schema._validate(value)
             except Exception:

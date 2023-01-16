@@ -1030,14 +1030,16 @@ def commit(ctx, project_or_ensemble_path, message, skip_add, no_edit, **options)
         can_be_empty=True,
         override_context=options.get("use_environment") or "",
     )
-    if localEnv.manifestPath:
+    if localEnv.manifestPath and len(os.path.abspath(project_or_ensemble_path)) >= len(localEnv.manifestPath):
         committer: Union["YamlManifest", "RepoView"] = localEnv.get_manifest()
     else:
+        # otherwise commit the whole project
         assert localEnv.project
         committer = localEnv.project.project_repoview
 
     if not skip_add:
         committer.add_all()
+
     if not message:
         if no_edit:
             message = committer.get_default_commit_message()

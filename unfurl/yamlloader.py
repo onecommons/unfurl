@@ -379,8 +379,8 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                             )
                         ) % {
                             "path": path,
-                            "code": e.code,
-                        }  # type: ignore
+                            "code": e.code,  # type: ignore
+                        }
                         ExceptionCollector.appendException(URLException(what=msg))
                         return
                     else:
@@ -453,7 +453,7 @@ class YamlConfig:
             self._cachedDocIncludes = {}
             # schema should include defaults but can't validate because it doesn't understand includes
             # but should work most of time
-            self.config.loadTemplate = self.load_include
+            self.config.loadTemplate = self.load_include  # type: ignore
             self.loadHook = loadHook
 
             self.baseDirs = [self.get_base_dir()]
@@ -670,7 +670,7 @@ class YamlConfig:
             else:
                 newBaseDir = os.path.dirname(path)
             if isinstance(template, dict):
-                template.base_dir = newBaseDir
+                template.base_dir = newBaseDir  # type: ignore
             _cache_anchors(self.config._anchorCache, template)
         except Exception:
             raise UnfurlError(

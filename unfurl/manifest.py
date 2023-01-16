@@ -4,7 +4,7 @@ from collections.abc import Mapping
 import os.path
 import hashlib
 import json
-from typing import Dict, Optional, Any, Sequence
+from typing import Dict, List, Optional, Any, Sequence, TYPE_CHECKING
 from ruamel.yaml.comments import CommentedMap
 
 from .tosca import ToscaSpec, TOSCA_VERSION, ArtifactSpec
@@ -30,13 +30,14 @@ from .repo import RevisionManager, split_git_url, RepoView
 from .merge import merge_dicts
 from .result import ChangeRecord
 from .yamlloader import YamlConfig, yaml, ImportResolver, yaml_dict_type
+from .logs import getLogger
 import toscaparser.imports
 from toscaparser.repositories import Repository
 
-# from .configurator import Dependency
-import logging
+if TYPE_CHECKING:
+    from unfurl.localenv import LocalEnv
 
-logger = logging.getLogger("unfurl")
+logger = getLogger("unfurl")
 
 _basepath = os.path.abspath(os.path.dirname(__file__))
 
@@ -78,7 +79,7 @@ class Manifest(AttributeManager):
 
     rootResource: Optional[TopologyInstance] = None
 
-    def __init__(self, path, localEnv=None):
+    def __init__(self, path: Optional[str], localEnv: Optional["LocalEnv"]=None):
         super().__init__(yaml)
         self.localEnv = localEnv
         self.path = path
@@ -88,13 +89,13 @@ class Manifest(AttributeManager):
         self.changeSets: Optional[Dict[str, ChangeRecordRecord]] = None
         self.tosca = None
         self.specDigest = None
-        self.repositories = {}
+        self.repositories: Dict[str, RepoView] = {}
         if self.localEnv:
             # before we start parsing the manifest, add the repositories in the environment
             self._add_repositories_from_environment()
         self.imports = Imports()
         self.imports.manifest = self
-        self._importedManifests = {}
+        self._importedManifests: Dict = {}
 
     def _add_repositories_from_environment(self):
         assert self.localEnv
@@ -149,7 +150,7 @@ class Manifest(AttributeManager):
                 more_spec,
                 replaceKeys=["node_templates", "relationship_templates"],
             )
-        yaml_dict_cls = yaml_dict_type(self.localEnv and self.localEnv.readonly)
+        yaml_dict_cls = yaml_dict_type(bool(self.localEnv and self.localEnv.readonly))
         if not isinstance(toscaDef, yaml_dict_cls):
             toscaDef = yaml_dict_cls(toscaDef.items())
         if getattr(toscaDef, "base_dir", None) and (
@@ -163,6 +164,7 @@ class Manifest(AttributeManager):
 
     def get_spec_digest(self, spec):
         m = hashlib.sha1()  # use same digest function as git
+        assert self.tosca
         t = self.tosca.template
         for tpl in [spec, t.topology_template.custom_defs, t.nested_tosca_tpls]:
             m.update(json.dumps(tpl, sort_keys=True).encode("utf-8"))
@@ -197,10 +199,10 @@ class Manifest(AttributeManager):
         if lastChange:
             try:
                 return self.revisions.get_revision(lastChange).tosca.get_template(name)
-            except:
+            except Exception:
                 return None
         else:
-            return self.tosca.get_template(name)
+            return self.tosca and self.tosca.get_template(name)
 
     #  load instances
     #    create a resource with the given template
@@ -425,7 +427,7 @@ class Manifest(AttributeManager):
             for child in instance.instances:
                 summary(child, indent)
 
-        output = []
+        output: List[str] = []
         summary(self.rootResource, 0)
         return "\n".join(output)
 
@@ -456,7 +458,7 @@ class Manifest(AttributeManager):
         return repo, filePath, revision, bare
 
     def add_repository(self, repo, toscaRepository, file_name):
-        repository: RepoView = self.repositories.get(toscaRepository.name)
+        repository: Optional[RepoView] = self.repositories.get(toscaRepository.name)
         if repository:
             # already exist, make sure it's the same repo
             repo = repo or repository.repo
@@ -532,16 +534,17 @@ class Manifest(AttributeManager):
         inProject = False
         if self.localEnv and self.localEnv.project:
             if self.localEnv.project is self.localEnv.homeProject:
-                inProject = self.localEnv.project.projectRoot in self.path
+                inProject = self.localEnv.project.projectRoot in self.path  # type: ignore
             else:
                 inProject = True
         if inProject and "project" not in repositories:
-            repositories["project"] = self.localEnv.project.project_repoview
+            repositories["project"] = self.localEnv.project.project_repoview  # type: ignore
 
         if "spec" not in repositories:
             # if not found assume it points the project root or self if not in a project
             if inProject:
-                repositories["spec"] = self.localEnv.project.project_repoview
+                assert self.localEnv and self.localEnv.project
+                repositories["spec"] = self.localEnv.project.project_repoview  # type: ignore
             else:
                 repositories["spec"] = repositories["self"]
         return {name: repo.repository.tpl for name, repo in self.repositories.items()}
