@@ -97,7 +97,7 @@ class CacheEntry:
     file_path: str  # relative to project root
     key: str
     repo: Optional[GitRepo] = None
-    commitinfo: Optional["Commit"] = None
+    commitinfo: Union[bool, Optional["Commit"]] = None
     hit: Optional[bool] = None
 
     def _set_project_repo(self) -> Optional[GitRepo]:
@@ -118,7 +118,7 @@ class CacheEntry:
     def set_cache(self, cache, latest_commit: Optional[str], value: Any) -> str:
         full_key = self.cache_key()
         logger.info("setting cache with %s", full_key)
-        last_commit = self.commitinfo and self.commitinfo.hexsha
+        last_commit = isinstance(self.commitinfo, Commit) and self.commitinfo.hexsha
         if not last_commit:
             if not self.repo:
                 self._set_project_repo()
@@ -157,7 +157,7 @@ class CacheEntry:
             return True
         return False
 
-    def get_cache(self, cache, latest_commit: Optional[str]) -> Tuple[Any, Union[bool, "Commit"]]:
+    def get_cache(self, cache, latest_commit: Optional[str]) -> Tuple[Any, Union[bool, Optional["Commit"]]]:
         """Look up a cached value and then check if it out of date by checking if the file path in the key was modified after the given commit
         (also store the last_commit so we don't have to do that check everytime)
         we assume latest_commit is the last commit the client has seen but it might be older than the local copy
@@ -208,7 +208,7 @@ class CacheEntry:
             else:
                 # stale -- up to the caller to do something about it, e.g. update or delete the key
                 logger.info("stale cache hit for %s with %s", full_key, latest_commit)
-                return response, self.commitinfo
+                return response, self.commitinfo  # type: ignore
 
     def _set_inflight(self, cache, latest_commit) -> Tuple[Any, Union[bool, "Commit"]]:
         inflight = cache.get(self._inflight_key())
@@ -495,7 +495,7 @@ def _make_readonly_localenv(clone_location, parent_localenv=None):
 def _do_export(project_id: str, requested_format: str, deployment_path: str,
                cache_entry: Optional[CacheEntry], latest_commit: str, args: dict) -> Tuple[Optional[Any], Optional[str]]:
     if project_id:
-        if cache_entry and cache_entry.commitinfo:
+        if cache_entry and isinstance(cache_entry.commitinfo, Commit):
             repo = GitRepo(cache_entry.commitinfo.repo)
             clone_location: Optional[str] = os.path.join(repo.working_dir, deployment_path)
         else:

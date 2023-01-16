@@ -298,7 +298,7 @@ class RepoView:
         self.yaml = None
 
     @property
-    def working_dir(self):
+    def working_dir(self) -> str:
         if self.repo:
             return os.path.join(self.repo.working_dir, self.path)
         else:
@@ -447,9 +447,9 @@ class RepoView:
 
 
 class GitRepo(Repo):
-    def __init__(self, gitrepo):
+    def __init__(self, gitrepo: git.Repo):
         self.repo = gitrepo
-        self.url = self.working_dir or gitrepo.git_dir
+        self.url = self.working_dir or str(gitrepo.git_dir)
         if gitrepo.remotes:
             # note: these might not look like absolute urls, e.g. git@github.com:onecommons/unfurl.git
             try:
@@ -459,9 +459,12 @@ class GitRepo(Repo):
             self.url = remote.url
 
     @property
-    def working_dir(self):
+    def working_dir(self) -> str:
         dir = self.repo.working_tree_dir
-        if not dir or dir[-1] == "/":
+        if not dir:
+            return ""
+        dir = str(dir)
+        if dir[-1] == "/":
             return dir
         else:
             return dir + "/"
