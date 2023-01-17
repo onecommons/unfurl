@@ -141,23 +141,27 @@ def runner():
 def set_up_deployment(runner, deployment):
     init_project(
         runner,
-        args=["init", "--mono"],
+        args=["init", "--mono", "--var", "vaultpass", "", "remote"],
         env=dict(UNFURL_HOME=""),
     )
-
     # Create a mock deployment
-    with open("ensemble/ensemble.yaml", "w") as f:
+    with open("remote/ensemble/ensemble.yaml", "w") as f:
         f.write(deployment)
 
-    repo = Repo.init('.')
+    repo = Repo.init('remote')
     repo = GitRepo(repo)
-    repo.add_all()
-    repo.commit_files(["ensemble/ensemble.yaml"], "Add deployment")
+    repo.add_all('remote')
+    repo.commit_files(["remote/ensemble/ensemble.yaml"], "Add deployment")
+
+    # we need a bare repo for push to work
+    os.system("git clone --bare remote remote.git")
 
     port = _next_port()
+
+    os.makedirs("server")
     p = Process(
         target=server.serve,
-        args=("localhost", port, None, ".", ".", {"home": ""}, ),
+        args=("localhost", port, None, "server", ".", {"home": ""}, "remote.git"),
     )
     assert start_server_process(p, port)
 
@@ -363,14 +367,10 @@ def test_server_update_deployment():
 
             target_patch = patch.format("target")
             res = requests.post(
-                f"http://localhost:{port}/update_ensemble",
+                f"http://localhost:{port}/update_ensemble?auth_project=remote",
                 json={
-                    "projectPath": ".",
                     "patch": json.loads(target_patch),
                 },
-                headers={
-                    "X-Git-Credentials": b64encode("username:token".encode())
-                }
             )
             assert res.status_code == 200
             last_commit = res.json()["commit"]
@@ -378,7 +378,7 @@ def test_server_update_deployment():
             res = requests.get(
                 f"http://localhost:{port}/export",
                 params={
-                    "auth_project": ".",
+                    "auth_project": "remote",
                     "latest_commit": last_commit,  # enable caching but just get the latest in the cache
                     "format": "deployment",
                 },
@@ -386,8 +386,11 @@ def test_server_update_deployment():
             assert res.status_code == 200
             assert res.json()["ResourceTemplate"]["container_service"]["properties"][0]["name"] == "container"
 
+            os.chdir("remote")
+            # server pushed to remote.git
+            os.system("git pull ../remote.git")
             with open("ensemble/ensemble.yaml", "r") as f:
-                data = yaml.load(f.read())     
+                data = yaml.load(f.read())
                 assert (data['spec']
                             ['service_template']
                             ['topology_template']
@@ -400,15 +403,16 @@ def test_server_update_deployment():
                         ) == "target"
 
             res = requests.post(
-                f"http://localhost:{port}/update_ensemble",
+                f"http://localhost:{port}/update_ensemble?auth_project=remote",
                 json={
-                    "projectPath": ".",
                     "patch": json.loads(delete_patch),
                 }
             )
             assert res.status_code == 200
             assert res.content.startswith(b'{"commit":')
 
+            # server pushed to remote.git
+            os.system("git pull ../remote.git")
             with open("ensemble/ensemble.yaml", "r") as f:
                 data = yaml.load(f.read())
                 assert not data['spec']['service_template']['topology_template']['node_templates']
@@ -417,5 +421,3 @@ def test_server_update_deployment():
             if p:
                 p.terminate()
                 p.join()
-
-# XXX test patching with remote url
