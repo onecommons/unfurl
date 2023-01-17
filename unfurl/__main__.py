@@ -224,6 +224,13 @@ commonJobFilterOptions = option_group(
         default=None,
         help="Run this job in the given environment.",
     ),
+    click.option(
+        "--var",
+        nargs=2,
+        type=click.Tuple([str, str]),
+        multiple=True,
+        help="name/value pair to pass to job (multiple times ok).",
+    )
 )
 destroyUnmanagedOption = click.option(
     "--destroyunmanaged",
@@ -723,6 +730,13 @@ def plan(ctx, ensemble=None, **options):
 @click.option(
     "--use-deployment-blueprint",
     help="Use this deployment blueprint.",
+)
+@click.option(
+    "--var",
+    nargs=2,
+    type=click.Tuple([str, str]),
+    multiple=True,
+    help="name/value pair to pass to skeleton (multiple times ok).",
 )
 def init(ctx, projectdir, ensemble_name=None, **options):
     """

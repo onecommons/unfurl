@@ -1340,6 +1340,7 @@ def start_job(manifestPath=None, _opts=None):
         manifestPath,
         _opts.get("home"),
         override_context=_opts.get("use_environment") or "",
+        overrides=dict((n, v) for n, v in _opts.get("var", []))
         # XXX readonly=_opts.get("planOnly")
     )
     opts = JobOptions(**_opts)

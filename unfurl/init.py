@@ -9,7 +9,7 @@ import os.path
 import shutil
 import sys
 import json
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 import uuid
 import logging
 from jinja2.loaders import FileSystemLoader
@@ -195,6 +195,7 @@ def render_project(
     use_context=None,
     mono=False,
     no_secrets=False,
+    skeleton_vars: Optional[Dict[str, Any]]=None,
 ):
     """
     Creates a folder named `projectdir` with a git repository with the following files:
@@ -226,12 +227,19 @@ def render_project(
         manifestName = names.Ensemble
         ensemblePath = os.path.join(ensembleDir, manifestName)
 
-    vaultpass = get_random_password()
-    # use project name plus a couple of random digits to avoid collisions
-    vaultid = (
-        Project.get_name_from_dir(projectdir) + get_random_password(2, "", "").upper()
-    )
-    vars = dict(vaultpass=vaultpass, vaultid=vaultid)
+    if skeleton_vars:
+        vars = skeleton_vars.copy()
+    else:
+        vars = {}
+    if "vaultpass" not in vars:
+        vars["vaultpass"] = get_random_password()
+    vaultpass = vars["vaultpass"]
+    if "vaultid" not in vars:
+        # use project name plus a couple of random digits to avoid collisions
+        vars["vaultid"] = (
+            Project.get_name_from_dir(projectdir) + get_random_password(2, "", "").upper()
+        )
+    vaultid = vars["vaultid"]
 
     # only commit external ensembles references if we are creating a mono repo
     # otherwise record them in the local config:
@@ -250,7 +258,8 @@ def render_project(
         templateDir,
     )
 
-    _warn_about_new_password(localProjectConfig)
+    if not skeleton_vars or "vaultpass" not in skeleton_vars:
+        _warn_about_new_password(localProjectConfig)
 
     localInclude = "+?include-local: " + os.path.join("local", localConfigFilename)
 
@@ -270,6 +279,8 @@ def render_project(
 
     # note: local overrides secrets
     vars = dict(include=secretsInclude + "\n" + localInclude, vaultid=vaultid)
+    if skeleton_vars:
+        vars.update(skeleton_vars)
     if use_context and not localExternal:
         # since this is specified while creating the project set this as the default context
         vars["default_context"] = use_context
@@ -305,6 +316,8 @@ def render_project(
             # include the ensembleTemplate in the root of the specDir
             ensembleTemplate=names.EnsembleTemplate,
         )
+        if skeleton_vars:
+            extraVars.update(skeleton_vars)
         # write ensemble/ensemble.yaml
         write_ensemble_manifest(
             ensembleDir,
@@ -397,6 +410,7 @@ def create_project(
 ):
     create_context = kw.get("create_environment")
     use_context = kw.get("use_environment")
+    skeleton_vars = dict((n, v) for n, v in kw.get("var", []))
     if existing:
         repo = _find_project_repo(projectdir)
     else:
@@ -447,6 +461,8 @@ def create_project(
         names,
         create_context or use_context,
         mono,
+        False,
+        skeleton_vars,
     )
     if homePath and create_context:
         newProject = find_project(projectConfigPath, homePath)

@@ -917,7 +917,7 @@ class LocalEnv:
         logger = logging.getLogger("unfurl")
         self.logger = logger
         self.manifest_context_name = None
-        self.overrides: dict = overrides or {}
+        self.overrides: dict = overrides or (parent and parent.overrides.copy()) or {}
         self.readonly = readonly
         if override_context is not None:
             # aka the --use-environment option
