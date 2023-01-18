@@ -534,9 +534,9 @@ class GitRepo(Repo):
         call.extend(list(args))
 
         # note: sets cwd to working_dir
-        return gitcmd.execute(
+        return gitcmd.execute(  # type: ignore
             call, with_exceptions=with_exceptions, with_extended_output=True, **kw
-        )  # type: ignore
+        )  
 
     def add_to_local_git_ignore(self, rule):
         path = os.path.join(self.repo.git_dir, "info")

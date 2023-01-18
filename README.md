@@ -130,8 +130,6 @@ The `stable` tag matches the version published to PyPi; `latest` is the latest c
 - Git
 - Python (3.7, 3.8, 3.9, 3.10 or 3.11)
 
-  > Python 3.6 is not tested automatically but should work. Make sure you have the latest version of pip installed (`pip install -U pip`), and may need Rust installed for the [cryptography library](https://github.com/pyca/cryptography/blob/main/docs/installation.rst).
-
 Optional: Docker or Podman
 
 ## Shell autocomplete

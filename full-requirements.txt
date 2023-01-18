@@ -12,7 +12,8 @@ requests>=2.14.2 # Apache 2.0
 google-cloud-compute==1.3.2
 google-cloud-dns==0.34.0
 google-auth # Apache 2.0
-grpcio==1.50.0 # fix issue with m1 macs
+grpcio==1.48.2; python_version<'3.7' # last 3.6 version
+grpcio==1.50.0; python_version>='3.7' # fix issue with m1 macs
 python-gitlab<=3.4.0
 gunicorn==20.1.0
 redis==4.3.5
