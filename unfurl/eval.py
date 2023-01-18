@@ -292,7 +292,7 @@ class Expr:
         # XXX vars
         return f"Expr('{self.source}')"
 
-    def resolve(self, context) -> List[Any]:
+    def resolve(self, context) -> List[Result]:
         # returns a list of Result
         currentResource = context.currentResource
         if not self.paths[0].key and not self.paths[0].filters:  # starts with "::"
@@ -564,17 +564,14 @@ def for_each(
     return ResultsList(result, ctx)  # ResultsList[List[ResultOrResultList]]]
 
 
-def for_each_func(foreach: Union[Mapping, str], ctx: RefContext):
+def for_each_func(foreach: Union[Mapping, str], ctx: RefContext) -> List[ResultOrResultList]:
     results = ctx.currentResource
-    if results:
-        if isinstance(results, Mapping):
-            return _for_each(foreach, results.items(), ctx)
-        elif isinstance(results, MutableSequence):
-            return _for_each(foreach, enumerate(results), ctx)
-        else:
-            return _for_each(foreach, [(0, results)], ctx)
+    if isinstance(results, Mapping):
+        return _for_each(foreach, results.items(), ctx)
+    elif isinstance(results, MutableSequence):
+        return _for_each(foreach, enumerate(results), ctx)
     else:
-        return results
+        return _for_each(foreach, [(0, results)], ctx)
 
 
 _Funcs = {
@@ -668,7 +665,7 @@ Segment = collections.namedtuple("Segment", ["key", "test", "modifier", "filters
 defaultSegment = Segment("", [], "", [])
 
 
-def eval_test(value, test, context):
+def eval_test(value, test, context) -> bool:
     comparor = test[0]
     key = test[1]
     try:
@@ -687,12 +684,11 @@ def eval_test(value, test, context):
     return False
 
 
-# given a Result and a key, return None or new Result
-def lookup(result, key, context):
+def lookup(result: Result, key: Any, context: RefContext) -> Optional[Result]:
     try:
         # if key == '.':
         #   key = context.currentKey
-        if context and isinstance(key, six.string_types) and key.startswith("$"):
+        if context and isinstance(key, str) and key.startswith("$"):
             key = context.resolve_var(key)
 
         if isinstance(result.resolved, ResourceRef):
@@ -812,7 +808,7 @@ def recursive_eval(v, exp, context):
                     return
 
 
-def eval_exp(start, paths, context):
+def eval_exp(start, paths, context) -> List[Result]:
     "Returns a list of Result"
     context.trace("evalexp", start, paths)
     assert_form(start, MutableSequence)

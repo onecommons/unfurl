@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: MIT
 import itertools
 import re
+from typing import Any, Dict, List, MutableMapping, Optional, Tuple
 import six
 from collections import namedtuple
 from collections.abc import Mapping, MutableSequence, Sequence
@@ -207,12 +208,12 @@ def find_anchor(doc, anchorName):
         _anchorCache = {}
         # recursively find anchors
         _cache_anchors(_anchorCache, doc)
-        doc._anchorCache = _anchorCache
+        doc._anchorCache = _anchorCache  # type: ignore
 
     return _anchorCache.get(anchorName)
 
 
-def _json_pointer_unescape(s):
+def _json_pointer_unescape(s: str) -> str:
     return s.replace("~1", "/").replace("~0", "~")
 
 
@@ -256,6 +257,7 @@ def get_template(doc, key, value, path, cls, includes=None):
             # if the include path starts with the path to the template
             # throw recursion error
             if not key.include and not key.anchor:
+                assert templatePath is not None
                 prefix = list(
                     itertools.takewhile(lambda x: x[0] == x[1], zip(path, templatePath))
                 )
@@ -272,7 +274,7 @@ def get_template(doc, key, value, path, cls, includes=None):
     return template
 
 
-def _find_template(doc, key, path, cls, fail):
+def _find_template(doc: MutableMapping, key, path, cls, fail) -> Optional[Tuple[Any, Optional[List[str]]]]:
     template = doc
     templatePath = None
     if key.anchor:
@@ -307,7 +309,7 @@ def _find_template(doc, key, path, cls, fail):
             except ValueError:
                 pass
         try:
-            template = template[segment]
+            template = template[segment]  # type: ignore
         except (TypeError, LookupError):
             if not fail:
                 return None
@@ -320,7 +322,7 @@ def _find_template(doc, key, path, cls, fail):
     return template, templatePath
 
 
-def has_template(doc, key, value, path, cls):
+def has_template(doc: dict, key, value, path, cls) -> bool:
     if key.include:
         if key.maybe:
             # treat missing includes as null template instead of an error
@@ -328,7 +330,7 @@ def has_template(doc, key, value, path, cls):
         loadTemplate = getattr(doc, "loadTemplate", None)
         if not loadTemplate:
             return False
-        return doc.loadTemplate(value, key.maybe, doc, True)
+        return doc.loadTemplate(value, key.maybe, doc, True)  # type: ignore
     return _find_template(doc, key, path, cls, False) is not None
 
 
@@ -347,7 +349,7 @@ RE_FIRST = re.compile(r"([?]?)(include\d*)?([*]\S+)?([.]+$)?")
 MergeKey = namedtuple("MergeKey", "key, maybe, include, anchor, relative, pointer")
 
 
-def parse_merge_key(key):
+def parse_merge_key(key) -> Optional[MergeKey]:
     """
     +[maybe]?[include]?[anchor]?[relative]?[jsonpointer]?
 
@@ -360,7 +362,10 @@ def parse_merge_key(key):
     _json_pointer_validate(key)
     parts = [_json_pointer_unescape(part) for part in key.split("/")]
     first = parts.pop(0)
-    maybe, include, anchor, relative = RE_FIRST.match(first).groups()
+    match = RE_FIRST.match(first)
+    if not match:
+        return None
+    maybe, include, anchor, relative = match.groups()
     if anchor:
         # relative will be included in anchor
         relative = len(anchor.rstrip(".")) - len(anchor)
@@ -467,7 +472,7 @@ def expand_doc(doc, current=None, cls=dict):
     expanded = expand_dict(doc, (), includes, current, cls)
     assert isinstance(expanded, Mapping), expanded
     if hasattr(doc, "_anchorCache"):
-        expanded._anchorCache = doc._anchorCache
+        expanded._anchorCache = doc._anchorCache  # type: ignore
     last = 0
     while True:
         missing = list(_find_missing_includes(includes))
@@ -484,7 +489,7 @@ def expand_doc(doc, current=None, cls=dict):
         includes = CommentedMap()
         expanded = expand_dict(expanded, (), includes, current, cls)
         if hasattr(doc, "_anchorCache"):
-            expanded._anchorCache = doc._anchorCache
+            expanded._anchorCache = doc._anchorCache  # type: ignore
 
 
 def expand_list(doc, path, includes, value, cls=dict):
@@ -532,7 +537,7 @@ def diff_dicts(old, new, cls=dict):
 
 
 # XXX rename function, confusing name
-def patch_dict(old, new, preserve=False):
+def patch_dict(old: MutableMapping, new: Mapping, preserve=False) -> MutableMapping:
     """
     Transform old into new based on object equality while preserving as much of old object as possible.
 
@@ -543,14 +548,14 @@ def patch_dict(old, new, preserve=False):
         if key in new:
             newval = new[key]
             if val != newval:
-                if isinstance(val, Mapping) and isinstance(newval, Mapping):
+                if isinstance(val, MutableMapping) and isinstance(newval, Mapping):
                     old[key] = patch_dict(val, newval, preserve)
                 elif isinstance(val, MutableSequence) and isinstance(
                     newval, MutableSequence
                 ):
                     if preserve:
                         # add new items that don't appear in old list
-                        old[key] = val + [item for item in newval if item not in val]
+                        old[key] = val + [item for item in newval if item not in val]  # type: ignore
                     else:
                         # preserve old item in list if they are equal to the new item
                         old[key] = [
@@ -642,7 +647,7 @@ def restore_includes(includes, originalDoc, changedDoc, cls=dict):
             # inclusion point no longer exists
             continue
 
-        mergedIncludes = {}
+        mergedIncludes: Dict = {}
         for (includeKey, includeValue) in value:
             if includeKey.include:
                 ref = None
@@ -662,7 +667,7 @@ def restore_includes(includes, originalDoc, changedDoc, cls=dict):
                         expandedOriginalDoc, includeKey, includeValue, key, cls
                     )
 
-            if not isinstance(ref, Mapping):
+            if not isinstance(ref, MutableMapping):
                 # XXX3 if isinstance(ref, list) lists not yet implemented
                 if ref == template:
                     # ref still resolves to the template's value so replace it with the include

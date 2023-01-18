@@ -644,7 +644,7 @@ class TaskView:
                     [
                         r.tosca_id
                         for r in self.target.source.get_requirements(
-                            self.target.requirement.template.name
+                            self.target.template.name
                         )
                     ]
                 )

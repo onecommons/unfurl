@@ -10,7 +10,8 @@ import hashlib
 import re
 from toscaparser.common.exception import ValidationError
 if TYPE_CHECKING:
-    from unfurl.tosca import EntitySpec
+    from .tosca import EntitySpec
+    from .support import Templar
 
 from .merge import diff_dicts
 from .util import (
@@ -92,7 +93,7 @@ class ResourceRef(ABC):
     def _resolve(self, key):
         ...
 
-    _templar = None
+    _templar: Optional["Templar"] = None
 
     def _get_prop(self, name):
         if name == ".":

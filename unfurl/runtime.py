@@ -346,6 +346,7 @@ class EntityInstance(OperationalInstance, ResourceRef):
     imported = None
     _baseDir = ""
     templateType = EntitySpec
+    parentRelation = ""
 
     def __init__(
         self, name="", attributes=None, parent=None, template=None, status=Status.ok
@@ -356,7 +357,7 @@ class EntityInstance(OperationalInstance, ResourceRef):
         self.name = name
         self._attributes = attributes or {}
         self.parent = parent
-        if parent:
+        if parent and self.parentRelation:
             p = getattr(parent, self.parentRelation)
             p.append(self)
 
@@ -418,6 +419,7 @@ class EntityInstance(OperationalInstance, ResourceRef):
 
     @property
     def key(self):
+        assert self.parent and self.parentRelation
         return f"{self.parent.key}::.{self.parentRelation[1:]}::{self.name}"
 
     def as_ref(self, options=None):
@@ -579,10 +581,14 @@ class HasInstancesInstance(EntityInstance):
             return self.imports.find_import(resourceid)
         return None
 
-    def get_requirements(self, match):
+    @property
+    def requirements(self) -> List["RelationshipInstance"]:
+        return []
+
+    def get_requirements(self, match) -> List["RelationshipInstance"]:
         if match is None:
             return self.requirements
-        if isinstance(match, six.string_types):
+        if isinstance(match, str):
             return [r for r in self.requirements if r.template.name == match]
         elif isinstance(match, NodeInstance):
             return [r for r in self.requirements if r.target == match]
@@ -636,6 +642,7 @@ class CapabilityInstance(EntityInstance):
     @property
     def key(self):
         # XXX implement something like _ChildResources to enable ::name instead of [.name]
+        assert self.parent
         return f"{self.parent.key}::.{'capabilities'}::[.name={self.name}]"
 
 
@@ -646,7 +653,7 @@ class RelationshipInstance(EntityInstance):
     templateType = RelationshipSpec
     if TYPE_CHECKING:
         template = templateType()
-    source = None
+    source: Optional["NodeInstance"] = None
 
     @property
     def target(self) -> Optional["NodeInstance"]:
@@ -857,15 +864,16 @@ class NodeInstance(HasInstancesInstance):
 
     @property
     def sources(self):
-        dep = {}
+        dep: Dict[str, Union[EntityInstance, List[EntityInstance]]] = {}
         for cap in self.capabilities:
             for rel in cap.relationships:
                 if rel.source:
                     if rel.name in dep:
-                        if isinstance(dep[rel.name], list):
-                            dep[rel.name].append(rel.source)
+                        val = dep[rel.name]
+                        if isinstance(val, list):
+                            val.append(rel.source)
                         else:
-                            dep[rel.name] = [dep[rel.name], rel.source]
+                            dep[rel.name] = [val, rel.source]
                     else:
                         dep[rel.name] = rel.source
         return dep
@@ -966,7 +974,7 @@ class NodeInstance(HasInstancesInstance):
         else:
             className = self._attributes[".interfaces"].get(name)
             if className:
-                instance = load_class(className)(name, self)
+                instance = load_class(className)(name, self)  # type: ignore
                 self._interfaces[name] = instance
                 return instance
         return None

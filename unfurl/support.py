@@ -16,8 +16,10 @@ from typing import TYPE_CHECKING, Union, cast, Dict, Optional, Any
 from enum import Enum
 from urllib.parse import urlsplit
 
+
 if TYPE_CHECKING:
     from .manifest import Manifest
+    from .runtime import EntityInstance
 
 from .eval import RefContext, set_eval_func, Ref, map_value
 from .result import (
@@ -499,7 +501,7 @@ def lookup_func(arg, ctx):
     assert_form(arg, test=arg)  # a map with at least one element
     name = None
     args = None
-    kwargs = {}
+    kwargs: Dict[str, Any] = {}
     for key, value in arg.items():
         if not name:
             name = key
@@ -608,7 +610,7 @@ set_eval_func("get_env", get_env, True)
 
 def set_context_vars(vars, resource):
     root = resource.root
-    ROOT = {}
+    ROOT: Dict[str, Any] = {}
     vars.update(dict(NODES=TopologyMap(root), ROOT=ROOT, TOPOLOGY=ROOT))
     if "inputs" in root._attributes:
         ROOT.update(
@@ -1050,9 +1052,6 @@ set_eval_func("external", get_import)
 
 
 class _Import:
-    if TYPE_CHECKING:
-        from .runtime import EntityInstance
-
     def __init__(
         self,
         external_instance: "EntityInstance",
@@ -1080,7 +1079,7 @@ class Imports(collections.OrderedDict):
             project = localEnv.project or localEnv.homeProject
             tpl = project and project.find_ensemble_by_name(iName)
             if tpl:
-                self.manifest.load_external_ensemble(iName, dict(manifest=tpl))
+                self.manifest.load_external_ensemble(iName, dict(manifest=tpl))  # type: ignore
                 return self._find_import(qualified_name)
         return None
 
@@ -1232,11 +1231,11 @@ class ResourceChanges(collections.OrderedDict):
             return record[self.attributesIndex]
         return {}
 
-    def sync(self, resource, changeId=None):
+    def sync(self, resource: "EntityInstance", changeId=None):
         """Update self to only include changes that are still live"""
         for k, v in list(self.items()):
-            current = Ref(k).resolve_one(RefContext(resource))
-            if current:
+            current = cast(Optional["EntityInstance"], Ref(k).resolve_one(RefContext(resource)))
+            if current is not None:
                 attributes = v[self.attributesIndex]
                 if attributes:
                     v[self.attributesIndex] = intersect_dict(
