@@ -7,16 +7,16 @@ from typing import Dict, List, Optional, Tuple, Any, Union, TYPE_CHECKING, cast,
 from urllib.parse import urljoin, urlsplit, urlunsplit
 from base64 import b64decode
 
-import click
 import uvicorn
 from flask import Flask, current_app, jsonify, request
 import flask.json
 from flask_caching import Cache
+from flask_cors import CORS
 
 import git
 from git.objects import Commit
 from .localenv import LocalEnv
-from .repo import GitRepo
+from .repo import GitRepo, normalize_git_url_hard
 from .util import UnfurlError, get_package_digest
 from .logs import getLogger, add_log_file
 from .yamlmanifest import YamlManifest
@@ -52,6 +52,9 @@ app.config["UNFURL_OPTIONS"] = {}
 app.config["UNFURL_CLONE_ROOT"] = os.getenv("UNFURL_CLONE_ROOT") or "."
 app.config["UNFURL_CLOUD_SERVER"] = os.getenv("UNFURL_CLOUD_SERVER")
 app.config["UNFURL_SECRET"] = os.getenv("UNFURL_SERVE_SECRET")
+cors = app.config["UNFURL_SERVE_CORS"] = os.getenv("UNFURL_SERVE_CORS")
+if cors:
+    CORS(app, origins=cors.split())
 
 
 def get_project_id(request):
@@ -504,7 +507,7 @@ def _do_export(project_id: str, requested_format: str, deployment_path: str,
                     "INTERNAL_ERROR", "Could not find repository"
                 ), None
     else:  # use the current ensemble
-        clone_location = current_app.config.get("UNFURL_ENSEMBLE_PATH") or "."
+        clone_location = current_app.config.get("UNFURL_CURRENT_PATH") or "."
 
     # load the ensemble
     if cache_entry:
@@ -876,11 +879,18 @@ def _commit_and_push(repo: GitRepo, full_path: str, commit_msg: str):
 def _fetch_localenv_location(project_path: str, deployment_path: str, args: dict) -> Optional[str]:
     # Repository URL
     # Project is external
+    current_ensemble_path = current_app.config.get("UNFURL_CURRENT_PATH") or "."
     if not project_path or project_path == ".":
         # get the local ensemble
-        clone_location = current_app.config.get("UNFURL_ENSEMBLE_PATH") or "."
+        clone_location = current_ensemble_path
     else:
-        clone_location = _stage(project_path, args)
+        # developer mode: use the project we are serving from if the project_path matches
+        # otherwise clone the project
+        current_git_url = current_app.config.get("UNFURL_CURRENT_GIT_URL")
+        if current_git_url and normalize_git_url_hard(get_project_url(project_path)) == current_git_url:
+            clone_location = current_ensemble_path
+        else:
+            clone_location = _stage(project_path, args)
         if not clone_location:
             return clone_location
     # XXX: deployment_path must be in the project repo, split repos are not supported
@@ -900,13 +910,23 @@ def create_error_response(code, message):
     return jsonify({"code": code, "message": message}), http_code
 
 
+def set_current_ensemble_git_url(project_or_ensemble_path: str):
+    try:
+        local_env = LocalEnv(project_or_ensemble_path, can_be_empty=True)
+        if local_env.project and local_env.project.project_repoview:
+            app.config["UNFURL_CURRENT_PATH"] = local_env.project.projectRoot
+            app.config["UNFURL_CURRENT_GIT_URL"] = normalize_git_url_hard(local_env.project.project_repoview.url)
+    except Exception:
+        logger.warning("failed to find project at %s", project_or_ensemble_path, exc_info=True)
+
+
 # UNFURL_HOME="" gunicorn --log-level debug -w 4 unfurl.server:app
 def serve(
     host: str,
     port: int,
     secret: str,
     clone_root: str,
-    project_or_ensemble_path: click.Path,
+    project_or_ensemble_path: str,
     options: dict,
     cloud_server=None
 ):
@@ -917,14 +937,14 @@ def serve(
         port (int): Port to listen to (defaults to 8080)
         secret (str): The secret to use to authenticate requests
         clone_root (str): The root directory to clone all repositories into
-        project_or_ensemble_path (click.Path): The path of the ensemble or project to base requests on
+        project_or_ensemble_path (str): The path of the ensemble or project to base requests on
         options (dict): Additional options to pass to the server (as passed to the unfurl CLI)
     """
     app.config["UNFURL_SECRET"] = secret
     app.config["UNFURL_OPTIONS"] = options
     app.config["UNFURL_CLONE_ROOT"] = clone_root
-    app.config["UNFURL_ENSEMBLE_PATH"] = project_or_ensemble_path
     app.config["UNFURL_CLOUD_SERVER"] = cloud_server or os.getenv("UNFURL_CLOUD_SERVER")
+    set_current_ensemble_git_url(project_or_ensemble_path)
 
     # Start one WSGI server
     uvicorn.run(app, host=host, port=port, interface="wsgi", log_level=logger.getEffectiveLevel())

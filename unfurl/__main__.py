@@ -1249,8 +1249,16 @@ def help(ctx, cmd=""):
     help="Where to clone all repositories",
     type=click.Path(exists=True),
 )
-def serve(ctx, port, address, secret, clone_root, project_or_ensemble_path, **options):
+@click.option(
+    "--cors",
+    envvar="UNFURL_SERVE_CORS",
+    help='enable CORS with origin (e.g. "*")',
+)
+def serve(ctx, port, address, secret, clone_root, project_or_ensemble_path, cors, **options):
     options.update(ctx.obj)
+    if cors:
+        # need to set before importing serve
+        os.environ["UNFURL_SERVE_CORS"] = cors
     from .server import serve as _serve
 
     _serve(address, port, secret, clone_root, project_or_ensemble_path, options)
