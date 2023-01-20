@@ -337,7 +337,7 @@ def get_project_url(project_id: str, username=None, password=None) -> str:
     return urljoin(base_url, project_id + ".git")
 
 
-def _stage(project_id: str, args: dict) -> Optional[str]:
+def _stage(project_id: str, args: dict, pull: bool) -> Optional[str]:
     # Default to exporting the ensemble provided to the server on startup
     repo = None
     repo_path = _get_project_repo_dir(project_id)
@@ -345,6 +345,8 @@ def _stage(project_id: str, args: dict) -> Optional[str]:
     # repo doesn't exists, clone it
     if repo:
         logger.info(f"found repo at {repo.working_dir}")
+        if pull and not repo.is_dirty():
+            repo.pull()
     else:
         os.makedirs(os.path.dirname(repo_path), exist_ok=True)
         git_url = get_project_url(project_id, args.get("username"), args.get("password"))
@@ -514,7 +516,7 @@ def _do_export(project_id: str, requested_format: str, deployment_path: str,
             repo = GitRepo(cache_entry.commitinfo.repo)
             clone_location: Optional[str] = os.path.join(repo.working_dir, deployment_path)
         else:
-            clone_location = _fetch_localenv_location(project_id, deployment_path, args)
+            clone_location = _fetch_localenv_location(project_id, deployment_path, args, bool(cache_entry))
             if clone_location is None:
                 return create_error_response(
                     "INTERNAL_ERROR", "Could not find repository"
@@ -682,7 +684,7 @@ def _patch_environment(body: dict, project_id: str) -> str:
     clone_location = _fetch_localenv_location(project_id, "", body)
     if clone_location is None:
         # XXX create a new ensemble if patch is for a new deployment
-        return create_error_response("INTERNAL_ERROR", "Could not find repository")
+        return create_error_response("BAD_REQUEST", "Could not find repository")
     invalidate_cache(body, "environments", project_id)
     localEnv = LocalEnv(clone_location, can_be_empty=True)
     assert localEnv.project
@@ -690,6 +692,8 @@ def _patch_environment(body: dict, project_id: str) -> str:
     was_dirty = repo.is_dirty()
     if already_exists and not was_dirty:
         repo.pull()
+        if body.get("latest_commit") and repo.revision != body["latest_commit"]:
+            return create_error_response("CONFLICT", "Repository at wrong revision")
     localConfig = localEnv.project.localConfig
     for patch_inner in patch:
         assert isinstance(patch_inner, dict)
@@ -760,6 +764,8 @@ def _patch_ensemble(body: dict, create: bool, project_id: str) -> str:
     was_dirty = existing_repo and existing_repo.is_dirty()
     if existing_repo and not was_dirty:
         existing_repo.pull()
+        if body.get("latest_commit") and existing_repo.revision != body["latest_commit"]:
+            return create_error_response("CONFLICT", "Repository at wrong revision")
     deployment_blueprint = body.get("deployment_blueprint")
     if create: 
         blueprint_url = body["blueprint_url"]
@@ -897,7 +903,7 @@ def _commit_and_push(repo: GitRepo, full_path: str, commit_msg: str):
     return None
 
 
-def _fetch_localenv_location(project_path: str, deployment_path: str, args: dict) -> Optional[str]:
+def _fetch_localenv_location(project_path: str, deployment_path: str, args: dict, pull: bool = False) -> Optional[str]:
     # Repository URL
     # Project is external
     current_ensemble_path = current_app.config.get("UNFURL_CURRENT_PATH") or "."
@@ -912,7 +918,7 @@ def _fetch_localenv_location(project_path: str, deployment_path: str, args: dict
             logger.debug("exporting from local repo %s", current_git_url)
             clone_location = current_ensemble_path
         else:
-            clone_location = _stage(project_path, args)
+            clone_location = _stage(project_path, args, pull)
         if not clone_location:
             return clone_location
     # XXX: deployment_path must be in the project repo, split repos are not supported
@@ -929,6 +935,8 @@ def create_error_response(code, message):
         http_code = 401
     elif code == "INTERNAL_ERROR":
         http_code = 500
+    elif code == "CONFLICT":
+        http_code = 409
     return jsonify({"code": code, "message": message}), http_code
 
 
