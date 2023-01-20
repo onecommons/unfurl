@@ -7,7 +7,6 @@ from typing import Dict, List, Optional, Tuple, Any, Union, TYPE_CHECKING, cast,
 from urllib.parse import urljoin, urlsplit, urlunsplit
 from base64 import b64decode
 
-import uvicorn
 from flask import Flask, current_app, jsonify, request
 import flask.json
 from flask_caching import Cache
@@ -55,6 +54,20 @@ app.config["UNFURL_SECRET"] = os.getenv("UNFURL_SERVE_SECRET")
 cors = app.config["UNFURL_SERVE_CORS"] = os.getenv("UNFURL_SERVE_CORS")
 if cors:
     CORS(app, origins=cors.split())
+
+
+def set_current_ensemble_git_url():
+    project_or_ensemble_path = os.getenv("UNFURL_SERVE_PATH") or "."
+    try:
+        local_env = LocalEnv(project_or_ensemble_path, can_be_empty=True)
+        if local_env.project and local_env.project.project_repoview:
+            app.config["UNFURL_CURRENT_PATH"] = local_env.project.projectRoot
+            app.config["UNFURL_CURRENT_GIT_URL"] = normalize_git_url_hard(local_env.project.project_repoview.url)
+    except Exception:
+        logger.warning("failed to find project at %s", project_or_ensemble_path, exc_info=True)
+
+
+set_current_ensemble_git_url()
 
 
 def get_project_id(request):
@@ -910,23 +923,13 @@ def create_error_response(code, message):
     return jsonify({"code": code, "message": message}), http_code
 
 
-def set_current_ensemble_git_url(project_or_ensemble_path: str):
-    try:
-        local_env = LocalEnv(project_or_ensemble_path, can_be_empty=True)
-        if local_env.project and local_env.project.project_repoview:
-            app.config["UNFURL_CURRENT_PATH"] = local_env.project.projectRoot
-            app.config["UNFURL_CURRENT_GIT_URL"] = normalize_git_url_hard(local_env.project.project_repoview.url)
-    except Exception:
-        logger.warning("failed to find project at %s", project_or_ensemble_path, exc_info=True)
-
-
 # UNFURL_HOME="" gunicorn --log-level debug -w 4 unfurl.server:app
 def serve(
     host: str,
     port: int,
     secret: str,
     clone_root: str,
-    project_or_ensemble_path: str,
+    project_path,
     options: dict,
     cloud_server=None
 ):
@@ -944,9 +947,15 @@ def serve(
     app.config["UNFURL_OPTIONS"] = options
     app.config["UNFURL_CLONE_ROOT"] = clone_root
     app.config["UNFURL_CLOUD_SERVER"] = cloud_server or os.getenv("UNFURL_CLOUD_SERVER")
-    set_current_ensemble_git_url(project_or_ensemble_path)
+    if os.getenv("UNFURL_SERVE_PATH") != project_path:
+        # this happens in the unit tests
+        os.environ["UNFURL_SERVE_PATH"] = project_path
+        set_current_ensemble_git_url()
+
 
     # Start one WSGI server
+    import uvicorn
+
     uvicorn.run(app, host=host, port=port, interface="wsgi", log_level=logger.getEffectiveLevel())
 
     # app.run(host=host, port=port)

@@ -237,7 +237,7 @@ class Repo(abc.ABC):
         progress = _ProgressPrinter()
         progress.gitUrl = gitUrl
         try:
-            kwargs = dict(recurse_submodules=True)
+            kwargs = dict(recurse_submodules=True, depth=1)
             if revision:
                 kwargs["branch"] = revision
             repo = git.Repo.clone_from(gitUrl, localRepoPath, progress, **kwargs)  # type: ignore

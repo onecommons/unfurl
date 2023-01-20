@@ -1235,7 +1235,8 @@ def help(ctx, cmd=""):
 
 @cli.command()
 @click.pass_context
-@click.argument("project_or_ensemble_path", default=".", type=click.Path(exists=True))
+@click.argument("project_or_ensemble_path", default=".",
+                envvar='UNFURL_SERVE_PATH', type=click.Path(exists=True))
 @click.option("--port", default=8081, help="Port to listen on")
 @click.option("--address", default="localhost", help="Host to listen on")
 @click.option(
@@ -1247,6 +1248,7 @@ def help(ctx, cmd=""):
     "--clone-root",
     default=".",
     help="Where to clone all repositories",
+    envvar="UNFURL_CLONE_ROOT",
     type=click.Path(exists=True),
 )
 @click.option(
@@ -1256,9 +1258,11 @@ def help(ctx, cmd=""):
 )
 def serve(ctx, port, address, secret, clone_root, project_or_ensemble_path, cors, **options):
     options.update(ctx.obj)
+    # env vars need to set before importing serve
     if cors:
-        # need to set before importing serve
         os.environ["UNFURL_SERVE_CORS"] = cors
+    os.environ["UNFURL_SERVE_PATH"] = project_or_ensemble_path
+    os.environ["UNFURL_CLONE_ROOT"] = clone_root
     from .server import serve as _serve
 
     _serve(address, port, secret, clone_root, project_or_ensemble_path, options)
