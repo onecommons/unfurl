@@ -64,7 +64,7 @@ def set_current_ensemble_git_url():
             app.config["UNFURL_CURRENT_PATH"] = local_env.project.projectRoot
             app.config["UNFURL_CURRENT_GIT_URL"] = normalize_git_url_hard(local_env.project.project_repoview.url)
     except Exception:
-        logger.warning("failed to find project at %s", project_or_ensemble_path, exc_info=True)
+        logger.warning("failed to find local project at %s", project_or_ensemble_path, exc_info=True)
 
 
 set_current_ensemble_git_url()
@@ -687,7 +687,8 @@ def _patch_environment(body: dict, project_id: str) -> str:
     localEnv = LocalEnv(clone_location, can_be_empty=True)
     assert localEnv.project
     repo = localEnv.project.project_repoview.repo
-    if already_exists:
+    was_dirty = repo.is_dirty()
+    if already_exists and not was_dirty:
         repo.pull()
     localConfig = localEnv.project.localConfig
     for patch_inner in patch:
@@ -718,9 +719,12 @@ def _patch_environment(body: dict, project_id: str) -> str:
             update_deployment(localEnv.project, patch_inner["name"], patch_inner, False, deleted)
     localConfig.config.save()
     commit_msg = body.get("commit_msg", "Update environment")
-    err = _commit_and_push(repo, cast(str, localConfig.config.path), commit_msg)
-    if err:
-        return err  # err will be an error response
+    if not was_dirty:
+        err = _commit_and_push(repo, cast(str, localConfig.config.path), commit_msg)
+        if err:
+            return err  # err will be an error response
+    else:
+        logger.warning("local repository at %s was dirty, not committing or pushing", clone_location)
     return _patch_response(repo)
 
 
@@ -753,7 +757,8 @@ def _patch_ensemble(body: dict, create: bool, project_id: str) -> str:
         return create_error_response("INTERNAL_ERROR", "Could not find repository")
     assert clone_location
     invalidate_cache(body, "deployment", project_id)
-    if existing_repo:
+    was_dirty = existing_repo and existing_repo.is_dirty()
+    if existing_repo and not was_dirty:
         existing_repo.pull()
     deployment_blueprint = body.get("deployment_blueprint")
     if create: 
@@ -803,21 +808,24 @@ def _patch_ensemble(body: dict, create: bool, project_id: str) -> str:
                 _patch_node_template(patch_inner, doc)
 
     manifest.manifest.save()
-    manifest.add_all()
-    commit_msg = body.get("commit_msg", "Update deployment")
-    # XXX catch exception from commit and run git restore to rollback working dir
-    committed = manifest.commit(commit_msg, False)
-    logger.info(f"committed to {committed} repositories")
-    if manifest.repo.repo.remotes:
-        try:
-            manifest.repo.repo.remotes.origin.push().raise_if_error()
-            logger.info("pushed")
-        except Exception:
-            # discard the last commit that we couldn't push
-            # this is mainly for security if we couldn't push because the user wasn't authorized
-            manifest.repo.reset()
-            logger.error("push failed", exc_info=True)
-            return create_error_response("INTERNAL_ERROR", "Could not push repository")
+    if was_dirty:
+        logger.warning("local repository at %s was dirty, not committing or pushing", clone_location)
+    else:
+        manifest.add_all()
+        commit_msg = body.get("commit_msg", "Update deployment")
+        # XXX catch exception from commit and run git restore to rollback working dir
+        committed = manifest.commit(commit_msg, False)
+        logger.info(f"committed to {committed} repositories")
+        if manifest.repo.repo.remotes:
+            try:
+                manifest.repo.repo.remotes.origin.push().raise_if_error()
+                logger.info("pushed")
+            except Exception:
+                # discard the last commit that we couldn't push
+                # this is mainly for security if we couldn't push because the user wasn't authorized
+                manifest.repo.reset()
+                logger.error("push failed", exc_info=True)
+                return create_error_response("INTERNAL_ERROR", "Could not push repository")
     return _patch_response(manifest.repo)
 
 
@@ -901,6 +909,7 @@ def _fetch_localenv_location(project_path: str, deployment_path: str, args: dict
         # otherwise clone the project
         current_git_url = current_app.config.get("UNFURL_CURRENT_GIT_URL")
         if current_git_url and normalize_git_url_hard(get_project_url(project_path)) == current_git_url:
+            logger.debug("exporting from local repo %s", current_git_url)
             clone_location = current_ensemble_path
         else:
             clone_location = _stage(project_path, args)
