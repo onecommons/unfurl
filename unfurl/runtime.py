@@ -345,7 +345,7 @@ class EntityInstance(OperationalInstance, ResourceRef):
     imports = None
     imported = None
     _baseDir = ""
-    templateType = EntitySpec
+    templateType = EntitySpec  # must defined by subtype
     parentRelation = ""
 
     def __init__(
@@ -361,7 +361,7 @@ class EntityInstance(OperationalInstance, ResourceRef):
             p = getattr(parent, self.parentRelation)
             p.append(self)
 
-        self.template: EntitySpec = template or self.templateType()
+        self.template: EntitySpec = template or self.templateType()  # type: ignore
         assert isinstance(self.template, self.templateType)
         self._properties = {}
 
@@ -848,7 +848,7 @@ class NodeInstance(HasInstancesInstance):
     def repository(self) -> Optional["toscaparser.repositories.Repository"]:
         if self.template.is_compatible_type("unfurl.nodes.Repository"):
             # this is a reified repository -- return the Repository with the same name
-            return self.template.spec.template.repositories.get(self.template.name)
+            return self.template.spec.get_repository(self.template.name)
         return None
 
     def _get_default_relationships(self, relation=None):

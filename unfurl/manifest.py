@@ -36,6 +36,7 @@ from toscaparser.repositories import Repository
 
 if TYPE_CHECKING:
     from unfurl.localenv import LocalEnv
+    from ansible.parsing.yaml.loader import AnsibleLoader
 
 logger = getLogger("unfurl")
 
@@ -185,7 +186,7 @@ class Manifest(AttributeManager):
         return "."
 
     @property
-    def loader(self):
+    def loader(self) -> Optional["AnsibleLoader"]:
         return (
             self.rootResource
             and self.rootResource.templar
@@ -478,7 +479,7 @@ class Manifest(AttributeManager):
         return repository
 
     def _update_repositories(self, config, inlineRepositories=None, resolver: Optional[ImportResolver] = None) -> Dict[str, dict]:
-        # _update_repositories is called during parse time when including files
+        # Called during parse time when including files
         if not resolver:
             resolver = self.get_import_resolver(self)
         # we need to fetch this every call since the config might have changed:
@@ -600,7 +601,6 @@ class Manifest(AttributeManager):
                 return "", None
             raise UnfurlError(msg)
 
-        artifact = ArtifactSpec(artifactTpl, path=baseDir)
         tpl = CommentedMap()
         resolver = self.get_import_resolver(warnWhenNotFound, config=expanded)
         tpl["repositories"] = self._update_repositories(
@@ -608,11 +608,12 @@ class Manifest(AttributeManager):
         )
         loader = toscaparser.imports.ImportsLoader(
             None,
-            artifact.base_dir,
+            get_base_dir(baseDir),
             tpl=tpl,
             resolver=resolver,
         )
-        path, doc = loader._load_import_template(None, artifact.as_import_spec())
+        import_spec = dict(file=artifactTpl["file"], repository=artifactTpl.get("repository"))
+        path, doc = loader._load_import_template(None, import_spec)
         if doc is None:
             logger.warning(
                 f"document include {templatePath} does not exist (base: {baseDir})"

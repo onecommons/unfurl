@@ -32,7 +32,7 @@ import os
 from .logs import getLogger
 import logging
 import re
-from typing import Dict, Optional
+from typing import Dict, Optional, Sequence
 
 from ruamel.yaml.comments import CommentedMap
 
@@ -564,6 +564,8 @@ class ToscaSpec:
             if template.name not in self.relationshipTemplates:  # not defined yet
                 self.relationshipTemplates[template.name] = relTemplate
 
+    def get_repository(self, name: str):
+        return self.template and self.template.repositories.get(name)
 
 def find_env_vars(props_iter):
     for propdef, value in props_iter:
@@ -628,7 +630,7 @@ def find_props(attributes, propertyDefs, flatten=False):
 # represents a node, capability or relationship
 class EntitySpec(ResourceRef):
     # XXX need to define __eq__ for spec changes
-    def __init__(self, toscaNodeTemplate=None, spec=None):
+    def __init__(self, toscaNodeTemplate: Optional[EntityTemplate], spec: ToscaSpec):
         if not toscaNodeTemplate:
             toscaNodeTemplate = next(
                 iter(create_default_topology().topology_template.nodetemplates)
@@ -645,7 +647,7 @@ class EntitySpec(ResourceRef):
             )
 
         self.type = toscaNodeTemplate.type
-        self._isReferencedBy = (
+        self._isReferencedBy: Sequence[EntitySpec] = (
             []
         )  # this is referenced by another template or via property traversal
         # nodes have both properties and attributes
@@ -1345,10 +1347,11 @@ class ArtifactSpec(EntitySpec):
         "file_extensions",
     )
 
-    def __init__(self, artifact_tpl, template=None, spec=None, path=None):
+    def __init__(self, artifact_tpl, template: Optional[EntitySpec] = None, spec: Optional[ToscaSpec] = None, path=None):
         # 3.6.7 Artifact definition p. 84
         self.parentNode = template
         spec = template.spec if template else spec
+        assert spec
         if isinstance(artifact_tpl, toscaparser.artifacts.Artifact):
             artifact = artifact_tpl
         else:
@@ -1363,7 +1366,7 @@ class ArtifactSpec(EntitySpec):
         self.repository: Optional[toscaparser.repositories.Repository] = (
             spec
             and artifact.repository
-            and spec.template.repositories.get(artifact.repository)
+            and spec.get_repository(artifact.repository)
             or None
         )
         # map artifacts fields into properties

@@ -238,26 +238,25 @@ _refResolver = RefResolver("", None)
 
 GetURLType = Optional[Tuple[str, bool, Optional[str]]]
 
+
 class ImportResolver(toscaparser.imports.ImportResolver):
     def __init__(self, manifest: Optional["Manifest"], ignoreFileNotFound=False, expand=False, config=None):
         self.manifest = manifest
         self.readonly = bool(manifest and manifest.localEnv and manifest.localEnv.readonly)
         self.ignoreFileNotFound = ignoreFileNotFound
-        self.loader = manifest and manifest.loader or None
+        self.yamlloader = manifest and manifest.loader or None
         self.expand = expand
         self.config = config or {}
 
     def __getstate__(self):
         state = self.__dict__.copy()
-        state["loader"] = None
+        state["yamlloader"] = None
         return state
 
     def get_repository(self, name: str, tpl: dict) -> Repository:
-        if self.manifest:
-            # don't create another Repository instance
-            repo_view = self.manifest.repositories.get(name)
-            if repo_view:
-                return repo_view.repository
+        # don't create another Repository instance
+        if self.manifest and name in self.manifest.repositories:
+            return self.manifest.repositories[name].repository
 
         if isinstance(tpl, dict) and "url" in tpl:
             url = tpl["url"]
@@ -281,7 +280,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
 
         return Repository(name, tpl)
 
-    def get_url(self, importLoader: toscaparser.imports.ImportLoader,
+    def get_url(self, importLoader: toscaparser.imports.ImportsLoader,
                 repository_name: Optional[str], file_name: str, isFile: Optional[bool] = None) -> GetURLType:
         # returns url or path, isFile, fragment
         importLoader.stream = None
@@ -358,9 +357,9 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                         if ignoreFileNotFound and not os.path.isfile(path):
                             return None
 
-                        if self.loader:
+                        if self.yamlloader:
                             # show == True if file was decrypted
-                            contents, show = self.loader._get_file_contents(path)
+                            contents, show = self.yamlloader._get_file_contents(path)
                             f = six.StringIO(codecs.decode(contents))
                         else:
                             f = codecs.open(path, encoding="utf-8", errors="strict")
@@ -475,7 +474,7 @@ class YamlConfig:
                 )
             else:
                 self.valid = not not errors
-        except Exception as e:
+        except Exception:
             if self.path:
                 msg = f"Unable to load yaml config at {self.path}"
             else:
