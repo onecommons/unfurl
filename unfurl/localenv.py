@@ -20,6 +20,7 @@ from typing import (
     Tuple,
     Union,
     TYPE_CHECKING,
+    cast,
 )
 
 from ansible.parsing.vault import VaultLib
@@ -211,8 +212,8 @@ class Project:
                                     paths.append(path)
         return paths
 
-    def _get_git_repos(self) -> List[Repo]:
-        repos = [r.repo for r in self.workingDirs.values()]
+    def _get_git_repos(self) -> List[GitRepo]:
+        repos = [r.repo for r in self.workingDirs.values() if r.repo]
         if self.project_repoview.repo and self.project_repoview.repo not in repos:
             repos.append(self.project_repoview.repo)
         return repos
@@ -260,6 +261,7 @@ class Project:
         normalized = normalize_git_url_hard(repoURL)
         for dir, repository in self.workingDirs.items():
             repo = repository.repo
+            assert repo
             if repoURL.startswith("git-local://"):
                 initialCommit = urlparse(repoURL).netloc.partition(":")[0]
                 match = initialCommit == repo.get_initial_revision()
@@ -302,6 +304,7 @@ class Project:
         candidate = None
         for dir in sorted(self.workingDirs.keys()):
             repo = self.workingDirs[dir].repo
+            assert repo
             filePath = repo.find_repo_path(path)
             if filePath is not None:
                 return repo, filePath, repo.revision, False
@@ -328,7 +331,7 @@ class Project:
 
     def find_or_clone(self, repo: GitRepo) -> GitRepo:
         for dir, repository in self.workingDirs.items():
-            if repo.get_initial_revision() == repository.repo.get_initial_revision():
+            if repository.repo and repo.get_initial_revision() == repository.repo.get_initial_revision():
                 return repository.repo
 
         gitUrl = repo.url
@@ -1130,7 +1133,7 @@ class LocalEnv:
 
     # NOTE this currently isn't used and returns repos outside of this LocalEnv
     # (every repo found in localRepositories)
-    def _get_git_repos(self) -> List[Repo]:
+    def _get_git_repos(self) -> List[GitRepo]:
         if self.project:
             repos = self.project._get_git_repos()
         else:

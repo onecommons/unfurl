@@ -26,7 +26,7 @@ from .runtime import (
     TopologyInstance
 )
 from .util import UnfurlError, to_enum, sensitive_str, get_base_dir
-from .repo import RevisionManager, split_git_url, RepoView
+from .repo import RevisionManager, split_git_url, RepoView, GitRepo
 from .merge import merge_dicts
 from .result import ChangeRecord
 from .yamlloader import YamlConfig, yaml, ImportResolver, yaml_dict_type
@@ -118,7 +118,7 @@ class Manifest(AttributeManager):
         )
         self.specDigest = self.get_spec_digest(spec)
 
-    def _find_repo(self):
+    def _find_repo(self) -> Optional["GitRepo"]:
         # check if this path exists in the repo
         repo = self.localEnv and self.localEnv.instanceRepo
         if repo:
@@ -440,7 +440,7 @@ class Manifest(AttributeManager):
             return self.localEnv.find_path_in_repos(path, importLoader)
         elif self.repo:
             repo = self.repo
-            filePath = repo.findRepoPath(path)
+            filePath = repo.find_repo_path(path)
             if filePath is not None:
                 return repo, filePath, repo.revision, False
         return None, None, None, None
@@ -457,7 +457,8 @@ class Manifest(AttributeManager):
         )
         return repo, filePath, revision, bare
 
-    def add_repository(self, repo, toscaRepository, file_name):
+    def add_repository(self, repo: Optional[GitRepo], toscaRepository: Repository, file_name: str) -> RepoView:
+        # add or replace the repository
         repository: Optional[RepoView] = self.repositories.get(toscaRepository.name)
         if repository:
             # already exist, make sure it's the same repo
@@ -468,12 +469,13 @@ class Manifest(AttributeManager):
                 raise UnfurlError(
                     f'Repository "{toscaRepository.name}" already defined'
                 )
-        self.repositories[toscaRepository.name] = RepoView(
+        repository = RepoView(
             toscaRepository, repo, file_name
         )
+        self.repositories[toscaRepository.name] = repository
         return repository
 
-    def _update_repositories(self, config, inlineRepositories=None, resolver=None):
+    def _update_repositories(self, config, inlineRepositories=None, resolver: Optional[ImportResolver] = None) -> Dict[str, dict]:
         # _update_repositories is called during parse time when including files
         if not resolver:
             resolver = self.get_import_resolver(self)
@@ -498,7 +500,7 @@ class Manifest(AttributeManager):
         return self._set_repositories()
 
     @staticmethod
-    def _get_repositories(tpl):
+    def _get_repositories(tpl) -> Dict:
         repositories = ((tpl.get("spec") or {}).get("service_template") or {}).get(
             "repositories"
         ) or {}
@@ -506,7 +508,7 @@ class Manifest(AttributeManager):
         repositories.update((tpl.get("environment") or {}).get("repositories") or {})
         return repositories
 
-    def _set_repositories(self):
+    def _set_repositories(self) -> Dict[str, Dict]:
         repositories = self.repositories
         if "unfurl" not in repositories:
             # add a repository that points to this package
@@ -615,7 +617,7 @@ class Manifest(AttributeManager):
             )
         return path, doc
 
-    def get_import_resolver(self, ignoreFileNotFound=False, expand=False, config=None):
+    def get_import_resolver(self, ignoreFileNotFound=False, expand=False, config=None) -> ImportResolver:
         return ImportResolver(self, ignoreFileNotFound, expand, config)
 
     def last_commit_time(self) -> float:
@@ -626,7 +628,7 @@ class Manifest(AttributeManager):
         try:
             # find the revision that last modified this file before or equal to the current revision
             # (use current revision to handle branches)
-            commits = list(repo.repo.iter_commits(repo.revision, self.path, max_count=1))
+            commits = list(repo.repo.iter_commits(repo.revision, self.path or "", max_count=1))
         except ValueError:
             return 0
         if commits:

@@ -673,8 +673,8 @@ def update_deployment(project, key, patch_inner, save, deleted=False):
         localConfig.config.save()
 
 
-def _patch_response(repo: GitRepo):
-    return jsonify(dict(commit=repo.revision))
+def _patch_response(repo: Optional[GitRepo]):
+    return jsonify(dict(commit=repo and repo.revision or None))
 
 
 def _patch_environment(body: dict, project_id: str) -> str:
@@ -689,6 +689,7 @@ def _patch_environment(body: dict, project_id: str) -> str:
     localEnv = LocalEnv(clone_location, can_be_empty=True)
     assert localEnv.project
     repo = localEnv.project.project_repoview.repo
+    assert repo
     was_dirty = repo.is_dirty()
     if already_exists and not was_dirty:
         repo.pull()
@@ -767,7 +768,7 @@ def _patch_ensemble(body: dict, create: bool, project_id: str) -> str:
         if body.get("latest_commit") and existing_repo.revision != body["latest_commit"]:
             return create_error_response("CONFLICT", "Repository at wrong revision")
     deployment_blueprint = body.get("deployment_blueprint")
-    if create: 
+    if create:
         blueprint_url = body["blueprint_url"]
         logger.info("creating deployment at %s for %s", clone_location, blueprint_url)
         # set our local package overrides in the defaults in the dashboard skeleton's local/unfurl.yaml 
@@ -822,7 +823,7 @@ def _patch_ensemble(body: dict, create: bool, project_id: str) -> str:
         # XXX catch exception from commit and run git restore to rollback working dir
         committed = manifest.commit(commit_msg, False)
         logger.info(f"committed to {committed} repositories")
-        if manifest.repo.repo.remotes:
+        if manifest.repo and manifest.repo.repo.remotes:
             try:
                 manifest.repo.repo.remotes.origin.push().raise_if_error()
                 logger.info("pushed")

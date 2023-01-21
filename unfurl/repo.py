@@ -5,13 +5,13 @@ import os
 import os.path
 from pathlib import Path
 import sys
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union, cast
 import git
 import git.exc
 from .logs import getLogger
 from urllib.parse import urlparse
 from .util import UnfurlError, save_to_file
-import toscaparser.repositories
+from toscaparser.repositories import Repository
 from ruamel.yaml.comments import CommentedMap
 import logging
 
@@ -196,7 +196,7 @@ class Repo(abc.ABC):
         return None, None, None
 
     def as_repo_view(self, name=""):
-        return RepoView(dict(name=name, url=self.url), self)
+        return RepoView(dict(name=name, url=self.url), cast(GitRepo, self))
 
     def is_local_only(self):
         return self.url.startswith("git-local://") or os.path.isabs(self.url)
@@ -284,15 +284,15 @@ def find_dirty_secrets(working_dir):
 class RepoView:
     # view of Repo optionally filtered by path
     # XXX and revision too
-    def __init__(self, repository, repo, path=""):
+    def __init__(self, repository: Union[dict, Repository], repo: Optional["GitRepo"], path="") -> None:
         if isinstance(repository, dict):
             # required keys: name, url
             tpl = repository.copy()
             name = tpl.pop("name")
             tpl["url"] = normalize_git_url(tpl["url"])
-            repository = toscaparser.repositories.Repository(name, tpl)
+            repository = Repository(name, tpl)
         assert repository or repo
-        self.repository = repository
+        self.repository: Repository = repository
         self.repo = repo
         self.path = path
         if repo and path and repository:
@@ -339,14 +339,14 @@ class RepoView:
         return ""
 
     def is_dirty(self):
-        if self.readOnly:
+        if self.readOnly or not self.repo:
             return False
         for filepath, dotsecrets in find_dirty_secrets(self.working_dir):
             return True
         return self.repo.is_dirty(untracked_files=True, path=self.path)
 
     def add_all(self):
-        assert not self.readOnly
+        assert not self.readOnly and self.repo
         self.repo.repo.git.add("--all", self.path or ".")
 
     def load_secrets(self, _loader):
@@ -381,6 +381,7 @@ class RepoView:
 
     def commit(self, message, addAll=False):
         assert not self.readOnly
+        assert self.repo
         if self.yaml:
             for saved in self.save_secrets():
                 local_path = str(saved.relative_to(self.repo.working_dir))
@@ -396,9 +397,11 @@ class RepoView:
 
     def git_status(self):
         assert not self.readOnly
+        assert self.repo
         return self.repo.run_cmd(["status", self.path or "."])[1]
 
     def _secrets_status(self):
+        assert self.repo
         modified = "\n   ".join(
             [
                 str(filepath.relative_to(self.repo.working_dir))

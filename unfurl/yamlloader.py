@@ -5,13 +5,15 @@ import sys
 import codecs
 import json
 import os
-from typing import Optional, Union, Tuple, List
+from typing import Optional, Union, Tuple, List, cast, TYPE_CHECKING
 import six
 import urllib
 from urllib.parse import urljoin, urlsplit
 import ssl
 import certifi
 
+if TYPE_CHECKING:
+    from unfurl.manifest import Manifest
 
 pathname2url = urllib.request.pathname2url
 from jsonschema import RefResolver
@@ -69,7 +71,7 @@ def yaml_dict_type(readonly: bool) -> type:
         return CommentedMap
 
 
-def load_yaml(yaml, stream, path=None, readonly=False):
+def load_yaml(yaml, stream, path=None, readonly: bool = False):
     global yaml_perf
     start_time = perf_counter()
     if not readonly:
@@ -234,13 +236,14 @@ def urlopen(url):
 
 _refResolver = RefResolver("", None)
 
+GetURLType = Optional[Tuple[str, bool, Optional[str]]]
 
 class ImportResolver(toscaparser.imports.ImportResolver):
-    def __init__(self, manifest, ignoreFileNotFound=False, expand=False, config=None):
+    def __init__(self, manifest: Optional["Manifest"], ignoreFileNotFound=False, expand=False, config=None):
         self.manifest = manifest
-        self.readonly = manifest and manifest.localEnv and manifest.localEnv.readonly
+        self.readonly = bool(manifest and manifest.localEnv and manifest.localEnv.readonly)
         self.ignoreFileNotFound = ignoreFileNotFound
-        self.loader = manifest.loader
+        self.loader = manifest and manifest.loader or None
         self.expand = expand
         self.config = config or {}
 
@@ -249,7 +252,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         state["loader"] = None
         return state
 
-    def get_repository(self, name, tpl):
+    def get_repository(self, name: str, tpl: dict) -> Repository:
         if self.manifest:
             # don't create another Repository instance
             repo_view = self.manifest.repositories.get(name)
@@ -273,15 +276,16 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                 tpl['credential'] = map_value(credential, self.manifest.rootResource)
             elif self.manifest.localEnv:
                 # we're including or importing before we finished initializing
-                # update os.environ so get_env works
                 context = self.manifest.localEnv.get_context(self.config.get("environment"))
                 tpl['credential'] = self.manifest.localEnv.map_value(credential, context.get("variables"))
 
         return Repository(name, tpl)
 
-    def get_url(self, importLoader, repository_name, file_name, isFile=None):
+    def get_url(self, importLoader: toscaparser.imports.ImportLoader,
+                repository_name: Optional[str], file_name: str, isFile: Optional[bool] = None) -> GetURLType:
         # returns url or path, isFile, fragment
         importLoader.stream = None
+        fragment: Optional[str] = None
         if repository_name:
             path = self.get_repository_url(importLoader, repository_name)
             file_name, sep, fragment = file_name.partition("#")
@@ -291,7 +295,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                     path = path[2:]
                 isFile = True
         else:
-            url_info = super().get_url(importLoader, repository_name, file_name, isFile)
+            url_info = cast(GetURLType, super().get_url(importLoader, None, file_name, isFile))
             if not url_info:
                 return url_info
             file_name = ""
@@ -301,9 +305,10 @@ class ImportResolver(toscaparser.imports.ImportResolver):
             if not self.manifest:
                 raise UnfurlError("Could not resolve git URL: " + path)
             # only support urls to git repos for now
-            repo_view = self.manifest.repositories.get(repository_name)
-            if repo_view and repo_view.repo:
-                return os.path.join(repo_view.working_dir, file_name), True, fragment
+            if repository_name:
+                repo_view = self.manifest.repositories.get(repository_name)
+                if repo_view and repo_view.repo:
+                    return os.path.join(repo_view.working_dir, file_name), True, fragment
 
             repo, filePath, revision, bare = self.manifest.find_repo_from_git_url(
                 path, isFile, importLoader
@@ -425,7 +430,7 @@ class YamlConfig:
             self.vault = vault
             self.path = None
             self.schema = schema
-            self.readonly = readonly
+            self.readonly = bool(readonly)
             self.lastModified = None
             if path:
                 self.path = os.path.abspath(path)
