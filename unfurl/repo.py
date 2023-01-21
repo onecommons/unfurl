@@ -686,22 +686,22 @@ class GitRepo(Repo):
     #     repo.git.commit("")
 
 
-class RevisionManager:
-    def __init__(self, manifest, localEnv=None):
-        self.manifest = manifest
-        self.revisions = None
-        self.localEnv = localEnv
+# class RevisionManager:
+#     def __init__(self, manifest, localEnv=None):
+#         self.manifest = manifest
+#         self.revisions = None
+#         self.localEnv = localEnv
 
-    def get_revision(self, change):
-        if self.revisions is None:
-            self.revisions = {self.manifest.specDigest: self.manifest}
-        digest = change["specDigest"]
-        commitid = change["startCommit"]
-        if digest in self.revisions:
-            return self.revisions[digest]
-        else:
-            from .manifest import SnapShotManifest
+#     def get_revision(self, change):
+#         if self.revisions is None:
+#             self.revisions = {self.manifest.specDigest: self.manifest}
+#         digest = change["specDigest"]
+#         commitid = change["startCommit"]
+#         if digest in self.revisions:
+#             return self.revisions[digest]
+#         else:
+#             from .manifest import SnapShotManifest
 
-            manifest = SnapShotManifest(self.manifest, commitid)
-            self.revisions[digest] = manifest
-            return manifest
+#             manifest = SnapShotManifest(self.manifest, commitid)
+#             self.revisions[digest] = manifest
+#             return manifest

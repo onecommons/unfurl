@@ -26,7 +26,7 @@ from .runtime import (
     TopologyInstance
 )
 from .util import UnfurlError, to_enum, sensitive_str, get_base_dir
-from .repo import RevisionManager, split_git_url, RepoView, GitRepo
+from .repo import split_git_url, RepoView, GitRepo
 from .merge import merge_dicts
 from .result import ChangeRecord
 from .yamlloader import YamlConfig, yaml, ImportResolver, yaml_dict_type
@@ -85,7 +85,7 @@ class Manifest(AttributeManager):
         self.path = path
         self.repo = self._find_repo()
         self.currentCommitId = self.repo and self.repo.revision
-        self.revisions = RevisionManager(self)
+        # self.revisions = RevisionManager(self)
         self.changeSets: Optional[Dict[str, ChangeRecordRecord]] = None
         self.tosca = None
         self.specDigest = None
@@ -197,10 +197,12 @@ class Manifest(AttributeManager):
 
     def load_template(self, name, lastChange=None):
         if lastChange:
-            try:
-                return self.revisions.get_revision(lastChange).tosca.get_template(name)
-            except Exception:
-                return None
+            return None
+            # XXX implement revisions
+            # try:
+            #     return self.revisions.get_revision(lastChange).tosca.get_template(name)
+            # except Exception:
+            #     return None
         else:
             return self.tosca and self.tosca.get_template(name)
 
@@ -635,19 +637,19 @@ class Manifest(AttributeManager):
             return commits[0].committed_date
         return 0
 
-
-class SnapShotManifest(Manifest):
-    def __init__(self, manifest, commitId):
-        super().__init__(manifest.path, self.localEnv)
-        self.commitId = commitId
-        oldManifest = manifest.repo.show(manifest.path, commitId)
-        self.repo = manifest.repo
-        self.localEnv = manifest.localEnv
-        self.manifest = YamlConfig(
-            oldManifest, manifest.path, loadHook=self.load_yaml_include
-        )
-        self._update_repositories(oldManifest)
-        expanded = self.manifest.expanded
-        # just needs the spec, not root resource
-        self._set_spec(expanded.get("spec", {}))
-        self._ready(None)
+# unused
+# class SnapShotManifest(Manifest):
+#     def __init__(self, manifest, commitId):
+#         super().__init__(manifest.path, self.localEnv)
+#         self.commitId = commitId
+#         oldManifest = manifest.repo.show(manifest.path, commitId)
+#         self.repo = manifest.repo
+#         self.localEnv = manifest.localEnv
+#         self.manifest = YamlConfig(
+#             oldManifest, manifest.path, loadHook=self.load_yaml_include
+#         )
+#         self._update_repositories(oldManifest)
+#         expanded = self.manifest.expanded
+#         # just needs the spec, not root resource
+#         self._set_spec(expanded.get("spec", {}))
+#         self._ready(None)
