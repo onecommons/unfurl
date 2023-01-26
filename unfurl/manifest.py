@@ -116,7 +116,8 @@ class Manifest(AttributeManager):
                 self.package_specs[key] = PackageSpec(key, value.get("url"), value.get("revision"))
             else:
                 repositories[key] = value
-        env_package_spec = os.getenv("UNFURL_PACKAGE_RULES")
+        env_package_spec = context.get("variables", {}).get(
+            "UNFURL_PACKAGE_RULES", os.getenv("UNFURL_PACKAGE_RULES"))
         if env_package_spec:
             for key, value in taketwo(env_package_spec.split()):
                 self.package_specs[key] = PackageSpec(key, value, None)

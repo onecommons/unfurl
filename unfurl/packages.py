@@ -259,9 +259,12 @@ class Package:
     def is_compatible_with(self, package: "Package") -> bool:
         """
         If both the current package and the given package has a semantic version,
-        return true if the current packages' major verision is equal and minor version is less than or equal to the given package.
+        return true if the current packages' major version is equal and minor version is less than or equal to the given package.
+        If either package doesn't specify a version, return true.
         Otherwise only return true if the packages revisions match exactly.
         """
+        if not self.revision or not package.revision:
+            return True
         if not self.has_semver():
             return self.revision == package.revision
         if not package.has_semver():  # doesn't have a semver and doesn't match
