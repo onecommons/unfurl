@@ -57,7 +57,9 @@ if cors:
 
 
 def set_current_ensemble_git_url():
-    project_or_ensemble_path = os.getenv("UNFURL_SERVE_PATH") or "."
+    project_or_ensemble_path = os.getenv("UNFURL_SERVE_PATH")
+    if project_or_ensemble_path:
+        return
     try:
         local_env = LocalEnv(project_or_ensemble_path, can_be_empty=True)
         if local_env.project and local_env.project.project_repoview:

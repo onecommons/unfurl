@@ -13,7 +13,7 @@ import ssl
 import certifi
 
 if TYPE_CHECKING:
-    from unfurl.manifest import Manifest
+    from .manifest import Manifest
 
 pathname2url = urllib.request.pathname2url
 from jsonschema import RefResolver
@@ -44,7 +44,8 @@ from .merge import (
     _cache_anchors,
     restore_includes,
 )
-from .repo import is_url_or_git_path
+from .repo import RepoView, is_url_or_git_path
+from .packages import resolve_package
 from .logs import getLogger
 from toscaparser.common.exception import URLException, ExceptionCollector
 from toscaparser.utils.gettextutils import _
@@ -240,11 +241,11 @@ GetURLType = Optional[Tuple[str, bool, Optional[str]]]
 
 
 class ImportResolver(toscaparser.imports.ImportResolver):
-    def __init__(self, manifest: Optional["Manifest"], ignoreFileNotFound=False, expand=False, config=None):
+    def __init__(self, manifest: "Manifest", ignoreFileNotFound=False, expand=False, config=None):
         self.manifest = manifest
-        self.readonly = bool(manifest and manifest.localEnv and manifest.localEnv.readonly)
+        self.readonly = bool(manifest.localEnv and manifest.localEnv.readonly)
         self.ignoreFileNotFound = ignoreFileNotFound
-        self.yamlloader = manifest and manifest.loader or None
+        self.yamlloader = manifest.loader
         self.expand = expand
         self.config = config or {}
 
@@ -255,7 +256,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
 
     def get_repository(self, name: str, tpl: dict) -> Repository:
         # don't create another Repository instance
-        if self.manifest and name in self.manifest.repositories:
+        if name in self.manifest.repositories:
             return self.manifest.repositories[name].repository
 
         if isinstance(tpl, dict) and "url" in tpl:
@@ -267,7 +268,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                 url = "ssh://" + url.replace(":", "/", 1)
             tpl["url"] = url
 
-        if self.manifest and tpl.get('credential'):
+        if tpl.get('credential'):
             credential = tpl['credential']
             # support expressions to resolve credential secrets
             if self.manifest.rootResource:
@@ -280,67 +281,85 @@ class ImportResolver(toscaparser.imports.ImportResolver):
 
         return Repository(name, tpl)
 
+    @staticmethod
+    def _get_local_path(bare, path, repo, filePath, revision, file_name, importLoader):
+        if not bare:
+            return os.path.join(repo.working_dir, filePath, file_name or "").rstrip("/")
+
+        # # XXX support empty filePath or when filePath is a directory -- need to checkout the tree
+        if not filePath:
+            raise UnfurlError(
+                f"local repository for '{path}' can not checkout revision '{revision}'"
+            )
+        elif repo.repo.rev_parse(revision + ":" + filePath).type != "blob":
+            raise UnfurlError(
+                f"can't retrieve '{filePath}' with revision '{revision}' from local repository for '{path}'"
+            )
+        importLoader.stream = six.StringIO(repo.show(filePath, revision))
+        return os.path.join(filePath, file_name or "")
+
+    def _get_repository_path(self, importLoader: toscaparser.imports.ImportsLoader,
+                             repository_name: str) -> Tuple[str, bool, Optional["RepoView"]]:
+        path = cast(str, self.get_repository_url(importLoader, repository_name))
+        if path.startswith("file:"):
+            path = path[5:]
+            if path.startswith("//"):
+                path = path[2:]
+            return path, True, None
+        else:
+            repoview = self.manifest.repositories.get(repository_name)
+            if not repoview:
+                repository = self.get_repository(repository_name, importLoader.repositories[repository_name])
+                repoview = self.manifest.add_repository(None, repository, "")
+            assert repoview
+            if repoview.package is None:
+                assert not repoview.repo
+                # need to resolve if its a package
+                # if repoview.repository references a package, set the repository's url
+                # and register this reference with the package
+                # might raise error if version conflict
+                resolve_package(repoview, self.manifest.packages, self.manifest.package_specs)
+            return repoview.url, False, repoview
+
     def get_url(self, importLoader: toscaparser.imports.ImportsLoader,
                 repository_name: Optional[str], file_name: str, isFile: Optional[bool] = None) -> GetURLType:
+        # called by ImportsLoader when including or importing a file
+        # or resolving path to an artifact in a repository (see ToscaSpec.get_repository_path)
         # returns url or path, isFile, fragment
         importLoader.stream = None
         fragment: Optional[str] = None
+        repo_view = None
         if repository_name:
-            path = self.get_repository_url(importLoader, repository_name)
             file_name, sep, fragment = file_name.partition("#")
-            if path.startswith("file:"):
-                path = path[5:]
-                if path.startswith("//"):
-                    path = path[2:]
-                isFile = True
+            path, isFile, repo_view = self._get_repository_path(importLoader, repository_name)
+            # if not isFile path will be git url possibly including revision in fragment
+            if repo_view and repo_view.repo:
+                return os.path.join(repo_view.working_dir, file_name), True, fragment
         else:
             url_info = cast(GetURLType, super().get_url(importLoader, None, file_name, isFile))
             if not url_info:
                 return url_info
-            file_name = ""
             path, isFile, fragment = url_info
+            file_name = ""  # was included in path
 
         if not isFile or is_url_or_git_path(path):
-            if not self.manifest:
-                raise UnfurlError("Could not resolve git URL: " + path)
             # only support urls to git repos for now
-            if repository_name:
-                repo_view = self.manifest.repositories.get(repository_name)
-                if repo_view and repo_view.repo:
-                    return os.path.join(repo_view.working_dir, file_name), True, fragment
-
+            # this may clone a remote git repo
             repo, filePath, revision, bare = self.manifest.find_repo_from_git_url(
                 path, isFile, importLoader
             )
             if not repo:
                 raise UnfurlError("Could not resolve git URL: " + path)
-            isFile = True
-            if bare:
-                # XXX support empty filePath or when filePath is a directory -- need to checkout the tree
-                if not filePath:
-                    raise UnfurlError(
-                        f"local repository for '{path}' can not checkout revision '{revision}'"
-                    )
-                elif repo.repo.rev_parse(revision + ":" + filePath).type != "blob":
-                    raise UnfurlError(
-                        f"can't retrieve '{filePath}' with revision '{revision}' from local repository for '{path}'"
-                    )
-                importLoader.stream = six.StringIO(repo.show(filePath, revision))
-                path = os.path.join(filePath, file_name or "")
-            else:
-                path = os.path.join(repo.working_dir, filePath, file_name or "").rstrip(
-                    "/"
-                )
-                if repo_view:
-                    assert not repo_view.repo
-                    repo_view.repo = repo
-                elif repository_name:
-                    # first time seeing this repository
-                    repository = self.get_repository(repository_name, importLoader.repositories[repository_name])
-                    self.manifest.add_repository(repo, repository, filePath)
+            if repo_view and not bare:
+                assert not repo_view.repo
+                repo_view.set_repo_and_path(repo, filePath)
+
+            path = self._get_local_path(bare, path, repo, filePath, revision, file_name, importLoader)
         elif file_name:
             path = os.path.join(path, file_name)
-        return path, isFile, fragment
+
+        # always a local file path at this point
+        return path, True, fragment
 
     def load_yaml(self, importLoader, path, isFile=True, fragment=None):
         try:
@@ -405,7 +424,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                 return _refResolver.resolve_fragment(doc, fragment)
             else:
                 return doc
-        except:
+        except Exception:
             if path != originalPath:
                 msg = f'Could not load "{path}" (originally "{originalPath}")'
             else:

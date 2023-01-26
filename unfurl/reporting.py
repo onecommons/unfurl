@@ -1,3 +1,5 @@
+# Copyright (c) 2022 Adam Souzis
+# SPDX-License-Identifier: MIT
 import itertools
 import json
 from typing import (

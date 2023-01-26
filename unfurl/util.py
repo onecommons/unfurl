@@ -614,6 +614,15 @@ class Generate:
             return False
 
 
+def taketwo(seq):
+    last = None
+    for i, x in enumerate(seq):
+        if (i + 1) % 2 == 0:
+            yield last, x
+        else:
+            last = x
+
+
 def substitute_env(contents, env=None, preserve_missing=False):
     """
     Replace ${NAME} or ${NAME:default value} with the value of the environment variable $NAME
@@ -753,6 +762,7 @@ required_envvars = [
     "UNFURL_SKIP_VAULT_DECRYPT",
     "UNFURL_SKIP_UPSTREAM_CHECK",
     "UNFURL_VALIDATION_MODE",
+    "UNFURL_PACKAGE_RULES",
     "UNFURL_LOG_FORMAT",
     "UNFURL_RAISE_LOGGING_EXCEPTIONS",
     "PY_COLORS",

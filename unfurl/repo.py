@@ -5,16 +5,18 @@ import os
 import os.path
 from pathlib import Path
 import sys
-from typing import Dict, List, Optional, Union, cast
+from typing import TYPE_CHECKING, Dict, List, Literal, Optional, Union, cast
 import git
 import git.exc
+
 from .logs import getLogger
 from urllib.parse import urlparse
 from .util import UnfurlError, save_to_file
 from toscaparser.repositories import Repository
 from ruamel.yaml.comments import CommentedMap
 import logging
-
+if TYPE_CHECKING:
+    from .packages import Package
 
 logger = getLogger("unfurl")
 
@@ -44,7 +46,7 @@ def normalize_git_url(url, hard=0):
             return "file://" + url
         elif "@" in url:  # scp style used by git: user@server:project.git
             # convert to ssh://user@server/project.git
-            return "ssh://" + url.replace(":", "/", 1)
+            url = "ssh://" + url.replace(":", "/", 1)
     if hard:
         parts = urlparse(url)
         # remove password and .git
@@ -101,6 +103,18 @@ def split_git_url(url):
         giturl, sep, frag = url.partition("#")
         return giturl, path, revision
     return url, "", ""
+
+
+def get_remote_tags(url, pattern="*") -> List[str]:
+    # https://github.com/gitpython-developers/GitPython/issues/1071
+    # https://myshittycode.com/2020/10/02/git-querying-tags-without-cloning-the-repository/
+    # -v:refname is version sort in reverse order
+    # -c versionsort.suffix=- ensures 1.0.0-XXXXXX comes before 1.0.0.
+    blob = git.cmd.Git()(c="versionsort.suffix=-").ls_remote(url, pattern, sort='-v:refname', tags=True)
+    # len("b90df3d12413db22d051db1f7c7286cdd2f00b66\trefs/tags/") == 51
+    # filter out ^{} references (see https://stackoverflow.com/questions/12938972/what-does-mean-in-git)
+    tags = [line[51:] for line in blob.split('\n') if not line.endswith("^{}")]
+    return tags
 
 
 class _ProgressPrinter(git.RemoteProgress):
@@ -237,7 +251,7 @@ class Repo(abc.ABC):
         progress = _ProgressPrinter()
         progress.gitUrl = gitUrl
         try:
-            kwargs = dict(recurse_submodules=True, depth=1)
+            kwargs = dict(recurse_submodules=True, depth=1, no_single_branch=True)
             if revision:
                 kwargs["branch"] = revision
             repo = git.Repo.clone_from(gitUrl, localRepoPath, progress, **kwargs)  # type: ignore
@@ -293,12 +307,17 @@ class RepoView:
             repository = Repository(name, tpl)
         assert repository or repo
         self.repository: Repository = repository
+        self.yaml = None
+        self.revision: Optional[str] = None
+        self.set_repo_and_path(repo, path)
+        self.package: Optional[Union[Literal[False], "Package"]] = None
+
+    def set_repo_and_path(self, repo, path):
         self.repo = repo
         self.path = path
-        if repo and path and repository:
-            self.repository.url = repo.get_url_with_path(path)
+        if repo and path and self.repository:
+            self.repository.url = repo.get_url_with_path(path, False, self.revision or "")
         self.readOnly = not repo
-        self.yaml = None
 
     @property
     def working_dir(self) -> str:
@@ -487,17 +506,19 @@ class GitRepo(Repo):
         except:
             return None
 
-    def get_url_with_path(self, path, sanitize=False):
+    def get_url_with_path(self, path, sanitize=False, revision=""):
         if is_url_or_git_path(self.url):
             if os.path.isabs(path):
                 # get path relative to repository's root
                 path = os.path.relpath(path, self.working_dir)
                 if path.startswith(".."):
                     # outside of the repo, don't include it in the url
-                    return normalize_git_url(self.url, sanitize)
-            return normalize_git_url(self.url, sanitize) + "#:" + path
+                    if revision:
+                        revision = "#" + revision
+                    return normalize_git_url(self.url, sanitize) + revision
+            return normalize_git_url(self.url, sanitize) + "#" + revision + ":" + path
         else:
-            return self.get_git_local_url(path)
+            return self.get_git_local_url(path, revision=revision)
 
     def find_excluded_dirs(self, root):
         root = os.path.relpath(root, self.working_dir)
@@ -634,11 +655,13 @@ class GitRepo(Repo):
         Repo.ignore_dir(newPath)
         return GitRepo(cloned)
 
-    def get_git_local_url(self, path, name=""):
+    def get_git_local_url(self, path, name="", revision=""):
         if os.path.isabs(path):
             # get path relative to repository's root
             path = os.path.relpath(path, self.working_dir)
-        return f"git-local://{self.get_initial_revision()}:{name}/{path}"
+        if revision:
+            revision = "#" + revision
+        return f"git-local://{self.get_initial_revision()}:{name}/{path}{revision}"
 
     def delete_dir(self, path, commit=None):
         self.repo.index.remove(os.path.abspath(path), r=True, working_tree=True)

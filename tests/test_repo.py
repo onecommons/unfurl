@@ -1,7 +1,6 @@
 import unittest
 import os
 import traceback
-import six
 from click.testing import CliRunner
 from unfurl.__main__ import cli, _latestJobs
 from unfurl.localenv import LocalEnv
@@ -488,7 +487,7 @@ ensemble.yaml
             initial = repo.get_initial_revision()
             with open("./unfurl_home/unfurl.yaml") as f:
                 contents = f.read()
-                # print(contents)
+                # print("home:\n", contents)
                 for line in [
                     "examples:",
                     "url: " + gitUrl,
@@ -499,7 +498,7 @@ ensemble.yaml
             # assert added to localRepositories
             with open("./unfurl_home/local/unfurl.yaml") as f:
                 contents = f.read()
-                # print(contents)
+                # print("local:\n", contents)
                 for line in [
                     "url: " + normalize_git_url(gitUrl),
                     "initial: " + initial,

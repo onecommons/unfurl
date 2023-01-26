@@ -4,7 +4,7 @@ from collections.abc import Mapping
 import os.path
 import hashlib
 import json
-from typing import Dict, List, Optional, Any, Sequence, TYPE_CHECKING
+from typing import Dict, List, Optional, Any, Sequence, TYPE_CHECKING, cast
 from ruamel.yaml.comments import CommentedMap
 
 from .tosca import ToscaSpec, TOSCA_VERSION, ArtifactSpec
@@ -25,17 +25,18 @@ from .runtime import (
     ArtifactInstance,
     TopologyInstance
 )
-from .util import UnfurlError, to_enum, sensitive_str, get_base_dir
+from .util import UnfurlError, to_enum, sensitive_str, get_base_dir, taketwo
 from .repo import split_git_url, RepoView, GitRepo
+from .packages import Package, PackageSpec, PackagesType
 from .merge import merge_dicts
 from .result import ChangeRecord
-from .yamlloader import YamlConfig, yaml, ImportResolver, yaml_dict_type
+from .yamlloader import yaml, ImportResolver, yaml_dict_type
 from .logs import getLogger
 import toscaparser.imports
 from toscaparser.repositories import Repository
 
 if TYPE_CHECKING:
-    from unfurl.localenv import LocalEnv
+    from .localenv import LocalEnv
     from ansible.parsing.yaml.loader import AnsibleLoader
 
 logger = getLogger("unfurl")
@@ -43,34 +44,39 @@ logger = getLogger("unfurl")
 _basepath = os.path.abspath(os.path.dirname(__file__))
 
 
-def relabel_dict(context, localEnv, key):
-    connections = context.get(key)
+def relabel_dict(environment: Dict, localEnv: "LocalEnv", key: str) -> Dict:
+    """Retrieve environment dictionary and remap any values that are strings in the dictionary by treating them as keys into an environment.
+    """
+    connections = environment.get(key)
     if not connections:
         return {}
-    contexts = {}
+    assert isinstance(connections, dict)
+    environments: Dict[str, Dict] = {}
     if localEnv:
         project = localEnv.project or localEnv.homeProject
         if project:
-            contexts = project.contexts
+            environments = project.contexts  # type: ignore
 
     # handle items like newname : oldname to rename merged connections
     def follow_alias(v):
         if isinstance(v, str):
             env, sep, name = v.partition(":")
             if sep:  # found a ":"
-                v = contexts[env][key][name]
+                v = environments[env][key][name]
             else:  # look in current dict
-                v = connections[env]
+                v = connections[env]  # type: ignore
             return follow_alias(v)  # follow
         else:
             return v
 
     return dict((n, follow_alias(v)) for n, v in connections.items())
 
+
 class ChangeRecordRecord(ChangeRecord):
     target: str = ""
     operation: str = ""
     dependencies: Sequence = ()
+
 
 class Manifest(AttributeManager):
     """
@@ -91,6 +97,8 @@ class Manifest(AttributeManager):
         self.tosca = None
         self.specDigest = None
         self.repositories: Dict[str, RepoView] = {}
+        self.package_specs: Dict[str, PackageSpec] = {}
+        self.packages: PackagesType = {}
         if self.localEnv:
             # before we start parsing the manifest, add the repositories in the environment
             self._add_repositories_from_environment()
@@ -101,7 +109,17 @@ class Manifest(AttributeManager):
     def _add_repositories_from_environment(self):
         assert self.localEnv
         context = self.localEnv.get_context()
-        repositories = relabel_dict(context, self.localEnv, "repositories")
+        repositories = {}
+        for key, value in relabel_dict(context, self.localEnv, "repositories").items():
+            if "." in key:  # assume it's a package not a repository name
+                assert isinstance(value, dict)
+                self.package_specs[key] = PackageSpec(key, value.get("url"), value.get("revision"))
+            else:
+                repositories[key] = value
+        env_package_spec = os.getenv("UNFURL_PACKAGE_RULES")
+        if env_package_spec:
+            for key, value in taketwo(env_package_spec.split()):
+                self.package_specs[key] = PackageSpec(key, value, None)
         resolver = self.get_import_resolver(self)
         for name, tpl in repositories.items():
             toscaRepository = resolver.get_repository(name, tpl)
@@ -520,6 +538,7 @@ class Manifest(AttributeManager):
                 None,
                 "",
             )
+            repository.package = False
             repositories["unfurl"] = repository
         if "self" not in repositories:
             # this is called too early to use self.getBaseDir()
@@ -534,6 +553,7 @@ class Manifest(AttributeManager):
                 self.repo,
                 path,
             )
+            repository.package = False
             repositories["self"] = repository
 
         inProject = False
@@ -552,6 +572,7 @@ class Manifest(AttributeManager):
                 repositories["spec"] = self.localEnv.project.project_repoview  # type: ignore
             else:
                 repositories["spec"] = repositories["self"]
+        repositories["spec"].package = False
         return {name: repo.repository.tpl for name, repo in self.repositories.items()}
 
     def load_yaml_include(
