@@ -5,7 +5,8 @@ import os
 import os.path
 from pathlib import Path
 import sys
-from typing import TYPE_CHECKING, Dict, List, Literal, Optional, Union, cast
+from typing import TYPE_CHECKING, Dict, List, Optional, Union, cast
+from typing_extensions import Literal
 import git
 import git.exc
 

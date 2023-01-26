@@ -56,7 +56,8 @@ You can also set these rules in ``UNFURL_PACKAGE_RULES`` environment variable wh
 ```UNFURL_PACKAGE_RULES="unfurl.cloud/onecommons/* #main unfurl.cloud/onecommons/unfurl-types github.com/user1/myfork"```
 """
 import re
-from typing import Dict, List, Literal, NamedTuple, Optional, Union, cast
+from typing import Dict, List, NamedTuple, Optional, Union, cast
+from typing_extensions import Literal
 from urllib.parse import urlparse
 from .repo import RepoView, is_url_or_git_path, split_git_url, get_remote_tags
 from .logs import getLogger
