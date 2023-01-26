@@ -238,7 +238,8 @@ class Package:
         if not self.has_semver():
             return self.revision
         else:
-            return self.version_tag_prefix() + self.revision
+            # since "^v" is in the semver regex, make sure don't end up with "vv"
+            return self.version_tag_prefix() + self.revision.lstrip("v")
 
     def add_reference(self, repoview: RepoView) -> bool:
         if repoview not in self.repositories:
