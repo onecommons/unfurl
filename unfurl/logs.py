@@ -95,7 +95,10 @@ class HiddenOutputLogHandler(logging.StreamHandler):
 
 PY_COLORS = os.environ.get("PY_COLORS") != "0"
 
+
 def getConsole(**kwargs) -> Console:
+    global PY_COLORS
+    PY_COLORS = os.environ.get("PY_COLORS") != "0"
     # Settings needed for emulated terminals, like gitlab CI:
     # - Soft wrap prevents rich from breaking lines automatically
     # - force_terminal to display colors
