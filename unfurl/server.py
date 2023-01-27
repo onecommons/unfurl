@@ -60,15 +60,15 @@ if cors:
 
 def set_current_ensemble_git_url():
     project_or_ensemble_path = os.getenv("UNFURL_SERVE_PATH")
-    if project_or_ensemble_path:
+    if not project_or_ensemble_path:
         return
     try:
         local_env = LocalEnv(project_or_ensemble_path, can_be_empty=True)
-        if local_env.project and local_env.project.project_repoview:
-            app.config["UNFURL_CURRENT_PATH"] = local_env.project.projectRoot
+        if local_env.project and local_env.project.project_repoview and local_env.project.project_repoview.repo:
+            app.config["UNFURL_CURRENT_WORKING_DIR"] = local_env.project.project_repoview.repo.working_dir
             app.config["UNFURL_CURRENT_GIT_URL"] = normalize_git_url_hard(local_env.project.project_repoview.url)
     except Exception:
-        logger.warning("failed to find local project at %s", project_or_ensemble_path, exc_info=True)
+        logger.info('no project found at "%s", no local project set', project_or_ensemble_path)
 
 
 set_current_ensemble_git_url()
@@ -252,12 +252,13 @@ class CacheEntry:
     def _cancel_inflight(self, cache):
         return cache.delete(self._inflight_key())
 
-    def get_or_set(self, cache, work: Callable, latest_commit: Optional[str]) -> Tuple[Optional[Any], Any]:
+    def get_or_set(self, cache, work: Callable, latest_commit: Optional[str], validate: Optional[Callable] = None) -> Tuple[Optional[Any], Any]:
         value, commitinfo = self.get_cache(cache, latest_commit)
         if commitinfo:
             if commitinfo is True:
-                return None, value
-            # otherwise in cache but stale, fall thru to redo work
+                if not validate or validate(value):
+                    return None, value
+            # otherwise in cache but stale or invalid, fall thru to redo work
             # XXX? check date to see if its recent enough to serve anyway
             # if commitinfo.committed_date - time.time() < stale_ok_age:
             #      return value
@@ -342,7 +343,10 @@ def get_project_url(project_id: str, username=None, password=None) -> str:
 
 
 def _stage(project_id: str, args: dict, pull: bool) -> Optional[str]:
-    # Default to exporting the ensemble provided to the server on startup
+    """
+    Clones or pulls the latest from the given project repository and returns the repository's working directory
+    or None if clone failed.
+    """
     repo = None
     repo_path = _get_project_repo_dir(project_id)
     repo = _get_project_repo(project_id)
@@ -524,48 +528,47 @@ def _make_readonly_localenv(clone_location, parent_localenv=None):
     return None, local_env
 
 
+def _validate_localenv(localEnv) -> bool:
+    return bool(localEnv and localEnv.project and os.path.isdir(localEnv.project.projectRoot))
+
+
 def _localenv_from_cache(cache, project_id: str, branch: Optional[str], deployment_path: str,
-                         latest_commit: str, args: dict, clone_location: Optional[str] = None) -> Tuple[Any, Any]:
+                         latest_commit: str, args: dict) -> Tuple[Any, Any]:
     # we want to make cloning a project cache work to prevent concurrent cloning 
     def _cache_localenv_work(cache_entry: CacheEntry, latest_commit: str) -> Tuple[Any, Any]:
+        clone_location = _fetch_working_dir(cache_entry.project_id, args, True)
         if clone_location is None:
-            _clone_location = _fetch_localenv_location(cache_entry.project_id, deployment_path, args, True)
-            if _clone_location is None:
-                return create_error_response(
-                    "INTERNAL_ERROR", "Could not find repository"
-                ), None
-        else:
-            _clone_location = _clone_location
-        return _make_readonly_localenv(_clone_location)
+            return create_error_response(
+                "INTERNAL_ERROR", "Could not find repository"
+            ), None
+        clone_location = os.path.join(clone_location, deployment_path)
+        return _make_readonly_localenv(clone_location)
     return CacheEntry(project_id, branch, "unfurl.yaml", "localenv"
-                      ).get_or_set(cache, _cache_localenv_work, latest_commit)
+                      ).get_or_set(cache, _cache_localenv_work, latest_commit, _validate_localenv)
 
 
 def _do_export(project_id: str, requested_format: str, deployment_path: str,
                cache_entry: Optional[CacheEntry], latest_commit: str, args: dict) -> Tuple[Optional[Any], Optional[str]]:
-    clone_location: Optional[str] = None
-    if project_id:
-        if cache_entry and isinstance(cache_entry.commitinfo, Commit):
-            repo = GitRepo(cache_entry.commitinfo.repo)
-            clone_location = os.path.join(repo.working_dir, deployment_path)
-    else:  # use the current ensemble
-        clone_location = current_app.config.get("UNFURL_CURRENT_PATH") or "."
-
     # load the ensemble
     if cache_entry:
         err, parent_localenv = _localenv_from_cache(cache, project_id, cache_entry.branch,
-                                deployment_path, latest_commit, args, clone_location)
+                                                    deployment_path, latest_commit, args)
         if err:
             return err, None
-        clone_location = parent_localenv.manifestPath
+        working_dir = parent_localenv.project.project_repoview.repo.working_dir
     else:
         err, parent_localenv = None, None
-        if clone_location is None:
-            clone_location = _fetch_localenv_location(project_id, deployment_path, args, False)
-            if clone_location is None:
+        if not project_id:
+            # use the current ensemble
+            working_dir = current_app.config.get("UNFURL_CURRENT_WORKING_DIR") or "."
+        else:
+            working_dir = _fetch_working_dir(project_id, args, False)
+            if working_dir is None:
                 return create_error_response(
                     "INTERNAL_ERROR", "Could not find repository"
                 ), None
+
+    clone_location = os.path.join(working_dir, deployment_path)
     if not err:
         err, local_env = _make_readonly_localenv(clone_location, parent_localenv)
         if args.get("environment"):
@@ -718,12 +721,10 @@ def _patch_environment(body: dict, project_id: str):
     latest_commit = body.get("latest_commit") or ""
     branch = body.get("branch")
     already_exists = os.path.isdir(_get_project_repo_dir(project_id))
-    err, parent_localenv = _localenv_from_cache(cache, project_id, branch, "", latest_commit, body)
+    err, localEnv = _localenv_from_cache(cache, project_id, branch, "", latest_commit, body)
     if err:
         return err
-    clone_location = parent_localenv.manifestPath
     invalidate_cache(body, "environments", project_id)
-    localEnv = LocalEnv(clone_location, can_be_empty=True)
     assert localEnv.project
     repo = localEnv.project.project_repoview.repo
     assert repo
@@ -766,7 +767,7 @@ def _patch_environment(body: dict, project_id: str):
         if err:
             return err  # err will be an error response
     else:
-        logger.warning("local repository at %s was dirty, not committing or pushing", clone_location)
+        logger.warning("local repository at %s was dirty, not committing or pushing", localEnv.project.projectRoot)
     return _patch_response(repo)
 
 
@@ -796,11 +797,10 @@ def _patch_ensemble(body: dict, create: bool, project_id: str) -> str:
 
     latest_commit = body.get("latest_commit") or ""
     branch = body.get("branch")
-    err, parent_localenv = _localenv_from_cache(cache, project_id, branch, deployment_path, latest_commit, body)
+    err, parent_localenv = _localenv_from_cache(cache, project_id, branch, "", latest_commit, body)
     if err:
         return err
-    clone_location = parent_localenv.manifestPath
-    assert clone_location
+    clone_location = os.path.join(parent_localenv.project.project_repoview.repo.working_dir, deployment_path)
 
     invalidate_cache(body, "deployment", project_id)
     was_dirty = existing_repo and existing_repo.is_dirty()
@@ -943,28 +943,27 @@ def _commit_and_push(repo: GitRepo, full_path: str, commit_msg: str):
     return None
 
 
-def _fetch_localenv_location(project_path: str, deployment_path: str, args: dict, pull: bool = False) -> Optional[str]:
-    # Repository URL
-    # Project is external
-    current_ensemble_path = current_app.config.get("UNFURL_CURRENT_PATH") or "."
+def _fetch_working_dir(project_path: str, args: dict, pull: bool = False) -> Optional[str]:
+    # if successful, returns the repository's working directory or None if clone failed
+    current_working_dir = current_app.config.get("UNFURL_CURRENT_WORKING_DIR") or "."
     if not project_path or project_path == ".":
-        # get the local ensemble
-        clone_location = current_ensemble_path
+        clone_location = current_working_dir
     else:
-        # developer mode: use the project we are serving from if the project_path matches
-        # otherwise clone the project
         current_git_url = current_app.config.get("UNFURL_CURRENT_GIT_URL")
         if current_git_url and normalize_git_url_hard(get_project_url(project_path)) == current_git_url:
+            # developer mode: use the project we are serving from if the project_path matches
             logger.debug("exporting from local repo %s", current_git_url)
-            clone_location = current_ensemble_path
+            clone_location = current_working_dir
         else:
+            # otherwise clone the project if necessary
+            # root of repo not necessarily unfurl project
             clone_location = _stage(project_path, args, pull)
         if not clone_location:
             return clone_location
     # XXX: deployment_path must be in the project repo, split repos are not supported
     # we want the caching and staging infrastructure to only know about git, not unfurl projects
     # so we can't reference a file path outside of the git repository
-    return os.path.join(clone_location, deployment_path)
+    return clone_location
 
 
 def create_error_response(code, message):

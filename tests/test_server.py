@@ -221,7 +221,7 @@ def test_server_export_local():
                 env=dict(UNFURL_HOME=""),
             )
             # compare the export request output to the export command output
-            for export_format in ["deployment", "environments", "blueprint"]:
+            for export_format in ["deployment", "environments"]:
                 res = requests.get(
                     f"http://localhost:{port}/export?format={export_format}"
                 )

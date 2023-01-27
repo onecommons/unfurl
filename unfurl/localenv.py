@@ -353,7 +353,7 @@ class Project:
         return repo
 
     def get_manifest_path(
-        self, localEnv: "LocalEnv", manifestPath: str, can_be_empty: bool
+        self, localEnv: "LocalEnv", manifestPath: Optional[str], can_be_empty: bool
     ) -> Tuple[Optional["Project"], str, str]:
         if manifestPath:
             # at this point a named manifest

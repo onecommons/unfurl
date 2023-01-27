@@ -328,7 +328,7 @@ class RepoView:
         self.set_repo_and_path(repo, path)
         self.package: Optional[Union[Literal[False], "Package"]] = None
 
-    def set_repo_and_path(self, repo, path):
+    def set_repo_and_path(self, repo: Optional["GitRepo"], path: str):
         self.repo = repo
         self.path = path
         if repo and path and self.repository:
