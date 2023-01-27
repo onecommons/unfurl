@@ -15,7 +15,7 @@ from flask_cors import CORS
 import git
 from git.objects import Commit
 from .localenv import LocalEnv
-from .repo import GitRepo, normalize_git_url_hard
+from .repo import GitRepo, normalize_git_url_hard, sanitize_url
 from .util import UnfurlError, get_package_digest
 from .logs import getLogger, add_log_file
 from .yamlmanifest import YamlManifest
@@ -357,10 +357,11 @@ def _stage(project_id: str, args: dict, pull: bool) -> Optional[str]:
             repo_path,
             empty=True
         )
-        logger.info(f"cloned {git_url}: {result} in pid {os.getpid()}")
+        clean_url = sanitize_url(git_url)
+        logger.info(f"cloned {clean_url}: {result} in pid {os.getpid()}")
         repo = _get_project_repo(project_id)
         if repo:
-            logger.info("clone success: %s to %s", git_url, repo.working_dir)
+            logger.info("clone success: %s to %s", clean_url, repo.working_dir)
     return repo and repo.working_dir or None
 
 

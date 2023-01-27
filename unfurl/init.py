@@ -17,7 +17,7 @@ from pathlib import Path
 
 from . import DefaultNames, __version__, get_home_config_path, is_version_unreleased
 from .localenv import LocalEnv, Project, LocalConfig
-from .repo import GitRepo, Repo, is_url_or_git_path, split_git_url, commit_secrets
+from .repo import GitRepo, Repo, is_url_or_git_path, split_git_url, commit_secrets, sanitize_url
 from .util import UnfurlError, get_random_password, substitute_env
 from .yamlloader import make_yaml, make_vault_lib
 
@@ -844,10 +844,11 @@ class EnsembleBuilder:
 
         targetDir = os.path.join(destDir, filePath)
         sourceProjectRoot = Project.find_path(targetDir, destDir)
-        self.logger.debug(f'cloned {self.input_source}" to "{destDir}"')
+        clean_url = sanitize_url(self.input_source)
+        self.logger.debug(f'cloned "{clean_url}" to "{destDir}"')
         if not sourceProjectRoot:
             raise UnfurlError(
-                f'Error: cloned "{self.input_source}" to "{destDir}" but couldn\'t find an Unfurl project'
+                f'Error: cloned "{clean_url}" to "{destDir}" but couldn\'t find an Unfurl project'
             )
 
         self.source_project = find_project(sourceProjectRoot, self.home_path)

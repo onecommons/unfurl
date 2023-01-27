@@ -10,7 +10,7 @@ from typing_extensions import Literal
 import git
 import git.exc
 
-from .logs import getLogger
+from .logs import getLogger, PY_COLORS
 from urllib.parse import urlparse
 from .util import UnfurlError, save_to_file
 from toscaparser.repositories import Repository
@@ -61,6 +61,18 @@ def normalize_git_url(url, hard=0):
         else:
             path = parts.path
         return parts._replace(netloc=netloc, path=path).geturl()
+    return url
+
+
+def sanitize_url(url: str) -> str:
+    if "://" in url and "@" in url:  # sanitize
+        parts = urlparse(url)
+        # XXXX out user and password
+        user, sep, host = parts.netloc.rpartition("@")
+        if user:
+            user, sep, password = user.partition(':')
+            netloc = f"XXXXX{':XXXXX' if password else ''}@{host}"
+            return parts._replace(netloc=netloc).geturl()
     return url
 
 
@@ -125,8 +137,6 @@ class _ProgressPrinter(git.RemoteProgress):
         # we use print instead of logging because we don't want to clutter logs with this message
         if message and logger.getEffectiveLevel() <= logging.INFO:
             url = self.gitUrl
-            if "://" in url and "@" in url:  # sanitize
-                url = normalize_git_url_hard(url)
             print(f"fetching from {url}, received: {message} ", file=sys.stderr)
 
 
@@ -248,14 +258,19 @@ class Repo(abc.ABC):
         parent_dir = os.path.dirname(localRepoPath)
         if parent_dir.strip("/"):
             os.makedirs(parent_dir, exist_ok=True)
-        logger.info("Fetching %s %s to %s", gitUrl, revision or "", localRepoPath)
-        progress = _ProgressPrinter()
-        progress.gitUrl = gitUrl
+        cleanurl = sanitize_url(gitUrl)
+        logger.info("Fetching %s %s to %s", cleanurl, revision or "", localRepoPath)
+        kwargs = dict(recurse_submodules=True, depth=1, no_single_branch=True)
+        non_interactive = os.getenv("CI") or not PY_COLORS  # or color out disabled
+        if not non_interactive:
+            # we're running in an interactive session
+            progress = _ProgressPrinter()
+            progress.gitUrl = cleanurl
+            kwargs["progress"] = progress  # type: ignore
         try:
-            kwargs = dict(recurse_submodules=True, depth=1, no_single_branch=True)
             if revision:
                 kwargs["branch"] = revision
-            repo = git.Repo.clone_from(gitUrl, localRepoPath, progress, **kwargs)  # type: ignore
+            repo = git.Repo.clone_from(gitUrl, localRepoPath, **kwargs)  # type: ignore
         except git.exc.GitCommandError as err:  # type: ignore
             raise UnfurlError(
                 f'couldn\'t create working directory, clone failed: "{err._cmdline}"\nTry re-running that command to diagnose the problem.'
