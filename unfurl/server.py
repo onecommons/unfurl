@@ -612,7 +612,7 @@ def create_provider():
     body = _get_body(request)
     project_id = get_project_id(request)
     _patch_environment(body, project_id)
-    return _patch_ensemble(body, True, project_id)
+    return _patch_ensemble(body, True, project_id, False)
 
 
 def _patch_deployment_blueprint(patch: dict, manifest: "YamlManifest", deleted: bool) -> None:
@@ -732,7 +732,8 @@ def _patch_environment(body: dict, project_id: str):
     was_dirty = repo.is_dirty()
     if already_exists and not was_dirty:
         repo.pull()
-        if latest_commit and repo.revision != body["latest_commit"]:
+        if latest_commit and repo.revision != latest_commit:
+            logger.warning(f"Conflict in {project_id}: {latest_commit} != {repo.revision}")
             return create_error_response("CONFLICT", "Repository at wrong revision")
     localConfig = localEnv.project.localConfig
     for patch_inner in patch:
@@ -789,7 +790,7 @@ def invalidate_cache(body: dict, format: str, project_id: str) -> bool:
     return False
 
 
-def _patch_ensemble(body: dict, create: bool, project_id: str) -> str:
+def _patch_ensemble(body: dict, create: bool, project_id: str, pull=True) -> str:
     patch = body.get("patch")
     assert isinstance(patch, list)
     environment = body.get("environment") or ""  # cloud_vars_url need the ""!
@@ -805,9 +806,10 @@ def _patch_ensemble(body: dict, create: bool, project_id: str) -> str:
 
     invalidate_cache(body, "deployment", project_id)
     was_dirty = existing_repo and existing_repo.is_dirty()
-    if existing_repo and not was_dirty:
+    if pull and existing_repo and not was_dirty:
         existing_repo.pull()
-        if body.get("latest_commit") and existing_repo.revision != body["latest_commit"]:
+        if latest_commit and existing_repo.revision != latest_commit:
+            logger.warning(f"Conflict in {project_id}: {latest_commit} != {existing_repo.revision}")
             return create_error_response("CONFLICT", "Repository at wrong revision")
     deployment_blueprint = body.get("deployment_blueprint")
     if create:
