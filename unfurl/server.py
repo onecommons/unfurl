@@ -721,10 +721,11 @@ def _patch_environment(body: dict, project_id: str):
     latest_commit = body.get("latest_commit") or ""
     branch = body.get("branch")
     already_exists = os.path.isdir(_get_project_repo_dir(project_id))
-    err, localEnv = _localenv_from_cache(cache, project_id, branch, "", latest_commit, body)
+    err, readonly_localEnv = _localenv_from_cache(cache, project_id, branch, "", latest_commit, body)
     if err:
         return err
     invalidate_cache(body, "environments", project_id)
+    localEnv = LocalEnv(readonly_localEnv.project.projectRoot, can_be_empty=True)
     assert localEnv.project
     repo = localEnv.project.project_repoview.repo
     assert repo
