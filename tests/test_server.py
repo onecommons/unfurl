@@ -5,7 +5,7 @@ import time
 import unittest
 import urllib.request
 from functools import partial
-from multiprocessing import Process
+from multiprocessing import Process, set_start_method
 
 import requests
 from click.testing import CliRunner
@@ -18,6 +18,8 @@ from unfurl.repo import GitRepo
 from unfurl.yamlloader import yaml
 from base64 import b64encode
 
+# mac defaults to spawn, switch to fork so the subprocess inherits our stdout and stderr so we can see its log output
+set_start_method("fork")
 
 UNFURL_TEST_REDIS_URL = os.getenv("UNFURL_TEST_REDIS_URL")
 if UNFURL_TEST_REDIS_URL:
@@ -126,6 +128,7 @@ def runner():
     with runner.isolated_filesystem() as tmpdir:
         # server.serve('localhost', _static_server_port, 'secret', 'ensemble', {})
         # "url": ,
+        os.environ["UNFURL_LOGGING"] = "TRACE"
         server_process = Process(
             target=server.serve,
             args=("localhost", _static_server_port, "secret", ".", "", {}, CLOUD_TEST_SERVER),
@@ -341,7 +344,7 @@ def test_populate_cache(runner):
     project_ids = ["onecommons/project-templates/dashboard", "onecommons/project-templates/dashboard",
                   "onecommons/project-templates/application-blueprint"]
     files = ["unfurl.yaml", "ensemble/ensemble.yaml", "ensemble-template.yaml"]
-    port = 8090
+    port = _static_server_port
     for file_path, project_id in zip(files, project_ids):
         res = requests.post(
             f"http://localhost:{port}/populate_cache",

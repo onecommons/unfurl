@@ -14,6 +14,8 @@ from flask_cors import CORS
 
 import git
 from git.objects import Commit
+
+from unfurl.projectpaths import rmtree
 from .localenv import LocalEnv
 from .repo import GitRepo, normalize_git_url_hard, sanitize_url
 from .util import UnfurlError, get_package_digest
@@ -489,9 +491,19 @@ def populate_cache():
             return "OK"
     err, json_summary = cache_entry.get_or_set(cache, partial(_cache_work, request.args), latest_commit)
     if err:
-        return err
+        if isinstance(err, Exception):
+            return create_error_response("INTERNAL_ERROR", "An internal error occurred")
+        else:
+            return err
     else:
         return "OK"
+
+
+@app.route("/clear_project_file_cache", methods=["POST"])
+def clear_project():
+    project_dir = _get_project_repo_dir(get_project_id(request))
+    rmtree(project_dir, logger)
+    return "OK"
 
 
 def _make_readonly_localenv(clone_location, parent_localenv=None):
@@ -512,28 +524,48 @@ def _make_readonly_localenv(clone_location, parent_localenv=None):
     return None, local_env
 
 
-def _do_export(project_id: str, requested_format: str, deployment_path: str,
-               cache_entry: Optional[CacheEntry], latest_commit: str, args: dict) -> Tuple[Optional[Any], Optional[str]]:
-    if project_id:
-        if cache_entry and isinstance(cache_entry.commitinfo, Commit):
-            repo = GitRepo(cache_entry.commitinfo.repo)
-            clone_location: Optional[str] = os.path.join(repo.working_dir, deployment_path)
-        else:
-            clone_location = _fetch_localenv_location(project_id, deployment_path, args, bool(cache_entry))
-            if clone_location is None:
+def _localenv_from_cache(cache, project_id: str, branch: Optional[str], deployment_path: str,
+                         latest_commit: str, args: dict, clone_location: Optional[str] = None) -> Tuple[Any, Any]:
+    # we want to make cloning a project cache work to prevent concurrent cloning 
+    def _cache_localenv_work(cache_entry: CacheEntry, latest_commit: str) -> Tuple[Any, Any]:
+        if clone_location is None:
+            _clone_location = _fetch_localenv_location(cache_entry.project_id, deployment_path, args, True)
+            if _clone_location is None:
                 return create_error_response(
                     "INTERNAL_ERROR", "Could not find repository"
                 ), None
+        else:
+            _clone_location = _clone_location
+        return _make_readonly_localenv(_clone_location)
+    return CacheEntry(project_id, branch, "unfurl.yaml", "localenv"
+                      ).get_or_set(cache, _cache_localenv_work, latest_commit)
+
+
+def _do_export(project_id: str, requested_format: str, deployment_path: str,
+               cache_entry: Optional[CacheEntry], latest_commit: str, args: dict) -> Tuple[Optional[Any], Optional[str]]:
+    clone_location: Optional[str] = None
+    if project_id:
+        if cache_entry and isinstance(cache_entry.commitinfo, Commit):
+            repo = GitRepo(cache_entry.commitinfo.repo)
+            clone_location = os.path.join(repo.working_dir, deployment_path)
     else:  # use the current ensemble
         clone_location = current_app.config.get("UNFURL_CURRENT_PATH") or "."
 
     # load the ensemble
     if cache_entry:
-        err, parent_localenv = CacheEntry(project_id, cache_entry.branch, "unfurl.yaml", "localenv"
-                                          ).get_or_set(
-            cache, lambda *args: _make_readonly_localenv(clone_location), latest_commit)
+        err, parent_localenv = _localenv_from_cache(cache, project_id, cache_entry.branch,
+                                deployment_path, latest_commit, args, clone_location)
+        if err:
+            return err, None
+        clone_location = parent_localenv.manifestPath
     else:
         err, parent_localenv = None, None
+        if clone_location is None:
+            clone_location = _fetch_localenv_location(project_id, deployment_path, args, False)
+            if clone_location is None:
+                return create_error_response(
+                    "INTERNAL_ERROR", "Could not find repository"
+                ), None
     if not err:
         err, local_env = _make_readonly_localenv(clone_location, parent_localenv)
         if args.get("environment"):
@@ -680,14 +712,16 @@ def _patch_response(repo: Optional[GitRepo]):
     return jsonify(dict(commit=repo and repo.revision or None))
 
 
-def _patch_environment(body: dict, project_id: str) -> str:
+def _patch_environment(body: dict, project_id: str):
     patch = body.get("patch")
     assert isinstance(patch, list)
+    latest_commit = body.get("latest_commit") or ""
+    branch = body.get("branch")
     already_exists = os.path.isdir(_get_project_repo_dir(project_id))
-    clone_location = _fetch_localenv_location(project_id, "", body)
-    if clone_location is None:
-        # XXX create a new ensemble if patch is for a new deployment
-        return create_error_response("BAD_REQUEST", "Could not find repository")
+    err, parent_localenv = _localenv_from_cache(cache, project_id, branch, "", latest_commit, body)
+    if err:
+        return err
+    clone_location = parent_localenv.manifestPath
     invalidate_cache(body, "environments", project_id)
     localEnv = LocalEnv(clone_location, can_be_empty=True)
     assert localEnv.project
@@ -696,7 +730,7 @@ def _patch_environment(body: dict, project_id: str) -> str:
     was_dirty = repo.is_dirty()
     if already_exists and not was_dirty:
         repo.pull()
-        if body.get("latest_commit") and repo.revision != body["latest_commit"]:
+        if latest_commit and repo.revision != body["latest_commit"]:
             return create_error_response("CONFLICT", "Repository at wrong revision")
     localConfig = localEnv.project.localConfig
     for patch_inner in patch:
@@ -759,11 +793,15 @@ def _patch_ensemble(body: dict, create: bool, project_id: str) -> str:
     environment = body.get("environment") or ""  # cloud_vars_url need the ""!
     deployment_path = body.get("deployment_path") or ""
     existing_repo = _get_project_repo(project_id)
-    clone_location = _fetch_localenv_location(project_id, deployment_path, body)
-    if clone_location is None:
-        # XXX create a new ensemble if patch is for a new deployment
-        return create_error_response("INTERNAL_ERROR", "Could not find repository")
+
+    latest_commit = body.get("latest_commit") or ""
+    branch = body.get("branch")
+    err, parent_localenv = _localenv_from_cache(cache, project_id, branch, deployment_path, latest_commit, body)
+    if err:
+        return err
+    clone_location = parent_localenv.manifestPath
     assert clone_location
+
     invalidate_cache(body, "deployment", project_id)
     was_dirty = existing_repo and existing_repo.is_dirty()
     if existing_repo and not was_dirty:
@@ -774,8 +812,6 @@ def _patch_ensemble(body: dict, create: bool, project_id: str) -> str:
     if create:
         blueprint_url = body["blueprint_url"]
         logger.info("creating deployment at %s for %s", clone_location, blueprint_url)
-        # set our local package overrides in the defaults in the dashboard skeleton's local/unfurl.yaml 
-        # var=["packages", app.config["UNFURL_CLOUD_SERVER"] + "onecommons/types"]
         msg = init.clone(blueprint_url, clone_location, existing=True, mono=True, skeleton="dashboard",
                          use_environment=environment, use_deployment_blueprint=deployment_blueprint)
         logger.info(msg)
