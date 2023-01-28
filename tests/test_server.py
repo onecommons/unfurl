@@ -420,6 +420,33 @@ def test_server_update_deployment():
                 data = yaml.load(f.read())
                 assert not data['spec']['service_template']['topology_template']['node_templates']
 
+            provider_patch = [{
+              "name": "gcp",
+              "primary_provider": {
+                "name": "primary_provider",
+                "type": "unfurl.relationships.ConnectsTo.GoogleCloudProject",
+                "__typename": "ResourceTemplate"
+              },
+              "connections": {
+                "primary_provider": {
+                  "name": "primary_provider",
+                  "type": "unfurl.relationships.ConnectsTo.GoogleCloudProject",
+                  "__typename": "ResourceTemplate"
+                }
+              },
+              "__typename": "DeploymentEnvironment"
+            }]
+            res = requests.post(
+                f"http://localhost:{port}/create_provider?auth_project=remote",
+                json={
+                    "environment":"gcp","deployment_blueprint":None,"deployment_path": "environments/gcp/primary_provider",
+                    "patch": provider_patch,
+                    "commit_msg": "Create environment gcp"                                     
+                }
+            )
+            assert res.status_code == 200
+            assert res.content.startswith(b'{"commit":')
+
         finally:
             if p:
                 p.terminate()
