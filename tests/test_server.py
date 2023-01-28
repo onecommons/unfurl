@@ -19,6 +19,7 @@ from unfurl.yamlloader import yaml
 from base64 import b64encode
 
 # mac defaults to spawn, switch to fork so the subprocess inherits our stdout and stderr so we can see its log output
+# (needed for caplog fixture)
 set_start_method("fork")
 
 UNFURL_TEST_REDIS_URL = os.getenv("UNFURL_TEST_REDIS_URL")
@@ -280,14 +281,11 @@ def test_server_export_remote(caplog):
                           "X-Git-Credentials": b64encode("username:token".encode())
                         }
                     )
+
                     file_path = server._get_filepath(export_format, None)
                     key = server.CacheEntry(project_id, "", file_path, export_format).cache_key()
-                    # XXX figure out how to capture the server process' stderr, caplog and capsys don't work
-                    # process_logoutput = capsys.readouterr().err
-                    # print("process_logoutput", process_logoutput)
-                    # assert f"{msg} {key}" in caplog.text
-                    # print(export_format)
-                    # print(json.dumps(res.json(), indent=2)
+                    assert f"{msg} {key}" in caplog.text
+
                     if msg == "cache miss for":
                         assert res.status_code == 200
                         # don't bother re-exporting the second time
@@ -414,7 +412,8 @@ def test_server_update_deployment():
             assert res.status_code == 200
             assert res.content.startswith(b'{"commit":')
 
-            # server pushed to remote.git
+            # server pushes to remote.git which needs to be a bare repository
+            # so pull from there to verify the push
             os.system("git pull ../remote.git")
             with open("ensemble/ensemble.yaml", "r") as f:
                 data = yaml.load(f.read())
@@ -439,13 +438,20 @@ def test_server_update_deployment():
             res = requests.post(
                 f"http://localhost:{port}/create_provider?auth_project=remote",
                 json={
-                    "environment":"gcp","deployment_blueprint":None,"deployment_path": "environments/gcp/primary_provider",
+                    "environment":"gcp", "deployment_blueprint":None, "deployment_path": "environments/gcp/primary_provider",
                     "patch": provider_patch,
-                    "commit_msg": "Create environment gcp"                                     
+                    "commit_msg": "Create environment gcp"
                 }
             )
             assert res.status_code == 200
             assert res.content.startswith(b'{"commit":')
+
+            os.system("git pull ../remote.git")
+            with open("unfurl.yaml", "r") as f:
+                data = yaml.load(f.read())
+                # check that the environment was added and an ensemble was created
+                assert data["environments"]["gcp"]["connections"]["primary_provider"]["type"] == "unfurl.relationships.ConnectsTo.GoogleCloudProject"
+                assert data["ensembles"][0]["alias"] == "primary_provider"
 
         finally:
             if p:
