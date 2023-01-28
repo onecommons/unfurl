@@ -296,7 +296,7 @@ def resolve_package(repoview: RepoView, packages: PackagesType, package_specs: D
     if package.package_id not in packages:
         if not package.url:
             # the repository didn't specify a full url and there wasn't already an existing package or package spec
-            UnfurlError(f'Could not find a repository that matched package "{package.package_id}"')
+            raise UnfurlError(f'Could not find a repository that matched package "{package.package_id}"')
         if not package.revision:
             # no version specified, use the latest version tagged in the repository
             package.set_version_from_repo()

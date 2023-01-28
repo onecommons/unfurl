@@ -813,7 +813,7 @@ def _patch_ensemble(body: dict, create: bool, project_id: str, pull=True) -> str
             return create_error_response("CONFLICT", "Repository at wrong revision")
     deployment_blueprint = body.get("deployment_blueprint")
     if create:
-        blueprint_url = body["blueprint_url"]
+        blueprint_url = body.get("blueprint_url", parent_localenv.project.projectRoot)
         logger.info("creating deployment at %s for %s", clone_location, blueprint_url)
         msg = init.clone(blueprint_url, clone_location, existing=True, mono=True, skeleton="dashboard",
                          use_environment=environment, use_deployment_blueprint=deployment_blueprint)

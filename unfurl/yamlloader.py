@@ -313,7 +313,6 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                 repoview = self.manifest.add_repository(None, repository, "")
             assert repoview
             if repoview.package is None:
-                assert not repoview.repo
                 # need to resolve if its a package
                 # if repoview.repository references a package, set the repository's url
                 # and register this reference with the package
