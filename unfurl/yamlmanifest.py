@@ -387,6 +387,8 @@ class YamlManifest(ReadOnlyManifest):
         if not self.localEnv:
             return
 
+        if self.localEnv.overrides.get("UNFURL_SKIP_VAULT_DECRYPT"):
+            return
         # use the password associated with the project the repository appears in.
         repos = set(self.repositories.values())
         project = self.localEnv.project or self.localEnv.homeProject

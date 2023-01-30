@@ -10,6 +10,7 @@ coverage
 pytest
 pytest-cov
 pytest-xdist[psutil]
+pytest-profiling
 # type checking
 mypy==0.950
 types-six==1.16.15

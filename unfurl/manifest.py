@@ -142,9 +142,11 @@ class Manifest(AttributeManager):
         # check if this path exists in the repo
         repo = self.localEnv and self.localEnv.instanceRepo
         if repo:
-            path = repo.find_path(self.path)[0]
-            if path and (path, 0) in repo.repo.index.entries:
-                return repo
+            # this check is expensive and not that important so skip
+            return repo
+            # path = repo.find_path(self.path)[0]
+            # if path and (path, 0) in repo.repo.index.entries:
+            #     return repo
         return None
 
     def _load_spec(self, spec, path, repositories, more_spec, skip_validation=False):

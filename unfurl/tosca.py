@@ -92,15 +92,21 @@ def find_standard_interface(op):
         return ""
 
 
-def create_default_topology():
-    tpl = dict(
-        tosca_definitions_version=TOSCA_VERSION,
-        topology_template=dict(
-            node_templates={"_default": {"type": "tosca.nodes.Root"}},
-            relationship_templates={"_default": {"type": "tosca.relationships.Root"}},
-        ),
-    )
-    return ToscaTemplate(yaml_dict_tpl=tpl)
+__default_topology = None
+
+
+def get_default_topology():
+    global __default_topology
+    if __default_topology is None:
+        tpl = dict(
+            tosca_definitions_version=TOSCA_VERSION,
+            topology_template=dict(
+                node_templates={"_default": {"type": "tosca.nodes.Root"}},
+                relationship_templates={"_default": {"type": "tosca.relationships.Root"}},
+            ),
+        )
+        __default_topology = ToscaTemplate(yaml_dict_tpl=tpl)
+    return __default_topology
 
 
 def _patch(node, patchsrc, quote=False, tpl=None):
@@ -633,7 +639,7 @@ class EntitySpec(ResourceRef):
     def __init__(self, toscaNodeTemplate: Optional[EntityTemplate], spec: ToscaSpec):
         if not toscaNodeTemplate:
             toscaNodeTemplate = next(
-                iter(create_default_topology().topology_template.nodetemplates)
+                iter(get_default_topology().topology_template.nodetemplates)
             )
         self.toscaEntityTemplate = toscaNodeTemplate
         self.spec = spec
@@ -862,9 +868,9 @@ class NodeSpec(EntitySpec):
     def __init__(self, template=None, spec=None):
         if not template:
             template = next(
-                iter(create_default_topology().topology_template.nodetemplates)
+                iter(get_default_topology().topology_template.nodetemplates)
             )
-            spec = ToscaSpec(create_default_topology())
+            spec = ToscaSpec(get_default_topology())
         else:
             assert spec
         EntitySpec.__init__(self, template, spec)
@@ -1048,9 +1054,9 @@ class RelationshipSpec(EntitySpec):
         # its RelationshipType has valid_target_types
         if not template:
             template = (
-                create_default_topology().topology_template.relationship_templates[0]
+                get_default_topology().topology_template.relationship_templates[0]
             )
-            spec = ToscaSpec(create_default_topology())
+            spec = ToscaSpec(get_default_topology())
         else:
             assert spec
         EntitySpec.__init__(self, template, spec)
@@ -1227,8 +1233,8 @@ class TopologySpec(EntitySpec):
             self.spec = spec
             template = spec.template.topology_template
         else:
-            template = create_default_topology().topology_template
-            self.spec = ToscaSpec(create_default_topology())
+            template = get_default_topology().topology_template
+            self.spec = ToscaSpec(get_default_topology())
             self.spec.topology = self
 
         inputs = inputs or {}
