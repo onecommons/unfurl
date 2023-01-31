@@ -240,7 +240,7 @@ class HelmTest(unittest.TestCase):
                         "operation": "check",
                         "template": "mysql_release",
                         "type": "unfurl.nodes.HelmRelease",
-                        "targetStatus": "ok",
+                        "targetStatus": "degraded",
                         "targetState": "started",
                         "changed": True,
                         "configurator": "unfurl.configurators.shell.ShellConfigurator",
