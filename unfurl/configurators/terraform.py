@@ -375,7 +375,7 @@ class TerraformConfigurator(ShellConfigurator):
                 action.append("-state=" + statePath)
             if task.configSpec.operation == "delete":
                 action.append("-destroy")
-        elif task.configSpec.operation == "delete":
+        elif task.configSpec.operation == "delete" or task.configSpec.workflow == "undeploy":
             action = ["destroy", "-auto-approve"]
             if statePath:
                 action.append("-state=" + statePath)

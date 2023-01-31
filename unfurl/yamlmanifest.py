@@ -636,7 +636,7 @@ class YamlManifest(ReadOnlyManifest):
             status["protected"] = resource.protected
         return (resource.name, status)
 
-    def save_requirement(self, resource) -> Optional[List[Dict[str, Dict]]]:
+    def save_requirement(self, resource) -> Optional[Dict[str, Dict]]:
         if not resource.last_change and (
             not resource.local_status or resource.local_status <= Status.ok
         ):
@@ -644,7 +644,7 @@ class YamlManifest(ReadOnlyManifest):
             return None
         name, status = self.save_entity_instance(resource)
         status["capability"] = resource.parent.key
-        return [{name: status}]
+        return {name: status}
 
     def _save_entity_if_instantiated(self, resource, checkstatus=True) -> Optional[Tuple[str, Dict]]:
         if "virtual" in resource.template.directives:

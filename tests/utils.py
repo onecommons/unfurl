@@ -4,12 +4,12 @@ import os
 import os.path
 from pathlib import Path
 from dataclasses import dataclass
-from typing import Optional, Iterable
+from typing import Any, Optional, Iterable, Tuple
 import time
 import unittest
 import urllib.request
 
-from click.testing import CliRunner
+from click.testing import CliRunner, Result
 from unfurl.__main__ import cli, _latestJobs
 from unfurl.job import Runner, JobOptions, Job
 from unfurl.manifest import Manifest
@@ -206,7 +206,7 @@ def print_config(dir, homedir=None):
         print(f.read())
 
 
-def run_cmd(runner, args, print_result=False, env=None):
+def run_cmd(runner: CliRunner, args, print_result=False, env=None) -> Result:
     result = runner.invoke(cli, args, env=_home(env))
     if print_result:
         print("result.output", result.exit_code, result.output)
@@ -215,7 +215,7 @@ def run_cmd(runner, args, print_result=False, env=None):
     return result
 
 
-def run_job_cmd(runner, args=("deploy",), starttime=1, print_result=False, env=None):
+def run_job_cmd(runner: CliRunner, args=("deploy",), starttime=1, print_result=False, env=None) -> Tuple[Result, Job, dict]:
     _args = list(args)
     if starttime:
         _args.append(f"--starttime={starttime}")

@@ -18,6 +18,7 @@ from .support import (
     Imports,
 )
 from .runtime import (
+    HasInstancesInstance,
     OperationalInstance,
     NodeInstance,
     CapabilityInstance,
@@ -337,7 +338,7 @@ class Manifest(AttributeManager):
     #         postConditions=spec.get("postConditions"),
     #     )
 
-    def _create_requirement(self, key, val):
+    def _create_requirement(self, key, val) -> RelationshipInstance:
         # parent will be the capability, should have already been created
         capabilityId = val.get("capability")
         if not capabilityId:
@@ -351,7 +352,7 @@ class Manifest(AttributeManager):
             capability._relationships = []
         return self._create_entity_instance(RelationshipInstance, key, val, capability)
 
-    def create_node_instance(self, rname, resourceSpec, parent=None):
+    def create_node_instance(self, rname, resourceSpec, parent=None) -> NodeInstance:
         # if parent property is set it overrides the parent argument
         pname = resourceSpec.get("parent")
         if pname:
@@ -370,8 +371,8 @@ class Manifest(AttributeManager):
             for req in resourceSpec["requirements"]:
                 key, val = next(iter(req.items()))
                 requirement = self._create_requirement(key, val)
-                requirement.source = resource
-                resource.requirements.append(requirement)
+                requirement._source = resource
+                assert requirement in resource.requirements
 
         if resourceSpec.get("artifacts"):
             for key, val in resourceSpec["artifacts"].items():
@@ -448,8 +449,12 @@ class Manifest(AttributeManager):
                 created = ""
             output.append(f"{' ' * indent}{instance} {status} {state} {created}")
             indent += 4
-            for child in instance.instances:
-                summary(child, indent)
+            if isinstance(instance, HasInstancesInstance):
+                for rel in instance.requirements:
+                    if rel.local_status is not None:
+                        summary(rel, indent)
+                for child in instance.instances:
+                    summary(child, indent)
 
         output: List[str] = []
         summary(self.rootResource, 0)

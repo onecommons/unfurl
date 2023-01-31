@@ -131,7 +131,9 @@
             "properties": { "$ref": "#/definitions/attributes" },
             "instances": { "$ref": "#/definitions/instances" },
             "capabilities": { "$ref": "#/definitions/instances" },
-            "requirements": { "$ref": "#/definitions/instances" },
+            "requirements": { "type": "array",
+                              "items": { "$ref": "#/definitions/instances" }
+                            },
             "imported": { "type": "string" },
             "protected": { "type": "boolean" },
             "created": { "anyOf": [{ "type": "boolean" }, { "type": "string" }] }

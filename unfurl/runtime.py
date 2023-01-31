@@ -632,10 +632,6 @@ class CapabilityInstance(EntityInstance):
                     )
                     assert rel in self._relationships
                     # find the node instance that uses this requirement
-                    if template.source:
-                        sourceNode = self.root.find_resource(template.source.name)
-                        if sourceNode:
-                            rel.source = sourceNode
 
         return self._relationships
 
@@ -653,7 +649,12 @@ class RelationshipInstance(EntityInstance):
     templateType = RelationshipSpec
     if TYPE_CHECKING:
         template = templateType()
-    source: Optional["NodeInstance"] = None
+    _source: Optional["NodeInstance"] = None
+
+    def __init__(
+        self, name="", attributes=None, parent=None, template=None, status=None
+    ):
+        EntityInstance.__init__(self, name, attributes, parent, template, status)
 
     @property
     def target(self) -> Optional["NodeInstance"]:
@@ -662,6 +663,15 @@ class RelationshipInstance(EntityInstance):
             return self.parent.parent
         else:
             return None
+
+    @property
+    def source(self) -> Optional["NodeInstance"]:
+        if self._source is None:
+            if self.template.source:
+                sourceNode = self.root.find_instance(self.template.source.name)
+                if sourceNode:
+                    self._source = sourceNode
+        return self._source
 
     @property
     def capability(self) -> Optional[CapabilityInstance]:
