@@ -304,13 +304,20 @@ node_types:
       app_endpoint:
         type: tosca.capabilities.Endpoint
 
-  tosca.nodes.BlockStorage:
+  tosca.nodes.Abstract.Storage:
     derived_from: tosca.nodes.Root
     properties:
+      name:
+        type: string
       size:
         type: scalar-unit.size
+        default: 0 MB
         constraints:
-          - greater_or_equal: 1 MB
+          - greater_or_equal: 0 MB
+
+  tosca.nodes.Storage.BlockStorage:
+    derived_from: tosca.nodes.Abstract.Storage
+    properties:
       volume_id:
         type: string
         required: false
@@ -323,6 +330,24 @@ node_types:
     capabilities:
       attachment:
         type: tosca.capabilities.Attachment
+
+  # for backwards compatibility:
+  tosca.nodes.BlockStorage:
+    derived_from: tosca.nodes.Storage.BlockStorage
+    properties:
+      name:
+        default: &quot;&quot;
+
+  tosca.nodes.Storage.ObjectStorage:
+    derived_from: tosca.nodes.Abstract.Storage
+    properties:
+      maxsize:
+        type: scalar-unit.size
+        constraints:
+          - greater_or_equal: 0 GB
+      capabilities:
+        storage_endpoint:
+          type: tosca.capabilities.Endpoint
 
   tosca.nodes.network.Network:
     derived_from: tosca.nodes.Root
