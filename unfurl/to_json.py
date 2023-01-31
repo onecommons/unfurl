@@ -138,7 +138,6 @@ VALUE_TYPES.update(
 
 
 def tosca_type_to_jsonschema(spec, propdefs, toscatype):
-    propdefs = [p for p in propdefs if is_property_user_visible(p)]
     jsonschema = dict(
         type="object",
         properties = {p.name: tosca_schema_to_jsonschema(p, spec) for p in propdefs},
@@ -221,8 +220,9 @@ def tosca_schema_to_jsonschema(p, spec):
             if valuetype_schema.constraints:  # merge constraints
                 constraints = valuetype_schema.constraints + constraints
         else:  # it's a complex type with properties:
+            propdefs = [p for p in dt.get_properties_def_objects() if is_property_user_visible(p)]
             type_schema = tosca_type_to_jsonschema(
-                spec, dt.get_properties_def_objects(), dt.type
+                spec, propdefs, dt.type
             )
     if tosca_type not in ONE_TO_ONE_TYPES and "properties" not in schema:
         schema["$toscatype"] = tosca_type
@@ -273,6 +273,10 @@ def _get_req(req_dict):
     return name, req
 
 
+def expand_prefix(spec, nodetype: str):
+    return nodetype.replace("tosca:", "tosca.nodes.")  # XXX
+
+
 def requirement_to_graphql(spec, req_dict):
     """
     type RequirementConstraint {
@@ -320,6 +324,7 @@ def requirement_to_graphql(spec, req_dict):
     nodetype = req.get("node")
     if nodetype:
         # req['node'] can be a node_template instead of a type
+        expand_prefix(spec, nodetype)
         if nodetype in spec.nodeTemplates:
             reqobj["match"] = nodetype
             nodetype = spec.nodeTemplates[nodetype].type
@@ -625,8 +630,9 @@ def add_capabilities_as_properties(schema, nodetype, spec):
     for cap in nodetype.get_capability_typedefs():
         if not cap.get_definition("properties"):
             continue
+        propdefs = [p for p in cap.get_properties_def_objects() if is_property_user_visible(p)]
         schema[cap.name] = tosca_type_to_jsonschema(
-            spec, cap.get_properties_def_objects(), cap.type
+            spec, propdefs, cap.type
         )
 
 
@@ -635,8 +641,9 @@ def add_capabilities_as_attributes(schema, nodetype, spec):
     for cap in nodetype.get_capability_typedefs():
         if not cap.get_definition("attributes"):
             continue
+        propdefs = [p for p in cap.get_attributes_def_objects() if is_property_user_visible(p)]
         schema[cap.name] = tosca_type_to_jsonschema(
-            spec, cap.get_attributes_def_objects(), cap.type
+            spec, propdefs, cap.type
         )
 
 
