@@ -357,7 +357,7 @@ def _stage(project_id: str, args: dict, pull: bool) -> Optional[str]:
             repo.pull()
     else:
         os.makedirs(os.path.dirname(repo_path), exist_ok=True)
-        git_url = get_project_url(project_id, args.get("username"), args.get("password"))
+        git_url = get_project_url(project_id, args.get("username"), args.get("private_token", args.get("password")))
         result = init.clone(
             git_url,
             repo_path,
@@ -585,7 +585,7 @@ def _do_export(project_id: str, requested_format: str, deployment_path: str,
 def _get_body(request):
     body = request.json
     if request.headers.get("X-Git-Credentials"):
-        body["username"], body["password"] = b64decode(request.headers["X-Git-Credentials"]).decode().split(":", 1)
+        body["username"], body["private_token"] = b64decode(request.headers["X-Git-Credentials"]).decode().split(":", 1)
     return body
 
 
