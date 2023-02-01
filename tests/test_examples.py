@@ -111,7 +111,7 @@ class RunTest(unittest.TestCase):
                         "operation": "execute",
                         "template": "gitlab-release",
                         "type": "unfurl.nodes.HelmRelease",
-                        "targetStatus": "pending",
+                        "targetStatus": "ok",
                         "targetState": None,
                         "changed": True,
                         "configurator": "tests.test_examples.HelmConfigurator",
