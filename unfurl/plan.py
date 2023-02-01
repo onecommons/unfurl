@@ -185,7 +185,6 @@ class Plan:
                 # Operation to pre-configure the target endpoint.
                 for relationship in capability.relationships:
                     # we're the target, source may not have been created yet
-                    # XXX if not relationship.source create the instance
                     yield from self._run_operation(
                         NodeState.configuring,
                         "Configure.pre_configure_target",
@@ -286,9 +285,6 @@ class Plan:
     def execute_default_undeploy(self, resource, reason=None, inputs=None):
         # XXX run check if joboption set?
         # XXX don't delete if dirty
-        # XXX remove_target: Operation called on source when a target instance is removed
-        # XXX remove_source: Operation called on target when a source instance is removed
-
         if (
             resource.state in [NodeState.starting, NodeState.started]
             or self.workflow == "stop"
@@ -300,6 +296,32 @@ class Plan:
 
         if self.workflow == "stop":
             return
+
+        targetConfigOps = resource.template.get_capability_interfaces()
+        # test for targetConfigOps to avoid creating unnecessary instances
+        if targetConfigOps:
+            # if there are relationships targeting us we need to remove them first
+            for capability in resource.capabilities:
+                for relationship in capability.relationships:
+                    # we're the target that is about to be deleted
+                    yield from self._run_operation(
+                        NodeState.configuring,
+                        "Configure.remove_target",
+                        relationship,
+                        reason,
+                    )
+
+        sourceConfigOps = resource.template.get_requirement_interfaces()
+        if sourceConfigOps:
+            # before we are deleted, remove any relationships we have
+            if resource.template.get_requirement_interfaces():
+                for relationship in resource.requirements:
+                    yield from self._run_operation(
+                        NodeState.configuring,
+                        "Configure.remove_source",
+                        relationship,
+                        reason,
+                    )
 
         if resource.created or self.jobOptions.destroyunmanaged:
             nodeState = NodeState.deleting

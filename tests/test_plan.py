@@ -27,7 +27,8 @@ spec:
             Configure:
               operations:
                 post_configure_source: echo "attach {{TARGET.size}} to {{SOURCE.name}} at {{ SELF.location }}"
-                remove_target: echo "detach  {{TARGET.size}} to {{SOURCE.name}} at {{ SELF.location }}"
+                remove_target: echo "detach from target {{TARGET.name}}"
+                remove_source: echo "detach from source {{TARGET.name}}"
 
     topology_template:
       node_templates:
@@ -111,3 +112,57 @@ def test_plan():
         result, job, summary = run_job_cmd(runner, ["undeploy"], 2)
         # print(job.json_summary(True))
         # print("teardown", job.manifest.status_summary())
+        assert summary == {
+            "job": {
+              "id": "A01120000000",
+              "status": "ok",
+              "total": 3,
+              "ok": 3,
+              "error": 0,
+              "unknown": 0,
+              "skipped": 0,
+              "changed": 3
+            },
+            "outputs": {},
+            "tasks": [
+              {
+                "status": "ok",
+                "target": "local_storage",
+                "operation": "remove_source",
+                "template": "local_storage",
+                "type": "VolumeAttach",
+                "targetStatus": "absent",
+                "targetState": "configured",
+                "changed": True,
+                "configurator": "unfurl.configurators.shell.ShellConfigurator",
+                "priority": "required",
+                "reason": "undeploy"
+              },
+              {
+                "status": "ok",
+                "target": "my_server",
+                "operation": "delete",
+                "template": "my_server",
+                "type": "tosca.nodes.Compute",
+                "targetStatus": "absent",
+                "targetState": "deleted",
+                "changed": True,
+                "configurator": "unfurl.configurators.shell.ShellConfigurator",
+                "priority": "required",
+                "reason": "undeploy"
+              },
+              {
+                "status": "ok",
+                "target": "my_block_storage",
+                "operation": "delete",
+                "template": "my_block_storage",
+                "type": "tosca.nodes.Storage.BlockStorage",
+                "targetStatus": "absent",
+                "targetState": "deleted",
+                "changed": True,
+                "configurator": "unfurl.configurators.shell.ShellConfigurator",
+                "priority": "required",
+                "reason": "undeploy"
+              }
+            ]
+          }
