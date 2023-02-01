@@ -800,12 +800,13 @@ class Job(ConfigChange):
             return get_success_status(workflow)
         return None
 
-    def apply_group(self, depth: int, groupRequest: TaskRequestGroup) -> ConfigTask:
+    def apply_group(self, depth: int, groupRequest: TaskRequestGroup) -> Optional[ConfigTask]:
         workflow = groupRequest.workflow
         starting_status = groupRequest.target.local_status
-        task, success = self.apply(groupRequest.children, depth, groupRequest)
-        if task:
+        tasks, success = self.apply(groupRequest.children, depth, groupRequest)
+        for task in tasks:
             successStatus = self._get_success_status(workflow, success)
+            # successStatus is the status state to set when the given workflow succeeds
             if successStatus is not None and starting_status != successStatus:
                 # target's status needs to change
                 task.logger.trace(
@@ -817,16 +818,20 @@ class Job(ConfigChange):
                 # one of the child tasks succeeded and the workflow is one that modifies the target
                 # update the target's status
                 task._finished_workflow(successStatus, workflow)
-        return task
+        # XXX
+        if tasks:
+            return tasks[0]
+        else:
+            return None
 
     def apply(
         self,
         taskRequests: Sequence[Union[JobRequest, PlanRequest]],
         depth: int = 0,
         parent: "TaskRequestGroup" = None,
-    ) -> Tuple[ConfigTask, bool]:
+    ) -> Tuple[List[ConfigTask], bool]:
         failed = False
-        task: Optional[ConfigTask] = None
+        tasks: List[ConfigTask] = []
         successStatus = False
         if parent:
             workflow = parent.workflow
@@ -845,13 +850,13 @@ class Job(ConfigChange):
                 self.run_job_request(taskRequest)
                 continue
             elif isinstance(taskRequest, TaskRequestGroup):
-                _task: Optional[ConfigTask] = self.apply_group(depth, taskRequest)
+                task = self.apply_group(depth, taskRequest)
             else:
-                _task = self._run_operation(taskRequest, workflow, depth)
+                task = self._run_operation(taskRequest, workflow, depth)
 
-            if not _task:
+            if not task:
                 continue
-            task = _task
+            tasks.append(task)
 
             if task.result and task.result.success:  # type: ignore
                 if parent and task.target is parent.target:
@@ -867,7 +872,7 @@ class Job(ConfigChange):
                     raise JobAborted(
                         f"Critical task failed: {task.name} for {task.target.name}"
                     )
-        return task, successStatus  # type: ignore
+        return tasks, successStatus  # type: ignore
 
     def run_job_request(self, jobRequest: JobRequest) -> "Job":
         logger.debug("running jobrequest: %s", jobRequest)
@@ -1185,7 +1190,11 @@ class Job(ConfigChange):
                         return result.task.finished(  # type: ignore
                             ConfiguratorResult(False, False, result=errors)
                         )
-                    change, success = self.apply(ready, depth + 1)
+                    changes, success = self.apply(ready, depth + 1)
+                    if changes:
+                        change = changes[0]
+                    else:
+                        change = None
             elif isinstance(result, JobRequest):
                 job = self.run_job_request(result)
                 change = job

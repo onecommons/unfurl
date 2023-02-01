@@ -193,7 +193,7 @@ class ConfigChangeTest(unittest.TestCase):
                     "error": 0,
                     "unknown": 0,
                     "skipped": 0,
-                    "changed": 2,
+                    "changed": 3,
                 },
                 summary["job"],
             )

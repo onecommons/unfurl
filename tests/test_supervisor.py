@@ -36,7 +36,7 @@ class SupervisorTest(unittest.TestCase):
                         "error": 0,
                         "unknown": 0,
                         "skipped": 0,
-                        "changed": 4,
+                        "changed": 5,
                     },
                     summary["job"],
                 )

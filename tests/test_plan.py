@@ -77,8 +77,8 @@ def test_plan():
         # print(job.manifest.status_summary())
         planoutput = result.output.strip()
         assert planoutput
-        plan = json.loads(planoutput)
         # print(planoutput)
+        plan = json.loads(planoutput)
     
         assert plan[0]["instance"] == "my_block_storage"
         assert plan[0]["plan"][0]["sequence"][0]["operation"] == "create"
@@ -91,6 +91,7 @@ def test_plan():
         assert relation["plan"][0]["operation"] == "post_configure_source"
 
         result, job, summary = run_job_cmd(runner, ["deploy"])
+        # print(job.json_summary(True))
         assert summary["job"] == {
           "id": "A01110000000",
           "status": "ok",
@@ -99,11 +100,9 @@ def test_plan():
           "error": 0,
           "unknown": 0,
           "skipped": 0,
-          "changed": 2  # XXX
-        }  
-        print(job.json_summary(True))
+          "changed": 3
+        }
 
-        # XXX
         result, job, summary = run_job_cmd(runner, ["undeploy"], 2)
         # print(job.json_summary(True))
         # print("teardown", job.manifest.status_summary())

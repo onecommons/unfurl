@@ -240,7 +240,7 @@ class UndeployTest(unittest.TestCase):
                 "error": 0,
                 "unknown": 0,
                 "skipped": 0,
-                "changed": 1,
+                "changed": 2,
             },
             summary["job"],
         )
@@ -321,7 +321,7 @@ class UndeployTest(unittest.TestCase):
                 "error": 0,
                 "unknown": 0,
                 "skipped": 0,
-                "changed": 1,
+                "changed": 2,
             },
             summary["job"],
         )
@@ -333,9 +333,9 @@ class UndeployTest(unittest.TestCase):
                     "operation": "stop",
                     "template": "simple",
                     "type": "test.nodes.simple",
-                    "targetStatus": "ok",  # XXX should be pending
+                    "targetStatus": "absent",
                     "targetState": "stopped",
-                    "changed": False,
+                    "changed": True,
                     "configurator": "unfurl.configurators.TemplateConfigurator",
                     "priority": "required",
                     "reason": "undeploy",
@@ -363,7 +363,7 @@ class UndeployTest(unittest.TestCase):
                     "instance": "simple",
                     "status": "Status.absent",
                     "state": "NodeState.deleted",
-                    "managed": "A01110000002",
+                    "managed": "A01110000001",
                     "plan": [
                         {
                             "workflow": "undeploy",
