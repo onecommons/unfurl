@@ -5,6 +5,7 @@ import os
 import os.path
 from pathlib import Path
 import sys
+from functools import lru_cache
 from typing import TYPE_CHECKING, Dict, List, Optional, Union, cast
 from typing_extensions import Literal
 import git
@@ -118,6 +119,8 @@ def split_git_url(url):
     return url, "", ""
 
 
+# git fetch <remote> 'refs/tags/*:refs/tags/*' if our clones are shallow 
+@lru_cache(None)  # XXX won't get up dates in server mode
 def get_remote_tags(url, pattern="*") -> List[str]:
     # https://github.com/gitpython-developers/GitPython/issues/1071
     # https://myshittycode.com/2020/10/02/git-querying-tags-without-cloning-the-repository/
@@ -127,6 +130,7 @@ def get_remote_tags(url, pattern="*") -> List[str]:
     # len("b90df3d12413db22d051db1f7c7286cdd2f00b66\trefs/tags/") == 51
     # filter out ^{} references (see https://stackoverflow.com/questions/12938972/what-does-mean-in-git)
     tags = [line[51:] for line in blob.split('\n') if not line.endswith("^{}")]
+    logger.error("got %s remote tags with pattern %s from %s", len(tags), pattern, url)
     return tags
 
 
@@ -483,7 +487,7 @@ class RepoView:
         if self.name:
             record["name"] = self.name
         if self.origin:
-            record["origin"] = self.origin
+            record["origin"] = normalize_git_url(self.origin, 1)
         return record
 
 
