@@ -17,6 +17,18 @@ apiVersion: unfurl/v1alpha1
 kind: Ensemble
 spec:
   service_template:
+    relationship_types:
+      VolumeAttach:
+          derived_from: tosca.relationships.AttachesTo
+          properties:
+            location:
+              default: /my_mount_point
+          interfaces:
+            Configure:
+              operations:
+                post_configure_source: echo "attach {{TARGET.size}} to {{SOURCE.name}} at {{ SELF.location }}"
+                remove_target: echo "detach  {{TARGET.size}} to {{SOURCE.name}} at {{ SELF.location }}"
+
     topology_template:
       node_templates:
         my_server:
@@ -27,14 +39,7 @@ spec:
             - local_storage:
                 node: my_block_storage
                 relationship:
-                  type: tosca.relationships.AttachesTo
-                  properties:
-                    location: /my_mount_point
-                  interfaces:
-                    Configure:
-                      operations:
-                        post_configure_source: echo "attach {{TARGET.size}} to {{SOURCE.name}} at {{ SELF.location }}"
-                        remove_target: echo "detach  {{TARGET.size}} to {{SOURCE.name}} at {{ SELF.location }}"
+                  type: VolumeAttach
           interfaces:
             Standard:
               operations:

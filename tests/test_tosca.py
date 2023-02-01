@@ -339,7 +339,7 @@ class ToscaSyntaxTest(unittest.TestCase):
         assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
         self.assertEqual(job.status.name, "ok")
         self.assertEqual(job.stats()["ok"], 4)
-        self.assertEqual(job.stats()["changed"], 4)
+        self.assertEqual(job.stats()["changed"], 3)
         # print(job._json_plan_summary(True))
         self.assertEqual(
             job._json_plan_summary(include_rendered=False),
@@ -368,7 +368,7 @@ class ToscaSyntaxTest(unittest.TestCase):
                     "instance": "gitlab-release",
                     "status": "Status.ok",
                     "state": "None",
-                    "managed": "A01100000004",
+                    "managed": "A01100000003",
                     "plan": [
                         {
                             "workflow": "deploy",
