@@ -760,10 +760,11 @@ def get_ensemble_metadata(arg, ctx):
         metadata["environment"] = environment
     if arg:
         key = map_value(arg, ctx)
-        return metadata.get(key)
+        if key == "project_namespace_subdomain" and ensemble.repo:
+            return ".".join(reversed(os.path.dirname(ensemble.repo.project_path()).split("/")))
+        return metadata.get(key, "")
     else:
         return metadata
-
 
 set_eval_func("get_ensemble_metadata", get_ensemble_metadata)
 
