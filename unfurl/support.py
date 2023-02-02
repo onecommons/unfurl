@@ -688,28 +688,55 @@ def to_env(args, ctx: RefContext):
 set_eval_func("to_env", to_env)
 
 
-def to_label(arg, extra="", max=63, lower=False, replace=""):
+def to_label(arg, allowed=r"\w", max=63, case="any", replace="", start="a-zA-Z", start_prepend="x"):
+    r"""Convert a string to q label with the given constraints. 
+        If a dictionary or list, all keys and string values are converted.
+
+    Args:
+        arg (str or dict or list): Convert to label
+        allowed (str, optional): Allowed characters. Regex character ranges and character classes. 
+                               Defaults to "\w"  (equivalent to [a-zA-Z0-9_])
+        replace (str, optional): String Invalidate. Defaults to "" (remove the characters).
+        start (str, optional): Allowed characters for the first character. Regex character ranges and character classes. 
+                               Defaults to "a-zA-Z"
+        start_prepend (str, optional): If the start character is invalid, prepend with this string (Default: "x")
+        max (int, optional): max length of label. Defaults to 63 (the maximum for a DNS name).
+        case (str, optional): "upper", "lower" or "any" (no conversion). Defaults to "any".
+    """
     if isinstance(arg, Mapping):
         return {
-            to_label(n, extra, max, lower, replace): to_label(
-                v, extra, max, lower, replace
+            to_label(n, allowed, max, case, replace): to_label(
+                v, allowed, max, case, replace
             )
             for n, v in arg.items()
             if v is not None
         }
+    elif isinstance(arg, list):
+        return [to_label(n, allowed, max, case, replace) for n in arg]
     elif isinstance(arg, str):
-        val = re.sub(f"[^\\w{extra}]", replace, arg)
-        if lower:
+        if arg and re.match(fr"[^{start}]", arg[0]):
+            val = start_prepend + arg
+        else:
+            val = arg
+        val = re.sub(fr"[^{allowed}]", replace, val)
+        if case == "lower":
             val = val.lower()
+        elif case == "upper":
+            val = val.upper()
         return val[:max]
+    else:
+        return arg
 
 
 def to_dns_label(arg):
     """
-    The maximum length of each label is 63 characters, and a full domain name can have a maximum of 253 characters.
-    Alphanumeric characters and hyphens can be used in labels, but a domain name must not commence or end with a hyphen.
+    Convert the given argument (see `to_label` for full description) to a DNS label (a label is the name separated by "." in a domain name).
+    The maximum length of each label is 63 characters and can include
+    alphanumeric characters and hyphens but a domain name must not commence or end with a hyphen.
+
+    Invalid characters are replaced with "--".
     """
-    return to_label(arg, extra="-", replace="--")
+    return to_label(arg, allowed=r"\w-", start=r"\w", replace="--")
 
 
 set_eval_func(
@@ -721,8 +748,10 @@ set_eval_func(
 def to_kubernetes_label(arg):
     """
     See https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/#syntax-and-character-set
+
+    Invalid characters are replaced with "__".
     """
-    return to_label(arg, extra="_.-", replace="__")
+    return to_label(arg, allowed=r"\w_.-", replace="__")
 
 
 set_eval_func(
@@ -734,8 +763,10 @@ set_eval_func(
 def to_googlecloud_label(arg):
     """
     See https://cloud.google.com/resource-manager/docs/creating-managing-labels#requirements
+
+    Invalid characters are replaced with "__".
     """
-    return to_label(arg, extra="_-", lower=True, replace="__")
+    return to_label(arg, allowed=r"\w_-", case="lower", replace="__")
 
 
 set_eval_func(

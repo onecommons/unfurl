@@ -115,28 +115,32 @@ token
 Expression Functions
 ~~~~~~~~~~~~~~~~~~~~
 
-  ===================== ================================
-  Key                   Value
-  ===================== ================================
-  `abspath`             path | [path, location, mkdir?]
-  `and`                 [test+]
-  `eq`                  [a, b]
-  external              name
-  `file`                (see below)
-  foreach               {key?, value?}
-  `get_dir`             location | [location, mkdir?]
-  `if`                  (see below)
-  local                 name
-  `lookup`              (see below)
-  `or`                  [test+]
-  `not`                 expr
-  `python`              path#function_name | module.function_name
-  `secret`              name
-   :std:ref:`sensitive` any
-  `tempfile`            (see below)
-  `template`            contents
-  `validate`            [contents, schema]
-  ===================== ================================
+  ======================  ================================
+  Key                     Value
+  ======================  ================================
+  `abspath`               path | [path, location, mkdir?]
+  `and`                   [test+]
+  `eq`                    [a, b]
+  external                name
+  `file`                  (see below)
+  foreach                 {key?, value?}
+  `get_dir`               location | [location, mkdir?]
+  `if`                    (see below)
+  local                   name
+  `lookup`                (see below)
+  `or`                    [test+]
+  `not`                   expr
+  `python`                path#function_name | module.function_name
+  `secret`                name
+   :std:ref:`sensitive`   any
+  `tempfile`              (see below)
+  `template`              contents
+  `to_dns_label`          string or map or list
+  `to_googlecloud_label`  string or map or list
+  `to_kubernetes_label`   string or map or list
+  `to_label`              string or map or list
+  `validate`              [contents, schema]
+  ======================  ================================
 
 abspath
 ^^^^^^^
@@ -382,6 +386,61 @@ Evaluate file or inline contents as an Ansible-flavored Jinja2 template.
       {%if testVar %}success{%else%}failed{%endif%}
   vars:
     testVar: true
+
+to_dns_label
+^^^^^^^^^^^^
+
+Convert the given argument (see `to_label` for full description) to a DNS label (a label is the name separated by "." in a domain name).
+The maximum length of each label is 63 characters and can include
+alphanumeric characters and hyphens but a domain name must not commence or end with a hyphen.
+
+Invalid characters are replaced with "--".
+
+to_googlecloud_label
+^^^^^^^^^^^^^^^^^^^^
+
+Convert the given argument (see `to_label` for full description) to a kubernetes label 
+following the rules found here https://cloud.google.com/resource-manager/docs/creating-managing-labels#requirements
+
+Invalid characters are replaced with "__".
+
+
+to_kubernetes_label
+^^^^^^^^^^^^^^^^^^^
+
+Convert the given argument (see `to_label` for full description) to a kubernetes label 
+following the rules found here https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/#syntax-and-character-set
+
+Invalid characters are replaced with "__".
+
+to_label
+^^^^^^^^
+
+Convert a string to a label with the constraints specified as keyword parameters
+defined in the table below. If given a dictionary or list, all keys and string values are converted
+
+This example returns "X1_CONVERT"      
+
+.. code-block:: YAML
+
+  eval:
+    to_label: "1 convert me"
+    replace: _
+    max: 10
+    case: upper
+
+============= ==========================================================================================
+Key           Value
+============= ==========================================================================================
+allowed       Allowed characters. Regex character ranges and character classes. Defaults to "\w" (equivalent to ``a-zA-Z0-9_``)
+replace       String Invalidate. Defaults to "" (remove the characters).
+start         Allowed characters for the first character. Regex character ranges and character classes. Defaults to "a-zA-Z"
+start_prepend If the start character is invalid, prepend with this string (Default: "x")
+max           Maximum length of label (Default: 63 (the maximum for a DNS name))
+case          "lower", "upper", "any" (no conversion) (Default: "any")
+allowed       Additional characters to accept
+============= ==========================================================================================
+
 
 validate
 ^^^^^^^^
