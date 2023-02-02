@@ -47,6 +47,14 @@ def _print(*args):
     print(*args, file=sys.stderr)
 
 
+def js_timestamp(ts: datetime.datetime) -> str:
+    jsts = ts.isoformat(' ', 'seconds')
+    if ts.utcoffset() is None:
+        # if no timezone assume utc and append the missing offset
+        return jsts + "+00:00"
+    return jsts
+
+
 numeric_constraints = {
     "greater_than": "exclusiveMinimum",
     "greater_or_equal": "minimum",
@@ -1109,7 +1117,7 @@ def get_blueprint_from_topology(manifest, db):
     template["environmentVariableNames"] = list(_generate_env_names(spec, root_name))
     last_commit_time = manifest.last_commit_time()
     if last_commit_time:
-        template["commitTime"] = datetime.datetime.fromtimestamp(last_commit_time).isoformat(' ', 'seconds')
+        template["commitTime"] = js_timestamp(datetime.datetime.fromtimestamp(last_commit_time))
     return blueprint, template
 
 
@@ -1212,8 +1220,8 @@ def add_graphql_deployment(manifest, db, dtemplate):
             if workflow == "undeploy" and deployment["status"] == Status.ok:
                 deployment["status"] = Status.absent
         deployment["summary"] = manifest.lastJob.get("summary")
-        deployment["deployTime"] = datetime.datetime.strptime(
-            manifest.lastJob["startTime"], ChangeRecord.DateTimeFormat).isoformat(' ', 'seconds')
+        deployment["deployTime"] = js_timestamp(datetime.datetime.strptime(
+            manifest.lastJob["startTime"], ChangeRecord.DateTimeFormat))
 
     url = manifest.rootResource.attributes["outputs"].get("url")
     primary_resource = db["Resource"].get(primary_name)
