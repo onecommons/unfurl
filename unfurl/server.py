@@ -6,6 +6,7 @@ import time
 from typing import Dict, List, Optional, Tuple, Any, Union, TYPE_CHECKING, cast, Callable
 from urllib.parse import urljoin, urlsplit, urlunsplit
 from base64 import b64decode
+from enum import Enum
 
 from flask import Flask, current_app, jsonify, request
 import flask.json
@@ -284,6 +285,19 @@ class CacheEntry:
         return err, value
 
 
+def clear_cache(cache, starts_with) -> List[Any]:
+    simple = getattr(cache, "_cache", None)
+    if simple:
+        keys = [key for key in simple if key.startswith(starts_with)]
+    else:
+        redis = getattr(cache, "_read_client", None)
+        if redis:
+            keys = redis.keys(cache.key_prefix + starts_with + "*")
+        else:
+            return []
+    return cache.delete_many(keys)
+
+
 @app.before_request
 def hook():
     """
@@ -505,15 +519,22 @@ def populate_cache():
 
 @app.route("/clear_project_file_cache", methods=["POST"])
 def clear_project():
-    project_dir = _get_project_repo_dir(get_project_id(request))
-    rmtree(project_dir, logger)
+    project_id = get_project_id(request)
+    project_dir = _get_project_repo_dir(project_id)
+    clear_cache(cache, project_id)
+    if os.path.isdir(project_dir):
+        rmtree(project_dir, logger)
+    else:
+        logger.info("clear_project: %s not found", project_id)
     return "OK"
 
 
 def _make_readonly_localenv(clone_location, parent_localenv=None):
     try:
         # we don't want to decrypt secrets because the export is cached and shared
-        overrides = dict(UNFURL_SKIP_VAULT_DECRYPT=True, UNFURL_SKIP_UPSTREAM_CHECK=True)
+        overrides = dict(UNFURL_SKIP_VAULT_DECRYPT=True,
+                         UNFURL_SKIP_UPSTREAM_CHECK=True,
+                         apply_url_credentials=True)
         local_env = LocalEnv(
             clone_location,
             current_app.config["UNFURL_OPTIONS"].get("home"),
@@ -826,7 +847,7 @@ def _patch_ensemble(body: dict, create: bool, project_id: str, pull=True) -> str
 
     cloud_vars_url = body.get("cloud_vars_url") or ""
     # set the UNFURL_CLOUD_VARS_URL because we may need to encrypt with vault secret when we commit changes.
-    overrides = dict(ENVIRONMENT=environment, UNFURL_CLOUD_VARS_URL=cloud_vars_url)
+    overrides = dict(ENVIRONMENT=environment, UNFURL_CLOUD_VARS_URL=cloud_vars_url, apply_url_credentials=True)
     # don't validate in case we are still an incomplete draft
     manifest = LocalEnv(clone_location, overrides=overrides).get_manifest(skip_validation=True)
     # logger.info("vault secrets %s", manifest.manifest.vault.secrets)

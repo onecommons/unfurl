@@ -256,6 +256,7 @@ class Project:
         self, repoURL: str, revision: Optional[str] = None
     ) -> Union[GitRepo, str]:
         # if repo isn't found, return the repo url, possibly rewritten to include server credentials
+        apply_credentials = self.overrides.get("apply_url_credentials")
         candidate = None
         repourl_parts = urlsplit(repoURL)
         normalized = normalize_git_url_hard(repoURL)
@@ -275,7 +276,8 @@ class Project:
                     candidate = repo
                 else:
                     return repo
-            elif not repourl_parts.username:  # if url doesn't have credentials already
+            elif apply_credentials and not repourl_parts.username:
+                # if url doesn't have credentials already
                 candidate_parts = urlsplit(repo.url)
                 if (
                     candidate_parts.password
