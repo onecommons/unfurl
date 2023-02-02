@@ -1,12 +1,12 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
+import io
 import os.path
 import sys
 import codecs
 import json
 import os
-from typing import Optional, Union, Tuple, List, cast, TYPE_CHECKING
-import six
+from typing import Optional, TextIO, Union, Tuple, List, cast, TYPE_CHECKING, Dict
 import urllib
 from urllib.parse import urljoin, urlsplit
 import ssl
@@ -44,7 +44,7 @@ from .merge import (
     _cache_anchors,
     restore_includes,
 )
-from .repo import RepoView, is_url_or_git_path
+from .repo import RepoView, GitRepo, is_url_or_git_path, split_git_url
 from .packages import resolve_package
 from .logs import getLogger
 from toscaparser.common.exception import URLException, ExceptionCollector
@@ -77,7 +77,7 @@ def load_yaml(yaml, stream, path=None, readonly: bool = False):
     start_time = perf_counter()
     if not readonly:
         if path and isinstance(stream, str):
-            stream = six.StringIO(stream)
+            stream = io.StringIO(stream)
             stream.name = path
         doc = yaml.load(stream)
     else:
@@ -213,7 +213,7 @@ class UnfurlVaultLib(VaultLib):
 
 def make_vault_lib(passwordBytes: Union[str, bytes], vaultId="default") -> Optional[VaultLib]:
     if passwordBytes:
-        if isinstance(passwordBytes, six.string_types):
+        if isinstance(passwordBytes, str):
             passwordBytes = to_bytes(passwordBytes)
         vault_secrets = [(vaultId, VaultSecret(passwordBytes))]
         return VaultLib(secrets=vault_secrets)
@@ -223,7 +223,7 @@ def make_vault_lib(passwordBytes: Union[str, bytes], vaultId="default") -> Optio
 def make_vault_lib_ex(secrets: List[Tuple[str, Union[str, bytes]]]) -> VaultLib:
     vault_secrets = []
     for vaultId, passwordBytes in secrets:
-        if isinstance(passwordBytes, six.string_types):
+        if isinstance(passwordBytes, str):
             passwordBytes = to_bytes(passwordBytes)
         vault_secrets.append((vaultId, VaultSecret(passwordBytes)))
     return VaultLib(secrets=vault_secrets)
@@ -248,6 +248,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         self.yamlloader = manifest.loader
         self.expand = expand
         self.config = config or {}
+        self.repo_refs: Dict[str, GitRepo] = {}
 
     def __getstate__(self):
         state = self.__dict__.copy()
@@ -281,11 +282,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
 
         return Repository(name, tpl)
 
-    @staticmethod
-    def _get_local_path(bare, path, repo, filePath, revision, file_name, importLoader):
-        if not bare:
-            return os.path.join(repo.working_dir, filePath, file_name or "").rstrip("/")
-
+    def _get_bare_path(self, path, repo, filePath, revision, file_name, importsLoader):
         # # XXX support empty filePath or when filePath is a directory -- need to checkout the tree
         if not filePath:
             raise UnfurlError(
@@ -295,12 +292,13 @@ class ImportResolver(toscaparser.imports.ImportResolver):
             raise UnfurlError(
                 f"can't retrieve '{filePath}' with revision '{revision}' from local repository for '{path}'"
             )
-        importLoader.stream = six.StringIO(repo.show(filePath, revision))
-        return os.path.join(filePath, file_name or "")
+        url = "git-ref:" + repo.url
+        self.repo_refs[url] = repo
+        return f"{url}#{revision}:{filePath}"
 
-    def _get_repository_path(self, importLoader: toscaparser.imports.ImportsLoader,
+    def _get_repository_path(self, importsLoader: toscaparser.imports.ImportsLoader,
                              repository_name: str) -> Tuple[str, bool, Optional["RepoView"]]:
-        path = cast(str, self.get_repository_url(importLoader, repository_name))
+        path = cast(str, self.get_repository_url(importsLoader, repository_name))
         if path.startswith("file:"):
             path = path[5:]
             if path.startswith("//"):
@@ -309,7 +307,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         else:
             repoview = self.manifest.repositories.get(repository_name)
             if not repoview:
-                repository = self.get_repository(repository_name, importLoader.repositories[repository_name])
+                repository = self.get_repository(repository_name, importsLoader.repositories[repository_name])
                 repoview = self.manifest.add_repository(None, repository, "")
             assert repoview
             if repoview.package is None:
@@ -320,22 +318,21 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                 resolve_package(repoview, self.manifest.packages, self.manifest.package_specs)
             return repoview.url, False, repoview
 
-    def get_url(self, importLoader: toscaparser.imports.ImportsLoader,
+    def get_url(self, importsLoader: toscaparser.imports.ImportsLoader,
                 repository_name: Optional[str], file_name: str, isFile: Optional[bool] = None) -> GetURLType:
         # called by ImportsLoader when including or importing a file
         # or resolving path to an artifact in a repository (see ToscaSpec.get_repository_path)
         # returns url or path, isFile, fragment
-        importLoader.stream = None
         fragment: Optional[str] = None
         repo_view = None
         if repository_name:
             file_name, sep, fragment = file_name.partition("#")
-            path, isFile, repo_view = self._get_repository_path(importLoader, repository_name)
+            path, isFile, repo_view = self._get_repository_path(importsLoader, repository_name)
             # if not isFile path will be git url possibly including revision in fragment
             if repo_view and repo_view.repo:
                 return os.path.join(repo_view.working_dir, file_name), True, fragment
         else:
-            url_info = cast(GetURLType, super().get_url(importLoader, None, file_name, isFile))
+            url_info = cast(GetURLType, super().get_url(importsLoader, None, file_name, isFile))
             if not url_info:
                 return url_info
             path, isFile, fragment = url_info
@@ -345,30 +342,35 @@ class ImportResolver(toscaparser.imports.ImportResolver):
             # only support urls to git repos for now
             # this may clone a remote git repo
             repo, filePath, revision, bare = self.manifest.find_repo_from_git_url(
-                path, isFile, importLoader
+                path, isFile, importsLoader
             )
             if not repo:
                 raise UnfurlError("Could not resolve git URL: " + path)
-            if repo_view and not bare:
-                assert not repo_view.repo
-                repo_view.set_repo_and_path(repo, filePath)
-
-            path = self._get_local_path(bare, path, repo, filePath, revision, file_name, importLoader)
+            if bare:
+                path = self._get_bare_path(path, repo, filePath, revision, file_name, importsLoader)
+                return path, False, fragment
+            else:
+                if repo_view:
+                    assert not repo_view.repo
+                    repo_view.set_repo_and_path(repo, filePath)
+                path = os.path.join(repo.working_dir, filePath, file_name or "").rstrip("/")
         elif file_name:
             path = os.path.join(path, file_name)
 
         # always a local file path at this point
         return path, True, fragment
 
-    def load_yaml(self, importLoader, path, isFile=True, fragment=None):
+    def load_yaml(self, importsLoader, path, isFile=True, fragment=None):
         try:
             logger.trace(
                 "attempting to load YAML %s: %s", "file" if isFile else "url", path
             )
             originalPath = path
-            f = importLoader.stream
 
-            if not f:
+            if path.startswith("git-ref:"):
+                url, filePath, revision = split_git_url(path)
+                f: TextIO = io.StringIO(self.repo_refs[url].show(filePath, revision))
+            else:
                 try:
                     if isFile:
                         ignoreFileNotFound = self.ignoreFileNotFound
@@ -378,7 +380,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                         if self.yamlloader:
                             # show == True if file was decrypted
                             contents, show = self.yamlloader._get_file_contents(path)
-                            f = six.StringIO(codecs.decode(contents))
+                            f = io.StringIO(codecs.decode(contents))
                         else:
                             f = codecs.open(path, encoding="utf-8", errors="strict")
                     else:
@@ -418,7 +420,6 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                         )
                         doc.includes = includes
                     doc.path = path
-
             if fragment and doc:
                 return _refResolver.resolve_fragment(doc, fragment)
             else:
@@ -460,7 +461,7 @@ class YamlConfig:
             else:
                 self.path = None
 
-            if isinstance(config, six.string_types):
+            if isinstance(config, str):
                 self.config = load_yaml(self.yaml, config, self.path, self.readonly)
             elif isinstance(config, dict):
                 self.config = CommentedMap(config.items())
@@ -548,7 +549,7 @@ class YamlConfig:
             raise UnfurlError(
                 f'Can not save "{self.path}", it is set to readonly'
             )
-        output = six.StringIO()
+        output = io.StringIO()
         self.dump(output)
         if self.path:
             if self.lastModified:
@@ -583,7 +584,7 @@ class YamlConfig:
         return state
 
     def validate(self, config):
-        if isinstance(self.schema, six.string_types):
+        if isinstance(self.schema, str):
             # assume its a file path
             path = self.schema
             with open(path) as fp:
@@ -613,7 +614,7 @@ class YamlConfig:
             raise UnfurlError(
                 f'Can not save include at "{path}", config "{self.path}" is readonly'
             )
-        output = six.StringIO()
+        output = io.StringIO()
         try:
             self.yaml.dump(template, output)
         except Exception:
