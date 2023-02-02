@@ -25,7 +25,9 @@ if not sys.warnoptions:
 TEST_NS = "octest"
 # XXX add test with invalid namespace name
 KOMPOSE_NS = "octest-kompose"
-# fyi: kubectl delete namespace octest
+# fyi: on failure you may need to:
+# kubectl delete namespace octest
+# kubectl delete octest-kompose
 
 @pytest.mark.skipif(
     "k8s" in os.getenv("UNFURL_TEST_SKIP", ""), reason="UNFURL_TEST_SKIP set"
@@ -160,7 +162,7 @@ def test_kompose():
             assert not resources, resources
         elif i == 0:
             assert STEPS[i].workflow == 'deploy'
-            assert len(resources) == 4, resources
+            assert len(resources) == 4, json.dumps(resources, indent=2)
             for resource in resources:
                 if resource["kind"] == "Pod":
                     assert resource["spec"]["containers"][0]["livenessProbe"]["tcpSocket"]["port"] == 8001
