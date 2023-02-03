@@ -1,6 +1,7 @@
 import unittest
 import io
 from click.testing import CliRunner
+from unfurl.util import UnfurlError
 from unfurl.yamlmanifest import YamlManifest
 from unfurl.eval import Ref, map_value, RefContext
 from unfurl.job import Runner, JobOptions
@@ -46,3 +47,11 @@ class DecoratorTest(unittest.TestCase):
             assert result and result.name == "node3"
             result2 = manifest.rootResource.query("::my_server::.targets::dependency")
             assert result2 and result2.name == "my_server2"
+
+    def test_unsafe_decorator(self):
+        cliRunner = CliRunner()
+        with cliRunner.isolated_filesystem():
+            path = __file__ + "/../examples/decorators-unsafe-template.yaml"
+            with self.assertRaises(UnfurlError) as err:
+                manifest = YamlManifest(path=path)
+            assert "Function missing in {'python': 'configurators.py#expressionFunc', 'args': 'foo'}" in str(err.exception)

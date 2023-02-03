@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     from .manifest import Manifest
     from .runtime import EntityInstance
 
-from .eval import RefContext, set_eval_func, Ref, map_value
+from .eval import RefContext, set_eval_func, Ref, map_value, SafeRefContext
 from .result import (
     Results,
     ResultsList,
@@ -298,6 +298,19 @@ def _wrap_sequence(v):
 unsafe_proxy._wrap_sequence = _wrap_sequence
 
 
+def _sandboxed_template(value: str, ctx: SafeRefContext, _UnfurlUndefined):
+    from jinja2.sandbox import SandboxedEnvironment
+    from jinja2.nativetypes import NativeCodeGenerator, native_concat
+
+    SandboxedEnvironment.code_generator_class = NativeCodeGenerator
+    SandboxedEnvironment.concat = staticmethod(native_concat)  # type: ignore
+    env = SandboxedEnvironment()
+
+    if not ctx.strict:
+        env.undefined = _UnfurlUndefined
+    return env.from_string(value).render(ctx.vars)
+
+
 def apply_template(value: str, ctx: RefContext, overrides=None) -> Any:
     if not isinstance(value, six.string_types):
         msg = f"Error rendering template: source must be a string, not {type(value)}"
@@ -350,6 +363,9 @@ def apply_template(value: str, ctx: RefContext, overrides=None) -> Any:
         # see ChainableUndefined
         def __html__(self) -> str:
             return str(self)
+
+    if isinstance(ctx, SafeRefContext):
+        return _sandboxed_template(value, ctx, _UnfurlUndefined)
 
     # implementation notes:
     #   see https://github.com/ansible/ansible/test/units/template/test_templar.py

@@ -129,6 +129,7 @@ class RefContext:
     """
 
     DefaultTraceLevel = 0
+    _Funcs: Dict = {}
 
     def __init__(
         self,
@@ -184,7 +185,7 @@ class RefContext:
             self._lastResource, ResourceRef
         ):
             resource = self._lastResource
-        copy = RefContext(
+        copy = self.__class__(
             resource or self.currentResource,
             self.vars,
             self.wantList,
@@ -577,7 +578,7 @@ def for_each_func(foreach: Union[Mapping, str], ctx: RefContext) -> List[ResultO
         return _for_each(foreach, [(0, results)], ctx)
 
 
-_Funcs = {
+_CoreFuncs = {
     "if": if_func,
     "and": and_func,
     "or": or_func,
@@ -587,15 +588,20 @@ _Funcs = {
     "validate": validate_schema_func,
     "foreach": for_each_func,
 }
+RefContext._Funcs = _CoreFuncs.copy()
 _FuncsTop = ["q"]
 
 
+class SafeRefContext(RefContext):
+    _Funcs = _CoreFuncs
+
+
 def get_eval_func(name):
-    return _Funcs.get(name)
+    return RefContext._Funcs.get(name)
 
 
 def set_eval_func(name, val, topLevel=False):
-    _Funcs[name] = val
+    RefContext._Funcs[name] = val
     if topLevel:
         _FuncsTop.append(name)
 
@@ -614,7 +620,7 @@ def eval_ref(
 
     if isinstance(val, Mapping):
         for key in val:
-            func = _Funcs.get(key)
+            func = ctx._Funcs.get(key)
             if func:
                 args = val[key]
                 ctx.kw = val
@@ -638,7 +644,7 @@ def eval_ref(
                 break
         else:
             if "ref" not in val and "eval" not in val:
-                raise UnfurlError(f"Function missing in {val}")
+                raise UnfurlError(f"Function missing in {dict(val)}")
     elif isinstance(val, six.string_types):
         if is_template(val, ctx):
             return [Result(apply_template(val, ctx))]

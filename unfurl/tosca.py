@@ -13,7 +13,7 @@ from .util import (
     check_class_registry,
     env_var_value,
 )
-from .eval import Ref, RefContext, map_value
+from .eval import Ref, RefContext, SafeRefContext, map_value
 from .result import ExternalValue, ResourceRef, ResultsList
 from .merge import patch_dict, merge_dicts
 from .logs import get_console_log_level
@@ -112,7 +112,7 @@ def get_default_topology():
 def _patch(node, patchsrc, quote=False, tpl=None):
     if tpl is None:
         tpl = node.toscaEntityTemplate.entity_tpl
-    ctx = RefContext(node, dict(template=tpl))
+    ctx = SafeRefContext(node, dict(template=tpl))
     ctx.base_dir = getattr(patchsrc, "base_dir", ctx.base_dir)
     if quote:
         patch = copy.deepcopy(patchsrc)
@@ -140,7 +140,7 @@ class ToscaSpec:
 
             assert self.topology
             match = Ref(import_tpl["when"]).resolve_one(
-                RefContext(self.topology, trace=0)
+                SafeRefContext(self.topology, trace=0)
             )
             if match:
                 logger.debug(
@@ -194,7 +194,7 @@ class ToscaSpec:
             for expression, _tpl in overlays.items():
                 try:
                     match = Ref(expression).resolve_one(
-                        RefContext(self.topology, trace=0)
+                        SafeRefContext(self.topology, trace=0)
                     )
                     if not match:
                         continue

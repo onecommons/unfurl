@@ -4,9 +4,9 @@ import json
 import pickle
 
 from unfurl.result import ResultsList, ResultsMap, serialize_value, ChangeRecord, Result
-from unfurl.eval import Ref, map_value, RefContext, set_eval_func, ExternalValue
-from unfurl.support import apply_template, TopologyMap
-from unfurl.util import sensitive_str, substitute_env, sensitive_list
+from unfurl.eval import Ref, map_value, RefContext, set_eval_func, ExternalValue, SafeRefContext
+from unfurl.support import apply_template, TopologyMap, _sandboxed_template
+from unfurl.util import UnfurlError, sensitive_str, substitute_env, sensitive_list
 from unfurl.runtime import NodeInstance
 from ruamel.yaml.comments import CommentedMap
 
@@ -300,7 +300,6 @@ class EvalTest(unittest.TestCase):
         val = apply_template("{{ ['a', 'b'] | sensitive }}", RefContext(resource, trace=0))
         assert isinstance(val, sensitive_list), type(val)
 
-
     def test_templateFunc(self):
         query = {
             "eval": {"template": "{%if testVar %}{{success}}{%else%}failed{%endif%}"},
@@ -350,6 +349,17 @@ a_dict:
         assert resource.attributes is NODES["test"]
         ctx = RefContext(resource, dict(NODES=NODES))
         self.assertEqual("va", apply_template("{{ NODES.test.d.a }}", ctx))
+
+    def test_sandbox(self):
+        resource = self._getTestResource()    
+        ctx = SafeRefContext(resource, vars=dict(subdomain="foo.com"))
+        expr = "{{ {subdomain.split('.')[0] : 1} }}"
+        result = _sandboxed_template(expr, ctx, None)
+        assert result == {'foo': 1}
+        assert type(result) == dict
+        with self.assertRaises(UnfurlError) as err:
+            map_value(dict(eval={"get_env": "HOME"}), ctx)
+        assert 'Function missing in ' in str(err.exception)
 
     def test_innerReferences(self):
         resourceDef = {
@@ -629,6 +639,3 @@ def test_env_sub():
     ]
     for test, expected in pairs(tests):
         assert expected == substitute_env(test, env), test
-
-
-    
