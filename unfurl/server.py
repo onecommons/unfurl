@@ -473,7 +473,7 @@ def export():
         args = request.args
 
     repo = _get_project_repo(project_id, args)
-    workfn = partial(_cache_work, request.args)
+    workfn = partial(_cache_work, args)
     cache_entry = CacheEntry(project_id, branch, file_path, requested_format, repo)
     err, json_summary = cache_entry.get_or_set(cache, workfn, latest_commit, _validate_export)
     if not err:
