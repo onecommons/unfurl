@@ -71,6 +71,9 @@ spec:
           Install:
             operations:
               connect: dummy
+        requirements:
+        - host:
+            node: Base
 
       Atlas:
         derived_from: MongoDb
@@ -81,6 +84,9 @@ spec:
             metadata:
               sensitive: true
             type: string
+        requirements:
+        - host:
+            occurrences: [0, 0]
 
       SelfHostedMongoDb:
         derived_from: MongoDb

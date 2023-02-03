@@ -26,7 +26,8 @@ spec:
           interfaces:
             Configure:
               operations:
-                post_configure_source: echo "attach {{TARGET.size}} to {{SOURCE.name}} at {{ SELF.location }}"
+                post_configure_target: echo "attach target {{TARGET.size}} to {{SOURCE.name}} at {{ SELF.location }}"
+                post_configure_source: echo "attach source {{TARGET.size}} to {{SOURCE.name}} at {{ SELF.location }}"
                 remove_target: echo "detach from target {{TARGET.name}}"
                 remove_source: echo "detach from source {{TARGET.name}}"
 

@@ -781,6 +781,10 @@ def nodetemplate_to_json(nodetemplate, spec, types, for_resource=False):
         if name in ["dependency", "installer"]:
             # skip artifact requirements and the base TOSCA relationship type that every node has
             continue
+        occurrences = req_dict.get("occurrences")
+        if occurrences and occurrences[1] == 0:
+            continue  # skip when max occurrences is 0
+
         # we need to call _get_explicit_relationship() to make sure all the requirements relationships are created
         reqDef, rel_template = nodetemplate._get_explicit_relationship(name, req_dict)
         reqconstraint = _find_requirement_constraint(jsonnodetype["requirements"], name)
@@ -826,7 +830,7 @@ primary_name = "__primary"
 
 
 def _generate_primary(spec, db, node_tpl=None):
-    base_type = node_tpl["type"] if node_tpl else "tosca:Root"
+    base_type = node_tpl["type"] if node_tpl else "tosca.nodes.Root"
     topology = spec.template.topology_template
     # generate a node type and node template that represents root of the topology
     # generate a type that exposes the topology's inputs and outputs as properties and attributes
