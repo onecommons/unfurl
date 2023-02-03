@@ -51,15 +51,9 @@ class TemplateConfigurator(Configurator):
         resultTemplate = task.inputs._attributes.get("resultTemplate")
         errors = []
         if resultTemplate:  # evaluate it now with the result
-            # workaround for jinja template processing setting Result when getting items
-            if not isinstance(result, ResultsMap):
-                vars = ResultsMap(result, task.inputs.context)
-                vars.doFullResolve = True
-            else:
-                vars = result
             task.logger.trace("evaluated result template with %s", result)
             try:
-                results = map_value(resultTemplate, task.inputs.context.copy(vars=vars))
+                results = map_value(resultTemplate, task.inputs.context.copy(vars=result))
             except Exception as e:
                 results = None
                 errors = [e]
