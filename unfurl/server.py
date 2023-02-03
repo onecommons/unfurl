@@ -87,10 +87,16 @@ def _get_project_repo_dir(project_id: str) -> str:
     return os.path.join(clone_root, project_id)
 
 
-def _get_project_repo(project_id: str) -> Optional[GitRepo]:
+def _get_project_repo(project_id: str, args: Optional[dict] = None) -> Optional[GitRepo]:
     path = _get_project_repo_dir(project_id)
     if os.path.isdir(path):
-        return GitRepo(git.Repo(path))
+        repo = GitRepo(git.Repo(path))
+        if args:
+            # make sure we are using the latest credentials:
+            username, password = args.get("username"), args.get("private_token", args.get("password"))
+            if username and password:
+                repo.set_url_credentials(username, password)
+        return repo
     return None
 
 
@@ -165,7 +171,7 @@ class CacheEntry:
             # newer not in repo, repo probably is out of date
             self.repo.pull(with_exceptions=True)  # raise if pull fails
 
-    def is_commit_older_than(self, older, newer):
+    def is_commit_older_than(self, older: str, newer: str):
         if older == newer:
             return False
         self._pull_if_missing_commit(newer)
@@ -177,7 +183,7 @@ class CacheEntry:
             return True
         return False
 
-    def get_cache(self, cache, latest_commit: Optional[str]) -> Tuple[Any, Union[bool, Optional["Commit"]]]:
+    def get_cache(self, cache: Cache, latest_commit: Optional[str]) -> Tuple[Any, Union[bool, Optional["Commit"]]]:
         """Look up a cached value and then check if it out of date by checking if the file path in the key was modified after the given commit
         (also store the last_commit so we don't have to do that check everytime)
         we assume latest_commit is the last commit the client has seen but it might be older than the local copy
@@ -230,12 +236,12 @@ class CacheEntry:
                 logger.info("stale cache hit for %s with %s", full_key, latest_commit)
                 return response, self.commitinfo  # type: ignore
 
-    def _set_inflight(self, cache, latest_commit) -> Tuple[Any, Union[bool, "Commit"]]:
-        inflight = cache.get(self._inflight_key())
+    def _set_inflight(self, cache: Cache, latest_commit: Optional[str]) -> Tuple[Any, Union[bool, "Commit"]]:
+        inflight = cast(Tuple[str, float], cache.get(self._inflight_key()))
         if inflight:
             inflight_commit, start_time = inflight
             # if inflight_commit is older than latest_commit, do the work anyway otherwise wait for the inflight value
-            if not self.is_commit_older_than(inflight_commit, latest_commit):
+            if not latest_commit or not self.is_commit_older_than(inflight_commit, latest_commit):
                 # keep checking inflight key until it is deleted
                 # or if been inflight longer than timeout, assume its work aborted and stop waiting
                 while time.time() - start_time < _cache_inflight_timeout:
@@ -250,14 +256,26 @@ class CacheEntry:
         cache.set(self._inflight_key(), (latest_commit, time.time()))
         return None, False
 
-    def _cancel_inflight(self, cache):
+    def _cancel_inflight(self, cache: Cache):
         return cache.delete(self._inflight_key())
 
-    def get_or_set(self, cache, work: Callable, latest_commit: Optional[str], validate: Optional[Callable] = None) -> Tuple[Optional[Any], Any]:
+    def _do_work(self, work, latest_commit) -> Tuple[Optional[Any], Any]:
+        try:
+            err, value = work(self, latest_commit)
+        except Exception as exc:
+            logger.error("unexpected error doing work for cache", exc_info=True)
+            err, value = exc, None
+        return err, value
+
+    def get_or_set(self, cache: Cache, work: Callable, latest_commit: Optional[str], validate: Optional[Callable] = None) -> Tuple[Optional[Any], Any]:
+        if latest_commit is None:
+            # don't use the cache
+            return self._do_work(work, latest_commit)
+
         value, commitinfo = self.get_cache(cache, latest_commit)
         if commitinfo:
             if commitinfo is True:
-                if not validate or validate(value):
+                if not validate or validate(value, self, cache, latest_commit):
                     return None, value
             # otherwise in cache but stale or invalid, fall thru to redo work
             # XXX? check date to see if its recent enough to serve anyway
@@ -272,12 +290,7 @@ class CacheEntry:
             # there was already work inflight and use that instead
             return None, value
 
-        try:
-            err, value = work(self, latest_commit)
-        except Exception as exc:
-            logger.error("unexpected error doing work for cache", exc_info=True)
-            err, value = exc, None
-
+        err, value = self._do_work(work, latest_commit)
         found_inflight = self._cancel_inflight(cache)
         # skip caching work if not `found_inflight` -- that means invalidate_cache deleted it
         if found_inflight and not err:
@@ -361,17 +374,18 @@ def _stage(project_id: str, args: dict, pull: bool) -> Optional[str]:
     Clones or pulls the latest from the given project repository and returns the repository's working directory
     or None if clone failed.
     """
+    username, password = args.get("username"), args.get("private_token", args.get("password"))
     repo = None
     repo_path = _get_project_repo_dir(project_id)
-    repo = _get_project_repo(project_id)
-    # repo doesn't exists, clone it
+    repo = _get_project_repo(project_id, args)
     if repo:
         logger.info(f"found repo at {repo.working_dir}")
         if pull and not repo.is_dirty():
             repo.pull()
     else:
+        # repo doesn't exists, clone it
         os.makedirs(os.path.dirname(repo_path), exist_ok=True)
-        git_url = get_project_url(project_id, args.get("username"), args.get("private_token", args.get("password")))
+        git_url = get_project_url(project_id, username, password)
         result = init.clone(
             git_url,
             repo_path,
@@ -409,6 +423,10 @@ def format_from_path(path):
 
 def _cache_work(args: dict, cache_entry: CacheEntry, latest_commit: str) -> Any:
     return _do_export(cache_entry.project_id, cache_entry.key, cache_entry.file_path, cache_entry, latest_commit, args)
+
+
+def _validate_export(value: Any, entry: CacheEntry, cache: Cache, latest_commit: Optional[str]) -> bool:
+    return True
 
 
 def _make_etag(latest_commit: str):
@@ -453,18 +471,17 @@ def export():
         args["username"], args["password"] = b64decode(request.headers["X-Git-Credentials"]).decode().split(":", 1)
     else:
         args = request.args
-    if latest_commit is not None:
-        cache_entry = CacheEntry(project_id, branch, file_path, requested_format)
-        err, json_summary = cache_entry.get_or_set(cache, partial(_cache_work, args), latest_commit)
-    else:
-        err, json_summary = _do_export(project_id, requested_format, file_path, None, "", args)
+
+    repo = _get_project_repo(project_id, args)
+    workfn = partial(_cache_work, request.args)
+    cache_entry = CacheEntry(project_id, branch, file_path, requested_format, repo)
+    err, json_summary = cache_entry.get_or_set(cache, workfn, latest_commit, _validate_export)
     if not err:
         hit = cache_entry and cache_entry.hit
         if request.args.get("include_all_deployments"):
             deployments = []
             for manifest_path in json_summary["DeploymentPath"]:
-                dcache_entry = CacheEntry(project_id, branch, manifest_path, "deployment")
-                workfn = partial(_cache_work, request.args)
+                dcache_entry = CacheEntry(project_id, branch, manifest_path, "deployment", repo)
                 derr, djson = dcache_entry.get_or_set(cache, workfn, latest_commit)
                 if not derr:
                     deployments.append(djson)
@@ -522,6 +539,7 @@ def clear_project():
     project_id = get_project_id(request)
     project_dir = _get_project_repo_dir(project_id)
     clear_cache(cache, project_id)
+    clear_cache(cache, "_inflight::" + project_id)
     if os.path.isdir(project_dir):
         rmtree(project_dir, logger)
     else:
@@ -549,7 +567,7 @@ def _make_readonly_localenv(clone_location, parent_localenv=None):
     return None, local_env
 
 
-def _validate_localenv(localEnv) -> bool:
+def _validate_localenv(localEnv, entry: CacheEntry, cache: Cache, latest_commit: Optional[str]) -> bool:
     return bool(localEnv and localEnv.project and os.path.isdir(localEnv.project.projectRoot))
 
 
@@ -564,7 +582,9 @@ def _localenv_from_cache(cache, project_id: str, branch: Optional[str], deployme
             ), None
         clone_location = os.path.join(clone_location, deployment_path)
         return _make_readonly_localenv(clone_location)
-    return CacheEntry(project_id, branch, "unfurl.yaml", "localenv"
+
+    repo = _get_project_repo(project_id, args)
+    return CacheEntry(project_id, branch, "unfurl.yaml", "localenv", repo
                       ).get_or_set(cache, _cache_localenv_work, latest_commit, _validate_localenv)
 
 
@@ -600,6 +620,7 @@ def _do_export(project_id: str, requested_format: str, deployment_path: str,
 
     exporter = getattr(to_json, "to_" + requested_format)
     json_summary = exporter(local_env)
+
     return None, json_summary
 
 
@@ -816,7 +837,7 @@ def _patch_ensemble(body: dict, create: bool, project_id: str, pull=True) -> str
     assert isinstance(patch, list)
     environment = body.get("environment") or ""  # cloud_vars_url need the ""!
     deployment_path = body.get("deployment_path") or ""
-    existing_repo = _get_project_repo(project_id)
+    existing_repo = _get_project_repo(project_id, body)
 
     latest_commit = body.get("latest_commit") or ""
     branch = body.get("branch")
