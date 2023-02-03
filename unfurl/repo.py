@@ -28,7 +28,7 @@ def is_git_worktree(path, gitDir=".git"):
     return os.path.exists(os.path.join(path, gitDir))
 
 
-def _add_user_to_url(url, username, password):
+def add_user_to_url(url, username, password):
     assert username
     parts = urlparse(url)
     user, sep, host = parts.netloc.rpartition("@")
@@ -36,10 +36,11 @@ def _add_user_to_url(url, username, password):
         netloc = f"{username}:{password}@{host}"
     else:
         netloc = f"{username}@{host}"
+
     return parts._replace(netloc=netloc).geturl()
 
 
-def normalize_git_url(url, hard=0):
+def normalize_git_url(url: str, hard: int = 0):
     if url.startswith("git-local://"):  # truncate url after commit digest
         return "git-local://" + urlparse(url).netloc.partition(":")[0]
 
@@ -55,9 +56,9 @@ def normalize_git_url(url, hard=0):
         user, sep, host = parts.netloc.rpartition("@")
         if sep and hard == 1:
             netloc = f"{user.partition(':')[0]}@{host}"
-        else:
+        else:  # hard >= 2
             netloc = host
-        if hard == 2 and parts.path.endswith(".git"):
+        if hard == 3 and parts.path.endswith(".git"):
             path = parts.path[:-4]
         else:
             path = parts.path
@@ -79,7 +80,7 @@ def sanitize_url(url: str) -> str:
 
 def normalize_git_url_hard(url):
     # remove scheme, .git and fragment
-    return normalize_git_url(url, hard=2).rpartition("://")[2].partition("#")[0]
+    return normalize_git_url(url, hard=3).rpartition("://")[2].partition("#")[0]
 
 
 def is_url_or_git_path(url):
@@ -356,7 +357,7 @@ class RepoView:
             url = self.repository.url
             if self.repository.credential:
                 credential = self.repository.credential
-                return _add_user_to_url(url, credential["user"], credential["token"])
+                return add_user_to_url(url, credential["user"], credential["token"])
             else:
                 return url
         else:
@@ -503,6 +504,20 @@ class GitRepo(Repo):
                 remote = gitrepo.remotes[0]
             self.url = remote.url
 
+    def add_transient_credentials(self, username, password):
+        assert "@" not in self.url, self.url
+        replacement = f'url."{username}:{password}@{self.url}".insteadOf "{self.url}"'
+        self.repo.git.set_persistent_git_options(c=replacement)
+
+    def set_url_credentials(self, username, password):
+        try:
+            remote = self.repo.remotes["origin"]
+        except Exception:
+            remote = self.repo.remotes[0]
+        new_url = add_user_to_url(remote.url, username, password)
+        # replace the url
+        remote.set_url(new_url, remote.url)
+
     @property
     def working_dir(self) -> str:
         dir = self.repo.working_tree_dir
@@ -523,10 +538,11 @@ class GitRepo(Repo):
     def resolve_rev_spec(self, revision):
         try:
             return self.repo.commit(revision).hexsha
-        except:
+        except Exception:
             return None
 
-    def get_url_with_path(self, path, sanitize=False, revision=""):
+    def get_url_with_path(self, path: str, sanitize: bool = False, revision: str = ""):
+        hard = 2 if sanitize else 0
         if is_url_or_git_path(self.url):
             if os.path.isabs(path):
                 # get path relative to repository's root
@@ -535,8 +551,8 @@ class GitRepo(Repo):
                     # outside of the repo, don't include it in the url
                     if revision:
                         revision = "#" + revision
-                    return normalize_git_url(self.url, sanitize) + revision
-            return normalize_git_url(self.url, sanitize) + "#" + revision + ":" + path
+                    return normalize_git_url(self.url, hard) + revision
+            return normalize_git_url(self.url, hard) + "#" + revision + ":" + path
         else:
             return self.get_git_local_url(path, revision=revision)
 

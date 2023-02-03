@@ -28,7 +28,7 @@ import six
 from six import Iterator
 from unfurl.runtime import NodeInstance
 
-from .repo import GitRepo, Repo, split_git_url, RepoView, normalize_git_url_hard
+from .repo import GitRepo, Repo, add_user_to_url, split_git_url, RepoView, normalize_git_url_hard
 from .util import (
     UnfurlError,
     filter_env,
@@ -276,17 +276,16 @@ class Project:
                     candidate = repo
                 else:
                     return repo
-            elif apply_credentials and not repourl_parts.username:
-                # if url doesn't have credentials already
+            elif apply_credentials:
+                # if an existing repository has the same hostname as the new repository's url
+                # and has credentials, update the new url with those credentials
                 candidate_parts = urlsplit(repo.url)
-                if (
-                    candidate_parts.password
-                    and candidate_parts.hostname == repourl_parts.hostname
-                ):
-                    # rewrite repoUrl to add credentials
-                    repoURL = urlunsplit(
-                        repourl_parts._replace(netloc=candidate_parts.netloc)
-                    )
+                password = candidate_parts.password
+                if password:
+                    if (candidate_parts.hostname == repourl_parts.hostname
+                       and candidate_parts.port == repourl_parts.port):
+                        # rewrite repoUrl to add credentials
+                        repoURL = add_user_to_url(repoURL, candidate_parts.username, password)
         return candidate or repoURL
 
     def find_git_repo(

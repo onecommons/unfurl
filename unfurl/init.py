@@ -146,7 +146,7 @@ def write_service_template(projectdir):
 
 
 def write_ensemble_manifest(
-    destDir, manifestName, specRepo, specDir=None, extraVars=None, templateDir=None
+    destDir: str, manifestName: str, specRepo, specDir=None, extraVars=None, templateDir=None
 ):
     if specDir:
         specDir = os.path.abspath(specDir)
