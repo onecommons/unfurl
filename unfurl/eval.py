@@ -530,7 +530,10 @@ def _for_each(
                 elif key is Continue:
                     continue
             assert valExp
-            evalResults = eval_ref(valExp, ictx)
+            if isinstance(valExp, str):
+                evalResults = eval_ref(valExp, ictx)
+            else:
+                evalResults = _eval_ref_results(valExp, ictx)
             if not evalResults:
                 continue
             if len(evalResults) == 1:
@@ -633,6 +636,9 @@ def eval_ref(
                     else:
                         return [Result(val)]
                 break
+        else:
+            if "ref" not in val and "eval" not in val:
+                raise UnfurlError(f"Function missing in {val}")
     elif isinstance(val, six.string_types):
         if is_template(val, ctx):
             return [Result(apply_template(val, ctx))]
@@ -641,7 +647,9 @@ def eval_ref(
             results = expr.resolve(ctx)  # returns a list of Result
             ctx.trace("expr.resolve", results)
             return results
+    return _eval_ref_results(val, ctx)
 
+def _eval_ref_results(val, ctx):
     mappedVal = Results._map_value(val, ctx)
     if isinstance(mappedVal, Result):
         return [mappedVal]

@@ -1,5 +1,6 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
+from unfurl.eval import map_value
 from ..configurator import Configurator
 from ..result import ResultsMap
 from ..util import register_short_names
@@ -50,11 +51,6 @@ class TemplateConfigurator(Configurator):
         resultTemplate = task.inputs._attributes.get("resultTemplate")
         errors = []
         if resultTemplate:  # evaluate it now with the result
-            if isinstance(resultTemplate, str):
-                query = dict(template=resultTemplate)
-            else:
-                query = resultTemplate
-
             # workaround for jinja template processing setting Result when getting items
             if not isinstance(result, ResultsMap):
                 vars = ResultsMap(result, task.inputs.context)
@@ -63,7 +59,7 @@ class TemplateConfigurator(Configurator):
                 vars = result
             task.logger.trace("evaluated result template with %s", result)
             try:
-                results = task.query({"eval": query}, vars=vars, throw=True)
+                results = map_value(resultTemplate, task.inputs.context.copy(vars=vars))
             except Exception as e:
                 results = None
                 errors = [e]
